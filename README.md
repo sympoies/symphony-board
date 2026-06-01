@@ -73,7 +73,7 @@ VPN requires the host to be on that VPN.
 ## Status
 
 First version. Both sources validated live: GitHub end-to-end (incl. in the
-Docker image), GitLab against gitlab.com (introspection + an unauthenticated
-e2e — a run with your own gitlab.com token is the remaining check). The UI is a
-later phase — this repo stabilizes the contract first. See `docs/DESIGN.md` for
-the confirmed decisions and what's deferred.
+Docker image), and GitLab against gitlab.com — including a **token-authenticated**
+run against a private project that drives the full pipeline to contract `1.0.0`.
+The UI is a later phase — this repo stabilizes the contract first. See
+`docs/DESIGN.md` for the confirmed decisions and what's deferred.

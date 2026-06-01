@@ -4,7 +4,7 @@ This is the confirmation document for the first version. It captures the
 reasoning behind the architecture, the decisions taken by default, and the open
 items that need your confirmation. The code in this repo is the first cut of
 this design; it type-checks, unit-tests, and has been smoke-tested end-to-end
-against live GitHub (see "Validation status").
+against live GitHub and GitLab (see "Validation status").
 
 ## Goal
 
@@ -200,8 +200,19 @@ and a contract-validator step in CI.
   dry-run + real sync `status=ok`, 180 items / 5 `closes` edges; contract
   `1.0.0` emitted; a sampled edge correctly derived `lifecycle: fulfilled`
   (merged PR → closed issue).
-- **GitLab** validated live against gitlab.com (introspection + unauthenticated
-  e2e on `gitlab-org/cli`): `complete`, 75 items, 37 `closes` edges. Field
-  corrections applied (see "Decisions confirmed" #2). A token-authenticated run
-  against your own gitlab.com projects is the remaining check before relying on
-  it (no gitlab.com token was available in this session).
+- **GitLab** validated live against gitlab.com in two stages. First the query
+  shape: introspection + an unauthenticated e2e on `gitlab-org/cli` (`complete`,
+  75 items, 37 `closes` edges); field corrections applied (see "Decisions
+  confirmed" #2). Then **token-authenticated (2026-06-02)** against a private
+  fixture project seeded to cover every state
+  (`graysury/symphony-board-fixture`): `status=ok`, 10 items / 3 `closes` edges,
+  with all three lifecycles derived (`fulfilled` / `declared` / `broken`),
+  scoped labels parsed (`priority::*` → `scope=priority`), and `merge_state`
+  meaningful (`blocked` on the draft MR). In this fixture `review_state` is null
+  (no approval rules) and `ci_state` is `none` (no pipelines) — the null path is
+  exercised, not a crash; one freshly-created MR transiently reported
+  `merge_state=unknown` (GitLab's async mergeability — resolves on re-sync). The
+  GitLab-side `relatedMergeRequests` N+1 path is exercised by this run.
+- **Combined** (both providers, 2026-06-02): the full pipeline (`init-db` →
+  `sync` → `emit`) ran end to end and emitted contract `1.0.0`, 255 items / 14
+  edges.
