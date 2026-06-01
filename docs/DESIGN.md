@@ -167,6 +167,30 @@ Edge soft-delete (only items are tombstoned today), raw history (one snapshot
 per entity), incremental sync (watermark stored, full-sweep default), the UI,
 and a contract-validator step in CI.
 
+## Open items (forward — UI phase)
+
+1. **Where the UI lives, and extracting the contract into a package.** The UI
+   (a later phase) adds a first-party consumer whose toolchain is the opposite
+   of this backend's (heavy deps + a build step). Recommended direction: keep it
+   in this repo as a **pnpm workspace**, but first extract LAYER 3 into its own
+   package — `packages/contract` (`contract.schema.json` + the mirror `types.ts`
+   + `version.ts`) — with the backend and the UI as sibling packages that may
+   depend on `contract` and nothing else. This keeps the backend's zero-dep /
+   no-build property contained to its own package and makes the three-layer
+   boundary *structural*: the UI cannot reach past the contract into `src/db` /
+   `src/sources`. A separate repo only earns its overhead once there are
+   third-party consumers, or the UI's release cadence / visibility diverges —
+   and extracting `packages/ui` later stays cheap precisely because the contract
+   package already isolates it.
+
+   The one real coupling to resolve when extracting: `src/contract/types.ts`
+   imports the enum unions (`ItemState`, `ReviewState`, `CiState`, `MergeState`,
+   `EdgeLifecycle`) from `src/model/types.ts` (LAYER 2). Decide whether those
+   move into the contract package or are re-declared / re-exported there, so the
+   contract package does not drag LAYER 2 along with it.
+
+   Status: not started; intentionally deferred until the UI phase.
+
 ## Validation status
 
 - `pnpm run typecheck` — clean.
