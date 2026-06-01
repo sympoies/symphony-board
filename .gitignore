@@ -14,3 +14,6 @@ config/sources.json
 # Emitted contract artifacts (regenerate from the DB).
 out/
 *.contract.json
+
+# Project-local Claude directory (skills live in .agents/skills/)
+.claude/
