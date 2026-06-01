@@ -1,0 +1,282 @@
+schema: forge-label-catalog.v1
+
+# Label catalog for symphony-board. Generic groups (type / priority / severity /
+# size / state / risk / workflow) are the shared agent-runtime taxonomy so the
+# issue / PR / review skills work unchanged; the `area::` and `provider::` labels
+# are tailored to this repo's three-layer architecture (raw -> canonical -> contract)
+# and its multi-provider scope. Apply with: forge-cli label ensure --catalog
+# manifests/forge-labels.yaml --repo sympoies/symphony-board
+
+groups:
+  - name: type
+    prefix: "type::"
+    exclusive: true
+  - name: area
+    prefix: "area::"
+    exclusive: true
+    allow_extensions: true
+  - name: priority
+    prefix: "priority::"
+    exclusive: true
+  - name: severity
+    prefix: "severity::"
+    exclusive: true
+  - name: size
+    prefix: "size::"
+    exclusive: true
+  - name: state
+    prefix: "state::"
+    exclusive: true
+  - name: risk
+    prefix: "risk::"
+    exclusive: true
+  - name: provider
+    prefix: "provider::"
+    exclusive: true
+  - name: workflow
+    prefix: "workflow::"
+    exclusive: false
+
+labels:
+  # --- type --------------------------------------------------------------
+  - name: "type::bug"
+    group: type
+    color: d73a4a
+    description: Bug report, regression, or user-visible defect.
+    applies_to: [issue, pr, mr]
+  - name: "type::feature"
+    group: type
+    color: a2eeef
+    description: New user-visible behavior or capability.
+    applies_to: [issue, pr, mr]
+  - name: "type::improvement"
+    group: type
+    color: 84b6eb
+    description: Enhancement to existing behavior without a new feature boundary.
+    applies_to: [issue, pr, mr]
+  - name: "type::refactor"
+    group: type
+    color: cfd3d7
+    description: Internal restructuring with no intended behavior change.
+    applies_to: [issue, pr, mr]
+  - name: "type::docs"
+    group: type
+    color: 0075ca
+    description: Documentation-only or documentation-primary work.
+    applies_to: [issue, pr, mr]
+  - name: "type::test"
+    group: type
+    color: fbca04
+    description: Test coverage, fixtures, or validation harness work.
+    applies_to: [issue, pr, mr]
+  - name: "type::chore"
+    group: type
+    color: d4c5f9
+    description: Maintenance, release, dependency, or workflow upkeep.
+    applies_to: [issue, pr, mr]
+  - name: "type::spike"
+    group: type
+    color: bfdadc
+    description: Investigation, design, or feasibility work before implementation.
+    applies_to: [issue]
+
+  # --- area (tailored to the three-layer architecture) -------------------
+  - name: "area::sources"
+    group: area
+    color: 5319e7
+    description: Provider fetchers and GraphQL clients (GitHub / GitLab, src/sources).
+    applies_to: [issue, pr, mr]
+  - name: "area::model"
+    group: area
+    color: 0e8a16
+    description: Canonical model and pure normalize logic (LAYER 2, src/model).
+    applies_to: [issue, pr, mr]
+  - name: "area::db"
+    group: area
+    color: 1d76db
+    description: SQLite store, schema, and additive migrations (src/db, schema).
+    applies_to: [issue, pr, mr]
+  - name: "area::contract"
+    group: area
+    color: fbca04
+    description: Versioned JSON contract projection (LAYER 3, src/contract, schema/contract.schema.json).
+    applies_to: [issue, pr, mr]
+  - name: "area::engine"
+    group: area
+    color: 0052cc
+    description: Sync engine, CLI entrypoints, disappearance / soft-delete sweep.
+    applies_to: [issue, pr, mr]
+  - name: "area::ci"
+    group: area
+    color: f9d0c4
+    description: CI, validation gates, and smoke tests.
+    applies_to: [issue, pr, mr]
+  - name: "area::docs"
+    group: area
+    color: 0075ca
+    description: Design / contract docs, README, and policy surfaces.
+    applies_to: [issue, pr, mr]
+  - name: "area::infra"
+    group: area
+    color: c2e0c6
+    description: Docker loop daemon, packaging, and toolchain (fnm / pnpm / Node).
+    applies_to: [issue, pr, mr]
+
+  # --- priority ----------------------------------------------------------
+  - name: "priority::p0"
+    group: priority
+    color: b60205
+    description: Immediate scheduling priority; active work is blocked or broken.
+    applies_to: [issue]
+  - name: "priority::p1"
+    group: priority
+    color: d93f0b
+    description: High scheduling priority; should be next in queue.
+    applies_to: [issue]
+  - name: "priority::p2"
+    group: priority
+    color: fbca04
+    description: Normal scheduling priority.
+    applies_to: [issue]
+  - name: "priority::p3"
+    group: priority
+    color: 0e8a16
+    description: Low scheduling priority or opportunistic work.
+    applies_to: [issue]
+
+  # --- severity ----------------------------------------------------------
+  - name: "severity::s0"
+    group: severity
+    color: b60205
+    description: Critical impact, data loss, security, or widespread outage class.
+    applies_to: [issue]
+  - name: "severity::s1"
+    group: severity
+    color: d93f0b
+    description: High impact; core workflow broken or no practical workaround.
+    applies_to: [issue]
+  - name: "severity::s2"
+    group: severity
+    color: fbca04
+    description: Moderate impact with a workaround or limited blast radius.
+    applies_to: [issue]
+  - name: "severity::s3"
+    group: severity
+    color: 0e8a16
+    description: Low impact, polish, or minor defect.
+    applies_to: [issue]
+
+  # --- size --------------------------------------------------------------
+  - name: "size::xs"
+    group: size
+    color: c2e0c6
+    description: Very small change with narrow review surface.
+    applies_to: [issue, pr, mr]
+  - name: "size::s"
+    group: size
+    color: 7fdb8d
+    description: Small change with limited files or behavior.
+    applies_to: [issue, pr, mr]
+  - name: "size::m"
+    group: size
+    color: fbca04
+    description: Medium change spanning multiple related surfaces.
+    applies_to: [issue, pr, mr]
+  - name: "size::l"
+    group: size
+    color: d93f0b
+    description: Large change requiring broad review or staged validation.
+    applies_to: [issue, pr, mr]
+  - name: "size::xl"
+    group: size
+    color: b60205
+    description: Extra-large change that should normally be split first.
+    applies_to: [issue, pr, mr]
+
+  # --- state -------------------------------------------------------------
+  - name: "state::needs-triage"
+    group: state
+    color: ededed
+    description: Needs classification before implementation or delivery.
+    applies_to: [issue]
+  - name: "state::ready"
+    group: state
+    color: 0e8a16
+    description: Ready for implementation, review, or delivery.
+    applies_to: [issue, pr, mr]
+  - name: "state::blocked"
+    group: state
+    color: b60205
+    description: Blocked on an external dependency or explicit decision.
+    applies_to: [issue, pr, mr]
+  - name: "state::closed"
+    group: state
+    color: cfd3d7
+    description: Closed provider record with no active next action.
+    applies_to: [issue, pr, mr]
+  - name: "state::needs-info"
+    group: state
+    color: d4c5f9
+    description: Needs more information before the next action is safe.
+    applies_to: [issue]
+  - name: "state::needs-decision"
+    group: state
+    color: fbca04
+    description: Needs a product, technical, or workflow decision.
+    applies_to: [issue]
+  - name: "state::do-not-merge"
+    group: state
+    color: b60205
+    description: PR or MR must not merge until the blocker is cleared.
+    applies_to: [pr, mr]
+
+  # --- risk --------------------------------------------------------------
+  - name: "risk::low"
+    group: risk
+    color: c2e0c6
+    description: Low delivery risk.
+    applies_to: [pr, mr]
+  - name: "risk::medium"
+    group: risk
+    color: fbca04
+    description: Moderate delivery risk requiring explicit validation.
+    applies_to: [pr, mr]
+  - name: "risk::high"
+    group: risk
+    color: d93f0b
+    description: High delivery risk requiring stronger review and rollback notes.
+    applies_to: [pr, mr]
+
+  # --- provider (this repo aggregates multiple providers) ----------------
+  - name: "provider::github"
+    group: provider
+    color: 24292f
+    description: GitHub-specific source, schema, or workflow behavior.
+    applies_to: [issue, pr]
+  - name: "provider::gitlab"
+    group: provider
+    color: fc6d26
+    description: GitLab-specific source, schema, or workflow behavior.
+    applies_to: [issue, mr]
+  - name: "provider::both"
+    group: provider
+    color: 1d76db
+    description: Behavior that must work across both GitHub and GitLab sources.
+    applies_to: [issue, pr, mr]
+  - name: "provider::neutral"
+    group: provider
+    color: cfd3d7
+    description: Provider-neutral implementation or policy work.
+    applies_to: [issue, pr, mr]
+
+  # --- workflow ----------------------------------------------------------
+  - name: "workflow::tracking"
+    group: workflow
+    color: bfdadc
+    description: Lightweight issue-backed tracking workflow.
+    applies_to: [issue, pr, mr]
+  - name: "workflow::follow-up"
+    group: workflow
+    color: fef2c0
+    description: Follow-up issue or unresolved investigation timeline.
+    applies_to: [issue]
