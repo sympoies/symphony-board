@@ -72,7 +72,8 @@ VPN requires the host to be on that VPN.
 
 ## Status
 
-First version. GitHub source validated end-to-end against live repos; GitLab
-source is structurally complete but **needs field validation against a live
-instance** (see `docs/DESIGN.md` → "Open items"). The UI is a later phase — this
-repo stabilizes the contract first.
+First version. Both sources validated live: GitHub end-to-end (incl. in the
+Docker image), GitLab against gitlab.com (introspection + an unauthenticated
+e2e — a run with your own gitlab.com token is the remaining check). The UI is a
+later phase — this repo stabilizes the contract first. See `docs/DESIGN.md` for
+the confirmed decisions and what's deferred.

@@ -18,14 +18,15 @@
       ]
     },
     {
-      "source_id": "gitlab:gitlab.example.com",
+      "source_id": "gitlab:gitlab.com",
       "kind": "gitlab",
-      "host": "gitlab.example.com",
-      "display_name": "GitLab (self-hosted)",
+      "host": "gitlab.com",
+      "display_name": "GitLab",
       "token_env": "GITLAB_TOKEN",
-      "graphql_url": "https://gitlab.example.com/api/graphql",
+      "graphql_url": "https://gitlab.com/api/graphql",
       "projects": [
-        "group/subgroup/project"
+        "your-group/your-project",
+        "your-group/your-subgroup/another-project"
       ]
     }
   ]

@@ -112,7 +112,7 @@ value is preserved alongside (`state_raw`). Key non-congruences:
 |---|---|---|---|
 | item kind | Issue / PullRequest | Issue / MergeRequest | `issue` / `change_request` |
 | state | OPEN/CLOSED(+stateReason); PR adds MERGED | opened/closed; MR adds merged/locked | `open`/`closed`/`merged` (+`state_raw`) |
-| closes link | both endpoints queryable | MR side (`closesIssues`); issue side not in our query | reconciled `closes` edge |
+| closes link | both endpoints queryable (PR + issue) | **issue side only** (`Issue.relatedMergeRequests`, one issue at a time — no MR-side field exists); superset of strict "closes" | reconciled `closes` edge |
 | labels | flat string | scoped `a::b` are **mutually exclusive** per scope | verbatim `name` + parsed `scope` |
 | review | `reviewDecision` enum | derived from approvals + threads | `review_state` (lossy) |
 | CI | `statusCheckRollup` | `headPipeline.status` (finer) | `ci_state` (lossy) |
@@ -121,8 +121,7 @@ value is preserved alongside (`state_raw`). Key non-congruences:
 
 ## Decisions taken by default (reversible)
 
-1. **Repo is private.** A board that will reference an internal company GitLab
-   should not be public by default. Flip with `gh repo edit --visibility public`.
+1. **Repo is private.** Reversible with `gh repo edit --visibility public`.
 2. **Full sweep is the default sync mode.** Incremental (`--incremental`, using
    the stored watermark) is wired and stored but off by default, so the
    soft-delete sweep is always correct in v1. Watermarks are persisted for when
@@ -137,33 +136,48 @@ value is preserved alongside (`state_raw`). Key non-congruences:
    `packageManager` in `package.json`, lockfile `pnpm-lock.yaml`. CI uses
    `pnpm/action-setup` + `node-version-file: .node-version`.
 
-## Open items — please confirm
+## Decisions confirmed (2026-06-02)
 
-1. **Which GitLab instance?** gitlab.com SaaS vs a VPN-only self-hosted
-   (e.g. `gitlab.gamania.com`). The daemon must run where it can reach it — fine
-   on your Mac inside the VPN; a future always-on server must also be on the VPN.
-2. **GitLab GraphQL field validation.** The GitLab source is written from the
-   schema as best understood and is **unvalidated against a live instance**.
-   The fields most likely to need a one-line fix: `MergeRequest.closesIssues`
-   (the spine), `detailedMergeStatus` enum, `headPipeline.status` casing,
-   `approved`/`approvalsRequired`. If a name is wrong the fetch reports
-   `partial` with the error and **does not corrupt or delete data** — safe to
-   iterate. (GitHub is validated: smoke run fetched 180 items / 5 edges.)
-3. **`node:sqlite` experimental** — accept, or switch to `better-sqlite3`
-   (mature, native build)? Current choice: built-in.
-4. **Fidelity bar** for the extension fields (review/CI/merge). v1 maps them
-   lossily; confirm that's enough or name what must be exact.
-5. **Deferred for v1** (wired but intentionally not built): edge soft-delete
-   (only items are tombstoned today), raw history (one snapshot per entity),
-   incremental sync (watermark stored, full-sweep default), the UI, and a
-   contract validator step in CI.
+1. **GitLab instance = gitlab.com** (SaaS, not VPN-bound). The `config` example
+   targets `https://gitlab.com/api/graphql`; no VPN constraint on the daemon.
+2. **GitLab GraphQL validated live against gitlab.com.** Findings + fixes:
+   - `MergeRequest.closesIssues` **does not exist** — GitLab exposes the link
+     only from the issue side via `Issue.relatedMergeRequests`, and that field
+     can be requested for **one issue at a time** (rejected on an issue list).
+     The source now bulk-fetches issues then resolves related MRs per issue
+     (an N+1, bounded by issue count, mitigated by incremental sync).
+   - `detailedMergeStatus`, `headPipeline.status` (`PipelineStatusEnum`),
+     `draft`/`approved`/`approvalsRequired`, `userNotesCount`/`upvotes`, and
+     `UPDATED_DESC` sort all confirmed; the `merge_state`/`ci_state` mappings now
+     use the real enum members.
+   - Live e2e (unauthenticated, `gitlab-org/cli`, `since` 5 days): `complete`,
+     75 items, **37 `closes` edges** with correct from/to states.
+   - Caveat carried forward: `relatedMergeRequests` is a superset of strict
+     closing MRs, so a GitLab `closes` edge means "related MR" (good enough for
+     the in-progress / fulfilled lifecycle).
+3. **`node:sqlite`** (built-in, experimental) — accepted; not switching to
+   better-sqlite3.
+4. **Fidelity = normalize.** Keep the normalized `review_state` / `ci_state` /
+   `merge_state` extension fields (with `state_raw` / raw payload preserved as
+   the escape hatch), rather than dropping to raw-only.
+
+### Still deferred for v1 (wired, intentionally not built)
+
+Edge soft-delete (only items are tombstoned today), raw history (one snapshot
+per entity), incremental sync (watermark stored, full-sweep default), the UI,
+and a contract-validator step in CI.
 
 ## Validation status
 
-- `npm run typecheck` — clean.
-- `npm test` — 17/17 pass (ref, labels, edge lifecycle/reconcile, contract
+- `pnpm run typecheck` — clean.
+- `pnpm test` — 17/17 pass (ref, labels, edge lifecycle/reconcile, contract
   build, DB roundtrip incl. soft-delete).
-- End-to-end smoke against live GitHub (two public repos): dry-run and real sync
-  both `status=ok`, 180 items / 5 `closes` edges; contract `1.0.0` emitted; a
-  sampled edge correctly derived `lifecycle: fulfilled` (merged PR → closed
-  issue). GitLab path is structurally complete but unvalidated (item 2 above).
+- **GitHub** e2e against live repos (incl. inside the Docker image on Alpine):
+  dry-run + real sync `status=ok`, 180 items / 5 `closes` edges; contract
+  `1.0.0` emitted; a sampled edge correctly derived `lifecycle: fulfilled`
+  (merged PR → closed issue).
+- **GitLab** validated live against gitlab.com (introspection + unauthenticated
+  e2e on `gitlab-org/cli`): `complete`, 75 items, 37 `closes` edges. Field
+  corrections applied (see "Decisions confirmed" #2). A token-authenticated run
+  against your own gitlab.com projects is the remaining check before relying on
+  it (no gitlab.com token was available in this session).

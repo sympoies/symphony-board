@@ -35,8 +35,8 @@ SQLite canonical model, and emits a versioned JSON contract for a (later) UI.
   `--dry-run` sync when touching a source or the engine.
 - Contract changes follow `docs/CONTRACT.md` (schema + types + version bump +
   test). DB changes are additive migrations tracked by `PRAGMA user_version`.
-- Prefer dry-run / fixtures over hitting a live GitLab instance in tests (it may
-  be VPN-bound).
+- Prefer dry-run / recorded fixtures over hitting live provider APIs in tests
+  (rate limits; a self-hosted GitLab may be VPN-bound).
 
 ## Target
 

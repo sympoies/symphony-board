@@ -2,14 +2,15 @@
 // (<host>/api/graphql). The board sink stays on GitHub conceptually, but GitLab
 // is just another record source here.
 //
-// VALIDATION NOTE (see docs/DESIGN.md "Open items"): the exact field names below
-// are written from the GitLab GraphQL schema as best understood and need a live
-// check against the TARGET instance/version, especially:
-//   * MergeRequest.closesIssues  — the issue<->MR `closes` edge (point 1's spine)
-//   * detailedMergeStatus enum values
-//   * headPipeline.status enum casing
-// If a field name is wrong the fetch reports `complete:false` with the error and
-// the engine records it WITHOUT corrupting/soft-deleting data — safe to iterate.
+// Field names validated against gitlab.com GraphQL (2026-06-02 introspection):
+//   * MergeRequest has NO closing-issues field — GitLab GraphQL exposes the link
+//     only from the ISSUE side via `Issue.relatedMergeRequests`. So the `closes`
+//     edge is discovered from the issue, not the MR (opposite of GitHub).
+//     Caveat: relatedMergeRequests is "MRs related to the issue", a superset of
+//     strict closing MRs; we model it as `closes` for the workflow lifecycle.
+//   * detailedMergeStatus / PipelineStatusEnum mapped to their real enum values.
+// A self-hosted GitLab may differ by version; a wrong field reports
+// `complete:false` with the error and never corrupts/soft-deletes data.
 
 import { createHash } from "node:crypto";
 import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "./types.ts";
@@ -58,8 +59,19 @@ const MR_Q = `query($path:ID!, $cursor:String) {
         approved approvalsRequired
         headPipeline { status }
         detailedMergeStatus
-        closesIssues { nodes { id iid state } }
       }
+    }
+  }
+}`;
+
+// relatedMergeRequests can be requested for ONLY ONE issue at a time (gitlab.com
+// rejects it on an issue list), so the `closes` edge is resolved per-issue after
+// the bulk page. This is an N+1 against the issue count — bounded by project
+// size and mitigated by incremental sync (only changed issues are re-resolved).
+const RELATED_MR_Q = `query($path:ID!, $iid:String!) {
+  project(fullPath:$path) {
+    issue(iid:$iid) {
+      relatedMergeRequests(first:20){ nodes { id iid state } }
     }
   }
 }`;
@@ -86,39 +98,66 @@ export class GitLabSource implements Source {
     let complete = true;
     let firstError: string | null = null;
 
+    const track = (node: any): void => {
+      if (!latest || node.updatedAt > latest) latest = node.updatedAt;
+    };
+    const toRecord = (kind: "issue" | "change_request", node: any, path: string): RawRecord => {
+      node.__projectPath = path; // inject the queried path (robust vs schema variance)
+      const payload = JSON.stringify(node);
+      return { entityKind: kind, externalId: node.id, apiVersion: API_VERSION, fetchedAt: now, payload: node, contentHash: hash(payload) };
+    };
+
     for (const path of this.projects) {
-      for (const kind of ["issue", "change_request"] as const) {
-        try {
-          let cursor: string | null = null;
-          for (let page = 0; page < MAX_PAGES; page++) {
-            const data: any = await this.gql(kind === "issue" ? ISSUE_Q : MR_Q, { path, cursor });
-            const conn = data?.project?.[kind === "issue" ? "issues" : "mergeRequests"];
-            if (!conn) break;
-            let stop = false;
-            for (const node of conn.nodes) {
-              if (since && node.updatedAt < since) {
-                stop = true;
-                break;
-              }
-              if (!latest || node.updatedAt > latest) latest = node.updatedAt;
-              node.__projectPath = path; // inject the queried path (robust vs schema variance)
-              const payload = JSON.stringify(node);
-              records.push({
-                entityKind: kind,
-                externalId: node.id,
-                apiVersion: API_VERSION,
-                fetchedAt: now,
-                payload: node,
-                contentHash: hash(payload),
-              });
-            }
-            if (stop || !conn.pageInfo.hasNextPage) break;
-            cursor = conn.pageInfo.endCursor;
+      // change requests (bulk)
+      try {
+        let cursor: string | null = null;
+        mrPages: for (let page = 0; page < MAX_PAGES; page++) {
+          const data: any = await this.gql(MR_Q, { path, cursor });
+          const conn = data?.project?.mergeRequests;
+          if (!conn) break;
+          for (const node of conn.nodes) {
+            if (since && node.updatedAt < since) break mrPages;
+            track(node);
+            records.push(toRecord("change_request", node, path));
           }
-        } catch (err) {
-          complete = false;
-          firstError ??= `${path} ${kind}: ${(err as Error).message}`;
+          if (!conn.pageInfo.hasNextPage) break;
+          cursor = conn.pageInfo.endCursor;
         }
+      } catch (err) {
+        complete = false;
+        firstError ??= `${path} change_request: ${(err as Error).message}`;
+      }
+
+      // issues (bulk) — then resolve relatedMergeRequests one issue at a time
+      try {
+        const issueNodes: any[] = [];
+        let cursor: string | null = null;
+        issuePages: for (let page = 0; page < MAX_PAGES; page++) {
+          const data: any = await this.gql(ISSUE_Q, { path, cursor });
+          const conn = data?.project?.issues;
+          if (!conn) break;
+          for (const node of conn.nodes) {
+            if (since && node.updatedAt < since) break issuePages;
+            track(node);
+            issueNodes.push(node);
+          }
+          if (!conn.pageInfo.hasNextPage) break;
+          cursor = conn.pageInfo.endCursor;
+        }
+        for (const node of issueNodes) {
+          try {
+            const d: any = await this.gql(RELATED_MR_Q, { path, iid: String(node.iid) });
+            node.relatedMergeRequests = d?.project?.issue?.relatedMergeRequests ?? { nodes: [] };
+          } catch (err) {
+            complete = false;
+            firstError ??= `${path} issue#${node.iid} relatedMergeRequests: ${(err as Error).message}`;
+            node.relatedMergeRequests = { nodes: [] };
+          }
+          records.push(toRecord("issue", node, path));
+        }
+      } catch (err) {
+        complete = false;
+        firstError ??= `${path} issue: ${(err as Error).message}`;
       }
     }
     return { records, watermark: latest, complete, error: firstError };
@@ -132,15 +171,8 @@ export class GitLabSource implements Source {
     const selfState = mapState(p.state);
 
     if (raw.entityKind === "change_request") {
-      for (const iss of p.closesIssues?.nodes ?? []) {
-        edges.push({
-          type: "closes",
-          from: self,
-          to: { sourceId, externalId: iss.id },
-          fromState: selfState,
-          toState: mapState(iss.state),
-        });
-      }
+      // GitLab GraphQL has no MR->issue closing field; the `closes` edge is
+      // discovered from the issue side (relatedMergeRequests) below.
       const item: CanonicalItem = {
         ...this.commonItem(p, "change_request"),
         stateReason: null,
@@ -153,8 +185,17 @@ export class GitLabSource implements Source {
       return { item, labels: this.labels(p), edges };
     }
 
-    // issue: GitLab does not expose closing MRs from the issue side in this
-    // query; the `closes` edge is discovered from the MR side and reconciled.
+    // issue: discover the `closes` edge from the issue's related MRs (GitLab
+    // exposes the link only from this side). from = MR, to = this issue.
+    for (const mr of p.relatedMergeRequests?.nodes ?? []) {
+      edges.push({
+        type: "closes",
+        from: { sourceId, externalId: mr.id },
+        to: self,
+        fromState: mapState(mr.state),
+        toState: selfState,
+      });
+    }
     const item: CanonicalItem = {
       ...this.commonItem(p, "issue"),
       stateReason: null,
@@ -203,19 +244,34 @@ function mapReview(p: any): ReviewState | null {
   return null;
 }
 
+// PipelineStatusEnum (gitlab.com): CREATED WAITING_FOR_RESOURCE PREPARING
+// WAITING_FOR_CALLBACK PENDING RUNNING FAILED SUCCESS CANCELING CANCELED
+// SKIPPED MANUAL SCHEDULED.
 function mapCi(status: string | null | undefined): CiState {
   const s = (status ?? "").toUpperCase();
   if (s === "SUCCESS") return "passing";
   if (s === "FAILED") return "failing";
-  if (s === "RUNNING" || s === "PENDING" || s === "CREATED" || s === "SCHEDULED" || s === "MANUAL") return "pending";
-  return "none";
+  if (
+    s === "RUNNING" || s === "PENDING" || s === "CREATED" || s === "PREPARING" ||
+    s === "SCHEDULED" || s === "WAITING_FOR_RESOURCE" || s === "WAITING_FOR_CALLBACK"
+  ) {
+    return "pending";
+  }
+  return "none"; // CANCELED | CANCELING | SKIPPED | MANUAL | (none)
 }
 
+// DetailedMergeStatus (gitlab.com): UNCHECKED CHECKING MERGEABLE COMMITS_STATUS
+// CI_MUST_PASS CI_STILL_RUNNING DISCUSSIONS_NOT_RESOLVED DRAFT_STATUS NOT_OPEN
+// NOT_APPROVED BLOCKED_STATUS EXTERNAL_STATUS_CHECKS PREPARING JIRA_ASSOCIATION
+// CONFLICT NEED_REBASE APPROVALS_SYNCING ... etc.
 function mapMerge(detailed: string | null | undefined): MergeState {
   const s = (detailed ?? "").toUpperCase();
   if (s === "MERGEABLE" || s === "NOT_OPEN") return "mergeable";
-  if (s === "CONFLICT" || s === "BROKEN_STATUS") return "conflicting";
-  if (s === "") return "unknown";
-  // CI_MUST_PASS / DISCUSSIONS_NOT_RESOLVED / NOT_APPROVED / DRAFT_STATUS / ...
+  if (s === "CONFLICT" || s === "NEED_REBASE") return "conflicting";
+  if (s === "" || s === "UNCHECKED" || s === "CHECKING" || s === "PREPARING" || s === "APPROVALS_SYNCING") {
+    return "unknown";
+  }
+  // CI_MUST_PASS / CI_STILL_RUNNING / DISCUSSIONS_NOT_RESOLVED / NOT_APPROVED /
+  // DRAFT_STATUS / BLOCKED_STATUS / COMMITS_STATUS / ... -> blocked
   return "blocked";
 }
