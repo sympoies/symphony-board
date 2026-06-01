@@ -1,0 +1,10 @@
+.git
+node_modules
+*.db
+*.db-wal
+*.db-shm
+data/
+out/
+.env
+config/sources.json
+*.log

@@ -1,0 +1,24 @@
+{
+  // Type-check only. The code runs directly under Node 24's built-in TypeScript
+  // type stripping (no build step, no dist/). Node strips types but does NOT
+  // check them, so `tsc --noEmit` is the gate that validates them.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    // Type stripping has no type-directed elision, so type-only imports must be
+    // written as `import type` / inline `type`.
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

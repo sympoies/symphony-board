@@ -1,0 +1,16 @@
+node_modules/
+*.log
+
+# Local DB and its WAL/SHM sidecars (never commit the store).
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Secrets and local config overrides.
+.env
+config/sources.json
+
+# Emitted contract artifacts (regenerate from the DB).
+out/
+*.contract.json

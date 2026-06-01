@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sympoies.dev/symphony-board/contract/v1.json",
+  "title": "symphony-board contract envelope",
+  "description": "LAYER 3: the versioned projection of the canonical store, serialized for consumers (UI, external tools). Derived from the DB; never the DB schema itself. Versioning rules: additive-by-default within a major (new fields optional/nullable, never repurpose/remove); breaking changes bump `contract_version` major. Producers validate strictly against this schema; CONSUMERS MUST ignore unknown fields (be liberal in what you accept) so a minor addition never breaks an old reader.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "generated_at", "generator", "sources", "items", "edges"],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semver. Major = breaking; minor = additive; patch = clarification. The UI branches on major."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC instant this contract was emitted."
+    },
+    "generator": {
+      "type": "string",
+      "description": "Tool + version that produced this payload, e.g. \"symphony-board/0.1.0\"."
+    },
+    "sources": {
+      "type": "array",
+      "description": "The record sources represented in this contract, with their last sync health so a consumer can flag stale/partial data.",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Issue <-> PR/MR relationships (the workflow spine) and any other typed links.",
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "$defs": {
+    "ref": {
+      "type": "string",
+      "description": "Composite item reference \"<source_id>|<external_id>\". source_id never contains '|'; split on the FIRST '|' only (external_id may contain ':' and '/', e.g. a GitLab gid).",
+      "pattern": "^[^|]+\\|.+$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "kind", "host"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "kind": { "type": "string", "description": "github | gitlab | ... (open vocabulary)" },
+        "host": { "type": "string" },
+        "display_name": { "type": ["string", "null"] },
+        "last_success_at": { "type": ["string", "null"], "format": "date-time" },
+        "last_status": { "type": ["string", "null"], "enum": ["ok", "partial", "error", null] }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Canonical core (always present) + nullable extension layer.",
+      "required": ["id", "source_id", "kind", "state", "url"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ref" },
+        "source_id": { "type": "string" },
+        "external_id": { "type": "string", "description": "Provider immutable global id." },
+        "kind": { "type": "string", "description": "issue | change_request (open vocabulary)." },
+        "project_path": { "type": ["string", "null"] },
+        "iid": { "type": ["integer", "null"], "description": "Per-project number." },
+        "url": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "state": {
+          "type": "string",
+          "enum": ["open", "closed", "merged"],
+          "description": "Normalized lifecycle. `merged` only for change_request."
+        },
+        "state_raw": { "type": ["string", "null"], "description": "Provider raw state string (escape hatch)." },
+        "state_reason": { "type": ["string", "null"], "description": "completed | not_planned | duplicate | null." },
+        "is_draft": { "type": ["boolean", "null"] },
+        "author": { "type": ["string", "null"] },
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "updated_at": { "type": ["string", "null"], "format": "date-time" },
+        "closed_at": { "type": ["string", "null"], "format": "date-time" },
+        "merged_at": { "type": ["string", "null"], "format": "date-time" },
+        "labels": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/label" }
+        },
+        "review_state": { "type": ["string", "null"], "enum": ["approved", "changes_requested", "review_required", null] },
+        "ci_state": { "type": ["string", "null"], "enum": ["passing", "failing", "pending", "none", null] },
+        "merge_state": { "type": ["string", "null"], "enum": ["mergeable", "conflicting", "blocked", "unknown", null] },
+        "milestone": { "type": ["string", "null"] },
+        "demand": { "type": ["integer", "null"], "description": "comments + reactions." },
+        "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Raw label string, verbatim." },
+        "scope": { "type": ["string", "null"], "description": "Parsed prefix of a \"scope::value\" label, or null." },
+        "color": { "type": ["string", "null"] }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "closes | relates | mentions | blocks | blocked_by | parent | child (open vocabulary). `closes` is the workflow-bearing one."
+        },
+        "from": { "$ref": "#/$defs/ref", "description": "The asserting endpoint. For `closes`, the change request." },
+        "to": { "$ref": "#/$defs/ref", "description": "The target endpoint. For `closes`, the issue." },
+        "from_state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] },
+        "to_state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] },
+        "lifecycle": {
+          "type": ["string", "null"],
+          "enum": ["declared", "fulfilled", "broken", null],
+          "description": "declared = unresolved; fulfilled = change request merged AND target closed; broken = change request closed unmerged."
+        }
+      }
+    }
+  }
+}

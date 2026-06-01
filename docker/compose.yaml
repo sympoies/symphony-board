@@ -1,0 +1,27 @@
+# Loop daemon: the always-on writer (point 3). Reads tokens from a gitignored
+# .env (GITHUB_TOKEN, GITLAB_TOKEN, ...). Config and DB are bind-mounted so the
+# SQLite store survives container rebuilds and can be backed up from the host.
+#
+# Paths are relative to this file (docker/), so the repo root is "..". Run from
+# anywhere with `docker compose -f docker/compose.yaml up -d --build`.
+#
+#   echo "GITHUB_TOKEN=ghp_xxx" > .env                    # at the repo root
+#   cp config/sources.example.json config/sources.json    # then edit
+#   docker compose -f docker/compose.yaml up -d --build
+#   docker compose -f docker/compose.yaml logs -f
+services:
+  board:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SYNC_MODE: loop
+      INTERVAL: "300"
+      SYMPHONY_CONFIG: config/sources.json
+      CONTRACT_OUT: data/contract.json
+    env_file:
+      - ../.env
+    volumes:
+      - ../config:/app/config:ro
+      - ../data:/app/data

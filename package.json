@@ -1,0 +1,23 @@
+{
+  "name": "symphony-board",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-agnostic work-item board: aggregate GitHub/GitLab issues & PR/MRs into SQLite and emit a versioned JSON contract.",
+  "type": "module",
+  "packageManager": "pnpm@11.4.0",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "init-db": "node --disable-warning=ExperimentalWarning src/cli/init-db.ts",
+    "sync": "node --disable-warning=ExperimentalWarning src/cli/sync.ts",
+    "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}

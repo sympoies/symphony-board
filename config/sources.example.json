@@ -1,0 +1,32 @@
+{
+  "$comment": "Copy to config/sources.json (gitignored) and fill in. Tokens come from env vars named by token_env, never inlined here.",
+  "db_path": "data/symphony.db",
+  "sources": [
+    {
+      "source_id": "github:github.com",
+      "kind": "github",
+      "host": "github.com",
+      "display_name": "GitHub",
+      "token_env": "GITHUB_TOKEN",
+      "graphql_url": "https://api.github.com/graphql",
+      "projects": [
+        "graysurf/project-board-automation",
+        "graysurf/agent-runtime-kit",
+        "sympoies/nils-cli",
+        "sympoies/nils-alfredworkflow",
+        "sympoies/symphony-board"
+      ]
+    },
+    {
+      "source_id": "gitlab:gitlab.example.com",
+      "kind": "gitlab",
+      "host": "gitlab.example.com",
+      "display_name": "GitLab (self-hosted)",
+      "token_env": "GITLAB_TOKEN",
+      "graphql_url": "https://gitlab.example.com/api/graphql",
+      "projects": [
+        "group/subgroup/project"
+      ]
+    }
+  ]
+}
