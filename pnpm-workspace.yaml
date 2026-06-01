@@ -1,0 +1,10 @@
+# Not a workspace — this file only carries pnpm settings (pnpm 11 reads build-
+# script policy from here, not the package.json "pnpm" field).
+#
+# Git hooks are wired by the explicit `prepare` script (`lefthook install`), so
+# we deliberately do NOT run lefthook's own postinstall build script: `false`
+# acknowledges that choice and keeps `pnpm install` at exit 0 under pnpm 11's
+# strict build gate, while preserving the repo's minimal-trust,
+# no-dependency-build-scripts posture.
+allowBuilds:
+  lefthook: false

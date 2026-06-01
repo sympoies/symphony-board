@@ -1,0 +1,17 @@
+# Git hooks managed by lefthook. Mirrors the CI gate (.github/workflows/ci.yml)
+# locally: typecheck (tsc --noEmit) and the node:test suite run before every push.
+# Wired by `lefthook install`, invoked via the package.json "prepare" script on
+# `pnpm install` — fresh clones get hooks automatically, no manual step.
+#
+# Scope is deliberately narrow:
+#   - The live `--dry-run` smoke needs a token (and a possibly VPN-bound GitLab),
+#     so it is NOT gated here — same reason CI does not gate on it.
+#   - Conventional-commit format stays owned by the commit flow, so there is no
+#     commit-msg hook to avoid a redundant/conflicting validator.
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: pnpm run typecheck
+    test:
+      run: pnpm test

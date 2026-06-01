@@ -49,6 +49,25 @@ A dry-run fetches and normalizes but writes nothing — it reports per-source
 (upserts are idempotent on `(source_id, external_id)`); genuine provider churn
 between runs is expected and is not a determinism bug.
 
+### Git hooks (lefthook)
+
+`pnpm install` auto-wires a **pre-push** hook (the `prepare` script runs
+`lefthook install`; config in `lefthook.yml`) that runs `typecheck` + `test` in
+parallel before every push — the same gate as CI, with no manual setup on a
+fresh clone. The live `--dry-run` smoke is deliberately *not* gated (it needs a
+token and a possibly VPN-bound GitLab), and conventional-commit format stays
+owned by the commit flow, so there is no commit-msg hook. Bypass once with
+`git push --no-verify`, or disable locally with `LEFTHOOK=0`.
+
+> lefthook ships a postinstall build script; pnpm 11 blocks it by default, so
+> `pnpm-workspace.yaml` sets `allowBuilds: { lefthook: false }` — we wire hooks
+> through our own `prepare` script instead of trusting the dependency's
+> postinstall, which also keeps `pnpm install` at exit 0.
+
+The same checks are exposed as `.agents/scripts/pre-pr.sh` (the agent pre-PR
+validation dispatcher); `.agents/scripts/bootstrap.sh` and `deploy.sh` wrap
+`pnpm install --frozen-lockfile` and the docker loop-daemon bring-up.
+
 ### e2e testing approach
 
 Pure logic and the DB roundtrip are covered by `node --test`. For provider

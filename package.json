@@ -10,6 +10,7 @@
     "pnpm": ">=11"
   },
   "scripts": {
+    "prepare": "lefthook install",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "init-db": "node --disable-warning=ExperimentalWarning src/cli/init-db.ts",
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "lefthook": "^2.1.9",
     "typescript": "^6.0.0"
   }
 }
