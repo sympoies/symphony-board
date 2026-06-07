@@ -151,6 +151,17 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  // Graph side list: capture the (enriched) list cards, then click one to enter
+  // the focus view and confirm the back button + related-items header render.
+  await waitHtml("document.querySelector('.graph-list-card')");
+  const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
+  await sleep(400);
+  const focusHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  // Click "← all items" and confirm the searchable list returns.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
+  await sleep(300);
+  const backHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   // Page 3 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -164,6 +175,7 @@ try {
   const boardCols = m(boardHtml, /class="col /g);
   const boardCards = m(boardHtml, /class="card"/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
+  const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -178,6 +190,12 @@ try {
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
+    // graph side list: enriched cards + click-to-focus related view
+    [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
+    [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
+    [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
+    [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
+    [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

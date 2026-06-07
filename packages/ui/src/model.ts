@@ -261,6 +261,34 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
   return { nodes: [...nodes.values()], links };
 }
 
+// A related endpoint of an item, for the graph side list's focus view: the other
+// end of an edge, the edge type, and which way it points (out = this -> other,
+// in = other -> this). Built from the FULL edge set — NOT the time-windowed graph
+// — so focusing an item can surface relations the "active since" window hides
+// (the side list marks those off-window). Deduped on (ref, type, direction).
+export interface RelatedRef {
+  ref: string;
+  type: string;
+  direction: "out" | "in";
+}
+
+export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]> {
+  const adj = new Map<string, RelatedRef[]>();
+  const add = (self: string, other: string, type: string, direction: "out" | "in") => {
+    const list = adj.get(self);
+    if (!list) {
+      adj.set(self, [{ ref: other, type, direction }]);
+    } else if (!list.some((r) => r.ref === other && r.type === type && r.direction === direction)) {
+      list.push({ ref: other, type, direction });
+    }
+  };
+  for (const re of edges) {
+    add(re.edge.from, re.edge.to, re.edge.type, "out");
+    add(re.edge.to, re.edge.from, re.edge.type, "in");
+  }
+  return adj;
+}
+
 export interface Stats {
   items: number;
   byState: Record<string, number>;
