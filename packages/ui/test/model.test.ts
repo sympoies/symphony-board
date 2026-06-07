@@ -20,6 +20,9 @@ import {
   resolveRepoColor,
   isHexColor,
   compareGraphNodes,
+  parseHashRoute,
+  graphFocusHref,
+  edgeEndpointIds,
   type ResolvedEdge,
   type GraphNode,
 } from "../src/model.ts";
@@ -329,4 +332,40 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
   const t1 = gnode({ id: "b", label: "same", state: "closed", created_at: "2026-03-03T00:00:00Z" });
   const t2 = gnode({ id: "a", label: "same", state: "merged", created_at: "2026-03-03T00:00:00Z" });
   assert.ok(compareGraphNodes(t1, t2) > 0, "same bucket/date/label -> id tie-break stays stable");
+});
+
+test("parseHashRoute splits page from an optional ?focus= deep-link", () => {
+  assert.deepEqual(parseHashRoute(""), { page: "", focus: null }, "empty hash -> board, no focus");
+  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null });
+  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null });
+  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null });
+  // a focus query is pulled off the hash and percent-decoded
+  assert.deepEqual(parseHashRoute("#/graph?focus=github%3Agithub.com%7C42"), {
+    page: "graph",
+    focus: "github:github.com|42",
+  });
+  // a focus on a non-graph page still parses (App only acts on it for the graph)
+  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x" });
+  // an empty/absent focus value is normalized to null
+  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null });
+  assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null });
+});
+
+test("graphFocusHref round-trips a ref through parseHashRoute (refs carry | : /)", () => {
+  for (const ref of ["github:github.com|42", "gitlab:gitlab.com|gid://gitlab/Issue/1", "a|b/c:d"]) {
+    assert.equal(parseHashRoute(graphFocusHref(ref)).focus, ref, `round-trips ${ref}`);
+    assert.equal(parseHashRoute(graphFocusHref(ref)).page, "graph");
+  }
+});
+
+test("edgeEndpointIds collects both ends of every edge (board-card graph membership)", () => {
+  assert.equal(edgeEndpointIds([]).size, 0, "no edges -> empty set");
+  const ids = edgeEndpointIds([
+    { type: "closes", from: "s|A", to: "s|B", from_state: null, to_state: null, lifecycle: null },
+    { type: "mentions", from: "s|B", to: "s|UNTRACKED", from_state: null, to_state: null, lifecycle: null },
+  ]);
+  // both ends of both edges, deduped; an untracked ref is kept (harmless — it
+  // never matches a board item id). A `mentions`-only endpoint still counts as
+  // linked, matching the graph's "any edge -> a node" membership rule.
+  assert.deepEqual([...ids].sort(), ["s|A", "s|B", "s|UNTRACKED"]);
 });

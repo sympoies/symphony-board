@@ -167,11 +167,26 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
+  // the graph ALREADY in that item's focus view, not the plain list. Back on the
+  // board, confirm the affordance renders, then click it and confirm we land in
+  // the focus view (back button) with the canvas mounted.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/'" });
+  await sleep(300);
+  const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
+  await sleep(500);
+  const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
   ws.close();
 
   // --- assertions ---
   const has = (h, s) => h.includes(s);
   const m = (h, re) => (h.match(re) || []).length;
+  const classBlocks = (h, className) => [...h.matchAll(new RegExp(`class="${className}"[^>]*>([\\s\\S]*?)<\\/div>`, "g"))].map((x) => x[1] || "");
+  const updatedBeforeCreated = (h, className) => {
+    const blocks = classBlocks(h, className).filter((block) => block.includes("updated ") && block.includes("created "));
+    return { count: blocks.length, ok: blocks.every((block) => block.indexOf("updated ") < block.indexOf("created ")) };
+  };
   const boardCols = m(boardHtml, /class="col /g);
   // card root = `class="card"` OR `class="card …"` (e.g. the repo-highlight
   // `card card-accent`); match card followed by a space or the closing quote so
@@ -179,6 +194,10 @@ try {
   const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
+  const boardGraphLinks = m(board2Html, /class="card-graph"/g);
+  const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
+  const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
+  const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -192,18 +211,25 @@ try {
     // repo/source highlight color: the sample carries a source color + a repo
     // color, so coloured repos render the left-bar `card-accent`
     [has(boardHtml, "card-accent"), "board: repo/source highlight bar rendered (card-accent)"],
+    [boardTimeOrder.count >= 1 && boardTimeOrder.ok, `board: timestamps render updated before created (${boardTimeOrder.count})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
+    [graphNodeTimeOrder.count >= 1 && graphNodeTimeOrder.ok, `graph: node timestamps render updated before created (${graphNodeTimeOrder.count})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
+    [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
+    // deep link: a board card's focus link opens the graph in the focus view
+    [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
+    [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
+    [/react-flow__node/.test(deepLinkHtml), "deep link: focused graph canvas mounted"],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

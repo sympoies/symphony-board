@@ -17,6 +17,7 @@ function Column({
   items,
   sourceKind,
   colorOf,
+  linkedIds,
 }: {
   kind: string;
   label: string;
@@ -24,6 +25,7 @@ function Column({
   items: ItemDTO[];
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
+  linkedIds: Set<string>;
 }) {
   return (
     <div className={`col col-${kind}`}>
@@ -40,6 +42,7 @@ function Column({
             anchorId={anchorId(it.id)}
             sourceKind={sourceKind.get(it.source_id)}
             accentColor={colorOf(it.source_id, it.project_path)}
+            linked={linkedIds.has(it.id)}
           />
         ))}
       </div>
@@ -60,11 +63,13 @@ export function FullBoard({
   statuses,
   sourceKind,
   colorOf,
+  linkedIds,
 }: {
   items: ItemDTO[];
   statuses: Map<string, ItemStatus>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
+  linkedIds: Set<string>;
 }) {
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of items) statusCols[statuses.get(it.id) ?? "open"].push(it);
@@ -72,10 +77,10 @@ export function FullBoard({
   return (
     <section className="board-7">
       {STATUS_ORDER.map((s) => (
-        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} colorOf={colorOf} />
+        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       ))}
       {lanes.map(({ lane, items: laneItems }) => (
-        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} colorOf={colorOf} />
+        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       ))}
     </section>
   );

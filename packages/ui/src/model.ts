@@ -100,6 +100,46 @@ export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
 // encoding is used for the element id and the link fragment so they match.
 export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)}`;
 
+// --- hash route -----------------------------------------------------------
+//
+// The app routes purely on the URL hash (zero-dep): "#/" board, "#/graph"
+// relationship graph, "#/settings". A board card can deep-link INTO the graph
+// with a focus target — the item ref encoded as a query on the hash, e.g.
+// "#/graph?focus=<encodeURIComponent(item.id)>". The Graph page seeds its focus
+// view (and frames the camera) from it. Parse + build are kept pure here so the
+// round-trip is unit-tested; refs contain '|' / ':' / '/' so they MUST be
+// percent-encoded to survive the query.
+export interface HashRoute {
+  page: string; // "" | "graph" | "settings" (the part before any '?')
+  focus: string | null; // an item ref to focus on the graph, if any
+}
+
+export function parseHashRoute(hash: string): HashRoute {
+  const raw = hash.replace(/^#\/?/, "");
+  const q = raw.indexOf("?");
+  const page = q === -1 ? raw : raw.slice(0, q);
+  const focus = q === -1 ? null : new URLSearchParams(raw.slice(q + 1)).get("focus");
+  return { page, focus: focus || null };
+}
+
+// The hash a board card links to, to open the graph focused on `ref`. Pairs with
+// parseHashRoute above (encode here, decode there).
+export const graphFocusHref = (ref: string): string => `#/graph?focus=${encodeURIComponent(ref)}`;
+
+// The set of item ids that are an endpoint of at least one edge — i.e. items
+// that have a node on the relationship graph. Gates the board card's "focus in
+// graph" link: an item with no edge has nothing to focus. Both ends are
+// collected (an untracked cross-repo ref is harmless — it never matches a board
+// item id).
+export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
+  const ids = new Set<string>();
+  for (const e of edges) {
+    ids.add(e.from);
+    ids.add(e.to);
+  }
+  return ids;
+}
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;

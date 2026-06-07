@@ -13,6 +13,8 @@ import {
   applyVisibility,
   buildColorIndex,
   resolveRepoColor,
+  parseHashRoute,
+  edgeEndpointIds,
   type Filters,
 } from "./model.ts";
 import {
@@ -37,15 +39,16 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
 // Three pages via a zero-dep hash route: "" (#/) is the full-width board,
 // "graph" (#/graph) the relationship graph, "settings" (#/settings) the
-// persistent repo display filter.
-const readRoute = (): string => (typeof location !== "undefined" ? location.hash.replace(/^#\/?/, "") : "");
+// persistent repo display filter. The graph route may carry a "?focus=<ref>"
+// deep-link from a board card (parseHashRoute pulls it out).
+const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 
 export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const [route, setRoute] = useState<string>(readRoute);
+  const [hash, setHash] = useState<string>(readHash);
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
   //   • hidden        — HIDDEN repoKeys
@@ -56,10 +59,12 @@ export function App() {
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
 
   useEffect(() => {
-    const onHash = () => setRoute(readRoute());
+    const onHash = () => setHash(readHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  const route = useMemo(() => parseHashRoute(hash), [hash]);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -81,12 +86,12 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
-  // The repo-visibility pre-filter is applied FIRST: visibleEnv is the contract
-  // narrowed to the repos the Settings page leaves visible (items + their
-  // edges). Everything below — facets, filters, stats, statuses — works over
-  // visibleEnv, so a hidden repo disappears from every page. allRepos is derived
-  // over the FULL contract so the Settings page can still list (and re-enable)
-  // hidden repos.
+  // The visibility pre-filter is applied FIRST: visibleEnv is the contract
+  // narrowed to the repos + sources the Settings page leaves visible (items +
+  // their edges). Everything below — facets, filters, stats, statuses — works
+  // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
+  // is derived over the FULL contract so the Settings page can still list (and
+  // re-enable) hidden repos.
   const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
   const allRepos = useMemo(() => (env ? deriveRepos(env.items) : []), [env]);
 
@@ -140,6 +145,12 @@ export function App() {
     () => (visibleEnv ? deriveStatuses(visibleEnv.items, visibleEnv.edges) : new Map()),
     [visibleEnv],
   );
+
+  // Ids of items that take part in at least one relationship (an edge endpoint),
+  // over the FULL visible edge set — NOT the time-windowed / facet-filtered graph.
+  // The board card's "focus in graph" link shows ONLY for these: an item with no
+  // relationships has no graph node to focus, so the affordance would dead-end.
+  const linkedIds = useMemo(() => edgeEndpointIds(visibleEnv?.edges ?? []), [visibleEnv]);
 
   function toggle(dim: "sources" | "states" | "kinds", value: string) {
     setFilters((f) => {
@@ -228,7 +239,7 @@ export function App() {
   if (!env || !visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
 
-  const page = route === "graph" ? "graph" : route === "settings" ? "settings" : "board";
+  const page = route.page === "graph" ? "graph" : route.page === "settings" ? "settings" : "board";
   return (
     <div className="app app-wide">
       <Header env={env} />
@@ -279,10 +290,13 @@ export function App() {
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
-          <GraphPage edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} />
+          {/* Keyed on the focus target so each distinct deep-link entry remounts
+              the graph with a fresh window + focus seed (the seed is mount-time);
+              a new "?focus=" — or clearing it — never leaves a stale focus. */}
+          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} focusRef={route.focus} />
         </Suspense>
       ) : (
-        <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} />
+        <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       )}
     </div>
   );
