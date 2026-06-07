@@ -30,7 +30,7 @@ function Endpoint({ item, refStr, role }: { item: ItemDTO | null; refStr: string
   // board, but that dead-ends when the target is filtered out or buried in a
   // scrolled column; the provider URL always resolves.)
   return (
-    <a className="endpoint" href={item.url || undefined} target="_blank" rel="noreferrer" title={item.title ?? undefined}>
+    <a className="endpoint" href={item.url || undefined} target="_blank" rel="noopener noreferrer" title={item.title ?? undefined}>
       <Badge text={item.state} kind={item.state} />
       <span className="endpoint-title">{item.title ?? refStr}</span>
     </a>

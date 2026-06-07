@@ -56,6 +56,16 @@ function ItemNode({ data }: NodeProps) {
 
 const nodeTypes = { item: ItemNode };
 
+// Open an issue/PR in a new tab (a real anchor click — guaranteed a tab, never a
+// same-page navigation or a popup window, and carries noopener/noreferrer).
+function openExternal(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.click();
+}
+
 function layoutDagre(nodes: GraphNode[], links: GraphLink[]): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: "TB", nodesep: 30, ranksep: 80, marginx: 20, marginy: 20 });
@@ -107,7 +117,7 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
       nodeTypes={nodeTypes}
       onNodeClick={(_, node) => {
         const url = (node.data as unknown as GraphNode).url;
-        if (url) window.open(url, "_blank", "noreferrer");
+        if (url) openExternal(url);
       }}
       colorMode="dark"
       fitView
