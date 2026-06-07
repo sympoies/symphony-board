@@ -213,19 +213,24 @@ test("buildAdjacency handles empty input, distinct types on one pair, and self-l
   ]);
 });
 
-test("relatedItems collapses a mutual (out+in) pair to one 'both' entry, keeping types distinct", () => {
+test("relatedItems gives one card per ref: strongest type wins, mutual -> both", () => {
   const out = relatedItems([
     { ref: "B", type: "mentions", direction: "out" },
-    { ref: "B", type: "mentions", direction: "in" }, // same ref+type, other direction -> mutual
-    { ref: "C", type: "mentions", direction: "out" }, // one-way stays "out"
-    { ref: "D", type: "closes", direction: "in" }, // one-way stays "in"
-    { ref: "B", type: "closes", direction: "out" }, // same ref, different type -> kept separate
+    { ref: "B", type: "mentions", direction: "in" }, // mutual mention with B...
+    { ref: "B", type: "closes", direction: "in" }, // ...but B also closes -> closes wins (stronger after weaker)
+    { ref: "C", type: "mentions", direction: "out" }, // mention only -> stays "out"
+    { ref: "D", type: "closes", direction: "in" }, // closes only -> stays "in"
+    { ref: "E", type: "mentions", direction: "out" },
+    { ref: "E", type: "mentions", direction: "in" }, // mutual mention, no stronger type -> "both"
+    { ref: "F", type: "closes", direction: "out" },
+    { ref: "F", type: "mentions", direction: "in" }, // weaker after stronger -> dropped
   ]);
   assert.deepEqual(out, [
-    { ref: "B", type: "mentions", direction: "both" },
+    { ref: "B", type: "closes", direction: "in" }, // one card; closes beats the mention
     { ref: "C", type: "mentions", direction: "out" },
     { ref: "D", type: "closes", direction: "in" },
-    { ref: "B", type: "closes", direction: "out" },
+    { ref: "E", type: "mentions", direction: "both" },
+    { ref: "F", type: "closes", direction: "out" },
   ]);
 });
 
