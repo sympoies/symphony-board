@@ -39,3 +39,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @symphony-board/ui run build
       - run: pnpm --filter @symphony-board/ui run test
+      # Headless render smoke: actually render the built board in Chrome and
+      # assert it draws (item cards + all 3 edge lifecycle buckets) with zero
+      # console errors. Catches render-only crashes that tsc/build/unit tests
+      # can't (e.g. the reserved-`ref`-prop bug in PR #3).
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - run: pnpm --filter @symphony-board/ui run smoke
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
