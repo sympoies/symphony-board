@@ -222,10 +222,38 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
 .graph-legend > span { display: inline-flex; align-items: center; }
 .graph-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+/* [ list | canvas ]: the side list jumps to a node; the canvas grows to fill. */
+.graph-body { display: flex; gap: 10px; align-items: stretch; }
 .graph-canvas {
-  width: 100%; height: 74vh; overflow: hidden;
+  flex: 1 1 auto; min-width: 0; height: 74vh; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
+/* side list — searchable, scrolls independently, same height as the canvas */
+.graph-list {
+  flex: 0 0 240px; height: 74vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.graph-list-search {
+  margin: 8px; padding: 5px 8px; font-size: 12px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+}
+.graph-list-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.graph-list .empty-list { padding: 8px; font-size: 12px; }
+.graph-list-item {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted);
+  border-radius: 7px; padding: 5px 7px; color: var(--text); font: inherit; cursor: pointer;
+}
+.graph-list-item:hover { border-color: var(--accent); }
+.graph-list-item.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.graph-list-item.untracked { border-style: dashed; opacity: .8; }
+.gli-head { display: flex; align-items: center; gap: 6px; }
+.gli-demand { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
+.gli-title {
+  font-weight: 600; font-size: 12px; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.gli-repo { font-size: 11px; }
 /* React Flow card nodes */
 .rf-node {
   /* fills the RF node box, whose size scales with demand (see GraphPage dims()) */
@@ -241,4 +269,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .rf-node-repo { font-size: 0.85em; margin-top: 3px; }
+/* created / updated / demand — small, wraps; legible once focused/zoomed */
+.rf-node-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 3px; font-size: 0.8em; }
+.rf-node-meta .rf-demand { display: inline-flex; align-items: center; gap: 3px; }
 .rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }

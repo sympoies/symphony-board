@@ -150,6 +150,8 @@ export interface GraphNode {
   url: string | null;
   color: string; // node accent (state colour)
   demand: number | null; // comments + reactions; drives node size on the graph
+  created_at: string | null; // ISO; rendered (relative) on the node card
+  updated_at: string | null; // ISO; rendered (relative) on the node card
   untracked: boolean;
 }
 export interface GraphLink {
@@ -192,8 +194,8 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, color: "#637777", demand: null, untracked: true },
+          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, color: "#637777", demand: null, created_at: null, updated_at: null, untracked: true },
       );
     };
     ensure(re.from, re.edge.from);

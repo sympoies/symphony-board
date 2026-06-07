@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
@@ -9,6 +10,7 @@ import {
   MarkerType,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   type Node,
   type Edge,
   type NodeProps,
@@ -17,7 +19,7 @@ import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum } from "d3-force";
 import { Badge } from "./Badge.tsx";
-import { buildGraph, cutoffIso, type GraphNode, type GraphLink, type ResolvedEdge } from "../model.ts";
+import { buildGraph, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -28,10 +30,17 @@ import { buildGraph, cutoffIso, type GraphNode, type GraphLink, type ResolvedEdg
 // items stand out; hovering a node highlights it + its neighbours and dims the
 // rest, and labels its incident edges with the edge type; mentions can be
 // filtered by the mentioned item's kind to thin the dense view.
+//
+// Navigation (#24): a searchable side list beside the canvas jumps to a node
+// (pan + zoom via React Flow fitView; the default view stays the full-graph
+// fit), and each node card carries created / updated (relative) + demand —
+// legible once focused/zoomed.
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 const NODE_W = 200;
-const NODE_H = 78;
+// Tall enough for head + two-line title + repo + the created/updated/demand
+// meta row; demand then scales the whole box (and its font) up from here.
+const NODE_H = 96;
 
 // Node box + font scale from demand (comments + reactions). Log-damped so a few
 // very busy items don't dwarf the rest; capped at ~1.9x.
@@ -52,6 +61,27 @@ const NODE_LEGEND = [
 // MENTIONED (target) item is an issue / a change request.
 type MentionTarget = "all" | "issue" | "change_request";
 
+// Engagement marker (comments + reactions) — the same stroked speech-bubble as
+// the board card, sized in `em` so it scales with the surrounding font.
+function DemandIcon() {
+  return (
+    <svg
+      className="icon-demand"
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 function ItemNode({ data }: NodeProps) {
   const d = data as unknown as GraphNode;
   const { scale } = dims(d.demand);
@@ -71,6 +101,17 @@ function ItemNode({ data }: NodeProps) {
         {d.repo ?? "untracked"}
         {d.iid != null ? ` #${d.iid}` : ""}
       </div>
+      {!d.untracked && (d.created_at || d.updated_at || d.demand != null) && (
+        <div className="rf-node-meta muted">
+          {d.created_at ? <span title={d.created_at}>created {relativeTime(d.created_at)}</span> : null}
+          {d.updated_at ? <span title={d.updated_at}>updated {relativeTime(d.updated_at)}</span> : null}
+          {d.demand != null ? (
+            <span className="rf-demand" title="comments + reactions">
+              <DemandIcon /> {d.demand}
+            </span>
+          ) : null}
+        </div>
+      )}
       <Handle type="source" position={Position.Bottom} className="rf-handle" />
     </div>
   );
@@ -204,6 +245,74 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
   );
 }
 
+// Searchable list beside the canvas: click an entry to pan + zoom the graph onto
+// that node. Sorted by demand (busiest first), mirroring the node-size cue. It
+// drives the camera through React Flow's fitView, so it must render INSIDE a
+// <ReactFlowProvider> shared with the canvas.
+function GraphSideList({ nodes }: { nodes: GraphNode[] }) {
+  const rf = useReactFlow();
+  const [q, setQ] = useState("");
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const match = needle
+      ? nodes.filter((n) => `${n.label} ${n.repo ?? ""} ${n.iid != null ? "#" + n.iid : ""}`.toLowerCase().includes(needle))
+      : nodes.slice();
+    return match.sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.label.localeCompare(b.label));
+  }, [nodes, q]);
+
+  function focus(id: string) {
+    setActiveId(id);
+    // Pan + zoom to the single node with a readable cap and a smooth glide. The
+    // default view stays the full-graph fit (the <ReactFlow fitView> prop).
+    rf.fitView({ nodes: [{ id }], padding: 0.5, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
+  }
+
+  return (
+    <aside className="graph-list">
+      <input
+        className="graph-list-search"
+        type="search"
+        placeholder="filter items…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      <div className="graph-list-scroll">
+        {filtered.length === 0 ? (
+          <p className="muted empty-list">no items match</p>
+        ) : (
+          filtered.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              className={`graph-list-item${activeId === n.id ? " active" : ""}${n.untracked ? " untracked" : ""}`}
+              style={{ borderLeftColor: n.color }}
+              onClick={() => focus(n.id)}
+              title={n.label}
+            >
+              <span className="gli-head">
+                <span className="kind">{KIND_ICON[n.kind] ?? "•"}</span>
+                <Badge text={n.state} kind={n.state} />
+                {n.demand != null && n.demand > 0 ? (
+                  <span className="gli-demand muted" title="comments + reactions">
+                    <DemandIcon /> {n.demand}
+                  </span>
+                ) : null}
+              </span>
+              <span className="gli-title">{n.label}</span>
+              <span className="gli-repo muted">
+                {n.repo ?? "untracked"}
+                {n.iid != null ? ` #${n.iid}` : ""}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </aside>
+  );
+}
+
 export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
   const [since, setSince] = useState<string>(() => cutoffIso(90).slice(0, 10));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
@@ -318,15 +427,22 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
               {x.t}
             </span>
           ))}
-          <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to focus</span>
+          <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to focus · list → jump</span>
         </div>
       </div>
       {graph.links.length === 0 ? (
         <p className="empty">No relationships in this window — widen the “active since” date.</p>
       ) : (
-        <div className="graph-canvas">
-          <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
-        </div>
+        // One shared ReactFlowProvider so the side list can drive the canvas
+        // camera (fitView) even though it renders outside <ReactFlow>.
+        <ReactFlowProvider>
+          <div className="graph-body">
+            <GraphSideList nodes={graph.nodes} />
+            <div className="graph-canvas">
+              <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
+            </div>
+          </div>
+        </ReactFlowProvider>
       )}
     </section>
   );
