@@ -101,6 +101,13 @@ test("buildGraph keeps only edge-connected nodes, applies the time window, and f
   assert.equal(buildGraph(edges, null).links.length, 3, "no cutoff keeps every edge");
 });
 
+test("repoKey is collision-proof and deriveRepos handles an empty contract", () => {
+  assert.equal(repoKey("github:github.com", "o/a"), repoKey("github:github.com", "o/a"), "stable for equal inputs");
+  assert.notEqual(repoKey("github:github.com", null), repoKey("github:github.com", ""), "null path != empty path");
+  assert.notEqual(repoKey("a", "b c"), repoKey("a b", "c"), "no separator collision across the (source, path) boundary");
+  assert.deepEqual(deriveRepos([]), [], "no items -> no repos");
+});
+
 test("deriveRepos groups items into (source, project_path) repos with counts, sorted", () => {
   const repos = deriveRepos([
     item({ source_id: "github:github.com", project_path: "o/b" }),
@@ -131,9 +138,10 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
       item({ id: "gl|MR", source_id: "gitlab:gitlab.com", project_path: "g/x", kind: "change_request", state: "open" }),
     ],
     edges: [
-      { type: "closes", from: "gh|PR", to: "gh|IS", from_state: "merged", to_state: "closed", lifecycle: "fulfilled" }, // intra o/a
-      { type: "relates", from: "gh|IS", to: "gl|MR", from_state: "closed", to_state: "open", lifecycle: null }, // cross-repo
-      { type: "closes", from: "gl|MR", to: "gh|UNTRACKED", from_state: "open", to_state: null, lifecycle: "declared" }, // untracked end
+      { type: "closes", from: "gh|PR", to: "gh|IS", from_state: "merged", to_state: "closed", lifecycle: "fulfilled" }, // both ends in o/a (both hidden)
+      { type: "relates", from: "gh|IS", to: "gl|MR", from_state: "closed", to_state: "open", lifecycle: null }, // cross-repo: hidden + visible
+      { type: "mentions", from: "gh|PR", to: "gh|EXT", from_state: "merged", to_state: null, lifecycle: null }, // hidden + untracked
+      { type: "closes", from: "gl|MR", to: "gh|EXT", from_state: "open", to_state: null, lifecycle: "declared" }, // visible + untracked
     ],
   };
   // nothing hidden -> identical reference (cheap no-op)
@@ -141,12 +149,13 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
 
   const view = applyVisibility(env, new Set([repoKey("github:github.com", "o/a")]));
   assert.deepEqual(view.items.map((i) => i.id), ["gl|MR"], "only the gitlab repo's item survives");
-  // both o/a-internal and the cross-repo edge touching o/a are gone; the
-  // gl|MR -> untracked edge survives (untracked ends can't be hidden).
+  // every edge touching o/a is dropped — including the hidden->untracked one (an
+  // untracked counterpart does NOT rescue an edge whose other end is hidden).
+  // Only the visible->untracked "closes" edge survives.
   assert.deepEqual(
     view.edges.map((e) => e.type),
     ["closes"],
-    "edges touching the hidden repo are removed; the untracked-end edge stays",
+    "edges touching the hidden repo are removed; the visible-end + untracked edge stays",
   );
   assert.equal(view.edges[0]!.from, "gl|MR");
 });

@@ -153,11 +153,12 @@ export interface RepoOption {
   count: number; // items in this repo
 }
 
-// Stable key for a repo. A source_id is "<kind>:<host>" and a project_path is a
-// provider repo path — neither contains whitespace — so the first space is an
-// unambiguous separator and distinct repos never collide.
+// Stable key for a repo — used both to dedupe rows and as the localStorage unit.
+// Encoded as a JSON tuple so two distinct (source_id, project_path) pairs can
+// never collide, whatever characters either field contains (and a null path
+// stays distinct from an empty-string path).
 export const repoKey = (source_id: string, project_path: string | null): string =>
-  `${source_id} ${project_path ?? ""}`;
+  JSON.stringify([source_id, project_path]);
 
 // Distinct repos present in the contract's items, with counts, sorted by source
 // then path — the rows the Settings page renders. Derived over the FULL item
