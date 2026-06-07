@@ -182,11 +182,19 @@ try {
   // --- assertions ---
   const has = (h, s) => h.includes(s);
   const m = (h, re) => (h.match(re) || []).length;
+  const classBlocks = (h, className) => [...h.matchAll(new RegExp(`class="${className}"[^>]*>([\\s\\S]*?)<\\/div>`, "g"))].map((x) => x[1] || "");
+  const updatedBeforeCreated = (h, className) => {
+    const blocks = classBlocks(h, className).filter((block) => block.includes("updated ") && block.includes("created "));
+    return { count: blocks.length, ok: blocks.every((block) => block.indexOf("updated ") < block.indexOf("created ")) };
+  };
   const boardCols = m(boardHtml, /class="col /g);
   const boardCards = m(boardHtml, /class="card"/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
+  const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
+  const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
+  const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -197,12 +205,15 @@ try {
     // provider source marks: the sample contract carries both github + gitlab
     [has(boardHtml, 'aria-label="GitHub"'), "board: GitHub source mark rendered"],
     [has(boardHtml, 'aria-label="GitLab"'), "board: GitLab source mark rendered"],
+    [boardTimeOrder.count >= 1 && boardTimeOrder.ok, `board: timestamps render updated before created (${boardTimeOrder.count})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
+    [graphNodeTimeOrder.count >= 1 && graphNodeTimeOrder.ok, `graph: node timestamps render updated before created (${graphNodeTimeOrder.count})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
+    [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],

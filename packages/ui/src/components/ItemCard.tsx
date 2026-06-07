@@ -120,15 +120,15 @@ export function ItemCard({
         ) : null}
       </div>
 
-      {/* created · updated, on their own line beneath the meta row */}
+      {/* updated · created, on their own line beneath the meta row */}
       {(item.created_at || item.updated_at) && (
         <div className="card-times muted">
-          {item.created_at ? (
-            <time title={item.created_at}>created {relativeTime(item.created_at)}</time>
-          ) : null}
-          {item.created_at && item.updated_at ? <span className="sep">·</span> : null}
           {item.updated_at ? (
             <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time>
+          ) : null}
+          {item.created_at && item.updated_at ? <span className="sep">·</span> : null}
+          {item.created_at ? (
+            <time title={item.created_at}>created {relativeTime(item.created_at)}</time>
           ) : null}
         </div>
       )}
