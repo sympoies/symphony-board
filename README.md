@@ -129,7 +129,9 @@ Since the initial cut the contract pipeline was hardened and the UI landed:
 - **Edge soft-delete** + **incremental loop cadence** — see above.
 - **`packages/contract`** — LAYER 3 extracted into its own package.
 - **`packages/ui`** — a read-only board (Vite + React) consuming the contract:
-  source health, filters, grouping, label chips, and the issue ↔ PR/MR
-  relationship view by lifecycle.
+  three pages (a 7-column **Board**, a relationship **Graph**, and a **Settings**
+  display filter), source health, transient facet filters, and label chips. The
+  Settings page is a persistent, client-side per-repo pre-filter saved in
+  `localStorage` — view-only, so the daemon keeps syncing everything.
 
 See `docs/DESIGN.md` for the confirmed decisions and what's still deferred.

@@ -242,3 +242,23 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .rf-node-repo { font-size: 0.85em; margin-top: 3px; }
 .rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }
+
+/* settings page (persistent repo display filter) */
+.settings-page { margin: 12px 0; max-width: 720px; }
+.settings-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.settings-head h2 { margin: 0 0 4px; border: none; padding: 0; }
+.settings-head p { margin: 0; max-width: 520px; }
+.settings-bulk { display: inline-flex; align-items: center; gap: 8px; }
+.settings-source { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-top: 14px; overflow: hidden; }
+.settings-source-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; background: var(--panel-2); border-bottom: 1px solid var(--line);
+}
+.settings-source-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.link-btn { background: none; border: none; color: var(--link); cursor: pointer; font: inherit; padding: 0; }
+.link-btn:hover { text-decoration: underline; }
+.settings-repos { list-style: none; margin: 0; padding: 6px 0; }
+.settings-repo { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; }
+.settings-repo:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.settings-repo input { accent-color: var(--accent); }
+.settings-repo-name { flex: 1 1 auto; }

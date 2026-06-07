@@ -16,11 +16,18 @@ home for a build step + heavy deps — **Vite + React + TypeScript** (see
 - **Stats** — items by state and kind; edges by lifecycle (declared / fulfilled /
   broken). Reflects the current filter.
 - **Filters** — free-text search (title / author / repo / label) plus source,
-  state, and kind toggles; group items by source / repo / state / kind / none.
-- **Relationships** — the spine: issue ↔ PR/MR `closes` edges grouped by derived
-  lifecycle. `declared` = in flight, `fulfilled` = merged + closed, `broken` =
-  closed unmerged. Endpoints link to their item cards; a cross-repo endpoint in
-  an untracked project is shown by its ref.
+  state, and kind toggles. These are *transient* (in-memory) facets, distinct
+  from the persistent **Settings** repo filter below.
+- **Graph** (`#/graph`) — the relationship graph: issue ↔ PR/MR `closes` edges
+  (plus opt-in `mentions`), coloured by derived lifecycle — `declared` = in
+  flight, `fulfilled` = merged + closed, `broken` = closed unmerged. A cross-repo
+  endpoint in an untracked project is shown by its ref.
+- **Settings** (`#/settings`) — a persistent, client-side **display filter**:
+  per-repo checkboxes (grouped by source, with each source's sync health and a
+  select-all/none) that pre-filter the contract — items *and* their edges —
+  across the Board, Graph, and stats. The choice is saved in `localStorage` and
+  defaults to everything visible. It is view-only: the daemon keeps syncing every
+  source (read-only consumer — no backend, no contract change).
 - **Items** — cards with state/kind, draft flag, labels (scoped labels styled),
   author, demand, and the review / CI / merge signals when present.
 
