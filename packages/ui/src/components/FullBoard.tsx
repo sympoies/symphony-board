@@ -45,7 +45,7 @@ function Column({
 // a status column AND a lane. Intentional — it puts the predecessor's two views
 // on one surface. The column counts therefore won't sum to the item total.
 export function FullBoard({ items, statuses }: { items: ItemDTO[]; statuses: Map<string, ItemStatus> }) {
-  const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], tracking: [], closed: [] };
+  const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of items) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(items);
   return (

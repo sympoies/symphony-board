@@ -6,7 +6,7 @@ import { anchorId, STATUS_ORDER, STATUS_LABEL, STATUS_DESC, type ItemStatus } fr
 // drag-and-drop — status is a projection of GitHub/GitLab state (owned by the
 // pipeline), exactly like the predecessor board. Columns scroll independently.
 export function StatusBoard({ items, statuses }: { items: ItemDTO[]; statuses: Map<string, ItemStatus> }) {
-  const cols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], tracking: [], closed: [] };
+  const cols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of items) cols[statuses.get(it.id) ?? "open"].push(it);
   return (
     <section className="status-board">

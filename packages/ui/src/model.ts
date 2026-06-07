@@ -2,6 +2,9 @@
 // resolution, and small stats. No React here — easy to reason about and reuse.
 
 import type { ContractEnvelope, ItemDTO, EdgeDTO, EdgeLifecycle } from "@symphony-board/contract";
+import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, SPOTLIGHT_KEEP, type SpotlightLaneConfig } from "./spotlight.config.ts";
+
+export { SPOTLIGHT_KEEP } from "./spotlight.config.ts";
 
 export type GroupBy = "source" | "repo" | "state" | "kind" | "none";
 
@@ -9,46 +12,51 @@ export type GroupBy = "source" | "repo" | "state" | "kind" | "none";
 export type View = "board" | "list";
 
 // Board status columns, after project-board-automation's Status model
-// (Open / Tracking / Closed) plus an explicit In Progress lane:
+// (Open / Trailing / Closed) plus an explicit In Progress lane:
 //   open        – open, no open linked PR
 //   in_progress – open AND part of a `declared` edge (open linked PR = work underway)
-//   tracking    – closed/merged BUT a related item is still open
+//   trailing    – closed/merged BUT a related item is still open
 //   closed      – closed/merged with no related item still open
-export type ItemStatus = "open" | "in_progress" | "tracking" | "closed";
-export const STATUS_ORDER: ItemStatus[] = ["open", "in_progress", "tracking", "closed"];
+// `trailing` was renamed from "Tracking" to avoid confusion with the
+// `workflow::tracking` LABEL — this is a lifecycle status, not a label.
+export type ItemStatus = "open" | "in_progress" | "trailing" | "closed";
+export const STATUS_ORDER: ItemStatus[] = ["open", "in_progress", "trailing", "closed"];
 export const STATUS_LABEL: Record<ItemStatus, string> = {
   open: "Open",
   in_progress: "In Progress",
-  tracking: "Tracking",
+  trailing: "Trailing",
   closed: "Closed",
 };
-// Short disambiguators (the status "Tracking" is unrelated to a `workflow::tracking`
-// LABEL — this is a lifecycle status, not a label).
 export const STATUS_DESC: Record<ItemStatus, string> = {
   open: "open · no open linked PR",
   in_progress: "open · has an open linked PR",
-  tracking: "closed/merged · a related item is still open",
+  trailing: "closed/merged · a related item is still open",
   closed: "closed/merged · nothing related still open",
 };
 
-// Spotlight: recency lanes independent of status, after the predecessor's
-// second board view. Each lane takes the latest N items (by created_at) that
-// match, REGARDLESS of open/closed/merged — so follow-up / plan issues stay
-// visible even after they close. Lanes are label/kind-driven (these label
-// conventions are agent-runtime-kit's; edit here to retarget).
+// Spotlight: recency lanes independent of status, after the predecessor's second
+// board view. Each lane takes the latest N items (by created_at) that match,
+// REGARDLESS of open/closed/merged — so follow-up / plan issues stay visible even
+// after they close. The lane CONVENTIONS (which labels/kinds) live in
+// `spotlight.config.ts`; here we compile each declarative entry into a predicate.
 export interface SpotlightLane {
   key: string;
   label: string;
   hint: string;
   pick: (i: ItemDTO) => boolean;
 }
-export const SPOTLIGHT_KEEP = 30;
 const hasLabel = (i: ItemDTO, name: string) => i.labels.some((l) => l.name === name);
-export const SPOTLIGHT_LANES: SpotlightLane[] = [
-  { key: "follow-up", label: "Follow-up", hint: "issues labeled workflow::follow-up", pick: (i) => i.kind === "issue" && hasLabel(i, "workflow::follow-up") },
-  { key: "plan", label: "Plan-tracking", hint: "issues labeled workflow::plan", pick: (i) => i.kind === "issue" && hasLabel(i, "workflow::plan") },
-  { key: "pr", label: "PR", hint: "pull/merge requests, any state", pick: (i) => i.kind === "change_request" },
-];
+function compileLane(c: SpotlightLaneConfig): SpotlightLane {
+  return {
+    key: c.key,
+    label: c.label,
+    hint: c.hint,
+    pick: (i) =>
+      (c.kind === undefined || i.kind === c.kind) &&
+      (c.anyLabel === undefined || c.anyLabel.some((name) => hasLabel(i, name))),
+  };
+}
+export const SPOTLIGHT_LANES: SpotlightLane[] = SPOTLIGHT_LANE_CONFIG.map(compileLane);
 
 export function spotlight(items: ItemDTO[]): Array<{ lane: SpotlightLane; items: ItemDTO[] }> {
   const recent = (a: ItemDTO, b: ItemDTO) => (b.created_at ?? "").localeCompare(a.created_at ?? "");
@@ -72,7 +80,7 @@ export function deriveStatuses(items: ItemDTO[], edges: EdgeDTO[]): Map<string, 
   const status = new Map<string, ItemStatus>();
   for (const it of items) {
     if (it.state === "open") status.set(it.id, inDeclared.has(it.id) ? "in_progress" : "open");
-    else status.set(it.id, hasRelatedOpen.get(it.id) ? "tracking" : "closed");
+    else status.set(it.id, hasRelatedOpen.get(it.id) ? "trailing" : "closed");
   }
   return status;
 }
