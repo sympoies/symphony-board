@@ -149,11 +149,12 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/debug'" });
   await sleep(150);
   const debugHtml = await waitHtml("document.querySelector('.relationships')");
-  // Page 3 — the relationship graph (cytoscape draws to canvas; assert the page
-  // + count label mount cleanly and the lazy chunk loads without errors).
+  // Page 3 — the relationship graph (React Flow renders DOM card nodes; assert
+  // the page, count label, and at least one node mount cleanly and the lazy
+  // chunk loads without errors).
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
-  await sleep(250);
-  const graphHtml = await waitHtml("document.querySelector('.graph-page')");
+  await sleep(400);
+  const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
   ws.close();
 
   // --- assertions ---
@@ -179,6 +180,7 @@ try {
     // page 3: the relationship graph mounts and the lazy cytoscape chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
+    [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
     [consoleErrors.length === 0, `no console errors (${consoleErrors.length})`],
     [exceptions.length === 0, `no uncaught exceptions (${exceptions.length})`],
   ];
