@@ -354,28 +354,30 @@ function GraphSideList({
   // mention filters rebuild it). The focus view is tied to the current canvas, so
   // returning to the list avoids a stale focus on an item that just left it. Keyed
   // on windowedIds — NOT "focusId went off-window" — so chaining to an off-window
-  // related item (an intentional focus) is preserved. The first run is skipped so
-  // a deep-link seed (focusRef) survives the initial graph build.
-  const skipReset = useRef(true);
+  // related item (an intentional focus) is preserved. Compared by VALUE against the
+  // previous windowedIds (windowedIds is a stable memo ref until the graph rebuilds)
+  // rather than a first-run flag, so it stays idempotent under React 18 StrictMode's
+  // double-invoked effects and never wipes the initial deep-link seed on mount.
+  const prevWindowed = useRef(windowedIds);
   useEffect(() => {
-    if (skipReset.current) {
-      skipReset.current = false;
-      return;
+    if (prevWindowed.current !== windowedIds) {
+      prevWindowed.current = windowedIds;
+      setFocusId(null);
     }
-    setFocusId(null);
   }, [windowedIds]);
 
   // Frame the deep-link focus once React Flow has measured its nodes — calling
-  // fitView before measurement fits against zero-size nodes and no-ops. Runs at
-  // most once; a manual card click drives the camera through focus() instead.
+  // fitView before measurement fits against zero-size nodes and no-ops. The
+  // framedRef one-shot keeps it to a single frame (and is StrictMode-safe: the
+  // second invoke sees the flag set and skips). focusCamera is read from the
+  // closure on purpose — keying the effect on its identity would refit each render;
+  // a manual card click drives the camera through focus() instead.
   const framedRef = useRef(false);
   useEffect(() => {
     if (focusRef && nodesInitialized && !framedRef.current) {
       framedRef.current = true;
       focusCamera(focusRef);
     }
-    // focusCamera reads adjacency/windowedIds via closure; fine for the one-shot.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusRef, nodesInitialized]);
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -468,13 +470,17 @@ function GraphSideList({
 }
 
 export function GraphPage({ edges, sourceKind, focusRef }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; focusRef?: string | null }) {
-  // A deep-link focus (a board card → "#/graph?focus=<ref>") clears the time
-  // window on entry so the target is guaranteed on the graph and framable: an
-  // item older than the default 90-day window would otherwise land off-window
-  // with no node to frame. Absent a focus, keep the 90-day default.
+  // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
+  // filters on entry so the target is GUARANTEED on the graph and framable: it
+  // clears the time window (an older item would land off the default 90-day
+  // window) AND turns mentions on (an item whose only relationships are mentions
+  // would otherwise have no node, since mentions are off by default). Together
+  // any item with at least one edge — exactly the items that show the link — is
+  // on the canvas. Absent a focus, keep the 90-day, no-mentions defaults. App
+  // keys the page on the focus target, so each entry re-runs these initializers.
   const [since, setSince] = useState<string>(() => (focusRef ? "" : cutoffIso(90).slice(0, 10)));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
-  const [showMentions, setShowMentions] = useState(false);
+  const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
 
   const graph = useMemo(() => {

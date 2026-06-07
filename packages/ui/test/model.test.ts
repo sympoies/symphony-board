@@ -19,6 +19,7 @@ import {
   compareGraphNodes,
   parseHashRoute,
   graphFocusHref,
+  edgeEndpointIds,
   type ResolvedEdge,
   type GraphNode,
 } from "../src/model.ts";
@@ -297,4 +298,16 @@ test("graphFocusHref round-trips a ref through parseHashRoute (refs carry | : /)
     assert.equal(parseHashRoute(graphFocusHref(ref)).focus, ref, `round-trips ${ref}`);
     assert.equal(parseHashRoute(graphFocusHref(ref)).page, "graph");
   }
+});
+
+test("edgeEndpointIds collects both ends of every edge (board-card graph membership)", () => {
+  assert.equal(edgeEndpointIds([]).size, 0, "no edges -> empty set");
+  const ids = edgeEndpointIds([
+    { type: "closes", from: "s|A", to: "s|B", from_state: null, to_state: null, lifecycle: null },
+    { type: "mentions", from: "s|B", to: "s|UNTRACKED", from_state: null, to_state: null, lifecycle: null },
+  ]);
+  // both ends of both edges, deduped; an untracked ref is kept (harmless — it
+  // never matches a board item id). A `mentions`-only endpoint still counts as
+  // linked, matching the graph's "any edge -> a node" membership rule.
+  assert.deepEqual([...ids].sort(), ["s|A", "s|B", "s|UNTRACKED"]);
 });

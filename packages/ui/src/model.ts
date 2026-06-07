@@ -126,6 +126,20 @@ export function parseHashRoute(hash: string): HashRoute {
 // parseHashRoute above (encode here, decode there).
 export const graphFocusHref = (ref: string): string => `#/graph?focus=${encodeURIComponent(ref)}`;
 
+// The set of item ids that are an endpoint of at least one edge — i.e. items
+// that have a node on the relationship graph. Gates the board card's "focus in
+// graph" link: an item with no edge has nothing to focus. Both ends are
+// collected (an untracked cross-repo ref is harmless — it never matches a board
+// item id).
+export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
+  const ids = new Set<string>();
+  for (const e of edges) {
+    ids.add(e.from);
+    ids.add(e.to);
+  }
+  return ids;
+}
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;

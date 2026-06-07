@@ -12,6 +12,7 @@ import {
   deriveRepos,
   applyVisibility,
   parseHashRoute,
+  edgeEndpointIds,
   type Filters,
 } from "./model.ts";
 import { loadHidden, saveHidden } from "./viewconfig.ts";
@@ -118,14 +119,7 @@ export function App() {
   // over the FULL visible edge set — NOT the time-windowed / facet-filtered graph.
   // The board card's "focus in graph" link shows ONLY for these: an item with no
   // relationships has no graph node to focus, so the affordance would dead-end.
-  const linkedIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const e of visibleEnv?.edges ?? []) {
-      s.add(e.from);
-      s.add(e.to);
-    }
-    return s;
-  }, [visibleEnv]);
+  const linkedIds = useMemo(() => edgeEndpointIds(visibleEnv?.edges ?? []), [visibleEnv]);
 
   function toggle(dim: "sources" | "states" | "kinds", value: string) {
     setFilters((f) => {
@@ -237,7 +231,10 @@ export function App() {
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
-          <GraphPage edges={filteredEdges} sourceKind={sourceKind} focusRef={route.focus} />
+          {/* Keyed on the focus target so each distinct deep-link entry remounts
+              the graph with a fresh window + focus seed (the seed is mount-time);
+              a new "?focus=" — or clearing it — never leaves a stale focus. */}
+          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} focusRef={route.focus} />
         </Suspense>
       ) : (
         <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} linkedIds={linkedIds} />
