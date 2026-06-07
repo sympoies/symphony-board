@@ -139,8 +139,11 @@ function parseRelate(body: string): NoteRef | null {
   return m ? parseRefToken(m[1]!) : null;
 }
 
+// Collision-proof composite key as a JSON tuple (matching the UI model's repoKey)
+// — plain ASCII, no separator byte (the earlier `\0`-separator form was prone to
+// being saved as a raw NUL).
 const indexKey = (project: string | null, kind: string, iid: string): string =>
-  `${project ?? ""}\0${kind}\0${iid}`;
+  JSON.stringify([project ?? "", kind, iid]);
 
 export class GitLabSource implements Source {
   readonly descriptor: SourceDescriptor;
