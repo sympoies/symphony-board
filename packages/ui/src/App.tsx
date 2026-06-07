@@ -12,6 +12,7 @@ import {
   deriveRepos,
   applyVisibility,
   parseHashRoute,
+  applyRouteSearch,
   edgeEndpointIds,
   type Filters,
 } from "./model.ts";
@@ -40,7 +41,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   // Seed the search from the hash's "?q=" token if present (a board → graph
   // deep-link), so the graph narrows on the FIRST render — no full-graph flash.
-  const [filters, setFilters] = useState<Filters>(() => ({ ...emptyFilters(), search: parseHashRoute(readHash()).q ?? "" }));
+  const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
   const [hash, setHash] = useState<string>(readHash);
   // Persistent, repo-level display filter (the Settings page). Set of HIDDEN
   // repo keys; loaded once from localStorage and saved back on every change.
@@ -51,10 +52,9 @@ export function App() {
       const h = readHash();
       setHash(h);
       // A deep-link carrying "?q=" applies its search token in the SAME update as
-      // the route change (batched), so the graph mounts already narrowed. Absent
-      // a q, leave the search alone — never clobber what the user typed.
-      const q = parseHashRoute(h).q;
-      if (q != null) setFilters((prev) => (prev.search === q ? prev : { ...prev, search: q }));
+      // the route change (batched), so the graph mounts already narrowed; absent a
+      // q, applyRouteSearch leaves the search alone (never clobbers user input).
+      setFilters((prev) => applyRouteSearch(prev, parseHashRoute(h)));
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);

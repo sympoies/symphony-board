@@ -19,6 +19,7 @@ import {
   compareGraphNodes,
   parseHashRoute,
   graphFocusHref,
+  applyRouteSearch,
   edgeEndpointIds,
   itemSearchToken,
   type ResolvedEdge,
@@ -58,6 +59,9 @@ test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' deep-link pins 
   assert.equal(itemMatches(it13, f("#13")), true);
   assert.equal(itemMatches(it130, f("#13")), false, "#13 must not match #130");
   assert.equal(itemMatches(item({ iid: null }), f("#13")), false, "no iid never matches a #<n> term");
+  assert.equal(itemMatches(it13, f("#")), false, "a bare # is not a number term -> substring miss");
+  assert.equal(itemMatches(item({ iid: 0 }), f("#0")), true, "iid 0 matches #0 (guard is != null, not truthiness)");
+  assert.equal(itemMatches(it13, f("#013")), false, "leading zeros do not widen the iid match");
   // the "repo #iid" token pins exactly one item even across repos sharing an iid
   assert.equal(itemMatches(it13, f("owner/repo #13")), true);
   assert.equal(itemMatches(it130, f("owner/repo #13")), false, "same repo, wrong iid");
@@ -337,6 +341,18 @@ test("graphFocusHref round-trips an item's id + search token through parseHashRo
     assert.equal(r.focus, over.id, `focus round-trips for ${over.id}`);
     assert.equal(r.q, itemSearchToken(it(over)), `q carries the search token for ${over.id}`);
   }
+});
+
+test("applyRouteSearch seeds search from ?q= but never clobbers a user-typed search", () => {
+  const route = (q: string | null) => ({ page: "graph", focus: null, q });
+  // a present q seeds the search (deep-link narrowing)
+  assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
+  // an absent q returns the SAME object — a search the user typed is preserved
+  const typed = { ...emptyFilters(), search: "user typed" };
+  assert.equal(applyRouteSearch(typed, route(null)), typed, "absent q -> same reference (no clobber)");
+  // q equal to the current search -> same object (no needless re-render)
+  const cur = { ...emptyFilters(), search: "owner/repo #13" };
+  assert.equal(applyRouteSearch(cur, route("owner/repo #13")), cur, "unchanged q -> same reference");
 });
 
 test("edgeEndpointIds collects both ends of every edge (board-card graph membership)", () => {

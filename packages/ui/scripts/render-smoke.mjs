@@ -225,7 +225,7 @@ try {
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
     [/react-flow__node/.test(deepLinkHtml), "deep link: focused graph canvas mounted"],
-    [deepLinkSearch.trim().length > 0, `deep link: search bar seeded with the item token ("${deepLinkSearch}")`],
+    [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

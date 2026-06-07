@@ -142,6 +142,17 @@ export function itemSearchToken(it: ItemDTO): string {
 export const graphFocusHref = (it: ItemDTO): string =>
   `#/graph?focus=${encodeURIComponent(it.id)}&q=${encodeURIComponent(itemSearchToken(it))}`;
 
+// Apply a route's "?q=" token to the filters: a present q SEEDS the search (how a
+// board → graph deep-link narrows the graph); an ABSENT q leaves filters untouched
+// so a search the user typed is never clobbered by a later navigation. Returns the
+// SAME object when nothing changes (stable identity, so React skips a re-render).
+// Used for both the initial filters and every hashchange, so the asymmetry lives
+// in exactly one tested place.
+export function applyRouteSearch(filters: Filters, route: HashRoute): Filters {
+  if (route.q == null || route.q === filters.search) return filters;
+  return { ...filters, search: route.q };
+}
+
 // The set of item ids that are an endpoint of at least one edge — i.e. items
 // that have a node on the relationship graph. Gates the board card's "focus in
 // graph" link: an item with no edge has nothing to focus. Both ends are
@@ -162,6 +173,9 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.kinds.size && !f.kinds.has(it.kind)) return false;
   const q = f.search.trim().toLowerCase();
   if (q) {
+    // iid is intentionally NOT in the hay — it is matched ONLY via the exact
+    // `#<n>` term below. Putting it in the hay would reintroduce substring
+    // collisions (a search for "#13" matching "#130").
     const hay = [it.title, it.author, it.project_path, it.external_id, ...it.labels.map((l) => l.name)]
       .filter((s): s is string => !!s)
       .join(" ")
