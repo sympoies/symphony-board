@@ -10,8 +10,6 @@ import {
   MarkerType,
   useNodesState,
   useEdgesState,
-  useNodesInitialized,
-  useReactFlow,
   type Node,
   type Edge,
   type NodeProps,
@@ -22,7 +20,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
-import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -34,16 +32,17 @@ import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso,
 // rest, and labels its incident edges with the edge type; mentions can be
 // filtered by the mentioned item's kind to thin the dense view.
 //
-// Navigation (#24): a searchable side list beside the canvas jumps to a node
-// (pan + zoom via React Flow fitView; the default view stays the full-graph
-// fit), and each node card carries updated / created (relative) + demand —
-// legible once focused/zoomed.
+// Navigation (#24): a searchable side list beside the canvas focuses a node,
+// and each node card carries updated / created (relative) + demand — legible
+// once focused/zoomed.
 //
 // Side-list depth: the list cards now carry the same detail as the board card
 // (author, updated/created, review/CI/merge signals, collapsed labels, source
 // mark). Clicking a card enters a FOCUS view — that item plus its related items
-// (the other ends of its edges), with the camera fit to it + its on-graph
-// neighbours. Related items are computed from the FULL edge set (model
+// (the other ends of its edges). Focusing also narrows the CANVAS to just that
+// item + its on-graph neighbours (the subgraph), so the graph mirrors the list
+// instead of staying the full fit; remounting React Flow on the focus change
+// reframes the camera. Related items are computed from the FULL edge set (model
 // buildAdjacency), so a relation hidden by the "active since" window still
 // lists, marked "off-window"; a "← all items" button returns to the list.
 
@@ -354,7 +353,9 @@ function GraphSideList({
   windowedIds,
   sourceKind,
   colorOf,
-  focusRef,
+  focusId,
+  onFocus,
+  onBack,
 }: {
   nodes: GraphNode[];
   itemsByRef: Map<string, ItemDTO>;
@@ -362,46 +363,19 @@ function GraphSideList({
   windowedIds: Set<string>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
-  // Item ref to focus on entry (a "?focus=" deep-link from a board card). Seeds
-  // the focus view and frames the camera once the canvas has measured its nodes.
-  focusRef?: string | null;
+  // Focus is lifted to GraphPage so the canvas can narrow to the focused item's
+  // subgraph (not just pan the full graph). null = the flat list; a ref = the
+  // focus view of that item. onFocus enters/chains focus; onBack returns.
+  focusId: string | null;
+  onFocus: (id: string) => void;
+  onBack: () => void;
 }) {
-  const rf = useReactFlow();
-  const nodesInitialized = useNodesInitialized();
   const [q, setQ] = useState("");
-  // Seed from the deep-link target so arriving at "#/graph?focus=<ref>" opens
-  // straight into that item's focus view.
-  const [focusId, setFocusId] = useState<string | null>(focusRef ?? null);
-
-  // Drop focus whenever the windowed graph itself changes (the "active since" /
-  // mention filters rebuild it). The focus view is tied to the current canvas, so
-  // returning to the list avoids a stale focus on an item that just left it. Keyed
-  // on windowedIds — NOT "focusId went off-window" — so chaining to an off-window
-  // related item (an intentional focus) is preserved. Compared by VALUE against the
-  // previous windowedIds (windowedIds is a stable memo ref until the graph rebuilds)
-  // rather than a first-run flag, so it stays idempotent under React 18 StrictMode's
-  // double-invoked effects and never wipes the initial deep-link seed on mount.
-  const prevWindowed = useRef(windowedIds);
-  useEffect(() => {
-    if (prevWindowed.current !== windowedIds) {
-      prevWindowed.current = windowedIds;
-      setFocusId(null);
-    }
-  }, [windowedIds]);
-
-  // Frame the deep-link focus once React Flow has measured its nodes — calling
-  // fitView before measurement fits against zero-size nodes and no-ops. The
-  // framedRef one-shot keeps it to a single frame (and is StrictMode-safe: the
-  // second invoke sees the flag set and skips). focusCamera is read from the
-  // closure on purpose — keying the effect on its identity would refit each render;
-  // a manual card click drives the camera through focus() instead.
-  const framedRef = useRef(false);
-  useEffect(() => {
-    if (focusRef && nodesInitialized && !framedRef.current) {
-      framedRef.current = true;
-      focusCamera(focusRef);
-    }
-  }, [focusRef, nodesInitialized]);
+  // Side-list kind toggle (all / issue / pr). Defaults to "issue" so the list
+  // opens on the smaller, more actionable issue set rather than the PR-heavy
+  // full graph. Reuses MentionTarget — same three-way issue|change_request|all
+  // shape. Applies only to the flat list below, not the focus view.
+  const [kindFilter, setKindFilter] = useState<MentionTarget>("issue");
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const labelOf = (ref: string): string => nodeById.get(ref)?.label ?? itemsByRef.get(ref)?.title ?? ref.split("|").pop() ?? ref;
@@ -414,21 +388,6 @@ function GraphSideList({
     return it ? colorOf(it.source_id, it.project_path) : null;
   };
 
-  // Fit the camera to the focused node + its neighbours that are actually on the
-  // graph (off-window related items have no node to frame). No-op if none are.
-  function focusCamera(id: string) {
-    const onGraph = [id, ...(adjacency.get(id) ?? []).map((r) => r.ref)].filter((r) => windowedIds.has(r));
-    if (onGraph.length) rf.fitView({ nodes: onGraph.map((i) => ({ id: i })), padding: 0.4, minZoom: 0.35, maxZoom: 1.4, duration: 600 });
-  }
-  function focus(id: string) {
-    setFocusId(id);
-    focusCamera(id);
-  }
-  function back() {
-    setFocusId(null);
-    rf.fitView({ padding: 0.1, duration: 500 });
-  }
-
   if (focusId !== null) {
     // Collapse the per-direction adjacency entries to one card per (ref, type)
     // — a mutual relationship (e.g. two items that mention each other) becomes a
@@ -438,11 +397,11 @@ function GraphSideList({
     );
     return (
       <aside className="graph-list">
-        <button type="button" className="graph-list-back" onClick={back}>
+        <button type="button" className="graph-list-back" onClick={onBack}>
           ← all items
         </button>
         <div className="graph-list-scroll">
-          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={() => focusCamera(focusId)} />
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={() => {}} />
           {!windowedIds.has(focusId) && (
             <p className="muted glc-note">This item is outside the current “active since” window — widen it to see it on the graph.</p>
           )}
@@ -460,7 +419,7 @@ function GraphSideList({
                 sourceKind={kindOf(r.ref)}
                 accentColor={colorFor(r.ref)}
                 relation={{ type: r.type, direction: r.direction, offWindow: !windowedIds.has(r.ref) }}
-                onFocus={() => focus(r.ref)}
+                onFocus={() => onFocus(r.ref)}
               />
             ))
           )}
@@ -471,25 +430,39 @@ function GraphSideList({
 
   const filtered = (() => {
     const needle = q.trim().toLowerCase();
-    const match = needle
+    let match = needle
       ? nodes.filter((n) => {
           const it = itemsByRef.get(n.id);
           return `${n.label} ${n.repo ?? ""} ${n.iid != null ? "#" + n.iid : ""} ${it?.author ?? ""}`.toLowerCase().includes(needle);
         })
       : nodes.slice();
+    // Kind toggle: "all" keeps everything (incl. untracked "unknown" nodes);
+    // "issue" / "change_request" narrow to that kind.
+    if (kindFilter !== "all") match = match.filter((n) => n.kind === kindFilter);
     // #32: order by actionable state then newest-created (not demand).
     return match.sort(compareGraphNodes);
   })();
 
   return (
     <aside className="graph-list">
+      <div className="graph-list-kinds toggle-group">
+        {([
+          ["all", "all"],
+          ["issue", "issue"],
+          ["change_request", "pr"],
+        ] as Array<[MentionTarget, string]>).map(([val, lab]) => (
+          <button key={val} type="button" className={`toggle${kindFilter === val ? " toggle-on" : ""}`} onClick={() => setKindFilter(val)}>
+            {lab}
+          </button>
+        ))}
+      </div>
       <input className="graph-list-search" type="search" placeholder="filter items…" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="graph-list-scroll">
         {filtered.length === 0 ? (
           <p className="muted empty-list">no items match</p>
         ) : (
           filtered.map((n) => (
-            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} onFocus={() => focus(n.id)} />
+            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} onFocus={() => onFocus(n.id)} />
           ))
         )}
       </div>
@@ -510,6 +483,10 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
+  // Focused item ref (seeded from a "?focus=" deep-link). Drives BOTH the side
+  // list's focus view and the canvas subgraph below; null = the flat list +
+  // full graph.
+  const [focusId, setFocusId] = useState<string | null>(focusRef ?? null);
 
   const graph = useMemo(() => {
     const cutoff = since ? new Date(since + "T00:00:00Z").toISOString() : null;
@@ -537,20 +514,49 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
   const adjacency = useMemo(() => buildAdjacency(edges), [edges]);
   const windowedIds = useMemo(() => new Set(graph.nodes.map((n) => n.id)), [graph]);
 
+  // Drop focus whenever the windowed graph itself rebuilds (the "active since" /
+  // mention filters changed). The focus view is tied to the current graph, so a
+  // stale focus on an item that just left the window would be confusing. Compared
+  // by VALUE against the previous windowedIds (a stable memo ref until the graph
+  // rebuilds) rather than a first-run flag, so it is idempotent under React 18
+  // StrictMode's double-invoked effects and never wipes the deep-link seed on mount.
+  const prevWindowed = useRef(windowedIds);
+  useEffect(() => {
+    if (prevWindowed.current !== windowedIds) {
+      prevWindowed.current = windowedIds;
+      setFocusId(null);
+    }
+  }, [windowedIds]);
+
+  // #1: when an item is focused, narrow the canvas to that item + its on-graph
+  // neighbours and the edges among them, so the canvas mirrors the side list's
+  // focus view instead of staying the full windowed graph. Falls back to the
+  // full graph when the focus leaves nothing to render (e.g. an off-window focus
+  // with no on-graph neighbours), so the canvas is never blank.
+  const view = useMemo<GraphData>(() => {
+    if (!focusId) return graph;
+    const keep = new Set<string>([focusId, ...(adjacency.get(focusId) ?? []).map((r) => r.ref)]);
+    const nodes = graph.nodes.filter((n) => keep.has(n.id));
+    if (nodes.length === 0) return graph;
+    const ids = new Set(nodes.map((n) => n.id));
+    const links = graph.links.filter((l) => ids.has(l.source) && ids.has(l.target));
+    return { nodes, links };
+  }, [graph, focusId, adjacency]);
+
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
-    for (const n of graph.nodes) m.set(n.id, dims(n.demand));
+    for (const n of view.nodes) m.set(n.id, dims(n.demand));
     return (id: string): Dim => m.get(id) ?? { w: NODE_W, h: NODE_H, scale: 1 };
-  }, [graph]);
+  }, [view]);
 
   const positions = useMemo(
-    () => (layout === "hierarchy" ? layoutDagre(graph.nodes, graph.links, dimOf) : layoutForce(graph.nodes, graph.links, dimOf)),
-    [graph, layout, dimOf],
+    () => (layout === "hierarchy" ? layoutDagre(view.nodes, view.links, dimOf) : layoutForce(view.nodes, view.links, dimOf)),
+    [view, layout, dimOf],
   );
 
   const rfNodes: Node[] = useMemo(
     () =>
-      graph.nodes.map((n) => {
+      view.nodes.map((n) => {
         const { w, h } = dimOf(n.id);
         const it = itemsByRef.get(n.id);
         const accentColor = it ? colorOf(it.source_id, it.project_path) : null;
@@ -562,12 +568,12 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
           data: { ...n, accentColor } as unknown as Record<string, unknown>,
         };
       }),
-    [graph, positions, dimOf, itemsByRef, colorOf],
+    [view, positions, dimOf, itemsByRef, colorOf],
   );
 
   const rfEdges: Edge[] = useMemo(
     () =>
-      graph.links.map((l) => ({
+      view.links.map((l) => ({
         id: l.id,
         source: l.source,
         target: l.target,
@@ -580,16 +586,21 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: l.color, width: 14, height: 14 },
       })),
-    [graph],
+    [view],
   );
 
-  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${since}|${graph.nodes.length}`;
+  // focusId is in the key so each focus change remounts <Flow>, which re-runs its
+  // `fitView` to frame the new subgraph — that is what makes clicking a related
+  // item visibly switch the canvas to that item (the old design only panned the
+  // full graph, so a neighbour barely moved the camera).
+  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${since}|${focusId ?? ""}|${view.nodes.length}`;
 
   return (
     <section className="graph-page">
       <div className="graph-controls">
         <span className="muted">
-          showing {graph.nodes.length} items · {graph.links.length} links
+          showing {view.nodes.length} items · {view.links.length} links
+          {focusId ? " · focused" : ""}
         </span>
         <label className="graph-since">
           active since <input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
@@ -652,11 +663,21 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
       {graph.links.length === 0 ? (
         <p className="empty">No relationships in this window — widen the “active since” date.</p>
       ) : (
-        // One shared ReactFlowProvider so the side list can drive the canvas
-        // camera (fitView) even though it renders outside <ReactFlow>.
+        // One shared ReactFlowProvider wraps the side list + canvas; remounting
+        // <Flow> on a focus change (flowKey) is what reframes the camera now.
         <ReactFlowProvider>
           <div className="graph-body">
-            <GraphSideList nodes={graph.nodes} itemsByRef={itemsByRef} adjacency={adjacency} windowedIds={windowedIds} sourceKind={sourceKind} colorOf={colorOf} focusRef={focusRef} />
+            <GraphSideList
+              nodes={graph.nodes}
+              itemsByRef={itemsByRef}
+              adjacency={adjacency}
+              windowedIds={windowedIds}
+              sourceKind={sourceKind}
+              colorOf={colorOf}
+              focusId={focusId}
+              onFocus={setFocusId}
+              onBack={() => setFocusId(null)}
+            />
             <div className="graph-canvas">
               <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
             </div>
