@@ -212,6 +212,14 @@ export function applyVisibility(
 // owns it). Only the override exists at repo granularity in the UI — a source's
 // color is changed in config, not overridden per-viewer.
 
+// A color is used in a CSS sink (the card bar, the node outline, a swatch), so
+// the UI validates the format before trusting it — even though config colors are
+// checked at emit, a hand-edited localStorage override or a malicious/old
+// contract could carry anything. #rgb / #rrggbb only; everything else is dropped
+// (no highlight) rather than injected into CSS.
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+export const isHexColor = (c: unknown): c is string => typeof c === "string" && HEX_COLOR.test(c);
+
 export interface ColorIndex {
   repo: Map<string, string>; // repoKey -> configured repo color
   source: Map<string, string>; // source_id -> configured source color
@@ -220,6 +228,7 @@ export interface ColorIndex {
 export function buildColorIndex(env: ContractEnvelope): ColorIndex {
   const repo = new Map<string, string>();
   for (const r of env.repos ?? []) {
+    if (!isHexColor(r.color)) continue;
     repo.set(repoKey(r.source_id, r.project_path), r.color);
     // Case-insensitive fallback key: a GitLab item's project_path is the queried
     // config path verbatim, but GitHub returns the canonical nameWithOwner — so a
@@ -227,7 +236,7 @@ export function buildColorIndex(env: ContractEnvelope): ColorIndex {
     repo.set(repoKey(r.source_id, r.project_path.toLowerCase()), r.color);
   }
   const source = new Map<string, string>();
-  for (const s of env.sources ?? []) if (s.color) source.set(s.source_id, s.color);
+  for (const s of env.sources ?? []) if (isHexColor(s.color)) source.set(s.source_id, s.color);
   return { repo, source };
 }
 

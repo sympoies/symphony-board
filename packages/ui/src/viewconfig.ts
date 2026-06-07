@@ -7,6 +7,8 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
+import { isHexColor } from "./model.ts";
+
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
 // visibility layer, so toggling one never touches the remembered per-repo set.
@@ -47,7 +49,10 @@ export function loadColorOverrides(): Map<string, string> {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return new Map();
     const out = new Map<string, string>();
-    for (const [k, v] of Object.entries(parsed)) if (typeof v === "string") out.set(k, v);
+    // Only accept valid hex: localStorage is hand-editable, and the override
+    // value reaches a CSS sink. A bad entry is dropped (repo falls back to its
+    // inherited color) rather than trusted.
+    for (const [k, v] of Object.entries(parsed)) if (isHexColor(v)) out.set(k, v);
     return out;
   } catch {
     return new Map(); // unavailable / malformed storage — no overrides

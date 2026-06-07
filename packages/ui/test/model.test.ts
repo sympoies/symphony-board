@@ -18,6 +18,7 @@ import {
   applyVisibility,
   buildColorIndex,
   resolveRepoColor,
+  isHexColor,
   compareGraphNodes,
   type ResolvedEdge,
   type GraphNode,
@@ -209,6 +210,22 @@ test("buildColorIndex + resolveRepoColor resolve override -> repo -> source -> n
   assert.equal(resolveRepoColor("gitlab:gitlab.com", "g/x", idx, none), null, "no repo and no source color -> none");
   const ov = new Map([[repoKey("github:github.com", "o/repo"), "#abcdef"]]);
   assert.equal(resolveRepoColor("github:github.com", "o/repo", idx, ov), "#abcdef", "an override beats everything");
+});
+
+test("isHexColor accepts #rgb/#rrggbb only; buildColorIndex drops anything else (CSS-sink guard)", () => {
+  assert.equal(isHexColor("#abc"), true);
+  assert.equal(isHexColor("#A1B2C3"), true);
+  for (const bad of ["red", "#abcd", "#12g", "url(https://evil/x)", "#fff; background:url(x)", "", null, 123])
+    assert.equal(isHexColor(bad as unknown), false, `rejects ${JSON.stringify(bad)}`);
+  // a non-hex color in the contract is dropped, not indexed -> no highlight
+  const env: ContractEnvelope = {
+    contract_version: "1.1.0", generated_at: "2026-06-07T00:00:00Z", generator: "t",
+    sources: [{ source_id: "s", kind: "github", host: "h", display_name: null, last_success_at: null, last_status: null, color: "url(https://evil/x)" }],
+    items: [], edges: [],
+    repos: [{ source_id: "s", project_path: "o/r", color: "javascript:alert(1)" }],
+  };
+  const idx = buildColorIndex(env);
+  assert.equal(resolveRepoColor("s", "o/r", idx, new Map()), null, "malformed config colors never reach a CSS sink");
 });
 
 test("buildAdjacency records both directions per edge and dedupes", () => {

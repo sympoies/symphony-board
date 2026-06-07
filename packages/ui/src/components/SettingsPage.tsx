@@ -1,5 +1,5 @@
 import type { SourceDTO } from "@symphony-board/contract";
-import { relativeTime, type RepoOption, type ColorOf } from "../model.ts";
+import { relativeTime, isHexColor, type RepoOption, type ColorOf } from "../model.ts";
 import { Badge } from "./Badge.tsx";
 
 interface Props {
@@ -100,7 +100,7 @@ export function SettingsPage({
               </label>
               <Badge text={status} kind={`status-${status}`} />
               <span className="source-name">{meta?.display_name ?? sourceId}</span>
-              {meta?.color ? (
+              {meta?.color && isHexColor(meta.color) ? (
                 <span className="color-swatch" style={{ background: meta.color }} title={`source color ${meta.color} (set in config)`} />
               ) : null}
               <span className="muted">
