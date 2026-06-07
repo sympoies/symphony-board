@@ -111,20 +111,47 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 // percent-encoded to survive the query.
 export interface HashRoute {
   page: string; // "" | "graph" | "settings" (the part before any '?')
-  focus: string | null; // an item ref to focus on the graph, if any
+  focus: string | null; // an item ref to focus on the graph (side-list view + camera)
+  q: string | null; // a search token to seed the search bar (narrows the graph)
 }
 
 export function parseHashRoute(hash: string): HashRoute {
   const raw = hash.replace(/^#\/?/, "");
-  const q = raw.indexOf("?");
-  const page = q === -1 ? raw : raw.slice(0, q);
-  const focus = q === -1 ? null : new URLSearchParams(raw.slice(q + 1)).get("focus");
-  return { page, focus: focus || null };
+  const i = raw.indexOf("?");
+  const page = i === -1 ? raw : raw.slice(0, i);
+  const params = i === -1 ? null : new URLSearchParams(raw.slice(i + 1));
+  return { page, focus: params?.get("focus") || null, q: params?.get("q") || null };
 }
 
-// The hash a board card links to, to open the graph focused on `ref`. Pairs with
-// parseHashRoute above (encode here, decode there).
-export const graphFocusHref = (ref: string): string => `#/graph?focus=${encodeURIComponent(ref)}`;
+// The search-bar token a board card seeds when it deep-links into the graph: the
+// repo + issue/PR number ("owner/repo #13"), which itemMatches pins to exactly
+// this one item — so the graph narrows to it + its neighbours instead of loading
+// the whole window (the slow path). Falls back to the title / external_id when an
+// item has no repo+iid, so the token still narrows. Pairs with itemMatches'
+// "#<n>" exact-iid rule; clearing the search returns to the unfiltered view.
+export function itemSearchToken(it: ItemDTO): string {
+  if (it.project_path && it.iid != null) return `${it.project_path} #${it.iid}`;
+  return it.title ?? it.external_id ?? it.id;
+}
+
+// The hash a board card links to, to open the graph on `it`: `focus` drives the
+// side-list focus view + camera, and `q` seeds the search bar with the item's
+// token so the canvas narrows to it + its neighbours. Both live in the URL so the
+// search applies synchronously on arrival (no full-graph flash, deep-link
+// shareable). Pairs with parseHashRoute (encode here, decode there).
+export const graphFocusHref = (it: ItemDTO): string =>
+  `#/graph?focus=${encodeURIComponent(it.id)}&q=${encodeURIComponent(itemSearchToken(it))}`;
+
+// Apply a route's "?q=" token to the filters: a present q SEEDS the search (how a
+// board → graph deep-link narrows the graph); an ABSENT q leaves filters untouched
+// so a search the user typed is never clobbered by a later navigation. Returns the
+// SAME object when nothing changes (stable identity, so React skips a re-render).
+// Used for both the initial filters and every hashchange, so the asymmetry lives
+// in exactly one tested place.
+export function applyRouteSearch(filters: Filters, route: HashRoute): Filters {
+  if (route.q == null || route.q === filters.search) return filters;
+  return { ...filters, search: route.q };
+}
 
 // The set of item ids that are an endpoint of at least one edge — i.e. items
 // that have a node on the relationship graph. Gates the board card's "focus in
@@ -146,11 +173,26 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.kinds.size && !f.kinds.has(it.kind)) return false;
   const q = f.search.trim().toLowerCase();
   if (q) {
+    // iid is intentionally NOT in the hay — it is matched ONLY via the exact
+    // `#<n>` term below. Putting it in the hay would reintroduce substring
+    // collisions (a search for "#13" matching "#130").
     const hay = [it.title, it.author, it.project_path, it.external_id, ...it.labels.map((l) => l.name)]
       .filter((s): s is string => !!s)
       .join(" ")
       .toLowerCase();
-    if (!hay.includes(q)) return false;
+    // AND across whitespace-separated terms. A `#<n>` term is an explicit
+    // issue/PR number — matched EXACTLY against iid (so "#13" never matches
+    // "#130"); every other term is a case-insensitive substring of the hay. This
+    // lets a "repo #iid" search (the board → graph deep-link) pin exactly one
+    // item, while staying backward compatible for a plain single-word search.
+    for (const term of q.split(/\s+/)) {
+      const num = /^#(\d+)$/.exec(term);
+      if (num) {
+        if (it.iid == null || String(it.iid) !== num[1]) return false;
+      } else if (!hay.includes(term)) {
+        return false;
+      }
+    }
   }
   return true;
 }

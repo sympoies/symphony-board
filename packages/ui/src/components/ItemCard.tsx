@@ -85,7 +85,7 @@ export function ItemCard({
         {linked ? (
           <a
             className="card-graph"
-            href={graphFocusHref(item.id)}
+            href={graphFocusHref(item)}
             title="focus this item in the relationship graph"
             aria-label="focus in graph"
             onClick={(e) => e.stopPropagation()}
