@@ -79,7 +79,7 @@ test("cutoffIso is deterministic for a fixed now", () => {
 
 test("buildGraph keeps only edge-connected nodes, applies the time window, and flags untracked ends", () => {
   const pr = item({ id: "P", kind: "change_request", state: "merged", updated_at: "2026-06-01T00:00:00Z", url: "https://pr" });
-  const iss = item({ id: "I", kind: "issue", state: "closed", updated_at: "2026-06-01T00:00:00Z", title: "Closed issue" });
+  const iss = item({ id: "I", kind: "issue", state: "closed", created_at: "2026-05-20T00:00:00Z", updated_at: "2026-06-01T00:00:00Z", title: "Closed issue" });
   const oldPr = item({ id: "OP", kind: "change_request", state: "merged", updated_at: "2020-01-01T00:00:00Z" });
   const oldIss = item({ id: "OI", kind: "issue", state: "closed", updated_at: "2020-01-01T00:00:00Z" });
   const edges: ResolvedEdge[] = [
@@ -95,5 +95,11 @@ test("buildGraph keeps only edge-connected nodes, applies the time window, and f
   const untracked = g.nodes.find((n) => n.id === "github:github.com|UNTRACKED");
   assert.equal(untracked?.untracked, true);
   assert.equal(untracked?.label, "UNTRACKED", "untracked label is the bare ref tail");
+  assert.equal(untracked?.created_at, null, "untracked node carries no timestamps");
+  assert.equal(untracked?.updated_at, null);
+  // tracked nodes carry created_at / updated_at through to the node card (#24)
+  const tracked = g.nodes.find((n) => n.id === "I");
+  assert.equal(tracked?.created_at, "2026-05-20T00:00:00Z", "tracked node carries created_at");
+  assert.equal(tracked?.updated_at, "2026-06-01T00:00:00Z", "tracked node carries updated_at");
   assert.equal(buildGraph(edges, null).links.length, 3, "no cutoff keeps every edge");
 });
