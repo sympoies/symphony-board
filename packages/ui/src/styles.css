@@ -234,7 +234,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .col-head .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .dot-open { background: var(--open); }
 .dot-in_progress { background: var(--declared); }
-.dot-tracking { background: var(--merged); }
+.dot-trailing { background: var(--merged); }
 .dot-closed { background: var(--muted); }
 /* spotlight-lane dots (the 3 cross-cut columns on the full board) */
 .dot-lane-follow-up { background: var(--broken); }

@@ -84,7 +84,7 @@ export function App() {
   );
 
   // Status is intrinsic — derived over ALL items/edges, then filtered items are
-  // placed into columns (so a closed item's Tracking status is correct even when
+  // placed into columns (so a closed item's Trailing status is correct even when
   // its related open item is filtered out of view).
   const statuses = useMemo(() => (env ? deriveStatuses(env.items, env.edges) : new Map()), [env]);
 
