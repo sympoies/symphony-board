@@ -22,7 +22,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum } from "d3-force";
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
@@ -65,6 +65,10 @@ const NODE_W = 200;
 // Tall enough for head + two-line title + repo + the updated/created/demand
 // meta row; demand then scales the whole box (and its font) up from here.
 const NODE_H = 96;
+const OVERVIEW_EDGE_GAP = 56;
+const FOCUS_EDGE_GAP = 132;
+const OVERVIEW_COLLISION_GAP = 18;
+const FOCUS_COLLISION_GAP = 36;
 
 // Node box + font scale from demand (comments + reactions). Log-damped so a few
 // very busy items don't dwarf the rest; capped at ~1.9x.
@@ -258,23 +262,43 @@ function layoutDagre(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
   return m;
 }
 
+type LayoutDensity = "overview" | "focus";
 type SimNode = SimulationNodeDatum & { id: string };
-function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim): Map<string, { x: number; y: number }> {
+type SimLink = SimulationLinkDatum<SimNode>;
+
+function linkEndpointId(endpoint: SimLink["source"]): string {
+  return typeof endpoint === "object" ? endpoint.id : String(endpoint);
+}
+
+function nodeRadius(id: string, dimOf: (id: string) => Dim): number {
+  const { w, h } = dimOf(id);
+  return Math.max(w, h) / 2;
+}
+
+function readableLinkDistance(link: SimLink, dimOf: (id: string) => Dim, density: LayoutDensity): number {
+  const source = linkEndpointId(link.source);
+  const target = linkEndpointId(link.target);
+  const gap = density === "focus" ? FOCUS_EDGE_GAP : OVERVIEW_EDGE_GAP;
+  return nodeRadius(source, dimOf) + nodeRadius(target, dimOf) + gap;
+}
+
+function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity): Map<string, { x: number; y: number }> {
   const simNodes: SimNode[] = nodes.map((n) => ({ id: n.id }));
-  const simLinks = links.map((l) => ({ source: l.source, target: l.target }));
-  const sim = forceSimulation(simNodes)
+  const simLinks: SimLink[] = links.map((l) => ({ source: l.source, target: l.target }));
+  const collisionGap = density === "focus" ? FOCUS_COLLISION_GAP : OVERVIEW_COLLISION_GAP;
+  const sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force("charge", forceManyBody().strength(-340))
     .force(
       "link",
-      forceLink(simLinks)
+      forceLink<SimNode, SimLink>(simLinks)
         .id((d) => (d as SimNode).id)
-        .distance(110)
+        .distance((l) => readableLinkDistance(l, dimOf, density))
         .strength(0.4),
     )
     .force("center", forceCenter(0, 0))
     // Collision radius tracks each node's (demand-scaled) box so big nodes claim
     // more room and overlap less.
-    .force("collide", forceCollide((d) => { const { w, h } = dimOf((d as SimNode).id); return Math.max(w, h) / 2 + 14; }))
+    .force("collide", forceCollide((d) => nodeRadius((d as SimNode).id, dimOf) + collisionGap))
     .stop();
   for (let i = 0; i < 320; i++) sim.tick();
   const m = new Map<string, { x: number; y: number }>();
@@ -287,10 +311,10 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 
 // The RF canvas is keyed by the parent so a layout / filter / FOCUS change
 // remounts it and re-fits; that keeps drag state simple (local, reset on the
-// change) and is what reframes the camera on the new focus subgraph. Hover a
-// node to highlight it + its neighbours (everything else dims) and label its
-// incident edges with the edge type.
-function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
+// change) and is what reframes the camera on the new focus subgraph. In the
+// overview, hover labels the incident edges; in the sparse focus view labels stay
+// visible so the relationship text is readable without chasing the mouse.
+function Flow({ rfNodes, rfEdges, showEdgeLabels }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean }) {
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -315,16 +339,17 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
     () =>
       edges.map((e) => {
         const incident = !!hoverId && (e.source === hoverId || e.target === hoverId);
+        const labelled = showEdgeLabels || incident;
         const base: CSSProperties = rfEdges.find((x) => x.id === e.id)?.style ?? e.style ?? {};
         return {
           ...e,
           // FloatingEdge renders this label via EdgeLabelRenderer (styled by
           // .rf-edge-label), so only the text is needed here — no SVG label props.
-          label: incident ? String((e.data as { type?: string } | undefined)?.type ?? "") : undefined,
+          label: labelled ? String((e.data as { type?: string } | undefined)?.type ?? "") : undefined,
           style: { ...base, opacity: hoverId ? (incident ? 1 : 0.05) : (base.opacity ?? 1) },
         };
       }),
-    [edges, hoverId, rfEdges],
+    [edges, hoverId, rfEdges, showEdgeLabels],
   );
 
   return (
@@ -655,10 +680,10 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
     return (id: string): Dim => m.get(id) ?? { w: NODE_W, h: NODE_H, scale: 1 };
   }, [view]);
 
-  const positions = useMemo(
-    () => (layout === "hierarchy" ? layoutDagre(view.nodes, view.links, dimOf) : layoutForce(view.nodes, view.links, dimOf)),
-    [view, layout, dimOf],
-  );
+  const positions = useMemo(() => {
+    if (layout === "hierarchy") return layoutDagre(view.nodes, view.links, dimOf);
+    return layoutForce(view.nodes, view.links, dimOf, inFocus ? "focus" : "overview");
+  }, [view, layout, dimOf, inFocus]);
 
   const rfNodes: Node[] = useMemo(
     () =>
@@ -795,7 +820,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
               onBack={() => setFocusId(null)}
             />
             <div className="graph-canvas">
-              <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
+              <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} />
             </div>
           </div>
         </ReactFlowProvider>

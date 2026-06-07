@@ -179,6 +179,33 @@ try {
   await sleep(500);
   const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
   const deepLinkSearch = (await send("Runtime.evaluate", { expression: "document.querySelector('.search')?.value || ''", returnByValue: true })).result.value || "";
+  const deepLinkGeometry = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rects = (selector) => Array.from(document.querySelectorAll(selector)).map((el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+      });
+      const nodes = rects('.react-flow__node');
+      const labels = rects('.rf-edge-label');
+      const gap = (a, b) => {
+        const dx = Math.max(0, Math.max(a.left - b.right, b.left - a.right));
+        const dy = Math.max(0, Math.max(a.top - b.bottom, b.top - a.bottom));
+        return Math.hypot(dx, dy);
+      };
+      const intersects = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      let minNodeGap = Infinity;
+      for (let i = 0; i < nodes.length; i += 1) {
+        for (let j = i + 1; j < nodes.length; j += 1) minNodeGap = Math.min(minNodeGap, gap(nodes[i], nodes[j]));
+      }
+      return {
+        nodeCount: nodes.length,
+        labelCount: labels.length,
+        minNodeGap: Number.isFinite(minNodeGap) ? Math.round(minNodeGap) : null,
+        labelsClearNodes: labels.every((label) => nodes.every((node) => !intersects(label, node))),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   ws.close();
 
   // --- assertions ---
@@ -237,6 +264,10 @@ try {
     // linked items), so the focus subgraph must DRAW that relationship as an edge
     // path — guards the "1 link counted but no line visible" class of bug.
     [/react-flow__edge-path/.test(deepLinkHtml), "deep link: focus view draws the relationship edge (path)"],
+    [/rf-edge-label/.test(deepLinkHtml), "deep link: focus view labels the relationship edge"],
+    [deepLinkGeometry.labelCount >= 1, `deep link: relationship labels measured (${deepLinkGeometry.labelCount || 0} >= 1)`],
+    [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
+    [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],

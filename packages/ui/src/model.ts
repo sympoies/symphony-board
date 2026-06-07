@@ -117,12 +117,26 @@ export interface HashRoute {
   q: string | null; // a search token to seed the search bar (narrows the graph)
 }
 
+const routeParam = (value: string | null | undefined): string | null => {
+  const v = value?.trim();
+  return v ? v : null;
+};
+
 export function parseHashRoute(hash: string): HashRoute {
   const raw = hash.replace(/^#\/?/, "");
   const i = raw.indexOf("?");
   const page = i === -1 ? raw : raw.slice(0, i);
   const params = i === -1 ? null : new URLSearchParams(raw.slice(i + 1));
-  return { page, focus: params?.get("focus") || null, q: params?.get("q") || null };
+  return { page, focus: routeParam(params?.get("focus")), q: routeParam(params?.get("q")) };
+}
+
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null }): string {
+  const params: string[] = [];
+  const focus = routeParam(route.focus);
+  const q = routeParam(route.q);
+  if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
+  if (q) params.push(`q=${encodeURIComponent(q)}`);
+  return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 
 // The search-bar token a board card seeds when it deep-links into the graph: the
@@ -142,17 +156,17 @@ export function itemSearchToken(it: ItemDTO): string {
 // search applies synchronously on arrival (no full-graph flash, deep-link
 // shareable). Pairs with parseHashRoute (encode here, decode there).
 export const graphFocusHref = (it: ItemDTO): string =>
-  `#/graph?focus=${encodeURIComponent(it.id)}&q=${encodeURIComponent(itemSearchToken(it))}`;
+  buildHashRoute({ page: "graph", focus: it.id, q: itemSearchToken(it) });
 
-// Apply a route's "?q=" token to the filters: a present q SEEDS the search (how a
-// board → graph deep-link narrows the graph); an ABSENT q leaves filters untouched
-// so a search the user typed is never clobbered by a later navigation. Returns the
-// SAME object when nothing changes (stable identity, so React skips a re-render).
-// Used for both the initial filters and every hashchange, so the asymmetry lives
-// in exactly one tested place.
+// Apply a route's "?q=" token to the filters. The URL is the source of truth for
+// the visible search box: present q sets the search, absent q clears it. That
+// avoids hidden search state when navigating Board ↔ Graph with plain tab links.
+// Returns the SAME object when nothing changes (stable identity, so React skips a
+// re-render).
 export function applyRouteSearch(filters: Filters, route: HashRoute): Filters {
-  if (route.q == null || route.q === filters.search) return filters;
-  return { ...filters, search: route.q };
+  const search = route.q ?? "";
+  if (search === filters.search) return filters;
+  return { ...filters, search };
 }
 
 // The set of item ids that are an endpoint of at least one edge — i.e. items
