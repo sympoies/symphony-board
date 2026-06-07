@@ -48,3 +48,85 @@ jobs:
       - run: pnpm --filter @symphony-board/ui run smoke
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+
+  # Coverage gate (mirrors nils-cli's `--fail-under-lines`). Combined LINE
+  # coverage across the backend (`src/**/*.ts`, incl. the untested CLI/glue,
+  # counted honestly) and the UI `.ts` view-model. The `.tsx` component layer is
+  # NOT a coverage % — it is gated by the `ui` job's headless render-smoke, since
+  # V8 coverage of the Vite bundle remaps to a meaningless ~100%-if-loaded.
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Coverage gate
+        run: pnpm coverage
+        env:
+          COVERAGE_FAIL_UNDER_LINES: "85"
+      # Job summary + sticky PR comment (worst-covered files first). Runs even
+      # when the gate failed — coverage/lcov.info is written before the check.
+      - name: Coverage summary
+        if: always() && hashFiles('coverage/lcov.info') != ''
+        run: |
+          GITHUB_STEP_SUMMARY=coverage/summary.md bash scripts/ci/coverage-summary.sh coverage/lcov.info
+          cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: PR comment (sticky coverage summary)
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && hashFiles('coverage/summary.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          path: coverage/summary.md
+      - name: Upload coverage LCOV
+        if: always() && hashFiles('coverage/lcov.info') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+
+  # Publish the coverage badge to the `coverage-badge` orphan branch (no external
+  # service). The README references badges/coverage.svg on that branch. Default
+  # branch pushes only — PRs read the number from the `coverage` job's summary.
+  coverage_badge:
+    runs-on: ubuntu-latest
+    needs: [coverage]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage
+      - name: Generate badge
+        run: |
+          mkdir -p /tmp/badge
+          bash scripts/ci/coverage-badge.sh coverage/lcov.info /tmp/badge/coverage.svg
+      - name: Publish to coverage-badge branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin coverage-badge || true
+          if git show-ref --verify --quiet refs/remotes/origin/coverage-badge; then
+            git checkout -B coverage-badge origin/coverage-badge
+          else
+            git checkout --orphan coverage-badge
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p badges
+          cp /tmp/badge/coverage.svg badges/coverage.svg
+          git add badges/coverage.svg
+          if git diff --staged --quiet; then
+            echo "Coverage badge unchanged."
+          else
+            git commit -m "chore: update coverage badge"
+            git push origin HEAD:coverage-badge
+          fi
