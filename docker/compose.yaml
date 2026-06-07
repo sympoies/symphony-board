@@ -14,6 +14,13 @@
 #   docker compose -f docker/compose.yaml up -d --build
 #   docker compose -f docker/compose.yaml logs -f
 #   open http://localhost:8080                            # the served board
+
+# Pin the Compose project name to the repo. Without this it would default to the
+# compose file's directory ("docker"), which is unhelpful when several projects
+# share a Docker host; "symphony-board" makes the containers
+# (symphony-board-board-1 / symphony-board-web-1) and the project group obvious.
+name: symphony-board
+
 services:
   board:
     build:
