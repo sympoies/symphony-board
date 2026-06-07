@@ -131,31 +131,54 @@ try {
   await send("Runtime.enable");
   await send("Page.enable");
 
-  // wait for the SPA to render the board
-  let html = "";
-  while (Date.now() < deadline) {
-    const r = await send("Runtime.evaluate", { expression: "document.querySelector('.card') ? document.body.innerHTML : ''", returnByValue: true });
-    html = r.result.value || "";
-    if (html.length > 200) break;
-    await sleep(250);
-  }
+  // wait for some DOM matching `readyExpr` to render, then return body HTML
+  const waitHtml = async (readyExpr) => {
+    let h = "";
+    while (Date.now() < deadline) {
+      const r = await send("Runtime.evaluate", { expression: `${readyExpr} ? document.body.innerHTML : ''`, returnByValue: true });
+      h = r.result.value || "";
+      if (h.length > 200) break;
+      await sleep(250);
+    }
+    return h;
+  };
+
+  // Page 1 — the default full-bleed 7-column board.
+  const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
+  // Page 2 — navigate to the debug view (status board + spotlight + edges).
+  await send("Runtime.evaluate", { expression: "location.hash = '#/debug'" });
+  await sleep(150);
+  const debugHtml = await waitHtml("document.querySelector('.relationships')");
+  // Page 3 — the relationship graph (cytoscape draws to canvas; assert the page
+  // + count label mount cleanly and the lazy chunk loads without errors).
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+  await sleep(250);
+  const graphHtml = await waitHtml("document.querySelector('.graph-page')");
   ws.close();
 
   // --- assertions ---
-  const cards = (html.match(/class="card"/g) || []).length;
-  const has = (s) => html.includes(s);
-  const cols = (html.match(/class="col /g) || []).length;
+  const has = (h, s) => h.includes(s);
+  const m = (h, re) => (h.match(re) || []).length;
+  const boardCols = m(boardHtml, /class="col /g);
+  const boardCards = m(boardHtml, /class="card"/g);
   const checks = [
-    [cards >= 5, `item cards rendered (${cards} >= 5)`],
-    // the board view (default): status columns + spotlight lanes
-    [has("status-board"), "status board rendered"],
-    [cols >= 4, `status columns rendered (${cols} >= 4)`],
-    [has("col-in_progress"), "In Progress column present"],
-    [has("spotlight"), "spotlight section present"],
-    [has("Relationships"), "relationships section present"],
-    [/badge-lifecycle-declared/.test(html), "declared (in-progress) lifecycle bucket rendered"],
-    [/badge-lifecycle-fulfilled/.test(html), "fulfilled lifecycle bucket rendered"],
-    [/badge-lifecycle-broken/.test(html), "broken lifecycle bucket rendered"],
+    // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
+    [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
+    [has(boardHtml, "board-7"), "board: 7-column board rendered"],
+    [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
+    [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
+    [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
+    [!has(boardHtml, "relationships"), "board: no Relationships section (debug-only)"],
+    // page 2: the debug view keeps the status board, spotlight, and edges
+    [has(debugHtml, "status-board"), "debug: status board rendered"],
+    [has(debugHtml, "spotlight"), "debug: spotlight section present"],
+    [has(debugHtml, "Relationships"), "debug: relationships section present"],
+    [/badge-lifecycle-declared/.test(debugHtml), "debug: declared lifecycle bucket rendered"],
+    [/badge-lifecycle-fulfilled/.test(debugHtml), "debug: fulfilled lifecycle bucket rendered"],
+    [/badge-lifecycle-broken/.test(debugHtml), "debug: broken lifecycle bucket rendered"],
+    // page 3: the relationship graph mounts and the lazy cytoscape chunk loads
+    [has(graphHtml, "graph-page"), "graph: page rendered"],
+    [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
     [consoleErrors.length === 0, `no console errors (${consoleErrors.length})`],
     [exceptions.length === 0, `no uncaught exceptions (${exceptions.length})`],
   ];

@@ -12,6 +12,7 @@ interface Props {
   facets: Facets;
   groupBy: GroupBy;
   view: View;
+  compact?: boolean; // hide the board/list view toggle (full-board page has no list view)
   onSearch: (q: string) => void;
   onToggle: (dim: "sources" | "states" | "kinds", value: string) => void;
   onGroupBy: (g: GroupBy) => void;
@@ -50,21 +51,23 @@ function ToggleGroup({
 
 const GROUP_OPTIONS: GroupBy[] = ["source", "repo", "state", "kind", "none"];
 
-export function Controls({ filters, facets, groupBy, view, onSearch, onToggle, onGroupBy, onView, onLoadFile }: Props) {
+export function Controls({ filters, facets, groupBy, view, compact, onSearch, onToggle, onGroupBy, onView, onLoadFile }: Props) {
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
   };
   return (
     <div className="controls">
-      <div className="view-toggle">
-        <button type="button" className={`toggle${view === "board" ? " toggle-on" : ""}`} onClick={() => onView("board")}>
-          Board
-        </button>
-        <button type="button" className={`toggle${view === "list" ? " toggle-on" : ""}`} onClick={() => onView("list")}>
-          List
-        </button>
-      </div>
+      {!compact && (
+        <div className="view-toggle">
+          <button type="button" className={`toggle${view === "board" ? " toggle-on" : ""}`} onClick={() => onView("board")}>
+            Board
+          </button>
+          <button type="button" className={`toggle${view === "list" ? " toggle-on" : ""}`} onClick={() => onView("list")}>
+            List
+          </button>
+        </div>
+      )}
       <input
         className="search"
         type="search"

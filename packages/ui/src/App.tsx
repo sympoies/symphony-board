@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
 import {
@@ -20,8 +20,17 @@ import { Relationships } from "./components/Relationships.tsx";
 import { Board } from "./components/Board.tsx";
 import { StatusBoard } from "./components/StatusBoard.tsx";
 import { Spotlight } from "./components/Spotlight.tsx";
+import { FullBoard } from "./components/FullBoard.tsx";
+
+// The Graph page pulls in cytoscape (~400KB) — lazy-load it so the board page
+// stays light; the chunk only loads when #/graph is opened.
+const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({ default: m.GraphPage })));
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
+
+// Two pages via a zero-dep hash route: "" (#/) is the primary full-width board,
+// "debug" (#/debug) keeps the centered inspection view (list toggle + edges).
+const readRoute = (): string => (typeof location !== "undefined" ? location.hash.replace(/^#\/?/, "") : "");
 
 export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
@@ -30,6 +39,14 @@ export function App() {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [groupBy, setGroupBy] = useState<GroupBy>("source");
   const [view, setView] = useState<View>("board");
+  const [route, setRoute] = useState<string>(readRoute);
+  const isDebug = route === "debug";
+
+  useEffect(() => {
+    const onHash = () => setRoute(readRoute());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   useEffect(() => {
     fetchContract()
@@ -116,9 +133,21 @@ export function App() {
   if (!env) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
 
+  const isGraph = route === "graph";
   return (
-    <div className="app">
+    <div className={isDebug ? "app" : "app app-wide"}>
       <Header env={env} />
+      <nav className="page-tabs">
+        <a className={`tab${!isDebug && !isGraph ? " tab-on" : ""}`} href="#/">
+          Board
+        </a>
+        <a className={`tab${isGraph ? " tab-on" : ""}`} href="#/graph">
+          Graph
+        </a>
+        <a className={`tab${isDebug ? " tab-on" : ""}`} href="#/debug">
+          Debug
+        </a>
+      </nav>
       {unsupported && (
         <div className="banner warn">
           This UI targets contract major v{SUPPORTED_MAJOR}, but the loaded contract is {env.contract_version}. Some
@@ -130,6 +159,7 @@ export function App() {
         facets={facets}
         groupBy={groupBy}
         view={view}
+        compact={!isDebug}
         onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
         onToggle={toggle}
         onGroupBy={setGroupBy}
@@ -137,15 +167,25 @@ export function App() {
         onLoadFile={loadFile}
       />
       <StatsBar stats={stats} />
-      {view === "board" ? (
+      {isDebug ? (
         <>
-          <StatusBoard items={filteredItems} statuses={statuses} />
-          <Spotlight items={filteredItems} />
+          {view === "board" ? (
+            <>
+              <StatusBoard items={filteredItems} statuses={statuses} />
+              <Spotlight items={filteredItems} />
+            </>
+          ) : (
+            <Board items={filteredItems} groupBy={groupBy} />
+          )}
+          <Relationships edges={filteredEdges} />
         </>
+      ) : isGraph ? (
+        <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
+          <GraphPage edges={filteredEdges} />
+        </Suspense>
       ) : (
-        <Board items={filteredItems} groupBy={groupBy} />
+        <FullBoard items={filteredItems} statuses={statuses} />
       )}
-      <Relationships edges={filteredEdges} />
     </div>
   );
 }
