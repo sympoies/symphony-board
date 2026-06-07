@@ -11,6 +11,7 @@ import {
   relativeTime,
   buildGraph,
   buildAdjacency,
+  relatedItems,
   cutoffIso,
   repoKey,
   deriveRepos,
@@ -207,5 +208,21 @@ test("buildAdjacency handles empty input, distinct types on one pair, and self-l
   assert.deepEqual(buildAdjacency([re("X", "X", "relates")]).get("X"), [
     { ref: "X", type: "relates", direction: "out" },
     { ref: "X", type: "relates", direction: "in" },
+  ]);
+});
+
+test("relatedItems collapses a mutual (out+in) pair to one 'both' entry, keeping types distinct", () => {
+  const out = relatedItems([
+    { ref: "B", type: "mentions", direction: "out" },
+    { ref: "B", type: "mentions", direction: "in" }, // same ref+type, other direction -> mutual
+    { ref: "C", type: "mentions", direction: "out" }, // one-way stays "out"
+    { ref: "D", type: "closes", direction: "in" }, // one-way stays "in"
+    { ref: "B", type: "closes", direction: "out" }, // same ref, different type -> kept separate
+  ]);
+  assert.deepEqual(out, [
+    { ref: "B", type: "mentions", direction: "both" },
+    { ref: "C", type: "mentions", direction: "out" },
+    { ref: "D", type: "closes", direction: "in" },
+    { ref: "B", type: "closes", direction: "out" },
   ]);
 });

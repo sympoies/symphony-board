@@ -289,6 +289,28 @@ export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]>
   return adj;
 }
 
+// A related item for DISPLAY: buildAdjacency's per-direction entries collapsed by
+// (ref, type) so a neighbour appears ONCE even when the relationship is mutual.
+// Mentions are frequently reciprocal (A mentions B and B mentions A are two edges),
+// which otherwise lists the same neighbour twice — once "out", once "in"; a mutual
+// pair collapses to direction "both".
+export interface RelatedItem {
+  ref: string;
+  type: string;
+  direction: "out" | "in" | "both";
+}
+
+export function relatedItems(refs: RelatedRef[]): RelatedItem[] {
+  const byKey = new Map<string, RelatedItem>();
+  for (const r of refs) {
+    const key = `${r.ref} ${r.type}`;
+    const cur = byKey.get(key);
+    if (!cur) byKey.set(key, { ref: r.ref, type: r.type, direction: r.direction });
+    else if (cur.direction !== r.direction) cur.direction = "both";
+  }
+  return [...byKey.values()];
+}
+
 export interface Stats {
   items: number;
   byState: Record<string, number>;

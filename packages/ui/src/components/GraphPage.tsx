@@ -22,7 +22,7 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
-import { buildGraph, buildAdjacency, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
+import { buildGraph, buildAdjacency, relatedItems, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -275,7 +275,7 @@ function GraphListCard({
   item: ItemDTO | null;
   fallbackLabel: string;
   sourceKind?: string;
-  relation?: { type: string; direction: "out" | "in"; offWindow: boolean };
+  relation?: { type: string; direction: "out" | "in" | "both"; offWindow: boolean };
   active?: boolean;
   onFocus: () => void;
 }) {
@@ -300,7 +300,7 @@ function GraphListCard({
       {relation && (
         <div className="glc-relation muted">
           <span className="glc-rel-type">
-            {relation.direction === "out" ? "→" : "←"} {relation.type}
+            {relation.direction === "both" ? "↔" : relation.direction === "out" ? "→" : "←"} {relation.type}
           </span>
           {relation.offWindow && (
             <span className="glc-offwindow" title="outside the current “active since” window — widen it to show this node on the graph">
@@ -416,9 +416,12 @@ function GraphSideList({
   }
 
   if (focusId !== null) {
-    const related = (adjacency.get(focusId) ?? [])
-      .slice()
-      .sort((a, b) => Number(!windowedIds.has(a.ref)) - Number(!windowedIds.has(b.ref)) || a.type.localeCompare(b.type) || labelOf(a.ref).localeCompare(labelOf(b.ref)));
+    // Collapse the per-direction adjacency entries to one card per (ref, type)
+    // — a mutual relationship (e.g. two items that mention each other) becomes a
+    // single "both" entry instead of a duplicate "→" + "←" pair.
+    const related = relatedItems(adjacency.get(focusId) ?? []).sort(
+      (a, b) => Number(!windowedIds.has(a.ref)) - Number(!windowedIds.has(b.ref)) || a.type.localeCompare(b.type) || labelOf(a.ref).localeCompare(labelOf(b.ref)),
+    );
     return (
       <aside className="graph-list">
         <button type="button" className="graph-list-back" onClick={back}>
@@ -437,7 +440,7 @@ function GraphSideList({
           ) : (
             related.map((r) => (
               <GraphListCard
-                key={`${r.ref}|${r.type}|${r.direction}`}
+                key={`${r.ref}|${r.type}`}
                 item={itemsByRef.get(r.ref) ?? null}
                 fallbackLabel={labelOf(r.ref)}
                 sourceKind={kindOf(r.ref)}
