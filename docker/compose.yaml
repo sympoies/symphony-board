@@ -1,6 +1,10 @@
-# Loop daemon: the always-on writer (point 3). Reads tokens from a gitignored
-# .env (GITHUB_TOKEN, GITLAB_TOKEN, ...). Config and DB are bind-mounted so the
-# SQLite store survives container rebuilds and can be backed up from the host.
+# Two services: the loop daemon (board) — the always-on writer (point 3) that
+# syncs + emits data/contract.json — and a read-only UI sidecar (web) that serves
+# the built board plus that daemon-emitted contract over HTTP.
+#
+# Reads tokens from a gitignored .env (GITHUB_TOKEN, GITLAB_TOKEN, ...). Config
+# and the DB are bind-mounted so the SQLite store survives container rebuilds and
+# can be backed up from the host.
 #
 # Paths are relative to this file (docker/), so the repo root is "..". Run from
 # anywhere with `docker compose -f docker/compose.yaml up -d --build`.
@@ -9,6 +13,7 @@
 #   cp config/sources.example.json config/sources.json    # then edit
 #   docker compose -f docker/compose.yaml up -d --build
 #   docker compose -f docker/compose.yaml logs -f
+#   open http://localhost:8080                            # the served board
 services:
   board:
     build:
@@ -42,3 +47,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 180s
+
+  # Read-only UI sidecar: a multi-stage build of packages/ui served by nginx at
+  # http://localhost:8080. It serves the daemon-emitted data/contract.json
+  # (mounted read-only) at /contract.json, so the UI always renders the loop's
+  # latest emit — no hand-seeded fixture. Gated on the daemon being healthy so it
+  # never serves before the first contract exists.
+  web:
+    build:
+      context: ..
+      dockerfile: docker/ui.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ../data:/srv/data:ro
+    depends_on:
+      board:
+        condition: service_healthy

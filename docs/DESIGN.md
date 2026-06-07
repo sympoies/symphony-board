@@ -225,6 +225,15 @@ the review/CI/merge signals, and the issue ↔ PR/MR relationship view grouped b
 lifecycle. The esbuild build-script is the single trusted exception in the
 workspace's `allowBuilds` allowlist (scoped to the UI's transitive tooling).
 
+**The UI is deployed by the same Docker stack (done).** A `web` sidecar
+(`docker/ui.Dockerfile`, a multi-stage Vite build → nginx) serves the built
+`dist/` at a stable port and serves the loop daemon's `data/contract.json`
+(mounted read-only) at `/contract.json` — so the deployed board renders the
+daemon's latest emit, never a hand-seeded fixture, and there is no manual `vite
+preview`. The sidecar `depends_on` the `board` healthcheck, keeping "the daemon
+is the sole writer" true end to end: the reader can't come up before the writer
+has produced a contract. See README "Deploying the UI".
+
 A separate repo only earns its overhead once there are third-party consumers, or
 the UI's release cadence / visibility diverges — the contract package already
 isolates the UI, so splitting it out later stays cheap.
