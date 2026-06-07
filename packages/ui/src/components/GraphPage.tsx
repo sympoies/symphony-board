@@ -54,6 +54,12 @@ import { buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNo
 // window still lists, marked "off-window"; a "← all items" button returns.
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
+// Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
+// the muted "other" grey (#637777, model EDGE_STROKE), which is near-invisible on
+// the dark canvas — a problem the dense overview hides via opacity/width but the
+// sparse focus view exposes. A lighter slate lifts it off the background. (Edge
+// colours are JS hexes, not CSS vars — the canvas can't read custom properties.)
+const MENTION_STROKE = "#8aa0b6";
 const NODE_W = 200;
 // Tall enough for head + two-line title + repo + the updated/created/demand
 // meta row; demand then scales the whole box (and its font) up from here.
@@ -637,6 +643,10 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
     const sub = focusSubgraph(edges, focusId);
     return sub.nodes.length ? sub : graph;
   }, [edges, focusId, graph]);
+  // True when the canvas is showing a focus subgraph (not the full overview). In
+  // focus there is no clutter to fight, so edges — mentions especially — are
+  // drawn at full strength rather than the overview's de-emphasised styling.
+  const inFocus = view !== graph;
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
@@ -668,21 +678,30 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
 
   const rfEdges: Edge[] = useMemo(
     () =>
-      view.links.map((l) => ({
-        id: l.id,
-        type: "floating",
-        source: l.source,
-        target: l.target,
-        data: { type: l.type },
-        style: {
-          stroke: l.color,
-          strokeWidth: l.type === "mentions" ? 1 : 1.5,
-          strokeDasharray: l.type === "mentions" ? "4 3" : undefined,
-          opacity: l.type === "mentions" ? 0.55 : 1,
-        },
-        markerEnd: { type: MarkerType.ArrowClosed, color: l.color, width: 14, height: 14 },
-      })),
-    [view],
+      view.links.map((l) => {
+        const isMention = l.type === "mentions";
+        // Mentions stay dashed (their visual signature) and keep the lighter
+        // slate stroke. In the OVERVIEW they're thin + faint to recede behind
+        // closes; in FOCUS they go full opacity + slightly thicker so the one
+        // relationship you drilled into is actually visible. Non-mention edges
+        // (closes / relates) are already solid + full strength.
+        const stroke = isMention ? MENTION_STROKE : l.color;
+        return {
+          id: l.id,
+          type: "floating",
+          source: l.source,
+          target: l.target,
+          data: { type: l.type },
+          style: {
+            stroke,
+            strokeWidth: isMention ? (inFocus ? 1.75 : 1) : 1.5,
+            strokeDasharray: isMention ? "4 3" : undefined,
+            opacity: isMention ? (inFocus ? 1 : 0.55) : 1,
+          },
+          markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 },
+        };
+      }),
+    [view, inFocus],
   );
 
   // focusId is in the key so each focus change remounts <Flow>, which re-runs its
