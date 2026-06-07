@@ -187,3 +187,25 @@ test("buildAdjacency records both directions per edge and dedupes", () => {
   assert.deepEqual(adj.get("IS"), [{ ref: "PR", type: "closes", direction: "in" }]);
   assert.deepEqual(adj.get("EXT"), [{ ref: "PR", type: "mentions", direction: "in" }]);
 });
+
+test("buildAdjacency handles empty input, distinct types on one pair, and self-loops", () => {
+  const re = (from: string, to: string, type: string): ResolvedEdge => ({
+    edge: { type, from, to, from_state: null, to_state: null, lifecycle: null },
+    from: null,
+    to: null,
+  });
+  assert.equal(buildAdjacency([]).size, 0, "no edges -> empty map");
+
+  // same pair, two edge types -> both kept (dedupe is per (ref, type, direction))
+  const twoTypes = buildAdjacency([re("A", "B", "closes"), re("A", "B", "relates")]);
+  assert.deepEqual(twoTypes.get("A"), [
+    { ref: "B", type: "closes", direction: "out" },
+    { ref: "B", type: "relates", direction: "out" },
+  ]);
+
+  // self-loop -> both an out and an in entry on the same ref
+  assert.deepEqual(buildAdjacency([re("X", "X", "relates")]).get("X"), [
+    { ref: "X", type: "relates", direction: "out" },
+    { ref: "X", type: "relates", direction: "in" },
+  ]);
+});

@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -383,6 +383,15 @@ function GraphSideList({
   const rf = useReactFlow();
   const [q, setQ] = useState("");
   const [focusId, setFocusId] = useState<string | null>(null);
+
+  // Drop focus whenever the windowed graph itself changes (the "active since" /
+  // mention filters rebuild it). The focus view is tied to the current canvas, so
+  // returning to the list avoids a stale focus on an item that just left it. Keyed
+  // on windowedIds — NOT "focusId went off-window" — so chaining to an off-window
+  // related item (an intentional focus) is preserved.
+  useEffect(() => {
+    setFocusId(null);
+  }, [windowedIds]);
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const labelOf = (ref: string): string => nodeById.get(ref)?.label ?? itemsByRef.get(ref)?.title ?? ref.split("|").pop() ?? ref;
