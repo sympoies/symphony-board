@@ -13,19 +13,22 @@ const LIFECYCLE_BLURB: Record<EdgeLifecycle | "other", string> = {
   other: "non-lifecycle links (relates / mentions / …)",
 };
 
-function Endpoint({ item, ref, role }: { item: ItemDTO | null; ref: string; role: string }) {
+// NB: the prop is `refStr`, never `ref` — `ref` is reserved by React (it gets
+// intercepted as an element ref, and a string value throws at render time,
+// crashing the whole tree). Caught by the headless render e2e, not by tsc/build.
+function Endpoint({ item, refStr, role }: { item: ItemDTO | null; refStr: string; role: string }) {
   if (!item) {
     // endpoint in an untracked project — show the raw ref so the link is not lost
     return (
-      <span className="endpoint endpoint-untracked" title={`${role} (untracked): ${ref}`}>
-        <span className="muted">{role}</span> {ref}
+      <span className="endpoint endpoint-untracked" title={`${role} (untracked): ${refStr}`}>
+        <span className="muted">{role}</span> {refStr}
       </span>
     );
   }
   return (
     <a className="endpoint" href={`#${anchorId(item.id)}`} title={item.title ?? undefined}>
       <Badge text={item.state} kind={item.state} />
-      <span className="endpoint-title">{item.title ?? ref}</span>
+      <span className="endpoint-title">{item.title ?? refStr}</span>
     </a>
   );
 }
@@ -48,11 +51,11 @@ export function Relationships({ edges }: { edges: ResolvedEdge[] }) {
             <ul className="edge-list">
               {rows.map((re, i) => (
                 <li key={`${re.edge.from}->${re.edge.to}-${i}`} className="edge-row">
-                  <Endpoint item={re.from} ref={re.edge.from} role="from" />
+                  <Endpoint item={re.from} refStr={re.edge.from} role="from" />
                   <span className="edge-arrow" title={re.edge.type}>
                     {re.edge.type === "closes" ? "closes →" : `${re.edge.type} →`}
                   </span>
-                  <Endpoint item={re.to} ref={re.edge.to} role="to" />
+                  <Endpoint item={re.to} refStr={re.edge.to} role="to" />
                 </li>
               ))}
             </ul>
