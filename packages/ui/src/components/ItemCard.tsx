@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
@@ -58,11 +59,16 @@ export function ItemCard({
   item,
   anchorId,
   sourceKind,
+  accentColor,
   linked,
 }: {
   item: ItemDTO;
   anchorId?: string;
   sourceKind?: string;
+  // Repo/source highlight color (resolved by the caller). When set, the card
+  // gets a colored left bar (a ::before, so it survives hover/active/:target,
+  // which take the border-color channel). null/undefined -> no bar.
+  accentColor?: string | null;
   // True when this item is an endpoint of at least one edge, so it has a node on
   // the graph to focus. The "focus in graph" link renders only then (App derives
   // it from the visible edge set).
@@ -70,7 +76,11 @@ export function ItemCard({
 }) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
-    <article className="card" id={anchorId}>
+    <article
+      className={`card${accentColor ? " card-accent" : ""}`}
+      id={anchorId}
+      style={accentColor ? ({ "--repo-color": accentColor } as CSSProperties) : undefined}
+    >
       <div className="card-head">
         <span className="kind" title={item.kind}>
           {icon}

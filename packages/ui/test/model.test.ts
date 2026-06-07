@@ -16,6 +16,9 @@ import {
   repoKey,
   deriveRepos,
   applyVisibility,
+  buildColorIndex,
+  resolveRepoColor,
+  isHexColor,
   compareGraphNodes,
   parseHashRoute,
   graphFocusHref,
@@ -206,6 +209,61 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
     "edges touching the hidden repo are removed; the visible-end + untracked edge stays",
   );
   assert.equal(view.edges[0]!.from, "gl|MR");
+});
+
+test("applyVisibility hides a whole source independently of the repo set", () => {
+  const env: ContractEnvelope = {
+    contract_version: "1.1.0", generated_at: "2026-06-07T00:00:00Z", generator: "t", sources: [],
+    items: [
+      item({ id: "gh|A", source_id: "github:github.com", project_path: "o/a" }),
+      item({ id: "gl|B", source_id: "gitlab:gitlab.com", project_path: "g/x" }),
+    ],
+    edges: [{ type: "relates", from: "gh|A", to: "gl|B", from_state: "open", to_state: "open", lifecycle: null }],
+  };
+  // hide the github SOURCE with an EMPTY repo set: gh|A and the cross-repo edge go.
+  const view = applyVisibility(env, new Set(), new Set(["github:github.com"]));
+  assert.deepEqual(view.items.map((i) => i.id), ["gl|B"], "the hidden source's item is gone");
+  assert.deepEqual(view.edges, [], "the edge touching the hidden source is gone");
+  // the two layers compose (OR): hide gitlab's repo AND github's source -> nothing.
+  const both = applyVisibility(env, new Set([repoKey("gitlab:gitlab.com", "g/x")]), new Set(["github:github.com"]));
+  assert.deepEqual(both.items.map((i) => i.id), [], "source-hide and repo-hide compose");
+});
+
+test("buildColorIndex + resolveRepoColor resolve override -> repo -> source -> none", () => {
+  const env: ContractEnvelope = {
+    contract_version: "1.1.0", generated_at: "2026-06-07T00:00:00Z", generator: "t",
+    sources: [
+      { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GH", last_success_at: null, last_status: "ok", color: "#111111" },
+      { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GL", last_success_at: null, last_status: "ok", color: null },
+    ],
+    items: [],
+    edges: [],
+    repos: [{ source_id: "github:github.com", project_path: "o/repo", color: "#222222" }],
+  };
+  const idx = buildColorIndex(env);
+  const none = new Map<string, string>();
+  assert.equal(resolveRepoColor("github:github.com", "o/repo", idx, none), "#222222", "repo color beats source color");
+  assert.equal(resolveRepoColor("github:github.com", "O/REPO", idx, none), "#222222", "repo match is case-insensitive (GitHub canonicalizes case)");
+  assert.equal(resolveRepoColor("github:github.com", "o/other", idx, none), "#111111", "no repo color -> source color");
+  assert.equal(resolveRepoColor("gitlab:gitlab.com", "g/x", idx, none), null, "no repo and no source color -> none");
+  const ov = new Map([[repoKey("github:github.com", "o/repo"), "#abcdef"]]);
+  assert.equal(resolveRepoColor("github:github.com", "o/repo", idx, ov), "#abcdef", "an override beats everything");
+});
+
+test("isHexColor accepts #rgb/#rrggbb only; buildColorIndex drops anything else (CSS-sink guard)", () => {
+  assert.equal(isHexColor("#abc"), true);
+  assert.equal(isHexColor("#A1B2C3"), true);
+  for (const bad of ["red", "#abcd", "#12g", "url(https://evil/x)", "#fff; background:url(x)", "", null, 123])
+    assert.equal(isHexColor(bad as unknown), false, `rejects ${JSON.stringify(bad)}`);
+  // a non-hex color in the contract is dropped, not indexed -> no highlight
+  const env: ContractEnvelope = {
+    contract_version: "1.1.0", generated_at: "2026-06-07T00:00:00Z", generator: "t",
+    sources: [{ source_id: "s", kind: "github", host: "h", display_name: null, last_success_at: null, last_status: null, color: "url(https://evil/x)" }],
+    items: [], edges: [],
+    repos: [{ source_id: "s", project_path: "o/r", color: "javascript:alert(1)" }],
+  };
+  const idx = buildColorIndex(env);
+  assert.equal(resolveRepoColor("s", "o/r", idx, new Map()), null, "malformed config colors never reach a CSS sink");
 });
 
 test("buildAdjacency records both directions per edge and dedupes", () => {

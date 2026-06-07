@@ -144,6 +144,15 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: flex; flex-direction: column; gap: 6px;
 }
 .card:target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+/* repo/source highlight: a colored left bar drawn as a ::before so it layers
+   over the card border and is NOT clobbered by hover / active / :target (which
+   take the border-color + box-shadow channels). --repo-color is set inline per
+   card by the caller; the bar only appears on .card-accent. */
+.card-accent { position: relative; }
+.card-accent::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--repo-color); border-radius: 10px 0 0 10px; pointer-events: none;
+}
 .card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .kind { color: var(--muted); }
 /* "focus in graph" link — pushed to the right of the head row (the title wraps
@@ -316,6 +325,26 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .link-btn:hover { text-decoration: underline; }
 .settings-repos { list-style: none; margin: 0; padding: 6px 0; }
 .settings-repo { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; }
-.settings-repo:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .settings-repo input { accent-color: var(--accent); }
 .settings-repo-name { flex: 1 1 auto; }
+/* a repo row = the visibility label (grows) + the color control (right). The
+   hover highlight + horizontal padding move up to the <li> so the whole row,
+   including the color control, lights up together. */
+.settings-repos li { display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.settings-repos li:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.settings-repo { flex: 1 1 auto; padding: 6px 0; }
+.settings-repo:hover { background: none; }
+.settings-repo-color { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+/* native color picker, themed down to a compact swatch */
+.color-input { width: 22px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; }
+.color-input::-webkit-color-swatch-wrapper { padding: 2px; }
+.color-input::-webkit-color-swatch { border: none; border-radius: 3px; }
+/* keep the row's right edge stable whether or not the "reset" link is shown */
+.link-btn-placeholder { display: inline-block; width: 30px; }
+/* read-only source color dot in the source head */
+.color-swatch { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+.settings-source-show { display: inline-flex; align-items: center; cursor: pointer; }
+.settings-source-show input { accent-color: var(--accent); }
+/* a hidden source: dim its head + repo list (the rows stay interactive) */
+.settings-source-off .settings-source-head { opacity: .55; }
+.settings-source-off .settings-repos { opacity: .5; }

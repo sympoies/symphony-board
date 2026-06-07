@@ -42,6 +42,18 @@ export interface SourceDTO {
   display_name: string | null;
   last_success_at: string | null;
   last_status: "ok" | "partial" | "error" | null;
+  // Optional source-level highlight color (hex), from config. A repo with no
+  // color of its own inherits it. null when unset. (added in 1.1.0)
+  color: string | null;
+}
+
+// Per-repo display metadata. Sparse: a repo appears here ONLY when it has a
+// configured highlight color, so most repos are absent. Keyed by the same
+// (source_id, project_path) a consumer derives from items. (added in 1.1.0)
+export interface RepoDTO {
+  source_id: string;
+  project_path: string;
+  color: string;
 }
 
 export interface LabelDTO {
@@ -93,4 +105,9 @@ export interface ContractEnvelope {
   sources: SourceDTO[];
   items: ItemDTO[];
   edges: EdgeDTO[];
+  // Per-repo display metadata (currently: highlight color). Sparse — only
+  // configured repos appear. The producer always emits it (possibly empty);
+  // OPTIONAL in the type so a consumer reading a pre-1.1.0 contract (no `repos`
+  // key) still type-checks — read it as `env.repos ?? []`. (added in 1.1.0)
+  repos?: RepoDTO[];
 }

@@ -8,6 +8,7 @@ import type {
   ItemDTO,
   EdgeDTO,
   SourceDTO,
+  RepoDTO,
   LabelDTO,
   ItemState,
   ReviewState,
@@ -65,7 +66,7 @@ function toEdgeDTO(row: EdgeRow): EdgeDTO {
   };
 }
 
-function toSourceDTO(row: SourceRow): SourceDTO {
+function toSourceDTO(row: SourceRow, sourceColors: Record<string, string>): SourceDTO {
   return {
     source_id: row.source_id,
     kind: row.kind,
@@ -73,6 +74,7 @@ function toSourceDTO(row: SourceRow): SourceDTO {
     display_name: row.display_name,
     last_success_at: row.last_success_at,
     last_status: orNull<"ok" | "partial" | "error">(row.last_status),
+    color: sourceColors[row.source_id] ?? null,
   };
 }
 
@@ -82,6 +84,11 @@ export interface BuildInput {
   labels: LabelRow[];
   edges: EdgeRow[];
   generatedAt: string;
+  // Config-derived display colors (NOT stored in the DB). Threaded in by the
+  // emit CLI, which reads config; buildContract stays a pure mapping of its
+  // inputs. Both default to empty, so existing callers/tests are unaffected.
+  sourceColors?: Record<string, string>; // source_id -> hex
+  repoColors?: RepoDTO[]; // sparse: only repos with a configured color
 }
 
 export function buildContract(input: BuildInput): ContractEnvelope {
@@ -91,12 +98,14 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     arr.push(l);
     labelsByItem.set(l.item_id, arr);
   }
+  const sourceColors = input.sourceColors ?? {};
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
-    sources: input.sources.map(toSourceDTO),
+    sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
     items: input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? [])),
     edges: input.edges.map(toEdgeDTO),
+    repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
   };
 }

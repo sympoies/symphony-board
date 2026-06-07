@@ -65,3 +65,31 @@ test("buildContract groups labels by item and leaves label-less items empty", ()
   assert.equal(env.items[0]!.labels.length, 2);
   assert.equal(env.items[1]!.labels.length, 0);
 });
+
+test("buildContract applies source colors where set and emits the repos block verbatim", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  const env = buildContract({
+    sources,
+    items: [],
+    labels: [],
+    edges: [],
+    generatedAt: "2026-06-02T00:00:00Z",
+    sourceColors: { "github:github.com": "#1f6feb" },
+    repoColors: [{ source_id: "github:github.com", project_path: "graysurf/repo", color: "#e0af68" }],
+  });
+  assert.equal(env.sources[0]!.color, "#1f6feb"); // set
+  assert.equal(env.sources[1]!.color, null); // unset -> null
+  assert.deepEqual(env.repos, [{ source_id: "github:github.com", project_path: "graysurf/repo", color: "#e0af68" }]);
+});
+
+test("buildContract defaults to no colors when none are supplied", () => {
+  const sources: SourceRow[] = [
+    { source_id: "s", kind: "github", host: "h", display_name: null, last_success_at: null, last_status: null },
+  ];
+  const env = buildContract({ sources, items: [], labels: [], edges: [], generatedAt: "2026-06-02T00:00:00Z" });
+  assert.equal(env.sources[0]!.color, null);
+  assert.deepEqual(env.repos, []);
+});

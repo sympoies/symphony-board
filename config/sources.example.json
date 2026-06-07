@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to config/sources.json (gitignored) and fill in. Tokens come from env vars named by token_env, never inlined here.",
+  "$comment": "Copy to config/sources.json (gitignored) and fill in. Tokens come from env vars named by token_env, never inlined here. Optional highlight colors (hex #rgb / #rrggbb): a source-level \"color\", and per-repo by giving a project entry the object form {\"path\":..., \"color\":...}. A repo with no color inherits its source's; the UI can override per-repo. Most repos stay bare strings.",
   "db_path": "data/symphony.db",
   "sources": [
     {
@@ -7,6 +7,7 @@
       "kind": "github",
       "host": "github.com",
       "display_name": "GitHub",
+      "color": "#1f6feb",
       "token_env": "GITHUB_TOKEN",
       "graphql_url": "https://api.github.com/graphql",
       "projects": [
@@ -14,7 +15,7 @@
         "graysurf/agent-runtime-kit",
         "sympoies/nils-cli",
         "sympoies/nils-alfredworkflow",
-        "sympoies/symphony-board"
+        { "path": "sympoies/symphony-board", "color": "#e0af68" }
       ]
     },
     {

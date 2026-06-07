@@ -7,6 +7,7 @@ import {
   STATUS_DESC,
   spotlight,
   type ItemStatus,
+  type ColorOf,
 } from "../model.ts";
 
 function Column({
@@ -15,6 +16,7 @@ function Column({
   sub,
   items,
   sourceKind,
+  colorOf,
   linkedIds,
 }: {
   kind: string;
@@ -22,6 +24,7 @@ function Column({
   sub: string;
   items: ItemDTO[];
   sourceKind: Map<string, string>;
+  colorOf: ColorOf;
   linkedIds: Set<string>;
 }) {
   return (
@@ -38,6 +41,7 @@ function Column({
             item={it}
             anchorId={anchorId(it.id)}
             sourceKind={sourceKind.get(it.source_id)}
+            accentColor={colorOf(it.source_id, it.project_path)}
             linked={linkedIds.has(it.id)}
           />
         ))}
@@ -58,11 +62,13 @@ export function FullBoard({
   items,
   statuses,
   sourceKind,
+  colorOf,
   linkedIds,
 }: {
   items: ItemDTO[];
   statuses: Map<string, ItemStatus>;
   sourceKind: Map<string, string>;
+  colorOf: ColorOf;
   linkedIds: Set<string>;
 }) {
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
@@ -71,10 +77,10 @@ export function FullBoard({
   return (
     <section className="board-7">
       {STATUS_ORDER.map((s) => (
-        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} linkedIds={linkedIds} />
+        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       ))}
       {lanes.map(({ lane, items: laneItems }) => (
-        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} linkedIds={linkedIds} />
+        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       ))}
     </section>
   );

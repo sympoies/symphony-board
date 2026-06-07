@@ -92,3 +92,24 @@ test("null is accepted where the type union and enum allow it", () => {
   env.items[0].review_state = null; // enum includes null
   assert.deepEqual(validateContract(env), []);
 });
+
+test("an envelope carrying source + repo colors validates clean", () => {
+  const env: any = validEnvelope();
+  env.sources[0].color = "#1f6feb";
+  env.repos = [{ source_id: "github:github.com", project_path: "graysurf/repo", color: "#e0af68" }];
+  assert.deepEqual(validateContract(env), []);
+});
+
+test("a repo entry missing its required color is rejected", () => {
+  const env: any = validEnvelope();
+  env.repos = [{ source_id: "github:github.com", project_path: "graysurf/repo" }];
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/repos/0/color" && /required/.test(e.message)));
+});
+
+test("an unknown property on a repo entry is rejected", () => {
+  const env: any = validEnvelope();
+  env.repos = [{ source_id: "x", project_path: "y", color: "#fff", surprise: true }];
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/repos/0/surprise" && /additional property/.test(e.message)));
+});

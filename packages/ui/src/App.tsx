@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
 import {
@@ -11,12 +11,21 @@ import {
   deriveStatuses,
   deriveRepos,
   applyVisibility,
+  buildColorIndex,
+  resolveRepoColor,
   parseHashRoute,
   applyRouteSearch,
   edgeEndpointIds,
   type Filters,
 } from "./model.ts";
-import { loadHidden, saveHidden } from "./viewconfig.ts";
+import {
+  loadHidden,
+  saveHidden,
+  loadHiddenSources,
+  saveHiddenSources,
+  loadColorOverrides,
+  saveColorOverrides,
+} from "./viewconfig.ts";
 import { Header } from "./components/Header.tsx";
 import { StatsBar } from "./components/StatsBar.tsx";
 import { Controls } from "./components/Controls.tsx";
@@ -43,9 +52,14 @@ export function App() {
   // deep-link), so the graph narrows on the FIRST render — no full-graph flash.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
   const [hash, setHash] = useState<string>(readHash);
-  // Persistent, repo-level display filter (the Settings page). Set of HIDDEN
-  // repo keys; loaded once from localStorage and saved back on every change.
+  // Persistent display preferences (the Settings page), loaded once from
+  // localStorage and saved back on every change:
+  //   • hidden        — HIDDEN repoKeys
+  //   • hiddenSources — HIDDEN source_ids (an independent layer; see applyVisibility)
+  //   • colorOverrides — repoKey -> hex, this viewer's per-repo highlight override
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
+  const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
+  const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
 
   useEffect(() => {
     const onHash = () => {
@@ -65,6 +79,12 @@ export function App() {
   useEffect(() => {
     saveHidden(hidden);
   }, [hidden]);
+  useEffect(() => {
+    saveHiddenSources(hiddenSources);
+  }, [hiddenSources]);
+  useEffect(() => {
+    saveColorOverrides(colorOverrides);
+  }, [colorOverrides]);
 
   useEffect(() => {
     fetchContract()
@@ -76,14 +96,25 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
-  // The repo-visibility pre-filter is applied FIRST: visibleEnv is the contract
-  // narrowed to the repos the Settings page leaves visible (items + their
-  // edges). Everything below — facets, filters, stats, statuses — works over
-  // visibleEnv, so a hidden repo disappears from every page. allRepos is derived
-  // over the FULL contract so the Settings page can still list (and re-enable)
-  // hidden repos.
-  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden) : null), [env, hidden]);
+  // The visibility pre-filter is applied FIRST: visibleEnv is the contract
+  // narrowed to the repos + sources the Settings page leaves visible (items +
+  // their edges). Everything below — facets, filters, stats, statuses — works
+  // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
+  // is derived over the FULL contract so the Settings page can still list (and
+  // re-enable) hidden repos.
+  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
   const allRepos = useMemo(() => (env ? deriveRepos(env.items) : []), [env]);
+
+  // Highlight color: the config layers (per-repo + per-source) ride in on the
+  // contract; the per-repo override is this viewer's localStorage. colorOf
+  // resolves an item's effective color (override -> repo -> source -> none) and
+  // is handed to the board cards and graph nodes/side-list.
+  const colorIndex = useMemo(() => (env ? buildColorIndex(env) : null), [env]);
+  const colorOf = useCallback(
+    (source_id: string, project_path: string | null): string | null =>
+      colorIndex ? resolveRepoColor(source_id, project_path, colorIndex, colorOverrides) : null,
+    [colorIndex, colorOverrides],
+  );
 
   const facets = useMemo(() => {
     if (!visibleEnv) return { sources: [], states: [], kinds: [] };
@@ -156,6 +187,28 @@ export function App() {
         if (visible) next.delete(k);
         else next.add(k);
       }
+      return next;
+    });
+  }
+
+  // Source-level visibility is its own layer — toggling it never touches the
+  // per-repo `hidden` set, so a source's repos keep their remembered choices.
+  function toggleSource(source_id: string) {
+    setHiddenSources((h) => {
+      const next = new Set(h);
+      if (next.has(source_id)) next.delete(source_id);
+      else next.add(source_id);
+      return next;
+    });
+  }
+
+  function setColorOverride(key: string, color: string) {
+    setColorOverrides((m) => new Map(m).set(key, color));
+  }
+  function clearColorOverride(key: string) {
+    setColorOverrides((m) => {
+      const next = new Map(m);
+      next.delete(key);
       return next;
     });
   }
@@ -238,16 +291,22 @@ export function App() {
           hidden={hidden}
           onToggle={toggleRepo}
           onSetVisible={setReposVisible}
+          hiddenSources={hiddenSources}
+          onToggleSource={toggleSource}
+          colorOf={colorOf}
+          colorOverrides={colorOverrides}
+          onSetColor={setColorOverride}
+          onClearColor={clearColorOverride}
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
           {/* Keyed on the focus target so each distinct deep-link entry remounts
               the graph with a fresh window + focus seed (the seed is mount-time);
               a new "?focus=" — or clearing it — never leaves a stale focus. */}
-          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} focusRef={route.focus} />
+          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} focusRef={route.focus} />
         </Suspense>
       ) : (
-        <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} linkedIds={linkedIds} />
+        <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       )}
     </div>
   );

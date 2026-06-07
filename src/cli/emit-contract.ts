@@ -10,6 +10,7 @@
 //   node src/cli/emit-contract.ts [--out <file>] [--config <path>] [--no-validate]
 
 import { writeFileSync } from "node:fs";
+import type { RepoDTO } from "@symphony-board/contract";
 import { loadConfig } from "../config.ts";
 import { openDb } from "../db/open.ts";
 import { listSources, listLiveItems, listLabels, listLiveEdges } from "../db/repo.ts";
@@ -36,6 +37,21 @@ function parseArgs(argv: string[]): Args {
 
 const args = parseArgs(process.argv.slice(2));
 const { cfg } = loadConfig(args.config);
+
+// Config-derived display colors: source-level on each source, repo-level on the
+// few project entries that carry one. Display metadata only — read here at emit
+// time, never stored in the DB, so buildContract stays a pure mapping.
+const sourceColors: Record<string, string> = {};
+const repoColors: RepoDTO[] = [];
+for (const s of cfg.sources) {
+  if (s.color) sourceColors[s.source_id] = s.color;
+  for (const p of s.projects) {
+    if (typeof p !== "string" && p.color) {
+      repoColors.push({ source_id: s.source_id, project_path: p.path, color: p.color });
+    }
+  }
+}
+
 const db = openDb(cfg.db_path);
 const envelope = buildContract({
   sources: listSources(db),
@@ -43,6 +59,8 @@ const envelope = buildContract({
   labels: listLabels(db),
   edges: listLiveEdges(db),
   generatedAt: new Date().toISOString(),
+  sourceColors,
+  repoColors,
 });
 db.close();
 

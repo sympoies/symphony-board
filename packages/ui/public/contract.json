@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "sources": [
@@ -9,7 +9,8 @@
       "host": "github.com",
       "display_name": "GitHub",
       "last_success_at": "2026-06-07T08:58:00Z",
-      "last_status": "ok"
+      "last_status": "ok",
+      "color": "#1f6feb"
     },
     {
       "source_id": "gitlab:gitlab.com",
@@ -119,5 +120,8 @@
     { "type": "closes", "from": "github:github.com|PR_f", "to": "github:github.com|ISSUE_e", "from_state": "closed", "to_state": "open", "lifecycle": "broken" },
     { "type": "closes", "from": "github:github.com|PR_b", "to": "github:github.com|ISSUE_UNTRACKED_99", "from_state": "merged", "to_state": null, "lifecycle": "declared" },
     { "type": "closes", "from": "gitlab:gitlab.com|gid://gitlab/MergeRequest/201", "to": "gitlab:gitlab.com|gid://gitlab/Issue/101", "from_state": "open", "to_state": "open", "lifecycle": "declared" }
+  ],
+  "repos": [
+    { "source_id": "gitlab:gitlab.com", "project_path": "graysury/symphony-board-fixture", "color": "#e0af68" }
   ]
 }
