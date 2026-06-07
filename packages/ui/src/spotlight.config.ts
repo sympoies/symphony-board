@@ -23,9 +23,6 @@ export interface SpotlightLaneConfig {
   anyLabel?: string[];
 }
 
-// How many items each lane keeps (latest N by created_at, any state).
-export const SPOTLIGHT_KEEP = 30;
-
 export const SPOTLIGHT_LANES: SpotlightLaneConfig[] = [
   { key: "follow-up", label: "Follow-up", hint: "issues labeled workflow::follow-up", kind: "issue", anyLabel: ["workflow::follow-up"] },
   { key: "plan", label: "Plan-tracking", hint: "issues labeled workflow::plan", kind: "issue", anyLabel: ["workflow::plan"] },

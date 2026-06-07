@@ -266,6 +266,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 /* fill the (stretched) column height and scroll inside; min-height:0 lets a
    flex child shrink below content so the scroll engages. */
 .col-cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; scrollbar-gutter: stable; flex: 1 1 auto; min-height: 0; }
+/* trailing "+N more" marker when a column's render cap hides items (the header
+   count stays the true total). Centered, muted, not a card. */
+.col-more { text-align: center; font-size: 11px; padding: 4px 0 2px; }
 .col-head { flex-wrap: wrap; }
 .col-sub { flex: 1 1 100%; font-size: 11px; font-weight: 400; color: var(--muted); }
 /* the column board uses one card per row, so let cards fill the column width */

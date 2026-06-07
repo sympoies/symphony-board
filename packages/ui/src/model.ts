@@ -2,7 +2,7 @@
 // small stats. No React here — easy to reason about and reuse.
 
 import type { ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
-import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, SPOTLIGHT_KEEP, type SpotlightLaneConfig } from "./spotlight.config.ts";
+import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 
 // Board status columns, after project-board-automation's Status model
 // (Open / Trailing / Closed) plus an explicit In Progress lane:
@@ -28,10 +28,12 @@ export const STATUS_DESC: Record<ItemStatus, string> = {
 };
 
 // Spotlight: recency lanes independent of status, after the predecessor's second
-// board view. Each lane takes the latest N items (by created_at) that match,
-// REGARDLESS of open/closed/merged — so follow-up / plan issues stay visible even
-// after they close. The lane CONVENTIONS (which labels/kinds) live in
-// `spotlight.config.ts`; here we compile each declarative entry into a predicate.
+// board view. Each lane collects EVERY matching item (by created_at, newest
+// first), REGARDLESS of open/closed/merged — so follow-up / plan issues stay
+// visible even after they close. The view (FullBoard) caps how many cards render
+// and shows the true total; lanes therefore return the full sorted list here. The
+// lane CONVENTIONS (which labels/kinds) live in `spotlight.config.ts`; here we
+// compile each declarative entry into a predicate.
 export interface SpotlightLane {
   key: string;
   label: string;
@@ -53,7 +55,7 @@ export const SPOTLIGHT_LANES: SpotlightLane[] = SPOTLIGHT_LANE_CONFIG.map(compil
 
 export function spotlight(items: ItemDTO[]): Array<{ lane: SpotlightLane; items: ItemDTO[] }> {
   const recent = (a: ItemDTO, b: ItemDTO) => (b.created_at ?? "").localeCompare(a.created_at ?? "");
-  return SPOTLIGHT_LANES.map((lane) => ({ lane, items: items.filter(lane.pick).sort(recent).slice(0, SPOTLIGHT_KEEP) }));
+  return SPOTLIGHT_LANES.map((lane) => ({ lane, items: items.filter(lane.pick).sort(recent) }));
 }
 
 // Derive each item's board status from the full item + edge set (status is an
