@@ -36,11 +36,11 @@ import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso,
 //
 // Navigation (#24): a searchable side list beside the canvas jumps to a node
 // (pan + zoom via React Flow fitView; the default view stays the full-graph
-// fit), and each node card carries created / updated (relative) + demand —
+// fit), and each node card carries updated / created (relative) + demand —
 // legible once focused/zoomed.
 //
 // Side-list depth: the list cards now carry the same detail as the board card
-// (author, created/updated, review/CI/merge signals, collapsed labels, source
+// (author, updated/created, review/CI/merge signals, collapsed labels, source
 // mark). Clicking a card enters a FOCUS view — that item plus its related items
 // (the other ends of its edges), with the camera fit to it + its on-graph
 // neighbours. Related items are computed from the FULL edge set (model
@@ -49,7 +49,7 @@ import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso,
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 const NODE_W = 200;
-// Tall enough for head + two-line title + repo + the created/updated/demand
+// Tall enough for head + two-line title + repo + the updated/created/demand
 // meta row; demand then scales the whole box (and its font) up from here.
 const NODE_H = 96;
 
@@ -114,8 +114,8 @@ function ItemNode({ data }: NodeProps) {
       </div>
       {!d.untracked && (d.created_at || d.updated_at || d.demand != null) && (
         <div className="rf-node-meta muted">
-          {d.created_at ? <span title={d.created_at}>created {relativeTime(d.created_at)}</span> : null}
           {d.updated_at ? <span title={d.updated_at}>updated {relativeTime(d.updated_at)}</span> : null}
+          {d.created_at ? <span title={d.created_at}>created {relativeTime(d.created_at)}</span> : null}
           {d.demand != null ? (
             <span className="rf-demand" title="comments + reactions">
               <DemandIcon /> {d.demand}
