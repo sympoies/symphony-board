@@ -30,8 +30,9 @@ import { buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNo
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
-// solid; opt-in mentions are thin dashed. Layout is computed (RF ships none):
-// dagre for the hierarchy view, d3-force for the knowledge-graph view.
+// solid; opt-in mentions are dashed — de-emphasised (thin, faint) in the dense
+// overview, but drawn full-strength in the focus view. Layout is computed (RF
+// ships none): dagre for the hierarchy view, d3-force for the knowledge-graph view.
 //
 // Polish (#15): node size scales with demand (comments + reactions) so busy
 // items stand out; hovering a node highlights it + its neighbours and dims the
