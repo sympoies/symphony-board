@@ -83,18 +83,39 @@ it no longer sees, so incremental alone never tombstones. Set `FULL_EVERY=1` to
 always full-sweep. A GitLab source behind a VPN requires the host to be on that VPN.
 
 **The daemon is the source of truth for the contract.** `data/contract.json` is
-written *only* by this loop — never by hand — so what the UI serves is always the
-daemon's latest emit. The `board`
-service has a healthcheck that reports it `healthy` only while `data/contract.json`
-keeps being refreshed, so a wedged daemon that stops emitting is visible
-(`docker compose -f docker/compose.yaml ps`). Confirm the on-disk contract is
-daemon-produced with the read-only helpers:
+written *only* by this loop — never by hand — so what the UI serves (see
+[Deploying the UI](#deploying-the-ui)) is always the daemon's latest emit. The
+`board` service has a healthcheck that reports it `healthy` only while
+`data/contract.json` keeps being refreshed, so a wedged daemon that stops emitting
+is visible (`docker compose -f docker/compose.yaml ps`). Confirm the on-disk
+contract is daemon-produced with the read-only helpers:
 
 ```sh
 docker compose -f docker/compose.yaml ps          # board: healthy
 scripts/db-summary.sh                              # items/edges/sync runs (query_only)
 scripts/contract-summary.sh                        # counts from data/contract.json
 ```
+
+## Deploying the UI
+
+The same `docker compose` stack also serves the read-only board. The
+[`web`](docker/compose.yaml) service builds `packages/ui`
+([`docker/ui.Dockerfile`](docker/ui.Dockerfile), a multi-stage Vite build → nginx)
+and serves it at a stable URL — no manual `vite preview`:
+
+```sh
+docker compose -f docker/compose.yaml up -d --build   # brings up board + web
+open http://localhost:8080                            # the board
+```
+
+The sidecar serves the daemon-emitted `data/contract.json` directly (mounted
+read-only; nginx aliases it to `/contract.json` — see
+[`docker/ui-nginx.conf`](docker/ui-nginx.conf)), and `depends_on` the `board`
+healthcheck, so it never serves before the first contract exists and always
+renders the daemon's **latest** emit — consistent with "the daemon is the sole
+writer." A fresh emit is picked up on reload (the contract is served `no-store`);
+rebuild the image (`up -d --build`) only when the UI code itself changes. Change
+the published port by editing the `web` service's `ports` mapping.
 
 ## Status
 
