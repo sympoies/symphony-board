@@ -298,6 +298,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   height: 74vh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
+/* kind toggle (all / issue / pr) above the side-list search */
+.graph-list-kinds { margin: 8px 8px 0; flex-wrap: wrap; }
+.graph-list-kinds .toggle { font-size: 12px; }
 .graph-list-search {
   margin: 8px; padding: 5px 8px; font-size: 12px;
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;

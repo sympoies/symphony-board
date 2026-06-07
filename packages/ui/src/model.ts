@@ -453,6 +453,25 @@ export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]>
   return adj;
 }
 
+// Narrow a built graph to the focus view: the focused node + its on-graph
+// neighbours (from the FULL-edge adjacency) and only the edges among that kept
+// set, so the Graph page's canvas can mirror the side list's focus view instead
+// of staying the full windowed graph. Falls back to the WHOLE graph when there
+// is nothing meaningful to show — no focus, or a focus that is not itself an
+// on-graph node (an off-window target reached by chaining to an off-window
+// related item): rather than render its neighbours as edgeless orphans, show the
+// full graph (the side list still opens that item's focus view + off-window
+// note). Pure: same inputs -> same GraphData, so it is unit-testable.
+export function focusSubgraph(graph: GraphData, focusId: string | null, adjacency: Map<string, RelatedRef[]>): GraphData {
+  if (!focusId) return graph;
+  const keep = new Set<string>([focusId, ...(adjacency.get(focusId) ?? []).map((r) => r.ref)]);
+  const nodes = graph.nodes.filter((n) => keep.has(n.id));
+  const ids = new Set(nodes.map((n) => n.id));
+  if (!ids.has(focusId)) return graph; // focus is off-window (or has no on-graph node) -> don't render orphans
+  const links = graph.links.filter((l) => ids.has(l.source) && ids.has(l.target));
+  return { nodes, links };
+}
+
 // A related item for DISPLAY: ONE card per related ref. buildAdjacency's
 // per-direction entries are collapsed two ways here:
 //   1. mutual edges (A mentions B AND B mentions A — reciprocal mentions are
