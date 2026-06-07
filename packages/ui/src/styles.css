@@ -230,9 +230,11 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   flex: 1 1 auto; min-width: 0; height: 74vh; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
-/* side list — searchable, scrolls independently, same height as the canvas */
+/* side list — searchable, scrolls independently, same height as the canvas, and
+   as wide as a board column (.board-7 grid-auto-columns) so the detailed cards
+   aren't cramped. */
 .graph-list {
-  flex: 0 0 270px; height: 74vh; display: flex; flex-direction: column; overflow: hidden;
+  flex: 0 0 300px; height: 74vh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
 .graph-list-search {
@@ -253,7 +255,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 /* side-list card — carries the board card's detail in a narrow column */
 .graph-list-card {
   display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted);
+  /* same fill as the board card (--panel), not the lighter nested --panel-2, so
+     the two surfaces read identically; border + gap delineate cards as on the board. */
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--muted);
   border-radius: 7px; padding: 6px 8px; color: var(--text); font: inherit; cursor: pointer;
 }
 .graph-list-card:hover { border-color: var(--accent); }
