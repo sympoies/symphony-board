@@ -1,0 +1,26 @@
+{
+  "name": "@symphony-board/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "symphony-board UI: a read-only board that consumes the versioned JSON contract (@symphony-board/contract).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@symphony-board/contract": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^6.0.0",
+    "vite": "^6.0.0"
+  }
+}

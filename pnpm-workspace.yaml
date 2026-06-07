@@ -7,10 +7,14 @@ packages:
   - "packages/*"
 
 # pnpm 11 reads build-script policy from here, not the package.json "pnpm" field.
-# Git hooks are wired by the explicit `prepare` script (`lefthook install`), so
-# we deliberately do NOT run lefthook's own postinstall build script: `false`
-# acknowledges that choice and keeps `pnpm install` at exit 0 under pnpm 11's
-# strict build gate, while preserving the repo's minimal-trust,
-# no-dependency-build-scripts posture.
+# We keep an explicit, minimal-trust allowlist:
+#   * lefthook: false  — its hooks are wired by our own `prepare` script, so we
+#     do NOT run the dependency's postinstall (keeps `pnpm install` at exit 0).
+#   * esbuild:  true   — Vite's transpiler (packages/ui only); its postinstall
+#     installs the platform binary and is REQUIRED for `vite build`. The UI is
+#     the deliberate home for a build step + heavy deps (see docs/DESIGN.md), so
+#     this one trusted build-tool exception is intentional and scoped to the UI.
+# The backend (root package) still has zero third-party runtime deps.
 allowBuilds:
+  esbuild: true
   lefthook: false

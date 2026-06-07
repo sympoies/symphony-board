@@ -213,11 +213,18 @@ Two decisions taken while extracting:
   posture. The validator reads `contract.schema.json` as a file (copied into the
   image), not via a bare-specifier import.
 
-**Open — where the UI lives.** The UI (a later phase, heavy deps + a build step)
-should be a sibling `packages/ui` that depends on `@symphony-board/contract` and
-nothing else; the contract package already isolates it, so adding it stays cheap.
+**The UI now lives in `packages/ui` (done).** A read-only board built with
+**Vite + React + TypeScript** — the one package with heavy deps + a build step,
+deliberately contained there. It depends ONLY on `@symphony-board/contract`
+(types) and fetches an emitted `contract.json`; it cannot see `src/db` /
+`src/sources`. It shows per-source health, item filters/grouping, label chips,
+the review/CI/merge signals, and the issue ↔ PR/MR relationship view grouped by
+lifecycle. The esbuild build-script is the single trusted exception in the
+workspace's `allowBuilds` allowlist (scoped to the UI's transitive tooling).
+
 A separate repo only earns its overhead once there are third-party consumers, or
-the UI's release cadence / visibility diverges.
+the UI's release cadence / visibility diverges — the contract package already
+isolates the UI, so splitting it out later stays cheap.
 
 ## Validation status
 

@@ -1,0 +1,123 @@
+{
+  "contract_version": "1.0.0",
+  "generated_at": "2026-06-07T09:00:00Z",
+  "generator": "symphony-board/0.1.0 (sample)",
+  "sources": [
+    {
+      "source_id": "github:github.com",
+      "kind": "github",
+      "host": "github.com",
+      "display_name": "GitHub",
+      "last_success_at": "2026-06-07T08:58:00Z",
+      "last_status": "ok"
+    },
+    {
+      "source_id": "gitlab:gitlab.com",
+      "kind": "gitlab",
+      "host": "gitlab.com",
+      "display_name": "GitLab",
+      "last_success_at": "2026-06-07T07:40:00Z",
+      "last_status": "partial"
+    }
+  ],
+  "items": [
+    {
+      "id": "github:github.com|ISSUE_a", "source_id": "github:github.com", "external_id": "ISSUE_a",
+      "kind": "issue", "project_path": "graysurf/symphony-board", "iid": 12,
+      "url": "https://github.com/graysurf/symphony-board/issues/12", "title": "Flaky test in the sync engine",
+      "state": "closed", "state_raw": "CLOSED", "state_reason": "completed", "is_draft": null,
+      "author": "graysurf", "created_at": "2026-05-30T10:00:00Z", "updated_at": "2026-06-06T18:00:00Z",
+      "closed_at": "2026-06-06T18:00:00Z", "merged_at": null,
+      "labels": [
+        { "name": "bug", "scope": null, "color": "d73a4a" },
+        { "name": "priority::high", "scope": "priority", "color": "b60205" }
+      ],
+      "review_state": null, "ci_state": null, "merge_state": null, "milestone": "v1.1", "demand": 9,
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PR_b", "source_id": "github:github.com", "external_id": "PR_b",
+      "kind": "change_request", "project_path": "graysurf/symphony-board", "iid": 13,
+      "url": "https://github.com/graysurf/symphony-board/pull/13", "title": "Fix flaky sync-engine test",
+      "state": "merged", "state_raw": "MERGED", "state_reason": null, "is_draft": false,
+      "author": "graysurf", "created_at": "2026-06-05T09:00:00Z", "updated_at": "2026-06-06T18:00:00Z",
+      "closed_at": "2026-06-06T18:00:00Z", "merged_at": "2026-06-06T18:00:00Z",
+      "labels": [{ "name": "bug", "scope": null, "color": "d73a4a" }],
+      "review_state": "approved", "ci_state": "passing", "merge_state": "mergeable", "milestone": "v1.1", "demand": 2,
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|ISSUE_c", "source_id": "github:github.com", "external_id": "ISSUE_c",
+      "kind": "issue", "project_path": "graysurf/symphony-board", "iid": 14,
+      "url": "https://github.com/graysurf/symphony-board/issues/14", "title": "Add incremental sync cadence",
+      "state": "open", "state_raw": "OPEN", "state_reason": null, "is_draft": null,
+      "author": "graysurf", "created_at": "2026-06-01T12:00:00Z", "updated_at": "2026-06-07T08:30:00Z",
+      "closed_at": null, "merged_at": null,
+      "labels": [{ "name": "enhancement", "scope": null, "color": "a2eeef" }, { "name": "priority::medium", "scope": "priority", "color": "fbca04" }],
+      "review_state": null, "ci_state": null, "merge_state": null, "milestone": null, "demand": 5,
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PR_d", "source_id": "github:github.com", "external_id": "PR_d",
+      "kind": "change_request", "project_path": "graysurf/symphony-board", "iid": 15,
+      "url": "https://github.com/graysurf/symphony-board/pull/15", "title": "WIP: incremental loop cadence",
+      "state": "open", "state_raw": "OPEN", "state_reason": null, "is_draft": true,
+      "author": "graysurf", "created_at": "2026-06-07T08:00:00Z", "updated_at": "2026-06-07T08:45:00Z",
+      "closed_at": null, "merged_at": null,
+      "labels": [],
+      "review_state": "review_required", "ci_state": "pending", "merge_state": "blocked", "milestone": null, "demand": 0,
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|ISSUE_e", "source_id": "github:github.com", "external_id": "ISSUE_e",
+      "kind": "issue", "project_path": "graysurf/symphony-board", "iid": 7,
+      "url": "https://github.com/graysurf/symphony-board/issues/7", "title": "Investigate rate-limit handling",
+      "state": "open", "state_raw": "OPEN", "state_reason": null, "is_draft": null,
+      "author": "octocat", "created_at": "2026-04-10T00:00:00Z", "updated_at": "2026-05-20T00:00:00Z",
+      "closed_at": null, "merged_at": null,
+      "labels": [{ "name": "question", "scope": null, "color": "d876e3" }],
+      "review_state": null, "ci_state": null, "merge_state": null, "milestone": null, "demand": 1,
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PR_f", "source_id": "github:github.com", "external_id": "PR_f",
+      "kind": "change_request", "project_path": "graysurf/symphony-board", "iid": 8,
+      "url": "https://github.com/graysurf/symphony-board/pull/8", "title": "Abandoned rate-limit fix",
+      "state": "closed", "state_raw": "CLOSED", "state_reason": null, "is_draft": false,
+      "author": "octocat", "created_at": "2026-04-12T00:00:00Z", "updated_at": "2026-04-20T00:00:00Z",
+      "closed_at": "2026-04-20T00:00:00Z", "merged_at": null,
+      "labels": [],
+      "review_state": "changes_requested", "ci_state": "failing", "merge_state": "conflicting", "milestone": null, "demand": 3,
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "gitlab:gitlab.com|gid://gitlab/Issue/101", "source_id": "gitlab:gitlab.com", "external_id": "gid://gitlab/Issue/101",
+      "kind": "issue", "project_path": "graysury/symphony-board-fixture", "iid": 3,
+      "url": "https://gitlab.com/graysury/symphony-board-fixture/-/issues/3", "title": "GitLab: scoped labels are mutually exclusive",
+      "state": "open", "state_raw": "opened", "state_reason": null, "is_draft": null,
+      "author": "terrylin", "created_at": "2026-06-02T00:00:00Z", "updated_at": "2026-06-04T00:00:00Z",
+      "closed_at": null, "merged_at": null,
+      "labels": [{ "name": "type::feature", "scope": "type", "color": "#428bca" }],
+      "review_state": null, "ci_state": null, "merge_state": null, "milestone": null, "demand": 0,
+      "last_seen_at": "2026-06-07T07:40:00Z"
+    },
+    {
+      "id": "gitlab:gitlab.com|gid://gitlab/MergeRequest/201", "source_id": "gitlab:gitlab.com", "external_id": "gid://gitlab/MergeRequest/201",
+      "kind": "change_request", "project_path": "graysury/symphony-board-fixture", "iid": 4,
+      "url": "https://gitlab.com/graysury/symphony-board-fixture/-/merge_requests/4", "title": "Wire scoped-label parsing",
+      "state": "open", "state_raw": "opened", "state_reason": null, "is_draft": false,
+      "author": "terrylin", "created_at": "2026-06-03T00:00:00Z", "updated_at": "2026-06-04T00:00:00Z",
+      "closed_at": null, "merged_at": null,
+      "labels": [],
+      "review_state": null, "ci_state": "none", "merge_state": "unknown", "milestone": null, "demand": 0,
+      "last_seen_at": "2026-06-07T07:40:00Z"
+    }
+  ],
+  "edges": [
+    { "type": "closes", "from": "github:github.com|PR_b", "to": "github:github.com|ISSUE_a", "from_state": "merged", "to_state": "closed", "lifecycle": "fulfilled" },
+    { "type": "closes", "from": "github:github.com|PR_d", "to": "github:github.com|ISSUE_c", "from_state": "open", "to_state": "open", "lifecycle": "declared" },
+    { "type": "closes", "from": "github:github.com|PR_f", "to": "github:github.com|ISSUE_e", "from_state": "closed", "to_state": "open", "lifecycle": "broken" },
+    { "type": "closes", "from": "github:github.com|PR_b", "to": "github:github.com|ISSUE_UNTRACKED_99", "from_state": "merged", "to_state": null, "lifecycle": "declared" },
+    { "type": "closes", "from": "gitlab:gitlab.com|gid://gitlab/MergeRequest/201", "to": "gitlab:gitlab.com|gid://gitlab/Issue/101", "from_state": "open", "to_state": "open", "lifecycle": "declared" }
+  ]
+}
