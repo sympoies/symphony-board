@@ -14,6 +14,7 @@ import {
   buildColorIndex,
   resolveRepoColor,
   parseHashRoute,
+  buildHashRoute,
   applyRouteSearch,
   edgeEndpointIds,
   type Filters,
@@ -40,16 +41,17 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
 // Three pages via a zero-dep hash route: "" (#/) is the full-width board,
 // "graph" (#/graph) the relationship graph, "settings" (#/settings) the
-// persistent repo display filter. The graph route may carry a "?focus=<ref>"
-// deep-link from a board card (parseHashRoute pulls it out).
+// persistent repo display filter. The route may carry "?q=<search>" so the
+// visible search box is URL-backed; graph routes may also carry "?focus=<ref>"
+// from a board card.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 
 export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // Seed the search from the hash's "?q=" token if present (a board → graph
-  // deep-link), so the graph narrows on the FIRST render — no full-graph flash.
+  // Seed the search from the hash's "?q=" token if present; the URL is the source
+  // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
   const [hash, setHash] = useState<string>(readHash);
   // Persistent display preferences (the Settings page), loaded once from
@@ -65,9 +67,8 @@ export function App() {
     const onHash = () => {
       const h = readHash();
       setHash(h);
-      // A deep-link carrying "?q=" applies its search token in the SAME update as
-      // the route change (batched), so the graph mounts already narrowed; absent a
-      // q, applyRouteSearch leaves the search alone (never clobbers user input).
+      // A route carrying "?q=" applies its search token in the SAME update as the
+      // route change (batched); absent q clears search, matching the URL.
       setFilters((prev) => applyRouteSearch(prev, parseHashRoute(h)));
     };
     window.addEventListener("hashchange", onHash);
@@ -75,6 +76,7 @@ export function App() {
   }, []);
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
+  const page = route.page === "graph" ? "graph" : route.page === "settings" ? "settings" : "board";
 
   useEffect(() => {
     saveHidden(hidden);
@@ -223,6 +225,21 @@ export function App() {
       .catch((err: unknown) => setError((err as Error).message));
   }
 
+  function routeHref(nextPage: "board" | "graph" | "settings"): string {
+    return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search });
+  }
+
+  function setRouteSearch(q: string) {
+    setFilters((f) => ({ ...f, search: q }));
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({
+      page: page === "board" ? "" : page,
+      focus: page === "graph" ? route.focus : null,
+      q,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
   if (loading) return <div className="state-msg">Loading contract…</div>;
 
   if (error && !env) {
@@ -249,18 +266,17 @@ export function App() {
   if (!env || !visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
 
-  const page = route.page === "graph" ? "graph" : route.page === "settings" ? "settings" : "board";
   return (
     <div className="app app-wide">
       <Header env={env} />
       <nav className="page-tabs">
-        <a className={`tab${page === "board" ? " tab-on" : ""}`} href="#/">
+        <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
           Board
         </a>
-        <a className={`tab${page === "graph" ? " tab-on" : ""}`} href="#/graph">
+        <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
           Graph
         </a>
-        <a className={`tab${page === "settings" ? " tab-on" : ""}`} href="#/settings">
+        <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
           Settings
         </a>
       </nav>
@@ -277,7 +293,7 @@ export function App() {
           <Controls
             filters={filters}
             facets={facets}
-            onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
+            onSearch={setRouteSearch}
             onToggle={toggle}
             onLoadFile={loadFile}
           />

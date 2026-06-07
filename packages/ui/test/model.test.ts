@@ -22,6 +22,7 @@ import {
   isHexColor,
   compareGraphNodes,
   parseHashRoute,
+  buildHashRoute,
   graphFocusHref,
   applyRouteSearch,
   edgeEndpointIds,
@@ -414,7 +415,23 @@ test("parseHashRoute splits page from the optional ?focus= / ?q= deep-link param
   assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null });
   // empty/absent values are normalized to null
   assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null });
+  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null });
   assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null, q: null });
+});
+
+test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
+  assert.equal(buildHashRoute({ page: "" }), "#/");
+  assert.equal(buildHashRoute({ page: "graph", q: "owner/repo #13" }), "#/graph?q=owner%2Frepo%20%2313");
+  assert.equal(
+    buildHashRoute({ page: "graph", focus: "github:github.com|42", q: "owner/repo #42" }),
+    "#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342",
+  );
+  assert.equal(buildHashRoute({ page: "settings", q: "  " }), "#/settings");
+  assert.deepEqual(parseHashRoute(buildHashRoute({ page: "", q: "owner/repo #13" })), {
+    page: "",
+    focus: null,
+    q: "owner/repo #13",
+  });
 });
 
 test("graphFocusHref round-trips an item's id + search token through parseHashRoute", () => {
@@ -431,16 +448,19 @@ test("graphFocusHref round-trips an item's id + search token through parseHashRo
   }
 });
 
-test("applyRouteSearch seeds search from ?q= but never clobbers a user-typed search", () => {
+test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
   const route = (q: string | null) => ({ page: "graph", focus: null, q });
-  // a present q seeds the search (deep-link narrowing)
+  // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
-  // an absent q returns the SAME object — a search the user typed is preserved
+  // an absent q clears search, so navigating to "#/graph" cannot carry a hidden
+  // board/deep-link query that is missing from the URL.
   const typed = { ...emptyFilters(), search: "user typed" };
-  assert.equal(applyRouteSearch(typed, route(null)), typed, "absent q -> same reference (no clobber)");
+  assert.deepEqual(applyRouteSearch(typed, route(null)), emptyFilters(), "absent q -> clear search");
   // q equal to the current search -> same object (no needless re-render)
   const cur = { ...emptyFilters(), search: "owner/repo #13" };
   assert.equal(applyRouteSearch(cur, route("owner/repo #13")), cur, "unchanged q -> same reference");
+  const empty = emptyFilters();
+  assert.equal(applyRouteSearch(empty, route(null)), empty, "already-empty search -> same reference");
 });
 
 test("edgeEndpointIds collects both ends of every edge (board-card graph membership)", () => {
