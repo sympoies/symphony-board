@@ -182,11 +182,13 @@ export function lifecycleBucket(re: ResolvedEdge): EdgeLifecycle | "other" {
 
 export interface GraphNode {
   id: string; // the endpoint ref (item id; may be an untracked, unresolved ref)
-  label: string;
+  label: string; // item title (or the bare ref tail when untracked)
+  repo: string | null; // project_path, so a node shows which repo it belongs to
+  iid: number | null;
   kind: string; // issue | change_request | unknown (untracked)
   state: string; // open | closed | merged | unknown
   url: string | null;
-  color: string; // node fill, baked for the canvas (cytoscape can't read CSS vars)
+  color: string; // node accent (state colour)
   untracked: boolean;
 }
 export interface GraphLink {
@@ -229,8 +231,8 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, kind: "unknown", state: "unknown", url: null, color: "#637777", untracked: true },
+          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, color: "#637777", untracked: true },
       );
     };
     ensure(re.from, re.edge.from);

@@ -259,9 +259,24 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .graph-legend > span { display: inline-flex; align-items: center; }
 .graph-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
 .graph-canvas {
-  width: 100%; height: 74vh;
+  width: 100%; height: 74vh; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
+/* React Flow card nodes */
+.rf-node {
+  width: 200px; box-sizing: border-box;
+  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted);
+  border-radius: 8px; padding: 6px 8px; font-size: 11px; color: var(--text); cursor: pointer;
+}
+.rf-node:hover { border-color: var(--accent); }
+.rf-node-untracked { border-style: dashed; opacity: .8; font-family: ui-monospace, monospace; }
+.rf-node-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.rf-node-title {
+  font-weight: 600; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.rf-node-repo { font-size: 10px; margin-top: 3px; }
+.rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }
 
 /* spotlight: recency lanes (Follow-up / Plan / PR), independent of status */
 .spotlight-lanes {
