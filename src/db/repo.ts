@@ -247,7 +247,14 @@ export function listLiveItems(db: DatabaseSync): ItemRow[] {
               state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
               merged_at, review_state, ci_state, merge_state, milestone, demand, last_seen_at
        FROM item WHERE deleted_at IS NULL
-       ORDER BY (closed_at IS NULL) DESC, COALESCE(closed_at, updated_at, created_at) DESC, item_id DESC`,
+       -- Order by a provider-agnostic "most recently resolved" key: a closed item
+       -- by closed_at, a merged item by merged_at, an open item by updated_at
+       -- (created_at as a last resort). merged_at MUST be in the COALESCE: GitLab
+       -- carries merged_at (NOT closed_at) for a merged MR, so keying on closed_at
+       -- alone — or floating closed_at-IS-NULL rows to the top — would scatter every
+       -- GitLab merged MR ahead of dated items in the board's Closed/Trailing
+       -- columns (the UI partitions this order without re-sorting).
+       ORDER BY COALESCE(closed_at, merged_at, updated_at, created_at) DESC, item_id DESC`,
     )
     .all() as unknown as ItemRow[];
 }
