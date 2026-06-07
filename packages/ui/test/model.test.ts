@@ -10,6 +10,7 @@ import {
   computeStats,
   relativeTime,
   buildGraph,
+  buildAdjacency,
   cutoffIso,
   repoKey,
   deriveRepos,
@@ -164,4 +165,25 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
     "edges touching the hidden repo are removed; the visible-end + untracked edge stays",
   );
   assert.equal(view.edges[0]!.from, "gl|MR");
+});
+
+test("buildAdjacency records both directions per edge and dedupes", () => {
+  const re = (from: string, to: string, type: string): ResolvedEdge => ({
+    edge: { type, from, to, from_state: null, to_state: null, lifecycle: null },
+    from: null,
+    to: null,
+  });
+  const adj = buildAdjacency([
+    re("PR", "IS", "closes"),
+    re("PR", "IS", "closes"), // duplicate edge -> deduped
+    re("PR", "EXT", "mentions"),
+  ]);
+  // PR sees both its targets, as outgoing
+  assert.deepEqual(adj.get("PR"), [
+    { ref: "IS", type: "closes", direction: "out" },
+    { ref: "EXT", type: "mentions", direction: "out" },
+  ]);
+  // IS sees PR as an incoming "closes"
+  assert.deepEqual(adj.get("IS"), [{ ref: "PR", type: "closes", direction: "in" }]);
+  assert.deepEqual(adj.get("EXT"), [{ ref: "PR", type: "mentions", direction: "in" }]);
 });

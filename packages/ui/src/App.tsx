@@ -220,7 +220,7 @@ export function App() {
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
-          <GraphPage edges={filteredEdges} />
+          <GraphPage edges={filteredEdges} sourceKind={sourceKind} />
         </Suspense>
       ) : (
         <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} />

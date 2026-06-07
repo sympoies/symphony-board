@@ -232,7 +232,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 /* side list — searchable, scrolls independently, same height as the canvas */
 .graph-list {
-  flex: 0 0 240px; height: 74vh; display: flex; flex-direction: column; overflow: hidden;
+  flex: 0 0 270px; height: 74vh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
 .graph-list-search {
@@ -241,21 +241,50 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .graph-list-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 4px; }
 .graph-list .empty-list { padding: 8px; font-size: 12px; }
-.graph-list-item {
-  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted);
-  border-radius: 7px; padding: 5px 7px; color: var(--text); font: inherit; cursor: pointer;
+/* "← all items" back button (focus view) */
+.graph-list-back {
+  margin: 8px; padding: 5px 8px; font: inherit; font-size: 12px; text-align: left;
+  background: var(--panel-2); color: var(--link); border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
 }
-.graph-list-item:hover { border-color: var(--accent); }
-.graph-list-item.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.graph-list-item.untracked { border-style: dashed; opacity: .8; }
-.gli-head { display: flex; align-items: center; gap: 6px; }
-.gli-demand { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
-.gli-title {
+.graph-list-back:hover { border-color: var(--accent); }
+.graph-related-head { padding: 6px 4px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-top: 1px solid var(--line); margin-top: 4px; }
+.graph-list .glc-note { padding: 4px 6px; font-size: 11px; }
+
+/* side-list card — carries the board card's detail in a narrow column */
+.graph-list-card {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted);
+  border-radius: 7px; padding: 6px 8px; color: var(--text); font: inherit; cursor: pointer;
+}
+.graph-list-card:hover { border-color: var(--accent); }
+.graph-list-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.graph-list-card.glc-untracked { border-left-style: dashed; opacity: .85; }
+/* left-accent by state, from the shared palette tokens */
+.glc-state-open { border-left-color: var(--open); }
+.glc-state-closed { border-left-color: var(--closed); }
+.glc-state-merged { border-left-color: var(--merged); }
+.glc-state-unknown { border-left-color: var(--muted); }
+.glc-relation { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.glc-rel-type { color: var(--link); }
+.glc-offwindow {
+  font-size: 10px; padding: 0 5px; border-radius: 999px;
+  border: 1px solid var(--declared); color: var(--declared);
+}
+.glc-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.glc-demand { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
+.glc-ext { margin-left: auto; color: var(--muted); font-size: 13px; line-height: 1; }
+.glc-ext:hover { color: var(--accent); text-decoration: none; }
+.glc-title {
   font-weight: 600; font-size: 12px; line-height: 1.3;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.gli-repo { font-size: 11px; }
+.glc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 11px; }
+.glc-meta .icon-source { flex: none; }
+.glc-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; }
+.glc-times time { white-space: nowrap; }
+.glc-times .sep { opacity: .6; }
+.glc-signals, .glc-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.glc-more { font-size: 11px; }
 /* React Flow card nodes */
 .rf-node {
   /* fills the RF node box, whose size scales with demand (see GraphPage dims()) */

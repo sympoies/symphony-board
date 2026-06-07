@@ -18,8 +18,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum } from "d3-force";
+import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { buildGraph, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge } from "../model.ts";
+import { LabelChip } from "./LabelChip.tsx";
+import { SourceIcon } from "./SourceIcon.tsx";
+import { buildGraph, buildAdjacency, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -35,6 +38,14 @@ import { buildGraph, cutoffIso, relativeTime, type GraphNode, type GraphLink, ty
 // (pan + zoom via React Flow fitView; the default view stays the full-graph
 // fit), and each node card carries created / updated (relative) + demand —
 // legible once focused/zoomed.
+//
+// Side-list depth: the list cards now carry the same detail as the board card
+// (author, created/updated, review/CI/merge signals, collapsed labels, source
+// mark). Clicking a card enters a FOCUS view — that item plus its related items
+// (the other ends of its edges), with the camera fit to it + its on-graph
+// neighbours. Related items are computed from the FULL edge set (model
+// buildAdjacency), so a relation hidden by the "active since" window still
+// lists, marked "off-window"; a "← all items" button returns to the list.
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 const NODE_W = 200;
@@ -245,67 +256,212 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
   );
 }
 
-// Searchable list beside the canvas: click an entry to pan + zoom the graph onto
-// that node. Sorted by demand (busiest first), mirroring the node-size cue. It
-// drives the camera through React Flow's fitView, so it must render INSIDE a
-// <ReactFlowProvider> shared with the canvas.
-function GraphSideList({ nodes }: { nodes: GraphNode[] }) {
+// One side-list card. Carries the board card's detail (state/kind/draft, source
+// mark, repo #iid, author, demand, created/updated, review/CI/merge signals,
+// labels — capped) for a TRACKED item; an untracked endpoint falls back to its
+// ref label. `relation` (present only in the focus view) tags how this item
+// relates to the focused one and whether it sits off the current time window.
+// The card body click = focus; the ↗ link opens the provider page (and stops
+// propagation so it does not also focus).
+const MAX_LABELS = 4;
+function GraphListCard({
+  item,
+  fallbackLabel,
+  sourceKind,
+  relation,
+  active,
+  onFocus,
+}: {
+  item: ItemDTO | null;
+  fallbackLabel: string;
+  sourceKind?: string;
+  relation?: { type: string; direction: "out" | "in"; offWindow: boolean };
+  active?: boolean;
+  onFocus: () => void;
+}) {
+  const state = item?.state ?? "unknown";
+  const kind = item?.kind ?? "unknown";
+  const title = item?.title ?? fallbackLabel;
+  const labels = item?.labels ?? [];
+  return (
+    <div
+      className={`graph-list-card glc-state-${state}${item ? "" : " glc-untracked"}${active ? " active" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={onFocus}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onFocus();
+        }
+      }}
+      title={title}
+    >
+      {relation && (
+        <div className="glc-relation muted">
+          <span className="glc-rel-type">
+            {relation.direction === "out" ? "→" : "←"} {relation.type}
+          </span>
+          {relation.offWindow && (
+            <span className="glc-offwindow" title="outside the current “active since” window — widen it to show this node on the graph">
+              off-window
+            </span>
+          )}
+        </div>
+      )}
+      <div className="glc-head">
+        <span className="kind" title={kind}>
+          {KIND_ICON[kind] ?? "•"}
+        </span>
+        <Badge text={state} kind={state} />
+        {item?.is_draft ? <Badge text="draft" kind="draft" /> : null}
+        {item?.demand != null && item.demand > 0 ? (
+          <span className="glc-demand muted" title="comments + reactions">
+            <DemandIcon /> {item.demand}
+          </span>
+        ) : null}
+        {item?.url ? (
+          <a className="glc-ext" href={item.url} target="_blank" rel="noopener noreferrer" title="open on provider" onClick={(e) => e.stopPropagation()}>
+            ↗
+          </a>
+        ) : null}
+      </div>
+      <div className="glc-title">{title}</div>
+      <div className="glc-meta muted">
+        {sourceKind ? <SourceIcon kind={sourceKind} /> : null}
+        <span>{item?.project_path ?? "untracked"}</span>
+        {item?.iid != null ? <span>#{item.iid}</span> : null}
+        {item?.author ? <span>@{item.author}</span> : null}
+      </div>
+      {(item?.created_at || item?.updated_at) && (
+        <div className="glc-times muted">
+          {item?.created_at ? <time title={item.created_at}>created {relativeTime(item.created_at)}</time> : null}
+          {item?.created_at && item?.updated_at ? <span className="sep">·</span> : null}
+          {item?.updated_at ? <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time> : null}
+        </div>
+      )}
+      {item && (item.review_state || item.ci_state || item.merge_state) && (
+        <div className="glc-signals">
+          {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
+          {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
+          {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
+        </div>
+      )}
+      {labels.length > 0 && (
+        <div className="glc-labels">
+          {labels.slice(0, MAX_LABELS).map((l) => (
+            <LabelChip key={l.name} label={l} />
+          ))}
+          {labels.length > MAX_LABELS ? <span className="glc-more muted">+{labels.length - MAX_LABELS}</span> : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The side list beside the canvas. Two modes share one <aside>:
+//   • list  — searchable, demand-sorted cards of the on-graph (windowed) nodes;
+//             click a card to focus it.
+//   • focus — that item + its related items (other edge ends, from the FULL edge
+//             set, off-window ones flagged); camera fits the item + its on-graph
+//             neighbours. A related card re-focuses (navigation chain); "← all
+//             items" returns. It drives the camera via React Flow's fitView, so
+//             it renders INSIDE the <ReactFlowProvider> shared with the canvas.
+function GraphSideList({
+  nodes,
+  itemsByRef,
+  adjacency,
+  windowedIds,
+  sourceKind,
+}: {
+  nodes: GraphNode[];
+  itemsByRef: Map<string, ItemDTO>;
+  adjacency: Map<string, RelatedRef[]>;
+  windowedIds: Set<string>;
+  sourceKind: Map<string, string>;
+}) {
   const rf = useReactFlow();
   const [q, setQ] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
+  const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const labelOf = (ref: string): string => nodeById.get(ref)?.label ?? itemsByRef.get(ref)?.title ?? ref.split("|").pop() ?? ref;
+  const kindOf = (ref: string): string | undefined => {
+    const it = itemsByRef.get(ref);
+    return it ? sourceKind.get(it.source_id) : undefined;
+  };
+
+  // Fit the camera to the focused node + its neighbours that are actually on the
+  // graph (off-window related items have no node to frame). No-op if none are.
+  function focusCamera(id: string) {
+    const onGraph = [id, ...(adjacency.get(id) ?? []).map((r) => r.ref)].filter((r) => windowedIds.has(r));
+    if (onGraph.length) rf.fitView({ nodes: onGraph.map((i) => ({ id: i })), padding: 0.4, minZoom: 0.35, maxZoom: 1.4, duration: 600 });
+  }
+  function focus(id: string) {
+    setFocusId(id);
+    focusCamera(id);
+  }
+  function back() {
+    setFocusId(null);
+    rf.fitView({ padding: 0.1, duration: 500 });
+  }
+
+  if (focusId !== null) {
+    const related = (adjacency.get(focusId) ?? [])
+      .slice()
+      .sort((a, b) => Number(!windowedIds.has(a.ref)) - Number(!windowedIds.has(b.ref)) || a.type.localeCompare(b.type) || labelOf(a.ref).localeCompare(labelOf(b.ref)));
+    return (
+      <aside className="graph-list">
+        <button type="button" className="graph-list-back" onClick={back}>
+          ← all items
+        </button>
+        <div className="graph-list-scroll">
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} active onFocus={() => focusCamera(focusId)} />
+          {!windowedIds.has(focusId) && (
+            <p className="muted glc-note">This item is outside the current “active since” window — widen it to see it on the graph.</p>
+          )}
+          <div className="graph-related-head muted">
+            {related.length} related {related.length === 1 ? "item" : "items"}
+          </div>
+          {related.length === 0 ? (
+            <p className="muted empty-list">no related items</p>
+          ) : (
+            related.map((r) => (
+              <GraphListCard
+                key={`${r.ref}|${r.type}|${r.direction}`}
+                item={itemsByRef.get(r.ref) ?? null}
+                fallbackLabel={labelOf(r.ref)}
+                sourceKind={kindOf(r.ref)}
+                relation={{ type: r.type, direction: r.direction, offWindow: !windowedIds.has(r.ref) }}
+                onFocus={() => focus(r.ref)}
+              />
+            ))
+          )}
+        </div>
+      </aside>
+    );
+  }
+
+  const filtered = (() => {
     const needle = q.trim().toLowerCase();
     const match = needle
-      ? nodes.filter((n) => `${n.label} ${n.repo ?? ""} ${n.iid != null ? "#" + n.iid : ""}`.toLowerCase().includes(needle))
+      ? nodes.filter((n) => {
+          const it = itemsByRef.get(n.id);
+          return `${n.label} ${n.repo ?? ""} ${n.iid != null ? "#" + n.iid : ""} ${it?.author ?? ""}`.toLowerCase().includes(needle);
+        })
       : nodes.slice();
     return match.sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.label.localeCompare(b.label));
-  }, [nodes, q]);
-
-  function focus(id: string) {
-    setActiveId(id);
-    // Pan + zoom to the single node with a readable cap and a smooth glide. The
-    // default view stays the full-graph fit (the <ReactFlow fitView> prop).
-    rf.fitView({ nodes: [{ id }], padding: 0.5, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
-  }
+  })();
 
   return (
     <aside className="graph-list">
-      <input
-        className="graph-list-search"
-        type="search"
-        placeholder="filter items…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+      <input className="graph-list-search" type="search" placeholder="filter items…" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="graph-list-scroll">
         {filtered.length === 0 ? (
           <p className="muted empty-list">no items match</p>
         ) : (
           filtered.map((n) => (
-            <button
-              key={n.id}
-              type="button"
-              className={`graph-list-item${activeId === n.id ? " active" : ""}${n.untracked ? " untracked" : ""}`}
-              style={{ borderLeftColor: n.color }}
-              onClick={() => focus(n.id)}
-              title={n.label}
-            >
-              <span className="gli-head">
-                <span className="kind">{KIND_ICON[n.kind] ?? "•"}</span>
-                <Badge text={n.state} kind={n.state} />
-                {n.demand != null && n.demand > 0 ? (
-                  <span className="gli-demand muted" title="comments + reactions">
-                    <DemandIcon /> {n.demand}
-                  </span>
-                ) : null}
-              </span>
-              <span className="gli-title">{n.label}</span>
-              <span className="gli-repo muted">
-                {n.repo ?? "untracked"}
-                {n.iid != null ? ` #${n.iid}` : ""}
-              </span>
-            </button>
+            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} onFocus={() => focus(n.id)} />
           ))
         )}
       </div>
@@ -313,7 +469,7 @@ function GraphSideList({ nodes }: { nodes: GraphNode[] }) {
   );
 }
 
-export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
+export function GraphPage({ edges, sourceKind }: { edges: ResolvedEdge[]; sourceKind: Map<string, string> }) {
   const [since, setSince] = useState<string>(() => cutoffIso(90).slice(0, 10));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(false);
@@ -330,6 +486,20 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
     }
     return buildGraph(visible, cutoff);
   }, [edges, since, showMentions, mentionTarget]);
+
+  // Side-list derivations over the FULL edge set (not the time-windowed graph):
+  // every resolvable item (so the focus view can surface relations the window
+  // hides), the adjacency map, and the set of refs currently on the graph.
+  const itemsByRef = useMemo(() => {
+    const m = new Map<string, ItemDTO>();
+    for (const re of edges) {
+      if (re.from) m.set(re.edge.from, re.from);
+      if (re.to) m.set(re.edge.to, re.to);
+    }
+    return m;
+  }, [edges]);
+  const adjacency = useMemo(() => buildAdjacency(edges), [edges]);
+  const windowedIds = useMemo(() => new Set(graph.nodes.map((n) => n.id)), [graph]);
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
@@ -437,7 +607,7 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
         // camera (fitView) even though it renders outside <ReactFlow>.
         <ReactFlowProvider>
           <div className="graph-body">
-            <GraphSideList nodes={graph.nodes} />
+            <GraphSideList nodes={graph.nodes} itemsByRef={itemsByRef} adjacency={adjacency} windowedIds={windowedIds} sourceKind={sourceKind} />
             <div className="graph-canvas">
               <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
             </div>

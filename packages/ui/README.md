@@ -21,7 +21,12 @@ home for a build step + heavy deps — **Vite + React + TypeScript** (see
 - **Graph** (`#/graph`) — the relationship graph: issue ↔ PR/MR `closes` edges
   (plus opt-in `mentions`), coloured by derived lifecycle — `declared` = in
   flight, `fulfilled` = merged + closed, `broken` = closed unmerged. A cross-repo
-  endpoint in an untracked project is shown by its ref.
+  endpoint in an untracked project is shown by its ref. A side list beside the
+  canvas carries the same detail as the board card (author, times, review/CI/merge
+  signals, labels, source mark); clicking a card enters a **focus view** — that
+  item plus its related items (the other ends of its edges, computed from the full
+  edge set, so relations hidden by the “active since” window still list, flagged
+  *off-window*) — and fits the camera to it and its on-graph neighbours.
 - **Settings** (`#/settings`) — a persistent, client-side **display filter**:
   per-repo checkboxes (grouped by source, with each source's sync health and a
   select-all/none) that pre-filter the contract — items *and* their edges —
