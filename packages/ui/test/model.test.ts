@@ -28,8 +28,6 @@ import {
   itemSearchToken,
   type ResolvedEdge,
   type GraphNode,
-  type GraphLink,
-  type RelatedRef,
 } from "../src/model.ts";
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
@@ -155,42 +153,33 @@ test("buildGraph keeps only edge-connected nodes, applies the time window, and f
   assert.equal(buildGraph(edges, null).links.length, 3, "no cutoff keeps every edge");
 });
 
-// The Graph page's focus view: focusSubgraph narrows a built graph to the
-// focused node + its on-graph neighbours and only the edges among that set.
-// (gnode is the shared GraphNode factory defined lower in this file.)
-const glink = (id: string, source: string, target: string): GraphLink => ({ id, source, target, type: "closes", color: "#000" });
-const adjOf = (pairs: Array<[string, string]>): Map<string, RelatedRef[]> => {
-  const m = new Map<string, RelatedRef[]>();
-  const push = (a: string, b: string, d: "out" | "in") => m.set(a, [...(m.get(a) ?? []), { ref: b, type: "closes", direction: d }]);
-  for (const [a, b] of pairs) { push(a, b, "out"); push(b, a, "in"); }
-  return m;
-};
-
-test("focusSubgraph: null focus is the identity (canvas stays the full graph)", () => {
-  const g = { nodes: [gnode({ id: "A" }), gnode({ id: "B" })], links: [glink("e", "A", "B")] };
-  assert.equal(focusSubgraph(g, null, adjOf([["A", "B"]])), g, "same reference, untouched");
+// The Graph page's focus view: focusSubgraph builds the focused item + its direct
+// neighbours and every edge among that set, from the RAW edges — all edge types,
+// no time window — so a focus shows ALL its relationships (the overview graph's
+// mentions toggle / "active since" window do not apply in focus).
+const redge = (from: string, to: string, type: string): ResolvedEdge => ({
+  // 2020 timestamps: well outside any recent window, to prove focusSubgraph ignores it.
+  edge: { type, from, to, from_state: null, to_state: null, lifecycle: type === "closes" ? "fulfilled" : null },
+  from: item({ id: from, updated_at: "2020-01-01T00:00:00Z" }),
+  to: item({ id: to, updated_at: "2020-01-01T00:00:00Z" }),
 });
 
-test("focusSubgraph: a focus keeps only itself + neighbours and the edges among them", () => {
-  // A — B — C ; focusing B keeps A,B,C + both edges; focusing A keeps A,B + just A–B
-  const g = { nodes: [gnode({ id: "A" }), gnode({ id: "B" }), gnode({ id: "C" })], links: [glink("ab", "A", "B"), glink("bc", "B", "C")] };
-  const adj = adjOf([["A", "B"], ["B", "C"]]);
-
-  const onB = focusSubgraph(g, "B", adj);
-  assert.deepEqual(onB.nodes.map((n) => n.id).sort(), ["A", "B", "C"]);
-  assert.deepEqual(onB.links.map((l) => l.id).sort(), ["ab", "bc"]);
-
-  const onA = focusSubgraph(g, "A", adj);
-  assert.deepEqual(onA.nodes.map((n) => n.id).sort(), ["A", "B"], "C is not a neighbour of A -> dropped");
-  assert.deepEqual(onA.links.map((l) => l.id), ["ab"], "B–C is dropped; no dangling edge to the absent C");
+test("focusSubgraph: a focus shows its full neighbourhood — every edge type, no time window", () => {
+  const edges: ResolvedEdge[] = [
+    redge("A", "F", "closes"),
+    redge("B", "F", "mentions"), // a mention TO the focus IS drawn (the overview filters mentions; focus does not)
+    redge("A", "B", "relates"), // neighbour–neighbour edge among the kept set is kept too
+    redge("A", "Z", "closes"), // Z does not touch the focus -> excluded
+  ];
+  const g = focusSubgraph(edges, "F");
+  assert.deepEqual(g.nodes.map((n) => n.id).sort(), ["A", "B", "F"], "focus + direct neighbours only (Z dropped)");
+  assert.equal(g.links.length, 3, "A–F, B–F, A–B all kept despite 2020 timestamps (no window) and the mention");
+  assert.ok(g.links.some((l) => l.type === "mentions"), "the mention to the focus is drawn");
 });
 
-test("focusSubgraph: an off-window focus (not an on-graph node) falls back to the full graph, not edgeless orphans", () => {
-  // graph has B,C (A is off-window / absent) but adjacency still links A–B. Without
-  // the fallback this would render B as an edgeless orphan; instead show the full graph.
-  const g = { nodes: [gnode({ id: "B" }), gnode({ id: "C" })], links: [glink("bc", "B", "C")] };
-  const adj = adjOf([["A", "B"], ["B", "C"]]);
-  assert.equal(focusSubgraph(g, "A", adj), g, "focus absent from nodes -> whole graph");
+test("focusSubgraph: a focus with no incident edges yields an empty graph (caller falls back)", () => {
+  assert.equal(focusSubgraph([], "F").nodes.length, 0);
+  assert.equal(focusSubgraph([redge("X", "Y", "closes")], "F").nodes.length, 0, "no edge touches F -> empty");
 });
 
 test("repoKey is collision-proof and deriveRepos handles an empty contract", () => {
