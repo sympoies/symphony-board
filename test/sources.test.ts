@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GitHubSource } from "../src/sources/github.ts";
+import { GitLabSource } from "../src/sources/gitlab.ts";
 import type { GqlClient } from "../src/sources/graphql.ts";
 import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
 
@@ -78,4 +79,84 @@ test("normalize emits mentions from non-closing cross-references (source -> self
   assert.equal(m.to.externalId, "I_self");
   assert.equal(m.fromState, "merged");
   assert.equal(m.toState, "open");
+});
+
+// --- GitLab: system-note cross-references (issue #13) ----------------------
+
+const GL_DESC: SourceDescriptor = { sourceId: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", displayName: null };
+
+function glNode(id: string, iid: string, extra: Record<string, unknown> = {}) {
+  return {
+    id, iid, title: id, webUrl: `https://gl/${iid}`, state: "opened",
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
+    author: { username: "a" }, labels: { nodes: [] }, userNotesCount: 0, upvotes: 0, ...extra,
+  };
+}
+
+// A fake GitLab gql: one project, one MR (MR1 closes I5), two issues. The
+// per-item resolve serves relatedMergeRequests + the system notes that drive the
+// note-parsing path (mentions, relates, dedup-vs-closes, commit skip).
+const glGql: GqlClient = (async (query: string, vars: any) => {
+  if (query.includes("mergeRequest(iid")) {
+    const notes: Record<string, any[]> = { "1": [{ system: true, body: "mentioned in issue #6" }] };
+    return { project: { mergeRequest: { notes: { nodes: notes[vars.iid] ?? [] } } } };
+  }
+  if (query.includes("issue(iid")) {
+    const relMr: Record<string, any[]> = { "5": [{ id: "gid:MR1", iid: "1", state: "opened" }], "6": [] };
+    const notes: Record<string, any[]> = {
+      "5": [
+        { system: true, body: "mentioned in merge request !1" }, // MR1 already closes I5 -> deduped
+        { system: true, body: "marked as related to #6" }, // relates I5 <-> I6
+        { system: true, body: "mentioned in commit 0af3c1d9" }, // commit -> skipped
+      ],
+      "6": [
+        { system: true, body: "mentioned in issue #5" }, // I5 mentions I6
+        { system: false, body: "thanks, see #5" }, // human note -> ignored
+      ],
+    };
+    return { project: { issue: { relatedMergeRequests: { nodes: relMr[vars.iid] ?? [] }, notes: { nodes: notes[vars.iid] ?? [] } } } };
+  }
+  if (query.includes("mergeRequests(")) {
+    return { project: { mergeRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [glNode("gid:MR1", "1", { mergedAt: null, draft: false, approved: false, approvalsRequired: 0, headPipeline: null, detailedMergeStatus: "MERGEABLE" })] } } };
+  }
+  if (query.includes("issues(")) {
+    return { project: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [glNode("gid:I5", "5"), glNode("gid:I6", "6")] } } };
+  }
+  return {};
+}) as GqlClient;
+
+test("GitLab fetch resolves system notes into mentions/relates edges (with closes dedup)", async () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, true);
+  const byId = new Map(res.records.map((r) => [r.externalId, r]));
+  const edgesOf = (id: string) => src.normalize(byId.get(id)!)!.edges;
+
+  // I5: MR1 closes it; relates to I6; the "!1" mention is the closing MR (deduped)
+  // and the commit ref is skipped -> 0 mentions.
+  const i5 = edgesOf("gid:I5");
+  const i5closes = i5.filter((e) => e.type === "closes");
+  const i5rel = i5.filter((e) => e.type === "relates");
+  const i5men = i5.filter((e) => e.type === "mentions");
+  assert.equal(i5closes.length, 1, "I5 has the closes edge from MR1");
+  assert.equal(i5closes[0]!.from.externalId, "gid:MR1");
+  assert.equal(i5men.length, 0, "the closing MR mention is deduped; the commit ref is skipped");
+  assert.equal(i5rel.length, 1, "I5 relates to I6");
+  // relates endpoints are canonicalized (lexicographic): gid:I5 < gid:I6.
+  assert.equal(i5rel[0]!.from.externalId, "gid:I5");
+  assert.equal(i5rel[0]!.to.externalId, "gid:I6");
+
+  // I6: mentioned by I5 (issue->issue, non-closing) -> one mention, source -> self.
+  const i6men = edgesOf("gid:I6").filter((e) => e.type === "mentions");
+  assert.equal(i6men.length, 1);
+  assert.equal(i6men[0]!.from.externalId, "gid:I5", "mention points referencer -> self");
+  assert.equal(i6men[0]!.to.externalId, "gid:I6");
+
+  // MR1: mentioned by I6 (its own note) -> one mention; no closes on the MR side.
+  const mr1 = edgesOf("gid:MR1");
+  assert.equal(mr1.filter((e) => e.type === "closes").length, 0);
+  const mr1men = mr1.filter((e) => e.type === "mentions");
+  assert.equal(mr1men.length, 1);
+  assert.equal(mr1men[0]!.from.externalId, "gid:I6");
+  assert.equal(mr1men[0]!.to.externalId, "gid:MR1");
 });

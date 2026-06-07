@@ -98,4 +98,23 @@ const mrBrk = await mr("fix-webhooks", "Abandoned webhook fix", `Closes #${iAban
 await api("PUT", `/projects/${id}/merge_requests/${mrBrk.iid}`, { state_event: "close" });
 
 console.log(`MRs: fulfilled=!${mrFul.iid}(merged) declared=!${mrDec.iid}(open) draft=!${mrDraft.iid}(draft) broken=!${mrBrk.iid}(closed)`);
+
+// --- cross-reference edges (issue #13) -------------------------------------
+// GitLab has no relatedIssues / CrossReferencedEvent in GraphQL; mentions and
+// related links surface only as SYSTEM notes on the target item. Seed both so
+// the source's note-parsing path (and the Graph "+ mentions" toggle) has data:
+//   * a NON-closing issue->issue mention (a Closes ref is modeled as `closes`,
+//     not `mentions`, so we need a plain reference to exercise `mentions`);
+//   * a related link (issue<->issue) to exercise `relates`.
+// iOpen mentions iClosed via a plain comment -> iClosed gets "mentioned in issue #N".
+await api("POST", `/projects/${id}/issues/${iOpen.iid}/notes`, {
+  body: `Investigating alongside #${iClosed.iid} (related context, not a fix).`,
+});
+// related link iOpen <-> iProgress -> both get "marked as related to #N".
+await api("POST", `/projects/${id}/issues/${iOpen.iid}/links`, {
+  target_project_id: id,
+  target_issue_iid: iProgress.iid,
+});
+console.log(`cross-refs: #${iOpen.iid} mentions #${iClosed.iid}; #${iOpen.iid} related to #${iProgress.iid}`);
+
 console.log(`done: ${proj.web_url}`);
