@@ -22,7 +22,7 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
-import { buildGraph, buildAdjacency, relatedItems, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
+import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -462,7 +462,8 @@ function GraphSideList({
           return `${n.label} ${n.repo ?? ""} ${n.iid != null ? "#" + n.iid : ""} ${it?.author ?? ""}`.toLowerCase().includes(needle);
         })
       : nodes.slice();
-    return match.sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.label.localeCompare(b.label));
+    // #32: order by actionable state then newest-created (not demand).
+    return match.sort(compareGraphNodes);
   })();
 
   return (
