@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   ReactFlow,
   Background,
@@ -23,10 +23,23 @@ import { buildGraph, cutoffIso, type GraphNode, type GraphLink, type ResolvedEdg
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
 // solid; opt-in mentions are thin dashed. Layout is computed (RF ships none):
 // dagre for the hierarchy view, d3-force for the knowledge-graph view.
+//
+// Polish (#15): node size scales with demand (comments + reactions) so busy
+// items stand out; hovering a node highlights it + its neighbours and dims the
+// rest, and labels its incident edges with the edge type; mentions can be
+// filtered by the mentioned item's kind to thin the dense view.
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 const NODE_W = 200;
 const NODE_H = 78;
+
+// Node box + font scale from demand (comments + reactions). Log-damped so a few
+// very busy items don't dwarf the rest; capped at ~1.9x.
+function dims(demand: number | null): { w: number; h: number; scale: number } {
+  const d = Math.max(0, demand ?? 0);
+  const scale = 1 + Math.min(0.9, Math.log2(1 + d) / 8);
+  return { w: Math.round(NODE_W * scale), h: Math.round(NODE_H * scale), scale };
+}
 
 const NODE_LEGEND = [
   { c: "#addb67", t: "open" },
@@ -35,10 +48,19 @@ const NODE_LEGEND = [
   { c: "#637777", t: "untracked" },
 ];
 
+// What the mention-direction filter keeps: all mentions, or only those whose
+// MENTIONED (target) item is an issue / a change request.
+type MentionTarget = "all" | "issue" | "change_request";
+
 function ItemNode({ data }: NodeProps) {
   const d = data as unknown as GraphNode;
+  const { scale } = dims(d.demand);
   return (
-    <div className={`rf-node${d.untracked ? " rf-node-untracked" : ""}`} style={{ borderLeftColor: d.color }} title={d.label}>
+    <div
+      className={`rf-node${d.untracked ? " rf-node-untracked" : ""}`}
+      style={{ borderLeftColor: d.color, fontSize: `${(11 * scale).toFixed(1)}px` }}
+      title={d.demand != null ? `${d.label} · ${d.demand} comments + reactions` : d.label}
+    >
       <Handle type="target" position={Position.Top} className="rf-handle" />
       <div className="rf-node-head">
         <span className="kind">{KIND_ICON[d.kind] ?? "•"}</span>
@@ -66,23 +88,29 @@ function openExternal(url: string) {
   a.click();
 }
 
-function layoutDagre(nodes: GraphNode[], links: GraphLink[]): Map<string, { x: number; y: number }> {
+type Dim = { w: number; h: number; scale: number };
+
+function layoutDagre(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: "TB", nodesep: 30, ranksep: 80, marginx: 20, marginy: 20 });
   g.setDefaultEdgeLabel(() => ({}));
-  for (const n of nodes) g.setNode(n.id, { width: NODE_W, height: NODE_H });
+  for (const n of nodes) {
+    const { w, h } = dimOf(n.id);
+    g.setNode(n.id, { width: w, height: h });
+  }
   for (const l of links) if (g.hasNode(l.source) && g.hasNode(l.target)) g.setEdge(l.source, l.target);
   dagre.layout(g);
   const m = new Map<string, { x: number; y: number }>();
   for (const n of nodes) {
     const p = g.node(n.id);
-    m.set(n.id, { x: (p?.x ?? 0) - NODE_W / 2, y: (p?.y ?? 0) - NODE_H / 2 });
+    const { w, h } = dimOf(n.id);
+    m.set(n.id, { x: (p?.x ?? 0) - w / 2, y: (p?.y ?? 0) - h / 2 });
   }
   return m;
 }
 
 type SimNode = SimulationNodeDatum & { id: string };
-function layoutForce(nodes: GraphNode[], links: GraphLink[]): Map<string, { x: number; y: number }> {
+function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim): Map<string, { x: number; y: number }> {
   const simNodes: SimNode[] = nodes.map((n) => ({ id: n.id }));
   const simLinks = links.map((l) => ({ source: l.source, target: l.target }));
   const sim = forceSimulation(simNodes)
@@ -95,26 +123,70 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[]): Map<string, { x: n
         .strength(0.4),
     )
     .force("center", forceCenter(0, 0))
-    .force("collide", forceCollide(120))
+    // Collision radius tracks each node's (demand-scaled) box so big nodes claim
+    // more room and overlap less.
+    .force("collide", forceCollide((d) => { const { w, h } = dimOf((d as SimNode).id); return Math.max(w, h) / 2 + 14; }))
     .stop();
   for (let i = 0; i < 320; i++) sim.tick();
   const m = new Map<string, { x: number; y: number }>();
-  for (const n of simNodes) m.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+  for (const n of simNodes) {
+    const { w, h } = dimOf(n.id);
+    m.set(n.id, { x: (n.x ?? 0) - w / 2, y: (n.y ?? 0) - h / 2 });
+  }
   return m;
 }
 
 // The RF canvas is keyed by the parent so a layout/filter change remounts it and
-// re-fits; that keeps drag state simple (local, reset on filter change).
+// re-fits; that keeps drag state simple (local, reset on filter change). Hover a
+// node to highlight it + its neighbours (everything else dims) and label its
+// incident edges with the edge type.
 function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+
+  // Neighbour set of the hovered node (itself + every node one edge away).
+  const neighbours = useMemo(() => {
+    if (!hoverId) return null;
+    const s = new Set<string>([hoverId]);
+    for (const e of rfEdges) {
+      if (e.source === hoverId) s.add(e.target);
+      if (e.target === hoverId) s.add(e.source);
+    }
+    return s;
+  }, [hoverId, rfEdges]);
+
+  const viewNodes = useMemo(
+    () => nodes.map((n) => ({ ...n, style: { ...n.style, opacity: neighbours ? (neighbours.has(n.id) ? 1 : 0.12) : 1 } })),
+    [nodes, neighbours],
+  );
+
+  const viewEdges = useMemo(
+    () =>
+      edges.map((e) => {
+        const incident = !!hoverId && (e.source === hoverId || e.target === hoverId);
+        const base: CSSProperties = rfEdges.find((x) => x.id === e.id)?.style ?? e.style ?? {};
+        return {
+          ...e,
+          label: incident ? String((e.data as { type?: string } | undefined)?.type ?? "") : undefined,
+          labelBgPadding: [4, 2] as [number, number],
+          labelStyle: incident ? { fill: "#d6deeb", fontSize: 10 } : undefined,
+          labelBgStyle: incident ? { fill: "#0b2942", fillOpacity: 0.92 } : undefined,
+          style: { ...base, opacity: hoverId ? (incident ? 1 : 0.05) : (base.opacity ?? 1) },
+        };
+      }),
+    [edges, hoverId, rfEdges],
+  );
+
   return (
     <ReactFlow
-      nodes={nodes}
-      edges={edges}
+      nodes={viewNodes}
+      edges={viewEdges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       nodeTypes={nodeTypes}
+      onNodeMouseEnter={(_, node) => setHoverId(node.id)}
+      onNodeMouseLeave={() => setHoverId(null)}
       onNodeClick={(_, node) => {
         const url = (node.data as unknown as GraphNode).url;
         if (url) openExternal(url);
@@ -136,27 +208,44 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
   const [since, setSince] = useState<string>(() => cutoffIso(90).slice(0, 10));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(false);
+  const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
 
   const graph = useMemo(() => {
     const cutoff = since ? new Date(since + "T00:00:00Z").toISOString() : null;
-    const visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
+    let visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
+    // Mention-direction filter: keep mentions only when the mentioned (target)
+    // item is the chosen kind. Non-mention edges are unaffected; an untracked
+    // target (no kind) is shown only under "all".
+    if (showMentions && mentionTarget !== "all") {
+      visible = visible.filter((re) => re.edge.type !== "mentions" || re.to?.kind === mentionTarget);
+    }
     return buildGraph(visible, cutoff);
-  }, [edges, since, showMentions]);
+  }, [edges, since, showMentions, mentionTarget]);
+
+  const dimOf = useMemo(() => {
+    const m = new Map<string, Dim>();
+    for (const n of graph.nodes) m.set(n.id, dims(n.demand));
+    return (id: string): Dim => m.get(id) ?? { w: NODE_W, h: NODE_H, scale: 1 };
+  }, [graph]);
 
   const positions = useMemo(
-    () => (layout === "hierarchy" ? layoutDagre(graph.nodes, graph.links) : layoutForce(graph.nodes, graph.links)),
-    [graph, layout],
+    () => (layout === "hierarchy" ? layoutDagre(graph.nodes, graph.links, dimOf) : layoutForce(graph.nodes, graph.links, dimOf)),
+    [graph, layout, dimOf],
   );
 
   const rfNodes: Node[] = useMemo(
     () =>
-      graph.nodes.map((n) => ({
-        id: n.id,
-        type: "item",
-        position: positions.get(n.id) ?? { x: 0, y: 0 },
-        data: n as unknown as Record<string, unknown>,
-      })),
-    [graph, positions],
+      graph.nodes.map((n) => {
+        const { w, h } = dimOf(n.id);
+        return {
+          id: n.id,
+          type: "item",
+          position: positions.get(n.id) ?? { x: 0, y: 0 },
+          style: { width: w, height: h },
+          data: n as unknown as Record<string, unknown>,
+        };
+      }),
+    [graph, positions, dimOf],
   );
 
   const rfEdges: Edge[] = useMemo(
@@ -165,6 +254,7 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
         id: l.id,
         source: l.source,
         target: l.target,
+        data: { type: l.type },
         style: {
           stroke: l.color,
           strokeWidth: l.type === "mentions" ? 1 : 1.5,
@@ -176,7 +266,7 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
     [graph],
   );
 
-  const flowKey = `${layout}|${showMentions}|${since}|${graph.nodes.length}`;
+  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${since}|${graph.nodes.length}`;
 
   return (
     <section className="graph-page">
@@ -202,6 +292,25 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
             + mentions
           </button>
         </div>
+        {showMentions && (
+          <div className="toggle-group">
+            <span className="toggle-label">mentions of</span>
+            {([
+              ["all", "all"],
+              ["issue", "issues"],
+              ["change_request", "PRs"],
+            ] as Array<[MentionTarget, string]>).map(([val, lab]) => (
+              <button
+                key={val}
+                type="button"
+                className={`toggle${mentionTarget === val ? " toggle-on" : ""}`}
+                onClick={() => setMentionTarget(val)}
+              >
+                {lab}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="graph-legend">
           {NODE_LEGEND.map((x) => (
             <span key={x.t}>
@@ -209,7 +318,7 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
               {x.t}
             </span>
           ))}
-          <span className="muted">· solid = closes · dashed = mentions</span>
+          <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to focus</span>
         </div>
       </div>
       {graph.links.length === 0 ? (

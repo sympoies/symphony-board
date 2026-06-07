@@ -197,6 +197,7 @@ export interface GraphNode {
   state: string; // open | closed | merged | unknown
   url: string | null;
   color: string; // node accent (state colour)
+  demand: number | null; // comments + reactions; drives node size on the graph
   untracked: boolean;
 }
 export interface GraphLink {
@@ -239,8 +240,8 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, color: "#637777", untracked: true },
+          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, color: "#637777", demand: null, untracked: true },
       );
     };
     ensure(re.from, re.edge.from);
