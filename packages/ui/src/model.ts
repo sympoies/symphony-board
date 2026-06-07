@@ -1,15 +1,8 @@
-// Pure view-model helpers over the contract: filtering, grouping, edge
-// resolution, and small stats. No React here — easy to reason about and reuse.
+// Pure view-model helpers over the contract: filtering, edge resolution, and
+// small stats. No React here — easy to reason about and reuse.
 
-import type { ContractEnvelope, ItemDTO, EdgeDTO, EdgeLifecycle } from "@symphony-board/contract";
+import type { ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, SPOTLIGHT_KEEP, type SpotlightLaneConfig } from "./spotlight.config.ts";
-
-export { SPOTLIGHT_KEEP } from "./spotlight.config.ts";
-
-export type GroupBy = "source" | "repo" | "state" | "kind" | "none";
-
-// The main-area presentation: a status column board, or the grouped list.
-export type View = "board" | "list";
 
 // Board status columns, after project-board-automation's Status model
 // (Open / Trailing / Closed) plus an explicit In Progress lane:
@@ -122,41 +115,6 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   return true;
 }
 
-export function groupKey(it: ItemDTO, by: GroupBy): string {
-  switch (by) {
-    case "source":
-      return it.source_id;
-    case "repo":
-      return it.project_path ?? "(no repo)";
-    case "state":
-      return it.state;
-    case "kind":
-      return it.kind;
-    case "none":
-      return "All items";
-  }
-}
-
-export interface Group {
-  key: string;
-  items: ItemDTO[];
-}
-
-// Group filtered items, preserving the contract's within-group ordering (it is
-// already sorted by recency). Groups are sorted by key for a stable layout.
-export function groupItems(items: ItemDTO[], by: GroupBy): Group[] {
-  const map = new Map<string, ItemDTO[]>();
-  for (const it of items) {
-    const k = groupKey(it, by);
-    const arr = map.get(k);
-    if (arr) arr.push(it);
-    else map.set(k, [it]);
-  }
-  return [...map.entries()]
-    .map(([key, groupItemsList]) => ({ key, items: groupItemsList }))
-    .sort((a, b) => a.key.localeCompare(b.key));
-}
-
 export interface ResolvedEdge {
   edge: EdgeDTO;
   from: ItemDTO | null; // null = endpoint in an untracked project (cross-repo)
@@ -178,12 +136,6 @@ export function edgeMatches(re: ResolvedEdge, f: Filters): boolean {
   const ends = [re.from, re.to].filter((x): x is ItemDTO => x !== null);
   if (ends.length === 0) return true;
   return ends.some((it) => itemMatches(it, f));
-}
-
-export const LIFECYCLE_ORDER: EdgeLifecycle[] = ["declared", "fulfilled", "broken"];
-
-export function lifecycleBucket(re: ResolvedEdge): EdgeLifecycle | "other" {
-  return re.edge.lifecycle ?? "other";
 }
 
 // --- relationship graph (Graph page) ------------------------------------
