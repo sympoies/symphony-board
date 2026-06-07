@@ -7,6 +7,7 @@ import {
   STATUS_DESC,
   spotlight,
   type ItemStatus,
+  type ColorOf,
 } from "../model.ts";
 
 function Column({
@@ -15,12 +16,14 @@ function Column({
   sub,
   items,
   sourceKind,
+  colorOf,
 }: {
   kind: string;
   label: string;
   sub: string;
   items: ItemDTO[];
   sourceKind: Map<string, string>;
+  colorOf: ColorOf;
 }) {
   return (
     <div className={`col col-${kind}`}>
@@ -31,7 +34,13 @@ function Column({
       </h3>
       <div className="col-cards">
         {items.map((it) => (
-          <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} sourceKind={sourceKind.get(it.source_id)} />
+          <ItemCard
+            key={it.id}
+            item={it}
+            anchorId={anchorId(it.id)}
+            sourceKind={sourceKind.get(it.source_id)}
+            accentColor={colorOf(it.source_id, it.project_path)}
+          />
         ))}
       </div>
     </div>
@@ -50,10 +59,12 @@ export function FullBoard({
   items,
   statuses,
   sourceKind,
+  colorOf,
 }: {
   items: ItemDTO[];
   statuses: Map<string, ItemStatus>;
   sourceKind: Map<string, string>;
+  colorOf: ColorOf;
 }) {
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of items) statusCols[statuses.get(it.id) ?? "open"].push(it);
@@ -61,10 +72,10 @@ export function FullBoard({
   return (
     <section className="board-7">
       {STATUS_ORDER.map((s) => (
-        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} />
+        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} colorOf={colorOf} />
       ))}
       {lanes.map(({ lane, items: laneItems }) => (
-        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} />
+        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} colorOf={colorOf} />
       ))}
     </section>
   );

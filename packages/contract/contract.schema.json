@@ -34,6 +34,11 @@
       "type": "array",
       "description": "Issue <-> PR/MR relationships (the workflow spine) and any other typed links.",
       "items": { "$ref": "#/$defs/edge" }
+    },
+    "repos": {
+      "type": "array",
+      "description": "Per-repo display metadata (currently: highlight color). Sparse — a repo appears only when it has a configured color. Optional (added in 1.1.0); an old consumer ignores it.",
+      "items": { "$ref": "#/$defs/repo" }
     }
   },
   "$defs": {
@@ -52,7 +57,18 @@
         "host": { "type": "string" },
         "display_name": { "type": ["string", "null"] },
         "last_success_at": { "type": ["string", "null"], "format": "date-time" },
-        "last_status": { "type": ["string", "null"], "enum": ["ok", "partial", "error", null] }
+        "last_status": { "type": ["string", "null"], "enum": ["ok", "partial", "error", null] },
+        "color": { "type": ["string", "null"], "description": "Optional source-level highlight color (hex). null when unset. (added in 1.1.0)" }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "project_path", "color"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "project_path": { "type": "string", "description": "Matches the items' project_path for this repo." },
+        "color": { "type": "string", "description": "Configured highlight color (hex)." }
       }
     },
     "item": {

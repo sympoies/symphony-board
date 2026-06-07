@@ -176,14 +176,22 @@ export function deriveRepos(items: ItemDTO[]): RepoOption[] {
   );
 }
 
-// Apply the repo-visibility pre-filter, returning a contract VIEW with hidden
-// repos' items AND any edge touching them removed (an edge belongs to a repo if
-// a resolvable endpoint does). An untracked endpoint cannot be hidden (no repo
-// known), so an edge between visible/untracked ends survives. Returns env
-// unchanged when nothing is hidden.
-export function applyVisibility(env: ContractEnvelope, hidden: ReadonlySet<string>): ContractEnvelope {
-  if (hidden.size === 0) return env;
-  const isHidden = (it: ItemDTO) => hidden.has(repoKey(it.source_id, it.project_path));
+// Apply the visibility pre-filter, returning a contract VIEW with hidden items
+// AND any edge touching them removed (an edge belongs to a repo if a resolvable
+// endpoint does). Two INDEPENDENT layers gate an item: its source can be hidden
+// (hiddenSources, by source_id) and/or its repo can be hidden (hiddenRepos, by
+// repoKey) — effective-hidden = source hidden OR repo hidden. They are kept
+// separate so toggling a source never mutates the remembered per-repo choices.
+// An untracked endpoint cannot be hidden (no repo known), so an edge between
+// visible/untracked ends survives. Returns env unchanged when nothing is hidden.
+export function applyVisibility(
+  env: ContractEnvelope,
+  hiddenRepos: ReadonlySet<string>,
+  hiddenSources: ReadonlySet<string> = new Set(),
+): ContractEnvelope {
+  if (hiddenRepos.size === 0 && hiddenSources.size === 0) return env;
+  const isHidden = (it: ItemDTO) =>
+    hiddenSources.has(it.source_id) || hiddenRepos.has(repoKey(it.source_id, it.project_path));
   const byId = indexItems(env);
   const items = env.items.filter((it) => !isHidden(it));
   const edges = env.edges.filter((e) => {
@@ -192,6 +200,54 @@ export function applyVisibility(env: ContractEnvelope, hidden: ReadonlySet<strin
     return !(from && isHidden(from)) && !(to && isHidden(to));
   });
   return { ...env, items, edges };
+}
+
+// --- highlight color (Settings page + board/graph rendering) ------------
+//
+// A repo/source can carry a highlight color so it stands out. Resolution, most
+// specific first: a per-repo UI OVERRIDE (localStorage, this viewer) beats the
+// configured REPO color (contract repos[]) beats the configured SOURCE color
+// (contract sources[].color). null = no highlight. The config layers ride in on
+// the contract; the override layer is supplied by the caller (the Settings page
+// owns it). Only the override exists at repo granularity in the UI — a source's
+// color is changed in config, not overridden per-viewer.
+
+export interface ColorIndex {
+  repo: Map<string, string>; // repoKey -> configured repo color
+  source: Map<string, string>; // source_id -> configured source color
+}
+
+export function buildColorIndex(env: ContractEnvelope): ColorIndex {
+  const repo = new Map<string, string>();
+  for (const r of env.repos ?? []) {
+    repo.set(repoKey(r.source_id, r.project_path), r.color);
+    // Case-insensitive fallback key: a GitLab item's project_path is the queried
+    // config path verbatim, but GitHub returns the canonical nameWithOwner — so a
+    // config path that differs only in case would otherwise miss the join.
+    repo.set(repoKey(r.source_id, r.project_path.toLowerCase()), r.color);
+  }
+  const source = new Map<string, string>();
+  for (const s of env.sources ?? []) if (s.color) source.set(s.source_id, s.color);
+  return { repo, source };
+}
+
+// The per-item color lookup the views call (board cards, graph nodes/list). A
+// component closes over the ColorIndex + override map and passes this down.
+export type ColorOf = (source_id: string, project_path: string | null) => string | null;
+
+export function resolveRepoColor(
+  source_id: string,
+  project_path: string | null,
+  index: ColorIndex,
+  override: ReadonlyMap<string, string>,
+): string | null {
+  const key = repoKey(source_id, project_path);
+  const ov = override.get(key);
+  if (ov) return ov;
+  const repoColor =
+    index.repo.get(key) ?? (project_path !== null ? index.repo.get(repoKey(source_id, project_path.toLowerCase())) : undefined);
+  if (repoColor) return repoColor;
+  return index.source.get(source_id) ?? null;
 }
 
 // --- relationship graph (Graph page) ------------------------------------
@@ -209,6 +265,7 @@ export interface GraphNode {
   created_at: string | null; // ISO; rendered (relative) on the node card
   updated_at: string | null; // ISO; rendered (relative) on the node card
   untracked: boolean;
+  accentColor?: string | null; // repo/source highlight, resolved + attached by the page (not buildGraph)
 }
 export interface GraphLink {
   id: string;

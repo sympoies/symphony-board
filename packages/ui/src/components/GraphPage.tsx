@@ -21,7 +21,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
-import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
+import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -98,7 +98,15 @@ function ItemNode({ data }: NodeProps) {
   return (
     <div
       className={`rf-node${d.untracked ? " rf-node-untracked" : ""}`}
-      style={{ borderLeftColor: d.color, fontSize: `${(11 * scale).toFixed(1)}px` }}
+      // The left border already encodes STATE (d.color), so a highlighted repo
+      // shows as an outer ring (outline) instead — a literal "frame" that does
+      // not collide with the state edge. The board card uses a left bar; here the
+      // left edge is taken, hence the ring.
+      style={{
+        borderLeftColor: d.color,
+        fontSize: `${(11 * scale).toFixed(1)}px`,
+        ...(d.accentColor ? { outline: `2px solid ${d.accentColor}`, outlineOffset: "1px" } : {}),
+      }}
       title={d.demand != null ? `${d.label} · ${d.demand} comments + reactions` : d.label}
     >
       <Handle type="target" position={Position.Top} className="rf-handle" />
@@ -266,6 +274,7 @@ function GraphListCard({
   item,
   fallbackLabel,
   sourceKind,
+  accentColor,
   relation,
   active,
   onFocus,
@@ -273,6 +282,7 @@ function GraphListCard({
   item: ItemDTO | null;
   fallbackLabel: string;
   sourceKind?: string;
+  accentColor?: string | null;
   relation?: { type: string; direction: "out" | "in" | "both"; offWindow: boolean };
   active?: boolean;
   onFocus: () => void;
@@ -303,7 +313,7 @@ function GraphListCard({
         </div>
       )}
       {item ? (
-        <ItemCard item={item} sourceKind={sourceKind} />
+        <ItemCard item={item} sourceKind={sourceKind} accentColor={accentColor} />
       ) : (
         <article className="card card-untracked">
           <div className="card-head">
@@ -331,12 +341,14 @@ function GraphSideList({
   adjacency,
   windowedIds,
   sourceKind,
+  colorOf,
 }: {
   nodes: GraphNode[];
   itemsByRef: Map<string, ItemDTO>;
   adjacency: Map<string, RelatedRef[]>;
   windowedIds: Set<string>;
   sourceKind: Map<string, string>;
+  colorOf: ColorOf;
 }) {
   const rf = useReactFlow();
   const [q, setQ] = useState("");
@@ -356,6 +368,10 @@ function GraphSideList({
   const kindOf = (ref: string): string | undefined => {
     const it = itemsByRef.get(ref);
     return it ? sourceKind.get(it.source_id) : undefined;
+  };
+  const colorFor = (ref: string): string | null => {
+    const it = itemsByRef.get(ref);
+    return it ? colorOf(it.source_id, it.project_path) : null;
   };
 
   // Fit the camera to the focused node + its neighbours that are actually on the
@@ -386,7 +402,7 @@ function GraphSideList({
           ← all items
         </button>
         <div className="graph-list-scroll">
-          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} active onFocus={() => focusCamera(focusId)} />
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={() => focusCamera(focusId)} />
           {!windowedIds.has(focusId) && (
             <p className="muted glc-note">This item is outside the current “active since” window — widen it to see it on the graph.</p>
           )}
@@ -402,6 +418,7 @@ function GraphSideList({
                 item={itemsByRef.get(r.ref) ?? null}
                 fallbackLabel={labelOf(r.ref)}
                 sourceKind={kindOf(r.ref)}
+                accentColor={colorFor(r.ref)}
                 relation={{ type: r.type, direction: r.direction, offWindow: !windowedIds.has(r.ref) }}
                 onFocus={() => focus(r.ref)}
               />
@@ -432,7 +449,7 @@ function GraphSideList({
           <p className="muted empty-list">no items match</p>
         ) : (
           filtered.map((n) => (
-            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} onFocus={() => focus(n.id)} />
+            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} onFocus={() => focus(n.id)} />
           ))
         )}
       </div>
@@ -440,7 +457,7 @@ function GraphSideList({
   );
 }
 
-export function GraphPage({ edges, sourceKind }: { edges: ResolvedEdge[]; sourceKind: Map<string, string> }) {
+export function GraphPage({ edges, sourceKind, colorOf }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; colorOf: ColorOf }) {
   const [since, setSince] = useState<string>(() => cutoffIso(90).slice(0, 10));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(false);
@@ -487,15 +504,17 @@ export function GraphPage({ edges, sourceKind }: { edges: ResolvedEdge[]; source
     () =>
       graph.nodes.map((n) => {
         const { w, h } = dimOf(n.id);
+        const it = itemsByRef.get(n.id);
+        const accentColor = it ? colorOf(it.source_id, it.project_path) : null;
         return {
           id: n.id,
           type: "item",
           position: positions.get(n.id) ?? { x: 0, y: 0 },
           style: { width: w, height: h },
-          data: n as unknown as Record<string, unknown>,
+          data: { ...n, accentColor } as unknown as Record<string, unknown>,
         };
       }),
-    [graph, positions, dimOf],
+    [graph, positions, dimOf, itemsByRef, colorOf],
   );
 
   const rfEdges: Edge[] = useMemo(
@@ -578,7 +597,7 @@ export function GraphPage({ edges, sourceKind }: { edges: ResolvedEdge[]; source
         // camera (fitView) even though it renders outside <ReactFlow>.
         <ReactFlowProvider>
           <div className="graph-body">
-            <GraphSideList nodes={graph.nodes} itemsByRef={itemsByRef} adjacency={adjacency} windowedIds={windowedIds} sourceKind={sourceKind} />
+            <GraphSideList nodes={graph.nodes} itemsByRef={itemsByRef} adjacency={adjacency} windowedIds={windowedIds} sourceKind={sourceKind} colorOf={colorOf} />
             <div className="graph-canvas">
               <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
             </div>

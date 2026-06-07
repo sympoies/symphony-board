@@ -173,7 +173,10 @@ try {
   const has = (h, s) => h.includes(s);
   const m = (h, re) => (h.match(re) || []).length;
   const boardCols = m(boardHtml, /class="col /g);
-  const boardCards = m(boardHtml, /class="card"/g);
+  // card root = `class="card"` OR `class="card …"` (e.g. the repo-highlight
+  // `card card-accent`); match card followed by a space or the closing quote so
+  // a modifier class doesn't drop the count. (Avoids matching card-head etc.)
+  const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const checks = [
@@ -186,6 +189,9 @@ try {
     // provider source marks: the sample contract carries both github + gitlab
     [has(boardHtml, 'aria-label="GitHub"'), "board: GitHub source mark rendered"],
     [has(boardHtml, 'aria-label="GitLab"'), "board: GitLab source mark rendered"],
+    // repo/source highlight color: the sample carries a source color + a repo
+    // color, so coloured repos render the left-bar `card-accent`
+    [has(boardHtml, "card-accent"), "board: repo/source highlight bar rendered (card-accent)"],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
@@ -196,10 +202,17 @@ try {
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
+    // graph side-list cards reuse the board card, so they pick up the highlight bar too
+    [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
     [/repos shown/.test(settingsHtml), "settings: repo count shown"],
+    // settings: source hide toggle, the read-only source color swatch, and the
+    // per-repo color picker (the new display controls)
+    [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
+    [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
+    [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],
     [consoleErrors.length === 0, `no console errors (${consoleErrors.length})`],
     [exceptions.length === 0, `no uncaught exceptions (${exceptions.length})`],
   ];
