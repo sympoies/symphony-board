@@ -129,8 +129,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .badge-draft { background: var(--panel-2); color: var(--muted); }
 .badge-lifecycle-other, .badge-status-unknown { color: var(--muted); }
-/* signal badges (CI / review / merge): coloured text + border, default fill */
-.badge-ci-passing, .badge-review-approved, .badge-merge-mergeable { color: var(--open); border-color: var(--open); }
+/* signal badges (CI / review / merge): healthy states stay quiet (muted text,
+   neutral border) so they don't compete with the lifecycle pill's green; only
+   states that need attention keep a saturated hue. */
+.badge-ci-passing, .badge-review-approved, .badge-merge-mergeable { color: var(--muted); border-color: var(--line); }
 .badge-ci-failing, .badge-merge-conflicting, .badge-review-changes_requested { color: var(--broken); border-color: var(--broken); }
 .badge-ci-pending, .badge-merge-blocked, .badge-review-review_required { color: var(--declared); border-color: var(--declared); }
 
