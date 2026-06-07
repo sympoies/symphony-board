@@ -43,6 +43,14 @@ body {
 }
 
 .app { max-width: 1200px; margin: 0 auto; padding: 16px; }
+/* full-bleed page (the primary 7-column board), GitHub-Projects style */
+.app-wide { max-width: none; padding: 16px 20px; }
+
+/* page tabs (Board / Debug) */
+.page-tabs { display: flex; gap: 4px; margin: 12px 0 4px; border-bottom: 1px solid var(--line); }
+.tab { padding: 6px 12px; color: var(--muted); border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
+.tab:hover { color: var(--text); text-decoration: none; }
+.tab-on { color: var(--text); border-bottom-color: var(--accent); }
 .muted { color: var(--muted); }
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -179,6 +187,20 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 /* view toggle */
 .view-toggle { display: inline-flex; gap: 4px; }
 
+/* primary full-bleed board: 4 status + 3 spotlight lanes in one 7-column row.
+   Columns are a fixed-ish width and scroll horizontally (GitHub-Projects style);
+   they share a uniform height via the same .col cap + internal scroll. */
+.board-7 {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(300px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  overflow-x: auto;
+  margin: 8px 0 4px;
+  padding-bottom: 8px;
+}
+
 /* status board (kanban-style, display-only) */
 .status-board {
   display: grid;
@@ -214,13 +236,32 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .dot-in_progress { background: var(--declared); }
 .dot-tracking { background: var(--merged); }
 .dot-closed { background: var(--muted); }
+/* spotlight-lane dots (the 3 cross-cut columns on the full board) */
+.dot-lane-follow-up { background: var(--broken); }
+.dot-lane-plan { background: var(--closed); }
+.dot-lane-pr { background: var(--link); }
 /* fill the (stretched) column height and scroll inside; min-height:0 lets a
    flex child shrink below content so the scroll engages. */
 .col-cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .col-head { flex-wrap: wrap; }
 .col-sub { flex: 1 1 100%; font-size: 11px; font-weight: 400; color: var(--muted); }
 /* the column boards use one card per row, so let cards fill the column width */
-.status-board .card, .spotlight .card { width: 100%; }
+.status-board .card, .spotlight .card, .board-7 .card { width: 100%; }
+
+/* graph page (relationship graph, cytoscape) */
+.graph-page { margin: 8px 0; }
+.graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
+.graph-since input[type="date"] {
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 6px; margin-left: 4px;
+}
+.graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
+.graph-legend > span { display: inline-flex; align-items: center; }
+.graph-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+.graph-canvas {
+  width: 100%; height: 74vh;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
 
 /* spotlight: recency lanes (Follow-up / Plan / PR), independent of status */
 .spotlight-lanes {

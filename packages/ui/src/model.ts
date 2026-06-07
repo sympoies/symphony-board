@@ -178,6 +178,68 @@ export function lifecycleBucket(re: ResolvedEdge): EdgeLifecycle | "other" {
   return re.edge.lifecycle ?? "other";
 }
 
+// --- relationship graph (Graph page) ------------------------------------
+
+export interface GraphNode {
+  id: string; // the endpoint ref (item id; may be an untracked, unresolved ref)
+  label: string;
+  kind: string; // issue | change_request | unknown (untracked)
+  state: string; // open | closed | merged | unknown
+  url: string | null;
+  color: string; // node fill, baked for the canvas (cytoscape can't read CSS vars)
+  untracked: boolean;
+}
+export interface GraphLink {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  color: string; // stroke, by lifecycle
+}
+export interface GraphData {
+  nodes: GraphNode[];
+  links: GraphLink[];
+}
+
+// Night Owl hexes duplicated here ONLY because the cytoscape canvas cannot read
+// CSS custom properties; keep in sync with styles.css :root.
+const NODE_FILL: Record<string, string> = { open: "#addb67", closed: "#c792ea", merged: "#7e57c2", unknown: "#637777" };
+const EDGE_STROKE: Record<string, string> = { declared: "#ffcb6b", fulfilled: "#addb67", broken: "#f78c6c", other: "#637777" };
+
+// ISO cutoff for "N days ago" (browser-side; now is injectable for tests).
+export function cutoffIso(days: number, now: number = Date.now()): string {
+  return new Date(now - days * 86_400_000).toISOString();
+}
+
+// Build a relationship graph from resolved edges, keeping only nodes that take
+// part in an edge (no isolated-dot sea). An edge survives the time window if any
+// tracked endpoint was updated at/after the cutoff; an edge whose endpoints are
+// both untracked (undateable) is always kept.
+export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphData {
+  const nodes = new Map<string, GraphNode>();
+  const links: GraphLink[] = [];
+  let i = 0;
+  for (const re of edges) {
+    const ends = [re.from, re.to];
+    const within = ends.some((it) => it && (!cutoff || (it.updated_at ?? "") >= cutoff));
+    const bothUntracked = !re.from && !re.to;
+    if (cutoff && !within && !bothUntracked) continue;
+    const ensure = (it: ItemDTO | null, ref: string) => {
+      if (nodes.has(ref)) return;
+      nodes.set(
+        ref,
+        it
+          ? { id: ref, label: it.title ?? ref, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, kind: "unknown", state: "unknown", url: null, color: "#637777", untracked: true },
+      );
+    };
+    ensure(re.from, re.edge.from);
+    ensure(re.to, re.edge.to);
+    links.push({ id: `g${i++}`, source: re.edge.from, target: re.edge.to, type: re.edge.type, color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "#637777" });
+  }
+  return { nodes: [...nodes.values()], links };
+}
+
 export interface Stats {
   items: number;
   byState: Record<string, number>;

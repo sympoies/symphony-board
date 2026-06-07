@@ -10,6 +10,9 @@ import {
   edgeMatches,
   computeStats,
   relativeTime,
+  buildGraph,
+  cutoffIso,
+  type ResolvedEdge,
 } from "../src/model.ts";
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
@@ -79,4 +82,30 @@ test("relativeTime renders coarse buckets from an injected now", () => {
   assert.equal(relativeTime("2026-06-07T00:00:00Z", now), "3d ago");
   assert.equal(relativeTime("2026-06-09T23:59:40Z", now), "just now");
   assert.equal(relativeTime(null, now), "—");
+});
+
+test("cutoffIso is deterministic for a fixed now", () => {
+  const now = Date.parse("2026-06-07T00:00:00Z");
+  assert.equal(cutoffIso(90, now).slice(0, 10), "2026-03-09");
+});
+
+test("buildGraph keeps only edge-connected nodes, applies the time window, and flags untracked ends", () => {
+  const pr = item({ id: "P", kind: "change_request", state: "merged", updated_at: "2026-06-01T00:00:00Z", url: "https://pr" });
+  const iss = item({ id: "I", kind: "issue", state: "closed", updated_at: "2026-06-01T00:00:00Z", title: "Closed issue" });
+  const oldPr = item({ id: "OP", kind: "change_request", state: "merged", updated_at: "2020-01-01T00:00:00Z" });
+  const oldIss = item({ id: "OI", kind: "issue", state: "closed", updated_at: "2020-01-01T00:00:00Z" });
+  const edges: ResolvedEdge[] = [
+    { edge: { type: "closes", from: "P", to: "I", from_state: "merged", to_state: "closed", lifecycle: "fulfilled" }, from: pr, to: iss },
+    { edge: { type: "closes", from: "OP", to: "OI", from_state: "merged", to_state: "closed", lifecycle: "fulfilled" }, from: oldPr, to: oldIss },
+    { edge: { type: "closes", from: "P", to: "github:github.com|UNTRACKED", from_state: "merged", to_state: null, lifecycle: "declared" }, from: pr, to: null },
+  ];
+  const g = buildGraph(edges, "2026-03-01T00:00:00Z");
+  assert.equal(g.links.length, 2, "the all-old edge is dropped; recent + untracked kept");
+  const ids = new Set(g.nodes.map((n) => n.id));
+  assert.ok(ids.has("P") && ids.has("I") && ids.has("github:github.com|UNTRACKED"));
+  assert.ok(!ids.has("OP") && !ids.has("OI"), "nodes outside the window are excluded");
+  const untracked = g.nodes.find((n) => n.id === "github:github.com|UNTRACKED");
+  assert.equal(untracked?.untracked, true);
+  assert.equal(untracked?.label, "UNTRACKED", "untracked label is the bare ref tail");
+  assert.equal(buildGraph(edges, null).links.length, 3, "no cutoff keeps every edge");
 });
