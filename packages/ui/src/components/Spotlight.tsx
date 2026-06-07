@@ -22,11 +22,9 @@ export function Spotlight({ items }: { items: ItemDTO[] }) {
               <span className="col-sub">{lane.hint}</span>
             </h3>
             <div className="col-cards">
-              {laneItems.length === 0 ? (
-                <p className="col-empty">—</p>
-              ) : (
-                laneItems.map((it) => <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} />)
-              )}
+              {laneItems.map((it) => (
+                <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} />
+              ))}
             </div>
           </div>
         ))}
