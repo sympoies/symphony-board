@@ -14,11 +14,13 @@ function Column({
   label,
   sub,
   items,
+  sourceKind,
 }: {
   kind: string;
   label: string;
   sub: string;
   items: ItemDTO[];
+  sourceKind: Map<string, string>;
 }) {
   return (
     <div className={`col col-${kind}`}>
@@ -29,7 +31,7 @@ function Column({
       </h3>
       <div className="col-cards">
         {items.map((it) => (
-          <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} />
+          <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} sourceKind={sourceKind.get(it.source_id)} />
         ))}
       </div>
     </div>
@@ -44,17 +46,25 @@ function Column({
 // cross-cut (by label/kind, any state, latest N), so an item can appear in both
 // a status column AND a lane. Intentional — it puts the predecessor's two views
 // on one surface. The column counts therefore won't sum to the item total.
-export function FullBoard({ items, statuses }: { items: ItemDTO[]; statuses: Map<string, ItemStatus> }) {
+export function FullBoard({
+  items,
+  statuses,
+  sourceKind,
+}: {
+  items: ItemDTO[];
+  statuses: Map<string, ItemStatus>;
+  sourceKind: Map<string, string>;
+}) {
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of items) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(items);
   return (
     <section className="board-7">
       {STATUS_ORDER.map((s) => (
-        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} />
+        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} sourceKind={sourceKind} />
       ))}
       {lanes.map(({ lane, items: laneItems }) => (
-        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} />
+        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} sourceKind={sourceKind} />
       ))}
     </section>
   );

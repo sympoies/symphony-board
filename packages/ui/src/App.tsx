@@ -79,6 +79,13 @@ export function App() {
     };
   }, [visibleEnv]);
 
+  // source_id -> provider kind (github / gitlab), so a card can show its source
+  // mark. Provider kind lives on SourceDTO, not the item — look it up here once.
+  const sourceKind = useMemo(
+    () => new Map((env?.sources ?? []).map((s) => [s.source_id, s.kind])),
+    [env],
+  );
+
   const filteredItems = useMemo(
     () => (visibleEnv ? visibleEnv.items.filter((i) => itemMatches(i, filters)) : []),
     [visibleEnv, filters],
@@ -216,7 +223,7 @@ export function App() {
           <GraphPage edges={filteredEdges} />
         </Suspense>
       ) : (
-        <FullBoard items={filteredItems} statuses={statuses} />
+        <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} />
       )}
     </div>
   );
