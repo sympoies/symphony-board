@@ -6,12 +6,15 @@ Repo-local agent policy for `symphony-board`.
 
 This repository owns a provider-agnostic work-item aggregator: it reads issues
 and PR/MRs from multiple sources (GitHub, GitLab, …), stores them in a local
-SQLite canonical model, and emits a versioned JSON contract for a (later) UI.
+SQLite canonical model, emits a versioned JSON contract, and serves a read-only
+UI from that contract.
 
 ## Boundaries
 
 - Do not commit secrets, tokens, the SQLite store (`*.db`), `.env`,
-  `config/sources.json`, or emitted contracts. All are gitignored.
+  `config/sources.json`, or runtime-emitted contracts under `data/`. All are
+  gitignored. `packages/ui/public/contract.json` is a tracked sample contract
+  for local UI development and render-smoke tests.
 - Tokens are referenced by env-var name in config and read from the environment
   — never inlined.
 - Keep the three layers separate: raw store, canonical DB, versioned contract.
@@ -20,23 +23,27 @@ SQLite canonical model, and emits a versioned JSON contract for a (later) UI.
   raw. Network lives in `src/sources/*`; DB IO in `src/db/*`.
 - Identity is the provider's immutable global id; never key on mutable
   `project_path` / `iid`.
-- Disappearance rule: only a full + complete sweep may soft-delete unseen items;
-  a partial/failed fetch must never delete.
+- Disappearance rule: only a full + complete sweep may soft-delete unseen items
+  or intra-source edges; a partial, failed, or incremental fetch must never
+  delete.
 
 ## Development workflow
 
 - Read `README.md`, `docs/DESIGN.md`, and `docs/CONTRACT.md` before changing
   behavior or the data model.
 - Toolchain: Node via **fnm** (`.node-version`), package manager **pnpm**
-  (`packageManager` in `package.json`). No build step: TypeScript runs under
-  Node 24 stripping. `pnpm run typecheck` (`tsc --noEmit`) is the type gate;
-  `pnpm test` runs pure-logic + DB tests.
-- Validate before committing: `pnpm run typecheck && pnpm test`, plus a
-  `--dry-run` sync when touching a source or the engine.
+  (`packageManager` in `package.json`). Backend TypeScript runs under Node 24
+  stripping with no backend build step; the UI package (`packages/ui`) is the
+  Vite + React build step.
+- Validate before committing: `pnpm run typecheck && pnpm test`. Also run
+  `pnpm --filter @symphony-board/ui run build`, UI tests, and UI smoke when the
+  change touches UI, contract, shared view-model behavior, or docs that describe
+  those paths. Run a `--dry-run` sync when touching a source or the engine.
 - Contract changes follow `docs/CONTRACT.md` (schema + types + version bump +
   test). DB changes are additive migrations tracked by `PRAGMA user_version`.
-- Prefer dry-run / recorded fixtures over hitting live provider APIs in tests
-  (rate limits; a self-hosted GitLab may be VPN-bound).
+- Prefer dry-run / recorded or throwaway fixtures over hitting live provider
+  APIs in automated tests (rate limits; a self-hosted provider may be
+  network-bound).
 
 ## Development log
 
@@ -85,5 +92,5 @@ Quick, read-only lookups in `scripts/` (no build — just run); see
 
 ## Target
 
-- Contract is the product surface; the UI is a later phase that consumes it.
-- The Docker loop daemon is the sole writer (no external cron).
+- Contract + read-only UI are the product surface.
+- The Docker loop daemon is the sole writer (no external cron, no second writer).

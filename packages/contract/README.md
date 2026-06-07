@@ -1,43 +1,66 @@
 # @symphony-board/contract
 
-LAYER 3 of symphony-board: the **versioned contract** — the product surface a UI
-and other consumers read. This package is the contract's definition, extracted
-so the three-layer boundary (raw → canonical DB → contract) is *structural*: a
-consumer depends on this package and **cannot reach past it** into the backend's
-`src/db` / `src/sources`.
+Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
+external consumers depend on this package instead of reaching into backend DB or
+source modules.
+
+Current contract version emitted by the backend: `1.1.0`.
+
+The package's private `package.json` version is workspace metadata. Runtime
+compatibility is governed by the emitted envelope's `contract_version`.
 
 ## Contents
 
-- `contract.schema.json` — the **normative** JSON Schema (draft 2020-12) for the
-  envelope. The source of truth.
-- `types.ts` — the TypeScript **mirror** of the schema (DTOs + the shared enum
-  vocabularies `ItemState` / `ReviewState` / `CiState` / `MergeState` /
-  `EdgeLifecycle` and the composite `Ref`). Kept in lock-step with the schema.
-- `index.ts` — `export type *` of `types.ts`.
+- `contract.schema.json`: normative JSON Schema for the envelope.
+- `types.ts`: TypeScript DTO mirror of the schema.
+- `index.ts`: type-only re-export surface.
+
+The shared closed vocabularies live here:
+
+- `ItemState`
+- `ReviewState`
+- `CiState`
+- `MergeState`
+- `EdgeLifecycle`
+- `Ref`
+
+`kind` and edge `type` remain open strings in the contract.
 
 ## Importing
 
 ```ts
 import type { ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
-// the normative schema, for a consumer that wants to validate what it received:
 import schema from "@symphony-board/contract/schema.json" with { type: "json" };
 ```
 
-## Properties
+The package exposes types and the schema file. It does not expose producer
+runtime constants such as `CONTRACT_VERSION` or `GENERATOR`; those belong to
+`src/contract/version.ts` in the backend.
 
-- **Type-only at runtime.** There are no runtime values here — only types and a
-  JSON file. A consumer running under Node's TypeScript stripping never resolves
-  this package at runtime (the `import type` erases); a bundler (the UI) resolves
-  it normally. This is why the backend can depend on it and still ship with no
-  build step and zero third-party runtime dependencies.
-- **Producer constants live with the producer.** `CONTRACT_VERSION` / `GENERATOR`
-  and the dependency-free validator (`src/contract/`) stay in the backend — they
-  are how the producer *stamps and guards* the contract, not part of its shape.
+## Runtime Boundary
+
+The backend imports this package with `import type`, so those imports erase under
+Node 24 type stripping. The backend Docker image can run without installing
+workspace packages or resolving this package as runtime code.
+
+Bundled consumers such as `packages/ui` resolve this package normally during
+their build.
 
 ## Versioning
 
-See [`../../docs/CONTRACT.md`](../../docs/CONTRACT.md). In short: additive-only
-within a major (new fields optional/nullable, never repurpose/remove); a breaking
-change bumps the major and the UI gates on it. When you change the schema, change
-`types.ts` in the same commit and bump `CONTRACT_VERSION` in
-`src/contract/version.ts`.
+See [../../docs/CONTRACT.md](../../docs/CONTRACT.md).
+
+Summary:
+
+- patch: clarification, no shape change
+- minor: additive optional/nullable fields only
+- major: breaking shape or semantic change
+
+Version `1.1.0` added display metadata:
+
+- `sources[].color`
+- top-level sparse `repos[]`
+
+When the contract changes, update `contract.schema.json`, `types.ts`,
+`src/contract/version.ts`, producer validation tests, and any UI consumer logic
+in the same change set.

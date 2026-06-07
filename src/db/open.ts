@@ -31,7 +31,8 @@ export function openDb(path: string): DatabaseSync {
     mkdirSync(dirname(resolve(path)), { recursive: true });
   }
   const db = new DatabaseSync(path);
-  // WAL lets the future UI read concurrently with the single sync writer.
+  // WAL lets the UI sidecar and read-only inspection helpers read while the
+  // single sync daemon writes.
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA foreign_keys = ON;");
   migrate(db);
