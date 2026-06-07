@@ -138,6 +138,62 @@ export function edgeMatches(re: ResolvedEdge, f: Filters): boolean {
   return ends.some((it) => itemMatches(it, f));
 }
 
+// --- repo visibility (Settings page) ------------------------------------
+//
+// A persistent, repo-level PRE-FILTER applied before the transient facet
+// filters above. The unit is a repo = (source_id, project_path); the Settings
+// page persists the choice in localStorage. We track HIDDEN keys (not the
+// visible set) so a repo that first appears in a later sync defaults to visible
+// — "everything visible" stays the default as the data grows.
+
+export interface RepoOption {
+  key: string; // stable id, also the localStorage unit
+  source_id: string;
+  project_path: string | null;
+  count: number; // items in this repo
+}
+
+// Stable key for a repo — used both to dedupe rows and as the localStorage unit.
+// Encoded as a JSON tuple so two distinct (source_id, project_path) pairs can
+// never collide, whatever characters either field contains (and a null path
+// stays distinct from an empty-string path).
+export const repoKey = (source_id: string, project_path: string | null): string =>
+  JSON.stringify([source_id, project_path]);
+
+// Distinct repos present in the contract's items, with counts, sorted by source
+// then path — the rows the Settings page renders. Derived over the FULL item
+// set so a hidden repo still appears and can be re-enabled.
+export function deriveRepos(items: ItemDTO[]): RepoOption[] {
+  const byKey = new Map<string, RepoOption>();
+  for (const it of items) {
+    const key = repoKey(it.source_id, it.project_path);
+    const cur = byKey.get(key);
+    if (cur) cur.count++;
+    else byKey.set(key, { key, source_id: it.source_id, project_path: it.project_path, count: 1 });
+  }
+  return [...byKey.values()].sort(
+    (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),
+  );
+}
+
+// Apply the repo-visibility pre-filter, returning a contract VIEW with hidden
+// repos' items AND any edge touching them removed (an edge belongs to a repo if
+// a resolvable endpoint does). An untracked endpoint cannot be hidden (no repo
+// known), so an edge between visible/untracked ends survives. Returns env
+// unchanged when nothing is hidden.
+export function applyVisibility(env: ContractEnvelope, hidden: ReadonlySet<string>): ContractEnvelope {
+  if (hidden.size === 0) return env;
+  const isHidden = (it: ItemDTO) => hidden.has(repoKey(it.source_id, it.project_path));
+  const byId = indexItems(env);
+  const items = env.items.filter((it) => !isHidden(it));
+  const edges = env.edges.filter((e) => {
+    const from = byId.get(e.from);
+    const to = byId.get(e.to);
+    return !(from && isHidden(from)) && !(to && isHidden(to));
+  });
+  return { ...env, items, edges };
+}
+
 // --- relationship graph (Graph page) ------------------------------------
 
 export interface GraphNode {

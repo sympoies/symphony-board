@@ -9,12 +9,16 @@ import {
   edgeMatches,
   computeStats,
   deriveStatuses,
+  deriveRepos,
+  applyVisibility,
   type Filters,
 } from "./model.ts";
+import { loadHidden, saveHidden } from "./viewconfig.ts";
 import { Header } from "./components/Header.tsx";
 import { StatsBar } from "./components/StatsBar.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
+import { SettingsPage } from "./components/SettingsPage.tsx";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
 // page stays light; the chunk only loads when #/graph is opened.
@@ -22,8 +26,9 @@ const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
-// Two pages via a zero-dep hash route: "" (#/) is the full-width board, "graph"
-// (#/graph) is the relationship graph.
+// Three pages via a zero-dep hash route: "" (#/) is the full-width board,
+// "graph" (#/graph) the relationship graph, "settings" (#/settings) the
+// persistent repo display filter.
 const readRoute = (): string => (typeof location !== "undefined" ? location.hash.replace(/^#\/?/, "") : "");
 
 export function App() {
@@ -32,12 +37,19 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [route, setRoute] = useState<string>(readRoute);
+  // Persistent, repo-level display filter (the Settings page). Set of HIDDEN
+  // repo keys; loaded once from localStorage and saved back on every change.
+  const [hidden, setHidden] = useState<Set<string>>(loadHidden);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  useEffect(() => {
+    saveHidden(hidden);
+  }, [hidden]);
 
   useEffect(() => {
     fetchContract()
@@ -49,35 +61,47 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  // The repo-visibility pre-filter is applied FIRST: visibleEnv is the contract
+  // narrowed to the repos the Settings page leaves visible (items + their
+  // edges). Everything below — facets, filters, stats, statuses — works over
+  // visibleEnv, so a hidden repo disappears from every page. allRepos is derived
+  // over the FULL contract so the Settings page can still list (and re-enable)
+  // hidden repos.
+  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden) : null), [env, hidden]);
+  const allRepos = useMemo(() => (env ? deriveRepos(env.items) : []), [env]);
+
   const facets = useMemo(() => {
-    if (!env) return { sources: [], states: [], kinds: [] };
+    if (!visibleEnv) return { sources: [], states: [], kinds: [] };
     return {
-      sources: uniq(env.items.map((i) => i.source_id)),
-      states: uniq(env.items.map((i) => i.state)),
-      kinds: uniq(env.items.map((i) => i.kind)),
+      sources: uniq(visibleEnv.items.map((i) => i.source_id)),
+      states: uniq(visibleEnv.items.map((i) => i.state)),
+      kinds: uniq(visibleEnv.items.map((i) => i.kind)),
     };
-  }, [env]);
+  }, [visibleEnv]);
 
   const filteredItems = useMemo(
-    () => (env ? env.items.filter((i) => itemMatches(i, filters)) : []),
-    [env, filters],
+    () => (visibleEnv ? visibleEnv.items.filter((i) => itemMatches(i, filters)) : []),
+    [visibleEnv, filters],
   );
 
   const filteredEdges = useMemo(() => {
-    if (!env) return [];
-    const byId = indexItems(env);
-    return resolveEdges(env, byId).filter((re) => edgeMatches(re, filters));
-  }, [env, filters]);
+    if (!visibleEnv) return [];
+    const byId = indexItems(visibleEnv);
+    return resolveEdges(visibleEnv, byId).filter((re) => edgeMatches(re, filters));
+  }, [visibleEnv, filters]);
 
   const stats = useMemo(
     () => computeStats(filteredItems, filteredEdges.map((re) => re.edge)),
     [filteredItems, filteredEdges],
   );
 
-  // Status is intrinsic — derived over ALL items/edges, then filtered items are
-  // placed into columns (so a closed item's Trailing status is correct even when
-  // its related open item is filtered out of view).
-  const statuses = useMemo(() => (env ? deriveStatuses(env.items, env.edges) : new Map()), [env]);
+  // Status is intrinsic — derived over ALL visible items/edges, then filtered
+  // items are placed into columns (so a closed item's Trailing status is correct
+  // even when its related open item is removed by a transient facet filter).
+  const statuses = useMemo(
+    () => (visibleEnv ? deriveStatuses(visibleEnv.items, visibleEnv.edges) : new Map()),
+    [visibleEnv],
+  );
 
   function toggle(dim: "sources" | "states" | "kinds", value: string) {
     setFilters((f) => {
@@ -85,6 +109,26 @@ export function App() {
       if (next.has(value)) next.delete(value);
       else next.add(value);
       return { ...f, [dim]: next };
+    });
+  }
+
+  function toggleRepo(key: string) {
+    setHidden((h) => {
+      const next = new Set(h);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function setReposVisible(keys: string[], visible: boolean) {
+    setHidden((h) => {
+      const next = new Set(h);
+      for (const k of keys) {
+        if (visible) next.delete(k);
+        else next.add(k);
+      }
+      return next;
     });
   }
 
@@ -121,19 +165,22 @@ export function App() {
     );
   }
 
-  if (!env) return null;
+  if (!env || !visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
 
-  const isGraph = route === "graph";
+  const page = route === "graph" ? "graph" : route === "settings" ? "settings" : "board";
   return (
     <div className="app app-wide">
       <Header env={env} />
       <nav className="page-tabs">
-        <a className={`tab${!isGraph ? " tab-on" : ""}`} href="#/">
+        <a className={`tab${page === "board" ? " tab-on" : ""}`} href="#/">
           Board
         </a>
-        <a className={`tab${isGraph ? " tab-on" : ""}`} href="#/graph">
+        <a className={`tab${page === "graph" ? " tab-on" : ""}`} href="#/graph">
           Graph
+        </a>
+        <a className={`tab${page === "settings" ? " tab-on" : ""}`} href="#/settings">
+          Settings
         </a>
       </nav>
       {unsupported && (
@@ -142,15 +189,29 @@ export function App() {
           fields may not render correctly.
         </div>
       )}
-      <Controls
-        filters={filters}
-        facets={facets}
-        onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
-        onToggle={toggle}
-        onLoadFile={loadFile}
-      />
-      <StatsBar stats={stats} />
-      {isGraph ? (
+      {/* The facet Controls + StatsBar drive the data views; the Settings page is
+          a config surface and has neither. */}
+      {page !== "settings" && (
+        <>
+          <Controls
+            filters={filters}
+            facets={facets}
+            onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
+            onToggle={toggle}
+            onLoadFile={loadFile}
+          />
+          <StatsBar stats={stats} />
+        </>
+      )}
+      {page === "settings" ? (
+        <SettingsPage
+          sources={env.sources}
+          repos={allRepos}
+          hidden={hidden}
+          onToggle={toggleRepo}
+          onSetVisible={setReposVisible}
+        />
+      ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
           <GraphPage edges={filteredEdges} />
         </Suspense>
