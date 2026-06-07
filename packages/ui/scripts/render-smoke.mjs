@@ -167,6 +167,16 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
+  // the graph ALREADY in that item's focus view, not the plain list. Back on the
+  // board, confirm the affordance renders, then click it and confirm we land in
+  // the focus view (back button) with the canvas mounted.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/'" });
+  await sleep(300);
+  const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
+  await sleep(500);
+  const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
   ws.close();
 
   // --- assertions ---
@@ -176,6 +186,7 @@ try {
   const boardCards = m(boardHtml, /class="card"/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
+  const boardGraphLinks = m(board2Html, /class="card-graph"/g);
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -196,6 +207,10 @@ try {
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
+    // deep link: a board card's focus link opens the graph in the focus view
+    [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
+    [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
+    [/react-flow__node/.test(deepLinkHtml), "deep link: focused graph canvas mounted"],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
