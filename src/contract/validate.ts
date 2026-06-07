@@ -1,7 +1,7 @@
 // Zero-dependency contract validator (LAYER 3 producer-side guard).
 //
 // The contract is the product surface, so an emit must NEVER ship a payload that
-// violates schema/contract.schema.json. We deliberately do NOT pull in ajv: the
+// violates packages/contract/contract.schema.json. We deliberately do NOT pull in ajv: the
 // backend's defining property is ZERO runtime dependencies (and a minimal-trust,
 // no-build posture), so we implement exactly the JSON Schema (draft 2020-12)
 // subset that contract.schema.json actually uses:
@@ -28,9 +28,13 @@ export interface ValidationError {
 type Schema = Record<string, any>;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// The normative schema lives at schema/contract.schema.json (../../schema/ from
-// src/contract/). Reading it by path keeps it the single source of truth.
-const SCHEMA_PATH = resolve(__dirname, "..", "..", "schema", "contract.schema.json");
+// The normative schema lives in the contract package
+// (packages/contract/contract.schema.json, ../../packages/contract/ from
+// src/contract/). Reading it by path — not via a bare-specifier import — keeps
+// it the single source of truth AND works in the Docker image, which has no
+// node_modules (the backend never resolves the package at runtime; see
+// packages/contract/README.md). The Dockerfile copies packages/ for this read.
+const SCHEMA_PATH = resolve(__dirname, "..", "..", "packages", "contract", "contract.schema.json");
 
 let cachedSchema: Schema | null = null;
 

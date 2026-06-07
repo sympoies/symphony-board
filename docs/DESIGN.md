@@ -37,7 +37,7 @@ Three layers, each versioned independently.
 |------|------|-------|--------------|
 | 1. Raw store | provider payloads, opaque | `raw` table | not versioned; tagged `api_version` + `fetched_at` |
 | 2. Canonical DB | normalized `item` / `edge` / `item_label` / `sync_*`, provider-agnostic, SQL-queryable | `schema/0001_init.sql` | `PRAGMA user_version` + migrations |
-| 3. Contract | versioned projection serialized for consumers | `schema/contract.schema.json` | semver `contract_version` (see `CONTRACT.md`) |
+| 3. Contract | versioned projection serialized for consumers | `packages/contract/` (`contract.schema.json` + `types.ts`) | semver `contract_version` (see `CONTRACT.md`) |
 
 `normalize` is the pure function raw → layer 2; `buildContract` is the pure
 function layer 2 → layer 3. Both are replayable: **because we keep raw, a
@@ -186,35 +186,45 @@ Shipped after the initial v1 cut:
   older than it) is covered by `test/sources.test.ts`, and the "incremental
   never tombstones" guarantee by `test/sync-engine.test.ts`.
 
-## Open items (forward — UI phase)
+## Contract package (done) & where the UI lives (open)
 
-1. **Where the UI lives, and extracting the contract into a package.** The UI
-   (a later phase) adds a first-party consumer whose toolchain is the opposite
-   of this backend's (heavy deps + a build step). Recommended direction: keep it
-   in this repo as a **pnpm workspace**, but first extract LAYER 3 into its own
-   package — `packages/contract` (`contract.schema.json` + the mirror `types.ts`
-   + `version.ts`) — with the backend and the UI as sibling packages that may
-   depend on `contract` and nothing else. This keeps the backend's zero-dep /
-   no-build property contained to its own package and makes the three-layer
-   boundary *structural*: the UI cannot reach past the contract into `src/db` /
-   `src/sources`. A separate repo only earns its overhead once there are
-   third-party consumers, or the UI's release cadence / visibility diverges —
-   and extracting `packages/ui` later stays cheap precisely because the contract
-   package already isolates it.
+**LAYER 3 is extracted into `packages/contract` (done).** The repo is now a pnpm
+workspace; `@symphony-board/contract` holds `contract.schema.json` (normative) +
+`types.ts` (the mirror DTOs and the shared enum vocabularies). The three-layer
+boundary is now *structural*: a consumer depends on this package and **cannot
+reach past it** into `src/db` / `src/sources`.
 
-   The one real coupling to resolve when extracting: `src/contract/types.ts`
-   imports the enum unions (`ItemState`, `ReviewState`, `CiState`, `MergeState`,
-   `EdgeLifecycle`) from `src/model/types.ts` (LAYER 2). Decide whether those
-   move into the contract package or are re-declared / re-exported there, so the
-   contract package does not drag LAYER 2 along with it.
+Two decisions taken while extracting:
+- **The coupling was resolved by moving the enums into the package.** The shared
+  unions (`ItemState`, `ReviewState`, `CiState`, `MergeState`, `EdgeLifecycle`)
+  and `Ref` now live in `@symphony-board/contract`; `src/model/types.ts` (LAYER 2)
+  imports + re-exports them, so there is one definition, and the package drags no
+  LAYER 2 along with it. `ItemKind` / `EdgeType` stay LAYER-2-local (the contract
+  carries them as open `string`s).
+- **Producer constants stayed in the backend, against the original sketch** (which
+  put `version.ts` in the package). The package is deliberately **type-only at
+  runtime**: it has no runtime values, so the backend — which runs `.ts` directly
+  under Node's type-stripping with **no `node_modules` in the Docker image** —
+  never has to *resolve* the package at runtime (the `import type`s erase). Node
+  refuses to strip types from files under `node_modules`, so a runtime value
+  imported from a workspace package would have forced a build step; keeping
+  `CONTRACT_VERSION` / `GENERATOR` and the validator (`src/contract/`) on the
+  producer side avoids that and preserves the no-build, zero-third-party-dep
+  posture. The validator reads `contract.schema.json` as a file (copied into the
+  image), not via a bare-specifier import.
 
-   Status: not started; intentionally deferred until the UI phase.
+**Open — where the UI lives.** The UI (a later phase, heavy deps + a build step)
+should be a sibling `packages/ui` that depends on `@symphony-board/contract` and
+nothing else; the contract package already isolates it, so adding it stays cheap.
+A separate repo only earns its overhead once there are third-party consumers, or
+the UI's release cadence / visibility diverges.
 
 ## Validation status
 
-- `pnpm run typecheck` — clean.
-- `pnpm test` — 17/17 pass (ref, labels, edge lifecycle/reconcile, contract
-  build, DB roundtrip incl. soft-delete).
+- `pnpm run typecheck` — clean (covers the backend + `packages/contract`).
+- `pnpm test` — 33/33 pass (ref, labels, edge lifecycle/reconcile, contract
+  build, contract schema validation, DB roundtrip incl. item + edge soft-delete,
+  the sync engine incl. soft-delete gating, and the GitHub incremental filter).
 - **GitHub** e2e against live repos (incl. inside the Docker image on Alpine):
   dry-run + real sync `status=ok`, 180 items / 5 `closes` edges; contract
   `1.0.0` emitted; a sampled edge correctly derived `lifecycle: fulfilled`

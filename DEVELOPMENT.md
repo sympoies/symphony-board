@@ -9,20 +9,26 @@ Scripts are TypeScript run directly under Node 24's built-in type stripping —
 **no build, no `dist/`**. Node strips types but does not check them, so
 `tsc --noEmit` (`pnpm run typecheck`) is the gate. `node:sqlite` is the DB driver
 (built in, experimental — runs pass `--disable-warning=ExperimentalWarning`).
-There are **zero runtime dependencies**; dev deps are only `typescript` and
-`@types/node`.
+There are **zero third-party runtime dependencies**; dev deps are only
+`typescript`, `@types/node`, and `lefthook`. The one workspace dependency,
+`@symphony-board/contract` (LAYER 3, in `packages/`), is **type-only at
+runtime** — its `import type`s erase under stripping, so the backend never
+resolves it at runtime and still ships with no build and no `node_modules`
+(the Docker image proves this; see `packages/contract/README.md`).
 
 Toolchain: **fnm** manages Node (the version is pinned in `.node-version`; run
 `fnm use`), and **pnpm** is the package manager (version pinned via
-`packageManager` in `package.json`; `pnpm install` reads `pnpm-lock.yaml`).
+`packageManager` in `package.json`; `pnpm install` reads `pnpm-lock.yaml`). This
+is a **pnpm workspace**: the root package is the backend, `packages/contract` is
+the extracted contract definition.
 
 ## Layout
 
 ```text
 schema/0001_init.sql          # canonical DB DDL (normative; applied at runtime)
-schema/contract.schema.json   # contract envelope JSON Schema (normative)
+packages/contract/            # LAYER 3 package: contract.schema.json (normative) + types.ts mirror
 src/model/                    # canonical types + pure helpers (ref, labels, edges)
-src/contract/                 # contract version, DTO types, buildContract (pure), validate (dep-free)
+src/contract/                 # contract version, buildContract (pure), validate (dep-free)
 src/sources/                  # Source interface + github/gitlab impls + registry + gql client
 src/db/                       # open+migrate (node:sqlite), repo (upserts + queries)
 src/sync-engine.ts            # fetch -> raw -> normalize -> reconcile -> upsert -> soft-delete
@@ -46,8 +52,8 @@ GITHUB_TOKEN=$(gh auth token) node src/cli/sync.ts --config data/smoke.config.js
 pnpm run validate -- --in data/contract.json
 ```
 
-`emit` validates the envelope against `schema/contract.schema.json` before
-writing and **refuses to ship** an invalid contract (the producer guard — the
+`emit` validates the envelope against `packages/contract/contract.schema.json`
+before writing and **refuses to ship** an invalid contract (the producer guard — the
 contract is the product surface). The validator is dependency-free
 (`src/contract/validate.ts`, a JSON-Schema subset), so it adds no runtime deps;
 `pnpm run validate` checks an existing file, and `test/validate.test.ts` runs it
@@ -100,8 +106,8 @@ next test to write.
 
 - DB: add a `schema/NNNN_*.sql` migration (never edit an applied one) and append
   it to `MIGRATIONS` in `src/db/open.ts`. Tracked by `PRAGMA user_version`.
-- Contract: follow `docs/CONTRACT.md` (edit schema + `src/contract/types.ts`
-  together, bump `CONTRACT_VERSION`, add a test).
+- Contract: follow `docs/CONTRACT.md` (edit `packages/contract/contract.schema.json`
+  + `packages/contract/types.ts` together, bump `CONTRACT_VERSION`, add a test).
 
 ## Token & secrets
 

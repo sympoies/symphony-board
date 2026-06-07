@@ -2,8 +2,14 @@
 // rows map to. Nothing here may bake in a single provider's vocabulary — `kind`
 // and edge `type` are open string unions with the known members listed.
 
-// Normalized item lifecycle. `merged` applies only to change requests.
-export type ItemState = "open" | "closed" | "merged";
+// The contract's CLOSED enum vocabularies (ItemState, the extension signals, and
+// the edge lifecycle) live in @symphony-board/contract (LAYER 3). We import them
+// for use in the shapes below and re-export them so the canonical model speaks
+// the same words as the contract — one definition, not two that can drift.
+// `ItemKind` and `EdgeType` stay LAYER-2-local: the contract carries them as
+// open `string`s, not enums.
+import type { ItemState, ReviewState, CiState, MergeState, EdgeLifecycle } from "@symphony-board/contract";
+export type { ItemState, ReviewState, CiState, MergeState, EdgeLifecycle };
 
 // What an item is. Open vocabulary: a future source may add kinds. The two we
 // model today:
@@ -19,16 +25,6 @@ export type EdgeType =
   | "blocked_by"
   | "parent"
   | "child";
-
-// Derived state of a `closes` edge (and any edge whose endpoints have a
-// resolve/fulfil semantics). See deriveLifecycle.
-export type EdgeLifecycle = "declared" | "fulfilled" | "broken";
-
-// Optional extension signals. All nullable; provider derivation differs and is
-// documented in DESIGN.md. Absent (null) means "not applicable / not fetched".
-export type ReviewState = "approved" | "changes_requested" | "review_required";
-export type CiState = "passing" | "failing" | "pending" | "none";
-export type MergeState = "mergeable" | "conflicting" | "blocked" | "unknown";
 
 export interface CanonicalLabel {
   name: string; // verbatim provider label

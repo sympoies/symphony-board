@@ -18,6 +18,9 @@
     "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts",
     "validate": "node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts"
   },
+  "dependencies": {
+    "@symphony-board/contract": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "lefthook": "^2.1.9",

@@ -9,9 +9,14 @@ FROM node:24-alpine
 WORKDIR /app
 
 # Source + the normative SQL schema (read at runtime by the migrator) + the
+# contract package (its JSON Schema is read by the emit-time validator) + the
 # entrypoint. Config and the DB are provided at runtime as mounted volumes.
+# No `pnpm install`: the backend has no third-party runtime deps, and it never
+# resolves @symphony-board/contract at runtime (the type imports erase under
+# stripping; the schema is read as a file from packages/contract).
 COPY package.json tsconfig.json ./
 COPY schema ./schema
+COPY packages ./packages
 COPY src ./src
 COPY docker/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh

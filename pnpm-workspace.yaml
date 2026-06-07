@@ -1,6 +1,12 @@
-# Not a workspace — this file only carries pnpm settings (pnpm 11 reads build-
-# script policy from here, not the package.json "pnpm" field).
-#
+# pnpm workspace. The root package is the backend (no build, zero third-party
+# runtime deps); LAYER 3 — the contract definition the backend produces and the
+# UI consumes — is extracted into packages/contract so the three-layer boundary
+# is structural (a consumer imports @symphony-board/contract and cannot reach
+# past it into src/db / src/sources).
+packages:
+  - "packages/*"
+
+# pnpm 11 reads build-script policy from here, not the package.json "pnpm" field.
 # Git hooks are wired by the explicit `prepare` script (`lefthook install`), so
 # we deliberately do NOT run lefthook's own postinstall build script: `false`
 # acknowledges that choice and keeps `pnpm install` at exit 0 under pnpm 11's
