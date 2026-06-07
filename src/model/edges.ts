@@ -1,4 +1,4 @@
-// Edge reconciliation — the workflow spine (point 1).
+// Edge reconciliation — the workflow spine.
 //
 // An issue<->PR/MR link is RECONCILED, not merely stored: it can be reported by
 // the change request ("Closes #5") and/or by the issue ("closed by !12"), at

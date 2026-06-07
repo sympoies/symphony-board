@@ -1,4 +1,4 @@
-// The Source interface (point 6). A record source is anything that can yield raw
+// The Source interface. A record source is anything that can yield raw
 // records and normalize them into the canonical model. GitHub and GitLab are the
 // first two; a new source (a tracker, a CSV, another forge) implements this and
 // the DB + contract are unchanged because they were designed provider-agnostic.

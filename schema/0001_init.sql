@@ -2,9 +2,9 @@
 --
 -- This is the SECOND of the three layers (raw store -> canonical DB ->
 -- versioned contract). It is provider-agnostic on purpose: nothing here bakes
--- in GitHub/GitLab assumptions. A new source (point 6) implements the Source
+-- in GitHub/GitLab assumptions. A new source implements the Source
 -- interface and writes into these same tables; the contract is derived from
--- them and versioned separately (see schema/contract.schema.json).
+-- them and versioned separately (see packages/contract/contract.schema.json).
 --
 -- Conventions:
 --   * Timestamps are ISO-8601 UTC strings (TEXT), never epoch ints, so the file
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS item_label (
 CREATE INDEX IF NOT EXISTS label_by_name ON item_label (name);
 
 -- ---------------------------------------------------------------------------
--- edge: THE SPINE (point 1). The issue <-> PR/MR relationship, modeled as a
+-- edge: THE SPINE. The issue <-> PR/MR relationship, modeled as a
 -- typed, directed, stateful, many-to-many, possibly cross-source link. An edge
 -- is RECONCILED from both endpoints (a PR declares "Closes #5"; the issue
 -- reports "closed by !12") and may be seen from either side at different times.

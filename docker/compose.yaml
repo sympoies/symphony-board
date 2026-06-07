@@ -1,4 +1,4 @@
-# Two services: the loop daemon (board) — the always-on writer (point 3) that
+# Two services: the loop daemon (board) — the always-on writer that
 # syncs + emits data/contract.json — and a read-only UI sidecar (web) that serves
 # the built board plus that daemon-emitted contract over HTTP.
 #

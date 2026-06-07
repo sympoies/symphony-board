@@ -7,8 +7,8 @@
 #                    box (the local Mac while it is on, or a server later):
 #                    docker compose up -d  /  docker run -d --restart=unless-stopped.
 #
-# This is the SOLE writer by design (point 3): no external cron/trigger. A single
-# writer also keeps SQLite happy (WAL + one writer; the future UI reads).
+# This is the SOLE writer by design: no external cron/trigger. A single writer
+# also keeps SQLite happy while the UI sidecar and inspection helpers read.
 #
 # Tokens come from env vars named by each source's token_env (e.g. GITHUB_TOKEN,
 # GITLAB_TOKEN). The DB and config are mounted volumes (see compose.yaml). A

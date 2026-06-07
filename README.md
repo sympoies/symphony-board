@@ -3,157 +3,225 @@
 [![CI](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 
-Provider-agnostic work-item board. It aggregates issues and pull/merge requests
-from **multiple sources** (GitHub and GitLab today, others later) into one
-normalized **SQLite** store and emits a **versioned JSON contract** that a
-read-only **web UI** ([`packages/ui`](packages/ui)) and other consumers read.
+Provider-agnostic work-item board for GitHub and GitLab. It syncs issues and
+pull/merge requests from configured projects into a local SQLite store, derives
+typed relationships between them, emits a versioned JSON contract, and serves a
+read-only web UI from that contract.
 
-The organizing concept is the **issue ↔ PR/MR relationship** — modeled as a
-typed, stateful edge — because that link is the backbone of a GitHub/GitLab
-workflow.
+The product surface is the contract plus UI. The database is an implementation
+store, not the consumer API.
 
-> Full rationale and the decisions awaiting confirmation: [`docs/DESIGN.md`](docs/DESIGN.md).
-> Contract versioning rules: [`docs/CONTRACT.md`](docs/CONTRACT.md).
+- Design rationale: [docs/DESIGN.md](docs/DESIGN.md)
+- Contract rules: [docs/CONTRACT.md](docs/CONTRACT.md)
+- Developer guide: [DEVELOPMENT.md](DEVELOPMENT.md)
+- UI package: [packages/ui](packages/ui)
+- Contract package: [packages/contract](packages/contract)
 
-## Architecture: three layers
+## Current Baseline
 
+The basic product path is implemented:
+
+- GitHub and GitLab GraphQL sources fetch issues and change requests.
+- Raw provider payloads, canonical rows, labels, sync state, and relationship
+  edges are stored in SQLite.
+- `sync` supports full and incremental modes; only a full and complete sweep may
+  soft-delete unseen items or edges.
+- `emit` produces contract major v1, currently `1.1.0`, and validates the JSON
+  envelope before writing.
+- The UI renders the contract as a 7-column Board, a relationship Graph, and a
+  persistent Settings display filter.
+- Docker Compose runs the sync/emit loop as the sole writer and serves the UI as
+  a read-only sidecar over the latest emitted contract.
+- CI runs backend checks, UI build/tests/render-smoke, and a combined
+  logic-tier coverage gate.
+
+Historical validation details and PR links live in [docs/devlog](docs/devlog).
+
+## Architecture
+
+```text
+providers --fetch--> [1] raw store
+                       opaque provider payloads
+                       |
+                       | normalize (pure)
+                       v
+                    [2] canonical DB
+                       item / edge / label / sync_* in SQLite
+                       |
+                       | buildContract (pure)
+                       v
+                    [3] contract
+                       versioned JSON -> UI / consumers
 ```
-providers ──fetch──▶  [1] raw store        opaque provider payloads (insurance)
-                          │ normalize (pure)
-                          ▼
-                      [2] canonical DB      item / edge / label / sync_* (SQLite)
-                          │ buildContract (pure)
-                          ▼
-                      [3] contract          versioned JSON  ──▶  UI / consumers
-```
 
-- **Layer 1 (raw)** is kept verbatim so contract/normalization changes can be
-  **replayed offline** — old records stay compatible without re-fetching.
-- **Layer 2 (canonical)** is provider-agnostic and SQL-queryable.
-- **Layer 3 (contract)** is a projection, versioned independently (semver), and
-  lives in its own package [`@symphony-board/contract`](packages/contract) so a
-  consumer cannot reach past it. The DB schema and the contract evolve on
-  separate clocks.
+- **Layer 1: raw store** keeps the latest opaque provider payload per entity.
+  This lets normalization or contract changes be replayed without re-fetching
+  from providers.
+- **Layer 2: canonical DB** is provider-agnostic and queryable. It is optimized
+  for sync, reconciliation, and local inspection.
+- **Layer 3: contract** is the semver consumer surface. It is defined in
+  [`@symphony-board/contract`](packages/contract) and emitted by the backend.
 
-This is a **pnpm workspace**: the backend (repo root, no build, zero
-third-party runtime deps), [`packages/contract`](packages/contract) (LAYER 3:
-schema + types), and [`packages/ui`](packages/ui) (the read-only viewer; Vite +
-React, the one package with a build step).
+The central model is the issue <-> PR/MR relationship. `closes` edges carry a
+derived lifecycle:
 
-## Quick start
+- `declared`: work is linked but not fulfilled.
+- `fulfilled`: change request merged and target issue closed.
+- `broken`: change request closed without merging.
 
-The backend requires **Node ≥ 24** (built-in TypeScript stripping and
-`node:sqlite`; no build step, zero third-party runtime dependencies). Node is
-managed with **fnm** (`.node-version`) and the package manager is **pnpm**
-(`packageManager` in `package.json`). The UI build lives in `packages/ui`.
+The graph also supports non-lifecycle edges such as `mentions` and `relates`
+where a provider exposes enough information.
+
+## Workspace
+
+This is a pnpm workspace:
+
+- repo root: backend CLI, sync engine, SQLite schema, sources, tests, CI helpers
+- `packages/contract`: contract JSON Schema and TypeScript DTOs
+- `packages/ui`: Vite + React read-only board
+
+The backend runs TypeScript directly under Node 24 type stripping. It has no
+third-party runtime dependency requirement in the Docker image; the UI is the
+deliberate home for browser dependencies and a build step.
+
+## Quick Start
+
+Requirements:
+
+- Node >= 24, normally selected with `fnm use` from `.node-version`
+- pnpm >= 11, pinned by `packageManager`
 
 ```sh
-fnm use                                   # picks Node 24 from .node-version
-pnpm install                              # dev-only deps (typescript, @types/node)
-pnpm run typecheck                        # tsc --noEmit (the type gate)
-pnpm test                                 # node --test (pure logic + DB roundtrip)
-pnpm coverage                             # combined line-coverage gate (CI fails under the floor)
+fnm use
+pnpm install
 
-cp config/sources.example.json config/sources.json   # then edit projects/tokens
-export GITHUB_TOKEN=$(gh auth token)      # token per source's token_env
-export GITLAB_TOKEN=glpat_…               # if a GitLab source is configured
-
-pnpm run init-db                          # create/migrate the SQLite store
-node src/cli/sync.ts --dry-run            # fetch + compute, write nothing
-pnpm run sync                             # full sweep -> SQLite
-pnpm run emit -- --out data/contract.json # emit the versioned contract
+pnpm run typecheck
+pnpm test
+pnpm --filter @symphony-board/ui run build
+pnpm --filter @symphony-board/ui run test
+pnpm --filter @symphony-board/ui run smoke
+pnpm coverage
 ```
 
-A source is skipped (with a warning) when its token env var is unset, so you can
-start with GitHub only.
-
-### Testing & coverage
-
-Three deliberately separate tiers — no single number captures all of them:
-
-- **Type/bundle gate** — `pnpm run typecheck` and the UI `vite build`.
-- **Unit tests** (`pnpm test`) — the pure, deterministic logic: the backend
-  (`src/**/*.ts`) and the UI **view-model** (`packages/ui/src/model.ts` et al.).
-- **`render-smoke`** — a headless-Chrome check that actually renders the built
-  board and asserts it draws (see [`packages/ui`](packages/ui)). This is the gate
-  for the React **`.tsx` component layer**.
-
-`pnpm coverage` enforces a **combined line-coverage floor** over the logic tier
-only — the backend `.ts` (the thin CLI entrypoints count honestly as `0%`) plus
-the UI `.ts` view-model. The `.tsx` components are **not** in this number: V8
-coverage of the bundled app remaps to a meaningless ~100%-if-loaded, so they are
-gated by `render-smoke` (a hard pass/fail) instead, not by a percentage. The
-[Coverage badge](#symphony-board) reflects this logic-tier number.
-
-## Running continuously (the writer)
-
-By design there is **no external cron**: a single Docker daemon is the sole
-writer while the host is on, and can later move to an always-on server.
+Configure sources:
 
 ```sh
-echo "GITHUB_TOKEN=ghp_xxx" > .env       # + GITLAB_TOKEN if used
+cp config/sources.example.json config/sources.json
+$EDITOR config/sources.json
+
+export GITHUB_TOKEN="$(gh auth token)"
+export GITLAB_TOKEN="glpat_xxx"   # only when a GitLab source is configured
+```
+
+Tokens are referenced by env-var name in config and read from the environment.
+Do not inline tokens in `config/sources.json`.
+
+Initialize and run one full sync:
+
+```sh
+pnpm run init-db
+node src/cli/sync.ts --dry-run
+pnpm run sync
+pnpm run emit -- --out data/contract.json
+pnpm run validate -- --in data/contract.json
+```
+
+A source is skipped with a warning when its token env var is unset. `--dry-run`
+fetches and normalizes but writes nothing.
+
+Useful sync flags:
+
+```sh
+node src/cli/sync.ts --incremental
+node src/cli/sync.ts --source github:github.com
+node src/cli/sync.ts --config path/to/sources.json --dry-run
+```
+
+## Run The UI Locally
+
+The UI fetches `./contract.json` relative to the app.
+
+```sh
+pnpm run emit -- --out packages/ui/public/contract.json
+pnpm --filter @symphony-board/ui dev
+```
+
+For a production-style local check:
+
+```sh
+pnpm --filter @symphony-board/ui run build
+pnpm --filter @symphony-board/ui run preview
+```
+
+The tracked `packages/ui/public/contract.json` is a small sample contract for
+development and smoke tests. Runtime output under `data/` remains gitignored.
+
+## Run Continuously
+
+Docker Compose runs two services:
+
+- `board`: the sole writer. It loops `sync` and `emit`.
+- `web`: a read-only nginx sidecar that serves the built UI and the daemon's
+  latest `data/contract.json` as `/contract.json`.
+
+```sh
+echo "GITHUB_TOKEN=ghp_xxx" > .env
+# add GITLAB_TOKEN=... if configured
+cp config/sources.example.json config/sources.json
+$EDITOR config/sources.json
+
 docker compose -f docker/compose.yaml up -d --build
-docker compose -f docker/compose.yaml logs -f
+docker compose -f docker/compose.yaml ps
+open http://localhost:8080
 ```
 
-It loops `sync` + `emit` every `INTERVAL` seconds (default 300), persisting the
-DB and the emitted contract to the bind-mounted `data/`. The cadence is mostly
-**incremental** (cheap, watermark-bounded) with a periodic **full sweep** every
-`FULL_EVERY` iterations (default 12 ≈ hourly): a full sweep is what enables
-disappearance handling — only a full + complete sweep may soft-delete items/edges
-it no longer sees, so incremental alone never tombstones. Set `FULL_EVERY=1` to
-always full-sweep. A GitLab source behind a VPN requires the host to be on that VPN.
+The daemon defaults to `INTERVAL=300` seconds and `FULL_EVERY=12`, which means a
+full sweep on the first loop and then about once per hour, with incremental
+runs in between. Set `FULL_EVERY=1` to always full-sweep.
 
-**The daemon is the source of truth for the contract.** `data/contract.json` is
-written *only* by this loop — never by hand — so what the UI serves (see
-[Deploying the UI](#deploying-the-ui)) is always the daemon's latest emit. The
-`board` service has a healthcheck that reports it `healthy` only while
-`data/contract.json` keeps being refreshed, so a wedged daemon that stops emitting
-is visible (`docker compose -f docker/compose.yaml ps`). Confirm the on-disk
-contract is daemon-produced with the read-only helpers:
+Only full, complete sweeps can tombstone disappeared items and intra-source
+edges. Partial, failed, and incremental runs never delete.
+
+Read-only inspection helpers:
 
 ```sh
-docker compose -f docker/compose.yaml ps          # board: healthy
-scripts/db-summary.sh                              # items/edges/sync runs (query_only)
-scripts/contract-summary.sh                        # counts from data/contract.json
+scripts/db-summary.sh
+scripts/contract-summary.sh
+scripts/devlog-search.sh graph
 ```
 
-## Deploying the UI
+## Contract And Display Metadata
 
-The same `docker compose` stack also serves the read-only board. The
-[`web`](docker/compose.yaml) service builds `packages/ui`
-([`docker/ui.Dockerfile`](docker/ui.Dockerfile), a multi-stage Vite build → nginx)
-and serves it at a stable URL — no manual `vite preview`:
+The current emitted contract is major v1, currently `1.1.0`. Version `1.1.0`
+added display colors:
 
-```sh
-docker compose -f docker/compose.yaml up -d --build   # brings up board + web
-open http://localhost:8080                            # the board
+- optional `sources[].color`
+- optional sparse top-level `repos[]`
+
+Colors are display metadata. They are read from config at emit time, validated
+as `#rgb` or `#rrggbb`, and never stored in SQLite. The UI resolves highlight
+color as:
+
+```text
+localStorage repo override -> configured repo color -> configured source color -> none
 ```
 
-The sidecar serves the daemon-emitted `data/contract.json` directly (mounted
-read-only; nginx aliases it to `/contract.json` — see
-[`docker/ui-nginx.conf`](docker/ui-nginx.conf)), and `depends_on` the `board`
-healthcheck, so it never serves before the first contract exists and always
-renders the daemon's **latest** emit — consistent with "the daemon is the sole
-writer." A fresh emit is picked up on reload (the contract is served `no-store`);
-rebuild the image (`up -d --build`) only when the UI code itself changes. Change
-the published port by editing the `web` service's `ports` mapping.
+Consumers must branch on contract major and ignore unknown fields within a
+major. Producers validate strictly before emitting.
 
-## Status
+## Testing Model
 
-Both sources validated live: GitHub end-to-end (incl. in the Docker image), and
-GitLab against gitlab.com — including a **token-authenticated** run against a
-private project that drives the full pipeline to contract `1.0.0`.
+CI has three separate checks:
 
-Since the initial cut the contract pipeline was hardened and the UI landed:
-- **Contract validator** — `emit` validates against the schema and refuses to
-  ship an invalid contract (dependency-free; runs in CI).
-- **Edge soft-delete** + **incremental loop cadence** — see above.
-- **`packages/contract`** — LAYER 3 extracted into its own package.
-- **`packages/ui`** — a read-only board (Vite + React) consuming the contract:
-  three pages (a 7-column **Board**, a relationship **Graph**, and a **Settings**
-  display filter), source health, transient facet filters, and label chips. The
-  Settings page is a persistent, client-side per-repo pre-filter saved in
-  `localStorage` — view-only, so the daemon keeps syncing everything.
+- backend/root: `pnpm run typecheck` and `pnpm test`
+- UI: `pnpm --filter @symphony-board/ui run build`, UI tests, and render-smoke
+- coverage: `pnpm coverage`, a combined line-coverage floor over backend `.ts`
+  and UI `.ts` logic
 
-See `docs/DESIGN.md` for the confirmed decisions and what's still deferred.
+The React `.tsx` component layer is not folded into the coverage percentage.
+Bundled browser coverage reports misleading near-100% loaded code, so the UI
+component gate is the headless Chrome render-smoke instead.
+
+When touching a source or the sync engine, also run a real `--dry-run` against a
+safe config if credentials/network access are available. Prefer recorded or
+throwaway fixtures over live provider calls in automated tests.

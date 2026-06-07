@@ -1,68 +1,189 @@
-# Contract versioning
+# Contract Versioning
 
-The contract — the `@symphony-board/contract` package
-(`packages/contract/contract.schema.json`, mirrored by `packages/contract/types.ts`)
-— is LAYER 3: the serialized projection consumers (the UI, external tools) read. It
-is **never** the DB schema and **never** the stored truth — it is re-derived from
-the canonical store on every emit. That decoupling is what lets the schema evolve
-without breaking old data: a new contract version is produced by re-running
-`buildContract` (and, if needed, `normalize`) over the raw/canonical data that is
-already stored — no re-fetch from providers.
+The contract is LAYER 3: the serialized projection consumed by the UI and any
+external reader. It is not the SQLite schema and not the stored truth. It is
+derived from raw/canonical data whenever `emit` runs.
 
-## The envelope
+Definition files:
+
+- `packages/contract/contract.schema.json`: normative JSON Schema
+- `packages/contract/types.ts`: TypeScript DTO mirror
+- `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
+- `src/contract/validate.ts`: dependency-free producer validator
+
+Current emitted version: `1.1.0`.
+
+The private workspace package version in `packages/contract/package.json` is
+package metadata. Consumers must use the envelope's `contract_version`, not the
+package version, to decide compatibility.
+
+## Envelope
 
 ```jsonc
 {
-  "contract_version": "1.0.0",     // semver; the UI branches on MAJOR
-  "generated_at": "…Z",
+  "contract_version": "1.1.0",
+  "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
-  "sources": [ /* per-source health: last_success_at, last_status */ ],
-  "items":   [ /* canonical core + nullable extension */ ],
-  "edges":   [ /* typed issue<->PR/MR links with lifecycle */ ]
+  "sources": [
+    {
+      "source_id": "github:github.com",
+      "kind": "github",
+      "host": "github.com",
+      "display_name": "GitHub",
+      "last_success_at": "2026-06-08T00:00:00.000Z",
+      "last_status": "ok",
+      "color": "#1f6feb"
+    }
+  ],
+  "items": [],
+  "edges": [],
+  "repos": [
+    {
+      "source_id": "github:github.com",
+      "project_path": "sympoies/symphony-board",
+      "color": "#e0af68"
+    }
+  ]
 }
 ```
 
-Item/edge endpoints use a composite ref string `"<source_id>|<external_id>"`.
-`source_id` never contains `|`; split on the **first** `|` only (a GitLab
-`external_id` may contain `:` and `/`).
+Top-level fields:
 
-## Rules
+- `contract_version`: semver. Consumers branch on major.
+- `generated_at`: emit time.
+- `generator`: producer name and version.
+- `sources`: source health and source display metadata.
+- `items`: normalized work items.
+- `edges`: typed relationships between items.
+- `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
 
-- **patch** (`1.0.x`): clarification, no shape change.
-- **minor** (`1.x.0`): **additive only** — a new OPTIONAL/nullable field. Old
-  consumers keep working untouched.
-- **major** (`x.0.0`): **breaking** — a removed/renamed/repurposed field, or a
-  changed `required` set. Bump the major; the UI gates on it.
+The producer currently emits `repos` every time, usually as an empty array. It is
+optional in the schema so old v1 readers are not broken by the minor addition.
+Consumers should read it as `env.repos ?? []`.
 
-Two hard rules behind the above:
+## Refs
 
-1. **Never repurpose or remove a field within a major.** Add a new one instead.
-2. **Consumers must ignore unknown fields** (be liberal in what you accept), so a
-   minor addition never breaks an old reader. Producers validate strictly
-   against the JSON Schema; the strictness is a producer-side guard, not a
-   consumer contract.
+Item and edge endpoints use a composite ref:
 
-## When you change the contract
+```text
+<source_id>|<external_id>
+```
 
-1. Edit `packages/contract/contract.schema.json` (normative) and
-   `packages/contract/types.ts` (mirror) together.
-2. Bump `CONTRACT_VERSION` in `src/contract/version.ts` per the rules.
-3. Add/adjust a `test/contract.test.ts` case (and `test/validate.test.ts` if the
-   schema gained a construct the validator doesn't yet cover).
-4. For a major bump, plan a transition: keep emitting the old major (or ship a
-   transformer) until consumers move.
+Rules:
 
-## Validation (producer-side guard)
+- `source_id` must not contain `|`.
+- split on the first `|` only.
+- do not parse `external_id`; GitLab ids contain characters such as `:` and `/`.
 
-The schema is enforced, not just documentation: `emit` validates the envelope
-against `packages/contract/contract.schema.json` before writing and **refuses to emit** an
-invalid contract (override with `--no-validate`). `pnpm run validate -- --in
-<file>` checks an existing contract on demand, and `test/validate.test.ts`
-exercises the validator in CI. The validator (`src/contract/validate.ts`) is a
-dependency-free JSON-Schema subset matching exactly what this schema uses, so it
-preserves the backend's zero-runtime-dependency posture. Producers validate
-strictly; consumers stay liberal (ignore unknown fields) so a minor (additive)
-field never breaks an old reader.
+## Items
 
-Because the source of truth is the stored raw + canonical data, you can always
-regenerate any current contract version on demand with `pnpm run emit`.
+`items[]` contains the provider-agnostic item core plus nullable extension
+fields. Known `kind` values are `issue` and `change_request`, but the contract
+keeps `kind` as an open string.
+
+Important fields:
+
+- `id`: composite ref.
+- `source_id` / `external_id`: immutable source identity.
+- `project_path` / `iid`: mutable human metadata for display and search.
+- `state`: normalized `open`, `closed`, or `merged`.
+- `state_raw`: provider state string for debugging/escape hatch.
+- `labels`: verbatim provider labels plus parsed `scope` for `scope::value`.
+- `review_state`, `ci_state`, `merge_state`: nullable provider-derived signals.
+- `demand`: comments plus reactions/upvotes.
+- `last_seen_at`: latest successful observation in the canonical store.
+
+The TypeScript DTOs describe what the producer emits. The JSON Schema is the
+normative validation surface.
+
+## Edges
+
+`edges[]` contains typed relationships. For `closes`:
+
+- `from`: change request ref.
+- `to`: issue ref.
+- `from_state` and `to_state`: endpoint states observed/reconciled by sync.
+- `lifecycle`: `declared`, `fulfilled`, or `broken`.
+
+Non-`closes` edge types, such as `mentions` and `relates`, have
+`lifecycle: null`.
+
+Edge type is an open string so providers can add relationship vocabulary without
+changing the major version when the shape stays the same.
+
+## Display Metadata
+
+Version `1.1.0` added display colors:
+
+- `sources[].color`: optional source-level highlight color or `null`.
+- `repos[]`: sparse per-repo highlight colors keyed by
+  `(source_id, project_path)`.
+
+Colors are config-derived display metadata:
+
+- accepted forms are `#rgb` and `#rrggbb`
+- read by `emit` from `config/sources.json`
+- not stored in SQLite
+- safe to change by re-emitting the contract; no provider re-fetch is required
+
+The UI resolves colors in this order:
+
+```text
+browser repo override -> repos[] color -> sources[].color -> no highlight
+```
+
+The UI validates colors again before using them in CSS.
+
+## Version Rules
+
+- **patch** (`1.1.x`): clarification only; no shape or semantic change.
+- **minor** (`1.x.0`): additive only. New fields must be optional and/or
+  nullable. Old consumers must keep working.
+- **major** (`x.0.0`): breaking shape or semantic change, including removed
+  fields, renamed fields, repurposed fields, or changed required sets.
+
+Hard rules:
+
+1. Do not remove or repurpose a field within a major.
+2. Consumers must ignore unknown fields within a supported major.
+3. Producers validate strictly against the JSON Schema before emitting.
+
+## Changing The Contract
+
+1. Edit `packages/contract/contract.schema.json`.
+2. Edit `packages/contract/types.ts` in the same commit.
+3. Bump `CONTRACT_VERSION` in `src/contract/version.ts`.
+4. Update `test/contract.test.ts`.
+5. Update `test/validate.test.ts` if the schema uses a new validator feature.
+6. Update UI model/loading behavior when the UI consumes the new field.
+7. Run:
+
+```sh
+pnpm run typecheck
+pnpm test
+pnpm --filter @symphony-board/ui run build
+pnpm --filter @symphony-board/ui run test
+pnpm --filter @symphony-board/ui run smoke
+pnpm run emit -- --out data/contract.json
+pnpm run validate -- --in data/contract.json
+```
+
+For a major bump, plan a transition. The UI currently supports contract major
+v1 and warns on any other major.
+
+## Validation
+
+`emit` validates the envelope before writing. It refuses to emit invalid JSON:
+
+```sh
+pnpm run emit -- --out data/contract.json
+```
+
+Validate an existing file:
+
+```sh
+pnpm run validate -- --in data/contract.json
+```
+
+`--no-validate` exists on `emit` as an emergency escape hatch for a validator
+bug. It should not be used as a normal workflow.

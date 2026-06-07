@@ -1,266 +1,259 @@
-# symphony-board — design
+# symphony-board Design
 
-This is the confirmation document for the first version. It captures the
-reasoning behind the architecture, the decisions taken by default, and the open
-items that need your confirmation. The code in this repo is the first cut of
-this design; it type-checks, unit-tests, and has been smoke-tested end-to-end
-against live GitHub and GitLab (see "Validation status").
+This is the current design record for `symphony-board`. It records the stable
+architecture and operating decisions after the baseline product path shipped:
+GitHub/GitLab sources, canonical SQLite store, contract major v1, read-only UI,
+and Docker writer/reader deployment.
+
+Historical validation runs, PR numbers, and one-off investigation details live
+in [docs/devlog](devlog). This file is the normative design summary.
 
 ## Goal
 
-Aggregate issues and pull/merge requests from **multiple providers**
-(GitHub and GitLab first, others later) into one **provider-agnostic model**,
-persist it in a local **SQLite** store, and emit a **versioned JSON contract**
-that a UI (built later) and other consumers read. The one workflow concept that
-must be first-class is the **issue ↔ PR/MR relationship**.
+Aggregate issues and pull/merge requests from multiple providers into one
+provider-agnostic model, persist the model locally, and expose a versioned JSON
+contract that a read-only board UI and other consumers can read.
 
-## Why not "sync into a GitHub Projects board" (the pivot)
+The first-class workflow concept is the issue <-> PR/MR relationship. A board
+that cannot show whether an issue has linked work in flight, fulfilled, or
+abandoned is not useful for this workflow.
 
-The predecessor (`graysurf/project-board-automation`) syncs into a GitHub
-Projects v2 board. That board can only hold three item types — Issue,
-PullRequest, DraftIssue — and a GitLab item is none of them, so it could only go
-on as a *draft issue*: a frozen, text-only snapshot with no live link, no
-Repository/Assignee auto-fields (breaking the repo-slice view), and a synthetic
-identity hack. The hard constraint is the **sink**, not the providers.
+## Pivot From GitHub Projects
 
-Replacing the sink with a JSON contract removes that constraint entirely. The
-cost moves to two places: **(a)** we now own the viewer (a UI is a later phase),
-and **(b)** the hard problem becomes **designing one schema that faithfully
-covers two non-congruent domain models**. This document is mostly about (b).
+The predecessor synced into GitHub Projects v2. That sink cannot faithfully hold
+GitLab issues or merge requests because Projects items are GitHub Issues, GitHub
+PullRequests, or DraftIssues. A GitLab item would become a frozen draft issue
+with no live provider identity, no native repository/assignee fields, and no
+reliable relationship model.
 
-## The three layers
+`symphony-board` replaces the sink with a local model plus a JSON contract. The
+cost is that this repo owns the viewer. The gain is that provider identity,
+relationships, and source-specific details can be modeled directly instead of
+forced through GitHub Projects fields.
 
-The single most important structural decision: **contract ≠ DB schema ≠ raw**.
-Three layers, each versioned independently.
+## Three Layers
 
-| Layer | What | Where | Versioned by |
-|------|------|-------|--------------|
-| 1. Raw store | provider payloads, opaque | `raw` table | not versioned; tagged `api_version` + `fetched_at` |
-| 2. Canonical DB | normalized `item` / `edge` / `item_label` / `sync_*`, provider-agnostic, SQL-queryable | `schema/0001_init.sql` | `PRAGMA user_version` + migrations |
-| 3. Contract | versioned projection serialized for consumers | `packages/contract/` (`contract.schema.json` + `types.ts`) | semver `contract_version` (see `CONTRACT.md`) |
+The core boundary is:
 
-`normalize` is the pure function raw → layer 2; `buildContract` is the pure
-function layer 2 → layer 3. Both are replayable: **because we keep raw, a
-contract or normalization change can be re-derived offline without re-fetching
-from the providers.** This is what makes old records stay compatible (point 4).
+```text
+raw store -> canonical DB -> versioned contract
+```
 
-## The spine: issue ↔ PR/MR edges (point 1)
+These are deliberately separate:
 
-Modeled as a typed, directed, stateful, many-to-many, possibly cross-source
-**edge** (`edge` table, `src/model/edges.ts`):
+| Layer | Purpose | Location | Versioning |
+| --- | --- | --- | --- |
+| Raw store | Latest opaque provider payload per entity | `raw` table | tagged by `api_version` and `fetched_at` |
+| Canonical DB | Provider-agnostic items, labels, edges, sync state | `schema/*.sql`, `src/db/*` | SQLite migrations and `PRAGMA user_version` |
+| Contract | Consumer-facing serialized projection | `packages/contract`, `src/contract/*` | semver `contract_version` |
 
-- **Many-to-many, cross-repo**: a PR can close several issues; an issue can be
-  closed by a PR in another repo. Endpoints are `(source_id, external_id)`
-  pairs, so a link survives even when one endpoint is in an untracked project.
-- **Reconciled, not just stored**: a `closes` link is reported by the PR
-  (`closingIssuesReferences`) *and* by the issue (`closedByPullRequestsReferences`),
-  possibly at different times. `reconcileEdges` merges by `(type, from, to)`,
-  converges endpoint states, and records provenance (`from`/`to`/`both`).
-- **Stateful lifecycle** (`deriveLifecycle`): `declared` (in flight) →
-  `fulfilled` (PR merged AND issue closed) → `broken` (PR closed unmerged). This
-  is exactly the "in-progress" / "tracking" signal a board wants, and it is
-  computed once, centrally, from normalized endpoint states.
-- `closes` is the workflow-bearing type; `relates`/`blocks`/`mentions`/`parent`/
-  `child` are in the vocabulary for later but are not all populated in v1.
+`normalize` maps raw provider records into canonical items and edges. It must be
+pure: no network and no DB writes. `buildContract` maps canonical rows into a
+contract envelope. It is also pure.
 
-## Identity & the disappearance trap
+Because raw payloads are retained, normalization and contract changes can be
+replayed over stored data without re-fetching from providers.
 
-- **Identity = the provider's immutable global id** (`external_id`: a GitHub node
-  id, a GitLab `gid://…`). `project_path`/`iid` are mutable human metadata
-  (repos rename/transfer) and are never keyed on.
-- **Disappearance handling** (a trap the stateless predecessor didn't have):
-  with a persistent store, "I couldn't fetch X this run" (VPN drop, lost auth,
-  rate limit) must not look like "X was deleted." So:
-  - every observed item and edge gets `last_seen_at`;
-  - only a **full + complete** sweep may soft-delete (`deleted_at`) items —
-    and, symmetrically, intra-source edges — it did not see; a partial/failed
-    fetch never deletes (`FetchResult.complete` gates it, recorded per run in
-    `sync_run`);
-  - a re-seen item/edge revives (tombstone cleared). Unit-tested in
-    `test/db.test.ts`.
+## Identity
 
-## SQLite (point 5) — rationale and caveats
+The stable identity is `(source_id, external_id)`.
 
-Good fit at this scale: single-file backup, transactional sync writes, SQL joins
-over the edge table, JSON1 to query the raw blob, a natural home for incremental
-watermarks. Driver: **Node's built-in `node:sqlite`** (`DatabaseSync`) — zero
-native build, ships with Node 24, matching the "pin Node, no build step" stance.
+- `source_id` identifies the configured provider instance, such as
+  `github:github.com` or `gitlab:gitlab.com`.
+- `external_id` is the provider's immutable global id, such as a GitHub node id
+  or GitLab `gid://...`.
 
-Caveats handled / noted:
-- `node:sqlite` is **experimental** in Node 24 (emits a warning; we silence it
-  with `--disable-warning=ExperimentalWarning`). This is an accepted risk —
-  flagged for your confirmation below.
-- **WAL mode** is enabled so the future UI can read while the single daemon
-  writes. Keep to **one writer** (the loop daemon is the sole writer by design).
-- **Backups**: snapshot with `VACUUM INTO` / `sqlite3 .backup`, not `cp` of a
-  live WAL DB.
-- **Migrations**: additive columns are cheap; a column change uses the
-  rebuild-table pattern (SQLite `ALTER` is limited). Tracked by `user_version`.
+`project_path` and `iid` are human metadata. They are useful for display and
+search, but they can change when repositories are renamed or transferred, so
+they are never primary identity.
 
-## Source extensibility (point 6)
+The contract encodes item references as:
 
-A new source implements `src/sources/types.ts::Source` (`fetch` impure;
-`normalize` pure) and is wired in `registry.ts`. The DB and contract don't
-change shape — they were designed provider-agnostic (open vocabularies for
-`kind` and edge `type`, no two-part `owner/name` assumption, raw stored verbatim
-so a new source's payload is preserved even before it has a normalizer).
+```text
+<source_id>|<external_id>
+```
 
-## Provider model mapping (the incompatibilities)
+`source_id` must not contain `|`. Consumers split on the first `|` only.
 
-Normalized to a lowest-common core + nullable extension; the provider's raw
-value is preserved alongside (`state_raw`). Key non-congruences:
+## Relationship Edges
 
-| Dimension | GitHub | GitLab | Normalized |
-|---|---|---|---|
+Edges are typed, directed, stateful links between item endpoints. For the
+workflow-bearing `closes` edge:
+
+- `from` is the change request.
+- `to` is the issue.
+- endpoint states are cached on the edge.
+- lifecycle is derived centrally.
+
+Lifecycle:
+
+| Lifecycle | Meaning |
+| --- | --- |
+| `declared` | linked work is still in flight or not yet fulfilled |
+| `fulfilled` | change request merged and target issue closed |
+| `broken` | change request closed without merging |
+
+Edges are reconciled by `(type, from, to)` because providers can report the same
+relationship from either endpoint. GitHub can expose both PR-side and issue-side
+closing references. GitLab exposes related merge requests from the issue side
+only. Reconciliation deduplicates those reports and converges endpoint state.
+
+Additional edge types are open vocabulary. Today the sources also populate:
+
+- `mentions`: cross-reference events/notes that do not duplicate `closes`
+- `relates`: GitLab issue links parsed from system notes
+
+Non-`closes` edges have `lifecycle: null`.
+
+## Disappearance Handling
+
+Persistent stores need a strict rule for disappeared entities. "Not fetched this
+run" must not be interpreted as "deleted"; auth failures, rate limits, or
+network boundaries can all make a source incomplete.
+
+Rules:
+
+- every observed item and edge gets `last_seen_at`
+- only a full and complete sweep may set `deleted_at`
+- partial, failed, and incremental runs never soft-delete
+- re-seen items and edges are revived by the next upsert
+- edge soft-delete is scoped to intra-source edges, because a single-source
+  sweep cannot prove that a cross-source relationship disappeared
+
+The loop daemon runs mostly incremental syncs for cost, with periodic full
+sweeps so disappearance handling still occurs.
+
+## Provider Mapping
+
+The canonical model uses a lowest-common core plus nullable extension fields.
+Provider raw state remains available in `state_raw`, and the full provider
+payload remains in the raw store.
+
+| Dimension | GitHub | GitLab | Canonical / contract |
+| --- | --- | --- | --- |
 | item kind | Issue / PullRequest | Issue / MergeRequest | `issue` / `change_request` |
-| state | OPEN/CLOSED(+stateReason); PR adds MERGED | opened/closed; MR adds merged/locked | `open`/`closed`/`merged` (+`state_raw`) |
-| closes link | both endpoints queryable (PR + issue) | **issue side only** (`Issue.relatedMergeRequests`, one issue at a time — no MR-side field exists); superset of strict "closes" | reconciled `closes` edge |
-| labels | flat string | scoped `a::b` are **mutually exclusive** per scope | verbatim `name` + parsed `scope` |
-| review | `reviewDecision` enum | derived from approvals + threads | `review_state` (lossy) |
-| CI | `statusCheckRollup` | `headPipeline.status` (finer) | `ci_state` (lossy) |
-| mergeability | `mergeable` | `detailedMergeStatus` (richer) | `merge_state` (lossy) |
-| sub-issues / hierarchy | native sub-issues | Epics (Premium) / Work Items | `parent`/`child` edges (deferred) |
+| identity | GraphQL node id | GraphQL global id | `external_id` |
+| state | `OPEN`, `CLOSED`, `MERGED` | `opened`, `closed`, `merged`, `locked` | `open`, `closed`, `merged` |
+| closing edge | PR and issue endpoints | issue-side `relatedMergeRequests` | `closes` |
+| cross-reference | `CrossReferencedEvent` | parsed system notes | `mentions` / `relates` |
+| labels | flat names | scoped labels are meaningful | verbatim `name` plus parsed `scope` |
+| review | `reviewDecision` | approval fields | nullable `review_state` |
+| CI | `statusCheckRollup` | `headPipeline.status` | nullable `ci_state` |
+| mergeability | `mergeable` | `detailedMergeStatus` | nullable `merge_state` |
 
-## Decisions taken by default (reversible)
+GitLab caveat: `Issue.relatedMergeRequests` is a superset of strict closing MRs.
+It is still modeled as `closes` because it provides the useful workflow signal
+for the board. GitLab `mentions` and `relates` are parsed from system-note text,
+which is inherently more brittle than structured GraphQL fields; unresolved
+references to untracked projects are dropped rather than guessed.
 
-1. **Repo is private.** Reversible with `gh repo edit --visibility public`.
-2. **Full sweep is the default for a one-shot `sync`; the loop daemon runs a
-   mostly-incremental cadence.** A bare `sync` (and `SYNC_MODE=once`) is a full
-   sweep. The loop daemon runs `--incremental` (watermark-bounded) most
-   iterations and a full sweep every `FULL_EVERY` (default 12 ≈ hourly) — the
-   full sweep is what keeps the soft-delete correct, and incremental never
-   tombstones. Force always-full with `FULL_EVERY=1`.
-3. **Loop interval 300s** in `docker/compose.yaml` (point 3: docker is the sole
-   writer, no external cron). Tune via `INTERVAL`. The `board` service carries a
-   healthcheck (the daemon is `healthy` only while `data/contract.json` keeps
-   being refreshed), so "the daemon is the live contract source" is observable —
-   and the UI sidecar can gate its start on it (`depends_on … service_healthy`).
-4. **Config is JSON** (`config/sources.json`, gitignored) to keep runtime deps
-   at zero. Tokens are referenced by env-var name, never inlined.
-5. **Contract starts at `1.0.0`.**
-6. **Toolchain: fnm + pnpm.** Node version is pinned in `.node-version` (fnm
-   auto-switches on `cd`); the package manager is pnpm, pinned via
-   `packageManager` in `package.json`, lockfile `pnpm-lock.yaml`. CI uses
-   `pnpm/action-setup` + `node-version-file: .node-version`.
+## Contract
 
-## Decisions confirmed (2026-06-02)
+The contract is the product API. It is defined by:
 
-1. **GitLab instance = gitlab.com** (SaaS, not VPN-bound). The `config` example
-   targets `https://gitlab.com/api/graphql`; no VPN constraint on the daemon.
-2. **GitLab GraphQL validated live against gitlab.com.** Findings + fixes:
-   - `MergeRequest.closesIssues` **does not exist** — GitLab exposes the link
-     only from the issue side via `Issue.relatedMergeRequests`, and that field
-     can be requested for **one issue at a time** (rejected on an issue list).
-     The source now bulk-fetches issues then resolves related MRs per issue
-     (an N+1, bounded by issue count, mitigated by incremental sync).
-   - `detailedMergeStatus`, `headPipeline.status` (`PipelineStatusEnum`),
-     `draft`/`approved`/`approvalsRequired`, `userNotesCount`/`upvotes`, and
-     `UPDATED_DESC` sort all confirmed; the `merge_state`/`ci_state` mappings now
-     use the real enum members.
-   - Live e2e (unauthenticated, `gitlab-org/cli`, `since` 5 days): `complete`,
-     75 items, **37 `closes` edges** with correct from/to states.
-   - Caveat carried forward: `relatedMergeRequests` is a superset of strict
-     closing MRs, so a GitLab `closes` edge means "related MR" (good enough for
-     the in-progress / fulfilled lifecycle).
-3. **`node:sqlite`** (built-in, experimental) — accepted; not switching to
-   better-sqlite3.
-4. **Fidelity = normalize.** Keep the normalized `review_state` / `ci_state` /
-   `merge_state` extension fields (with `state_raw` / raw payload preserved as
-   the escape hatch), rather than dropping to raw-only.
+- `packages/contract/contract.schema.json` (normative JSON Schema)
+- `packages/contract/types.ts` (TypeScript DTO mirror)
+- `src/contract/version.ts` (producer version and generator)
+- `src/contract/validate.ts` (producer-side validator)
 
-### Still deferred (wired, intentionally not built)
+Current major: v1. Current emitted version: `1.1.0`.
 
-Raw history (one snapshot per entity) and the UI.
+Version `1.1.0` added display metadata:
 
-Shipped after the initial v1 cut:
-- **CI contract-validator** — `emit` validates the envelope against the schema
-  before writing and refuses to ship an invalid one; the dependency-free
-  validator (`src/contract/validate.ts`) runs in CI via `test/validate.test.ts`.
-  See `docs/CONTRACT.md`.
-- **Edge soft-delete** — a full + complete sweep now tombstones unseen edges,
-  symmetric to items (`softDeleteUnseenEdges`, gated identically). Scoped to
-  intra-source edges (both endpoints in the swept source); a cross-source edge
-  is left untouched because a single-source sweep cannot prove the other side
-  stopped asserting it.
-- **Incremental sync (loop cadence)** — the loop daemon runs `--incremental`
-  most iterations and a full sweep every `FULL_EVERY` (default 12), so the
-  soft-delete sweep stays correct while routine runs stay cheap. The
-  watermark gating (full → ignore it; incremental → stop at the first record
-  older than it) is covered by `test/sources.test.ts`, and the "incremental
-  never tombstones" guarantee by `test/sync-engine.test.ts`.
+- `sources[].color`
+- sparse top-level `repos[]`
 
-## Contract package (done) & where the UI lives (open)
+These fields are display-only. They are read from config at emit time and never
+stored in SQLite. The producer validates colors as `#rgb` or `#rrggbb`; the UI
+also validates before using colors in CSS sinks.
 
-**LAYER 3 is extracted into `packages/contract` (done).** The repo is now a pnpm
-workspace; `@symphony-board/contract` holds `contract.schema.json` (normative) +
-`types.ts` (the mirror DTOs and the shared enum vocabularies). The three-layer
-boundary is now *structural*: a consumer depends on this package and **cannot
-reach past it** into `src/db` / `src/sources`.
+Contract rules:
 
-Two decisions taken while extracting:
-- **The coupling was resolved by moving the enums into the package.** The shared
-  unions (`ItemState`, `ReviewState`, `CiState`, `MergeState`, `EdgeLifecycle`)
-  and `Ref` now live in `@symphony-board/contract`; `src/model/types.ts` (LAYER 2)
-  imports + re-exports them, so there is one definition, and the package drags no
-  LAYER 2 along with it. `ItemKind` / `EdgeType` stay LAYER-2-local (the contract
-  carries them as open `string`s).
-- **Producer constants stayed in the backend, against the original sketch** (which
-  put `version.ts` in the package). The package is deliberately **type-only at
-  runtime**: it has no runtime values, so the backend — which runs `.ts` directly
-  under Node's type-stripping with **no `node_modules` in the Docker image** —
-  never has to *resolve* the package at runtime (the `import type`s erase). Node
-  refuses to strip types from files under `node_modules`, so a runtime value
-  imported from a workspace package would have forced a build step; keeping
-  `CONTRACT_VERSION` / `GENERATOR` and the validator (`src/contract/`) on the
-  producer side avoids that and preserves the no-build, zero-third-party-dep
-  posture. The validator reads `contract.schema.json` as a file (copied into the
-  image), not via a bare-specifier import.
+- patch: clarification only
+- minor: additive optional/nullable fields only
+- major: breaking shape or semantics change
 
-**The UI now lives in `packages/ui` (done).** A read-only board built with
-**Vite + React + TypeScript** — the one package with heavy deps + a build step,
-deliberately contained there. It depends ONLY on `@symphony-board/contract`
-(types) and fetches an emitted `contract.json`; it cannot see `src/db` /
-`src/sources`. It shows per-source health, item filters/grouping, label chips,
-the review/CI/merge signals, and the issue ↔ PR/MR relationship view grouped by
-lifecycle. The esbuild build-script is the single trusted exception in the
-workspace's `allowBuilds` allowlist (scoped to the UI's transitive tooling).
+Producers validate strictly. Consumers branch on major and ignore unknown fields
+within a major.
 
-**The UI is deployed by the same Docker stack (done).** A `web` sidecar
-(`docker/ui.Dockerfile`, a multi-stage Vite build → nginx) serves the built
-`dist/` at a stable port and serves the loop daemon's `data/contract.json`
-(mounted read-only) at `/contract.json` — so the deployed board renders the
-daemon's latest emit, never a hand-seeded fixture, and there is no manual `vite
-preview`. The sidecar `depends_on` the `board` healthcheck, keeping "the daemon
-is the sole writer" true end to end: the reader can't come up before the writer
-has produced a contract. See README "Deploying the UI".
+## UI
 
-A separate repo only earns its overhead once there are third-party consumers, or
-the UI's release cadence / visibility diverges — the contract package already
-isolates the UI, so splitting it out later stays cheap.
+The UI is a read-only consumer in `packages/ui`. It imports contract types,
+fetches `./contract.json`, and never reaches into `src/db`, `src/sources`, the
+provider APIs, or SQLite.
 
-## Validation status
+Pages:
 
-- `pnpm run typecheck` — clean (covers the backend + `packages/contract`).
-- `pnpm test` — 33/33 pass (ref, labels, edge lifecycle/reconcile, contract
-  build, contract schema validation, DB roundtrip incl. item + edge soft-delete,
-  the sync engine incl. soft-delete gating, and the GitHub incremental filter).
-- **GitHub** e2e against live repos (incl. inside the Docker image on Alpine):
-  dry-run + real sync `status=ok`, 180 items / 5 `closes` edges; contract
-  `1.0.0` emitted; a sampled edge correctly derived `lifecycle: fulfilled`
-  (merged PR → closed issue).
-- **GitLab** validated live against gitlab.com in two stages. First the query
-  shape: introspection + an unauthenticated e2e on `gitlab-org/cli` (`complete`,
-  75 items, 37 `closes` edges); field corrections applied (see "Decisions
-  confirmed" #2). Then **token-authenticated (2026-06-02)** against a private
-  fixture project seeded to cover every state
-  (`graysury/symphony-board-fixture`): `status=ok`, 10 items / 3 `closes` edges,
-  with all three lifecycles derived (`fulfilled` / `declared` / `broken`),
-  scoped labels parsed (`priority::*` → `scope=priority`), and `merge_state`
-  meaningful (`blocked` on the draft MR). In this fixture `review_state` is null
-  (no approval rules) and `ci_state` is `none` (no pipelines) — the null path is
-  exercised, not a crash; one freshly-created MR transiently reported
-  `merge_state=unknown` (GitLab's async mergeability — resolves on re-sync). The
-  GitLab-side `relatedMergeRequests` N+1 path is exercised by this run.
-- **Combined** (both providers, 2026-06-02): the full pipeline (`init-db` →
-  `sync` → `emit`) ran end to end and emitted contract `1.0.0`, 255 items / 14
-  edges.
+- **Board**: 7 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
+  `Closed`) plus three Spotlight lanes (`Follow-up`, `Plan-tracking`, `PR`).
+  Status is derived from item state and relationship edges. Spotlight lanes are
+  cross-cuts, so their counts do not sum to the item total.
+- **Graph**: relationship view built from edge-connected items. It supports an
+  active-since window, mention toggles, side-list search, focus subgraphs, and
+  board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`.
+- **Settings**: browser-local display preferences. It can hide repos or whole
+  sources and set per-repo color overrides in `localStorage`. These preferences
+  are view-only; the daemon keeps syncing every configured source.
+
+The UI supports contract major v1. It warns when a different major is loaded.
+
+## Docker Operation
+
+`docker/compose.yaml` has two services:
+
+- `board`: backend loop daemon and sole writer
+- `web`: read-only nginx sidecar serving the built UI and `/contract.json`
+
+The daemon writes `data/contract.json`. The sidecar mounts `data/` read-only and
+serves that file with `Cache-Control: no-store`, so a reload pulls the latest
+emit. `web` depends on the `board` healthcheck so it does not serve before the
+first contract exists.
+
+There is intentionally no external cron and no second writer.
+
+Default loop cadence:
+
+- `INTERVAL=300`
+- `FULL_EVERY=12`
+
+That gives a full sweep on the first iteration and roughly hourly, with
+incremental syncs between. Set `FULL_EVERY=1` for every iteration to be full.
+
+## Runtime Decisions
+
+- **Node 24 with type stripping**: backend has no build step.
+- **`node:sqlite`**: accepted despite its experimental warning in Node 24.
+- **SQLite WAL**: lets readers inspect while the single writer runs.
+- **pnpm workspace**: isolates the contract package and UI package while keeping
+  the backend buildless.
+- **Contract package remains type-first**: producer constants and validator stay
+  in the backend so the backend Docker image does not need runtime package
+  resolution.
+- **Docker loop is the writer**: generated runtime contracts are daemon output,
+  not hand-maintained artifacts.
+
+## Deferred Or Explicit Non-Goals
+
+- Raw history beyond the latest snapshot per entity. A future `raw_history`
+  migration can add it without changing the current raw table.
+- Additional provider kinds beyond GitHub and GitLab.
+- External write actions from the UI. The UI is intentionally view-only.
+- Splitting UI or contract into separate repos. The package boundary is enough
+  until third-party consumers or release cadence require more.
+- A windowed contract format. The current contract emits all live items; the UI
+  caps expensive columns in the view. A future contract redesign can add
+  aggregate/window separation if transfer or parse cost becomes the bottleneck.
+
+## Validation Baseline
+
+The stable validation gates are:
+
+- root typecheck and backend tests
+- UI build, UI tests, and headless render-smoke
+- combined logic-tier coverage with an 85% line floor in CI
+- producer contract validation on emit
+- source dry-runs for provider or sync-engine changes when credentials/network
+  access are available
+
+The devlog records the dated live-provider validations and PR check outcomes
+that led to this baseline.
