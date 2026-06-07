@@ -50,5 +50,17 @@ Two hard rules behind the above:
 4. For a major bump, plan a transition: keep emitting the old major (or ship a
    transformer) until consumers move.
 
+## Validation (producer-side guard)
+
+The schema is enforced, not just documentation: `emit` validates the envelope
+against `schema/contract.schema.json` before writing and **refuses to emit** an
+invalid contract (override with `--no-validate`). `pnpm run validate -- --in
+<file>` checks an existing contract on demand, and `test/validate.test.ts`
+exercises the validator in CI. The validator (`src/contract/validate.ts`) is a
+dependency-free JSON-Schema subset matching exactly what this schema uses, so it
+preserves the backend's zero-runtime-dependency posture. Producers validate
+strictly; consumers stay liberal (ignore unknown fields) so a minor (additive)
+field never breaks an old reader.
+
 Because the source of truth is the stored raw + canonical data, you can always
-regenerate any current contract version on demand with `npm run emit`.
+regenerate any current contract version on demand with `pnpm run emit`.

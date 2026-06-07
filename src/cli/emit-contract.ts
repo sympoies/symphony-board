@@ -3,25 +3,32 @@
 // Writes to stdout, or to --out <file>. The contract is a projection — safe to
 // regenerate any time; it is never the stored truth.
 //
-//   node src/cli/emit-contract.ts [--out <file>] [--config <path>]
+// Before writing, the envelope is validated against the normative schema (the
+// producer guard: a malformed contract must never ship). --no-validate is an
+// escape hatch if the validator itself ever rejects a legitimate payload.
+//
+//   node src/cli/emit-contract.ts [--out <file>] [--config <path>] [--no-validate]
 
 import { writeFileSync } from "node:fs";
 import { loadConfig } from "../config.ts";
 import { openDb } from "../db/open.ts";
 import { listSources, listLiveItems, listLabels, listLiveEdges } from "../db/repo.ts";
 import { buildContract } from "../contract/build.ts";
+import { validateContract } from "../contract/validate.ts";
 
 interface Args {
   out: string | null;
   config: string | null;
+  validate: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { out: null, config: null };
+  const a: Args = { out: null, config: null, validate: true };
   for (let i = 0; i < argv.length; i++) {
     const x = argv[i];
     if (x === "--out") a.out = argv[++i] ?? null;
     else if (x === "--config") a.config = argv[++i] ?? null;
+    else if (x === "--no-validate") a.validate = false;
     else throw new Error(`unknown argument: ${x}`);
   }
   return a;
@@ -38,6 +45,15 @@ const envelope = buildContract({
   generatedAt: new Date().toISOString(),
 });
 db.close();
+
+if (args.validate) {
+  const errors = validateContract(envelope);
+  if (errors.length > 0) {
+    process.stderr.write(`refusing to emit: contract failed schema validation (${errors.length} violation(s)):\n`);
+    for (const e of errors) process.stderr.write(`  ${e.path || "(root)"}: ${e.message}\n`);
+    process.exit(1);
+  }
+}
 
 const json = JSON.stringify(envelope, null, 2);
 if (args.out) {

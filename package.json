@@ -15,7 +15,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "init-db": "node --disable-warning=ExperimentalWarning src/cli/init-db.ts",
     "sync": "node --disable-warning=ExperimentalWarning src/cli/sync.ts",
-    "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts"
+    "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts",
+    "validate": "node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

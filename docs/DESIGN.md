@@ -164,8 +164,12 @@ value is preserved alongside (`state_raw`). Key non-congruences:
 ### Still deferred for v1 (wired, intentionally not built)
 
 Edge soft-delete (only items are tombstoned today), raw history (one snapshot
-per entity), incremental sync (watermark stored, full-sweep default), the UI,
-and a contract-validator step in CI.
+per entity), incremental sync (watermark stored, full-sweep default), and the UI.
+
+(The CI contract-validator, originally deferred, now ships: `emit` validates the
+envelope against the schema before writing and refuses to ship an invalid one;
+the dependency-free validator lives in `src/contract/validate.ts` and runs in CI
+via `test/validate.test.ts`. See `docs/CONTRACT.md`.)
 
 ## Open items (forward — UI phase)
 

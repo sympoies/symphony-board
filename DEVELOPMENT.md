@@ -22,11 +22,11 @@ Toolchain: **fnm** manages Node (the version is pinned in `.node-version`; run
 schema/0001_init.sql          # canonical DB DDL (normative; applied at runtime)
 schema/contract.schema.json   # contract envelope JSON Schema (normative)
 src/model/                    # canonical types + pure helpers (ref, labels, edges)
-src/contract/                 # contract version, DTO types, buildContract (pure)
+src/contract/                 # contract version, DTO types, buildContract (pure), validate (dep-free)
 src/sources/                  # Source interface + github/gitlab impls + registry + gql client
 src/db/                       # open+migrate (node:sqlite), repo (upserts + queries)
 src/sync-engine.ts            # fetch -> raw -> normalize -> reconcile -> upsert -> soft-delete
-src/cli/                      # init-db, sync, emit-contract
+src/cli/                      # init-db, sync, emit-contract, validate-contract
 test/                         # node --test: pure logic + in-memory DB roundtrip
 docker/                       # loop-daemon image: Dockerfile, entrypoint, compose.yaml (sole writer)
 ```
@@ -42,7 +42,17 @@ lives in `src/sources/*`; DB IO in `src/db/*`; orchestration in `sync-engine.ts`
 pnpm run typecheck && pnpm test
 # live smoke (uses your gh token against whatever config you point at):
 GITHUB_TOKEN=$(gh auth token) node src/cli/sync.ts --config data/smoke.config.json --dry-run
+# validate an emitted contract against the normative schema:
+pnpm run validate -- --in data/contract.json
 ```
+
+`emit` validates the envelope against `schema/contract.schema.json` before
+writing and **refuses to ship** an invalid contract (the producer guard — the
+contract is the product surface). The validator is dependency-free
+(`src/contract/validate.ts`, a JSON-Schema subset), so it adds no runtime deps;
+`pnpm run validate` checks an existing file, and `test/validate.test.ts` runs it
+in CI. `--no-validate` on `emit` is an escape hatch if the validator ever
+rejects a legitimate payload.
 
 A dry-run fetches and normalizes but writes nothing — it reports per-source
 `status / items / edges / softDeleted`. Two back-to-back full syncs converge
