@@ -289,26 +289,44 @@ export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]>
   return adj;
 }
 
-// A related item for DISPLAY: buildAdjacency's per-direction entries collapsed by
-// (ref, type) so a neighbour appears ONCE even when the relationship is mutual.
-// Mentions are frequently reciprocal (A mentions B and B mentions A are two edges),
-// which otherwise lists the same neighbour twice — once "out", once "in"; a mutual
-// pair collapses to direction "both".
+// A related item for DISPLAY: ONE card per related ref. buildAdjacency's
+// per-direction entries are collapsed two ways here:
+//   1. mutual edges (A mentions B AND B mentions A — reciprocal mentions are
+//      common) merge their out + in into direction "both" instead of listing the
+//      neighbour twice;
+//   2. when an item relates via several edge TYPES, the strongest one wins
+//      (closes > mentions > relates) — a PR that both closes and mentions an issue
+//      shows once as "closes", since the mention is redundant with the close.
 export interface RelatedItem {
   ref: string;
   type: string;
   direction: "out" | "in" | "both";
 }
 
+// Lower rank = stronger / more lifecycle-meaningful. Unknown types sit between
+// mentions and relates so a future edge type still ranks deterministically.
+const RELATION_RANK: Record<string, number> = { closes: 0, mentions: 1, relates: 2 };
+const relationRank = (type: string): number => RELATION_RANK[type] ?? 1.5;
+
 export function relatedItems(refs: RelatedRef[]): RelatedItem[] {
-  const byKey = new Map<string, RelatedItem>();
+  const byRef = new Map<string, { ref: string; type: string; dirs: Set<"out" | "in"> }>();
   for (const r of refs) {
-    const key = `${r.ref} ${r.type}`;
-    const cur = byKey.get(key);
-    if (!cur) byKey.set(key, { ref: r.ref, type: r.type, direction: r.direction });
-    else if (cur.direction !== r.direction) cur.direction = "both";
+    const cur = byRef.get(r.ref);
+    if (!cur) {
+      byRef.set(r.ref, { ref: r.ref, type: r.type, dirs: new Set([r.direction]) });
+    } else if (relationRank(r.type) < relationRank(cur.type)) {
+      cur.type = r.type; // a stronger type takes over; restart its direction set
+      cur.dirs = new Set([r.direction]);
+    } else if (r.type === cur.type) {
+      cur.dirs.add(r.direction); // same (winning) type, other direction -> mutual
+    }
+    // a weaker type for an already-seen ref is dropped
   }
-  return [...byKey.values()];
+  return [...byRef.values()].map((e) => ({
+    ref: e.ref,
+    type: e.type,
+    direction: e.dirs.has("out") && e.dirs.has("in") ? "both" : e.dirs.has("out") ? "out" : "in",
+  }));
 }
 
 export interface Stats {
