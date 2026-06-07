@@ -232,11 +232,15 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   flex: 1 1 auto; min-width: 0; height: 74vh; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
-/* side list — searchable, scrolls independently, same height as the canvas, and
-   as wide as a board column (.board-7 grid-auto-columns) so the detailed cards
-   aren't cramped. */
+/* side list — searchable, scrolls independently, same height as the canvas. Its
+   width tracks ONE board column at any resolution so the detailed cards stay as
+   roomy as the board: the board is 7 columns of minmax(300px, 1fr) inside
+   .app-wide's 40px padding (20px each side) with 6 × 12px gaps, i.e. a column is
+   max(300px, (100vw - 112px) / 7). On wide screens the board columns stretch past
+   300px, so the list grows with them instead of staying a fixed 300px. */
 .graph-list {
-  flex: 0 0 300px; height: 74vh; display: flex; flex-direction: column; overflow: hidden;
+  flex: 0 0 auto; width: max(300px, calc((100vw - 112px) / 7));
+  height: 74vh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
 .graph-list-search {
