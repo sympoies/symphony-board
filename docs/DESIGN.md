@@ -124,10 +124,12 @@ value is preserved alongside (`state_raw`). Key non-congruences:
 ## Decisions taken by default (reversible)
 
 1. **Repo is private.** Reversible with `gh repo edit --visibility public`.
-2. **Full sweep is the default sync mode.** Incremental (`--incremental`, using
-   the stored watermark) is wired and stored but off by default, so the
-   soft-delete sweep is always correct in v1. Watermarks are persisted for when
-   you turn incremental on.
+2. **Full sweep is the default for a one-shot `sync`; the loop daemon runs a
+   mostly-incremental cadence.** A bare `sync` (and `SYNC_MODE=once`) is a full
+   sweep. The loop daemon runs `--incremental` (watermark-bounded) most
+   iterations and a full sweep every `FULL_EVERY` (default 12 ≈ hourly) — the
+   full sweep is what keeps the soft-delete correct, and incremental never
+   tombstones. Force always-full with `FULL_EVERY=1`.
 3. **Loop interval 300s** in `docker/compose.yaml` (point 3: docker is the sole
    writer, no external cron). Tune via `INTERVAL`.
 4. **Config is JSON** (`config/sources.json`, gitignored) to keep runtime deps
@@ -163,10 +165,9 @@ value is preserved alongside (`state_raw`). Key non-congruences:
    `merge_state` extension fields (with `state_raw` / raw payload preserved as
    the escape hatch), rather than dropping to raw-only.
 
-### Still deferred for v1 (wired, intentionally not built)
+### Still deferred (wired, intentionally not built)
 
-Raw history (one snapshot per entity), incremental sync (watermark stored,
-full-sweep default), and the UI.
+Raw history (one snapshot per entity) and the UI.
 
 Shipped after the initial v1 cut:
 - **CI contract-validator** — `emit` validates the envelope against the schema
@@ -178,6 +179,12 @@ Shipped after the initial v1 cut:
   intra-source edges (both endpoints in the swept source); a cross-source edge
   is left untouched because a single-source sweep cannot prove the other side
   stopped asserting it.
+- **Incremental sync (loop cadence)** — the loop daemon runs `--incremental`
+  most iterations and a full sweep every `FULL_EVERY` (default 12), so the
+  soft-delete sweep stays correct while routine runs stay cheap. The
+  watermark gating (full → ignore it; incremental → stop at the first record
+  older than it) is covered by `test/sources.test.ts`, and the "incremental
+  never tombstones" guarantee by `test/sync-engine.test.ts`.
 
 ## Open items (forward — UI phase)
 

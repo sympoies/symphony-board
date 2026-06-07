@@ -67,8 +67,12 @@ docker compose -f docker/compose.yaml logs -f
 ```
 
 It loops `sync` + `emit` every `INTERVAL` seconds (default 300), persisting the
-DB and the emitted contract to the bind-mounted `data/`. A GitLab source behind a
-VPN requires the host to be on that VPN.
+DB and the emitted contract to the bind-mounted `data/`. The cadence is mostly
+**incremental** (cheap, watermark-bounded) with a periodic **full sweep** every
+`FULL_EVERY` iterations (default 12 ≈ hourly): a full sweep is what enables
+disappearance handling — only a full + complete sweep may soft-delete items/edges
+it no longer sees, so incremental alone never tombstones. Set `FULL_EVERY=1` to
+always full-sweep. A GitLab source behind a VPN requires the host to be on that VPN.
 
 ## Status
 

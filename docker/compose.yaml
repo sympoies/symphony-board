@@ -18,6 +18,10 @@ services:
     environment:
       SYNC_MODE: loop
       INTERVAL: "300"
+      # Mostly-incremental cadence: a full sweep (which alone may soft-delete
+      # disappeared items/edges) every FULL_EVERY iterations, incremental in
+      # between. 12 x 300s ~= a full sweep hourly. Set to 1 to always full-sweep.
+      FULL_EVERY: "12"
       SYMPHONY_CONFIG: config/sources.json
       CONTRACT_OUT: data/contract.json
     env_file:
