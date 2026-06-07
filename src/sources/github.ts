@@ -175,7 +175,11 @@ export class GitHubSource implements Source {
       mergedAt: p.mergedAt ?? null,
       reviewState: mapReview(p.reviewDecision),
       ciState: mapCi(p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state),
-      mergeState: mapMerge(p.mergeable),
+      // Mergeability is only meaningful while the PR is open. GitHub stops
+      // computing it after merge/close and returns `UNKNOWN`, which would
+      // otherwise surface as a misleading `merge: unknown` badge next to the
+      // `merged` lifecycle state. Drop it for non-open items.
+      mergeState: selfState === "open" ? mapMerge(p.mergeable) : null,
     };
     return { item, labels: this.labels(p), edges };
   }
