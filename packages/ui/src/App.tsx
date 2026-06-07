@@ -38,14 +38,24 @@ export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  // Seed the search from the hash's "?q=" token if present (a board → graph
+  // deep-link), so the graph narrows on the FIRST render — no full-graph flash.
+  const [filters, setFilters] = useState<Filters>(() => ({ ...emptyFilters(), search: parseHashRoute(readHash()).q ?? "" }));
   const [hash, setHash] = useState<string>(readHash);
   // Persistent, repo-level display filter (the Settings page). Set of HIDDEN
   // repo keys; loaded once from localStorage and saved back on every change.
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
 
   useEffect(() => {
-    const onHash = () => setHash(readHash());
+    const onHash = () => {
+      const h = readHash();
+      setHash(h);
+      // A deep-link carrying "?q=" applies its search token in the SAME update as
+      // the route change (batched), so the graph mounts already narrowed. Absent
+      // a q, leave the search alone — never clobber what the user typed.
+      const q = parseHashRoute(h).q;
+      if (q != null) setFilters((prev) => (prev.search === q ? prev : { ...prev, search: q }));
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);

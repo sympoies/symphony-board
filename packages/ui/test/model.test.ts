@@ -20,6 +20,7 @@ import {
   parseHashRoute,
   graphFocusHref,
   edgeEndpointIds,
+  itemSearchToken,
   type ResolvedEdge,
   type GraphNode,
 } from "../src/model.ts";
@@ -42,6 +43,36 @@ test("itemMatches applies source/state/kind/search filters (AND)", () => {
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "flaky" }), true, "search is case-insensitive");
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "bug" }), true, "search hits labels");
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "nope" }), false);
+});
+
+test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' deep-link pins one item)", () => {
+  const it13 = item({ id: "g|13", project_path: "owner/repo", iid: 13, title: "Add thing" });
+  const it130 = item({ id: "g|130", project_path: "owner/repo", iid: 130, title: "Other" });
+  const otherRepo = item({ id: "g|x", project_path: "owner/other", iid: 13, title: "Elsewhere" });
+  const f = (search: string) => ({ ...emptyFilters(), search });
+  // terms are AND'd, NOT matched as one contiguous substring
+  assert.equal(itemMatches(it13, f("add thing")), true, "both words present -> match");
+  assert.equal(itemMatches(it13, f("thing add")), true, "order-independent");
+  assert.equal(itemMatches(it13, f("add nope")), false, "one missing term fails the AND");
+  // a "#<n>" term is an EXACT iid match, never a substring -> #13 must not hit #130
+  assert.equal(itemMatches(it13, f("#13")), true);
+  assert.equal(itemMatches(it130, f("#13")), false, "#13 must not match #130");
+  assert.equal(itemMatches(item({ iid: null }), f("#13")), false, "no iid never matches a #<n> term");
+  // the "repo #iid" token pins exactly one item even across repos sharing an iid
+  assert.equal(itemMatches(it13, f("owner/repo #13")), true);
+  assert.equal(itemMatches(it130, f("owner/repo #13")), false, "same repo, wrong iid");
+  assert.equal(itemMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
+});
+
+test("itemSearchToken builds a 'repo #iid' token that itemMatches pins to its own item", () => {
+  const it = item({ project_path: "owner/repo", iid: 13 });
+  assert.equal(itemSearchToken(it), "owner/repo #13");
+  const f = (search: string) => ({ ...emptyFilters(), search });
+  assert.equal(itemMatches(it, f(itemSearchToken(it))), true, "token matches its source item");
+  assert.equal(itemMatches(item({ project_path: "owner/repo", iid: 130 }), f(itemSearchToken(it))), false, "not a sibling iid");
+  // fallbacks when repo / iid are absent (token still narrows via title / external_id)
+  assert.equal(itemSearchToken(item({ project_path: null, iid: null, title: "Just a title" })), "Just a title");
+  assert.equal(itemSearchToken(item({ project_path: "o/r", iid: null, title: null, external_id: "EXT" })), "EXT");
 });
 
 test("resolveEdges + edgeMatches handle tracked and cross-repo endpoints", () => {
@@ -276,27 +307,35 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
   assert.ok(compareGraphNodes(t1, t2) > 0, "same bucket/date/label -> id tie-break stays stable");
 });
 
-test("parseHashRoute splits page from an optional ?focus= deep-link", () => {
-  assert.deepEqual(parseHashRoute(""), { page: "", focus: null }, "empty hash -> board, no focus");
-  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null });
-  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null });
-  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null });
-  // a focus query is pulled off the hash and percent-decoded
-  assert.deepEqual(parseHashRoute("#/graph?focus=github%3Agithub.com%7C42"), {
+test("parseHashRoute splits page from the optional ?focus= / ?q= deep-link params", () => {
+  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null }, "empty hash -> board, no params");
+  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null });
+  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null });
+  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null });
+  // focus + q are pulled off the hash and percent-decoded
+  assert.deepEqual(parseHashRoute("#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342"), {
     page: "graph",
     focus: "github:github.com|42",
+    q: "owner/repo #42",
   });
-  // a focus on a non-graph page still parses (App only acts on it for the graph)
-  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x" });
-  // an empty/absent focus value is normalized to null
-  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null });
-  assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null });
+  // params on a non-graph page still parse (App only acts on them for the graph)
+  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null });
+  // empty/absent values are normalized to null
+  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null });
+  assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null, q: null });
 });
 
-test("graphFocusHref round-trips a ref through parseHashRoute (refs carry | : /)", () => {
-  for (const ref of ["github:github.com|42", "gitlab:gitlab.com|gid://gitlab/Issue/1", "a|b/c:d"]) {
-    assert.equal(parseHashRoute(graphFocusHref(ref)).focus, ref, `round-trips ${ref}`);
-    assert.equal(parseHashRoute(graphFocusHref(ref)).page, "graph");
+test("graphFocusHref round-trips an item's id + search token through parseHashRoute", () => {
+  const it = (over: Partial<ItemDTO>) => item(over);
+  for (const over of [
+    { id: "github:github.com|42", project_path: "owner/repo", iid: 42 },
+    { id: "gitlab:gitlab.com|gid://gitlab/Issue/1", project_path: "grp/sub/proj", iid: 1 },
+    { id: "a|b/c:d", project_path: null, iid: null, title: "Bare title", external_id: "b/c:d" },
+  ]) {
+    const r = parseHashRoute(graphFocusHref(it(over)));
+    assert.equal(r.page, "graph");
+    assert.equal(r.focus, over.id, `focus round-trips for ${over.id}`);
+    assert.equal(r.q, itemSearchToken(it(over)), `q carries the search token for ${over.id}`);
   }
 });
 

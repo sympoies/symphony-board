@@ -168,15 +168,17 @@ try {
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
   // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
-  // the graph ALREADY in that item's focus view, not the plain list. Back on the
-  // board, confirm the affordance renders, then click it and confirm we land in
-  // the focus view (back button) with the canvas mounted.
+  // the graph ALREADY in that item's focus view (not the plain list) AND seeds the
+  // search bar with the item's "repo #iid" token so the canvas narrows to it. Back
+  // on the board, confirm the affordance renders, click it, then confirm the focus
+  // view (back button) + canvas mounted and the search box got the seed token.
   await send("Runtime.evaluate", { expression: "location.hash = '#/'" });
   await sleep(300);
   const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
   await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
   await sleep(500);
   const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
+  const deepLinkSearch = (await send("Runtime.evaluate", { expression: "document.querySelector('.search')?.value || ''", returnByValue: true })).result.value || "";
   ws.close();
 
   // --- assertions ---
@@ -211,6 +213,7 @@ try {
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
     [graphNodeTimeOrder.count >= 1 && graphNodeTimeOrder.ok, `graph: node timestamps render updated before created (${graphNodeTimeOrder.count})`],
+    [has(graphHtml, ">1w<") && has(graphHtml, ">all<"), "graph: active-since quick presets rendered"],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
@@ -222,6 +225,7 @@ try {
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
     [/react-flow__node/.test(deepLinkHtml), "deep link: focused graph canvas mounted"],
+    [deepLinkSearch.trim().length > 0, `deep link: search bar seeded with the item token ("${deepLinkSearch}")`],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

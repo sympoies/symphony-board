@@ -68,6 +68,17 @@ const NODE_LEGEND = [
   { c: "#637777", t: "untracked" },
 ];
 
+// "active since" quick-set presets: label -> days back (null = all / no cutoff).
+// One click sets the window, so it is fast to re-narrow after the deep-link (or a
+// manual "all") opens the full history.
+const SINCE_PRESETS: Array<[string, number | null]> = [
+  ["1w", 7],
+  ["2w", 14],
+  ["1mo", 30],
+  ["3mo", 90],
+  ["all", null],
+];
+
 // What the mention-direction filter keeps: all mentions, or only those whose
 // MENTIONED (target) item is an issue / a change request.
 type MentionTarget = "all" | "issue" | "change_request";
@@ -564,6 +575,17 @@ export function GraphPage({ edges, sourceKind, focusRef }: { edges: ResolvedEdge
         <label className="graph-since">
           active since <input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
         </label>
+        <div className="toggle-group">
+          <span className="toggle-label">since</span>
+          {SINCE_PRESETS.map(([lab, days]) => {
+            const val = days == null ? "" : cutoffIso(days).slice(0, 10);
+            return (
+              <button key={lab} type="button" className={`toggle${since === val ? " toggle-on" : ""}`} onClick={() => setSince(val)}>
+                {lab}
+              </button>
+            );
+          })}
+        </div>
         <div className="toggle-group">
           <span className="toggle-label">layout</span>
           <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
