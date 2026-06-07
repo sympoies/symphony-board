@@ -5,6 +5,28 @@ import { relativeTime } from "../model.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
 
+// Engagement (comments + reactions) marker. A line-style speech bubble drawn in
+// currentColor — deliberately a stroked SVG, not an emoji, to match the card's
+// minimal monochrome look. (Feather "message-square".)
+function DemandIcon() {
+  return (
+    <svg
+      className="icon-demand"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 export function ItemCard({ item, anchorId }: { item: ItemDTO; anchorId?: string }) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
@@ -25,14 +47,24 @@ export function ItemCard({ item, anchorId }: { item: ItemDTO; anchorId?: string 
         {item.iid != null ? <span className="muted">#{item.iid}</span> : null}
         {item.author ? <span className="muted">@{item.author}</span> : null}
         {item.demand != null ? (
-          <span className="muted" title="comments + reactions">
-            ▲ {item.demand}
+          <span className="muted demand" title="comments + reactions">
+            <DemandIcon /> {item.demand}
           </span>
         ) : null}
-        <span className="muted" title={item.updated_at ?? undefined}>
-          updated {relativeTime(item.updated_at)}
-        </span>
       </div>
+
+      {/* created · updated, on their own line beneath the meta row */}
+      {(item.created_at || item.updated_at) && (
+        <div className="card-times muted">
+          {item.created_at ? (
+            <time title={item.created_at}>created {relativeTime(item.created_at)}</time>
+          ) : null}
+          {item.created_at && item.updated_at ? <span className="sep">·</span> : null}
+          {item.updated_at ? (
+            <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time>
+          ) : null}
+        </div>
+      )}
 
       {(item.review_state || item.ci_state || item.merge_state) && (
         <div className="card-signals">

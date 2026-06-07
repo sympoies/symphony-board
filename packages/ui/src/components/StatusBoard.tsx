@@ -18,11 +18,11 @@ export function StatusBoard({ items, statuses }: { items: ItemDTO[]; statuses: M
             <span className="col-sub">{STATUS_DESC[s]}</span>
           </h3>
           <div className="col-cards">
-            {cols[s].length === 0 ? (
-              <p className="col-empty">—</p>
-            ) : (
-              cols[s].map((it) => <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} />)
-            )}
+            {/* empty column: render nothing (the column still stretches to the
+                shared board height — just no placeholder). */}
+            {cols[s].map((it) => (
+              <ItemCard key={it.id} item={it} anchorId={anchorId(it.id)} />
+            ))}
           </div>
         </div>
       ))}

@@ -1,6 +1,6 @@
 import type { EdgeLifecycle, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { anchorId, LIFECYCLE_ORDER, type ResolvedEdge } from "../model.ts";
+import { LIFECYCLE_ORDER, type ResolvedEdge } from "../model.ts";
 
 // The spine: issue <-> PR/MR `closes` edges, grouped by derived lifecycle.
 // declared = in flight, fulfilled = PR merged + issue closed, broken = PR
@@ -25,8 +25,12 @@ function Endpoint({ item, refStr, role }: { item: ItemDTO | null; refStr: string
       </span>
     );
   }
+  // Open the real issue/PR on its provider (new tab) — same target as a card
+  // title. (Earlier this was an in-page `#item-<id>` anchor to the card on the
+  // board, but that dead-ends when the target is filtered out or buried in a
+  // scrolled column; the provider URL always resolves.)
   return (
-    <a className="endpoint" href={`#${anchorId(item.id)}`} title={item.title ?? undefined}>
+    <a className="endpoint" href={item.url || undefined} target="_blank" rel="noreferrer" title={item.title ?? undefined}>
       <Badge text={item.state} kind={item.state} />
       <span className="endpoint-title">{item.title ?? refStr}</span>
     </a>

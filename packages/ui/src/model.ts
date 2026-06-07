@@ -42,7 +42,7 @@ export interface SpotlightLane {
   hint: string;
   pick: (i: ItemDTO) => boolean;
 }
-export const SPOTLIGHT_KEEP = 15;
+export const SPOTLIGHT_KEEP = 30;
 const hasLabel = (i: ItemDTO, name: string) => i.labels.some((l) => l.name === name);
 export const SPOTLIGHT_LANES: SpotlightLane[] = [
   { key: "follow-up", label: "Follow-up", hint: "issues labeled workflow::follow-up", pick: (i) => i.kind === "issue" && hasLabel(i, "workflow::follow-up") },

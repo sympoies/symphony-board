@@ -1,18 +1,35 @@
 :root {
-  --bg: #0f1216;
-  --panel: #171b21;
-  --panel-2: #1e242c;
-  --line: #2a313b;
-  --text: #d7dde5;
-  --muted: #8b95a3;
-  --accent: #4c8dff;
-  --open: #2ea043;
-  --closed: #8957e5;
-  --merged: #a371f7;
-  --declared: #d29922;
-  --fulfilled: #2ea043;
-  --broken: #f85149;
-  --warn: #bb8009;
+  /* === Night Owl theme ===
+     Every colour the UI uses lives in this block; the rules below derive their
+     tints, fills and borders from these tokens via color-mix(), so a palette
+     swap only touches the values here. Palette is the source of truth at
+     ~/Project/graysurf/night-owl-cli (PALETTE.md). */
+
+  /* surfaces — Night Owl navy ramp (bg → panel → nested) + a border tone */
+  --bg: #011627;       /* core deep navy                       */
+  --panel: #0c2340;    /* card / column surface                */
+  --panel-2: #1d3b53;  /* nested fills: chips, code, draft     */
+  --line: #2f3b45;     /* borders                              */
+
+  /* text */
+  --text: #d6deeb;     /* default foreground                   */
+  --muted: #637777;    /* comment / secondary                  */
+
+  /* interaction: blue accent for controls, teal for links (Night Owl renders
+     strings/links in teal); dark text rides on the bright accent */
+  --accent: #82aaff;
+  --accent-fg: #011627;
+  --link: #7fdbca;
+
+  /* semantic hues */
+  --open: #addb67;       /* green  — open / success                       */
+  --fulfilled: #addb67;  /* green  — landed                               */
+  --closed: #c792ea;     /* purple — issue closed                         */
+  --merged: #7e57c2;     /* purple — PR merged (deeper, distinct from closed) */
+  --declared: #ffcb6b;   /* gold   — in flight / pending                  */
+  --broken: #f78c6c;     /* salmon — abandoned / error                    */
+  --warn: #ffcb6b;       /* gold   — partial-source banner                */
+
   font-synthesis: none;
 }
 
@@ -27,7 +44,7 @@ body {
 
 .app { max-width: 1200px; margin: 0 auto; padding: 16px; }
 .muted { color: var(--muted); }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1 { font-size: 20px; margin: 0; }
 h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
@@ -51,7 +68,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .source-name { font-weight: 600; }
 
 .banner { padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
-.banner.warn { background: #2a2410; border: 1px solid var(--warn); color: #e3c46b; }
+.banner.warn { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); border: 1px solid var(--warn); color: var(--warn); }
 
 /* controls */
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; }
@@ -66,7 +83,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   border-radius: 999px; padding: 3px 10px; cursor: pointer; font: inherit;
 }
 .toggle:hover { border-color: var(--accent); }
-.toggle-on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .groupby select, .file-load input[type="file"] {
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
 }
@@ -84,17 +101,30 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--panel-2); color: var(--text); white-space: nowrap;
 }
-.badge-open { background: rgba(46,160,67,.18); border-color: var(--open); color: #6fcf86; }
-.badge-closed { background: rgba(137,87,229,.18); border-color: var(--closed); color: #b794f6; }
-.badge-merged { background: rgba(163,113,247,.18); border-color: var(--merged); color: #c4a7f9; }
+/* Filled state/lifecycle badges share one shape: each sets its hue in --h, and
+   the grouped rule derives a readable text colour (lifted toward --text so even
+   the darker merged purple stays legible), a solid border, and a faint fill —
+   so a palette swap only touches the hue tokens in :root. */
+.badge-open { --h: var(--open); }
+.badge-closed { --h: var(--closed); }
+.badge-merged { --h: var(--merged); }
+.badge-lifecycle-declared, .badge-status-partial { --h: var(--declared); }
+.badge-lifecycle-fulfilled, .badge-status-ok { --h: var(--fulfilled); }
+.badge-lifecycle-broken, .badge-status-error { --h: var(--broken); }
+.badge-open, .badge-closed, .badge-merged,
+.badge-lifecycle-declared, .badge-status-partial,
+.badge-lifecycle-fulfilled, .badge-status-ok,
+.badge-lifecycle-broken, .badge-status-error {
+  color: color-mix(in srgb, var(--h) 82%, var(--text));
+  border-color: var(--h);
+  background: color-mix(in srgb, var(--h) 16%, transparent);
+}
 .badge-draft { background: var(--panel-2); color: var(--muted); }
-.badge-lifecycle-declared, .badge-status-partial { background: rgba(210,153,34,.16); border-color: var(--declared); color: #e3c46b; }
-.badge-lifecycle-fulfilled, .badge-status-ok { background: rgba(46,160,67,.16); border-color: var(--fulfilled); color: #6fcf86; }
-.badge-lifecycle-broken, .badge-status-error { background: rgba(248,81,73,.16); border-color: var(--broken); color: #ff8983; }
 .badge-lifecycle-other, .badge-status-unknown { color: var(--muted); }
-.badge-ci-passing, .badge-review-approved, .badge-merge-mergeable { color: #6fcf86; border-color: var(--open); }
-.badge-ci-failing, .badge-merge-conflicting, .badge-review-changes_requested { color: #ff8983; border-color: var(--broken); }
-.badge-ci-pending, .badge-merge-blocked, .badge-review-review_required { color: #e3c46b; border-color: var(--declared); }
+/* signal badges (CI / review / merge): coloured text + border, default fill */
+.badge-ci-passing, .badge-review-approved, .badge-merge-mergeable { color: var(--open); border-color: var(--open); }
+.badge-ci-failing, .badge-merge-conflicting, .badge-review-changes_requested { color: var(--broken); border-color: var(--broken); }
+.badge-ci-pending, .badge-merge-blocked, .badge-review-review_required { color: var(--declared); border-color: var(--declared); }
 
 /* relationships */
 .relationships .lifecycle { margin-bottom: 10px; }
@@ -124,11 +154,18 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
   display: flex; flex-direction: column; gap: 6px;
 }
-.card:target { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(76,141,255,.3); }
+.card:target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 .card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .kind { color: var(--muted); }
 .card-title { font-weight: 600; flex: 1 1 100%; }
 .card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
+/* created · updated, on their own row beneath the meta line */
+.card-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; }
+.card-times time { white-space: nowrap; }
+.card-times .sep { opacity: .6; }
+/* engagement count: speech-bubble glyph + number */
+.demand { display: inline-flex; align-items: center; gap: 4px; }
+.icon-demand { flex: none; }
 
 /* label chips */
 .chip {
@@ -147,7 +184,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: grid;
   grid-template-columns: repeat(4, minmax(260px, 1fr));
   gap: 12px;
-  align-items: start;
+  /* stretch (not start): every column takes the same height — the fullest
+     column (capped at .col max-height) sets it, so a sparse or empty column is
+     a full-height lane rather than a stub. */
+  align-items: stretch;
   margin: 8px 0 4px;
   overflow-x: auto;
 }
@@ -158,6 +198,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: flex;
   flex-direction: column;
   min-width: 260px;
+  /* cap the tallest column; shorter ones stretch up to match it (above). */
+  max-height: 78vh;
 }
 .col-head {
   position: sticky; top: 0;
@@ -172,8 +214,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .dot-in_progress { background: var(--declared); }
 .dot-tracking { background: var(--merged); }
 .dot-closed { background: var(--muted); }
-.col-cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; max-height: 72vh; }
-.col-empty { color: var(--muted); text-align: center; padding: 8px 0; }
+/* fill the (stretched) column height and scroll inside; min-height:0 lets a
+   flex child shrink below content so the scroll engages. */
+.col-cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .col-head { flex-wrap: wrap; }
 .col-sub { flex: 1 1 100%; font-size: 11px; font-weight: 400; color: var(--muted); }
 /* the column boards use one card per row, so let cards fill the column width */
@@ -184,6 +227,6 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: grid;
   grid-template-columns: repeat(3, minmax(280px, 1fr));
   gap: 12px;
-  align-items: start;
+  align-items: stretch; /* same uniform-lane treatment as the status board */
   overflow-x: auto;
 }
