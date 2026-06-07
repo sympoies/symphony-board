@@ -261,6 +261,22 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
   return { nodes: [...nodes.values()], links };
 }
 
+// Graph side-list ordering (#32): actionable state first, then newest-created.
+// Bucket 0 = `open` (still actionable); bucket 1 = everything else (closed /
+// merged / unknown). Within a bucket, `created_at` DESC so the newest item is
+// first; a node without a `created_at` (e.g. an untracked cross-repo ref) sorts
+// after the dated ones; ties break stably on label then id. Demand is no longer
+// the primary sort — it stays as node size / metadata only.
+export function compareGraphNodes(a: GraphNode, b: GraphNode): number {
+  const bucket = (a.state === "open" ? 0 : 1) - (b.state === "open" ? 0 : 1);
+  if (bucket !== 0) return bucket;
+  if (a.created_at && b.created_at) {
+    if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at); // newest first
+  } else if (a.created_at) return -1; // a dated, b not -> a first
+  else if (b.created_at) return 1; //  b dated, a not -> b first
+  return a.label.localeCompare(b.label) || a.id.localeCompare(b.id);
+}
+
 // A related endpoint of an item, for the graph side list's focus view: the other
 // end of an edge, the edge type, and which way it points (out = this -> other,
 // in = other -> this). Built from the FULL edge set — NOT the time-windowed graph

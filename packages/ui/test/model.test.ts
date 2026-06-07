@@ -16,7 +16,9 @@ import {
   repoKey,
   deriveRepos,
   applyVisibility,
+  compareGraphNodes,
   type ResolvedEdge,
+  type GraphNode,
 } from "../src/model.ts";
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
@@ -225,4 +227,43 @@ test("relatedItems collapses a mutual (out+in) pair to one 'both' entry, keeping
     { ref: "D", type: "closes", direction: "in" },
     { ref: "B", type: "closes", direction: "out" },
   ]);
+});
+
+function gnode(over: Partial<GraphNode> = {}): GraphNode {
+  return {
+    id: "id", label: "label", repo: "o/r", iid: 1, kind: "issue", state: "open", url: null,
+    color: "#000", demand: 0, created_at: null, updated_at: null, untracked: false, ...over,
+  };
+}
+
+test("compareGraphNodes orders by state bucket then newest-created, not demand (#32)", () => {
+  const openOld = gnode({ id: "o1", label: "open-old", state: "open", created_at: "2026-01-01T00:00:00Z", demand: 0 });
+  const o2 = gnode({ id: "o2", label: "open-newer", state: "open", created_at: "2026-05-01T00:00:00Z" });
+  const mergedNew = gnode({ id: "m1", label: "merged-new", state: "merged", created_at: "2026-06-01T00:00:00Z", demand: 99 });
+  const closedNew = gnode({ id: "c1", label: "closed-new", state: "closed", created_at: "2026-06-02T00:00:00Z" });
+  const c2 = gnode({ id: "c2", label: "closed-older", state: "closed", created_at: "2026-05-01T00:00:00Z" });
+
+  // open beats closed/merged regardless of recency or (high) demand
+  assert.ok(compareGraphNodes(openOld, mergedNew) < 0, "open before merged even when older / lower-demand");
+  assert.ok(compareGraphNodes(openOld, closedNew) < 0, "open before closed even when older");
+  // within a bucket: newest created_at first; closed & merged share one bucket
+  assert.ok(compareGraphNodes(o2, openOld) < 0, "newer open before older open");
+  assert.ok(compareGraphNodes(mergedNew, c2) < 0, "merged & closed share a bucket, ordered by date");
+
+  const order = [c2, mergedNew, openOld, closedNew, o2].slice().sort(compareGraphNodes).map((n) => n.id);
+  assert.deepEqual(order, ["o2", "o1", "c1", "m1", "c2"], "opens (newest→oldest), then closed/merged (newest→oldest)");
+});
+
+test("compareGraphNodes: undated nodes sort last in their bucket, with a stable id tie-break (#32)", () => {
+  const dated = gnode({ id: "d", label: "dated", state: "open", created_at: "2026-01-01T00:00:00Z" });
+  const undatedZ = gnode({ id: "zzz", label: "u", state: "open", created_at: null });
+  const undatedA = gnode({ id: "aaa", label: "u", state: "open", created_at: null });
+  assert.ok(compareGraphNodes(dated, undatedZ) < 0, "a dated node precedes an undated one in the same bucket");
+  assert.ok(compareGraphNodes(undatedZ, dated) > 0, "and the relation is symmetric");
+  assert.ok(compareGraphNodes(undatedZ, undatedA) > 0, "equal label -> id breaks the tie deterministically ('aaa' < 'zzz')");
+
+  // same bucket + same created_at + same label -> id is the final, stable tie-break
+  const t1 = gnode({ id: "b", label: "same", state: "closed", created_at: "2026-03-03T00:00:00Z" });
+  const t2 = gnode({ id: "a", label: "same", state: "merged", created_at: "2026-03-03T00:00:00Z" });
+  assert.ok(compareGraphNodes(t1, t2) > 0, "same bucket/date/label -> id tie-break stays stable");
 });
