@@ -144,8 +144,14 @@ try {
   // --- assertions ---
   const cards = (html.match(/class="card"/g) || []).length;
   const has = (s) => html.includes(s);
+  const cols = (html.match(/class="col /g) || []).length;
   const checks = [
     [cards >= 5, `item cards rendered (${cards} >= 5)`],
+    // the board view (default): status columns + spotlight lanes
+    [has("status-board"), "status board rendered"],
+    [cols >= 4, `status columns rendered (${cols} >= 4)`],
+    [has("col-in_progress"), "In Progress column present"],
+    [has("spotlight"), "spotlight section present"],
     [has("Relationships"), "relationships section present"],
     [/badge-lifecycle-declared/.test(html), "declared (in-progress) lifecycle bucket rendered"],
     [/badge-lifecycle-fulfilled/.test(html), "fulfilled lifecycle bucket rendered"],
