@@ -258,43 +258,22 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .graph-related-head { padding: 6px 4px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-top: 1px solid var(--line); margin-top: 4px; }
 .graph-list .glc-note { padding: 4px 6px; font-size: 11px; }
 
-/* side-list card — carries the board card's detail in a narrow column */
-.graph-list-card {
-  display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
-  /* same fill as the board card (--panel), not the lighter nested --panel-2, so
-     the two surfaces read identically; border + gap delineate cards as on the board. */
-  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--muted);
-  border-radius: 7px; padding: 6px 8px; color: var(--text); font: inherit; cursor: pointer;
-}
-.graph-list-card:hover { border-color: var(--accent); }
-.graph-list-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.graph-list-card.glc-untracked { border-left-style: dashed; opacity: .85; }
-/* left-accent by state, from the shared palette tokens */
-.glc-state-open { border-left-color: var(--open); }
-.glc-state-closed { border-left-color: var(--closed); }
-.glc-state-merged { border-left-color: var(--merged); }
-.glc-state-unknown { border-left-color: var(--muted); }
+/* side-list card — a thin wrapper around the board <ItemCard> (so the side list
+   and the board read identically); it only adds the focus affordance + an
+   optional relation tag. The actual card visuals come from .card (above). */
+.graph-list-card { display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+.graph-list .card { width: 100%; }
+.graph-list-card:hover .card { border-color: var(--accent); }
+.graph-list-card.active .card { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+/* untracked endpoint: the board-card shell, faded + dashed like the graph node */
+.card-untracked { border-style: dashed; opacity: .85; }
+/* relation tag (focus view only) — sits above the card */
 .glc-relation { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .glc-rel-type { color: var(--link); }
 .glc-offwindow {
   font-size: 10px; padding: 0 5px; border-radius: 999px;
   border: 1px solid var(--declared); color: var(--declared);
 }
-.glc-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.glc-demand { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
-.glc-ext { margin-left: auto; color: var(--muted); font-size: 13px; line-height: 1; }
-.glc-ext:hover { color: var(--accent); text-decoration: none; }
-.glc-title {
-  font-weight: 600; font-size: 12px; line-height: 1.3;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.glc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 11px; }
-.glc-meta .icon-source { flex: none; }
-.glc-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; }
-.glc-times time { white-space: nowrap; }
-.glc-times .sep { opacity: .6; }
-.glc-signals, .glc-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.glc-more { font-size: 11px; }
 /* React Flow card nodes */
 .rf-node {
   /* fills the RF node box, whose size scales with demand (see GraphPage dims()) */

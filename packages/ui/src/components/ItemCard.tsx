@@ -38,7 +38,17 @@ export function ItemCard({ item, anchorId, sourceKind }: { item: ItemDTO; anchor
         </span>
         <Badge text={item.state} kind={item.state} />
         {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        <a className="card-title" href={item.url || undefined} target="_blank" rel="noopener noreferrer">
+        {/* stopPropagation so opening the issue from a card that is itself
+            clickable (e.g. the graph side list's focus target) doesn't also
+            trigger the wrapper's click; harmless on the board where the card has
+            no click handler. */}
+        <a
+          className="card-title"
+          href={item.url || undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
           {item.title ?? "(untitled)"}
         </a>
       </div>

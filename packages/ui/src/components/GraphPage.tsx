@@ -20,8 +20,7 @@ import dagre from "dagre";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum } from "d3-force";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { LabelChip } from "./LabelChip.tsx";
-import { SourceIcon } from "./SourceIcon.tsx";
+import { ItemCard } from "./ItemCard.tsx";
 import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type ResolvedEdge, type RelatedRef } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
@@ -256,14 +255,13 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
   );
 }
 
-// One side-list card. Carries the board card's detail (state/kind/draft, source
-// mark, repo #iid, author, demand, created/updated, review/CI/merge signals,
-// labels — capped) for a TRACKED item; an untracked endpoint falls back to its
-// ref label. `relation` (present only in the focus view) tags how this item
-// relates to the focused one and whether it sits off the current time window.
-// The card body click = focus; the ↗ link opens the provider page (and stops
-// propagation so it does not also focus).
-const MAX_LABELS = 4;
+// One side-list card. To stay visually identical to the board it renders the SAME
+// board <ItemCard>, wrapped so the whole card is the focus target. The focus view
+// adds a relation tag above it (how this item relates to the focused one, and
+// whether it sits off the current time window). The card body click focuses the
+// node; the card title is ItemCard's external link, which stops propagation so it
+// opens the issue without also focusing. An untracked endpoint (a cross-repo ref
+// with no resolved item) renders a board-card shell with just its ref label.
 function GraphListCard({
   item,
   fallbackLabel,
@@ -279,13 +277,9 @@ function GraphListCard({
   active?: boolean;
   onFocus: () => void;
 }) {
-  const state = item?.state ?? "unknown";
-  const kind = item?.kind ?? "unknown";
-  const title = item?.title ?? fallbackLabel;
-  const labels = item?.labels ?? [];
   return (
     <div
-      className={`graph-list-card glc-state-${state}${item ? "" : " glc-untracked"}${active ? " active" : ""}`}
+      className={`graph-list-card${active ? " active" : ""}`}
       role="button"
       tabIndex={0}
       onClick={onFocus}
@@ -295,7 +289,6 @@ function GraphListCard({
           onFocus();
         }
       }}
-      title={title}
     >
       {relation && (
         <div className="glc-relation muted">
@@ -309,51 +302,16 @@ function GraphListCard({
           )}
         </div>
       )}
-      <div className="glc-head">
-        <span className="kind" title={kind}>
-          {KIND_ICON[kind] ?? "•"}
-        </span>
-        <Badge text={state} kind={state} />
-        {item?.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        {item?.demand != null && item.demand > 0 ? (
-          <span className="glc-demand muted" title="comments + reactions">
-            <DemandIcon /> {item.demand}
-          </span>
-        ) : null}
-        {item?.url ? (
-          <a className="glc-ext" href={item.url} target="_blank" rel="noopener noreferrer" title="open on provider" onClick={(e) => e.stopPropagation()}>
-            ↗
-          </a>
-        ) : null}
-      </div>
-      <div className="glc-title">{title}</div>
-      <div className="glc-meta muted">
-        {sourceKind ? <SourceIcon kind={sourceKind} /> : null}
-        <span>{item?.project_path ?? "untracked"}</span>
-        {item?.iid != null ? <span>#{item.iid}</span> : null}
-        {item?.author ? <span>@{item.author}</span> : null}
-      </div>
-      {(item?.created_at || item?.updated_at) && (
-        <div className="glc-times muted">
-          {item?.created_at ? <time title={item.created_at}>created {relativeTime(item.created_at)}</time> : null}
-          {item?.created_at && item?.updated_at ? <span className="sep">·</span> : null}
-          {item?.updated_at ? <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time> : null}
-        </div>
-      )}
-      {item && (item.review_state || item.ci_state || item.merge_state) && (
-        <div className="glc-signals">
-          {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
-          {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
-          {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
-        </div>
-      )}
-      {labels.length > 0 && (
-        <div className="glc-labels">
-          {labels.slice(0, MAX_LABELS).map((l) => (
-            <LabelChip key={l.name} label={l} />
-          ))}
-          {labels.length > MAX_LABELS ? <span className="glc-more muted">+{labels.length - MAX_LABELS}</span> : null}
-        </div>
+      {item ? (
+        <ItemCard item={item} sourceKind={sourceKind} />
+      ) : (
+        <article className="card card-untracked">
+          <div className="card-head">
+            <span className="kind">•</span>
+            <span className="card-title">{fallbackLabel}</span>
+          </div>
+          <div className="card-meta muted">untracked</div>
+        </article>
       )}
     </div>
   );
