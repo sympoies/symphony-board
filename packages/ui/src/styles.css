@@ -46,7 +46,7 @@ body {
 /* full-bleed page (the primary 7-column board), GitHub-Projects style */
 .app-wide { max-width: none; padding: 16px 20px; }
 
-/* page tabs (Board / Debug) */
+/* page tabs (Board / Graph) */
 .page-tabs { display: flex; gap: 4px; margin: 12px 0 4px; border-bottom: 1px solid var(--line); }
 .tab { padding: 6px 12px; color: var(--muted); border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
 .tab:hover { color: var(--text); text-decoration: none; }
@@ -92,7 +92,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .toggle:hover { border-color: var(--accent); }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-.groupby select, .file-load input[type="file"] {
+.file-load input[type="file"] {
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
 }
 .file-load { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
@@ -134,28 +134,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .badge-ci-failing, .badge-merge-conflicting, .badge-review-changes_requested { color: var(--broken); border-color: var(--broken); }
 .badge-ci-pending, .badge-merge-blocked, .badge-review-review_required { color: var(--declared); border-color: var(--declared); }
 
-/* relationships */
-.relationships .lifecycle { margin-bottom: 10px; }
-.relationships h3 { display: flex; align-items: center; gap: 8px; }
 .count { color: var(--muted); font-weight: 400; }
-.blurb { font-weight: 400; font-size: 12px; }
-.edge-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.edge-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
-}
-.lifecycle-declared .edge-row { border-left: 3px solid var(--declared); }
-.lifecycle-fulfilled .edge-row { border-left: 3px solid var(--fulfilled); }
-.lifecycle-broken .edge-row { border-left: 3px solid var(--broken); }
-.endpoint { display: inline-flex; align-items: center; gap: 6px; max-width: 46%; }
-.endpoint-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.endpoint-untracked { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
-.edge-arrow { color: var(--muted); font-size: 12px; }
-
-/* board */
-.group { margin-bottom: 16px; }
-.group-head { color: var(--muted); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
 .empty { color: var(--muted); padding: 24px 0; }
 
 .card {
@@ -184,9 +163,6 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .chip-scoped .chip-scope { color: var(--muted); }
 .chip-scoped .chip-scope::after { content: "::"; }
 
-/* view toggle */
-.view-toggle { display: inline-flex; gap: 4px; }
-
 /* primary full-bleed board: 4 status + 3 spotlight lanes in one 7-column row.
    Columns are a fixed-ish width and scroll horizontally (GitHub-Projects style);
    they share a uniform height via the same .col cap + internal scroll. */
@@ -201,18 +177,6 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   padding-bottom: 8px;
 }
 
-/* status board (kanban-style, display-only) */
-.status-board {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(260px, 1fr));
-  gap: 12px;
-  /* stretch (not start): every column takes the same height — the fullest
-     column (capped at .col max-height) sets it, so a sparse or empty column is
-     a full-height lane rather than a stub. */
-  align-items: stretch;
-  margin: 8px 0 4px;
-  overflow-x: auto;
-}
 .col {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -245,8 +209,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .col-cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .col-head { flex-wrap: wrap; }
 .col-sub { flex: 1 1 100%; font-size: 11px; font-weight: 400; color: var(--muted); }
-/* the column boards use one card per row, so let cards fill the column width */
-.status-board .card, .spotlight .card, .board-7 .card { width: 100%; }
+/* the column board uses one card per row, so let cards fill the column width */
+.board-7 .card { width: 100%; }
 
 /* graph page (relationship graph, cytoscape) */
 .graph-page { margin: 8px 0; }
@@ -278,12 +242,3 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .rf-node-repo { font-size: 0.85em; margin-top: 3px; }
 .rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }
-
-/* spotlight: recency lanes (Follow-up / Plan / PR), independent of status */
-.spotlight-lanes {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(280px, 1fr));
-  gap: 12px;
-  align-items: stretch; /* same uniform-lane treatment as the status board */
-  overflow-x: auto;
-}

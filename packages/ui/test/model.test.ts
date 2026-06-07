@@ -4,7 +4,6 @@ import type { ContractEnvelope, ItemDTO } from "@symphony-board/contract";
 import {
   emptyFilters,
   itemMatches,
-  groupItems,
   indexItems,
   resolveEdges,
   edgeMatches,
@@ -33,17 +32,6 @@ test("itemMatches applies source/state/kind/search filters (AND)", () => {
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "flaky" }), true, "search is case-insensitive");
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "bug" }), true, "search hits labels");
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "nope" }), false);
-});
-
-test("groupItems groups by the chosen dimension with sorted keys", () => {
-  const items = [
-    item({ id: "1", project_path: "o/b" }),
-    item({ id: "2", project_path: "o/a" }),
-    item({ id: "3", project_path: "o/a" }),
-  ];
-  const groups = groupItems(items, "repo");
-  assert.deepEqual(groups.map((g) => g.key), ["o/a", "o/b"]);
-  assert.equal(groups[0]!.items.length, 2);
 });
 
 test("resolveEdges + edgeMatches handle tracked and cross-repo endpoints", () => {

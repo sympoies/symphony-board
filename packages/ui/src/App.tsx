@@ -10,26 +10,20 @@ import {
   computeStats,
   deriveStatuses,
   type Filters,
-  type GroupBy,
-  type View,
 } from "./model.ts";
 import { Header } from "./components/Header.tsx";
 import { StatsBar } from "./components/StatsBar.tsx";
 import { Controls } from "./components/Controls.tsx";
-import { Relationships } from "./components/Relationships.tsx";
-import { Board } from "./components/Board.tsx";
-import { StatusBoard } from "./components/StatusBoard.tsx";
-import { Spotlight } from "./components/Spotlight.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 
-// The Graph page pulls in cytoscape (~400KB) — lazy-load it so the board page
-// stays light; the chunk only loads when #/graph is opened.
+// The Graph page pulls in React Flow + layout libs — lazy-load it so the board
+// page stays light; the chunk only loads when #/graph is opened.
 const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({ default: m.GraphPage })));
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
-// Two pages via a zero-dep hash route: "" (#/) is the primary full-width board,
-// "debug" (#/debug) keeps the centered inspection view (list toggle + edges).
+// Two pages via a zero-dep hash route: "" (#/) is the full-width board, "graph"
+// (#/graph) is the relationship graph.
 const readRoute = (): string => (typeof location !== "undefined" ? location.hash.replace(/^#\/?/, "") : "");
 
 export function App() {
@@ -37,10 +31,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const [groupBy, setGroupBy] = useState<GroupBy>("source");
-  const [view, setView] = useState<View>("board");
   const [route, setRoute] = useState<string>(readRoute);
-  const isDebug = route === "debug";
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -135,17 +126,14 @@ export function App() {
 
   const isGraph = route === "graph";
   return (
-    <div className={isDebug ? "app" : "app app-wide"}>
+    <div className="app app-wide">
       <Header env={env} />
       <nav className="page-tabs">
-        <a className={`tab${!isDebug && !isGraph ? " tab-on" : ""}`} href="#/">
+        <a className={`tab${!isGraph ? " tab-on" : ""}`} href="#/">
           Board
         </a>
         <a className={`tab${isGraph ? " tab-on" : ""}`} href="#/graph">
           Graph
-        </a>
-        <a className={`tab${isDebug ? " tab-on" : ""}`} href="#/debug">
-          Debug
         </a>
       </nav>
       {unsupported && (
@@ -157,29 +145,12 @@ export function App() {
       <Controls
         filters={filters}
         facets={facets}
-        groupBy={groupBy}
-        view={view}
-        compact={!isDebug}
         onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
         onToggle={toggle}
-        onGroupBy={setGroupBy}
-        onView={setView}
         onLoadFile={loadFile}
       />
       <StatsBar stats={stats} />
-      {isDebug ? (
-        <>
-          {view === "board" ? (
-            <>
-              <StatusBoard items={filteredItems} statuses={statuses} />
-              <Spotlight items={filteredItems} />
-            </>
-          ) : (
-            <Board items={filteredItems} groupBy={groupBy} />
-          )}
-          <Relationships edges={filteredEdges} />
-        </>
-      ) : isGraph ? (
+      {isGraph ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
           <GraphPage edges={filteredEdges} />
         </Suspense>

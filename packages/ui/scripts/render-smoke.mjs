@@ -145,11 +145,7 @@ try {
 
   // Page 1 — the default full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
-  // Page 2 — navigate to the debug view (status board + spotlight + edges).
-  await send("Runtime.evaluate", { expression: "location.hash = '#/debug'" });
-  await sleep(150);
-  const debugHtml = await waitHtml("document.querySelector('.relationships')");
-  // Page 3 — the relationship graph (React Flow renders DOM card nodes; assert
+  // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
   // chunk loads without errors).
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
@@ -169,15 +165,7 @@ try {
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
-    [!has(boardHtml, "relationships"), "board: no Relationships section (debug-only)"],
-    // page 2: the debug view keeps the status board, spotlight, and edges
-    [has(debugHtml, "status-board"), "debug: status board rendered"],
-    [has(debugHtml, "spotlight"), "debug: spotlight section present"],
-    [has(debugHtml, "Relationships"), "debug: relationships section present"],
-    [/badge-lifecycle-declared/.test(debugHtml), "debug: declared lifecycle bucket rendered"],
-    [/badge-lifecycle-fulfilled/.test(debugHtml), "debug: fulfilled lifecycle bucket rendered"],
-    [/badge-lifecycle-broken/.test(debugHtml), "debug: broken lifecycle bucket rendered"],
-    // page 3: the relationship graph mounts and the lazy cytoscape chunk loads
+    // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],

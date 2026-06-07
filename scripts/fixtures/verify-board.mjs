@@ -32,10 +32,6 @@ try {
   const linkColor = (await send("Runtime.evaluate", { expression: "(()=>{const a=document.querySelector('a.card-title');return a?getComputedStyle(a).color:''})()", returnByValue: true })).result.value;
   // audit: any external (http) anchor that would navigate the current page instead of a new tab
   const badAnchors = (await send("Runtime.evaluate", { expression: "JSON.stringify([...document.querySelectorAll('a[href^=\"http\"]')].filter(a => a.target !== '_blank').map(a => a.href).slice(0, 8))", returnByValue: true })).result.value;
-  // Debug page: a Relationships endpoint must link to an external http(s) URL.
-  await send("Runtime.evaluate", { expression: "location.hash = '#/debug'" });
-  await sleep(400);
-  const endpointHref = (await send("Runtime.evaluate", { expression: "document.querySelector('.relationships a.endpoint')?.getAttribute('href') || ''", returnByValue: true })).result.value;
   // Graph page: confirm the relationship graph populated from the fixture.
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(700);
@@ -50,7 +46,6 @@ try {
   const count = (re) => (html.match(re) || []).length;
   console.log("cards:", count(/class="card"/g));
   console.log("source chips:", count(/class="source-chip"/g));
-  console.log("lifecycle buckets:", ["declared", "fulfilled", "broken"].filter((b) => html.includes(`badge-lifecycle-${b}`)).join(", "));
   console.log("scoped label chips:", count(/chip-scoped/g));
   console.log("draft badges:", count(/badge-draft/g));
   console.log("created-time labels:", count(/>created /g), "| updated-time labels:", count(/>updated /g));
@@ -58,7 +53,6 @@ try {
   const hs = JSON.parse(heights);
   const uniform = hs.length >= 7 && new Set(hs).size === 1;
   console.log(`board-7 column heights (${hs.length} cols): ${heights} -> ${uniform ? "UNIFORM ✓" : "RAGGED ✗"}`);
-  console.log(`endpoint href: ${endpointHref.slice(0, 60)} -> ${/^https?:\/\//.test(endpointHref) ? "external ✓" : "in-page/empty ✗"}`);
   console.log(`graph page (closes only): "${graphCount.trim()}" | RF nodes in DOM: ${graphNodes} | repo shown: ${repoShown ? "yes ✓" : "no ✗"}`);
   console.log(`graph + mentions:        "${graphMentions.trim()}"`);
   console.log(`body bg: ${bg} -> ${bg === "rgb(1, 22, 39)" ? "Night Owl navy ✓" : "✗"}`);

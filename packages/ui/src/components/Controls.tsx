@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import type { Filters, GroupBy, View } from "../model.ts";
+import type { Filters } from "../model.ts";
 
 export interface Facets {
   sources: string[];
@@ -10,13 +10,8 @@ export interface Facets {
 interface Props {
   filters: Filters;
   facets: Facets;
-  groupBy: GroupBy;
-  view: View;
-  compact?: boolean; // hide the board/list view toggle (full-board page has no list view)
   onSearch: (q: string) => void;
   onToggle: (dim: "sources" | "states" | "kinds", value: string) => void;
-  onGroupBy: (g: GroupBy) => void;
-  onView: (v: View) => void;
   onLoadFile: (file: File) => void;
 }
 
@@ -49,25 +44,13 @@ function ToggleGroup({
   );
 }
 
-const GROUP_OPTIONS: GroupBy[] = ["source", "repo", "state", "kind", "none"];
-
-export function Controls({ filters, facets, groupBy, view, compact, onSearch, onToggle, onGroupBy, onView, onLoadFile }: Props) {
+export function Controls({ filters, facets, onSearch, onToggle, onLoadFile }: Props) {
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
   };
   return (
     <div className="controls">
-      {!compact && (
-        <div className="view-toggle">
-          <button type="button" className={`toggle${view === "board" ? " toggle-on" : ""}`} onClick={() => onView("board")}>
-            Board
-          </button>
-          <button type="button" className={`toggle${view === "list" ? " toggle-on" : ""}`} onClick={() => onView("list")}>
-            List
-          </button>
-        </div>
-      )}
       <input
         className="search"
         type="search"
@@ -78,18 +61,6 @@ export function Controls({ filters, facets, groupBy, view, compact, onSearch, on
       <ToggleGroup label="source" values={facets.sources} active={filters.sources} onToggle={(v) => onToggle("sources", v)} />
       <ToggleGroup label="state" values={facets.states} active={filters.states} onToggle={(v) => onToggle("states", v)} />
       <ToggleGroup label="kind" values={facets.kinds} active={filters.kinds} onToggle={(v) => onToggle("kinds", v)} />
-      {view === "list" && (
-        <label className="groupby">
-          group by{" "}
-          <select value={groupBy} onChange={(e) => onGroupBy(e.target.value as GroupBy)}>
-            {GROUP_OPTIONS.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       <label className="file-load">
         load contract.json
         <input type="file" accept="application/json,.json" onChange={onFile} />
