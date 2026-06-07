@@ -153,6 +153,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 /* engagement count: speech-bubble glyph + number */
 .demand { display: inline-flex; align-items: center; gap: 4px; }
 .icon-demand { flex: none; }
+/* provider source mark (github / gitlab), leading the meta row */
+.icon-source { flex: none; color: var(--muted); }
 
 /* label chips */
 .chip {

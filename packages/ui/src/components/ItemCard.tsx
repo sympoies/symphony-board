@@ -1,6 +1,7 @@
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
+import { SourceIcon } from "./SourceIcon.tsx";
 import { relativeTime } from "../model.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
@@ -27,7 +28,7 @@ function DemandIcon() {
   );
 }
 
-export function ItemCard({ item, anchorId }: { item: ItemDTO; anchorId?: string }) {
+export function ItemCard({ item, anchorId, sourceKind }: { item: ItemDTO; anchorId?: string; sourceKind?: string }) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
     <article className="card" id={anchorId}>
@@ -43,6 +44,7 @@ export function ItemCard({ item, anchorId }: { item: ItemDTO; anchorId?: string 
       </div>
 
       <div className="card-meta">
+        <SourceIcon kind={sourceKind} />
         {item.project_path ? <span className="muted">{item.project_path}</span> : null}
         {item.iid != null ? <span className="muted">#{item.iid}</span> : null}
         {item.author ? <span className="muted">@{item.author}</span> : null}

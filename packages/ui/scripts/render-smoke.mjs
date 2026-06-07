@@ -165,6 +165,9 @@ try {
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
+    // provider source marks: the sample contract carries both github + gitlab
+    [has(boardHtml, 'aria-label="GitHub"'), "board: GitHub source mark rendered"],
+    [has(boardHtml, 'aria-label="GitLab"'), "board: GitLab source mark rendered"],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
