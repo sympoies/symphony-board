@@ -351,6 +351,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .rf-node-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 3px; font-size: 0.8em; }
 .rf-node-meta .rf-demand { display: inline-flex; align-items: center; gap: 3px; }
 .rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }
+/* floating-edge hover label (rendered via EdgeLabelRenderer, an HTML overlay) */
+.rf-edge-label {
+  position: absolute; pointer-events: none; font-size: 10px; line-height: 1.3;
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+}
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }

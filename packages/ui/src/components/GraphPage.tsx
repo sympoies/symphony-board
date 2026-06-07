@@ -8,11 +8,17 @@ import {
   Handle,
   Position,
   MarkerType,
+  BaseEdge,
+  EdgeLabelRenderer,
   useNodesState,
   useEdgesState,
+  useInternalNode,
+  getBezierPath,
   type Node,
   type Edge,
   type NodeProps,
+  type EdgeProps,
+  type InternalNode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
@@ -148,6 +154,68 @@ function ItemNode({ data }: NodeProps) {
 
 const nodeTypes = { item: ItemNode };
 
+// Floating edges (adapted from the React Flow floating-edges example). The force
+// layout places nodes anywhere, so fixed Top/Bottom handles make a side-by-side
+// pair's line loop around the box borders. Instead each end attaches at the point
+// on its node's border that faces the other node, so edges connect cleanly from
+// whichever side is nearest. `nodeBorderPoint` returns that border point; the
+// node Handles stay (hidden) only so React Flow can resolve a source/target.
+function nodeBorderPoint(node: InternalNode, other: InternalNode): { x: number; y: number } {
+  const w = (node.measured.width ?? NODE_W) / 2;
+  const h = (node.measured.height ?? NODE_H) / 2;
+  const x2 = node.internals.positionAbsolute.x + w;
+  const y2 = node.internals.positionAbsolute.y + h;
+  const x1 = other.internals.positionAbsolute.x + (other.measured.width ?? NODE_W) / 2;
+  const y1 = other.internals.positionAbsolute.y + (other.measured.height ?? NODE_H) / 2;
+  const xx = (x1 - x2) / (2 * w) - (y1 - y2) / (2 * h);
+  const yy = (x1 - x2) / (2 * w) + (y1 - y2) / (2 * h);
+  const a = 1 / (Math.abs(xx) + Math.abs(yy) || 1);
+  const dx = a * xx;
+  const dy = a * yy;
+  return { x: w * (dx + dy) + x2, y: h * (-dx + dy) + y2 };
+}
+
+function borderSide(node: InternalNode, p: { x: number; y: number }): Position {
+  const nx = node.internals.positionAbsolute.x;
+  const ny = node.internals.positionAbsolute.y;
+  const w = node.measured.width ?? NODE_W;
+  const h = node.measured.height ?? NODE_H;
+  if (Math.round(p.x) <= Math.round(nx) + 1) return Position.Left;
+  if (Math.round(p.x) >= Math.round(nx + w) - 1) return Position.Right;
+  if (Math.round(p.y) <= Math.round(ny) + 1) return Position.Top;
+  return Position.Bottom;
+}
+
+function FloatingEdge({ id, source, target, markerEnd, style, label }: EdgeProps) {
+  const s = useInternalNode(source);
+  const t = useInternalNode(target);
+  if (!s || !t) return null;
+  const sp = nodeBorderPoint(s, t);
+  const tp = nodeBorderPoint(t, s);
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX: sp.x,
+    sourceY: sp.y,
+    sourcePosition: borderSide(s, sp),
+    targetX: tp.x,
+    targetY: tp.y,
+    targetPosition: borderSide(t, tp),
+  });
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {label ? (
+        <EdgeLabelRenderer>
+          <div className="rf-edge-label" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  );
+}
+
+const edgeTypes = { floating: FloatingEdge };
+
 // Open an issue/PR in a new tab (a real anchor click — guaranteed a tab, never a
 // same-page navigation or a popup window, and carries noopener/noreferrer).
 function openExternal(url: string) {
@@ -239,10 +307,9 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
         const base: CSSProperties = rfEdges.find((x) => x.id === e.id)?.style ?? e.style ?? {};
         return {
           ...e,
+          // FloatingEdge renders this label via EdgeLabelRenderer (styled by
+          // .rf-edge-label), so only the text is needed here — no SVG label props.
           label: incident ? String((e.data as { type?: string } | undefined)?.type ?? "") : undefined,
-          labelBgPadding: [4, 2] as [number, number],
-          labelStyle: incident ? { fill: "#d6deeb", fontSize: 10 } : undefined,
-          labelBgStyle: incident ? { fill: "#0b2942", fillOpacity: 0.92 } : undefined,
           style: { ...base, opacity: hoverId ? (incident ? 1 : 0.05) : (base.opacity ?? 1) },
         };
       }),
@@ -256,6 +323,7 @@ function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onNodeMouseEnter={(_, node) => setHoverId(node.id)}
       onNodeMouseLeave={() => setHoverId(null)}
       onNodeClick={(_, node) => {
@@ -531,10 +599,16 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
     }
   }, [windowedIds]);
 
-  // #1: when an item is focused, narrow the canvas to that item + its on-graph
-  // neighbours and the edges among them (focusSubgraph), so the canvas mirrors
-  // the side list's focus view instead of staying the full windowed graph.
-  const view = useMemo<GraphData>(() => focusSubgraph(graph, focusId, adjacency), [graph, focusId, adjacency]);
+  // When an item is focused, the canvas shows that item's FULL relationship
+  // neighbourhood (focusSubgraph, built from the raw edges — all edge types, no
+  // time window) instead of the windowed overview graph, so every relationship
+  // the side list lists is drawn (incl. mentions, regardless of the toggle).
+  // Falls back to the full graph if the focus has no edges (nothing to render).
+  const view = useMemo<GraphData>(() => {
+    if (!focusId) return graph;
+    const sub = focusSubgraph(edges, focusId);
+    return sub.nodes.length ? sub : graph;
+  }, [edges, focusId, graph]);
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
@@ -568,6 +642,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
     () =>
       view.links.map((l) => ({
         id: l.id,
+        type: "floating",
         source: l.source,
         target: l.target,
         data: { type: l.type },
