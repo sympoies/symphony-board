@@ -138,3 +138,52 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .chip-scoped .chip-scope { color: var(--muted); }
 .chip-scoped .chip-scope::after { content: "::"; }
+
+/* view toggle */
+.view-toggle { display: inline-flex; gap: 4px; }
+
+/* status board (kanban-style, display-only) */
+.status-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin: 8px 0 4px;
+  overflow-x: auto;
+}
+.col {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+}
+.col-head {
+  position: sticky; top: 0;
+  display: flex; align-items: center; gap: 8px;
+  margin: 0; padding: 10px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px 10px 0 0;
+}
+.col-head .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot-open { background: var(--open); }
+.dot-in_progress { background: var(--declared); }
+.dot-tracking { background: var(--merged); }
+.dot-closed { background: var(--muted); }
+.col-cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; max-height: 72vh; }
+.col-empty { color: var(--muted); text-align: center; padding: 8px 0; }
+.col-head { flex-wrap: wrap; }
+.col-sub { flex: 1 1 100%; font-size: 11px; font-weight: 400; color: var(--muted); }
+/* the column boards use one card per row, so let cards fill the column width */
+.status-board .card, .spotlight .card { width: 100%; }
+
+/* spotlight: recency lanes (Follow-up / Plan / PR), independent of status */
+.spotlight-lanes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(280px, 1fr));
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+}

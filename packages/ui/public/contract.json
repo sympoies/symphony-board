@@ -53,7 +53,7 @@
       "state": "open", "state_raw": "OPEN", "state_reason": null, "is_draft": null,
       "author": "graysurf", "created_at": "2026-06-01T12:00:00Z", "updated_at": "2026-06-07T08:30:00Z",
       "closed_at": null, "merged_at": null,
-      "labels": [{ "name": "enhancement", "scope": null, "color": "a2eeef" }, { "name": "priority::medium", "scope": "priority", "color": "fbca04" }],
+      "labels": [{ "name": "enhancement", "scope": null, "color": "a2eeef" }, { "name": "priority::medium", "scope": "priority", "color": "fbca04" }, { "name": "workflow::plan", "scope": "workflow", "color": "1d76db" }],
       "review_state": null, "ci_state": null, "merge_state": null, "milestone": null, "demand": 5,
       "last_seen_at": "2026-06-07T08:58:00Z"
     },
@@ -75,7 +75,7 @@
       "state": "open", "state_raw": "OPEN", "state_reason": null, "is_draft": null,
       "author": "octocat", "created_at": "2026-04-10T00:00:00Z", "updated_at": "2026-05-20T00:00:00Z",
       "closed_at": null, "merged_at": null,
-      "labels": [{ "name": "question", "scope": null, "color": "d876e3" }],
+      "labels": [{ "name": "question", "scope": null, "color": "d876e3" }, { "name": "workflow::follow-up", "scope": "workflow", "color": "5319e7" }],
       "review_state": null, "ci_state": null, "merge_state": null, "milestone": null, "demand": 1,
       "last_seen_at": "2026-06-07T08:58:00Z"
     },

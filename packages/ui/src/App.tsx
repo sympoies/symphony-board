@@ -8,14 +8,18 @@ import {
   resolveEdges,
   edgeMatches,
   computeStats,
+  deriveStatuses,
   type Filters,
   type GroupBy,
+  type View,
 } from "./model.ts";
 import { Header } from "./components/Header.tsx";
 import { StatsBar } from "./components/StatsBar.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { Relationships } from "./components/Relationships.tsx";
 import { Board } from "./components/Board.tsx";
+import { StatusBoard } from "./components/StatusBoard.tsx";
+import { Spotlight } from "./components/Spotlight.tsx";
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
@@ -25,6 +29,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [groupBy, setGroupBy] = useState<GroupBy>("source");
+  const [view, setView] = useState<View>("board");
 
   useEffect(() => {
     fetchContract()
@@ -60,6 +65,11 @@ export function App() {
     () => computeStats(filteredItems, filteredEdges.map((re) => re.edge)),
     [filteredItems, filteredEdges],
   );
+
+  // Status is intrinsic — derived over ALL items/edges, then filtered items are
+  // placed into columns (so a closed item's Tracking status is correct even when
+  // its related open item is filtered out of view).
+  const statuses = useMemo(() => (env ? deriveStatuses(env.items, env.edges) : new Map()), [env]);
 
   function toggle(dim: "sources" | "states" | "kinds", value: string) {
     setFilters((f) => {
@@ -119,14 +129,23 @@ export function App() {
         filters={filters}
         facets={facets}
         groupBy={groupBy}
+        view={view}
         onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
         onToggle={toggle}
         onGroupBy={setGroupBy}
+        onView={setView}
         onLoadFile={loadFile}
       />
       <StatsBar stats={stats} />
+      {view === "board" ? (
+        <>
+          <StatusBoard items={filteredItems} statuses={statuses} />
+          <Spotlight items={filteredItems} />
+        </>
+      ) : (
+        <Board items={filteredItems} groupBy={groupBy} />
+      )}
       <Relationships edges={filteredEdges} />
-      <Board items={filteredItems} groupBy={groupBy} />
     </div>
   );
 }
