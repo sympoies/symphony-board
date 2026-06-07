@@ -31,7 +31,13 @@ pnpm install                 # from the repo root (workspace)
 pnpm --filter @symphony-board/ui dev      # dev server (uses public/contract.json)
 pnpm --filter @symphony-board/ui build    # tsc --noEmit + vite build -> dist/
 pnpm --filter @symphony-board/ui preview  # serve the built dist/
+pnpm --filter @symphony-board/ui smoke    # headless-render dist/ + assert it draws (needs build first)
 ```
+
+`smoke` (`scripts/render-smoke.mjs`) renders the built board in headless Chrome
+against the bundled sample contract and fails on a render crash or any console
+error — the layer `tsc`/`build`/unit tests can't see. It runs in CI (`ui` job)
+and locally (set `CHROME_BIN` if Chrome isn't at the macOS default path).
 
 ## Wiring real data
 

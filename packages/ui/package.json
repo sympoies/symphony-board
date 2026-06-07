@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "smoke": "node --disable-warning=ExperimentalWarning scripts/render-smoke.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
