@@ -28,10 +28,20 @@ function mapState(s: string | null | undefined): ItemState {
 }
 
 const REF_NODE = `id number url state repository { nameWithOwner }`;
+// Incoming cross-references — "X mentioned this item". `source` is always an
+// Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
+// really a `closes` link, which we skip (closingIssuesReferences covers those).
+const MENTIONS = `timelineItems(itemTypes:[CROSS_REFERENCED_EVENT], first:30){
+    nodes { ... on CrossReferencedEvent {
+      willCloseTarget
+      source { __typename ... on Issue { id state } ... on PullRequest { id state } }
+    } }
+  }`;
 const COMMON = `__typename id number title url createdAt updatedAt closedAt state
   author { login } repository { nameWithOwner }
   labels(first:50){ nodes { name color } }
-  comments { totalCount } reactions { totalCount }`;
+  comments { totalCount } reactions { totalCount }
+  ${MENTIONS}`;
 
 const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -133,6 +143,7 @@ export class GitHubSource implements Source {
           toState: selfState,
         });
       }
+      edges.push(...this.mentionEdges(p, self, selfState));
       const item: CanonicalItem = {
         ...this.commonItem(p, "issue"),
         stateReason: p.stateReason ? String(p.stateReason).toLowerCase() : null,
@@ -156,6 +167,7 @@ export class GitHubSource implements Source {
         toState: mapState(iss.state),
       });
     }
+    edges.push(...this.mentionEdges(p, self, selfState));
     const item: CanonicalItem = {
       ...this.commonItem(p, "change_request"),
       stateReason: null,
@@ -166,6 +178,25 @@ export class GitHubSource implements Source {
       mergeState: mapMerge(p.mergeable),
     };
     return { item, labels: this.labels(p), edges };
+  }
+
+  // Incoming cross-references → `mentions` edges (source mentioned this item).
+  // Skips closing references (the `closes` edge already covers those) and any
+  // event without a resolvable source id.
+  private mentionEdges(p: any, self: { sourceId: string; externalId: string }, selfState: ItemState): CanonicalEdge[] {
+    const out: CanonicalEdge[] = [];
+    for (const ev of p.timelineItems?.nodes ?? []) {
+      const src = ev?.source;
+      if (!src?.id || ev.willCloseTarget) continue;
+      out.push({
+        type: "mentions",
+        from: { sourceId: self.sourceId, externalId: src.id },
+        to: self,
+        fromState: mapState(src.state),
+        toState: selfState,
+      });
+    }
+    return out;
   }
 
   private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState"> {
