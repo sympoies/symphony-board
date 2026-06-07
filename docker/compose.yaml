@@ -29,3 +29,16 @@ services:
     volumes:
       - ../config:/app/config:ro
       - ../data:/app/data
+    # Health = the daemon is actually producing the contract. It passes once
+    # data/contract.json exists and was rewritten recently (well inside one full
+    # cadence: 30 min >> INTERVAL 300s), so a wedged or crash-looping daemon that
+    # stops emitting is reported unhealthy. start_period covers the first
+    # sync+emit. The UI sidecar (web) gates on this via depends_on.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "try{const s=require('fs').statSync('/app/data/contract.json');process.exit(Date.now()-s.mtimeMs<1800000?0:1)}catch{process.exit(1)}"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 180s

@@ -82,6 +82,20 @@ disappearance handling — only a full + complete sweep may soft-delete items/ed
 it no longer sees, so incremental alone never tombstones. Set `FULL_EVERY=1` to
 always full-sweep. A GitLab source behind a VPN requires the host to be on that VPN.
 
+**The daemon is the source of truth for the contract.** `data/contract.json` is
+written *only* by this loop — never by hand — so what the UI serves is always the
+daemon's latest emit. The `board`
+service has a healthcheck that reports it `healthy` only while `data/contract.json`
+keeps being refreshed, so a wedged daemon that stops emitting is visible
+(`docker compose -f docker/compose.yaml ps`). Confirm the on-disk contract is
+daemon-produced with the read-only helpers:
+
+```sh
+docker compose -f docker/compose.yaml ps          # board: healthy
+scripts/db-summary.sh                              # items/edges/sync runs (query_only)
+scripts/contract-summary.sh                        # counts from data/contract.json
+```
+
 ## Status
 
 Both sources validated live: GitHub end-to-end (incl. in the Docker image), and

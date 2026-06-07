@@ -131,7 +131,10 @@ value is preserved alongside (`state_raw`). Key non-congruences:
    full sweep is what keeps the soft-delete correct, and incremental never
    tombstones. Force always-full with `FULL_EVERY=1`.
 3. **Loop interval 300s** in `docker/compose.yaml` (point 3: docker is the sole
-   writer, no external cron). Tune via `INTERVAL`.
+   writer, no external cron). Tune via `INTERVAL`. The `board` service carries a
+   healthcheck (the daemon is `healthy` only while `data/contract.json` keeps
+   being refreshed), so "the daemon is the live contract source" is observable —
+   and the UI sidecar can gate its start on it (`depends_on … service_healthy`).
 4. **Config is JSON** (`config/sources.json`, gitignored) to keep runtime deps
    at zero. Tokens are referenced by env-var name, never inlined.
 5. **Contract starts at `1.0.0`.**
