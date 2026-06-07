@@ -289,7 +289,11 @@ export class GitLabSource implements Source {
         mergedAt: p.mergedAt ?? null,
         reviewState: mapReview(p),
         ciState: mapCi(p.headPipeline?.status),
-        mergeState: mapMerge(p.detailedMergeStatus),
+        // Mergeability is only meaningful while the MR is open. A merged MR
+        // reports `detailedMergeStatus: NOT_OPEN` (-> "mergeable") and a missing
+        // status falls through to "unknown"; both are noise beside the `merged`
+        // lifecycle state. Drop it for non-open items, matching GitHub.
+        mergeState: selfState === "open" ? mapMerge(p.detailedMergeStatus) : null,
       };
       return { item, labels: this.labels(p), edges };
     }

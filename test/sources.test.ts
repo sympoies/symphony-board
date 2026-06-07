@@ -81,6 +81,68 @@ test("normalize emits mentions from non-closing cross-references (source -> self
   assert.equal(m.toState, "open");
 });
 
+// --- merge_state is open-only (merged/closed PRs must not show a merge badge) -
+
+function prNode(id: string, state: string, mergeable: string) {
+  return {
+    __typename: "PullRequest", id, number: 9, title: id, url: `https://x/${id}`, state,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
+    mergedAt: state === "MERGED" ? "2026-06-01T00:00:00Z" : null, isDraft: false,
+    author: { login: "a" }, repository: { nameWithOwner: "o/r" }, labels: { nodes: [] },
+    comments: { totalCount: 0 }, reactions: { totalCount: 0 }, reviewDecision: null,
+    mergeable, commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] },
+    closingIssuesReferences: { nodes: [] },
+  };
+}
+
+function ghPrBundle(state: string, mergeable: string) {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: `PR_${state}`, apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h", payload: prNode(`PR_${state}`, state, mergeable),
+  };
+  return src.normalize(raw)!;
+}
+
+test("GitHub: a merged PR drops merge_state (UNKNOWN would otherwise read as 'unknown')", () => {
+  const b = ghPrBundle("MERGED", "UNKNOWN");
+  assert.equal(b.item.state, "merged");
+  assert.equal(b.item.mergeState, null, "merged PR carries no merge badge");
+  assert.equal(b.item.ciState, "passing", "CI is still meaningful after merge");
+});
+
+test("GitHub: an open PR keeps its real merge_state", () => {
+  assert.equal(ghPrBundle("OPEN", "MERGEABLE").item.mergeState, "mergeable");
+  assert.equal(ghPrBundle("OPEN", "CONFLICTING").item.mergeState, "conflicting");
+  // UNKNOWN is a legitimate transient state while open and is preserved.
+  assert.equal(ghPrBundle("OPEN", "UNKNOWN").item.mergeState, "unknown");
+});
+
+function glMrBundle(state: string, detailedMergeStatus: string) {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: `gid:MR_${state}`, apiVersion: "gitlab.graphql",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: glNode(`gid:MR_${state}`, "9", {
+      state, mergedAt: state === "merged" ? "2026-06-01T00:00:00Z" : null, draft: false,
+      approved: false, approvalsRequired: 0, headPipeline: { status: "SUCCESS" }, detailedMergeStatus,
+    }),
+  };
+  return src.normalize(raw)!;
+}
+
+test("GitLab: a merged MR drops merge_state (NOT_OPEN would otherwise read as 'mergeable')", () => {
+  const b = glMrBundle("merged", "NOT_OPEN");
+  assert.equal(b.item.state, "merged");
+  assert.equal(b.item.mergeState, null, "merged MR carries no merge badge");
+  assert.equal(b.item.ciState, "passing");
+});
+
+test("GitLab: an open MR keeps its real merge_state", () => {
+  assert.equal(glMrBundle("opened", "MERGEABLE").item.mergeState, "mergeable");
+  assert.equal(glMrBundle("opened", "CI_MUST_PASS").item.mergeState, "blocked");
+});
+
 // --- GitLab: system-note cross-references (issue #13) ----------------------
 
 const GL_DESC: SourceDescriptor = { sourceId: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", displayName: null };
