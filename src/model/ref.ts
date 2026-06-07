@@ -6,7 +6,7 @@
 // (easy to key a Map by, easy to put in JSON) without an ambiguous delimiter.
 
 import type { ItemEndpoint } from "./types.ts";
-import type { Ref } from "../contract/types.ts";
+import type { Ref } from "@symphony-board/contract";
 
 export function refOf(sourceId: string, externalId: string): Ref {
   if (sourceId.includes("|")) {

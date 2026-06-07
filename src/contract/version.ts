@@ -1,5 +1,5 @@
-// The contract version (LAYER 3). Bump per the rules in schema/contract.schema.json
-// and docs/CONTRACT.md:
+// The contract version (LAYER 3). Bump per the rules in
+// packages/contract/contract.schema.json and docs/CONTRACT.md:
 //   patch -> clarification, no shape change
 //   minor -> additive (new OPTIONAL field); old consumers keep working
 //   major -> breaking (removed/repurposed field, changed required set)

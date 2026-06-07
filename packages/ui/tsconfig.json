@@ -1,0 +1,22 @@
+{
+  // The UI is bundled by Vite (esbuild), so this tsconfig is the type GATE only
+  // (build runs `tsc --noEmit && vite build`). Bundler resolution lets us import
+  // the workspace contract package by its `exports` and use extensionless paths.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": []
+  },
+  "include": ["src"]
+}

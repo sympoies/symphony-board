@@ -9,8 +9,12 @@ import type {
   EdgeDTO,
   SourceDTO,
   LabelDTO,
-} from "./types.ts";
-import type { ItemState, ReviewState, CiState, MergeState, EdgeLifecycle } from "../model/types.ts";
+  ItemState,
+  ReviewState,
+  CiState,
+  MergeState,
+  EdgeLifecycle,
+} from "@symphony-board/contract";
 import { refOf } from "../model/ref.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 

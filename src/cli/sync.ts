@@ -52,7 +52,7 @@ try {
     const rep = await syncSource(db, source, prev, { full: args.full, dryRun: args.dryRun });
     log.info(
       `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} ` +
-        `softDeleted=${rep.softDeleted}${rep.error ? ` error=${rep.error}` : ""}`,
+        `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
     );
     if (rep.status === "error") failed = true;
   }

@@ -1,7 +1,8 @@
 # Contract versioning
 
-The contract (`schema/contract.schema.json`, mirrored by `src/contract/types.ts`)
-is LAYER 3: the serialized projection consumers (the UI, external tools) read. It
+The contract — the `@symphony-board/contract` package
+(`packages/contract/contract.schema.json`, mirrored by `packages/contract/types.ts`)
+— is LAYER 3: the serialized projection consumers (the UI, external tools) read. It
 is **never** the DB schema and **never** the stored truth — it is re-derived from
 the canonical store on every emit. That decoupling is what lets the schema evolve
 without breaking old data: a new contract version is produced by re-running
@@ -43,12 +44,25 @@ Two hard rules behind the above:
 
 ## When you change the contract
 
-1. Edit `schema/contract.schema.json` (normative) and `src/contract/types.ts`
-   (mirror) together.
+1. Edit `packages/contract/contract.schema.json` (normative) and
+   `packages/contract/types.ts` (mirror) together.
 2. Bump `CONTRACT_VERSION` in `src/contract/version.ts` per the rules.
-3. Add/adjust a `test/contract.test.ts` case.
+3. Add/adjust a `test/contract.test.ts` case (and `test/validate.test.ts` if the
+   schema gained a construct the validator doesn't yet cover).
 4. For a major bump, plan a transition: keep emitting the old major (or ship a
    transformer) until consumers move.
 
+## Validation (producer-side guard)
+
+The schema is enforced, not just documentation: `emit` validates the envelope
+against `packages/contract/contract.schema.json` before writing and **refuses to emit** an
+invalid contract (override with `--no-validate`). `pnpm run validate -- --in
+<file>` checks an existing contract on demand, and `test/validate.test.ts`
+exercises the validator in CI. The validator (`src/contract/validate.ts`) is a
+dependency-free JSON-Schema subset matching exactly what this schema uses, so it
+preserves the backend's zero-runtime-dependency posture. Producers validate
+strictly; consumers stay liberal (ignore unknown fields) so a minor (additive)
+field never breaks an old reader.
+
 Because the source of truth is the stored raw + canonical data, you can always
-regenerate any current contract version on demand with `npm run emit`.
+regenerate any current contract version on demand with `pnpm run emit`.

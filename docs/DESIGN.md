@@ -37,7 +37,7 @@ Three layers, each versioned independently.
 |------|------|-------|--------------|
 | 1. Raw store | provider payloads, opaque | `raw` table | not versioned; tagged `api_version` + `fetched_at` |
 | 2. Canonical DB | normalized `item` / `edge` / `item_label` / `sync_*`, provider-agnostic, SQL-queryable | `schema/0001_init.sql` | `PRAGMA user_version` + migrations |
-| 3. Contract | versioned projection serialized for consumers | `schema/contract.schema.json` | semver `contract_version` (see `CONTRACT.md`) |
+| 3. Contract | versioned projection serialized for consumers | `packages/contract/` (`contract.schema.json` + `types.ts`) | semver `contract_version` (see `CONTRACT.md`) |
 
 `normalize` is the pure function raw → layer 2; `buildContract` is the pure
 function layer 2 → layer 3. Both are replayable: **because we keep raw, a
@@ -71,11 +71,13 @@ Modeled as a typed, directed, stateful, many-to-many, possibly cross-source
 - **Disappearance handling** (a trap the stateless predecessor didn't have):
   with a persistent store, "I couldn't fetch X this run" (VPN drop, lost auth,
   rate limit) must not look like "X was deleted." So:
-  - every observed item gets `last_seen_at`;
-  - only a **full + complete** sweep may soft-delete (`deleted_at`) items it did
-    not see; a partial/failed fetch never deletes (`FetchResult.complete` gates
-    it, recorded per run in `sync_run`);
-  - a re-seen item revives (tombstone cleared). Unit-tested in `test/db.test.ts`.
+  - every observed item and edge gets `last_seen_at`;
+  - only a **full + complete** sweep may soft-delete (`deleted_at`) items —
+    and, symmetrically, intra-source edges — it did not see; a partial/failed
+    fetch never deletes (`FetchResult.complete` gates it, recorded per run in
+    `sync_run`);
+  - a re-seen item/edge revives (tombstone cleared). Unit-tested in
+    `test/db.test.ts`.
 
 ## SQLite (point 5) — rationale and caveats
 
@@ -122,10 +124,12 @@ value is preserved alongside (`state_raw`). Key non-congruences:
 ## Decisions taken by default (reversible)
 
 1. **Repo is private.** Reversible with `gh repo edit --visibility public`.
-2. **Full sweep is the default sync mode.** Incremental (`--incremental`, using
-   the stored watermark) is wired and stored but off by default, so the
-   soft-delete sweep is always correct in v1. Watermarks are persisted for when
-   you turn incremental on.
+2. **Full sweep is the default for a one-shot `sync`; the loop daemon runs a
+   mostly-incremental cadence.** A bare `sync` (and `SYNC_MODE=once`) is a full
+   sweep. The loop daemon runs `--incremental` (watermark-bounded) most
+   iterations and a full sweep every `FULL_EVERY` (default 12 ≈ hourly) — the
+   full sweep is what keeps the soft-delete correct, and incremental never
+   tombstones. Force always-full with `FULL_EVERY=1`.
 3. **Loop interval 300s** in `docker/compose.yaml` (point 3: docker is the sole
    writer, no external cron). Tune via `INTERVAL`.
 4. **Config is JSON** (`config/sources.json`, gitignored) to keep runtime deps
@@ -161,41 +165,73 @@ value is preserved alongside (`state_raw`). Key non-congruences:
    `merge_state` extension fields (with `state_raw` / raw payload preserved as
    the escape hatch), rather than dropping to raw-only.
 
-### Still deferred for v1 (wired, intentionally not built)
+### Still deferred (wired, intentionally not built)
 
-Edge soft-delete (only items are tombstoned today), raw history (one snapshot
-per entity), incremental sync (watermark stored, full-sweep default), the UI,
-and a contract-validator step in CI.
+Raw history (one snapshot per entity) and the UI.
 
-## Open items (forward — UI phase)
+Shipped after the initial v1 cut:
+- **CI contract-validator** — `emit` validates the envelope against the schema
+  before writing and refuses to ship an invalid one; the dependency-free
+  validator (`src/contract/validate.ts`) runs in CI via `test/validate.test.ts`.
+  See `docs/CONTRACT.md`.
+- **Edge soft-delete** — a full + complete sweep now tombstones unseen edges,
+  symmetric to items (`softDeleteUnseenEdges`, gated identically). Scoped to
+  intra-source edges (both endpoints in the swept source); a cross-source edge
+  is left untouched because a single-source sweep cannot prove the other side
+  stopped asserting it.
+- **Incremental sync (loop cadence)** — the loop daemon runs `--incremental`
+  most iterations and a full sweep every `FULL_EVERY` (default 12), so the
+  soft-delete sweep stays correct while routine runs stay cheap. The
+  watermark gating (full → ignore it; incremental → stop at the first record
+  older than it) is covered by `test/sources.test.ts`, and the "incremental
+  never tombstones" guarantee by `test/sync-engine.test.ts`.
 
-1. **Where the UI lives, and extracting the contract into a package.** The UI
-   (a later phase) adds a first-party consumer whose toolchain is the opposite
-   of this backend's (heavy deps + a build step). Recommended direction: keep it
-   in this repo as a **pnpm workspace**, but first extract LAYER 3 into its own
-   package — `packages/contract` (`contract.schema.json` + the mirror `types.ts`
-   + `version.ts`) — with the backend and the UI as sibling packages that may
-   depend on `contract` and nothing else. This keeps the backend's zero-dep /
-   no-build property contained to its own package and makes the three-layer
-   boundary *structural*: the UI cannot reach past the contract into `src/db` /
-   `src/sources`. A separate repo only earns its overhead once there are
-   third-party consumers, or the UI's release cadence / visibility diverges —
-   and extracting `packages/ui` later stays cheap precisely because the contract
-   package already isolates it.
+## Contract package (done) & where the UI lives (open)
 
-   The one real coupling to resolve when extracting: `src/contract/types.ts`
-   imports the enum unions (`ItemState`, `ReviewState`, `CiState`, `MergeState`,
-   `EdgeLifecycle`) from `src/model/types.ts` (LAYER 2). Decide whether those
-   move into the contract package or are re-declared / re-exported there, so the
-   contract package does not drag LAYER 2 along with it.
+**LAYER 3 is extracted into `packages/contract` (done).** The repo is now a pnpm
+workspace; `@symphony-board/contract` holds `contract.schema.json` (normative) +
+`types.ts` (the mirror DTOs and the shared enum vocabularies). The three-layer
+boundary is now *structural*: a consumer depends on this package and **cannot
+reach past it** into `src/db` / `src/sources`.
 
-   Status: not started; intentionally deferred until the UI phase.
+Two decisions taken while extracting:
+- **The coupling was resolved by moving the enums into the package.** The shared
+  unions (`ItemState`, `ReviewState`, `CiState`, `MergeState`, `EdgeLifecycle`)
+  and `Ref` now live in `@symphony-board/contract`; `src/model/types.ts` (LAYER 2)
+  imports + re-exports them, so there is one definition, and the package drags no
+  LAYER 2 along with it. `ItemKind` / `EdgeType` stay LAYER-2-local (the contract
+  carries them as open `string`s).
+- **Producer constants stayed in the backend, against the original sketch** (which
+  put `version.ts` in the package). The package is deliberately **type-only at
+  runtime**: it has no runtime values, so the backend — which runs `.ts` directly
+  under Node's type-stripping with **no `node_modules` in the Docker image** —
+  never has to *resolve* the package at runtime (the `import type`s erase). Node
+  refuses to strip types from files under `node_modules`, so a runtime value
+  imported from a workspace package would have forced a build step; keeping
+  `CONTRACT_VERSION` / `GENERATOR` and the validator (`src/contract/`) on the
+  producer side avoids that and preserves the no-build, zero-third-party-dep
+  posture. The validator reads `contract.schema.json` as a file (copied into the
+  image), not via a bare-specifier import.
+
+**The UI now lives in `packages/ui` (done).** A read-only board built with
+**Vite + React + TypeScript** — the one package with heavy deps + a build step,
+deliberately contained there. It depends ONLY on `@symphony-board/contract`
+(types) and fetches an emitted `contract.json`; it cannot see `src/db` /
+`src/sources`. It shows per-source health, item filters/grouping, label chips,
+the review/CI/merge signals, and the issue ↔ PR/MR relationship view grouped by
+lifecycle. The esbuild build-script is the single trusted exception in the
+workspace's `allowBuilds` allowlist (scoped to the UI's transitive tooling).
+
+A separate repo only earns its overhead once there are third-party consumers, or
+the UI's release cadence / visibility diverges — the contract package already
+isolates the UI, so splitting it out later stays cheap.
 
 ## Validation status
 
-- `pnpm run typecheck` — clean.
-- `pnpm test` — 17/17 pass (ref, labels, edge lifecycle/reconcile, contract
-  build, DB roundtrip incl. soft-delete).
+- `pnpm run typecheck` — clean (covers the backend + `packages/contract`).
+- `pnpm test` — 33/33 pass (ref, labels, edge lifecycle/reconcile, contract
+  build, contract schema validation, DB roundtrip incl. item + edge soft-delete,
+  the sync engine incl. soft-delete gating, and the GitHub incremental filter).
 - **GitHub** e2e against live repos (incl. inside the Docker image on Alpine):
   dry-run + real sync `status=ok`, 180 items / 5 `closes` edges; contract
   `1.0.0` emitted; a sampled edge correctly derived `lifecycle: fulfilled`

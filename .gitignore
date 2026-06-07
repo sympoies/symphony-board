@@ -15,5 +15,8 @@ config/sources.json
 out/
 *.contract.json
 
+# Build output (the UI is the only package with a build step).
+dist/
+
 # Project-local Claude directory (skills live in .agents/skills/)
 .claude/

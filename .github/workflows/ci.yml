@@ -8,6 +8,8 @@ permissions:
   contents: read
 
 jobs:
+  # Backend (root package) + the contract package: no build, just the type gate
+  # and the pure/DB tests. Node strips TS types at runtime without checking them.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -19,6 +21,21 @@ jobs:
           node-version-file: .node-version # same Node as fnm uses locally
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Node strips TS types at runtime without checking them; tsc is the gate.
       - run: pnpm run typecheck
       - run: pnpm test
+
+  # UI (packages/ui): the one package with a build step + heavy deps. Typecheck +
+  # production build + the pure model tests. Kept a separate job so the backend
+  # gate above stays buildless.
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @symphony-board/ui run build
+      - run: pnpm --filter @symphony-board/ui run test

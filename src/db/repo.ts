@@ -158,6 +158,25 @@ export function softDeleteUnseenItems(db: DatabaseSync, sourceId: string, cutoff
   return Number(r.changes);
 }
 
+// The disappearance rule for edges, symmetric to items: tombstone live edges not
+// re-seen this run. An edge is re-seen when either endpoint still asserts it, so
+// it is only safe to tombstone when the sweep that would re-discover it was a
+// full + complete sweep of BOTH its endpoints' sources. We scope to edges whose
+// `from` AND `to` are in `sourceId` (intra-source) — the only edges the current
+// normalizers produce, and the only ones a single-source sweep can fully
+// confirm. A cross-source edge (an endpoint in an untracked/other source) is
+// left untouched: we cannot prove the other side stopped asserting it. CALLER
+// MUST gate this on a full + complete run. Returns the number tombstoned.
+export function softDeleteUnseenEdges(db: DatabaseSync, sourceId: string, cutoff: string, nowIso: string): number {
+  const r = db
+    .prepare(
+      `UPDATE edge SET deleted_at=?
+       WHERE from_source_id=? AND to_source_id=? AND deleted_at IS NULL AND last_seen_at < ?`,
+    )
+    .run(nowIso, sourceId, sourceId, cutoff);
+  return Number(r.changes);
+}
+
 // Prior incremental watermark for a source (max updated_at seen), or null.
 export function getWatermark(db: DatabaseSync, sourceId: string): string | null {
   const row = db.prepare(`SELECT watermark FROM sync_state WHERE source_id=?`).get(sourceId) as

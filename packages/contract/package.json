@@ -1,0 +1,21 @@
+{
+  "name": "@symphony-board/contract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "symphony-board LAYER 3: the versioned contract — JSON Schema + mirrored TypeScript types. The product surface a UI/consumer reads.",
+  "type": "module",
+  "types": "./types.ts",
+  "exports": {
+    ".": {
+      "types": "./types.ts",
+      "default": "./types.ts"
+    },
+    "./schema.json": "./contract.schema.json",
+    "./contract.schema.json": "./contract.schema.json"
+  },
+  "files": [
+    "types.ts",
+    "index.ts",
+    "contract.schema.json"
+  ]
+}

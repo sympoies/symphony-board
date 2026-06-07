@@ -99,7 +99,7 @@ labels:
   - name: "area::contract"
     group: area
     color: fbca04
-    description: Versioned JSON contract projection (LAYER 3, src/contract, schema/contract.schema.json).
+    description: Versioned JSON contract projection (LAYER 3, packages/contract, src/contract build/validate).
     applies_to: [issue, pr, mr]
   - name: "area::engine"
     group: area

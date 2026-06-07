@@ -17,6 +17,7 @@ import {
   finishRun,
   updateSyncState,
   softDeleteUnseenItems,
+  softDeleteUnseenEdges,
 } from "./db/repo.ts";
 
 export interface SyncOptions {
@@ -30,6 +31,7 @@ export interface SyncReport {
   itemsSeen: number;
   edgesSeen: number;
   softDeleted: number;
+  softDeletedEdges: number;
   watermark: string | null;
   error: string | null;
 }
@@ -55,7 +57,7 @@ export async function syncSource(
       finishRun(db, runId, "error", new Date().toISOString(), 0, 0, msg);
       updateSyncState(db, sourceId, null, "error", msg, startedAt);
     }
-    return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, softDeleted: 0, watermark: null, error: msg };
+    return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
   }
 
   // --- normalize (pure) ---
@@ -93,6 +95,7 @@ export async function syncSource(
     itemsSeen: bundles.length,
     edgesSeen: edges.length,
     softDeleted: 0,
+    softDeletedEdges: 0,
     watermark: result.watermark,
     error: result.error,
   };
@@ -116,9 +119,13 @@ export async function syncSource(
     for (const e of edges) upsertEdge(db, e, startedAt);
 
     // Disappearance handling: only a FULL + COMPLETE sweep may tombstone unseen
-    // items (a partial fetch must never look like a mass deletion).
+    // items AND edges (a partial fetch must never look like a mass deletion).
+    // Both are gated identically; an incremental run (opts.full=false) never
+    // deletes, and a re-seen item/edge revives on its next upsert.
     if (opts.full && result.complete) {
-      report.softDeleted = softDeleteUnseenItems(db, sourceId, startedAt, new Date().toISOString());
+      const sweepAt = new Date().toISOString();
+      report.softDeleted = softDeleteUnseenItems(db, sourceId, startedAt, sweepAt);
+      report.softDeletedEdges = softDeleteUnseenEdges(db, sourceId, startedAt, sweepAt);
     }
 
     finishRun(db, runId, status, new Date().toISOString(), bundles.length, edges.length, result.error);

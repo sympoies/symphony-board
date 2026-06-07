@@ -2,8 +2,8 @@
 
 Provider-agnostic work-item board. It aggregates issues and pull/merge requests
 from **multiple sources** (GitHub and GitLab today, others later) into one
-normalized **SQLite** store and emits a **versioned JSON contract** for a UI
-(built later) and other consumers to read.
+normalized **SQLite** store and emits a **versioned JSON contract** that a
+read-only **web UI** ([`packages/ui`](packages/ui)) and other consumers read.
 
 The organizing concept is the **issue ↔ PR/MR relationship** — modeled as a
 typed, stateful edge — because that link is the backbone of a GitHub/GitLab
@@ -27,14 +27,22 @@ providers ──fetch──▶  [1] raw store        opaque provider payloads (i
 - **Layer 1 (raw)** is kept verbatim so contract/normalization changes can be
   **replayed offline** — old records stay compatible without re-fetching.
 - **Layer 2 (canonical)** is provider-agnostic and SQL-queryable.
-- **Layer 3 (contract)** is a projection, versioned independently (semver). The
-  DB schema and the contract evolve on separate clocks.
+- **Layer 3 (contract)** is a projection, versioned independently (semver), and
+  lives in its own package [`@symphony-board/contract`](packages/contract) so a
+  consumer cannot reach past it. The DB schema and the contract evolve on
+  separate clocks.
+
+This is a **pnpm workspace**: the backend (repo root, no build, zero
+third-party runtime deps), [`packages/contract`](packages/contract) (LAYER 3:
+schema + types), and [`packages/ui`](packages/ui) (the read-only viewer; Vite +
+React, the one package with a build step).
 
 ## Quick start
 
-Requires **Node ≥ 24** (built-in TypeScript stripping and `node:sqlite`; no build
-step, zero runtime dependencies). Node is managed with **fnm** (`.node-version`)
-and the package manager is **pnpm** (`packageManager` in `package.json`).
+The backend requires **Node ≥ 24** (built-in TypeScript stripping and
+`node:sqlite`; no build step, zero third-party runtime dependencies). Node is
+managed with **fnm** (`.node-version`) and the package manager is **pnpm**
+(`packageManager` in `package.json`). The UI build lives in `packages/ui`.
 
 ```sh
 fnm use                                   # picks Node 24 from .node-version
@@ -67,13 +75,26 @@ docker compose -f docker/compose.yaml logs -f
 ```
 
 It loops `sync` + `emit` every `INTERVAL` seconds (default 300), persisting the
-DB and the emitted contract to the bind-mounted `data/`. A GitLab source behind a
-VPN requires the host to be on that VPN.
+DB and the emitted contract to the bind-mounted `data/`. The cadence is mostly
+**incremental** (cheap, watermark-bounded) with a periodic **full sweep** every
+`FULL_EVERY` iterations (default 12 ≈ hourly): a full sweep is what enables
+disappearance handling — only a full + complete sweep may soft-delete items/edges
+it no longer sees, so incremental alone never tombstones. Set `FULL_EVERY=1` to
+always full-sweep. A GitLab source behind a VPN requires the host to be on that VPN.
 
 ## Status
 
-First version. Both sources validated live: GitHub end-to-end (incl. in the
-Docker image), and GitLab against gitlab.com — including a **token-authenticated**
-run against a private project that drives the full pipeline to contract `1.0.0`.
-The UI is a later phase — this repo stabilizes the contract first. See
-`docs/DESIGN.md` for the confirmed decisions and what's deferred.
+Both sources validated live: GitHub end-to-end (incl. in the Docker image), and
+GitLab against gitlab.com — including a **token-authenticated** run against a
+private project that drives the full pipeline to contract `1.0.0`.
+
+Since the initial cut the contract pipeline was hardened and the UI landed:
+- **Contract validator** — `emit` validates against the schema and refuses to
+  ship an invalid contract (dependency-free; runs in CI).
+- **Edge soft-delete** + **incremental loop cadence** — see above.
+- **`packages/contract`** — LAYER 3 extracted into its own package.
+- **`packages/ui`** — a read-only board (Vite + React) consuming the contract:
+  source health, filters, grouping, label chips, and the issue ↔ PR/MR
+  relationship view by lifecycle.
+
+See `docs/DESIGN.md` for the confirmed decisions and what's still deferred.
