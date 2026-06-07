@@ -71,11 +71,13 @@ Modeled as a typed, directed, stateful, many-to-many, possibly cross-source
 - **Disappearance handling** (a trap the stateless predecessor didn't have):
   with a persistent store, "I couldn't fetch X this run" (VPN drop, lost auth,
   rate limit) must not look like "X was deleted." So:
-  - every observed item gets `last_seen_at`;
-  - only a **full + complete** sweep may soft-delete (`deleted_at`) items it did
-    not see; a partial/failed fetch never deletes (`FetchResult.complete` gates
-    it, recorded per run in `sync_run`);
-  - a re-seen item revives (tombstone cleared). Unit-tested in `test/db.test.ts`.
+  - every observed item and edge gets `last_seen_at`;
+  - only a **full + complete** sweep may soft-delete (`deleted_at`) items —
+    and, symmetrically, intra-source edges — it did not see; a partial/failed
+    fetch never deletes (`FetchResult.complete` gates it, recorded per run in
+    `sync_run`);
+  - a re-seen item/edge revives (tombstone cleared). Unit-tested in
+    `test/db.test.ts`.
 
 ## SQLite (point 5) — rationale and caveats
 
@@ -163,13 +165,19 @@ value is preserved alongside (`state_raw`). Key non-congruences:
 
 ### Still deferred for v1 (wired, intentionally not built)
 
-Edge soft-delete (only items are tombstoned today), raw history (one snapshot
-per entity), incremental sync (watermark stored, full-sweep default), and the UI.
+Raw history (one snapshot per entity), incremental sync (watermark stored,
+full-sweep default), and the UI.
 
-(The CI contract-validator, originally deferred, now ships: `emit` validates the
-envelope against the schema before writing and refuses to ship an invalid one;
-the dependency-free validator lives in `src/contract/validate.ts` and runs in CI
-via `test/validate.test.ts`. See `docs/CONTRACT.md`.)
+Shipped after the initial v1 cut:
+- **CI contract-validator** — `emit` validates the envelope against the schema
+  before writing and refuses to ship an invalid one; the dependency-free
+  validator (`src/contract/validate.ts`) runs in CI via `test/validate.test.ts`.
+  See `docs/CONTRACT.md`.
+- **Edge soft-delete** — a full + complete sweep now tombstones unseen edges,
+  symmetric to items (`softDeleteUnseenEdges`, gated identically). Scoped to
+  intra-source edges (both endpoints in the swept source); a cross-source edge
+  is left untouched because a single-source sweep cannot prove the other side
+  stopped asserting it.
 
 ## Open items (forward — UI phase)
 

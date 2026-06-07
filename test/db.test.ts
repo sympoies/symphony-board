@@ -8,9 +8,26 @@ import {
   listLiveItems,
   listLabels,
   softDeleteUnseenItems,
+  upsertEdge,
+  listLiveEdges,
+  softDeleteUnseenEdges,
 } from "../src/db/repo.ts";
 import type { CanonicalItem } from "../src/model/types.ts";
+import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
+
+function fixtureEdge(over: Partial<ReconciledEdge> = {}): ReconciledEdge {
+  return {
+    type: "closes",
+    from: { sourceId: "github:github.com", externalId: "PR_1" },
+    to: { sourceId: "github:github.com", externalId: "ISSUE_1" },
+    fromState: "merged",
+    toState: "closed",
+    lifecycle: "fulfilled",
+    discoveredFrom: "from",
+    ...over,
+  };
+}
 
 function fixtureItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
   return {
@@ -74,5 +91,34 @@ test("soft-delete tombstones items not seen since the cutoff, and re-seen items 
   // Re-seeing it clears the tombstone.
   upsertItem(db, fixtureItem(), "github/1", "2026-06-02T00:00:00Z");
   assert.equal(listLiveItems(db).length, 1);
+  db.close();
+});
+
+test("edge soft-delete tombstones unseen intra-source edges, and re-seen edges revive", () => {
+  const db = openDb(":memory:");
+  ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null }, "2026-06-01T00:00:00Z");
+  upsertEdge(db, fixtureEdge(), "2026-01-01T00:00:00Z"); // last_seen far in the past
+
+  const removed = softDeleteUnseenEdges(db, "github:github.com", "2026-06-01T00:00:00Z", "2026-06-01T00:00:00Z");
+  assert.equal(removed, 1);
+  assert.equal(listLiveEdges(db).length, 0, "tombstoned edge is not live");
+
+  // Re-seeing the same (type, from, to) clears the tombstone.
+  upsertEdge(db, fixtureEdge(), "2026-06-02T00:00:00Z");
+  assert.equal(listLiveEdges(db).length, 1);
+  db.close();
+});
+
+test("edge soft-delete is scoped to the source and never touches cross-source edges", () => {
+  const db = openDb(":memory:");
+  ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null }, "2026-06-01T00:00:00Z");
+
+  // A cross-source edge (from GitHub PR, to a GitLab issue) seen long ago. A
+  // GitHub-only sweep must NOT confirm it disappeared — the GitLab side is not
+  // part of this sweep — so it stays live.
+  upsertEdge(db, fixtureEdge({ to: { sourceId: "gitlab:gitlab.com", externalId: "gid://gitlab/Issue/9" } }), "2026-01-01T00:00:00Z");
+  const removed = softDeleteUnseenEdges(db, "github:github.com", "2026-06-01T00:00:00Z", "2026-06-01T00:00:00Z");
+  assert.equal(removed, 0, "cross-source edge is left untouched by a single-source sweep");
+  assert.equal(listLiveEdges(db).length, 1);
   db.close();
 });
