@@ -121,6 +121,11 @@ labels:
     color: c2e0c6
     description: Docker loop daemon, packaging, and toolchain (fnm / pnpm / Node).
     applies_to: [issue, pr, mr]
+  - name: "area::ui"
+    group: area
+    color: c5def5
+    description: Read-only frontend surface (board + React Flow graph, packages/ui) that consumes the contract.
+    applies_to: [issue, pr, mr]
 
   # --- priority ----------------------------------------------------------
   - name: "priority::p0"
