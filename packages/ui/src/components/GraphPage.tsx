@@ -45,12 +45,13 @@ import { buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNo
 // Side-list depth: the list cards now carry the same detail as the board card
 // (author, updated/created, review/CI/merge signals, collapsed labels, source
 // mark). Clicking a card enters a FOCUS view — that item plus its related items
-// (the other ends of its edges). Focusing also narrows the CANVAS to just that
-// item + its on-graph neighbours (the subgraph), so the graph mirrors the list
-// instead of staying the full fit; remounting React Flow on the focus change
-// reframes the camera. Related items are computed from the FULL edge set (model
-// buildAdjacency), so a relation hidden by the "active since" window still
-// lists, marked "off-window"; a "← all items" button returns to the list.
+// (the other ends of its edges). Focusing also switches the CANVAS to that
+// item's FULL relationship neighbourhood (focusSubgraph, built from the raw
+// edges — every edge type, no time window), so the graph mirrors the list
+// instead of staying the windowed overview fit; remounting React Flow on the
+// focus change reframes the camera. Related items are computed from the FULL
+// edge set (model buildAdjacency), so a relation hidden by the "active since"
+// window still lists, marked "off-window"; a "← all items" button returns.
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 const NODE_W = 200;
@@ -175,6 +176,9 @@ function nodeBorderPoint(node: InternalNode, other: InternalNode): { x: number; 
   return { x: w * (dx + dy) + x2, y: h * (-dx + dy) + y2 };
 }
 
+// Which side of the node the border point landed on (drives the bezier control
+// handle direction). The ±1px is a rounding tolerance so a point sitting exactly
+// on an edge is attributed to that side.
 function borderSide(node: InternalNode, p: { x: number; y: number }): Position {
   const nx = node.internals.positionAbsolute.x;
   const ny = node.internals.positionAbsolute.y;
@@ -386,7 +390,7 @@ function GraphListCard({
             {relation.direction === "both" ? "↔" : relation.direction === "out" ? "→" : "←"} {relation.type}
           </span>
           {relation.offWindow && (
-            <span className="glc-offwindow" title="outside the current “active since” window — widen it to show this node on the graph">
+            <span className="glc-offwindow" title="outside the current “active since” window — shown here in focus, but absent from the overview graph until you widen it">
               off-window
             </span>
           )}
@@ -409,9 +413,9 @@ function GraphListCard({
 
 // The side list beside the canvas. A controlled component: focus state
 // (focusId / onFocus / onBack) lives in the parent GraphPage, which also
-// narrows the canvas to the focus subgraph and reframes it by remounting the
-// canvas (this list no longer drives the camera itself). Two modes share one
-// <aside>:
+// switches the canvas to the focused item's relationship neighbourhood and
+// reframes it by remounting the canvas (this list no longer drives the camera
+// itself). Two modes share one <aside>:
 //   • list  — searchable, demand-sorted cards of the on-graph (windowed) nodes,
 //             with an all/issue/pr kind toggle; click a card to focus it.
 //   • focus — that item + its related items (other edge ends, from the FULL edge
@@ -474,7 +478,7 @@ function GraphSideList({
         <div className="graph-list-scroll">
           <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={() => {}} />
           {!windowedIds.has(focusId) && (
-            <p className="muted glc-note">This item is outside the current “active since” window — widen it to see it on the graph.</p>
+            <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
           )}
           <div className="graph-related-head muted">
             {related.length} related {related.length === 1 ? "item" : "items"}
