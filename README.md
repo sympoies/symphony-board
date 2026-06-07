@@ -1,5 +1,8 @@
 # symphony-board
 
+[![CI](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
+[![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
+
 Provider-agnostic work-item board. It aggregates issues and pull/merge requests
 from **multiple sources** (GitHub and GitLab today, others later) into one
 normalized **SQLite** store and emits a **versioned JSON contract** that a
@@ -49,6 +52,7 @@ fnm use                                   # picks Node 24 from .node-version
 pnpm install                              # dev-only deps (typescript, @types/node)
 pnpm run typecheck                        # tsc --noEmit (the type gate)
 pnpm test                                 # node --test (pure logic + DB roundtrip)
+pnpm coverage                             # combined line-coverage gate (CI fails under the floor)
 
 cp config/sources.example.json config/sources.json   # then edit projects/tokens
 export GITHUB_TOKEN=$(gh auth token)      # token per source's token_env
@@ -62,6 +66,24 @@ pnpm run emit -- --out data/contract.json # emit the versioned contract
 
 A source is skipped (with a warning) when its token env var is unset, so you can
 start with GitHub only.
+
+### Testing & coverage
+
+Three deliberately separate tiers — no single number captures all of them:
+
+- **Type/bundle gate** — `pnpm run typecheck` and the UI `vite build`.
+- **Unit tests** (`pnpm test`) — the pure, deterministic logic: the backend
+  (`src/**/*.ts`) and the UI **view-model** (`packages/ui/src/model.ts` et al.).
+- **`render-smoke`** — a headless-Chrome check that actually renders the built
+  board and asserts it draws (see [`packages/ui`](packages/ui)). This is the gate
+  for the React **`.tsx` component layer**.
+
+`pnpm coverage` enforces a **combined line-coverage floor** over the logic tier
+only — the backend `.ts` (the thin CLI entrypoints count honestly as `0%`) plus
+the UI `.ts` view-model. The `.tsx` components are **not** in this number: V8
+coverage of the bundled app remaps to a meaningless ~100%-if-loaded, so they are
+gated by `render-smoke` (a hard pass/fail) instead, not by a percentage. The
+[Coverage badge](#symphony-board) reflects this logic-tier number.
 
 ## Running continuously (the writer)
 

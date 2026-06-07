@@ -13,6 +13,8 @@
     "prepare": "lefthook install",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "coverage": "bash scripts/ci/coverage.sh",
+    "coverage:badge": "bash scripts/ci/coverage-badge.sh coverage/lcov.info badges/coverage.svg",
     "init-db": "node --disable-warning=ExperimentalWarning src/cli/init-db.ts",
     "sync": "node --disable-warning=ExperimentalWarning src/cli/sync.ts",
     "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts",
@@ -23,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "c8": "^10.1.3",
     "lefthook": "^2.1.9",
     "typescript": "^6.0.0"
   }

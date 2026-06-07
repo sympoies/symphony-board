@@ -124,3 +124,43 @@ test("only a full+complete sweep deletes; incremental and partial sweeps never d
   assert.equal(listLiveEdges(db).length, 0);
   db.close();
 });
+
+// A source whose fetch throws: it reports error and tombstones NOTHING, even on a
+// full sweep — a failed fetch must never be mistaken for a mass deletion (the
+// same invariant as the partial sweep above, via the error path).
+class BoomSource implements Source {
+  readonly descriptor = DESC;
+  readonly normalizerVersion = "fake/1";
+  async fetch(): Promise<FetchResult> {
+    throw new Error("network down");
+  }
+  normalize(): NormalizedBundle | null {
+    return null;
+  }
+}
+
+test("a failed fetch reports error, persists the error, and deletes nothing (even full)", async () => {
+  const db = openDb(":memory:");
+  await syncSource(db, build([item("A")]), null, { full: true, dryRun: false }); // seed one live item
+  assert.equal(listLiveItems(db).length, 1);
+  await tick();
+
+  const rep = await syncSource(db, new BoomSource(), "wm", { full: true, dryRun: false });
+  assert.equal(rep.status, "error");
+  assert.equal(rep.error, "network down");
+  assert.equal(rep.watermark, null, "a failed fetch advances no watermark");
+  assert.equal(rep.softDeleted, 0);
+  assert.equal(listLiveItems(db).length, 1, "a failed fetch never tombstones");
+  // The error is persisted, but the prior good watermark is NOT clobbered.
+  assert.equal(getWatermark(db, "fake:test"), "2026-06-01T00:00:00Z");
+  db.close();
+});
+
+test("a dry-run fetch error reports error but writes nothing", async () => {
+  const db = openDb(":memory:");
+  const rep = await syncSource(db, new BoomSource(), null, { full: true, dryRun: true });
+  assert.equal(rep.status, "error");
+  assert.equal(rep.error, "network down");
+  assert.equal(getWatermark(db, "fake:test"), null, "dry-run never touches sync_state");
+  db.close();
+});
