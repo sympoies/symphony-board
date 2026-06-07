@@ -37,7 +37,7 @@ export function ItemCard({ item, anchorId }: { item: ItemDTO; anchorId?: string 
         </span>
         <Badge text={item.state} kind={item.state} />
         {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        <a className="card-title" href={item.url || undefined} target="_blank" rel="noreferrer">
+        <a className="card-title" href={item.url || undefined} target="_blank" rel="noopener noreferrer">
           {item.title ?? "(untitled)"}
         </a>
       </div>
