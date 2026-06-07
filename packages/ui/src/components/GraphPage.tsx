@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -10,6 +10,7 @@ import {
   MarkerType,
   useNodesState,
   useEdgesState,
+  useNodesInitialized,
   useReactFlow,
   type Node,
   type Edge,
@@ -331,25 +332,51 @@ function GraphSideList({
   adjacency,
   windowedIds,
   sourceKind,
+  focusRef,
 }: {
   nodes: GraphNode[];
   itemsByRef: Map<string, ItemDTO>;
   adjacency: Map<string, RelatedRef[]>;
   windowedIds: Set<string>;
   sourceKind: Map<string, string>;
+  // Item ref to focus on entry (a "?focus=" deep-link from a board card). Seeds
+  // the focus view and frames the camera once the canvas has measured its nodes.
+  focusRef?: string | null;
 }) {
   const rf = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
   const [q, setQ] = useState("");
-  const [focusId, setFocusId] = useState<string | null>(null);
+  // Seed from the deep-link target so arriving at "#/graph?focus=<ref>" opens
+  // straight into that item's focus view.
+  const [focusId, setFocusId] = useState<string | null>(focusRef ?? null);
 
   // Drop focus whenever the windowed graph itself changes (the "active since" /
   // mention filters rebuild it). The focus view is tied to the current canvas, so
   // returning to the list avoids a stale focus on an item that just left it. Keyed
   // on windowedIds — NOT "focusId went off-window" — so chaining to an off-window
-  // related item (an intentional focus) is preserved.
+  // related item (an intentional focus) is preserved. The first run is skipped so
+  // a deep-link seed (focusRef) survives the initial graph build.
+  const skipReset = useRef(true);
   useEffect(() => {
+    if (skipReset.current) {
+      skipReset.current = false;
+      return;
+    }
     setFocusId(null);
   }, [windowedIds]);
+
+  // Frame the deep-link focus once React Flow has measured its nodes — calling
+  // fitView before measurement fits against zero-size nodes and no-ops. Runs at
+  // most once; a manual card click drives the camera through focus() instead.
+  const framedRef = useRef(false);
+  useEffect(() => {
+    if (focusRef && nodesInitialized && !framedRef.current) {
+      framedRef.current = true;
+      focusCamera(focusRef);
+    }
+    // focusCamera reads adjacency/windowedIds via closure; fine for the one-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRef, nodesInitialized]);
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const labelOf = (ref: string): string => nodeById.get(ref)?.label ?? itemsByRef.get(ref)?.title ?? ref.split("|").pop() ?? ref;
@@ -440,8 +467,12 @@ function GraphSideList({
   );
 }
 
-export function GraphPage({ edges, sourceKind }: { edges: ResolvedEdge[]; sourceKind: Map<string, string> }) {
-  const [since, setSince] = useState<string>(() => cutoffIso(90).slice(0, 10));
+export function GraphPage({ edges, sourceKind, focusRef }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; focusRef?: string | null }) {
+  // A deep-link focus (a board card → "#/graph?focus=<ref>") clears the time
+  // window on entry so the target is guaranteed on the graph and framable: an
+  // item older than the default 90-day window would otherwise land off-window
+  // with no node to frame. Absent a focus, keep the 90-day default.
+  const [since, setSince] = useState<string>(() => (focusRef ? "" : cutoffIso(90).slice(0, 10)));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
@@ -578,7 +609,7 @@ export function GraphPage({ edges, sourceKind }: { edges: ResolvedEdge[]; source
         // camera (fitView) even though it renders outside <ReactFlow>.
         <ReactFlowProvider>
           <div className="graph-body">
-            <GraphSideList nodes={graph.nodes} itemsByRef={itemsByRef} adjacency={adjacency} windowedIds={windowedIds} sourceKind={sourceKind} />
+            <GraphSideList nodes={graph.nodes} itemsByRef={itemsByRef} adjacency={adjacency} windowedIds={windowedIds} sourceKind={sourceKind} focusRef={focusRef} />
             <div className="graph-canvas">
               <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} />
             </div>

@@ -146,6 +146,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .card:target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 .card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .kind { color: var(--muted); }
+/* "focus in graph" link — pushed to the right of the head row (the title wraps
+   to its own line below it); muted until hovered, mirroring the graph side
+   list's ↗ provider link. */
+.card-graph { margin-left: auto; display: inline-flex; align-items: center; color: var(--muted); line-height: 1; }
+.card-graph:hover { color: var(--accent); text-decoration: none; }
+.icon-graph { flex: none; }
 .card-title { font-weight: 600; flex: 1 1 100%; }
 .card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
 /* created · updated, on their own row beneath the meta line */

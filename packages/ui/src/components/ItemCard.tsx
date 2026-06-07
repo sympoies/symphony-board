@@ -2,9 +2,35 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
-import { relativeTime } from "../model.ts";
+import { relativeTime, graphFocusHref } from "../model.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
+
+// "Focus this item in the relationship graph" marker — three connected nodes
+// (Feather "share-2"), the same stroked-SVG idiom as DemandIcon. Shown only for
+// items that actually have a graph node (see `linked`).
+function GraphIcon() {
+  return (
+    <svg
+      className="icon-graph"
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  );
+}
 
 // Engagement (comments + reactions) marker. A line-style speech bubble drawn in
 // currentColor — deliberately a stroked SVG, not an emoji, to match the card's
@@ -28,7 +54,20 @@ function DemandIcon() {
   );
 }
 
-export function ItemCard({ item, anchorId, sourceKind }: { item: ItemDTO; anchorId?: string; sourceKind?: string }) {
+export function ItemCard({
+  item,
+  anchorId,
+  sourceKind,
+  linked,
+}: {
+  item: ItemDTO;
+  anchorId?: string;
+  sourceKind?: string;
+  // True when this item is an endpoint of at least one edge, so it has a node on
+  // the graph to focus. The "focus in graph" link renders only then (App derives
+  // it from the visible edge set).
+  linked?: boolean;
+}) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
     <article className="card" id={anchorId}>
@@ -38,6 +77,22 @@ export function ItemCard({ item, anchorId, sourceKind }: { item: ItemDTO; anchor
         </span>
         <Badge text={item.state} kind={item.state} />
         {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
+        {/* Focus-in-graph link. Only rendered when `linked` is passed — the
+            board sets it for edge-endpoint items; the graph side list renders
+            ItemCard WITHOUT it (you are already on the graph). stopPropagation so
+            that if the card is ever wrapped in a click target it opens the graph
+            without also triggering the wrapper, matching the card title below. */}
+        {linked ? (
+          <a
+            className="card-graph"
+            href={graphFocusHref(item.id)}
+            title="focus this item in the relationship graph"
+            aria-label="focus in graph"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GraphIcon />
+          </a>
+        ) : null}
         {/* stopPropagation so opening the issue from a card that is itself
             clickable (e.g. the graph side list's focus target) doesn't also
             trigger the wrapper's click; harmless on the board where the card has
