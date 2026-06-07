@@ -20,7 +20,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
-import { buildGraph, buildAdjacency, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -206,8 +206,9 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
   return m;
 }
 
-// The RF canvas is keyed by the parent so a layout/filter change remounts it and
-// re-fits; that keeps drag state simple (local, reset on filter change). Hover a
+// The RF canvas is keyed by the parent so a layout / filter / FOCUS change
+// remounts it and re-fits; that keeps drag state simple (local, reset on the
+// change) and is what reframes the camera on the new focus subgraph. Hover a
 // node to highlight it + its neighbours (everything else dims) and label its
 // incident edges with the edge type.
 function Flow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
@@ -338,14 +339,16 @@ function GraphListCard({
   );
 }
 
-// The side list beside the canvas. Two modes share one <aside>:
-//   • list  — searchable, demand-sorted cards of the on-graph (windowed) nodes;
-//             click a card to focus it.
+// The side list beside the canvas. A controlled component: focus state
+// (focusId / onFocus / onBack) lives in the parent GraphPage, which also
+// narrows the canvas to the focus subgraph and reframes it by remounting the
+// canvas (this list no longer drives the camera itself). Two modes share one
+// <aside>:
+//   • list  — searchable, demand-sorted cards of the on-graph (windowed) nodes,
+//             with an all/issue/pr kind toggle; click a card to focus it.
 //   • focus — that item + its related items (other edge ends, from the FULL edge
-//             set, off-window ones flagged); camera fits the item + its on-graph
-//             neighbours. A related card re-focuses (navigation chain); "← all
-//             items" returns. It drives the camera via React Flow's fitView, so
-//             it renders INSIDE the <ReactFlowProvider> shared with the canvas.
+//             set, off-window ones flagged). A related card re-focuses
+//             (navigation chain); "← all items" returns.
 function GraphSideList({
   nodes,
   itemsByRef,
@@ -529,19 +532,9 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
   }, [windowedIds]);
 
   // #1: when an item is focused, narrow the canvas to that item + its on-graph
-  // neighbours and the edges among them, so the canvas mirrors the side list's
-  // focus view instead of staying the full windowed graph. Falls back to the
-  // full graph when the focus leaves nothing to render (e.g. an off-window focus
-  // with no on-graph neighbours), so the canvas is never blank.
-  const view = useMemo<GraphData>(() => {
-    if (!focusId) return graph;
-    const keep = new Set<string>([focusId, ...(adjacency.get(focusId) ?? []).map((r) => r.ref)]);
-    const nodes = graph.nodes.filter((n) => keep.has(n.id));
-    if (nodes.length === 0) return graph;
-    const ids = new Set(nodes.map((n) => n.id));
-    const links = graph.links.filter((l) => ids.has(l.source) && ids.has(l.target));
-    return { nodes, links };
-  }, [graph, focusId, adjacency]);
+  // neighbours and the edges among them (focusSubgraph), so the canvas mirrors
+  // the side list's focus view instead of staying the full windowed graph.
+  const view = useMemo<GraphData>(() => focusSubgraph(graph, focusId, adjacency), [graph, focusId, adjacency]);
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
