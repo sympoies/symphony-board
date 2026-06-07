@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GitHubSource } from "../src/sources/github.ts";
 import type { GqlClient } from "../src/sources/graphql.ts";
-import type { SourceDescriptor } from "../src/sources/types.ts";
+import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
 
 const DESC: SourceDescriptor = { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null };
 
@@ -48,4 +48,34 @@ test("a full sweep ignores the watermark and fetches everything", async () => {
   const ids = res.records.map((r) => r.externalId).sort();
   assert.deepEqual(ids, ["I_fresh", "I_stale"], "full sweep keeps the stale issue too");
   assert.equal(res.watermark, "2026-06-10T00:00:00Z", "watermark is the max updatedAt seen");
+});
+
+test("normalize emits mentions from non-closing cross-references (source -> self)", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "issue",
+    externalId: "I_self",
+    apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      ...issueNode("I_self", "2026-06-01T00:00:00Z"),
+      timelineItems: {
+        nodes: [
+          { willCloseTarget: false, source: { __typename: "PullRequest", id: "PR_mention", state: "MERGED" } },
+          { willCloseTarget: true, source: { __typename: "PullRequest", id: "PR_closer", state: "MERGED" } },
+          { willCloseTarget: false, source: null },
+        ],
+      },
+    },
+  };
+  const bundle = src.normalize(raw);
+  assert.ok(bundle);
+  const mentions = bundle!.edges.filter((e) => e.type === "mentions");
+  assert.equal(mentions.length, 1, "only the non-closing, resolvable cross-ref becomes a mention");
+  const m = mentions[0]!;
+  assert.equal(m.from.externalId, "PR_mention", "edge points source -> self");
+  assert.equal(m.to.externalId, "I_self");
+  assert.equal(m.fromState, "merged");
+  assert.equal(m.toState, "open");
 });

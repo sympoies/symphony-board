@@ -41,12 +41,14 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
   // into the date input so the active value is visible.
   const [since, setSince] = useState<string>(() => cutoffIso(90).slice(0, 10));
   const [layout, setLayout] = useState<"cose" | "breadthfirst">("cose");
+  const [showMentions, setShowMentions] = useState(false); // mentions are dense/noisy — opt in
   const containerRef = useRef<HTMLDivElement>(null);
 
   const graph = useMemo(() => {
     const cutoff = since ? new Date(since + "T00:00:00Z").toISOString() : null;
-    return buildGraph(edges, cutoff);
-  }, [edges, since]);
+    const visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
+    return buildGraph(visible, cutoff);
+  }, [edges, since, showMentions]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -64,7 +66,7 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
             untracked: String(n.untracked),
           },
         })),
-        ...graph.links.map((l) => ({ data: { id: l.id, source: l.source, target: l.target, color: l.color } })),
+        ...graph.links.map((l) => ({ data: { id: l.id, source: l.source, target: l.target, color: l.color, type: l.type } })),
       ],
       style: [
         {
@@ -103,6 +105,8 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
             "curve-style": "bezier",
           },
         },
+        // mentions are noisier than closes — render thinner + dashed + faded
+        { selector: 'edge[type = "mentions"]', style: { width: 1, "line-style": "dashed", opacity: 0.6 } },
       ],
       layout: layoutOf(layout),
       wheelSensitivity: 0.2,
@@ -134,6 +138,12 @@ export function GraphPage({ edges }: { edges: ResolvedEdge[] }) {
             onClick={() => setLayout("breadthfirst")}
           >
             Hierarchy
+          </button>
+        </div>
+        <div className="toggle-group">
+          <span className="toggle-label">edges</span>
+          <button type="button" className={`toggle${showMentions ? " toggle-on" : ""}`} onClick={() => setShowMentions((v) => !v)}>
+            + mentions
           </button>
         </div>
         <div className="graph-legend">
