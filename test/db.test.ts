@@ -68,6 +68,29 @@ test("upsertItem is idempotent on (source_id, external_id) and resurrects on re-
   db.close();
 });
 
+test("listLiveItems orders by resolution recency, NOT by closed_at presence", () => {
+  // Regression: GitLab carries merged_at (not closed_at) for a merged MR. An
+  // ORDER BY that floats closed_at-IS-NULL rows first — or omits merged_at —
+  // scatters every GitLab merged MR ahead of dated items in the Closed column.
+  // Expected order is purely by most-recent resolution: open(updated) > the
+  // newer merge > the older merge, regardless of which timestamp carries it.
+  const db = openDb(":memory:");
+  ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+
+  // GitHub-style merged PR: closed_at AND merged_at set, merged 2026-06-07.
+  upsertItem(db, fixtureItem({ externalId: "PR_GH", state: "merged", closedAt: "2026-06-07T00:00:00Z", mergedAt: "2026-06-07T00:00:00Z", updatedAt: "2026-06-07T00:00:00Z" }), "github/gh", "2026-06-08T00:00:00Z");
+  // GitLab-style merged MR: closed_at NULL, merged_at set, merged 2026-05-01 —
+  // and a LATER updated_at to prove merged_at (resolution time), not updated_at,
+  // drives its position.
+  upsertItem(db, fixtureItem({ externalId: "MR_GL", state: "merged", closedAt: null, mergedAt: "2026-05-01T00:00:00Z", updatedAt: "2026-06-09T00:00:00Z" }), "github/gl", "2026-06-08T00:00:00Z");
+  // Open item, freshly updated — sorts first by updated_at.
+  upsertItem(db, fixtureItem({ externalId: "ISSUE_OPEN", state: "open", updatedAt: "2026-06-10T00:00:00Z" }), "github/open", "2026-06-08T00:00:00Z");
+
+  const order = listLiveItems(db).map((r) => r.external_id);
+  assert.deepEqual(order, ["ISSUE_OPEN", "PR_GH", "MR_GL"], "open(06-10) > GitHub merge(06-07) > GitLab merge(05-01)");
+  db.close();
+});
+
 test("labels are replaced wholesale", () => {
   const db = openDb(":memory:");
   ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null }, "2026-06-01T00:00:00Z");

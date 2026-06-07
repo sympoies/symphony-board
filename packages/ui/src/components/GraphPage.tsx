@@ -473,7 +473,9 @@ function GraphSideList({
   );
 }
 
-export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; colorOf: ColorOf; focusRef?: string | null }) {
+const DEFAULT_SINCE = (): string => cutoffIso(90).slice(0, 10);
+
+export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; colorOf: ColorOf; focusRef?: string | null; narrowed?: boolean }) {
   // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
   // filters on entry so the target is GUARANTEED on the graph and framable: it
   // clears the time window (an older item would land off the default 90-day
@@ -482,7 +484,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
   // any item with at least one edge — exactly the items that show the link — is
   // on the canvas. Absent a focus, keep the 90-day, no-mentions defaults. App
   // keys the page on the focus target, so each entry re-runs these initializers.
-  const [since, setSince] = useState<string>(() => (focusRef ? "" : cutoffIso(90).slice(0, 10)));
+  const [since, setSince] = useState<string>(() => (focusRef ? "" : DEFAULT_SINCE()));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
@@ -490,6 +492,28 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
   // list's focus view and the canvas subgraph below; null = the flat list +
   // full graph.
   const [focusId, setFocusId] = useState<string | null>(focusRef ?? null);
+
+  // The deep-link's all-time window only makes sense WHILE the narrowing search
+  // (the "?q=" seed) is active — that search is what keeps the canvas down to the
+  // focused item + neighbours. Once the user clears the search (the search box's
+  // ✕), an all-time window with no narrowing would dump the entire history, so
+  // snap back to the default window. Only fires on the narrowed → not-narrowed
+  // EDGE, and only while we still own the relaxation: any manual window change
+  // (chooseSince) opts out, so we never override a window the user picked.
+  const relaxedForFocus = useRef(!!focusRef);
+  const prevNarrowed = useRef(!!narrowed);
+  function chooseSince(val: string) {
+    relaxedForFocus.current = false;
+    setSince(val);
+  }
+  useEffect(() => {
+    const wasNarrowed = prevNarrowed.current;
+    prevNarrowed.current = !!narrowed;
+    if (wasNarrowed && !narrowed && relaxedForFocus.current) {
+      relaxedForFocus.current = false;
+      setSince(DEFAULT_SINCE());
+    }
+  }, [narrowed]);
 
   const graph = useMemo(() => {
     const cutoff = since ? new Date(since + "T00:00:00Z").toISOString() : null;
@@ -596,14 +620,14 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef }: { edges: Res
           {focusId ? " · focused" : ""}
         </span>
         <label className="graph-since">
-          active since <input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
+          active since <input type="date" value={since} onChange={(e) => chooseSince(e.target.value)} />
         </label>
         <div className="toggle-group">
           <span className="toggle-label">since</span>
           {SINCE_PRESETS.map(([lab, days]) => {
             const val = days == null ? "" : cutoffIso(days).slice(0, 10);
             return (
-              <button key={lab} type="button" className={`toggle${since === val ? " toggle-on" : ""}`} onClick={() => setSince(val)}>
+              <button key={lab} type="button" className={`toggle${since === val ? " toggle-on" : ""}`} onClick={() => chooseSince(val)}>
                 {lab}
               </button>
             );

@@ -303,7 +303,7 @@ export function App() {
           {/* Keyed on the focus target so each distinct deep-link entry remounts
               the graph with a fresh window + focus seed (the seed is mount-time);
               a new "?focus=" — or clearing it — never leaves a stale focus. */}
-          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} focusRef={route.focus} />
+          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} focusRef={route.focus} narrowed={filters.search.trim() !== ""} />
         </Suspense>
       ) : (
         <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
