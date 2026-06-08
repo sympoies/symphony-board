@@ -398,6 +398,10 @@ function GraphListCard({
       className={`graph-list-card${active ? " active" : ""}`}
       role="button"
       tabIndex={0}
+      // The active card is the currently-focused item; re-clicking it clears the
+      // focus (its onFocus is wired to that), so its hint says so. Every other
+      // card focuses ITS item, which needs no hint.
+      title={active ? "Click to clear focus" : undefined}
       onClick={onFocus}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -498,7 +502,9 @@ function GraphSideList({
           ← all items
         </button>
         <div className="graph-list-scroll">
-          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={() => {}} />
+          {/* Re-clicking the focused item clears focus (toggle off) — same exit as
+              "← all items", so the card the user just clicked is also the way back. */}
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={onBack} />
           {!windowedIds.has(focusId) && (
             <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
           )}
