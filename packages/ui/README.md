@@ -70,8 +70,8 @@ title, summary, actor, project path, target metadata, and provider details; a
 The feed defaults to `this week`, where the week starts on Monday in local time
 relative to the loaded contract's `generated_at`. Quick ranges are `1d`, `3d`,
 `this week`, `1w`, `2w`, `1m`, and `all`. The page filters by range before the
-global source/kind/search facets, then renders the newest 300 matching rows with
-a `Show more` stepper for larger windows.
+global source/kind/search facets, then virtualizes the matching rows so large
+windows such as `all` keep the DOM bounded.
 
 ### Settings (`#/settings`)
 
@@ -119,7 +119,7 @@ Runtime contracts under `data/` stay gitignored.
 Chrome. It asserts the Board, Graph, Activity feed, Settings, deep-link search,
 focus path, and configured display colors render without console errors. It also
 verifies that Board and Graph scoped summaries change when their active-since
-windows change.
+windows change, and that a large synthetic Activity feed stays virtualized.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.

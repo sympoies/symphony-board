@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 import {
+  ACTIVITY_DEFAULT_VIEWPORT_PX,
+  ACTIVITY_ROW_GAP_PX,
+  ACTIVITY_ROW_HEIGHT_PX,
   ACTIVITY_WINDOW_PRESETS,
+  activityVirtualRange,
   relativeTime,
   type ActivityWindowKey,
   type ColorOf,
@@ -26,7 +30,7 @@ function activityTitle(a: ActivityDTO): string {
   return a.summary ?? a.title ?? `${a.action} ${a.kind}`;
 }
 
-const PAGE_SIZE = 300;
+const ACTIVITY_ROW_STRIDE_PX = ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX;
 
 export function ActivityPage({
   activities,
@@ -45,13 +49,46 @@ export function ActivityPage({
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
 }) {
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  useEffect(() => {
-    setLimit(PAGE_SIZE);
-  }, [activities, activityWindow]);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(ACTIVITY_DEFAULT_VIEWPORT_PX);
 
-  const visibleActivities = useMemo(() => activities.slice(0, limit), [activities, limit]);
-  const hidden = activities.length - visibleActivities.length;
+  const resetScroll = useCallback(() => {
+    setScrollTop(0);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, []);
+
+  useEffect(() => {
+    resetScroll();
+  }, [activities, activityWindow, resetScroll]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    const updateHeight = () => {
+      setViewportHeight(el.clientHeight || ACTIVITY_DEFAULT_VIEWPORT_PX);
+    };
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateHeight);
+      return () => window.removeEventListener("resize", updateHeight);
+    }
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, [activities.length]);
+
+  const virtual = useMemo(
+    () => activityVirtualRange({ count: activities.length, scrollTop, viewportHeight }),
+    [activities.length, scrollTop, viewportHeight],
+  );
+  const visibleActivities = useMemo(
+    () => activities.slice(virtual.start, virtual.end),
+    [activities, virtual.start, virtual.end],
+  );
   const countLabel =
     activities.length === windowTotal
       ? `${activities.length} in range`
@@ -84,16 +121,36 @@ export function ActivityPage({
       {activities.length === 0 ? (
         <p className="empty">{windowTotal === 0 ? "No activity in this range." : "No activity matches the current filters."}</p>
       ) : (
-        <>
-          <div className="activity-list">
-            {visibleActivities.map((a) => {
+        <div
+          ref={listRef}
+          className="activity-list"
+          role="list"
+          aria-label="Activity feed"
+          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          style={
+            {
+              "--activity-row-height": `${ACTIVITY_ROW_HEIGHT_PX}px`,
+            } as CSSProperties
+          }
+        >
+          <div className="activity-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }}>
+            {visibleActivities.map((a, offset) => {
+              const index = virtual.start + offset;
               const accentColor = colorOf(a.source_id, a.project_path);
               const title = activityTitle(a);
               return (
                 <article
                   key={a.id}
                   className={`activity-row${accentColor ? " card-accent" : ""}`}
-                  style={accentColor ? ({ "--repo-color": accentColor } as CSSProperties) : undefined}
+                  role="listitem"
+                  aria-posinset={index + 1}
+                  aria-setsize={activities.length}
+                  style={
+                    {
+                      "--repo-color": accentColor ?? undefined,
+                      transform: `translateY(${index * ACTIVITY_ROW_STRIDE_PX}px)`,
+                    } as CSSProperties
+                  }
                 >
                   <div className="activity-main">
                     <div className="activity-title-row">
@@ -121,17 +178,7 @@ export function ActivityPage({
               );
             })}
           </div>
-          {hidden > 0 ? (
-            <div className="activity-more">
-              <span className="muted">
-                {visibleActivities.length} shown / {activities.length} matches
-              </span>
-              <button type="button" className="toggle" onClick={() => setLimit((n) => n + PAGE_SIZE)}>
-                Show more
-              </button>
-            </div>
-          ) : null}
-        </>
+        </div>
       )}
     </main>
   );

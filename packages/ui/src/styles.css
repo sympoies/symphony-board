@@ -367,31 +367,38 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 .activity-list {
-  display: flex; flex-direction: column; gap: 6px;
+  position: relative;
   max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
   padding-right: 4px;
 }
-.activity-row {
+.activity-virtual-space {
   position: relative;
-  display: flex; align-items: flex-start; gap: 12px;
+  min-height: 100%;
+}
+.activity-row {
+  position: absolute; left: 0; right: 0;
+  display: flex; align-items: center; gap: 12px;
+  height: var(--activity-row-height);
+  box-sizing: border-box;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   padding: 9px 12px;
+  overflow: hidden;
 }
 .activity-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .activity-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .activity-title {
   color: var(--text); font-weight: 600; min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .activity-meta {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  display: flex; align-items: center; gap: 6px 10px;
   color: var(--muted); font-size: 12px;
+  min-width: 0; overflow: hidden; white-space: nowrap;
+}
+.activity-meta span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
-.activity-more {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  margin-top: 10px;
-}
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }

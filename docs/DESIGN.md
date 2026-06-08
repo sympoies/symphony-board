@@ -242,8 +242,8 @@ Pages:
   item-transition records. It defaults to `this week` (Monday start, relative to
   the loaded contract's `generated_at`) and supports `1d`, `3d`, `this week`,
   `1w`, `2w`, `1m`, and `all`. The range is applied before source/kind/search
-  filters, and the page renders matching rows in 300-row steps so large activity
-  histories do not flood the DOM.
+  filters, and the page virtualizes matching rows so large activity histories
+  remain scrollable without flooding the DOM.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources and set per-repo color overrides in `localStorage`. These preferences
   are a pre-filter before Board, Graph, and Activity compute their views. They
