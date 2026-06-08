@@ -4,11 +4,16 @@ import type { ActivityDTO, ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-
 import {
   ACTIVE_SINCE_PRESETS,
   DEFAULT_ACTIVE_SINCE_DAYS,
+  DEFAULT_ACTIVITY_WINDOW,
   VIEW_SCOPES,
   VIEW_SCOPE_LABEL,
+  ACTIVITY_WINDOW_PRESETS,
   defaultActiveSince,
   emptyFilters,
+  activityActiveSince,
   activityMatches,
+  activityWindowCutoffMs,
+  filterActivitiesByWindow,
   itemMatches,
   indexItems,
   resolveEdges,
@@ -119,6 +124,41 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
   assert.equal(activityMatches(a13, f("#13")), true);
   assert.equal(activityMatches(a130, f("#13")), false, "#13 must not match #130");
   assert.equal(activityMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
+});
+
+test("activity windows expose requested presets and compute local Monday for this week", () => {
+  assert.equal(DEFAULT_ACTIVITY_WINDOW, "thisWeek");
+  assert.deepEqual(ACTIVITY_WINDOW_PRESETS.map(([label]) => label), ["1d", "3d", "this week", "1w", "2w", "1m", "all"]);
+  const now = new Date(2026, 5, 10, 15, 30, 0).getTime(); // local Wednesday
+
+  assert.equal(activityWindowCutoffMs("1d", now), now - 24 * 60 * 60 * 1000);
+  assert.equal(activityWindowCutoffMs("3d", now), now - 3 * 24 * 60 * 60 * 1000);
+  assert.equal(activityWindowCutoffMs("1w", now), now - 7 * 24 * 60 * 60 * 1000);
+  assert.equal(activityWindowCutoffMs("2w", now), now - 14 * 24 * 60 * 60 * 1000);
+  assert.equal(activityWindowCutoffMs("1m", now), now - 30 * 24 * 60 * 60 * 1000);
+  assert.equal(activityWindowCutoffMs("all", now), null);
+
+  const week = new Date(activityWindowCutoffMs("thisWeek", now)!);
+  assert.equal(week.getFullYear(), 2026);
+  assert.equal(week.getMonth(), 5);
+  assert.equal(week.getDate(), 8, "this week starts on Monday");
+  assert.equal(week.getHours(), 0);
+  assert.equal(week.getMinutes(), 0);
+});
+
+test("activity window filtering preserves order and includes boundary timestamps", () => {
+  const now = Date.parse("2026-06-08T12:00:00Z");
+  const a = (id: string, offsetMs: number) =>
+    activity({ id, external_id: id, occurred_at: new Date(now - offsetMs).toISOString() });
+  const activities = [
+    a("recent", 60 * 1000),
+    a("boundary", 24 * 60 * 60 * 1000),
+    a("old", 24 * 60 * 60 * 1000 + 1),
+  ];
+
+  assert.equal(activityActiveSince(activities[0]!, activityWindowCutoffMs("1d", now)), true);
+  assert.deepEqual(filterActivitiesByWindow(activities, "1d", now).map((x) => x.id), ["recent", "boundary"]);
+  assert.deepEqual(filterActivitiesByWindow(activities, "all", now).map((x) => x.id), ["recent", "boundary", "old"]);
 });
 
 test("itemSearchToken builds a 'repo #iid' token that itemMatches pins to its own item", () => {

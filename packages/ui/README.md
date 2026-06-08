@@ -62,6 +62,12 @@ Activity shares the global search box plus source/kind filters. Search includes
 title, summary, actor, project path, target metadata, and provider details; a
 `#<iid>` token matches `target_iid` exactly.
 
+The feed defaults to `this week`, where the week starts on Monday in local time
+relative to the loaded contract's `generated_at`. Quick ranges are `1d`, `3d`,
+`this week`, `1w`, `2w`, `1m`, and `all`. The page filters by range before the
+global source/kind/search facets, then renders the newest 300 matching rows with
+a `Show more` stepper for larger windows.
+
 ### Settings (`#/settings`)
 
 Settings is a browser-local display surface:

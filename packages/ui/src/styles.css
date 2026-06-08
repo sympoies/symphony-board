@@ -363,8 +363,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
 /* activity page */
 .activity-page { margin: 12px 0; max-width: 980px; }
-.activity-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
+.activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 .activity-list {
   display: flex; flex-direction: column; gap: 6px;
   max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
@@ -387,6 +388,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   color: var(--muted); font-size: 12px;
 }
 .activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.activity-more {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-top: 10px;
+}
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }

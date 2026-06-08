@@ -314,6 +314,7 @@ try {
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
+    [has(activityHtml, ">1d<") && has(activityHtml, ">3d<") && has(activityHtml, ">this week<") && has(activityHtml, ">1m<") && has(activityHtml, ">all<"), "activity: range presets rendered"],
     [activityRows >= 4, `activity: rows rendered (${activityRows} >= 4)`],
     [has(activityHtml, "committed") && has(activityHtml, "merged") && has(activityHtml, "closed"), "activity: action badges rendered"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
