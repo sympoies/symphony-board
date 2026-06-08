@@ -27,6 +27,7 @@ const DEADLINE_MS = 30000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
+const ACTIVITY_SMOKE_ROWS = 1200;
 
 function chromeBinary() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
@@ -38,6 +39,29 @@ function chromeBinary() {
 function fail(msg) {
   console.error(`render-smoke FAIL: ${msg}`);
   process.exitCode = 1;
+}
+
+function inflateActivityContract(body) {
+  const env = JSON.parse(body.toString("utf8"));
+  if (!Array.isArray(env.activities) || env.activities.length === 0) return body;
+
+  const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
+  const activities = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
+    const a = env.activities[i % env.activities.length];
+    const summary = a.summary || a.title || `${a.action} ${a.kind}`;
+    return {
+      ...a,
+      id: `${a.id}|smoke-${i}`,
+      external_id: `${a.external_id}:smoke:${i}`,
+      occurred_at: new Date(baseTime - i * 60_000).toISOString(),
+      summary: `${summary} smoke ${i}`,
+      details: {
+        ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
+        smoke_index: i,
+      },
+    };
+  });
+  return JSON.stringify({ ...env, activities });
 }
 
 if (!existsSync(join(DIST, "index.html"))) {
@@ -55,7 +79,8 @@ const server = createServer(async (req, res) => {
       res.writeHead(403).end();
       return;
     }
-    const body = await readFile(file);
+    const rawBody = await readFile(file);
+    const body = file === join(DIST, "contract.json") ? inflateActivityContract(rawBody) : rawBody;
     const ext = file.slice(file.lastIndexOf("."));
     res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" }).end(body);
   } catch {
@@ -190,6 +215,11 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   const activityHtml = await waitHtml("document.querySelector('.activity-row')");
+  const activityCountText = await textOf(".activity-head .count");
+  const activityDomRows = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('.activity-row').length",
+    returnByValue: true,
+  })).result.value || 0;
   // Page 4 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -265,7 +295,7 @@ try {
   const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
-  const activityRows = m(activityHtml, /class="activity-row/g);
+  const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
@@ -316,6 +346,8 @@ try {
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [has(activityHtml, ">1d<") && has(activityHtml, ">3d<") && has(activityHtml, ">this week<") && has(activityHtml, ">1m<") && has(activityHtml, ">all<"), "activity: range presets rendered"],
     [activityRows >= 4, `activity: rows rendered (${activityRows} >= 4)`],
+    [/1200 in range/.test(activityCountText), `activity: large smoke feed count rendered (${activityCountText})`],
+    [activityRows < 80, `activity: virtualized rows stay bounded (${activityRows} < 80)`],
     [has(activityHtml, "committed") && has(activityHtml, "merged") && has(activityHtml, "closed"), "activity: action badges rendered"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     // deep link: a board card's focus link opens the graph in the focus view

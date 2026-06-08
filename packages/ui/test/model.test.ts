@@ -5,6 +5,8 @@ import {
   ACTIVE_SINCE_PRESETS,
   DEFAULT_ACTIVE_SINCE_DAYS,
   DEFAULT_ACTIVITY_WINDOW,
+  ACTIVITY_ROW_GAP_PX,
+  ACTIVITY_ROW_HEIGHT_PX,
   VIEW_SCOPES,
   VIEW_SCOPE_LABEL,
   ACTIVITY_WINDOW_PRESETS,
@@ -12,6 +14,7 @@ import {
   emptyFilters,
   activityActiveSince,
   activityMatches,
+  activityVirtualRange,
   activityWindowCutoffMs,
   filterActivitiesByWindow,
   itemMatches,
@@ -160,6 +163,52 @@ test("activity window filtering preserves order and includes boundary timestamps
   assert.equal(activityActiveSince(activities[0]!, activityWindowCutoffMs("1d", now)), true);
   assert.deepEqual(filterActivitiesByWindow(activities, "1d", now).map((x) => x.id), ["recent", "boundary"]);
   assert.deepEqual(filterActivitiesByWindow(activities, "all", now).map((x) => x.id), ["recent", "boundary", "old"]);
+});
+
+test("activityVirtualRange renders only the visible rows plus overscan", () => {
+  const opts = { count: 100, rowHeight: 10, rowGap: 2, viewportHeight: 25, overscan: 1 };
+
+  assert.deepEqual(activityVirtualRange({ ...opts, scrollTop: 0 }), {
+    start: 0,
+    end: 5,
+    visibleCount: 5,
+    totalHeightPx: 1198,
+  });
+  assert.deepEqual(activityVirtualRange({ ...opts, scrollTop: 120 }), {
+    start: 9,
+    end: 15,
+    visibleCount: 6,
+    totalHeightPx: 1198,
+  });
+  assert.deepEqual(activityVirtualRange({ ...opts, scrollTop: 9999 }), {
+    start: 98,
+    end: 100,
+    visibleCount: 2,
+    totalHeightPx: 1198,
+  });
+});
+
+test("activityVirtualRange clamps empty and invalid inputs", () => {
+  assert.deepEqual(activityVirtualRange({ count: 0, scrollTop: 50, viewportHeight: 100 }), {
+    start: 0,
+    end: 0,
+    visibleCount: 0,
+    totalHeightPx: 0,
+  });
+
+  const bad = activityVirtualRange({ count: Number.NaN, scrollTop: Number.NaN, viewportHeight: Number.NaN });
+  assert.equal(bad.start, 0);
+  assert.equal(bad.end, 0);
+  assert.equal(bad.visibleCount, 0);
+  assert.equal(bad.totalHeightPx, 0);
+
+  const defaults = activityVirtualRange({ count: 2, scrollTop: -1, viewportHeight: -1 });
+  assert.deepEqual(defaults, {
+    start: 0,
+    end: 2,
+    visibleCount: 2,
+    totalHeightPx: 2 * (ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX) - ACTIVITY_ROW_GAP_PX,
+  });
 });
 
 test("itemSearchToken builds a 'repo #iid' token that itemMatches pins to its own item", () => {

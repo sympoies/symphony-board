@@ -267,6 +267,52 @@ export function filterActivitiesByWindow(
   return activities.filter((a) => activityActiveSince(a, cutoffMs));
 }
 
+export const ACTIVITY_ROW_HEIGHT_PX = 76;
+export const ACTIVITY_ROW_GAP_PX = 6;
+export const ACTIVITY_OVERSCAN_ROWS = 8;
+export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
+
+export interface ActivityVirtualRange {
+  start: number;
+  end: number;
+  visibleCount: number;
+  totalHeightPx: number;
+}
+
+export function activityVirtualRange({
+  count,
+  scrollTop,
+  viewportHeight,
+  rowHeight = ACTIVITY_ROW_HEIGHT_PX,
+  rowGap = ACTIVITY_ROW_GAP_PX,
+  overscan = ACTIVITY_OVERSCAN_ROWS,
+}: {
+  count: number;
+  scrollTop: number;
+  viewportHeight: number;
+  rowHeight?: number;
+  rowGap?: number;
+  overscan?: number;
+}): ActivityVirtualRange {
+  const safeCount = Math.max(0, Math.trunc(Number.isFinite(count) ? count : 0));
+  const safeRowHeight = Math.max(1, Number.isFinite(rowHeight) ? rowHeight : ACTIVITY_ROW_HEIGHT_PX);
+  const safeRowGap = Math.max(0, Number.isFinite(rowGap) ? rowGap : ACTIVITY_ROW_GAP_PX);
+  const rowStride = safeRowHeight + safeRowGap;
+  const totalHeightPx = safeCount === 0 ? 0 : safeCount * rowStride - safeRowGap;
+  if (safeCount === 0) {
+    return { start: 0, end: 0, visibleCount: 0, totalHeightPx };
+  }
+
+  const safeScrollTop = Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);
+  const safeViewportHeight = Math.max(1, Number.isFinite(viewportHeight) ? viewportHeight : safeRowHeight);
+  const safeOverscan = Math.max(0, Math.trunc(Number.isFinite(overscan) ? overscan : ACTIVITY_OVERSCAN_ROWS));
+  const firstVisible = Math.min(safeCount - 1, Math.floor(safeScrollTop / rowStride));
+  const viewportRows = Math.max(1, Math.ceil(safeViewportHeight / rowStride) + 1);
+  const start = Math.max(0, firstVisible - safeOverscan);
+  const end = Math.min(safeCount, firstVisible + viewportRows + safeOverscan);
+  return { start, end, visibleCount: end - start, totalHeightPx };
+}
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;
