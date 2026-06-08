@@ -396,3 +396,41 @@ test("repo metrics group top_actors by canonical identity (issue #95)", () => {
   assert.equal(actors.length, 3);
   assert.equal(actors.filter((x) => x.display_name === "Example User").length, 2);
 });
+
+test("config identities collapse a GitLab username and commit-email facet into one actor", () => {
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  // An MR authored by the username "terrylin" (provider-user key) ...
+  const items: ItemRow[] = [
+    itemRow({
+      item_id: 1, source_id: "gitlab:gitlab.gamania.com", external_id: "MR_1", kind: "change_request",
+      state: "merged", author: "terrylin", project_path: "g/p",
+      created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z", closed_at: "2026-06-06T00:00:00Z", merged_at: "2026-06-06T00:00:00Z",
+    }),
+  ];
+  // ... and a commit by the same human, which GitLab only gives an email + name.
+  const commitKey = deriveActorKey({ sourceId: "gitlab:gitlab.gamania.com", email: "terry@example.com", name: "Terry LIN" });
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "g/p", actor: "Terry LIN", actor_key: commitKey, source_id: "gitlab:gitlab.gamania.com", target_source_id: "gitlab:gitlab.gamania.com", occurred_at: "2026-06-07T10:00:00Z" }),
+  ];
+
+  // Without a declared identity the two facets are separate rows.
+  const split = buildContract({ sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.equal(split.repo_metrics?.[0]?.top_actors?.length, 2);
+
+  // The config identity merges them: username match OR commit-name match.
+  const merged = buildContract({
+    sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [{ name: "Terry Lin", usernames: ["terrylin"], names: ["Terry LIN"] }],
+  });
+  assert.deepEqual(validateContract(merged), []);
+  const rows = merged.repo_metrics?.[0]?.top_actors ?? [];
+  assert.equal(rows.length, 1, "one canonical actor");
+  const row = rows[0]!;
+  assert.equal(row.actor_key, "person:terry-lin", "canonical person key, not a raw username/email key");
+  assert.equal(row.display_name, "Terry Lin", "config display name wins");
+  assert.equal(row.commits, 1, "commit counted");
+  assert.equal(row.change_requests_merged, 1, "MR merge counted under the same identity");
+  assert.ok((row.aliases ?? []).includes("Terry LIN"), "observed commit name kept as an alias");
+});

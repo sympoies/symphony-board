@@ -98,6 +98,7 @@ const server = createServer((req, res) => {
         generatedAt: new Date().toISOString(),
         sourceColors,
         repoColors,
+        identities: cfg.identities,
         range,
       });
       json(res, 200, envelope);
