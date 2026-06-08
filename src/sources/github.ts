@@ -280,6 +280,7 @@ export class GitHubSource implements Source {
         title: item.title,
         url: r.url ?? item.url ?? null,
         actor: r.author?.login ?? null,
+        actorKey: deriveActorKey({ sourceId, username: r.author?.login ?? null }),
         occurredAt,
         summary: reviewSummary(action, item.iid),
         details: { state: r.state ?? null },

@@ -430,6 +430,7 @@ export class GitLabSource implements Source {
         title: item.title,
         url: item.url ?? null,
         actor: username,
+        actorKey: deriveActorKey({ sourceId, username }),
         occurredAt,
         summary: `Approved change request${item.iid != null ? ` !${item.iid}` : ""}`,
         details: { source: "approved_by" },
