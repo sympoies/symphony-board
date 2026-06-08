@@ -169,6 +169,7 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.repo_metrics?.[0]?.window.bucket, "day");
   assert.equal(env.repo_metrics?.[0]?.totals.items_active, 1);
   assert.equal(env.repo_metrics?.[0]?.totals.activities, 1);
+  assert.equal(env.repo_metrics?.[0]?.totals.activity_score, 0);
 });
 
 test("openDbReadOnly can read but cannot write or migrate", () => {

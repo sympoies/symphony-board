@@ -281,6 +281,7 @@ function emptyRepoMetricStats(): RepoMetricStatsDTO {
     change_requests_closed: 0,
     change_requests_merged: 0,
     activities: 0,
+    activity_score: 0,
     commits: 0,
     pushes: 0,
     comments: 0,
@@ -379,6 +380,19 @@ function isReviewActivity(activity: ActivityDTO): boolean {
 
 function isApprovalActivity(activity: ActivityDTO): boolean {
   return activity.action === "approved" || activity.action.includes("approval");
+}
+
+function repoActivityScore(stats: RepoMetricStatsDTO): number {
+  const issuesOpened = Math.max(0, stats.items_opened - stats.change_requests_opened);
+  return (
+    stats.commits * 0.25 +
+    issuesOpened * 2 +
+    stats.change_requests_opened * 3 +
+    stats.change_requests_merged * 4 +
+    stats.comments * 0.5 +
+    stats.reviews * 1.5 +
+    stats.approvals * 1.5
+  );
 }
 
 // One human's aggregated repo-metric counters, keyed by canonical actor identity
@@ -553,6 +567,7 @@ function computeRepoMetricStats(
     else if (edge.lifecycle === "broken") stats.edge_broken += 1;
   }
 
+  stats.activity_score = repoActivityScore(stats);
   return stats;
 }
 

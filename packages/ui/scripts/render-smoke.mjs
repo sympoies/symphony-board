@@ -489,6 +489,7 @@ try {
     [sameRangeButtons(repoRangeButtons), `repo analytics: shared range quick presets rendered without all (${repoRangeButtons.join(", ")})`],
     [repoRows >= 2, `repo analytics: repo rows rendered (${repoRows} >= 2)`],
     [/repos/.test(repoCountText), `repo analytics: repo count rendered (${repoCountText})`],
+    [has(repoHtml, "Activity") && has(repoHtml, "Commits"), "repo analytics: activity and commits columns rendered"],
     [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],

@@ -203,7 +203,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v2. Current emitted version: `2.3.0`.
+Current major: v2. Current emitted version: `2.4.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -255,6 +255,12 @@ label, and activity rows. Provider-specific fields that are not already
 normalized remain represented as nullable signals, open count maps, or
 data-quality notes rather than new stable raw-payload dependencies.
 
+Version `2.4.0` added optional `activity_score` to the repo metric stats shape.
+It is a weighted, range-scoped activity signal over commits, opened issues,
+opened and merged change requests, comments, reviews, and approvals. It
+deliberately excludes `items_active` because active items are inventory, not
+in-window activity.
+
 Contract rules:
 
 - patch: clarification only
@@ -297,9 +303,9 @@ Pages:
   the DOM.
 - **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
   the shared date range and source/state/kind/search controls, ranks repos by
-  activity, renders compact trend bars from contract series buckets, and shows
-  data-quality badges so missing activity rows do not look like true zero
-  activity.
+  contract `activity_score`, renders compact trend bars from contract series
+  buckets, and shows data-quality badges so missing activity rows do not look
+  like true zero activity.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
   overrides in `localStorage`. These preferences are a pre-filter before Board,

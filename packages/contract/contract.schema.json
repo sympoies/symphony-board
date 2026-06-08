@@ -412,6 +412,7 @@
         "change_requests_closed": { "type": "integer", "minimum": 0 },
         "change_requests_merged": { "type": "integer", "minimum": 0 },
         "activities": { "type": "integer", "minimum": 0 },
+        "activity_score": { "type": "number", "minimum": 0 },
         "commits": { "type": "integer", "minimum": 0 },
         "pushes": { "type": "integer", "minimum": 0 },
         "comments": { "type": "integer", "minimum": 0 },

@@ -449,7 +449,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .repo-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1240px;
   border-collapse: collapse;
   table-layout: fixed;
 }

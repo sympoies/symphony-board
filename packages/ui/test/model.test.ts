@@ -98,6 +98,7 @@ function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
     change_requests_closed: 0,
     change_requests_merged: 1,
     activities: 4,
+    activity_score: 8,
     commits: 2,
     pushes: 1,
     comments: 1,
@@ -670,6 +671,7 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
     totals: {
       ...repoMetric().totals,
       activities: 12,
+      activity_score: 2,
       items_active: 4,
       by_item_state: { open: 3, merged: 1 },
       by_item_kind: { issue: 3, change_request: 1 },
@@ -682,6 +684,7 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
     totals: {
       ...repoMetric().totals,
       activities: 1,
+      activity_score: 20,
       items_active: 1,
       by_item_state: { closed: 1 },
       by_item_kind: { issue: 1 },
@@ -696,7 +699,7 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), kinds: new Set(["change_request"]) }), true);
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "alice workflow" }), true);
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "missing" }), false);
-  assert.deepEqual(sortRepoMetrics([quiet, active]).map((metric) => metric.project_path), ["o/active", "g/quiet"]);
+  assert.deepEqual(sortRepoMetrics([quiet, active]).map((metric) => metric.project_path), ["g/quiet", "o/active"]);
 });
 
 test("applyVisibility hides a whole source independently of the repo set", () => {

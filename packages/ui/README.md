@@ -95,9 +95,9 @@ bounded top actors, and data-quality metadata for the selected window.
 The page uses the same URL-backed date range as Board, Graph, and Activity.
 Default static contracts render their active-since repo metrics; custom ranges
 load `/api/range` and render the returned time-range metrics. The table ranks
-repos by activity and active items, then shows opened issue and PR/MR
-throughput, closed/merged totals, review counts (with an approvals tooltip),
-compact trend bars, and a data-quality badge.
+repos by contract `activity_score`, then shows activity, commits, opened issue
+and PR/MR throughput, closed/merged totals, review counts with approval
+tooltips, compact trend bars, and a data-quality badge.
 
 `repo_metrics[]` is not a full inventory surface. Settings and external
 inventory consumers should use `repo_stats[]`; Repo Analytics uses
