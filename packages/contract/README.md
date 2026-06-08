@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `1.3.0`.
+Current contract version emitted by the backend: `2.0.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -75,6 +75,18 @@ Version `1.3.0` added optional scope/window aggregate rows:
 Aggregates are emitted-contract totals, not viewer-local totals. A consumer
 should use one only when its scope/window/filter exactly matches the visible
 view; otherwise compute locally from `items[]` and `edges[]`.
+
+Version `2.0.0` changed payload semantics:
+
+- `items[]` is a windowed set, not every live item.
+- `ItemDTO.window_reasons` explains whether a loaded row is in the primary
+  Board window, included as an edge endpoint, or both.
+- required top-level `item_window` describes the loaded primary item window.
+- required top-level `repo_stats[]` carries full repo inventory/counts for
+  Settings and external consumers.
+
+Use `aggregates[]` and `repo_stats[]` for full totals. Use `items[]` and
+`edges[]` only for the loaded window unless a future API provides more rows.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, and any UI consumer logic

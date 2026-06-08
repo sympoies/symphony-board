@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.3.0",
+  "contract_version": "2.0.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "sources": [
@@ -57,7 +57,11 @@
       "merge_state": null,
       "milestone": "v1.1",
       "demand": 9,
-      "last_seen_at": "2026-06-07T08:58:00Z"
+      "last_seen_at": "2026-06-07T08:58:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "github:github.com|PR_b",
@@ -89,7 +93,11 @@
       "merge_state": "mergeable",
       "milestone": "v1.1",
       "demand": 2,
-      "last_seen_at": "2026-06-07T08:58:00Z"
+      "last_seen_at": "2026-06-07T08:58:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "github:github.com|ISSUE_c",
@@ -131,7 +139,11 @@
       "merge_state": null,
       "milestone": null,
       "demand": 5,
-      "last_seen_at": "2026-06-07T08:58:00Z"
+      "last_seen_at": "2026-06-07T08:58:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "github:github.com|PR_d",
@@ -157,7 +169,11 @@
       "merge_state": "blocked",
       "milestone": null,
       "demand": 0,
-      "last_seen_at": "2026-06-07T08:58:00Z"
+      "last_seen_at": "2026-06-07T08:58:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "github:github.com|ISSUE_e",
@@ -194,7 +210,11 @@
       "merge_state": null,
       "milestone": null,
       "demand": 1,
-      "last_seen_at": "2026-06-07T08:58:00Z"
+      "last_seen_at": "2026-06-07T08:58:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "github:github.com|PR_f",
@@ -220,7 +240,11 @@
       "merge_state": "conflicting",
       "milestone": null,
       "demand": 3,
-      "last_seen_at": "2026-06-07T08:58:00Z"
+      "last_seen_at": "2026-06-07T08:58:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "gitlab:gitlab.com|gid://gitlab/Issue/101",
@@ -252,7 +276,11 @@
       "merge_state": null,
       "milestone": null,
       "demand": 0,
-      "last_seen_at": "2026-06-07T07:40:00Z"
+      "last_seen_at": "2026-06-07T07:40:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     },
     {
       "id": "gitlab:gitlab.com|gid://gitlab/MergeRequest/201",
@@ -278,7 +306,11 @@
       "merge_state": "unknown",
       "milestone": null,
       "demand": 0,
-      "last_seen_at": "2026-06-07T07:40:00Z"
+      "last_seen_at": "2026-06-07T07:40:00Z",
+      "window_reasons": [
+        "primary",
+        "edge_endpoint"
+      ]
     }
   ],
   "edges": [
@@ -737,6 +769,48 @@
           "declared": 3,
           "broken": 1
         }
+      }
+    }
+  ],
+  "item_window": {
+    "scope": "boardWindow",
+    "window": {
+      "kind": "active_since",
+      "basis": "item_updated_at",
+      "since": "2026-03-09T09:00:00.000Z",
+      "days": 90,
+      "edge_filter": null
+    },
+    "primary_items": 8,
+    "edge_endpoint_items": 0,
+    "total_items": 8,
+    "truncated": false
+  },
+  "repo_stats": [
+    {
+      "source_id": "github:github.com",
+      "project_path": "sympoies/symphony-board",
+      "items": 6,
+      "by_state": {
+        "closed": 2,
+        "merged": 1,
+        "open": 3
+      },
+      "by_kind": {
+        "issue": 3,
+        "change_request": 3
+      }
+    },
+    {
+      "source_id": "gitlab:gitlab.com",
+      "project_path": "example-group/symphony-board-fixture",
+      "items": 2,
+      "by_state": {
+        "open": 2
+      },
+      "by_kind": {
+        "issue": 1,
+        "change_request": 1
       }
     }
   ]

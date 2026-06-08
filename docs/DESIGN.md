@@ -2,7 +2,7 @@
 
 This is the current design record for `symphony-board`. It records the stable
 architecture and operating decisions after the baseline product path shipped:
-GitHub/GitLab sources, canonical SQLite store, contract major v1, read-only UI,
+GitHub/GitLab sources, canonical SQLite store, contract major v2, read-only UI,
 and Docker writer/reader deployment.
 
 Historical validation runs, PR numbers, and one-off investigation details live
@@ -176,7 +176,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v1. Current emitted version: `1.3.0`.
+Current major: v2. Current emitted version: `2.0.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -203,6 +203,15 @@ display filters; the UI consumes a contract aggregate only when its scope,
 window, and edge filter exactly match the visible view, otherwise it computes a
 local scoped summary from `items[]` and `edges[]`.
 
+Version `2.0.0` deliberately changes `items[]` semantics. The contract no
+longer ships every live item row by default; it ships the primary 90-day
+`boardWindow` item set plus older endpoint items needed to resolve emitted
+relationship edges. `item_window` describes that primary window and whether the
+payload is truncated. `items[].window_reasons` distinguishes primary Board rows
+from edge-endpoint closure rows. Full canonical totals remain available through
+`aggregates[]`, and full Settings repo counts move to `repo_stats[]` so the
+Settings page is not forced to infer repo inventory from the windowed item set.
+
 Contract rules:
 
 - patch: clarification only
@@ -224,12 +233,14 @@ Pages:
   `Closed`) plus three Spotlight lanes (`Follow-up`, `Plan-tracking`, `PR`).
   Status is derived from item state and relationship edges. Spotlight lanes are
   cross-cuts, so their counts do not sum to the item total. The Board supports
-  an item-local active-since window (`1w`, `2w`, `1mo`, `3mo`, `all`) that
-  filters cards by `updated_at`. Board summary stats are scoped to that same
-  item window; edge lifecycle counts include relationships touching the windowed
+  item-local active-since windows inside the loaded contract window and filters
+  cards by `updated_at`. Board summary stats are scoped to that same item
+  window; edge lifecycle counts include relationships touching the windowed
   Board items. When the loaded contract has a matching `boardWindow` aggregate
   and no viewer-local filters are active, the summary can use that aggregate;
-  otherwise it computes locally.
+  otherwise it computes locally. Under contract v2, the Board renders only
+  primary-window items and disables older card windows that the static payload
+  did not load.
 - **Graph**: relationship view built from edge-connected items. It supports an
   active-since window, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`. Graph overview
@@ -237,7 +248,9 @@ Pages:
   mention controls, search, and facets. Focus view uses a separate `focus`
   summary for the focused subgraph instead of reusing overview totals. Contract
   aggregates are used only for the default no-mentions overview when the
-  active-since window exactly matches an emitted aggregate row.
+  active-since window exactly matches an emitted aggregate row. Under contract
+  v2, default overview controls stay inside the loaded window; focus views can
+  still inspect relationships present in the emitted endpoint-closed edge set.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It defaults to `this week` (Monday start, relative to
   the loaded contract's `generated_at`) and supports `1d`, `3d`, `this week`,
@@ -249,7 +262,7 @@ Pages:
   are a pre-filter before Board, Graph, and Activity compute their views. They
   are view-only; the daemon keeps syncing every configured source.
 
-The UI supports contract major v1. It warns when a different major is loaded.
+The UI supports contract major v2. It warns when a different major is loaded.
 
 ## Docker Operation
 

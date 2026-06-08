@@ -27,7 +27,7 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v1, currently `1.3.0`, and validates the JSON
+- `emit` produces contract major v2, currently `2.0.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
   Activity feed, and a persistent Settings display filter.
@@ -127,8 +127,8 @@ Initialize and run one full sync:
 pnpm run init-db
 node src/cli/sync.ts --dry-run
 pnpm run sync
-pnpm run emit -- --out data/contract.json
-pnpm run validate -- --in data/contract.json
+pnpm run emit --out data/contract.json
+pnpm run validate --in data/contract.json
 ```
 
 A source is skipped with a warning when its token env var is unset. `--dry-run`
@@ -147,7 +147,7 @@ node src/cli/sync.ts --config path/to/sources.json --dry-run
 The UI fetches `./contract.json` relative to the app.
 
 ```sh
-pnpm run emit -- --out packages/ui/public/contract.json
+pnpm run emit --out packages/ui/public/contract.json
 pnpm --filter @symphony-board/ui dev
 ```
 
@@ -197,7 +197,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v1, currently `1.3.0`.
+The current emitted contract is major v2, currently `2.0.0`.
 
 Version `1.1.0` added display colors:
 
@@ -216,15 +216,21 @@ Version `1.2.0` added optional top-level `activities[]`, a newest-first feed of
 developer-significant records. Existing v1 consumers can keep reading
 `env.activities ?? []` and ignore it when unsupported.
 
-Consumers must branch on contract major and ignore unknown fields within a
-major. Producers validate strictly before emitting.
-
 Version `1.3.0` added optional `aggregates[]`: server-computed totals for
 `global`, `boardWindow`, and `graphWindow` scopes, including active-since window
 metadata. These aggregates describe the emitted contract before viewer-local
 filters such as Settings visibility, search, facets, Graph mention toggles, or
 focus targets. The UI uses them only when the visible scope/window/filter is an
 exact match and computes locally otherwise.
+
+Version `2.0.0` changes `items[]` from the full live item set to a windowed
+payload: the default 90-day Board item window plus extra relationship endpoints
+needed by emitted edges. Full item totals stay in `aggregates[]`; Settings repo
+counts use `repo_stats[]`; `item_window` describes the loaded window and whether
+the payload is truncated.
+
+Consumers must branch on contract major and ignore unknown fields within a
+major. Producers validate strictly before emitting.
 
 ## Testing Model
 

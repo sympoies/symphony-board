@@ -23,7 +23,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
-import type { AggregateDTO, ItemDTO } from "@symphony-board/contract";
+import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
@@ -574,6 +574,8 @@ export function GraphPage({
   focusRef,
   narrowed,
   aggregates = [],
+  itemWindow,
+  generatedAt,
 }: {
   edges: ResolvedEdge[];
   sourceKind: Map<string, string>;
@@ -581,7 +583,14 @@ export function GraphPage({
   focusRef?: string | null;
   narrowed?: boolean;
   aggregates?: readonly AggregateDTO[];
+  itemWindow?: ItemWindowDTO;
+  generatedAt: string;
 }) {
+  const generatedAtMs = useMemo(() => {
+    const parsed = Date.parse(generatedAt);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }, [generatedAt]);
+  const loadedSince = itemWindow?.window.kind === "active_since" ? itemWindow.window.since?.slice(0, 10) ?? null : null;
   // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
   // filters on entry so the target is GUARANTEED on the graph and framable: it
   // clears the time window (an older item would land off the default 90-day
@@ -590,7 +599,7 @@ export function GraphPage({
   // any item with at least one edge — exactly the items that show the link — is
   // on the canvas. Absent a focus, keep the 90-day, no-mentions defaults. App
   // keys the page on the focus target, so each entry re-runs these initializers.
-  const [since, setSince] = useState<string>(() => (focusRef ? "" : defaultActiveSince()));
+  const [since, setSince] = useState<string>(() => (focusRef ? "" : loadedSince ?? defaultActiveSince(generatedAtMs)));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
@@ -609,13 +618,16 @@ export function GraphPage({
     relaxedForFocus.current = false;
     setSince(val);
   }
-  const effectiveSince = graphEffectiveSince(since, { narrowed: !!narrowed, relaxedForFocus: relaxedForFocus.current });
+  const effectiveSince = graphEffectiveSince(since, { narrowed: !!narrowed, relaxedForFocus: relaxedForFocus.current, now: generatedAtMs });
   useEffect(() => {
     if (effectiveSince !== since) {
       relaxedForFocus.current = false;
       setSince(effectiveSince);
     }
   }, [effectiveSince, since]);
+  useEffect(() => {
+    if (!focusId && loadedSince && (since === "" || since < loadedSince)) setSince(loadedSince);
+  }, [focusId, loadedSince, since]);
 
   const graphCutoff = useMemo(() => (effectiveSince ? new Date(effectiveSince + "T00:00:00Z").toISOString() : null), [effectiveSince]);
 
@@ -755,16 +767,25 @@ export function GraphPage({
         <span className="muted">
           showing {view.nodes.length} nodes · {view.links.length} links
           {focusId ? " · focused" : ""}
+          {itemWindow?.truncated && !focusId ? ` · loaded since ${loadedSince}` : ""}
         </span>
         <label className="date-filter graph-since">
-          active since <input type="date" value={effectiveSince} onChange={(e) => chooseSince(e.target.value)} />
+          active since <input type="date" min={!focusId ? loadedSince ?? undefined : undefined} value={effectiveSince} onChange={(e) => chooseSince(e.target.value)} />
         </label>
         <div className="toggle-group">
           <span className="toggle-label">since</span>
           {ACTIVE_SINCE_PRESETS.map(([lab, days]) => {
-            const val = days == null ? "" : cutoffIso(days).slice(0, 10);
+            const val = days == null ? "" : cutoffIso(days, generatedAtMs).slice(0, 10);
+            const disabled = !focusId && loadedSince !== null && (days == null || val < loadedSince);
             return (
-              <button key={lab} type="button" className={`toggle${effectiveSince === val ? " toggle-on" : ""}`} onClick={() => chooseSince(val)}>
+              <button
+                key={lab}
+                type="button"
+                className={`toggle${effectiveSince === val ? " toggle-on" : ""}`}
+                onClick={() => chooseSince(val)}
+                disabled={disabled}
+                title={disabled ? "Not loaded by this windowed contract" : undefined}
+              >
                 {lab}
               </button>
             );

@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sympoies.dev/symphony-board/contract/v1.json",
+  "$id": "https://sympoies.dev/symphony-board/contract/v2.json",
   "title": "symphony-board contract envelope",
   "description": "LAYER 3: the versioned projection of the canonical store, serialized for consumers (UI, external tools). Derived from the DB; never the DB schema itself. Versioning rules: additive-by-default within a major (new fields optional/nullable, never repurpose/remove); breaking changes bump `contract_version` major. Producers validate strictly against this schema; CONSUMERS MUST ignore unknown fields (be liberal in what you accept) so a minor addition never breaks an old reader.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["contract_version", "generated_at", "generator", "sources", "items", "edges"],
+  "required": ["contract_version", "generated_at", "generator", "sources", "items", "edges", "item_window", "repo_stats"],
   "properties": {
     "contract_version": {
       "type": "string",
@@ -28,6 +28,7 @@
     },
     "items": {
       "type": "array",
+      "description": "Windowed work-item rows. In contract v2 this is complete for `item_window`, plus edge endpoints needed by emitted edges. Use `aggregates` and `repo_stats` for full totals.",
       "items": { "$ref": "#/$defs/item" }
     },
     "edges": {
@@ -49,6 +50,14 @@
       "type": "array",
       "description": "Server-provided totals aligned to named view scopes. Optional (added in 1.3.0); consumers use a row only when its scope/window/filter exactly matches the visible view, otherwise they compute locally.",
       "items": { "$ref": "#/$defs/aggregate" }
+    },
+    "item_window": {
+      "$ref": "#/$defs/itemWindow"
+    },
+    "repo_stats": {
+      "type": "array",
+      "description": "Full canonical repo counts for Settings and external consumers. Separate from `items[]` because v2 does not ship every item row.",
+      "items": { "$ref": "#/$defs/repoStats" }
     }
   },
   "$defs": {
@@ -117,7 +126,12 @@
         "merge_state": { "type": ["string", "null"], "enum": ["mergeable", "conflicting", "blocked", "unknown", null] },
         "milestone": { "type": ["string", "null"] },
         "demand": { "type": ["integer", "null"], "description": "comments + reactions." },
-        "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
+        "last_seen_at": { "type": ["string", "null"], "format": "date-time" },
+        "window_reasons": {
+          "type": "array",
+          "description": "Why this row is present in a v2 windowed item payload. Missing means primary for old v1 payloads.",
+          "items": { "type": "string", "enum": ["primary", "edge_endpoint"] }
+        }
       }
     },
     "label": {
@@ -238,6 +252,50 @@
         },
         "window": { "$ref": "#/$defs/aggregateWindow" },
         "stats": { "$ref": "#/$defs/aggregateStats" }
+      }
+    },
+    "itemWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "window", "primary_items", "edge_endpoint_items", "total_items", "truncated"],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": ["boardWindow"],
+          "description": "The primary item window represented by `items[]`."
+        },
+        "window": { "$ref": "#/$defs/aggregateWindow" },
+        "primary_items": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Loaded items that are complete for the primary window."
+        },
+        "edge_endpoint_items": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Loaded items outside the primary window, included only to resolve emitted edge endpoints."
+        },
+        "total_items": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Full live item count in the canonical projection before v2 windowing."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when `items[]` omits at least one full live item row."
+        }
+      }
+    },
+    "repoStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "project_path", "items", "by_state", "by_kind"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "project_path": { "type": ["string", "null"] },
+        "items": { "type": "integer", "minimum": 0 },
+        "by_state": { "$ref": "#/$defs/countMap" },
+        "by_kind": { "$ref": "#/$defs/countMap" }
       }
     }
   }

@@ -10,10 +10,13 @@ import type {
   EdgeDTO,
   SourceDTO,
   RepoDTO,
+  RepoStatsDTO,
   LabelDTO,
   AggregateDTO,
   AggregateStatsDTO,
   AggregateWindowDTO,
+  ItemWindowDTO,
+  ItemWindowReason,
   ItemState,
   ReviewState,
   CiState,
@@ -26,12 +29,13 @@ import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
 const ACTIVE_WINDOW_DAYS = [7, 14, 30, 90] as const;
+const CONTRACT_ITEM_WINDOW_DAYS = 90;
 
 function toLabelDTO(l: LabelRow): LabelDTO {
   return { name: l.name, scope: l.scope, color: l.color };
 }
 
-function toItemDTO(row: ItemRow, labels: LabelRow[]): ItemDTO {
+function toItemDTO(row: ItemRow, labels: LabelRow[], windowReasons?: ItemWindowReason[]): ItemDTO {
   return {
     id: refOf(row.source_id, row.external_id),
     source_id: row.source_id,
@@ -57,6 +61,7 @@ function toItemDTO(row: ItemRow, labels: LabelRow[]): ItemDTO {
     milestone: row.milestone,
     demand: row.demand,
     last_seen_at: row.last_seen_at,
+    ...(windowReasons && windowReasons.length ? { window_reasons: windowReasons } : {}),
   };
 }
 
@@ -195,6 +200,30 @@ function computeGraphStats(edges: EdgeDTO[], byId: Map<string, ItemDTO>): Aggreg
   return { items: refs.size, by_state, by_kind, by_lifecycle };
 }
 
+function buildRepoStats(items: ItemDTO[]): RepoStatsDTO[] {
+  const byRepo = new Map<string, RepoStatsDTO>();
+  for (const item of items) {
+    const key = JSON.stringify([item.source_id, item.project_path]);
+    let repo = byRepo.get(key);
+    if (!repo) {
+      repo = {
+        source_id: item.source_id,
+        project_path: item.project_path,
+        items: 0,
+        by_state: {},
+        by_kind: {},
+      };
+      byRepo.set(key, repo);
+    }
+    repo.items += 1;
+    inc(repo.by_state, item.state);
+    inc(repo.by_kind, item.kind);
+  }
+  return [...byRepo.values()].sort(
+    (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),
+  );
+}
+
 function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string): AggregateDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const graphBaseEdges = noMentions(edges);
@@ -236,6 +265,46 @@ function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string
   return aggregates;
 }
 
+function buildWindowedProjection(
+  items: ItemDTO[],
+  edges: EdgeDTO[],
+  generatedAt: string,
+): { items: ItemDTO[]; edges: EdgeDTO[]; itemWindow: ItemWindowDTO } {
+  const since = cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, generatedAt);
+  const primaryIds = new Set(items.filter((item) => itemActiveSince(item, since)).map((item) => item.id));
+  const selectedEdges = edges.filter((edge) => primaryIds.has(edge.from) || primaryIds.has(edge.to));
+
+  const endpointIds = new Set<string>();
+  for (const edge of selectedEdges) {
+    endpointIds.add(edge.from);
+    endpointIds.add(edge.to);
+  }
+
+  const emittedIds = new Set([...primaryIds, ...endpointIds]);
+  const windowedItems = items
+    .filter((item) => emittedIds.has(item.id))
+    .map((item) => {
+      const reasons: ItemWindowReason[] = [];
+      if (primaryIds.has(item.id)) reasons.push("primary");
+      if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
+      return { ...item, window_reasons: reasons };
+    });
+
+  const edgeEndpointItems = windowedItems.filter((item) => !primaryIds.has(item.id) && endpointIds.has(item.id)).length;
+  return {
+    items: windowedItems,
+    edges: selectedEdges,
+    itemWindow: {
+      scope: "boardWindow",
+      window: aggregateWindow("active_since", "item_updated_at", since, CONTRACT_ITEM_WINDOW_DAYS, null),
+      primary_items: primaryIds.size,
+      edge_endpoint_items: edgeEndpointItems,
+      total_items: items.length,
+      truncated: windowedItems.length < items.length,
+    },
+  };
+}
+
 export interface BuildInput {
   sources: SourceRow[];
   items: ItemRow[];
@@ -260,15 +329,20 @@ export function buildContract(input: BuildInput): ContractEnvelope {
   const sourceColors = input.sourceColors ?? {};
   const items = input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? []));
   const edges = input.edges.map(toEdgeDTO);
+  const repoStats = buildRepoStats(items);
+  const aggregates = buildAggregates(items, edges, input.generatedAt);
+  const windowed = buildWindowedProjection(items, edges, input.generatedAt);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
     sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
-    items,
-    edges,
+    items: windowed.items,
+    edges: windowed.edges,
     activities: (input.activities ?? []).map(toActivityDTO),
     repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
-    aggregates: buildAggregates(items, edges, input.generatedAt),
+    aggregates,
+    item_window: windowed.itemWindow,
+    repo_stats: repoStats,
   };
 }

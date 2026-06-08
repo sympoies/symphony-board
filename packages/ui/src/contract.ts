@@ -8,7 +8,7 @@ import type { ContractEnvelope } from "@symphony-board/contract";
 // The major this UI understands. The contract versions independently; if a
 // future emit bumps the MAJOR, the UI should branch (or warn) rather than
 // silently mis-render. Minor/patch are backward compatible by contract rule.
-export const SUPPORTED_MAJOR = 1;
+export const SUPPORTED_MAJOR = 2;
 
 export function majorOf(version: string): number {
   return Number(version.split(".")[0] ?? "0");

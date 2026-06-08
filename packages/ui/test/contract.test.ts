@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { SUPPORTED_MAJOR, majorOf, parseContract, fetchContract } from "../src/contract.ts";
 
 test("majorOf reads the leading integer of a version string (never NaN)", () => {
-  assert.equal(SUPPORTED_MAJOR, 1);
+  assert.equal(SUPPORTED_MAJOR, 2);
   assert.equal(majorOf("1.2.3"), 1);
   assert.equal(majorOf("2.0.0"), 2);
   assert.equal(majorOf("10.4.1"), 10);
