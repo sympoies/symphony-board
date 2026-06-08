@@ -76,7 +76,9 @@ UI from that contract.
   Names must start with `project-` (e.g. `project-devlog`). The tooling wires the
   `.claude/` bridge and the `.gitignore` entry for you. Add `--with-script` /
   `--with-tests` only when the skill owns code.
-- Existing skills: `project-devlog` (append a development-log entry).
+- Existing skills: `project-devlog` (append a development-log entry);
+  `project-actor-identities` (scan canonical actors and update
+  `config/sources.json` `identities` / `exclude_actors`).
 
 ## Agent helper scripts
 
