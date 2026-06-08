@@ -28,6 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
 const ACTIVITY_SMOKE_ROWS = 1200;
+let rangeResponseDelayMs = 500;
 
 function chromeBinary() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
@@ -153,6 +154,8 @@ const server = createServer(async (req, res) => {
   try {
     let p = decodeURIComponent((req.url || "/").split("?")[0]);
     if (p === "/api/range") {
+      const delayMs = rangeResponseDelayMs;
+      if (delayMs > 0) await sleep(delayMs);
       const rawBody = await readFile(join(DIST, "contract.json"));
       const response = rangeProjection(rawBody, req.url || "/api/range");
       res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
@@ -252,6 +255,16 @@ try {
     }
     return h;
   };
+  const waitValue = async (expr) => {
+    let value = null;
+    while (Date.now() < deadline) {
+      const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true });
+      value = r.result.value ?? null;
+      if (value) break;
+      await sleep(50);
+    }
+    return value;
+  };
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
   const rangeButtonLabels = async () =>
@@ -275,6 +288,16 @@ try {
   };
 
   // Page 1 — the default full-bleed 7-column board.
+  const initialRangePending = await waitValue(`(() => {
+    if (!document.body.innerText.includes('Loading range')) return null;
+    return {
+      header: !!document.querySelector('.app-header'),
+      tabs: !!document.querySelector('.page-tabs'),
+      rangeControls: !!document.querySelector('.time-range-controls'),
+      inlineLoading: !!document.querySelector('.state-msg-inline'),
+    };
+  })()`);
+  rangeResponseDelayMs = 0;
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
   const boardRangeButtons = await rangeButtonLabels();
   const boardInitialStats = await textOf(".stats");
@@ -475,6 +498,7 @@ try {
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
+    [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.inlineLoading, "board: initial range loading keeps app chrome mounted"],
     [boardThisWeekClick.hash?.includes("preset=this-week") && JSON.stringify(boardThisWeekClick.active) === JSON.stringify(["this week"]), `board: clicking this week preserves this week as the only active preset (${boardThisWeekClick.hash || "empty"})`],
     [has(boardNarrowHtml, "range 2026-06-07 to 2026-06-07"), "board: custom range label rendered after API projection"],
     [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],
