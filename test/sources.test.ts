@@ -172,6 +172,26 @@ test("GitHub: an open PR keeps its real merge_state", () => {
   assert.equal(unknown.mergeState, "unknown");
 });
 
+test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
+  const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
+  const refreshGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
+    calls.push({ query, vars: vars ?? {} });
+    return { repository: { pullRequest: prNode("PR_refresh", "MERGED", "UNKNOWN") } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, refreshGql, ["o/r"]);
+
+  const res = await src.fetchRefresh([
+    { externalId: "PR_refresh", projectPath: "o/r", iid: 9, reason: "ci_unresolved" },
+    { externalId: "PR_skip", projectPath: "outside/repo", iid: 1, reason: "ci_unresolved" },
+  ], { since: null, full: false });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.vars.number, 9);
+  assert.equal(res.watermark, null, "refresh records must not move the updatedAt watermark");
+  assert.equal(res.records[0]!.externalId, "PR_refresh");
+  assert.equal(src.normalize(res.records[0]!)?.item?.ciState, "passing");
+});
+
 function glMrBundle(state: string, detailedMergeStatus: string) {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {

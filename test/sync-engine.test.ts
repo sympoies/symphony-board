@@ -43,6 +43,19 @@ class FakeSource implements Source {
   }
 }
 
+class RefreshingFakeSource extends FakeSource {
+  refreshCalls: unknown[][] = [];
+  private readonly refreshResult: FetchResult;
+  constructor(result: FetchResult, bundles: Map<string, NormalizedBundle>, refreshResult: FetchResult) {
+    super(result, bundles);
+    this.refreshResult = refreshResult;
+  }
+  async fetchRefresh(candidates: unknown[]): Promise<FetchResult> {
+    this.refreshCalls.push(candidates);
+    return this.refreshResult;
+  }
+}
+
 function build(
   items: CanonicalItem[],
   edges: Record<string, CanonicalEdge[]> = {},
@@ -129,6 +142,65 @@ test("the engine persists activity-only records without counting them as items",
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.external_id, "A1");
   assert.deepEqual(JSON.parse(rows[0]!.details ?? "{}"), { sha: "abc1234" });
+  db.close();
+});
+
+test("incremental sync refreshes recent pending CI candidates missed by the updatedAt watermark", async () => {
+  const db = openDb(":memory:");
+  await syncSource(
+    db,
+    build([item("PR_1", {
+      kind: "change_request",
+      projectPath: "x/y",
+      iid: 1,
+      state: "merged",
+      stateRaw: "MERGED",
+      ciState: "pending",
+      updatedAt: "2026-06-01T00:00:00Z",
+      mergedAt: "2026-06-01T00:00:00Z",
+      closedAt: "2026-06-01T00:00:00Z",
+    })]),
+    null,
+    { full: true, dryRun: false },
+  );
+
+  const refreshItem = item("PR_1", {
+    kind: "change_request",
+    projectPath: "x/y",
+    iid: 1,
+    state: "merged",
+    stateRaw: "MERGED",
+    ciState: "passing",
+    updatedAt: "2026-06-01T00:00:00Z",
+    mergedAt: "2026-06-01T00:00:00Z",
+    closedAt: "2026-06-01T00:00:00Z",
+  });
+  const refreshRecords: RawRecord[] = [{
+    entityKind: "change_request",
+    externalId: refreshItem.externalId,
+    apiVersion: "fake",
+    fetchedAt: "2026-06-01T00:05:00Z",
+    payload: refreshItem,
+    contentHash: "refresh",
+  }];
+  const bundles = new Map<string, NormalizedBundle>([
+    [refreshItem.externalId, { item: refreshItem, labels: [], edges: [], activities: [] }],
+  ]);
+  const source = new RefreshingFakeSource(
+    { records: [], watermark: "2026-06-02T00:00:00Z", complete: true, error: null },
+    bundles,
+    { records: refreshRecords, watermark: null, complete: true, error: null },
+  );
+
+  const rep = await syncSource(db, source, "2026-06-02T00:00:00Z", {
+    full: false,
+    dryRun: false,
+    ciRefreshGraceMs: 365 * 86_400_000,
+  });
+
+  assert.equal(source.refreshCalls.length, 1, "incremental sync asks the source to refresh stale CI candidates");
+  assert.equal(rep.itemsSeen, 1, "refreshed PR is counted as seen");
+  assert.equal(listLiveItems(db).find((row) => row.external_id === "PR_1")?.ci_state, "passing");
   db.close();
 });
 

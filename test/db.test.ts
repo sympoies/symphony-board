@@ -13,6 +13,7 @@ import {
   softDeleteUnseenEdges,
   upsertActivity,
   listActivities,
+  listCiRefreshCandidates,
 } from "../src/db/repo.ts";
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
@@ -192,5 +193,22 @@ test("activities are ordered by instant across timezone offsets", () => {
   upsertActivity(db, fixtureActivity({ externalId: "github-utc", occurredAt: "2026-06-08T09:45:23Z" }), "2026-06-08T09:46:00Z");
 
   assert.deepEqual(listActivities(db).map((row) => row.external_id), ["github-utc", "gitlab-local"]);
+  db.close();
+});
+
+test("CI refresh candidates include unresolved or recently active change requests", () => {
+  const db = openDb(":memory:");
+  ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null }, "2026-06-01T00:00:00Z");
+
+  upsertItem(db, fixtureItem({ externalId: "PR_PENDING", kind: "change_request", iid: 1, state: "merged", ciState: "pending", updatedAt: "2026-06-08T00:00:00Z", mergedAt: "2026-06-08T00:00:00Z" }), "github/pr-pending", "2026-06-08T00:00:00Z");
+  upsertItem(db, fixtureItem({ externalId: "PR_OPEN", kind: "change_request", iid: 2, state: "open", ciState: "passing", updatedAt: "2026-05-01T00:00:00Z" }), "github/pr-open", "2026-06-08T00:00:00Z");
+  upsertItem(db, fixtureItem({ externalId: "PR_RECENT", kind: "change_request", iid: 3, state: "merged", ciState: "passing", updatedAt: "2026-06-08T00:00:00Z", mergedAt: "2026-06-08T00:00:00Z" }), "github/pr-recent", "2026-06-08T00:00:00Z");
+  upsertItem(db, fixtureItem({ externalId: "PR_OLD_PASSING", kind: "change_request", iid: 4, state: "merged", ciState: "passing", updatedAt: "2026-05-01T00:00:00Z", mergedAt: "2026-05-01T00:00:00Z" }), "github/pr-old", "2026-06-08T00:00:00Z");
+  upsertItem(db, fixtureItem({ externalId: "ISSUE_PENDING", kind: "issue", iid: 5, ciState: "pending", updatedAt: "2026-06-08T00:00:00Z" }), "github/issue", "2026-06-08T00:00:00Z");
+
+  assert.deepEqual(
+    listCiRefreshCandidates(db, "github:github.com", "2026-06-07T00:00:00Z", 10).map((row) => row.external_id),
+    ["PR_PENDING", "PR_OPEN", "PR_RECENT"],
+  );
   db.close();
 });

@@ -3,7 +3,7 @@
 // one transaction. dry-run computes everything but writes nothing.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Source } from "./sources/types.ts";
+import type { FetchResult, RawRecord, RefreshCandidate, Source } from "./sources/types.ts";
 import type { ItemState, CanonicalEdge, NormalizedBundle } from "./model/types.ts";
 import { reconcileEdges, deriveLifecycle, type ReconciledEdge } from "./model/edges.ts";
 import { refOf } from "./model/ref.ts";
@@ -19,11 +19,18 @@ import {
   updateSyncState,
   softDeleteUnseenItems,
   softDeleteUnseenEdges,
+  listCiRefreshCandidates,
+  type CiRefreshCandidateRow,
 } from "./db/repo.ts";
+
+const DEFAULT_CI_REFRESH_GRACE_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_CI_REFRESH_LIMIT = 50;
 
 export interface SyncOptions {
   full: boolean;
   dryRun: boolean;
+  ciRefreshGraceMs?: number;
+  ciRefreshLimit?: number;
 }
 
 export interface SyncReport {
@@ -38,6 +45,64 @@ export interface SyncReport {
   error: string | null;
 }
 
+function refreshCutoffIso(startedAt: string, graceMs: number): string {
+  return new Date(Date.parse(startedAt) - Math.max(0, graceMs)).toISOString();
+}
+
+function ciRefreshReason(row: CiRefreshCandidateRow): RefreshCandidate["reason"] {
+  if (row.ci_state === "pending" || row.ci_state === "none") return "ci_unresolved";
+  if (row.state === "open") return "open_change_request";
+  return "recent_change_request";
+}
+
+function toRefreshCandidate(row: CiRefreshCandidateRow): RefreshCandidate {
+  return {
+    externalId: row.external_id,
+    projectPath: row.project_path,
+    iid: row.iid,
+    reason: ciRefreshReason(row),
+  };
+}
+
+function dedupeRecords(records: RawRecord[]): RawRecord[] {
+  const byKey = new Map<string, RawRecord>();
+  for (const record of records) byKey.set(`${record.entityKind}\0${record.externalId}`, record);
+  return [...byKey.values()];
+}
+
+async function fetchWithRefresh(
+  db: DatabaseSync,
+  source: Source,
+  sourceId: string,
+  prevWatermark: string | null,
+  opts: SyncOptions,
+  startedAt: string,
+): Promise<FetchResult> {
+  const result = await source.fetch({ since: prevWatermark, full: opts.full });
+  if (opts.full || !source.fetchRefresh) return result;
+
+  const graceMs = opts.ciRefreshGraceMs ?? DEFAULT_CI_REFRESH_GRACE_MS;
+  const limit = opts.ciRefreshLimit ?? DEFAULT_CI_REFRESH_LIMIT;
+  const candidates = listCiRefreshCandidates(db, sourceId, refreshCutoffIso(startedAt, graceMs), limit).map(toRefreshCandidate);
+  if (candidates.length === 0) return result;
+
+  try {
+    const refresh = await source.fetchRefresh(candidates, { since: null, full: false });
+    return {
+      records: dedupeRecords([...result.records, ...refresh.records]),
+      watermark: result.watermark,
+      complete: result.complete && refresh.complete,
+      error: result.error ?? refresh.error,
+    };
+  } catch (err) {
+    return {
+      ...result,
+      complete: false,
+      error: result.error ?? `ci refresh: ${(err as Error).message}`,
+    };
+  }
+}
+
 export async function syncSource(
   db: DatabaseSync,
   source: Source,
@@ -48,9 +113,9 @@ export async function syncSource(
   const sourceId = source.descriptor.sourceId;
 
   // --- fetch (impure) ---
-  let result;
+  let result: FetchResult;
   try {
-    result = await source.fetch({ since: prevWatermark, full: opts.full });
+    result = await fetchWithRefresh(db, source, sourceId, prevWatermark, opts, startedAt);
   } catch (err) {
     const msg = (err as Error).message;
     if (!opts.dryRun) {
