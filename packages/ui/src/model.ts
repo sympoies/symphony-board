@@ -683,7 +683,9 @@ export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
 export function sortRepoMetrics(metrics: readonly RepoMetricDTO[]): RepoMetricDTO[] {
   return [...metrics].sort(
     (a, b) =>
-      b.totals.activities - a.totals.activities ||
+      (b.totals.activity_score ?? 0) - (a.totals.activity_score ?? 0) ||
+      b.totals.commits - a.totals.commits ||
+      b.totals.change_requests_merged - a.totals.change_requests_merged ||
       b.totals.items_active - a.totals.items_active ||
       (a.project_path ?? "").localeCompare(b.project_path ?? "") ||
       a.source_id.localeCompare(b.source_id),

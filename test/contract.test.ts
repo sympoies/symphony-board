@@ -282,7 +282,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "2.3.0");
+  assert.equal(env.contract_version, "2.4.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -298,6 +298,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.totals.change_requests_opened, 1);
   assert.equal(metric?.totals.change_requests_merged, 1);
   assert.equal(metric?.totals.activities, 2);
+  assert.equal(metric?.totals.activity_score, 9.25);
   assert.equal(metric?.totals.commits, 1);
   assert.equal(metric?.totals.pushes, 1);
   assert.equal(metric?.totals.edge_fulfilled, 1);

@@ -118,6 +118,7 @@ export interface RepoMetricStatsDTO {
   change_requests_closed: number;
   change_requests_merged: number;
   activities: number;
+  activity_score?: number;
   commits: number;
   pushes: number;
   comments: number;

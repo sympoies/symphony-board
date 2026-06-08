@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.3.0`.
+Current emitted version: `2.4.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.3.0",
+  "contract_version": "2.4.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -133,6 +133,7 @@ package version, to decide compatibility.
         "change_requests_closed": 1,
         "change_requests_merged": 1,
         "activities": 24,
+        "activity_score": 20.75,
         "commits": 7,
         "pushes": 3,
         "comments": 5,
@@ -454,8 +455,8 @@ Each row contains:
   always with `basis: "repo_activity"`, inclusive UTC `from` / `to`, and an
   explicit bucket width (`day`, `week`, or `month`).
 - `totals`: selected-window counts for active/opened/closed items, opened /
-  closed / merged change requests, activity event categories, edge lifecycle,
-  and open-vocabulary breakdown maps.
+  closed / merged change requests, activity event categories, activity score,
+  edge lifecycle, and open-vocabulary breakdown maps.
 - `series[]`: bucketed points using the same stats shape as `totals`.
 - `top_actors[]`: bounded actor summaries. This is an aggregate list, not an
   unbounded user directory. See "Actor identity" below.
@@ -511,6 +512,26 @@ Because GitHub and GitLab expose different review surfaces, treat `reviews` as
 "available review signal per provider" and `approvals` as the cross-provider
 comparable subset. A repo with `data_quality.activity_available: true` and
 `reviews: 0` genuinely had no review activity in the window.
+
+Version `2.4.0` added optional `activity_score` to the repo metric stats shape.
+The current producer emits it for every repo metric totals row and series point:
+
+```text
+activity_score =
+  commits * 0.25 +
+  issues_opened * 2 +
+  change_requests_opened * 3 +
+  change_requests_merged * 4 +
+  comments * 0.5 +
+  reviews * 1.5 +
+  approvals * 1.5
+```
+
+`issues_opened` is `max(0, items_opened - change_requests_opened)`. The score
+is stored as a decimal so consumers can sort by the raw value; UI display may
+round it to a whole number. `items_active` and `pushes` are deliberately not
+included: active items are inventory, while push events are provider-specific
+and commit count already captures code activity.
 
 Open maps such as `by_activity_kind`, `by_activity_action`, `by_edge_type`,
 `by_review_state`, `by_ci_state`, `by_merge_state`, and `by_label_scope` are

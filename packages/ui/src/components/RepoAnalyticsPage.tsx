@@ -14,6 +14,7 @@ function addMetricStats(target: RepoMetricStatsDTO, next: RepoMetricStatsDTO): R
     change_requests_closed: target.change_requests_closed + next.change_requests_closed,
     change_requests_merged: target.change_requests_merged + next.change_requests_merged,
     activities: target.activities + next.activities,
+    activity_score: (target.activity_score ?? 0) + (next.activity_score ?? 0),
     commits: target.commits + next.commits,
     pushes: target.pushes + next.pushes,
     comments: target.comments + next.comments,
@@ -34,6 +35,7 @@ function zeroStats(): RepoMetricStatsDTO {
     change_requests_closed: 0,
     change_requests_merged: 0,
     activities: 0,
+    activity_score: 0,
     commits: 0,
     pushes: 0,
     comments: 0,
@@ -56,11 +58,19 @@ function zeroStats(): RepoMetricStatsDTO {
 }
 
 function metricTrendValue(stats: RepoMetricStatsDTO): number {
-  return stats.activities + stats.items_opened + stats.change_requests_merged;
+  return activityScore(stats);
 }
 
 function issuesOpened(stats: RepoMetricStatsDTO): number {
   return Math.max(0, stats.items_opened - stats.change_requests_opened);
+}
+
+function activityScore(stats: RepoMetricStatsDTO): number {
+  return stats.activity_score ?? 0;
+}
+
+function displayScore(value: number): number {
+  return Math.round(value);
 }
 
 function TrendBars({ metric }: { metric: RepoMetricDTO }) {
@@ -73,7 +83,7 @@ function TrendBars({ metric }: { metric: RepoMetricDTO }) {
         <span
           key={`${index}-${value}`}
           className="repo-trend-bar"
-          title={`${value} events`}
+          title={`${displayScore(value)} activity`}
           style={{ "--bar-h": `${Math.max(10, Math.round((value / max) * 100))}%` } as CSSProperties}
         />
       ))}
@@ -140,6 +150,8 @@ export function RepoAnalyticsPage({
         <span className="muted">{range.from} to {range.to}</span>
       </div>
       <div className="repo-stat-grid">
+        <StatTile label="activity" value={displayScore(activityScore(totals))} />
+        <StatTile label="commits" value={totals.commits} />
         <StatTile label="issues opened" value={issuesOpened(totals)} />
         <StatTile label="PR/MRs opened" value={totals.change_requests_opened} />
         <StatTile label="total opened" value={totals.items_opened} />
@@ -156,6 +168,8 @@ export function RepoAnalyticsPage({
               <tr>
                 <th>Repo</th>
                 <th>Trend</th>
+                <th>Activity</th>
+                <th>Commits</th>
                 <th>Issues opened</th>
                 <th>PR/MRs opened</th>
                 <th>Total opened</th>
@@ -186,6 +200,8 @@ export function RepoAnalyticsPage({
                       </span>
                     </td>
                     <td><TrendBars metric={metric} /></td>
+                    <td>{displayScore(activityScore(metric.totals))}</td>
+                    <td>{metric.totals.commits}</td>
                     <td>{issuesOpened(metric.totals)}</td>
                     <td>{metric.totals.change_requests_opened}</td>
                     <td>{metric.totals.items_opened}</td>
