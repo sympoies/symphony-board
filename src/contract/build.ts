@@ -189,6 +189,19 @@ function activityOccurredInRange(activity: ActivityDTO, range: TimeRangeDTO): bo
   return timestampInRange(activity.occurred_at, range);
 }
 
+function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
+  const aMs = timestampMs(a.occurred_at);
+  const bMs = timestampMs(b.occurred_at);
+  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
+  if (aMs !== null && bMs === null) return -1;
+  if (aMs === null && bMs !== null) return 1;
+  return 0;
+}
+
+function sortActivitiesByInstantDesc(activities: ActivityDTO[]): ActivityDTO[] {
+  return [...activities].sort(compareActivityInstantDesc);
+}
+
 function boardWindowEdges(items: ItemDTO[], edges: EdgeDTO[]): EdgeDTO[] {
   const ids = new Set(items.map((item) => item.id));
   return edges.filter((edge) => ids.has(edge.from) || ids.has(edge.to));
@@ -438,7 +451,7 @@ function mapRows(input: BuildInput): {
   const edges = input.edges.map(toEdgeDTO);
   return {
     sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
-    activities: (input.activities ?? []).map(toActivityDTO),
+    activities: sortActivitiesByInstantDesc((input.activities ?? []).map(toActivityDTO)),
     repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
     items,
     edges,

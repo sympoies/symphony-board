@@ -183,3 +183,14 @@ test("activities are upserted by provider id and listed newest first", () => {
   assert.deepEqual(JSON.parse(rows[1]!.details ?? "{}"), { source: "test" });
   db.close();
 });
+
+test("activities are ordered by instant across timezone offsets", () => {
+  const db = openDb(":memory:");
+  ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null }, "2026-06-01T00:00:00Z");
+
+  upsertActivity(db, fixtureActivity({ externalId: "gitlab-local", occurredAt: "2026-06-08T16:59:35.000+08:00" }), "2026-06-08T09:00:00Z");
+  upsertActivity(db, fixtureActivity({ externalId: "github-utc", occurredAt: "2026-06-08T09:45:23Z" }), "2026-06-08T09:46:00Z");
+
+  assert.deepEqual(listActivities(db).map((row) => row.external_id), ["github-utc", "gitlab-local"]);
+  db.close();
+});

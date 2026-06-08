@@ -219,7 +219,7 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
     activity({ id: "old", external_id: "old", occurred_at: "2026-05-31T23:59:59Z" }),
   ];
   assert.equal(activityInTimeRange(activities[1]!, range), true);
-  assert.deepEqual(filterActivitiesByRange(activities, range).map((a) => a.id), ["start", "end"]);
+  assert.deepEqual(filterActivitiesByRange(activities, range).map((a) => a.id), ["end", "start"]);
 
   const recent = item({ id: "recent", updated_at: "2026-06-07T23:59:59Z" });
   const old = item({ id: "old", updated_at: "2026-05-31T23:59:59Z" });
@@ -229,6 +229,16 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
     { edge: edge("external-a", "external-b", null, "relates"), from: null, to: null },
   ];
   assert.deepEqual(graphWindowEdgesInRange(resolved, range).map((re) => re.edge.type), ["closes", "relates"]);
+});
+
+test("filterActivitiesByRange sorts by instant across timezone offsets", () => {
+  const range = { from: "2026-06-08", to: "2026-06-08" };
+  const activities = [
+    activity({ id: "gitlab-local", external_id: "gitlab-local", occurred_at: "2026-06-08T16:59:35.000+08:00" }),
+    activity({ id: "github-utc", external_id: "github-utc", occurred_at: "2026-06-08T09:45:23Z" }),
+  ];
+
+  assert.deepEqual(filterActivitiesByRange(activities, range).map((a) => a.id), ["github-utc", "gitlab-local"]);
 });
 
 test("activityVirtualRange renders only the visible rows plus overscan", () => {

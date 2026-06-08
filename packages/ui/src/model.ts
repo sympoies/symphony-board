@@ -276,8 +276,17 @@ export function activityInTimeRange(activity: ActivityDTO, range: TimeRange): bo
   return timestampInTimeRange(activity.occurred_at, range);
 }
 
+function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
+  const aMs = timestampMs(a.occurred_at);
+  const bMs = timestampMs(b.occurred_at);
+  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
+  if (aMs !== null && bMs === null) return -1;
+  if (aMs === null && bMs !== null) return 1;
+  return 0;
+}
+
 export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRange): ActivityDTO[] {
-  return activities.filter((a) => activityInTimeRange(a, range));
+  return activities.filter((a) => activityInTimeRange(a, range)).sort(compareActivityInstantDesc);
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;
