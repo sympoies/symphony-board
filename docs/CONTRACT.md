@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.1.0`.
+Current emitted version: `3.1.1`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -451,14 +451,19 @@ This is the zone the calendar-day boundaries are bucketed in:
   expected day;
 - `GET /api/range` expands the `from` / `to` date query at this zone's day
   boundaries (00:00 / 23:59:59.999 local), so server-side windowing matches the
-  zoned preset the UI computed.
+  zoned preset the UI computed;
+- `repo_metrics[].series` day / week / month buckets align to this zone's
+  calendar days (added in `3.1.1`), so one local day is exactly one `day` bucket
+  rather than straddling two UTC days.
 
-It is a **minor** bump: `timezone` is a new optional top-level field old
+`3.1.0` is a **minor** bump: `timezone` is a new optional top-level field old
 consumers ignore, and the `range_query.timezone` relaxation breaks no consumer
 (none constrains the value). A consumer reading a pre-`3.1.0` contract reads a
-missing `timezone` as `"UTC"`. Absolute-instant fields (`generated_at`,
-`updated_at`, `occurred_at`, …) stay UTC ISO-8601; only calendar-day bucketing
-honors the zone.
+missing `timezone` as `"UTC"`. `3.1.1` is a **patch**: it only re-aligns the
+`repo_metrics[].series` bucket boundaries to the already-declared `timezone`;
+the shape is unchanged and the default-UTC bucketing is identical to before.
+Absolute-instant fields (`generated_at`, `updated_at`, `occurred_at`, …) stay
+UTC ISO-8601; only calendar-day bucketing honors the zone.
 
 ## Repo Stats
 
