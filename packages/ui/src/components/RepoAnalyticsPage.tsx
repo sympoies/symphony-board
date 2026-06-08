@@ -59,6 +59,10 @@ function metricTrendValue(stats: RepoMetricStatsDTO): number {
   return stats.activities + stats.items_opened + stats.change_requests_merged;
 }
 
+function issuesOpened(stats: RepoMetricStatsDTO): number {
+  return Math.max(0, stats.items_opened - stats.change_requests_opened);
+}
+
 function TrendBars({ metric }: { metric: RepoMetricDTO }) {
   const values = metric.series.map((point) => metricTrendValue(point.stats));
   const max = Math.max(1, ...values);
@@ -130,14 +134,11 @@ export function RepoAnalyticsPage({
         <span className="muted">{range.from} to {range.to}</span>
       </div>
       <div className="repo-stat-grid">
-        <StatTile label="active" value={totals.items_active} />
-        <StatTile label="opened" value={totals.items_opened} />
-        <StatTile label="closed" value={totals.items_closed} />
-        <StatTile label="merged CRs" value={totals.change_requests_merged} />
-        <StatTile label="commits" value={totals.commits} />
-        <StatTile label="pushes" value={totals.pushes} />
-        <StatTile label="comments" value={totals.comments} />
-        <StatTile label="reviews" value={totals.reviews} />
+        <StatTile label="issues opened" value={issuesOpened(totals)} />
+        <StatTile label="PR/MRs opened" value={totals.change_requests_opened} />
+        <StatTile label="total opened" value={totals.items_opened} />
+        <StatTile label="closed / merged" value={totals.items_closed} />
+        <StatTile label="merged PR/MRs" value={totals.change_requests_merged} />
       </div>
       {metrics.length === 0 ? (
         <p className="empty">{windowTotal === 0 ? "No repo metrics in this range." : "No repo metrics match the current filters."}</p>
@@ -148,14 +149,11 @@ export function RepoAnalyticsPage({
               <tr>
                 <th>Repo</th>
                 <th>Trend</th>
-                <th>Active</th>
-                <th>Opened</th>
-                <th>Closed</th>
-                <th>Merged CRs</th>
-                <th>Commits</th>
-                <th>Pushes</th>
-                <th>Comments</th>
-                <th>Reviews</th>
+                <th>Issues opened</th>
+                <th>PR/MRs opened</th>
+                <th>Total opened</th>
+                <th>Closed / merged</th>
+                <th>Merged PR/MRs</th>
                 <th>Quality</th>
                 <th>Actors</th>
               </tr>
@@ -180,14 +178,11 @@ export function RepoAnalyticsPage({
                       </span>
                     </td>
                     <td><TrendBars metric={metric} /></td>
-                    <td>{metric.totals.items_active}</td>
+                    <td>{issuesOpened(metric.totals)}</td>
+                    <td>{metric.totals.change_requests_opened}</td>
                     <td>{metric.totals.items_opened}</td>
                     <td>{metric.totals.items_closed}</td>
                     <td>{metric.totals.change_requests_merged}</td>
-                    <td>{metric.totals.commits}</td>
-                    <td>{metric.totals.pushes}</td>
-                    <td>{metric.totals.comments}</td>
-                    <td>{metric.totals.reviews}</td>
                     <td title={metric.data_quality.notes.join(" ") || undefined}><QualityBadge metric={metric} /></td>
                     <td><TopActors metric={metric} /></td>
                   </tr>
