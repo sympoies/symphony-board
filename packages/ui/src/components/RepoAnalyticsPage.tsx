@@ -173,8 +173,8 @@ export function RepoAnalyticsPage({
                 <th>Issues</th>
                 <th>PR/MRs</th>
                 <th>Total</th>
-                <th>Closed / merged</th>
-                <th>Merged PR/MRs</th>
+                <th>Closed</th>
+                <th>Merged</th>
                 <th>Reviews</th>
                 <th>Quality</th>
                 <th>Actors</th>
