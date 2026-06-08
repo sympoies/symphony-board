@@ -30,6 +30,59 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 const ACTIVITY_SMOKE_ROWS = 1200;
 let rangeResponseDelayMs = 500;
 
+// A minimal in-process mock of the board daemon's sync control surface, so the
+// headless render exercises the writer-owned manual-sync affordance (the static
+// dist has no daemon). A POST starts a "running" run that completes shortly after
+// (current -> last), so the UI shows running, then reloaded.
+const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+const syncMock = { current: null, last: null, seq: 0 };
+let cachedSyncSources = null;
+async function syncSources() {
+  if (cachedSyncSources) return cachedSyncSources;
+  try {
+    const env = JSON.parse((await readFile(join(DIST, "contract.json"))).toString("utf8"));
+    cachedSyncSources = (env.sources || []).map((s) => ({ source_id: s.source_id, display_name: s.display_name ?? null, kind: s.kind }));
+  } catch {
+    cachedSyncSources = [];
+  }
+  return cachedSyncSources;
+}
+function startSyncMock(req = {}) {
+  const run = {
+    run_id: `smoke-${++syncMock.seq}`,
+    trigger: "manual",
+    mode: req.mode === "full" ? "full" : "incremental",
+    dry_run: !!req.dry_run,
+    source_scope: req.source_id ?? null,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    emitted: false,
+    totals: null,
+    sources: [],
+    error: null,
+  };
+  syncMock.current = run;
+  setTimeout(() => {
+    syncMock.current = null;
+    syncMock.last = {
+      ...run,
+      status: "ok",
+      finished_at: new Date().toISOString(),
+      emitted: !run.dry_run,
+      totals: { items: 5, edges: 1, activities: 2, soft_deleted: 0, soft_deleted_edges: 0 },
+    };
+  }, 600);
+}
+function readBody(req) {
+  return new Promise((resolve) => {
+    let d = "";
+    req.on("data", (c) => (d += c));
+    req.on("end", () => resolve(d));
+    req.on("error", () => resolve(""));
+  });
+}
+
 function chromeBinary() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
   if (platform() === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -165,6 +218,30 @@ const server = createServer(async (req, res) => {
       const rawBody = await readFile(join(DIST, "contract.json"));
       const response = rangeProjection(rawBody, req.url || "/api/range");
       res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
+      return;
+    }
+    if (p === "/api/sync-control") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, sources: await syncSources(), current: syncMock.current, last: syncMock.last, interval_seconds: 120, full_every: 30 }));
+      return;
+    }
+    if (p === "/api/sync-runs/current") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ current: syncMock.current }));
+      return;
+    }
+    if (p === "/api/sync-runs/last") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ last: syncMock.last }));
+      return;
+    }
+    if (p === "/api/sync-runs" && req.method === "POST") {
+      const raw = await readBody(req);
+      let body = {};
+      try {
+        body = JSON.parse(raw || "{}");
+      } catch {
+        body = {};
+      }
+      startSyncMock(body);
+      res.writeHead(202, JSON_HEADERS).end(JSON.stringify({ current: syncMock.current }));
       return;
     }
     if (p === "/") p = "/index.html";
@@ -623,6 +700,45 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Manual sync control: the Header exposes the writer-owned Sync action when the
+  // daemon control surface is available (mocked above). Confirm it renders
+  // enabled, enters the running (disabled) state on click, then completes and
+  // shows the reloaded status. The "disabled" state is the run-active button;
+  // the "unavailable" state (no control surface) is covered by the unit tests.
+  await waitValue("document.querySelector('.sync-control .sync-button') ? 1 : null");
+  const syncInitial = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.sync-control .sync-button');
+      return { rendered: !!btn, enabled: !!btn && !btn.disabled, label: btn?.textContent?.trim() || '' };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.sync-control .sync-button')?.click()" });
+  await sleep(150);
+  const syncRunning = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.sync-control .sync-button');
+      const status = document.querySelector('.sync-control .sync-status');
+      return { disabled: !!btn && btn.disabled, label: btn?.textContent?.trim() || '', status: status?.textContent?.trim() || '' };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await waitValue(`(() => {
+    const status = document.querySelector('.sync-control .sync-status');
+    return status && /Synced|reloaded/.test(status.textContent || '') ? 1 : null;
+  })()`);
+  const syncDone = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.sync-control .sync-button');
+      const status = document.querySelector('.sync-control .sync-status');
+      return { enabled: !!btn && !btn.disabled, label: btn?.textContent?.trim() || '', status: status?.textContent?.trim() || '' };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Settings advanced sync controls: mode, source scope, dry-run, run button.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
+  await sleep(300);
+  const settingsSyncHtml = await waitHtml("document.querySelector('.settings-sync')");
   ws.close();
 
   // --- assertions ---
@@ -762,6 +878,14 @@ try {
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
     [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && JSON.stringify(clearedDeepLink.active) === JSON.stringify(["this week"]), `deep link: clearing search keeps the default this week range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
+    // manual sync control plane: Header affordance + running/done states
+    [syncInitial.rendered === true, "sync: Header Sync action rendered when control is available"],
+    [syncInitial.enabled === true, "sync: Sync action is enabled before a run"],
+    [syncRunning.disabled === true && /Sync/i.test(syncRunning.label), `sync: clicking Sync disables the button into the running state (${syncRunning.label})`],
+    [/Synced|reloaded/.test(syncDone.status), `sync: a completed run shows the reloaded status (${syncDone.status})`],
+    [syncDone.enabled === true, "sync: the Sync action re-enables after the run completes"],
+    [has(settingsSyncHtml, "settings-sync"), "sync: Settings exposes the advanced manual-sync section"],
+    [has(settingsSyncHtml, "sync-mode") && has(settingsSyncHtml, "sync-source") && has(settingsSyncHtml, "sync-dry-run") && has(settingsSyncHtml, "sync-run-button"), "sync: Settings advanced controls render mode, source, dry-run, and run button"],
     // page 5: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

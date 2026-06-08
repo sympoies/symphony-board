@@ -143,6 +143,29 @@ Configured source/repo colors arrive on the contract (`sources[].color`,
 `repos[]`). UI overrides beat configured repo colors, which beat source colors.
 Only `#rgb` and `#rrggbb` values are accepted before reaching CSS.
 
+## Manual Sync
+
+A browser reload only re-reads the latest emitted `contract.json`; it does not
+ask providers for new data. When the board daemon's writer-owned control surface
+is reachable (`./api/sync-control` answers `enabled: true`), the Header shows a
+**Sync** action that triggers a real provider sync + contract emit, and Settings
+adds a **Manual sync** section for full sweeps, dry-runs, and source-scoped runs.
+
+- The Header action runs an incremental sync of every source.
+- While a run is active the button is disabled and shows `Syncing…`; the UI polls
+  the run and, on a successful non-dry run, reloads `./contract.json` (and the
+  active `/api/range` response) in place — the route, search, filters, time range,
+  and display preferences are preserved.
+- A dry-run reports `Dry-run completed` and never reloads the data view; a failed
+  run reports the error and does not present stale data as fresh.
+- A second request while a run is active is reported as "already running" rather
+  than starting a second sync (the daemon owns one writer lock).
+- When the control surface is absent or `enabled: false`, the affordance is
+  hidden. The client treats a missing/unreachable surface as simply unavailable.
+
+The UI is still read-only with respect to providers: this only triggers a local
+provider-read sync owned by the daemon; it never writes back to a provider.
+
 ## Run
 
 From the repository root:
@@ -180,7 +203,10 @@ without console errors. It also verifies that Board, Graph, Activity, Commits,
 and Repo Analytics share the same range presets, that the Settings default-range
 selector renders, that Board/Graph scoped summaries change when the range
 narrows through `/api/range`, and that large synthetic Activity/Commits feeds
-stay virtualized.
+stay virtualized. It also mocks the daemon's sync control surface to assert the
+Header Sync action renders, enters the running (disabled) state on click, shows
+the reloaded status on completion, and that Settings exposes the advanced
+manual-sync controls.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.
@@ -197,6 +223,8 @@ pnpm --filter @symphony-board/ui dev
 
 For deployment, use the repo's Docker Compose stack. The `web` service serves
 the built UI, aliases the daemon-emitted `data/contract.json` to
-`/contract.json`, and proxies `/api/` to the read-only range API sidecar. The UI
-therefore reads the latest static contract and can request explicit date ranges
-without becoming a database writer.
+`/contract.json`, proxies `/api/range` to the read-only range API sidecar, and
+proxies the sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the
+`board` daemon. The UI therefore reads the latest static contract, can request
+explicit date ranges, and can trigger a daemon-owned manual sync — all without
+becoming a database writer itself.

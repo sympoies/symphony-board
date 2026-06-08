@@ -9,6 +9,8 @@ import {
   type TimeRangePresetId,
 } from "../model.ts";
 import { Badge } from "./Badge.tsx";
+import { SyncControls } from "./SyncControls.tsx";
+import type { SyncState } from "../useSync.ts";
 
 interface Props {
   sources: SourceDTO[]; // per-source health + configured color, read-only (from the contract)
@@ -24,6 +26,7 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
+  sync?: SyncState; // writer-owned manual sync, when the control surface is available
 }
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
@@ -62,6 +65,7 @@ export function SettingsPage({
   onClearColor,
   defaultRangePreset,
   onDefaultRangePreset,
+  sync,
 }: Props) {
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
@@ -117,6 +121,8 @@ export function SettingsPage({
           ))}
         </select>
       </div>
+
+      {sync?.available ? <SyncControls sync={sync} /> : null}
 
       {[...bySource.entries()].map(([sourceId, list]) => {
         const meta = sourceMeta.get(sourceId);
