@@ -98,7 +98,10 @@ and page-local SCM filters:
   `details.branch`, or `details.branches`
 
 Rows group by commit date, link the commit message to the provider commit URL,
-show provider/repo/actor metadata, and expose short SHAs with copy buttons.
+show provider/repo/actor metadata, expose short SHAs with copy buttons, and
+offer an inline body toggle when `details.body` is present. Current live sources
+annotate REST commit rows with the default branch/ref when repository metadata
+is available; richer multi-branch membership can still use `refs` / `branches`.
 Provider-specific signals such as GitHub Verified or check counts are omitted
 until the contract has comparable GitHub and GitLab semantics.
 

@@ -3,8 +3,8 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 import {
-  activityVirtualRange,
   commitBranches,
+  commitBody,
   commitMessage,
   commitSha,
   commitShortSha,
@@ -19,9 +19,13 @@ import {
 // not render GitHub-only badges such as Verified or check counts; only fields
 // already present in the provider-neutral contract surface appear here.
 
-const COMMIT_ROW_HEIGHT_PX = 92;
-const COMMIT_ROW_HEIGHT_NARROW_PX = 152;
+const COMMIT_ROW_BODY_HEIGHT_PX = 70;
+const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
+const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
+const COMMIT_EXPANDED_BODY_EXTRA_PX = 128;
+const COMMIT_EXPANDED_BODY_EXTRA_NARROW_PX = 156;
 const COMMIT_DEFAULT_VIEWPORT_PX = 680;
+const COMMIT_OVERSCAN_ROWS = 8;
 
 function CopyIcon() {
   return (
@@ -83,6 +87,77 @@ function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+interface CommitVirtualRow {
+  commit: ActivityDTO;
+  index: number;
+  offset: number;
+  height: number;
+  showDate: boolean;
+  body: string | null;
+  expanded: boolean;
+}
+
+function buildCommitRows({
+  commits,
+  rowBodyHeight,
+  expandedExtraHeight,
+  expandedBodyId,
+}: {
+  commits: ActivityDTO[];
+  rowBodyHeight: number;
+  expandedExtraHeight: number;
+  expandedBodyId: string | null;
+}): { rows: CommitVirtualRow[]; totalHeightPx: number } {
+  const rows: CommitVirtualRow[] = [];
+  let offset = 0;
+  let previousDateKey: string | null = null;
+
+  commits.forEach((commit, index) => {
+    const key = dateKey(commit.occurred_at);
+    const showDate = previousDateKey === null || previousDateKey !== key;
+    const body = commitBody(commit);
+    const expanded = body !== null && commit.id === expandedBodyId;
+    const height = rowBodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + (expanded ? expandedExtraHeight : 0);
+    rows.push({ commit, index, offset, height, showDate, body, expanded });
+    offset += height;
+    previousDateKey = key;
+  });
+
+  return { rows, totalHeightPx: offset };
+}
+
+function commitVirtualRange({
+  rows,
+  totalHeightPx,
+  scrollTop,
+  viewportHeight,
+}: {
+  rows: CommitVirtualRow[];
+  totalHeightPx: number;
+  scrollTop: number;
+  viewportHeight: number;
+}): { start: number; end: number; totalHeightPx: number } {
+  if (rows.length === 0) return { start: 0, end: 0, totalHeightPx: 0 };
+
+  const safeScrollTop = Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);
+  const safeViewportHeight = Math.max(1, Number.isFinite(viewportHeight) ? viewportHeight : COMMIT_DEFAULT_VIEWPORT_PX);
+  const viewportBottom = safeScrollTop + safeViewportHeight;
+
+  let firstVisible = 0;
+  while (firstVisible < rows.length - 1 && rows[firstVisible]!.offset + rows[firstVisible]!.height <= safeScrollTop) {
+    firstVisible += 1;
+  }
+
+  let endVisible = firstVisible;
+  while (endVisible < rows.length && rows[endVisible]!.offset < viewportBottom) {
+    endVisible += 1;
+  }
+
+  const start = Math.max(0, firstVisible - COMMIT_OVERSCAN_ROWS);
+  const end = Math.min(rows.length, Math.max(endVisible, firstVisible + 1) + COMMIT_OVERSCAN_ROWS);
+  return { start, end, totalHeightPx };
+}
+
 function CommitTimeline({
   commits,
   sourceKind,
@@ -97,7 +172,9 @@ function CommitTimeline({
   const listRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(COMMIT_DEFAULT_VIEWPORT_PX);
-  const [rowHeight, setRowHeight] = useState(COMMIT_ROW_HEIGHT_PX);
+  const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
+  const [expandedExtraHeight, setExpandedExtraHeight] = useState(COMMIT_EXPANDED_BODY_EXTRA_PX);
+  const [expandedBodyId, setExpandedBodyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const resetScroll = useCallback(() => {
@@ -106,6 +183,7 @@ function CommitTimeline({
   }, []);
 
   useEffect(() => {
+    setExpandedBodyId(null);
     resetScroll();
   }, [commits, resetScroll]);
 
@@ -121,7 +199,9 @@ function CommitTimeline({
 
     const updateHeight = () => {
       setViewportHeight(el.clientHeight || COMMIT_DEFAULT_VIEWPORT_PX);
-      setRowHeight(el.clientWidth <= 760 ? COMMIT_ROW_HEIGHT_NARROW_PX : COMMIT_ROW_HEIGHT_PX);
+      const narrow = el.clientWidth <= 760;
+      setRowBodyHeight(narrow ? COMMIT_ROW_BODY_HEIGHT_NARROW_PX : COMMIT_ROW_BODY_HEIGHT_PX);
+      setExpandedExtraHeight(narrow ? COMMIT_EXPANDED_BODY_EXTRA_NARROW_PX : COMMIT_EXPANDED_BODY_EXTRA_PX);
     };
     updateHeight();
 
@@ -135,17 +215,20 @@ function CommitTimeline({
     return () => resizeObserver.disconnect();
   }, [commits.length]);
 
+  const layout = useMemo(
+    () => buildCommitRows({ commits, rowBodyHeight, expandedExtraHeight, expandedBodyId }),
+    [commits, expandedBodyId, expandedExtraHeight, rowBodyHeight],
+  );
   const virtual = useMemo(
-    () => activityVirtualRange({
-      count: commits.length,
+    () => commitVirtualRange({
+      rows: layout.rows,
+      totalHeightPx: layout.totalHeightPx,
       scrollTop,
       viewportHeight,
-      rowHeight,
-      rowGap: 0,
     }),
-    [commits.length, rowHeight, scrollTop, viewportHeight],
+    [layout, scrollTop, viewportHeight],
   );
-  const visibleCommits = useMemo(() => commits.slice(virtual.start, virtual.end), [commits, virtual.start, virtual.end]);
+  const visibleRows = useMemo(() => layout.rows.slice(virtual.start, virtual.end), [layout.rows, virtual.start, virtual.end]);
 
   if (commits.length === 0) return <p className="empty">{emptyMessage}</p>;
 
@@ -156,44 +239,64 @@ function CommitTimeline({
       role="list"
       aria-label="Commits"
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-      style={{ "--commit-row-height": `${rowHeight}px` } as CSSProperties}
+      style={
+        {
+          "--commit-row-body-height": `${rowBodyHeight}px`,
+          "--commit-body-panel-max-height": `${Math.max(92, expandedExtraHeight - 28)}px`,
+        } as CSSProperties
+      }
     >
       <div className="commit-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }}>
-        {visibleCommits.map((commit, offset) => {
-          const index = virtual.start + offset;
+        {visibleRows.map((row) => {
+          const { commit, index, showDate, body, expanded } = row;
           const sha = commitSha(commit);
           const short = commitShortSha(commit);
           const branches = commitBranches(commit);
-          const previous = commits[index - 1];
-          const showDate = !previous || dateKey(previous.occurred_at) !== dateKey(commit.occurred_at);
           const accentColor = colorOf(commit.source_id, commit.project_path);
           const actor = commit.actor ? `@${commit.actor}` : "unknown author";
           return (
             <article
               key={commit.id}
-              className={`commit-row${accentColor ? " commit-row-accent" : ""}`}
+              className={`commit-row${showDate ? " commit-row-has-date" : ""}${expanded ? " commit-row-expanded" : ""}${accentColor ? " commit-row-accent" : ""}`}
               role="listitem"
               aria-posinset={index + 1}
               aria-setsize={commits.length}
               style={
                 {
+                  "--commit-row-height": `${row.height}px`,
                   "--repo-color": accentColor ?? undefined,
-                  transform: `translateY(${index * rowHeight}px)`,
+                  transform: `translateY(${row.offset}px)`,
                 } as CSSProperties
               }
             >
-              <div className="commit-date-slot">
-                {showDate ? <span>Commits on {dateLabel(commit.occurred_at)}</span> : null}
-              </div>
+              {showDate ? (
+                <div className="commit-date-slot">
+                  <span>Commits on {dateLabel(commit.occurred_at)}</span>
+                </div>
+              ) : null}
               <div className="commit-row-body">
                 <div className="commit-row-main">
-                  {commit.url ? (
-                    <a className="commit-message-link" href={commit.url} target="_blank" rel="noopener noreferrer">
-                      {commitMessage(commit)}
-                    </a>
-                  ) : (
-                    <span className="commit-message-link commit-message-text">{commitMessage(commit)}</span>
-                  )}
+                  <div className="commit-title-line">
+                    {commit.url ? (
+                      <a className="commit-message-link" href={commit.url} target="_blank" rel="noopener noreferrer">
+                        {commitMessage(commit)}
+                      </a>
+                    ) : (
+                      <span className="commit-message-link commit-message-text">{commitMessage(commit)}</span>
+                    )}
+                    {body ? (
+                      <button
+                        type="button"
+                        className="commit-body-toggle"
+                        aria-label={`${expanded ? "Hide" : "Show"} commit body ${short ?? index + 1}`}
+                        aria-expanded={expanded}
+                        title={expanded ? "Hide commit body" : "Show commit body"}
+                        onClick={() => setExpandedBodyId(expanded ? null : commit.id)}
+                      >
+                        <span aria-hidden="true">...</span>
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="commit-row-meta">
                     <SourceIcon kind={sourceKind.get(commit.source_id)} />
                     <span>{actor} committed {relativeTime(commit.occurred_at)}</span>
@@ -202,6 +305,11 @@ function CommitTimeline({
                       <span key={branch} className="commit-ref-chip">{branch}</span>
                     ))}
                   </div>
+                  {expanded && body ? (
+                    <div className="commit-body-panel">
+                      <pre>{body}</pre>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="commit-row-actions">
                   {short ? <code className="commit-sha">{short}</code> : null}

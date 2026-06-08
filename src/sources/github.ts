@@ -292,6 +292,7 @@ export class GitHubSource implements Source {
   private async fetchRepoActivity(project: string, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
     if (!this.rest) return { records: [], latest: null };
     const [owner, name] = project.split("/");
+    const defaultBranch = await this.fetchDefaultBranch(owner, name);
     const records: RawRecord[] = [];
     let latest: string | null = null;
 
@@ -305,7 +306,7 @@ export class GitHubSource implements Source {
         const occurred = commit?.commit?.committer?.date ?? commit?.commit?.author?.date ?? null;
         if (!occurred) continue;
         if (!latest || occurred > latest) latest = occurred;
-        const payload = { __activityKind: "github_commit", project, commit };
+        const payload = { __activityKind: "github_commit", project, defaultBranch, commit };
         const payloadJson = JSON.stringify(payload);
         records.push({
           entityKind: "activity",
@@ -345,6 +346,16 @@ export class GitHubSource implements Source {
     return { records, latest };
   }
 
+  private async fetchDefaultBranch(owner: string | undefined, name: string | undefined): Promise<string | null> {
+    if (!this.rest || !owner || !name) return null;
+    try {
+      const repo = await this.rest<any>(`repos/${owner}/${name}`);
+      return cleanText(repo?.default_branch);
+    } catch {
+      return null;
+    }
+  }
+
   private normalizeActivity(raw: RawRecord): NormalizedBundle | null {
     const p = raw.payload as any;
     const kind = p?.__activityKind;
@@ -354,6 +365,7 @@ export class GitHubSource implements Source {
       const occurredAt = commit.commit?.committer?.date ?? commit.commit?.author?.date;
       if (!sha || !occurredAt) return null;
       const title = firstLine(commit.commit?.message);
+      const body = messageBody(commit.commit?.message);
       const actor = commit.author?.login ?? commit.commit?.author?.name ?? commit.commit?.committer?.name ?? null;
       // Prefer the linked account login (groups with this person's issues/PRs);
       // fall back to the commit email for account-less commits, then the name.
@@ -378,7 +390,7 @@ export class GitHubSource implements Source {
         actorKey,
         occurredAt,
         summary: `Committed ${sha.slice(0, 7)}${p.project ? ` in ${p.project}` : ""}`,
-        details: { sha, message: title },
+        details: commitDetails(sha, title, body, p.defaultBranch),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -465,6 +477,26 @@ export class GitHubSource implements Source {
 function firstLine(s: unknown): string | null {
   if (typeof s !== "string") return null;
   return s.split(/\r?\n/, 1)[0]?.trim() || null;
+}
+
+function cleanText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function messageBody(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return cleanText(value.split(/\r?\n/).slice(1).join("\n"));
+}
+
+function commitDetails(sha: string, message: string | null, body: string | null, branch: unknown): Record<string, unknown> {
+  const details: Record<string, unknown> = { sha, message };
+  if (body) details.body = body;
+  const branchName = cleanText(branch);
+  if (branchName) {
+    details.branch = branchName;
+    details.ref = `refs/heads/${branchName}`;
+  }
+  return details;
 }
 
 function shortRef(ref: string): string | null {

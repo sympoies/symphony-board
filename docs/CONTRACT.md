@@ -302,6 +302,10 @@ Important fields:
 - `occurred_at`: provider event timestamp.
 - `summary`: producer-readable text for UI display.
 - `details`: provider-specific JSON object for debugging and later consumers.
+  Commit rows may include `details.sha`, subject `details.message`, optional
+  `details.body`, and optional `details.branch` / `details.ref` when the source
+  can associate the commit feed with a branch. `refs` / `branches` remain
+  optional richer multi-ref details for future producers or fixtures.
 
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for commits and repository/project

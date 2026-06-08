@@ -575,9 +575,13 @@ export function commitMessage(activity: ActivityDTO): string {
   return cleanText(activity.title) ?? detailText(activity.details, "message") ?? cleanText(activity.summary) ?? "Untitled commit";
 }
 
-// Branch/ref membership is optional contract detail. Current producers do not
-// emit it for commit rows, but the UI can filter honestly when a future contract
-// or fixture carries `ref`/`refs` or `branch`/`branches`.
+export function commitBody(activity: ActivityDTO): string | null {
+  return detailText(activity.details, "body");
+}
+
+// Branch/ref membership is optional contract detail. Producers may emit the
+// default commit feed branch as `ref`/`branch`; fixtures and future richer
+// producers can carry `refs`/`branches` for multi-branch membership.
 export function commitBranches(activity: ActivityDTO): string[] {
   const refs = [
     ...detailTextList(activity.details, "ref"),

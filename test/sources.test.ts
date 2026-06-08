@@ -56,6 +56,9 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
   const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
     calls.push({ path, params });
+    if (path === "repos/o/r") {
+      return { default_branch: "main" } as T;
+    }
     if (path === "repos/o/r/commits") {
       return (params?.page === 1
         ? [
@@ -94,11 +97,19 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
   const activityBundles = res.records.filter((r) => r.entityKind === "activity").map((r) => src.normalize(r)!);
   assert.equal(activityBundles.length, 2);
   assert.deepEqual(activityBundles.map((b) => b.activities[0]!.kind).sort(), ["branch", "commit"]);
+  assert.ok(calls.some((c) => c.path === "repos/o/r"));
   assert.ok(calls.some((c) => c.path === "repos/o/r/commits" && c.params?.since === "2026-06-01T00:00:00Z"));
   assert.ok(calls.some((c) => c.path === "repos/o/r/activity" && c.params?.time_period === "month"));
   // The linked account login wins over the commit email, and the push reuses it.
   const commit = activityBundles.find((b) => b.activities[0]!.kind === "commit")!.activities[0]!;
   assert.equal(commit.actorKey, "provider-user:github:github.com:octocat");
+  assert.deepEqual(commit.details, {
+    sha: "abcdef123456",
+    message: "Ship activity feed",
+    body: "Body",
+    branch: "main",
+    ref: "refs/heads/main",
+  });
   const push = activityBundles.find((b) => b.activities[0]!.kind === "branch")!.activities[0]!;
   assert.equal(push.actorKey, "provider-user:github:github.com:octocat");
 });
@@ -348,6 +359,51 @@ test("GitLab project events normalize without fake tracked target refs", () => {
   assert.equal(b!.activities[0]!.action, "closed");
   assert.equal(b!.activities[0]!.target, null, "REST target_id is not the GraphQL global id");
   assert.equal(b!.activities[0]!.targetIid, 5);
+});
+
+test("GitLab fetch and normalize includes commit body and default branch refs from REST", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "projects/g%2Fp") {
+      return { default_branch: "main" } as T;
+    }
+    if (path === "projects/g%2Fp/repository/commits") {
+      return (params?.page === 1
+        ? [
+            {
+              id: "cafebabefeed",
+              short_id: "cafebabe",
+              title: "Wire commit body",
+              message: "Wire commit body\n\nDetailed body",
+              web_url: "https://gitlab.com/g/p/-/commit/cafebabefeed",
+              committed_date: "2026-06-09T10:00:00Z",
+              author_name: "GitLab Dev",
+              author_email: "gitlab@example.com",
+            },
+          ]
+        : []) as T;
+    }
+    if (path === "projects/g%2Fp/events") {
+      return [] as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  const activityBundles = res.records.filter((r) => r.entityKind === "activity").map((r) => src.normalize(r)!);
+  const commit = activityBundles.find((b) => b.activities[0]!.kind === "commit")!.activities[0]!;
+  assert.ok(calls.some((c) => c.path === "projects/g%2Fp"));
+  assert.ok(calls.some((c) => c.path === "projects/g%2Fp/repository/commits" && c.params?.since === "2026-06-01T00:00:00Z"));
+  assert.equal(commit.actorKey, "email:08c2f7b1d187a0ca");
+  assert.deepEqual(commit.details, {
+    sha: "cafebabefeed",
+    message: "Wire commit body",
+    body: "Detailed body",
+    branch: "main",
+    ref: "refs/heads/main",
+  });
 });
 
 // --- GitLab: system-note cross-references (issue #13) ----------------------
