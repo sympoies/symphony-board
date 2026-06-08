@@ -729,7 +729,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
     <section className="graph-page">
       <div className="graph-controls">
         <span className="muted">
-          showing {view.nodes.length} items · {view.links.length} links
+          showing {view.nodes.length} nodes · {view.links.length} links
           {focusId ? " · focused" : ""}
         </span>
         <label className="date-filter graph-since">

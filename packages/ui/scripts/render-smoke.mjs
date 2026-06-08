@@ -290,7 +290,7 @@ try {
     [boardTimeOrder.count >= 1 && boardTimeOrder.ok, `board: timestamps render updated before created (${boardTimeOrder.count})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
-    [/showing \d+ items/.test(graphHtml), "graph: node/link count shown"],
+    [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
     [graphNodeTimeOrder.count >= 1 && graphNodeTimeOrder.ok, `graph: node timestamps render updated before created (${graphNodeTimeOrder.count})`],
     [has(graphHtml, ">1w<") && has(graphHtml, ">all<"), "graph: active-since quick presets rendered"],
