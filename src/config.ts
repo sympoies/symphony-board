@@ -47,6 +47,15 @@ export interface AppConfig {
   db_path: string;
   sources: SourceConfig[];
   identities?: IdentityConfig[];
+  // Actors to drop from repo-analytics `top_actors[]` as noise (CI / dependency
+  // bots). Each entry matches an actor's provider username OR a display name,
+  // case-insensitively, with `*` as a wildcard (e.g. "github-code-quality",
+  // "renovate*"). The board already auto-drops the unambiguous markers — a
+  // GitHub `[bot]` login suffix and GitLab service-account usernames
+  // (`project_/group_<id>_bot_…`) — so this list is for the unmarked ones
+  // (e.g. "dependabot"). Excluded actors still count in repo totals; they are
+  // only hidden from the bounded actor list. Display-only config, never stored.
+  exclude_actors?: string[];
 }
 
 const DEFAULT_PATH = "config/sources.json";
@@ -107,6 +116,9 @@ export function loadConfig(explicitPath?: string | null): { cfg: AppConfig; path
         }
       }
     }
+  }
+  if (cfg.exclude_actors !== undefined && (!Array.isArray(cfg.exclude_actors) || cfg.exclude_actors.some((x) => typeof x !== "string"))) {
+    throw new Error(`Config ${path}: "exclude_actors" must be an array of strings when set`);
   }
   return { cfg: cfg as AppConfig, path };
 }

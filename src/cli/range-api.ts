@@ -99,6 +99,7 @@ const server = createServer((req, res) => {
         sourceColors,
         repoColors,
         identities: cfg.identities,
+        excludeActors: cfg.exclude_actors,
         range,
       });
       json(res, 200, envelope);

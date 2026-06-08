@@ -504,6 +504,15 @@ other observed names as `aliases`. This is producer/display config (read at emit
 time, never stored, never exposing raw email); it changes which `actor_key`
 values appear but not the contract shape, so it is not a version change.
 
+`top_actors[]` also omits CI/dependency **bots** as noise. The producer
+auto-drops the unambiguous markers — a GitHub `[bot]` login suffix and GitLab
+service-account usernames (`project_`/`group_<id>_bot_…`) — and an optional
+config `exclude_actors[]` list drops unmarked ones (e.g. `dependabot`,
+`github-code-quality`) by username or display-name match. Excluded actors are
+hidden only from this bounded list; their activity still counts in `totals` and
+`series`. Like the identity map, this is producer/display config and not a
+contract shape or version change.
+
 The producer currently derives repo metrics from canonical item, label, edge,
 and activity rows. That means item lifecycle metrics are available even when a
 provider has no activity rows, while commit/push/comment/review metrics depend

@@ -162,6 +162,12 @@ no fuzzy matching — so it never silently merges two different people. Like
 colors, it is display-only config: read at emit time, never stored in the DB,
 and it leaves automatic keying untouched for everyone not declared.
 
+`top_actors[]` also filters CI/dependency bots as noise: the build auto-drops
+unambiguous markers (a GitHub `[bot]` login suffix, GitLab service-account
+usernames `project_`/`group_<id>_bot_…`) and an optional `exclude_actors[]`
+config list drops the unmarked ones. Excluded actors still count in `totals`/
+`series` — only the bounded actor list is trimmed.
+
 ## Disappearance Handling
 
 Persistent stores need a strict rule for disappeared entities. "Not fetched this
