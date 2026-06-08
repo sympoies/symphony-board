@@ -3,15 +3,15 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: implementation complete; PR delivery pending
+- Status: complete; tracking issue closed
 - Target scope: read-only historical range query API plus unified Board, Graph,
   and Activity time-range UX.
 - Execution window: Sprint 1 (range contract and API) -> Sprint 2 (unified UI),
   serial.
-- Current task: validation complete.
-- Next task: deliver PR and move tracking issue to close-ready handoff.
+- Current task: complete.
+- Next task: none.
 - Last updated: 2026-06-08
-- Branch/commit/PR: feat/range-query-api; PR pending
+- Branch/commit/PR: sympoies/symphony-board#82 merged (https://github.com/sympoies/symphony-board/pull/82)
 - Source document: docs/plans/2026-06-08-read-only-range-query-api/2026-06-08-read-only-range-query-api-plan.md
 - Direct source-doc execution waiver: not applicable
 - Tracking issue: <https://github.com/sympoies/symphony-board/issues/81>
