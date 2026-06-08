@@ -90,6 +90,7 @@ const MR_BY_IID_Q = `query($path:ID!, $iid:String!) {
   project(fullPath:$path) {
     mergeRequest(iid:$iid) { ${COMMON} closedAt mergedAt draft
       approved approvalsRequired
+      approvedBy { nodes { username } }
       headPipeline { status }
       detailedMergeStatus
     }
@@ -109,11 +110,12 @@ const ISSUE_RESOLVE_Q = `query($path:ID!, $iid:String!) {
   }
 }`;
 
-// Per-MR resolve: just the system notes (an MR has no issue-link / closing field
-// on its own side).
+// Per-MR resolve: the current approvers (issue #93 review metrics) plus the
+// system notes (an MR has no issue-link / closing field on its own side).
 const MR_RESOLVE_Q = `query($path:ID!, $iid:String!) {
   project(fullPath:$path) {
     mergeRequest(iid:$iid) {
+      approvedBy { nodes { username } }
       notes(first:${NOTES_PAGE}){ nodes { system body } }
     }
   }
@@ -248,12 +250,14 @@ export class GitLabSource implements Source {
           node.notes = issue?.notes ?? { nodes: [] };
         } else {
           const d: any = await this.gql(MR_RESOLVE_Q, { path: project, iid: String(node.iid) });
+          node.approvedBy = d?.project?.mergeRequest?.approvedBy ?? { nodes: [] };
           node.notes = d?.project?.mergeRequest?.notes ?? { nodes: [] };
         }
       } catch (err) {
         complete = false;
         firstError ??= `${project} ${kind}#${node.iid} resolve: ${(err as Error).message}`;
         node.relatedMergeRequests ??= { nodes: [] };
+        node.approvedBy ??= { nodes: [] };
         node.notes ??= { nodes: [] };
       }
       const { mentions, relates } = this.resolveNoteRefs(node, project, index);
@@ -367,7 +371,7 @@ export class GitLabSource implements Source {
         // lifecycle state. Drop it for non-open items, matching GitHub.
         mergeState: selfState === "open" ? mapMerge(p.detailedMergeStatus) : null,
       };
-      return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
+      return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.approvalActivities(p, item)] };
     }
 
     // issue: discover the `closes` edge from the issue's related MRs (GitLab
@@ -397,6 +401,40 @@ export class GitLabSource implements Source {
       mergeState: null,
     };
     return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
+  }
+
+  // Current MR approvers -> `review` / `approved` activity rows (issue #93).
+  // GitLab exposes no per-approval timestamp on the GraphQL surface, so each
+  // approver is dated by the MR's merge (if merged) or last-update instant — a
+  // documented approximation. This mirrors itemActivities' state-derived rows:
+  // pure, replayable, and idempotent by (mr id, approver). GitLab carries no
+  // "changes requested" / "commented" review enum, so reviews == approvals here.
+  private approvalActivities(p: any, item: CanonicalItem): CanonicalActivity[] {
+    const out: CanonicalActivity[] = [];
+    const sourceId = this.descriptor.sourceId;
+    const occurredAt = p.mergedAt ?? p.updatedAt ?? p.createdAt;
+    if (!occurredAt) return out;
+    for (const u of p.approvedBy?.nodes ?? []) {
+      const username = u?.username;
+      if (!username) continue;
+      out.push({
+        sourceId,
+        externalId: stableActivityId(["review", p.id, "approved", username]),
+        kind: "review",
+        action: "approved",
+        projectPath: item.projectPath,
+        targetKind: "change_request",
+        target: { sourceId, externalId: p.id },
+        targetIid: item.iid,
+        title: item.title,
+        url: item.url ?? null,
+        actor: username,
+        occurredAt,
+        summary: `Approved change request${item.iid != null ? ` !${item.iid}` : ""}`,
+        details: { source: "approved_by" },
+      });
+    }
+    return out;
   }
 
   private async fetchProjectActivity(project: string, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
@@ -490,6 +528,10 @@ export class GitLabSource implements Source {
       const data = event.push_data ?? event.data ?? null;
       const targetKind = mapEventTargetKind(event.target_type, event.action_name, data);
       const action = mapGitLabAction(event.action_name);
+      // MR approvals are ingested exactly once from MergeRequest.approvedBy (issue
+      // #93). Some GitLab instances ALSO surface an "approved" project event; drop
+      // it here so the approval metric is never double-counted.
+      if (action === "approved") return null;
       const title = event.target_title ?? data?.commit_title ?? data?.ref ?? null;
       const activity: CanonicalActivity = {
         sourceId: this.descriptor.sourceId,

@@ -139,6 +139,7 @@ export function RepoAnalyticsPage({
         <StatTile label="total opened" value={totals.items_opened} />
         <StatTile label="closed / merged" value={totals.items_closed} />
         <StatTile label="merged PR/MRs" value={totals.change_requests_merged} />
+        <StatTile label="reviews" value={totals.reviews} />
       </div>
       {metrics.length === 0 ? (
         <p className="empty">{windowTotal === 0 ? "No repo metrics in this range." : "No repo metrics match the current filters."}</p>
@@ -154,6 +155,7 @@ export function RepoAnalyticsPage({
                 <th>Total opened</th>
                 <th>Closed / merged</th>
                 <th>Merged PR/MRs</th>
+                <th>Reviews</th>
                 <th>Quality</th>
                 <th>Actors</th>
               </tr>
@@ -183,6 +185,7 @@ export function RepoAnalyticsPage({
                     <td>{metric.totals.items_opened}</td>
                     <td>{metric.totals.items_closed}</td>
                     <td>{metric.totals.change_requests_merged}</td>
+                    <td title={`${metric.totals.approvals} approved`}>{metric.totals.reviews}</td>
                     <td title={metric.data_quality.notes.join(" ") || undefined}><QualityBadge metric={metric} /></td>
                     <td><TopActors metric={metric} /></td>
                   </tr>
