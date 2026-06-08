@@ -768,6 +768,15 @@ export function repoMetricKey(source_id: string, project_path: string | null): s
   return repoKey(source_id, project_path);
 }
 
+export function sourceDisplayName(sourceId: string | null | undefined): string {
+  const raw = sourceId?.trim();
+  if (!raw) return "";
+  const sep = raw.indexOf(":");
+  if (sep === -1) return raw;
+  const host = raw.slice(sep + 1).trim();
+  return host || raw;
+}
+
 export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(metric.source_id)) return false;
   if (f.states.size && ![...f.states].some((state) => (metric.totals.by_item_state[state] ?? 0) > 0)) return false;

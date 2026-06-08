@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import type { Filters } from "../model.ts";
+import { sourceDisplayName, type Filters } from "../model.ts";
 
 export interface Facets {
   sources: string[];
@@ -20,11 +20,13 @@ function ToggleGroup({
   values,
   active,
   onToggle,
+  displayValue,
 }: {
   label: string;
   values: string[];
   active: ReadonlySet<string>;
   onToggle: (v: string) => void;
+  displayValue?: (v: string) => string;
 }) {
   if (values.length <= 1) return null; // nothing to filter on
   return (
@@ -36,8 +38,9 @@ function ToggleGroup({
           type="button"
           className={`toggle${active.has(v) ? " toggle-on" : ""}`}
           onClick={() => onToggle(v)}
+          title={v}
         >
-          {v}
+          {displayValue ? displayValue(v) : v}
         </button>
       ))}
     </div>
@@ -58,7 +61,13 @@ export function Controls({ filters, facets, onSearch, onToggle, onLoadFile }: Pr
         value={filters.search}
         onChange={(e) => onSearch(e.target.value)}
       />
-      <ToggleGroup label="source" values={facets.sources} active={filters.sources} onToggle={(v) => onToggle("sources", v)} />
+      <ToggleGroup
+        label="source"
+        values={facets.sources}
+        active={filters.sources}
+        onToggle={(v) => onToggle("sources", v)}
+        displayValue={sourceDisplayName}
+      />
       <ToggleGroup label="state" values={facets.states} active={filters.states} onToggle={(v) => onToggle("states", v)} />
       <ToggleGroup label="kind" values={facets.kinds} active={filters.kinds} onToggle={(v) => onToggle("kinds", v)} />
       <label className="file-load">

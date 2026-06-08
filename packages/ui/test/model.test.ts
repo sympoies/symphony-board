@@ -53,6 +53,7 @@ import {
   applyVisibility,
   repoMetricMatches,
   sortRepoMetrics,
+  sourceDisplayName,
   itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
@@ -667,6 +668,13 @@ test("repoKey is collision-proof and deriveRepos handles an empty contract", () 
   assert.notEqual(repoKey("github:github.com", null), repoKey("github:github.com", ""), "null path != empty path");
   assert.notEqual(repoKey("a", "b c"), repoKey("a b", "c"), "no separator collision across the (source, path) boundary");
   assert.deepEqual(deriveRepos([]), [], "no items -> no repos");
+});
+
+test("sourceDisplayName drops provider prefix from source ids", () => {
+  assert.equal(sourceDisplayName("github:github.com"), "github.com");
+  assert.equal(sourceDisplayName("gitlab:gitlab.gamania.com"), "gitlab.gamania.com");
+  assert.equal(sourceDisplayName("legacy-source"), "legacy-source");
+  assert.equal(sourceDisplayName("github:"), "github:");
 });
 
 test("deriveRepos groups items into (source, project_path) repos with counts, sorted", () => {

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
-import { relativeTime, type ColorOf, type TimeRange } from "../model.ts";
+import { relativeTime, sourceDisplayName, type ColorOf, type TimeRange } from "../model.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 
@@ -183,6 +183,9 @@ export function RepoAnalyticsPage({
             <tbody>
               {metrics.map((metric) => {
                 const accentColor = colorOf(metric.source_id, metric.project_path);
+                const activeLabel = metric.data_quality.last_activity_at
+                  ? ` · active ${relativeTime(metric.data_quality.last_activity_at)}`
+                  : "";
                 return (
                   <tr
                     key={`${metric.source_id}|${metric.project_path ?? ""}`}
@@ -194,9 +197,9 @@ export function RepoAnalyticsPage({
                         <SourceIcon kind={sourceKind.get(metric.source_id)} />
                         <span>{metric.project_path ?? "(unknown repo)"}</span>
                       </span>
-                      <span className="repo-name-meta">
-                        {metric.source_id}
-                        {metric.data_quality.last_activity_at ? ` · active ${relativeTime(metric.data_quality.last_activity_at)}` : ""}
+                      <span className="repo-name-meta" title={`${metric.source_id}${activeLabel}`}>
+                        {sourceDisplayName(metric.source_id)}
+                        {activeLabel}
                       </span>
                     </td>
                     <td><TrendBars metric={metric} /></td>
