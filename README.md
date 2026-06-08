@@ -175,9 +175,9 @@ docker compose -f docker/compose.yaml ps
 open http://localhost:8080
 ```
 
-The daemon defaults to `INTERVAL=300` seconds and `FULL_EVERY=12`, which means a
+The daemon defaults to `INTERVAL=120` seconds and `FULL_EVERY=30`, which means a
 full sweep on the first loop and then about once per hour, with incremental
-runs in between. Set `FULL_EVERY=1` to always full-sweep.
+runs about every 2 minutes in between. Set `FULL_EVERY=1` to always full-sweep.
 
 Only full, complete sweeps can tombstone disappeared items and intra-source
 edges. Partial, failed, and incremental runs never delete.

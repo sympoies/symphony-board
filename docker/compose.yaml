@@ -30,11 +30,11 @@ services:
     restart: unless-stopped
     environment:
       SYNC_MODE: loop
-      INTERVAL: "300"
+      INTERVAL: "120"
       # Mostly-incremental cadence: a full sweep (which alone may soft-delete
       # disappeared items/edges) every FULL_EVERY iterations, incremental in
-      # between. 12 x 300s ~= a full sweep hourly. Set to 1 to always full-sweep.
-      FULL_EVERY: "12"
+      # between. 30 x 120s ~= a full sweep hourly. Set to 1 to always full-sweep.
+      FULL_EVERY: "30"
       SYMPHONY_CONFIG: config/sources.json
       CONTRACT_OUT: data/contract.json
     env_file:
@@ -45,7 +45,7 @@ services:
       - ../data:/app/data
     # Health = the daemon is actually producing the contract. It passes once
     # data/contract.json exists and was rewritten recently (well inside one full
-    # cadence: 30 min >> INTERVAL 300s), so a wedged or crash-looping daemon that
+    # cadence: 30 min >> INTERVAL 120s), so a wedged or crash-looping daemon that
     # stops emitting is reported unhealthy. start_period covers the first
     # sync+emit. The UI sidecar (web) gates on this via depends_on.
     healthcheck:
