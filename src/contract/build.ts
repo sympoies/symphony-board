@@ -953,6 +953,9 @@ export interface BuildInput {
   // bots from top_actors; combines with the built-in [bot] / service-account
   // auto-detector. Excluded actors still count in totals.
   excludeActors?: string[];
+  // Config-declared IANA timezone for calendar-day bucketing (NOT stored in the
+  // DB). Emitted onto the envelope for consumers; "UTC" when unset.
+  timezone?: string;
 }
 
 // Map each activity DTO id to its persisted canonical actor key. Kept off the
@@ -979,6 +982,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
+    timezone: input.timezone ?? "UTC",
     sources: mapped.sources,
     items: windowed.items,
     edges: windowed.edges,
@@ -1027,10 +1031,12 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const identityMatchers = buildIdentityMatchers(input.identities);
   const actorExcludes = compileActorExcludes(input.excludeActors);
   const repoMetricWindow = buildRepoMetricWindow("time_range", input.range);
+  const timezone = input.timezone ?? "UTC";
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
+    timezone,
     sources: mapped.sources,
     items: ranged.items,
     edges: ranged.edges,
@@ -1040,6 +1046,6 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
     repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes),
-    range_query: { kind: "time_range", timezone: "UTC", from: input.range.from, to: input.range.to },
+    range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to },
   };
 }

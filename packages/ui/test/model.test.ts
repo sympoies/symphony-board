@@ -13,6 +13,7 @@ import {
   preferredDefaultTimeRange,
   staticContractTimeRange,
   timeRangeForPreset,
+  timeRangeToIso,
   normalizeTimeRange,
   routeTimeRange,
   emptyFilters,
@@ -379,6 +380,30 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
     { edge: edge("external-a", "external-b", null, "relates"), from: null, to: null },
   ];
   assert.deepEqual(graphWindowEdgesInRange(resolved, range).map((re) => re.edge.type), ["closes", "relates"]);
+});
+
+test("time-range presets and filtering honor a configured timezone", () => {
+  // 2026-06-08T20:00Z is already 2026-06-09 04:00 in Asia/Taipei (+08:00),
+  // so the local calendar day is the 9th while UTC is still the 8th.
+  const now = Date.parse("2026-06-08T20:00:00Z");
+  assert.deepEqual(timeRangeForPreset("today", now, "UTC"), { from: "2026-06-08", to: "2026-06-08" });
+  assert.deepEqual(timeRangeForPreset("today", now, "Asia/Taipei"), { from: "2026-06-09", to: "2026-06-09" });
+  // Tuesday 2026-06-09 in Taipei → week starts Monday the 8th.
+  assert.deepEqual(timeRangeForPreset("this-week", now, "Asia/Taipei"), { from: "2026-06-08", to: "2026-06-09" });
+  assert.deepEqual(timeRangeForPreset("1w", now, "Asia/Taipei"), { from: "2026-06-02", to: "2026-06-09" });
+  assert.equal(activeTimeRangePresetId({ from: "2026-06-09", to: "2026-06-09" }, now, "today", "Asia/Taipei"), "today");
+
+  // A date-only range expands at the zone's day boundaries, not UTC midnight.
+  assert.deepEqual(timeRangeToIso({ from: "2026-06-09", to: "2026-06-09" }, "Asia/Taipei"), {
+    from: "2026-06-08T16:00:00.000Z",
+    to: "2026-06-09T15:59:59.999Z",
+  });
+  // An item at 2026-06-08T20:00Z (= 06-09 04:00 Taipei) is outside the UTC 06-09
+  // day but inside the Taipei 06-09 day.
+  const dayRange = { from: "2026-06-09", to: "2026-06-09" };
+  const it = item({ updated_at: "2026-06-08T20:00:00Z" });
+  assert.equal(itemInTimeRange(it, dayRange, "UTC"), false);
+  assert.equal(itemInTimeRange(it, dayRange, "Asia/Taipei"), true);
 });
 
 test("filterActivitiesByRange sorts by instant across timezone offsets", () => {
@@ -1172,4 +1197,24 @@ test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid",
   const quiet = byDate.get("2026-06-01");
   assert.ok((busy?.level ?? 0) > (quiet?.level ?? 0), "denser day gets a higher level");
   assert.equal(byDate.get("2026-05-15")?.level, 0, "an empty day is level 0");
+});
+
+test("buildActivityHeatmap buckets days in the configured timezone", () => {
+  const now = Date.parse("2026-06-10T12:00:00Z");
+  // 2026-06-08T18:00Z is 2026-06-09 02:00 in Asia/Taipei — a different calendar day.
+  const activities = [activity({ id: "late", occurred_at: "2026-06-08T18:00:00Z", kind: "commit" })];
+  const counts = (tz: string): Map<string, number> => {
+    const hm = buildActivityHeatmap(activities, now, tz);
+    return new Map(
+      hm.weeks.flat().filter((c): c is NonNullable<typeof c> => c !== null).map((c) => [c.date, c.count]),
+    );
+  };
+
+  const utc = counts("UTC");
+  assert.equal(utc.get("2026-06-08"), 1);
+  assert.equal(utc.get("2026-06-09") ?? 0, 0);
+
+  const tpe = counts("Asia/Taipei");
+  assert.equal(tpe.get("2026-06-09"), 1, "late-night UTC activity lands on the local day");
+  assert.equal(tpe.get("2026-06-08") ?? 0, 0);
 });

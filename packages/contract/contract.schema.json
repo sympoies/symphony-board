@@ -21,6 +21,10 @@
       "type": "string",
       "description": "Tool + version that produced this payload, e.g. \"symphony-board/0.1.0\"."
     },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone the producer uses to bucket calendar days (from config; \"UTC\" when unset). Consumers align `today`/`this week` boundaries and heatmap day cells to it. Optional (added in 3.1.0); an old consumer ignores it, a consumer reading an older contract reads it as \"UTC\"."
+    },
     "sources": {
       "type": "array",
       "description": "The record sources represented in this contract, with their last sync health so a consumer can flag stale/partial data.",
@@ -92,7 +96,7 @@
       "required": ["kind", "timezone", "from", "to"],
       "properties": {
         "kind": { "type": "string", "enum": ["time_range"] },
-        "timezone": { "type": "string", "enum": ["UTC"] },
+        "timezone": { "type": "string", "description": "IANA timezone the range was bucketed in (from config; \"UTC\" when unset). Relaxed from the \"UTC\" literal in 3.1.0; equals the envelope-level `timezone`." },
         "from": {
           "type": "string",
           "format": "date-time",

@@ -10,8 +10,8 @@ const LEVELS = [0, 1, 2, 3, 4] as const;
 // A trailing-12-month activity calendar that fills the empty rail beside the
 // Activity feed. Read-only: density comes purely from `occurred_at`, decoupled
 // from the feed's range picker so the long-term rhythm stays put while filtering.
-export function ActivityHeatmap({ activities }: { activities: ActivityDTO[] }) {
-  const hm = useMemo(() => buildActivityHeatmap(activities, Date.now()), [activities]);
+export function ActivityHeatmap({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
+  const hm = useMemo(() => buildActivityHeatmap(activities, Date.now(), timezone), [activities, timezone]);
 
   if (hm.total === 0) return null;
 

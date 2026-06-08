@@ -172,6 +172,25 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.repo_metrics?.[0]?.totals.activity_score, 0);
 });
 
+test("buildRangeContract carries the configured timezone onto the envelope and range_query", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const env = buildRangeContract({
+    sources: [source],
+    items: [itemRow({ item_id: 1, updated_at: "2026-05-15T00:00:00Z" })],
+    labels: [],
+    edges: [],
+    activities: [],
+    generatedAt: "2026-06-08T00:00:00Z",
+    timezone: "Asia/Taipei",
+    // The range-api expands date queries at the zone boundary; here we pass the
+    // resulting instants and assert the zone label rides along on the response.
+    range: { from: "2026-04-30T16:00:00.000Z", to: "2026-05-31T15:59:59.999Z" },
+  });
+  assert.equal(env.timezone, "Asia/Taipei");
+  assert.deepEqual(env.range_query, { kind: "time_range", timezone: "Asia/Taipei", from: "2026-04-30T16:00:00.000Z", to: "2026-05-31T15:59:59.999Z" });
+  assert.deepEqual(validateContract(env), []);
+});
+
 test("openDbReadOnly can read but cannot write or migrate", () => {
   const dir = mkdtempSync(join(tmpdir(), "sb-range-"));
   const dbPath = join(dir, "store.db");

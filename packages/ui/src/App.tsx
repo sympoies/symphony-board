@@ -115,6 +115,10 @@ export function App() {
             : route.page === "settings"
               ? "settings"
               : "board";
+  // The zone the contract buckets calendar days in (default UTC). Threaded into
+  // every preset / range-filter / day-bucketing call so the UI's calendar days
+  // match the configured timezone.
+  const tz = env?.timezone ?? "UTC";
   const staticRange = useMemo(() => (env ? staticContractTimeRange(env) : null), [env]);
   const defaultRange = useMemo(() => (env ? preferredDefaultTimeRange(env, defaultRangePreset) : null), [env, defaultRangePreset]);
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
@@ -206,8 +210,8 @@ export function App() {
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const windowedActivities = useMemo(
-    () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange) : []),
-    [visibleEnv, activeRange],
+    () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange, tz) : []),
+    [visibleEnv, activeRange, tz],
   );
   const repoMetrics = useMemo(
     () => sortRepoMetrics((visibleEnv?.repo_metrics ?? []).filter((metric) => repoMetricMatches(metric, filters))),
@@ -523,6 +527,7 @@ export function App() {
           <TimeRangeControls
             range={activeRange}
             generatedAt={env.generated_at}
+            timezone={tz}
             preferredPresetId={explicitRange ? route.preset : defaultRangePreset}
             loading={rangeLoading}
             error={rangeError}
@@ -562,6 +567,7 @@ export function App() {
           windowTotal={windowedActivities.length}
           totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
           range={activeRange}
+          timezone={tz}
           sourceKind={sourceKind}
           colorOf={colorOf}
         />
@@ -577,6 +583,7 @@ export function App() {
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           range={activeRange}
+          timezone={tz}
           sourceKind={sourceKind}
           colorOf={colorOf}
         />
@@ -603,6 +610,7 @@ export function App() {
             aggregates={compatibleAggregates}
             itemWindow={contentEnv.item_window}
             range={activeRange}
+            timezone={tz}
           />
         </Suspense>
       ) : (

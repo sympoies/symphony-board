@@ -57,7 +57,11 @@ export interface TimeRangeDTO {
 
 export interface RangeQueryDTO extends TimeRangeDTO {
   kind: "time_range";
-  timezone: "UTC";
+  // The IANA timezone the producer used to bucket calendar days (e.g. "UTC" or
+  // "Asia/Taipei"). Comes from config; "UTC" when unset. Relaxed from the literal
+  // "UTC" in 3.1.0 — the same value as the envelope-level `timezone`. The `from`
+  // and `to` instants below are already expanded at this zone's day boundaries.
+  timezone: string;
 }
 
 export interface AggregateStatsDTO {
@@ -284,6 +288,14 @@ export interface ContractEnvelope {
   contract_version: string;
   generated_at: string;
   generator: string;
+  // IANA timezone the producer uses to bucket calendar days, from config
+  // (`timezone` in config/sources.json). "UTC" when unset. The UI reads it to
+  // align its `today` / `this week` preset boundaries and the activity-heatmap
+  // day cells to the configured zone instead of UTC. The producer always emits
+  // it; OPTIONAL in the type so a consumer reading a pre-3.1.0 contract (no
+  // `timezone` key) still type-checks — read it as `env.timezone ?? "UTC"`.
+  // (added in 3.1.0)
+  timezone?: string;
   sources: SourceDTO[];
   items: ItemDTO[];
   edges: EdgeDTO[];

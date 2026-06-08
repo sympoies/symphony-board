@@ -4,6 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { isValidTimezone } from "./lib/tz.ts";
 
 // A project entry is either a bare "owner/name" path or an object that also
 // carries a per-repo highlight color. Most stay bare strings; only the few
@@ -45,6 +46,13 @@ export interface IdentityConfig {
 
 export interface AppConfig {
   db_path: string;
+  // IANA timezone the board buckets calendar days in (e.g. "Asia/Taipei").
+  // Optional; unset/empty means "UTC". It is emitted onto the contract envelope
+  // so the UI aligns its `today` / `this week` presets and the activity-heatmap
+  // day cells to this zone, and the range API expands `from` / `to` queries at
+  // this zone's day boundaries. Absolute instants stay UTC; only calendar-day
+  // bucketing honors it. Display-only — never stored in the DB.
+  timezone?: string;
   sources: SourceConfig[];
   identities?: IdentityConfig[];
   // Actors to drop from repo-analytics `top_actors[]` as noise (CI / dependency
@@ -119,6 +127,14 @@ export function loadConfig(explicitPath?: string | null): { cfg: AppConfig; path
   }
   if (cfg.exclude_actors !== undefined && (!Array.isArray(cfg.exclude_actors) || cfg.exclude_actors.some((x) => typeof x !== "string"))) {
     throw new Error(`Config ${path}: "exclude_actors" must be an array of strings when set`);
+  }
+  if (cfg.timezone !== undefined) {
+    if (typeof cfg.timezone !== "string" || cfg.timezone.trim().length === 0) {
+      throw new Error(`Config ${path}: "timezone" must be a non-empty string when set (omit it for UTC)`);
+    }
+    if (!isValidTimezone(cfg.timezone)) {
+      throw new Error(`Config ${path}: "timezone" "${cfg.timezone}" is not a valid IANA timezone (e.g. "UTC", "Asia/Taipei")`);
+    }
   }
   return { cfg: cfg as AppConfig, path };
 }

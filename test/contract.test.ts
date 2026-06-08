@@ -89,6 +89,18 @@ test("buildContract emits a versioned envelope with composite-ref ids", () => {
   assert.ok(env.aggregates?.some((a) => a.scope === "global" && a.window.kind === "full"));
 });
 
+test("buildContract emits the configured timezone, defaulting to UTC", () => {
+  const items: ItemRow[] = [itemRow({ item_id: 1 })];
+
+  const dflt = buildContract({ sources: [], items, labels: [], edges: [], generatedAt: "2026-06-02T00:00:00Z" });
+  assert.equal(dflt.timezone, "UTC");
+  assert.deepEqual(validateContract(dflt), []);
+
+  const zoned = buildContract({ sources: [], items, labels: [], edges: [], generatedAt: "2026-06-02T00:00:00Z", timezone: "Asia/Taipei" });
+  assert.equal(zoned.timezone, "Asia/Taipei");
+  assert.deepEqual(validateContract(zoned), []);
+});
+
 test("buildContract groups labels by item and leaves label-less items empty", () => {
   const items: ItemRow[] = [itemRow({ item_id: 1 }), itemRow({ item_id: 2, external_id: "ISSUE_def" })];
   const labels: LabelRow[] = [
@@ -282,7 +294,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "3.0.0");
+  assert.equal(env.contract_version, "3.1.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
