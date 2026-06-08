@@ -386,15 +386,15 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .activity-row {
   position: absolute; left: 0; right: 0;
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: flex-start; gap: 12px;
   height: var(--activity-row-height);
   box-sizing: border-box;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 9px 12px;
+  padding: 10px 12px;
   overflow: hidden;
 }
 .activity-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.activity-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.activity-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .activity-title {
   color: var(--text); font-weight: 600; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -407,7 +407,17 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .activity-meta span {
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
-.activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.activity-chips {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 11px;
+  min-width: 0; overflow: hidden; white-space: nowrap;
+}
+.activity-chips span {
+  flex: none; max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+  border: 1px solid rgba(139, 164, 164, 0.24); border-radius: 999px;
+  padding: 1px 7px; background: rgba(139, 164, 164, 0.08);
+}
+.activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 3px; }
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }

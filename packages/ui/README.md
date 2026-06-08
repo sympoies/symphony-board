@@ -75,6 +75,11 @@ The Activity page renders `activities[]` newest first. It includes canonical
 item transitions and provider activity records such as commits, pushes, and
 branch/tag events.
 
+Rows surface the most identifiable context available in the contract: issue and
+change-request events show the provider number plus title, commits show a short
+SHA plus commit title, and push/ref events show the branch or tag plus available
+commit-range chips.
+
 Activity uses the same date range as Board and Graph, plus the global search
 box and source/kind filters. Search includes title, summary, actor, project
 path, target metadata, and provider details; a `#<iid>` token matches
