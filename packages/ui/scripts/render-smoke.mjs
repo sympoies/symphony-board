@@ -377,7 +377,7 @@ try {
       const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls input[type="date"]'));
       const active = Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
         .map((el) => el.textContent?.trim())
-        .find((txt) => txt === 'this week') || '';
+        .filter(Boolean);
       return { search: search.value, from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', active };
     })()`,
     returnByValue: true,
@@ -482,7 +482,7 @@ try {
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
-    [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && clearedDeepLink.active === "this week", `deep link: clearing search keeps the default this week range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
+    [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && JSON.stringify(clearedDeepLink.active) === JSON.stringify(["this week"]), `deep link: clearing search keeps the default this week range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
     // page 5: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
