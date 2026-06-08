@@ -63,9 +63,10 @@ Failure modes:
   // match the provider login; `names` match commit author display names, folded
   // by case and whitespace ONLY — so one entry covers "Rachel Tung" / "Rachel
   // TUNG", but a variant that differs by more than case/space (punctuation, or a
-  // localized / non-ASCII full name) needs its own entry. `name` is the
-  // canonical display.
-  { "name": "Rachel Tung", "usernames": ["racheltung"], "names": ["Rachel Tung", "Rachel TUNG"] }
+  // localized / non-ASCII full name) needs its own entry. `name` is the canonical
+  // board display; the convention here is the username (the first when several),
+  // so rows read as consistent @handles — change it by hand for a different label.
+  { "name": "racheltung", "usernames": ["racheltung"], "names": ["Rachel Tung", "Rachel TUNG"] }
 ],
 "exclude_actors": ["dependabot", "github-code-quality"]
 // Drop CI/dependency bots from top_actors (they still count in totals). The
@@ -86,8 +87,9 @@ Failure modes:
    `bash .agents/skills/project-actor-identities/scripts/project-actor-identities.sh`
 2. **NEW same-person candidates** are high-confidence (the commit name
    normalizes exactly to an existing username). Paste each suggested object into
-   `config/sources.json` → `identities[]`. Prefer a readable `name` (e.g.
-   `"Rachel Tung"` over the handle).
+   `config/sources.json` → `identities[]`. The scan sets `name` to the username
+   (so rows stay consistent `@handle`s); change it by hand only if you want a
+   different display label.
 3. **Likely bot candidates**: glance at each; add the real bots (not a human who
    merely has "bot" in their name) to `config/sources.json` → `exclude_actors[]`.
 4. **Uncertain pairs**: a username only partially matches a commit name. Decide

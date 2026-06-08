@@ -104,13 +104,15 @@ for (const names of emailNames.values()) {
 }
 
 const botCandidates = [...provUsers.keys()].filter((u) => !isAutoBot(u) && looksLikeBot(u) && !isExcluded(u)).sort();
-const pickName = (names) => [...names].find((n) => /\s|[^\x00-\x7F]/.test(n)) ?? [...names][0];
 
 const result = {
   configured: { identities: identities.map((i) => i.name), exclude_actors: excludeActors },
   newIdentities: [...candidates.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([u, names]) => ({ name: pickName(names), usernames: [u], names: [...names].sort() })),
+    // `name` (the canonical board display) defaults to the username (the first
+    // when several), keeping rows as consistent @handles. Edit by hand if you
+    // want a different display. `names` keeps the commit-name variants for matching.
+    .map(([u, names]) => ({ name: u, usernames: [u], names: [...names].sort() })),
   botCandidates,
   uncertain: [...uncertainSet.values()].sort((a, b) => a.username.localeCompare(b.username)),
 };
