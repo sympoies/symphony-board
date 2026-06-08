@@ -133,6 +133,22 @@ test("buildContract emits activity records with refs and parsed details", () => 
   assert.deepEqual(env.activities![0]!.details, { source: "test" });
 });
 
+test("buildContract orders activities by instant across timezone offsets", () => {
+  const env = buildContract({
+    sources: [],
+    items: [],
+    labels: [],
+    edges: [],
+    activities: [
+      activityRow({ external_id: "gitlab-local", occurred_at: "2026-06-08T16:59:35.000+08:00" }),
+      activityRow({ external_id: "github-utc", occurred_at: "2026-06-08T09:45:23Z" }),
+    ],
+    generatedAt: "2026-06-08T10:00:00Z",
+  });
+
+  assert.deepEqual(env.activities?.map((activity) => activity.external_id), ["github-utc", "gitlab-local"]);
+});
+
 test("buildContract emits scoped full and active-since aggregates", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },

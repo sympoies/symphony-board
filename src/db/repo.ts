@@ -323,7 +323,7 @@ export function listActivities(db: DatabaseSync): ActivityRow[] {
               target_source_id, target_external_id, target_iid, title, url, actor,
               occurred_at, summary, details, first_seen_at, last_seen_at
        FROM activity
-       ORDER BY occurred_at DESC, activity_id DESC`,
+       ORDER BY julianday(occurred_at) DESC, activity_id DESC`,
     )
     .all() as unknown as ActivityRow[];
 }
