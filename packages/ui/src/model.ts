@@ -209,6 +209,56 @@ export function graphEffectiveSince(
   return since;
 }
 
+export type ActivityWindowKey = "1d" | "3d" | "thisWeek" | "1w" | "2w" | "1m" | "all";
+
+export const ACTIVITY_WINDOW_PRESETS = [
+  ["1d", "1d"],
+  ["3d", "3d"],
+  ["this week", "thisWeek"],
+  ["1w", "1w"],
+  ["2w", "2w"],
+  ["1m", "1m"],
+  ["all", "all"],
+] as const satisfies ReadonlyArray<readonly [string, ActivityWindowKey]>;
+
+export const DEFAULT_ACTIVITY_WINDOW: ActivityWindowKey = "thisWeek";
+
+const ACTIVITY_ROLLING_DAYS: Partial<Record<ActivityWindowKey, number>> = {
+  "1d": 1,
+  "3d": 3,
+  "1w": 7,
+  "2w": 14,
+  "1m": 30,
+};
+
+export function activityWindowCutoffMs(windowKey: ActivityWindowKey, now: number = Date.now()): number | null {
+  if (windowKey === "all") return null;
+  if (windowKey === "thisWeek") {
+    const d = new Date(now);
+    const daysSinceMonday = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - daysSinceMonday);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  const days = ACTIVITY_ROLLING_DAYS[windowKey];
+  return days == null ? null : now - days * 24 * 60 * 60 * 1000;
+}
+
+export function activityActiveSince(activity: ActivityDTO, cutoffMs: number | null): boolean {
+  if (cutoffMs === null) return true;
+  const occurred = Date.parse(activity.occurred_at);
+  return Number.isFinite(occurred) && occurred >= cutoffMs;
+}
+
+export function filterActivitiesByWindow(
+  activities: ActivityDTO[],
+  windowKey: ActivityWindowKey,
+  now: number = Date.now(),
+): ActivityDTO[] {
+  const cutoffMs = activityWindowCutoffMs(windowKey, now);
+  return activities.filter((a) => activityActiveSince(a, cutoffMs));
+}
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;

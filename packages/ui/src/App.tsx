@@ -4,6 +4,8 @@ import { fetchContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contra
 import {
   emptyFilters,
   activityMatches,
+  DEFAULT_ACTIVITY_WINDOW,
+  filterActivitiesByWindow,
   indexItems,
   itemMatches,
   resolveEdges,
@@ -17,6 +19,7 @@ import {
   buildHashRoute,
   applyRouteSearch,
   edgeEndpointIds,
+  type ActivityWindowKey,
   type Filters,
 } from "./model.ts";
 import {
@@ -62,6 +65,7 @@ export function App() {
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
+  const [activityWindow, setActivityWindow] = useState<ActivityWindowKey>(DEFAULT_ACTIVITY_WINDOW);
 
   useEffect(() => {
     const onHash = () => {
@@ -106,6 +110,14 @@ export function App() {
   // re-enable) hidden repos.
   const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
   const allRepos = useMemo(() => (env ? deriveRepos(env.items) : []), [env]);
+  const activityNow = useMemo(() => {
+    const parsed = Date.parse(env?.generated_at ?? "");
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }, [env?.generated_at]);
+  const windowedActivities = useMemo(
+    () => (visibleEnv ? filterActivitiesByWindow(visibleEnv.activities ?? [], activityWindow, activityNow) : []),
+    [visibleEnv, activityWindow, activityNow],
+  );
 
   // Highlight color: the config layers (per-repo + per-source) ride in on the
   // contract; the per-repo override is this viewer's localStorage. colorOf
@@ -121,11 +133,10 @@ export function App() {
   const facets = useMemo(() => {
     if (!visibleEnv) return { sources: [], states: [], kinds: [] };
     if (page === "activity") {
-      const activities = visibleEnv.activities ?? [];
       return {
-        sources: uniq(activities.map((a) => a.source_id)),
+        sources: uniq(windowedActivities.map((a) => a.source_id)),
         states: [],
-        kinds: uniq(activities.map((a) => a.kind)),
+        kinds: uniq(windowedActivities.map((a) => a.kind)),
       };
     }
     return {
@@ -133,7 +144,7 @@ export function App() {
       states: uniq(visibleEnv.items.map((i) => i.state)),
       kinds: uniq(visibleEnv.items.map((i) => i.kind)),
     };
-  }, [visibleEnv, page]);
+  }, [visibleEnv, page, windowedActivities]);
 
   // source_id -> provider kind (github / gitlab), so a card can show its source
   // mark. Provider kind lives on SourceDTO, not the item — look it up here once.
@@ -148,8 +159,8 @@ export function App() {
   );
 
   const filteredActivities = useMemo(
-    () => (visibleEnv ? (visibleEnv.activities ?? []).filter((a) => activityMatches(a, filters)) : []),
-    [visibleEnv, filters],
+    () => windowedActivities.filter((a) => activityMatches(a, filters)),
+    [windowedActivities, filters],
   );
 
   const filteredEdges = useMemo(() => {
@@ -327,7 +338,15 @@ export function App() {
           onClearColor={clearColorOverride}
         />
       ) : page === "activity" ? (
-        <ActivityPage activities={filteredActivities} sourceKind={sourceKind} colorOf={colorOf} />
+        <ActivityPage
+          activities={filteredActivities}
+          windowTotal={windowedActivities.length}
+          totalActivities={visibleEnv.activities?.length ?? 0}
+          activityWindow={activityWindow}
+          onActivityWindow={setActivityWindow}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+        />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
           {/* Keyed on the focus target so each distinct deep-link entry remounts

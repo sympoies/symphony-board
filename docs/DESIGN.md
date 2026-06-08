@@ -221,8 +221,11 @@ Pages:
   mention controls, search, and facets. Focus view uses a separate `focus`
   summary for the focused subgraph instead of reusing overview totals.
 - **Activity**: newest-first feed of commit, repository/project event, and
-  item-transition records. It shares search/source/kind filters with the other
-  data views and respects Settings visibility.
+  item-transition records. It defaults to `this week` (Monday start, relative to
+  the loaded contract's `generated_at`) and supports `1d`, `3d`, `this week`,
+  `1w`, `2w`, `1m`, and `all`. The range is applied before source/kind/search
+  filters, and the page renders matching rows in 300-row steps so large activity
+  histories do not flood the DOM.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources and set per-repo color overrides in `localStorage`. These preferences
   are a pre-filter before Board, Graph, and Activity compute their views. They
