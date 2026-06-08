@@ -90,3 +90,18 @@ export function zonedDayEndIso(dateStr: string, tz: string): string {
   const d = Number(parts[2]);
   return new Date(zonedWallToInstantMs(y, m, d, 23, 59, 59, 999, tz)).toISOString();
 }
+
+// "YYYY-MM-DD" — the calendar date of `ms` as seen in `tz`.
+export function zonedDateOnly(ms: number, tz: string): string {
+  if (tz === "UTC") return new Date(ms).toISOString().slice(0, 10);
+  const parts = formatterFor(tz).formatToParts(new Date(ms));
+  const field = (type: Intl.DateTimeFormatPartTypes): string => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${field("year").padStart(4, "0")}-${field("month")}-${field("day")}`;
+}
+
+// Calendar arithmetic on a "YYYY-MM-DD" string: shift by whole days, with month
+// and year roll-over handled by Date.UTC normalization. Zone-independent.
+export function shiftDateOnly(dateStr: string, deltaDays: number): string {
+  const parts = dateStr.split("-");
+  return new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]) + deltaDays)).toISOString().slice(0, 10);
+}

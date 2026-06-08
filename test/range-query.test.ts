@@ -191,6 +191,31 @@ test("buildRangeContract carries the configured timezone onto the envelope and r
   assert.deepEqual(validateContract(env), []);
 });
 
+test("repo-metric series buckets align to the configured timezone", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  // One Taipei calendar day (2026-06-09), expanded at +08:00 by the range API:
+  // 2026-06-08T16:00Z .. 2026-06-09T15:59:59.999Z. It straddles two UTC days.
+  const range = { from: "2026-06-08T16:00:00.000Z", to: "2026-06-09T15:59:59.999Z" };
+  const common = {
+    sources: [source],
+    items: [itemRow({ item_id: 1, updated_at: "2026-06-09T02:00:00Z" })],
+    labels: [],
+    edges: [],
+    activities: [activityRow({ occurred_at: "2026-06-09T02:00:00Z" })],
+    generatedAt: "2026-06-09T18:00:00Z",
+    range,
+  };
+
+  const tpe = buildRangeContract({ ...common, timezone: "Asia/Taipei" });
+  const tpeSeries = tpe.repo_metrics?.[0]?.series ?? [];
+  assert.equal(tpeSeries.length, 1, "one local day is exactly one day bucket");
+  assert.equal(tpeSeries[0]?.bucket_start, "2026-06-08T16:00:00.000Z");
+  assert.equal(tpeSeries[0]?.bucket_end, "2026-06-09T15:59:59.999Z");
+
+  const utc = buildRangeContract({ ...common, timezone: "UTC" });
+  assert.equal(utc.repo_metrics?.[0]?.series.length, 2, "the same instants straddle two UTC days");
+});
+
 test("openDbReadOnly can read but cannot write or migrate", () => {
   const dir = mkdtempSync(join(tmpdir(), "sb-range-"));
   const dbPath = join(dir, "store.db");

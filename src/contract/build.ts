@@ -33,6 +33,7 @@ import { refOf } from "../model/ref.ts";
 import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/actor.ts";
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
+import { zonedDayStartIso, zonedDateOnly, shiftDateOnly } from "../lib/tz.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
@@ -329,30 +330,35 @@ function repoMetricBucket(range: TimeRangeDTO): RepoMetricBucket {
   return "month";
 }
 
-function startOfUtcDay(ms: number): number {
-  const d = new Date(ms);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+// The next bucket's start date (a "YYYY-MM-DD" in the configured zone). Day and
+// week step whole calendar days; month advances one calendar month, preserving
+// the day-of-month with JS roll-over (e.g. Jan 31 -> Mar 3), matching the prior
+// UTC behavior.
+function advanceBucketDate(dateStr: string, bucket: RepoMetricBucket): string {
+  if (bucket === "day") return shiftDateOnly(dateStr, 1);
+  if (bucket === "week") return shiftDateOnly(dateStr, 7);
+  const parts = dateStr.split("-");
+  return new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1 + 1, Number(parts[2]))).toISOString().slice(0, 10);
 }
 
-function addBucket(startMs: number, bucket: RepoMetricBucket): number {
-  const d = new Date(startMs);
-  if (bucket === "day") d.setUTCDate(d.getUTCDate() + 1);
-  else if (bucket === "week") d.setUTCDate(d.getUTCDate() + 7);
-  else d.setUTCMonth(d.getUTCMonth() + 1);
-  return d.getTime();
-}
-
-function bucketRanges(range: TimeRangeDTO, bucket: RepoMetricBucket): TimeRangeDTO[] {
+// Split a range into series buckets aligned to the configured zone's calendar
+// days (so e.g. one local day is exactly one "day" bucket). The boundary day
+// starts are resolved at the zone's local midnight; `tz === "UTC"` reduces to
+// the original UTC-day alignment.
+function bucketRanges(range: TimeRangeDTO, bucket: RepoMetricBucket, tz: string): TimeRangeDTO[] {
   const { fromMs, toMs } = rangeMs(range);
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return [];
   const buckets: TimeRangeDTO[] = [];
-  let cursor = startOfUtcDay(fromMs);
-  while (cursor <= toMs) {
-    const next = addBucket(cursor, bucket);
-    const start = Math.max(cursor, fromMs);
-    const end = Math.min(next - 1, toMs);
+  let cursorDate = zonedDateOnly(fromMs, tz);
+  let cursorMs = Date.parse(zonedDayStartIso(cursorDate, tz));
+  while (cursorMs <= toMs) {
+    const nextDate = advanceBucketDate(cursorDate, bucket);
+    const nextMs = Date.parse(zonedDayStartIso(nextDate, tz));
+    const start = Math.max(cursorMs, fromMs);
+    const end = Math.min(nextMs - 1, toMs);
     buckets.push({ from: new Date(start).toISOString(), to: new Date(end).toISOString() });
-    cursor = next;
+    cursorDate = nextDate;
+    cursorMs = nextMs;
   }
   return buckets;
 }
@@ -721,6 +727,7 @@ function buildRepoMetrics(
   actorKeys: Map<string, string | null>,
   identityMatchers: IdentityMatcher[],
   actorExcludes: RegExp[],
+  timezone: string,
 ): RepoMetricDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const repoItems = new Map<string, ItemDTO[]>();
@@ -767,7 +774,7 @@ function buildRepoMetrics(
       const actors = new Map<string, ActorAccumulator>();
       const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
       const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers), actorExcludes));
-      const series = bucketRanges(range, window.bucket).map((bucket) => ({
+      const series = bucketRanges(range, window.bucket, timezone).map((bucket) => ({
         bucket_start: bucket.from,
         bucket_end: bucket.to,
         stats: computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, bucket),
@@ -991,7 +998,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
   };
 }
 
@@ -1045,7 +1052,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
     range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to },
   };
 }

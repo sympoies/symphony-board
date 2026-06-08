@@ -474,16 +474,18 @@ never reloads the data view as if it were fresh.
   resolution.
 - **Docker loop is the writer**: generated runtime contracts are daemon output,
   not hand-maintained artifacts.
-- **Configurable calendar-day timezone (3.1.0)**: an optional `timezone` in
-  `config/sources.json` (default `"UTC"`, any IANA name) is emitted onto the
+- **Configurable calendar-day timezone (3.1.0, 3.1.1)**: an optional `timezone`
+  in `config/sources.json` (default `"UTC"`, any IANA name) is emitted onto the
   contract envelope. The UI buckets calendar days in that zone — `today` /
   `this week` presets, range filtering, the activity heatmap, and commit-day
-  grouping — and the range API expands `from` / `to` queries at the zone's day
-  boundaries. Resolved with `Intl.DateTimeFormat` (DST-aware, dependency-free);
-  the helper is duplicated in `src/lib/tz.ts` (producer) and
-  `packages/ui/src/tz.ts` (consumer) because the contract package is type-only
-  at runtime. Absolute instants (`generated_at`, `updated_at`, `occurred_at`)
-  stay UTC ISO-8601 — only calendar-day bucketing honors the zone.
+  grouping — the range API expands `from` / `to` queries at the zone's day
+  boundaries, and (3.1.1) the `repo_metrics[].series` day / week / month buckets
+  align to the zone's calendar so one local day is one `day` bucket. Resolved
+  with `Intl.DateTimeFormat` (DST-aware, dependency-free); the helper is
+  duplicated in `src/lib/tz.ts` (producer) and `packages/ui/src/tz.ts`
+  (consumer) because the contract package is type-only at runtime. Absolute
+  instants (`generated_at`, `updated_at`, `occurred_at`) stay UTC ISO-8601 —
+  only calendar-day bucketing honors the zone.
 
 ## Deferred Or Explicit Non-Goals
 
@@ -498,11 +500,6 @@ never reloads the data view as if it were fresh.
 - Historical pagination beyond explicit date ranges. The read-only range API
   can return a bounded contract for a selected range, but there is no cursor,
   infinite scroll, or provider write-back surface.
-- Timezone-aware **repo-metric series buckets** (the Repo Analytics trend). The
-  metric *window* honors the configured `timezone`, but the internal day / week
-  bucket boundaries (`bucketRanges` in `src/contract/build.ts`) are still
-  UTC-aligned. A follow-up can thread the zone through that aggregation; the
-  default-UTC behavior is unchanged.
 
 ## Validation Baseline
 
