@@ -1153,6 +1153,90 @@ export function computeGraphStats(graph: GraphData, scope: Extract<ViewScope, "g
   return { scope, stats: { items: graph.nodes.length, byState, byKind, byLifecycle } };
 }
 
+// --- UI-triggered manual sync control plane ---
+// The board daemon owns the writer; the UI is a thin client over its control
+// surface (see docs/DESIGN.md). These mirror the daemon's status JSON. The UI
+// stays liberal in what it accepts (it never re-validates the shapes).
+
+export type SyncMode = "incremental" | "full";
+export type SyncRunStatusValue = "running" | "ok" | "partial" | "error";
+
+export interface SyncSourceResult {
+  source_id: string;
+  status: string;
+  items: number;
+  edges: number;
+  activities: number;
+  soft_deleted: number;
+  soft_deleted_edges: number;
+  error: string | null;
+}
+
+export interface SyncRunStatus {
+  run_id: string;
+  trigger: "manual" | "scheduled";
+  mode: SyncMode;
+  dry_run: boolean;
+  source_scope: string | null;
+  status: SyncRunStatusValue;
+  started_at: string;
+  finished_at: string | null;
+  emitted: boolean;
+  totals: { items: number; edges: number; activities: number; soft_deleted: number; soft_deleted_edges: number } | null;
+  sources: SyncSourceResult[];
+  error: string | null;
+}
+
+export interface SyncSourceOption {
+  source_id: string;
+  display_name: string | null;
+  kind: string;
+}
+
+export interface SyncControlInfo {
+  enabled: boolean;
+  sources: SyncSourceOption[];
+  current: SyncRunStatus | null;
+  last: SyncRunStatus | null;
+  interval_seconds?: number;
+  full_every?: number;
+}
+
+export interface SyncRunRequest {
+  mode: SyncMode;
+  dry_run: boolean;
+  source_id: string | null;
+}
+
+export function isSyncRunActive(run: SyncRunStatus | null | undefined): boolean {
+  return !!run && run.status === "running";
+}
+
+// A finished run produced fresh data the UI should reload only when it actually
+// wrote a contract: not a dry-run, it emitted, and the sync did not fail. A
+// dry-run or failed run must never reload the data view as if it were fresh.
+export function syncProducedFreshData(run: SyncRunStatus | null | undefined): boolean {
+  return !!run && run.status !== "running" && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial");
+}
+
+// A short, human status line for the Sync control. now is injectable for tests.
+export function syncRunSummary(run: SyncRunStatus | null | undefined, now: number = Date.now()): string {
+  if (!run) return "";
+  const scope = run.source_scope ? ` · ${run.source_scope}` : "";
+  if (run.status === "running") {
+    return `Syncing… ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}`;
+  }
+  const when = relativeTime(run.finished_at ?? run.started_at, now);
+  if (run.dry_run) {
+    return run.status === "error" ? `Dry-run failed ${when}` : `Dry-run completed ${when}${scope}`;
+  }
+  if (run.status === "error") return `Sync failed ${when}${run.error ? `: ${run.error}` : ""}`;
+  const items = run.totals?.items ?? 0;
+  const reloaded = run.emitted ? " · contract reloaded" : "";
+  const partial = run.status === "partial" ? " (partial)" : "";
+  return `Synced ${when}${scope} · ${items} item${items === 1 ? "" : "s"}${partial}${reloaded}`;
+}
+
 // "3d ago" / "just now" from an ISO timestamp. now is injectable for testing.
 export function relativeTime(iso: string | null, now: number = Date.now()): string {
   if (!iso) return "—";

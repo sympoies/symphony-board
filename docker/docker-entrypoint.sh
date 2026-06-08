@@ -3,9 +3,13 @@
 #
 #   once (default) - one sync + one contract emit, then exit. CMD args pass to
 #                    the sync (e.g. --dry-run, --incremental, --source <id>).
-#   loop           - daemon: sync + emit every INTERVAL seconds. For an always-on
-#                    box (the local Mac while it is on, or a server later):
-#                    docker compose up -d  /  docker run -d --restart=unless-stopped.
+#   loop           - daemon: sync + emit on a timer AND a small writer-owned HTTP
+#                    control surface for UI-triggered manual syncs. Delegated to
+#                    the Node daemon (src/cli/sync-daemon.ts), which owns the
+#                    cadence, a single run lock (manual + scheduled never overlap),
+#                    and the control endpoints. For an always-on box (the local Mac
+#                    while it is on, or a server later): docker compose up -d  /
+#                    docker run -d --restart=unless-stopped.
 #   api            - read-only HTTP range-query API. It never syncs or emits.
 #
 # This is the SOLE writer by design: no external cron/trigger. A single writer
@@ -26,7 +30,9 @@
 # Env: SYNC_MODE (once|loop|api), INTERVAL (seconds, default 120), FULL_EVERY (loop:
 # run a full sweep every Nth iteration, default 30; 1 = always full), SYMPHONY_CONFIG
 # (default config/sources.json), CONTRACT_OUT (default data/contract.json), PORT
-# (api mode, default 8081).
+# (api mode, default 8081). Loop mode also reads SYNC_CONTROL_ENABLED (enable
+# UI-triggered manual sync; default off), SYNC_CONTROL_PORT (default 8080), and
+# SYNC_CONTROL_HOST (default 0.0.0.0).
 set -eu
 
 MODE="${SYNC_MODE:-once}"
@@ -51,22 +57,11 @@ case "$MODE" in
     run "$@"
     ;;
   loop)
-    echo "$(ts) [loop] sync + emit every ${INTERVAL}s -> $OUT (full sweep every ${FULL_EVERY} iterations)"
-    i=0
-    while true; do
-      if [ "$((i % FULL_EVERY))" -eq 0 ]; then
-        mode_arg=""        # full sweep (enables soft-delete)
-        mode_label=full
-      else
-        mode_arg=--incremental
-        mode_label=incremental
-      fi
-      echo "$(ts) [loop] iteration ${i} (${mode_label})"
-      # shellcheck disable=SC2086
-      run $mode_arg "$@" || echo "$(ts) [loop] iteration error; continuing"
-      i=$((i + 1))
-      sleep "$INTERVAL"
-    done
+    # The Node daemon owns the cadence, the single run lock, and the control
+    # surface; it reads INTERVAL / FULL_EVERY / CONTRACT_OUT / SYMPHONY_CONFIG and
+    # the SYNC_CONTROL_* knobs from the environment.
+    # shellcheck disable=SC2086
+    exec $NODE src/cli/sync-daemon.ts
     ;;
   api)
     exec $NODE src/cli/range-api.ts --config "$CONFIG"

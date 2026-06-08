@@ -115,6 +115,20 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .source-name { font-weight: 600; }
 
+/* UI-triggered manual sync: a compact Header action + one-line status. */
+.sync-control { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sync-button { font-weight: 600; }
+.sync-button:disabled { opacity: 0.55; cursor: default; border-color: var(--line); }
+.sync-control.sync-running .sync-button { color: var(--accent); border-color: var(--accent); }
+.sync-status { font-size: 12px; max-width: 320px; }
+.sync-status.sync-error, .sync-control.sync-error .sync-status { color: var(--warn); }
+/* advanced controls on the Settings page */
+.settings-sync .sync-advanced { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.sync-field { display: inline-flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.sync-field.sync-dry-run { flex-direction: row; align-items: center; gap: 6px; }
+.settings-sync .sync-run-button { font-weight: 600; align-self: center; }
+.settings-sync .sync-status { display: block; margin-top: 8px; max-width: none; }
+
 .banner { padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
 .banner.warn { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); border: 1px solid var(--warn); color: var(--warn); }
 

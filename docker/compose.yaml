@@ -39,6 +39,13 @@ services:
       FULL_EVERY: "30"
       SYMPHONY_CONFIG: config/sources.json
       CONTRACT_OUT: data/contract.json
+      # UI-triggered manual sync: the loop daemon serves a writer-owned control
+      # surface on SYNC_CONTROL_PORT (reached by the web sidecar over the compose
+      # network — deliberately NOT published to the host). Manual runs are enabled
+      # here for the local deployment; remove SYNC_CONTROL_ENABLED to keep the
+      # daemon timer-only with the endpoint refusing manual runs.
+      SYNC_CONTROL_ENABLED: "1"
+      SYNC_CONTROL_PORT: "8080"
     env_file:
       - path: ../.env
         required: false

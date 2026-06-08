@@ -357,16 +357,19 @@ The UI supports contract major v2. It warns when a different major is loaded.
 
 `docker/compose.yaml` has three services:
 
-- `board`: backend loop daemon and sole writer
+- `board`: backend loop daemon and sole writer; also serves the writer-owned
+  sync control surface (see below)
 - `api`: read-only range query sidecar over the SQLite store
 - `web`: read-only nginx sidecar serving the built UI and `/contract.json`
 
 The daemon writes `data/contract.json`. The API sidecar mounts config and data
 read-only, opens SQLite with `query_only`, and serves
 `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`. The web sidecar mounts `data/`
-read-only, serves `/contract.json` with `Cache-Control: no-store`, and proxies
-`/api/` to the API sidecar. `web` depends on both `board` and `api` healthchecks
-so it does not serve before the first contract and read-only API are ready.
+read-only, serves `/contract.json` with `Cache-Control: no-store`, proxies
+`/api/range` to the read-only API sidecar, and proxies the sync-control routes
+(`/api/sync-control`, `/api/sync-runs`) to the `board` daemon's internal control
+port. `web` depends on both `board` and `api` healthchecks so it does not serve
+before the first contract and read-only API are ready.
 
 There is intentionally no external cron and no second writer.
 
@@ -378,6 +381,75 @@ Default loop cadence:
 That gives a full sweep on the first iteration and roughly hourly, with
 incremental syncs about every 2 minutes between. Set `FULL_EVERY=1` for every
 iteration to be full.
+
+## UI-Triggered Sync Control Plane
+
+A browser reload of the UI only reloads the latest emitted `contract.json`; it
+never asks providers for newer data. "Sync now" — a real manual provider sync +
+contract emit started from the UI — is a separate capability with a deliberate
+boundary, because `board` must stay the only DB writer (`api` and `web` are
+read-only sidecars).
+
+**Writer-owned control plane.** In `SYNC_MODE=loop`, `board` runs a Node daemon
+(`src/cli/sync-daemon.ts`) rather than a shell `while` loop. The daemon owns the
+background cadence, a single in-process run lock, in-memory run status, and a
+small HTTP control surface. There is still exactly one writer process and one
+sync lock, so a manual run and a scheduled run can never overlap on SQLite.
+
+**Shared runner.** Both the standalone `sync` CLI and the daemon go through
+`src/sync-runner.ts`, which defines a run as "sync the selected sources, then
+emit the contract unless this run is a dry-run or any source failed". `normalize`
+and the engine stay pure; the runner only orchestrates and reports structured
+per-source results for the UI.
+
+**Run serialization.** The daemon holds one lock. A manual `POST` while a run is
+active returns the active run (HTTP 409) instead of starting a second writer. A
+scheduled tick that lands while a manual run is active *skips* that tick (it does
+not queue) and the next interval tries again. The cadence is unchanged from the
+shell loop: the first iteration and every `FULL_EVERY`-th iteration are full
+sweeps, the rest incremental.
+
+**Control API** (served by `board`, proxied by `web`, never the read-only `api`):
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/sync-control` | GET | availability probe: `{enabled, sources[], current, last, interval_seconds, full_every}` |
+| `/api/sync-runs/current` | GET | the active run status, or `null` |
+| `/api/sync-runs/last` | GET | the last finished run status, or `null` |
+| `/api/sync-runs` | POST | start a manual run |
+
+The POST request body is `{mode?: "incremental"|"full", dry_run?: boolean,
+source_id?: string|null}`. Defaults are incremental, write, all configured
+sources. A run status carries `run_id`, `trigger` (`manual`/`scheduled`),
+`mode`, `dry_run`, `source_scope`, `status` (`running`/`ok`/`partial`/`error`),
+`started_at`, `finished_at`, `emitted`, per-source rows, and totals
+(items/edges/activities/soft-deleted). The default UI action is an incremental
+sync of all sources; full sweep, dry-run, and source-scoped runs are advanced
+options.
+
+**Re-entrancy.** A second manual request while a run is active is rejected with
+the active run (HTTP 409); the daemon never queues unbounded runs.
+
+**Dry-run.** `dry_run: true` exercises fetch/normalize but opens no write
+transaction and emits no contract, so the UI can test provider connectivity
+without mutating the store or presenting non-written state as fresh data.
+
+**Safety model.** The mutating `POST /api/sync-runs` is enabled only when
+`SYNC_CONTROL_ENABLED` is set, and it additionally requires a same-origin custom
+header (`X-Symphony-Sync-Control`). A custom header cannot be set by a cross-site
+simple form POST and forces a CORS preflight the daemon never answers, so a blind
+cross-site POST is rejected without a shared secret. The control port
+(`SYNC_CONTROL_PORT`, default 8080) is internal to the Compose network and is
+never published to the host; `web` proxies the sync-control routes to it while
+`/api/range` still targets the read-only `api` sidecar. Read-only status GETs and
+`/healthz` are always served in loop mode; only the manual run is gated.
+
+**UI behavior.** The UI probes `/api/sync-control` on load; when control is
+unavailable or disabled it hides the affordance. A successful, non-dry, emitted
+run triggers a reload of `./contract.json` (and the active `/api/range` response
+for a custom range) while preserving the current route, search, filters, time
+range, and display preferences. A dry-run or failed run is shown distinctly and
+never reloads the data view as if it were fresh.
 
 ## Runtime Decisions
 
@@ -397,7 +469,9 @@ iteration to be full.
 - Raw history beyond the latest snapshot per entity. A future `raw_history`
   migration can add it without changing the current raw table.
 - Additional provider kinds beyond GitHub and GitLab.
-- External write actions from the UI. The UI is intentionally view-only.
+- Provider write actions from the UI (editing issues, labels, PRs, or MRs). The
+  UI can trigger a local provider-read sync through the writer-owned control
+  plane, but it never writes back to a provider.
 - Splitting UI or contract into separate repos. The package boundary is enough
   until third-party consumers or release cadence require more.
 - Historical pagination beyond explicit date ranges. The read-only range API

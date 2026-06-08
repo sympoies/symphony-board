@@ -42,6 +42,7 @@ import {
   loadDefaultRangePreset,
   saveDefaultRangePreset,
 } from "./viewconfig.ts";
+import { useSync } from "./useSync.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
@@ -120,6 +121,25 @@ export function App() {
   const activeRange = explicitRange ?? defaultRange;
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
   const needsRangeEnv = customRange && page !== "settings";
+
+  // Reload the active data in place after a successful manual sync. It only
+  // re-fetches the contract (and the range response for a custom range); the
+  // route, search, filters, time range, and display preferences are URL/state
+  // backed and untouched, so they survive the reload.
+  const reloadData = useCallback(() => {
+    fetchContract()
+      .then((e) => {
+        setEnv(e);
+        setError(null);
+      })
+      .catch((err: unknown) => setError((err as Error).message));
+    if (needsRangeEnv && activeRange) {
+      fetchRangeContract(activeRange)
+        .then((next) => setRangeEnv(next))
+        .catch((err: unknown) => setRangeError((err as Error).message));
+    }
+  }, [needsRangeEnv, activeRange]);
+  const sync = useSync(reloadData);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -457,7 +477,7 @@ export function App() {
 
   return (
     <div className="app app-wide">
-      <Header env={env} />
+      <Header env={env} sync={sync} />
       <nav className="page-tabs">
         <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
           Board
@@ -533,6 +553,7 @@ export function App() {
           onClearColor={clearColorOverride}
           defaultRangePreset={defaultRangePreset}
           onDefaultRangePreset={setDefaultRangePreset}
+          sync={sync}
         />
       ) : page === "activity" ? (
         <ActivityPage

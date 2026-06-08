@@ -66,8 +66,12 @@ import {
   edgeEndpointIds,
   itemSearchToken,
   graphWindowEdgesInRange,
+  isSyncRunActive,
+  syncProducedFreshData,
+  syncRunSummary,
   type ResolvedEdge,
   type GraphNode,
+  type SyncRunStatus,
 } from "../src/model.ts";
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
@@ -1061,4 +1065,48 @@ test("edgeEndpointIds collects both ends of every edge (board-card graph members
   // never matches a board item id). A `mentions`-only endpoint still counts as
   // linked, matching the graph's "any edge -> a node" membership rule.
   assert.deepEqual([...ids].sort(), ["s|A", "s|B", "s|UNTRACKED"]);
+});
+
+// --- manual sync control plane helpers ---
+
+function syncRun(over: Partial<SyncRunStatus> = {}): SyncRunStatus {
+  return {
+    run_id: "20260608T190000Z-0001",
+    trigger: "manual",
+    mode: "incremental",
+    dry_run: false,
+    source_scope: null,
+    status: "ok",
+    started_at: "2026-06-08T19:00:00Z",
+    finished_at: "2026-06-08T19:00:05Z",
+    emitted: true,
+    totals: { items: 7, edges: 2, activities: 3, soft_deleted: 0, soft_deleted_edges: 0 },
+    sources: [],
+    error: null,
+    ...over,
+  };
+}
+
+test("isSyncRunActive is true only for a running run", () => {
+  assert.equal(isSyncRunActive(syncRun({ status: "running" })), true);
+  assert.equal(isSyncRunActive(syncRun({ status: "ok" })), false);
+  assert.equal(isSyncRunActive(null), false);
+});
+
+test("syncProducedFreshData only when a non-dry run emitted without failing", () => {
+  assert.equal(syncProducedFreshData(syncRun({ status: "ok", emitted: true })), true);
+  assert.equal(syncProducedFreshData(syncRun({ status: "partial", emitted: true })), true, "partial still emitted fresh data");
+  assert.equal(syncProducedFreshData(syncRun({ status: "ok", dry_run: true, emitted: false })), false, "a dry-run never refreshes the data view");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "a failed run is not fresh");
+  assert.equal(syncProducedFreshData(syncRun({ status: "running" })), false);
+  assert.equal(syncProducedFreshData(null), false);
+});
+
+test("syncRunSummary distinguishes running, reloaded, dry-run, and error states", () => {
+  const now = Date.parse("2026-06-08T19:00:10Z");
+  assert.match(syncRunSummary(syncRun({ status: "running" }), now), /Syncing… incremental/);
+  assert.match(syncRunSummary(syncRun({ status: "ok", emitted: true }), now), /Synced .* · 7 items · contract reloaded/);
+  assert.match(syncRunSummary(syncRun({ dry_run: true, emitted: false }), now), /Dry-run completed/);
+  assert.match(syncRunSummary(syncRun({ status: "error", emitted: false, error: "boom" }), now), /Sync failed .*: boom/);
+  assert.equal(syncRunSummary(null, now), "");
 });
