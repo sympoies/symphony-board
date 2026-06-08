@@ -173,12 +173,14 @@ Runtime output under `data/` remains gitignored.
 
 Docker Compose runs three services:
 
-- `board`: the sole writer. It loops `sync` and `emit`.
+- `board`: the sole writer. A Node daemon loops `sync` + `emit` on a timer and
+  also serves a writer-owned control surface for UI-triggered manual syncs (see
+  below).
 - `api`: a read-only Node sidecar. It opens SQLite with `query_only` and serves
   `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
-  latest `data/contract.json` as `/contract.json`, and proxies `/api/` to
-  `api`.
+  latest `data/contract.json` as `/contract.json`, proxies `/api/range` to the
+  read-only `api`, and proxies the sync-control routes to `board`.
 
 ```sh
 echo "GITHUB_TOKEN=ghp_xxx" > .env
@@ -197,6 +199,26 @@ runs about every 2 minutes in between. Set `FULL_EVERY=1` to always full-sweep.
 
 Only full, complete sweeps can tombstone disappeared items and intra-source
 edges. Partial, failed, and incremental runs never delete.
+
+### Manual sync from the UI
+
+Browser reload only reloads the latest emitted `contract.json`; it does not ask
+providers for new data. The UI's **Sync** action triggers a real provider sync +
+contract emit through the `board` daemon, then reloads the contract in place
+(keeping your route, search, filters, and time range). Use it for an immediate
+update or a provider-connectivity check between scheduled loops; rely on the
+background loop for hands-off freshness, and a browser reload only to re-read the
+last emit.
+
+The control plane keeps `board` the only writer: manual and scheduled syncs
+share one lock and never overlap, and the read-only `api` sidecar is untouched.
+The Compose stack enables it via `SYNC_CONTROL_ENABLED=1` on `board`; the control
+port (`SYNC_CONTROL_PORT`, default 8080) stays internal to the Compose network
+and is never published to the host. Mutating requests require a same-origin
+`X-Symphony-Sync-Control` header, so a blind cross-site POST is rejected. Remove
+`SYNC_CONTROL_ENABLED` to keep the daemon timer-only and refuse manual runs (the
+UI then hides the Sync action). The Header action runs an incremental sync of all
+sources; Settings exposes full sweep, dry-run, and source-scoped runs.
 
 Read-only inspection helpers:
 
