@@ -34,7 +34,7 @@
 | 2.1 | done | Specify aggregate scope in the contract | Contract scope/window vocabulary documented in docs/CONTRACT.md and mirrored in packages/contract/types.ts plus contract.schema.json. | Schema/types/docs define full and windowed aggregate semantics. |
 | 2.2 | done | Emit contract aggregates and window metadata | Producer emits v1.3 global/boardWindow/graphWindow aggregates; tests cover full and active-since rows; sample and throwaway emitted contracts validate. | Producer emits validated aggregate/window data without exposing DB schema. |
 | 2.3 | done | Consume contract aggregates in the UI | UI consumes compatible contract aggregates through findContractScopedStats and falls back for viewer-local filters; UI tests and smoke pass. | UI uses contract aggregates where compatible and local fallbacks where needed. |
-| 2.4 | done | Close issue #56 or mark its supersession | Updated #56 with remaining payload-trimming scope: https://github.com/sympoies/symphony-board/issues/56#issuecomment-4646009410 | Provider issue reflects shipped or remaining contract work. |
+| 2.4 | done | Close issue #56 or mark its supersession | Updated #56 with remaining payload-trimming scope and a v1.3 correction after rebasing on #75: https://github.com/sympoies/symphony-board/issues/56 | Provider issue reflects shipped or remaining contract work. |
 
 ## Session Log
 
