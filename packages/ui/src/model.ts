@@ -244,11 +244,6 @@ export interface TimeRange {
   to: string;
 }
 
-export function dateOnlyFromIso(iso: string | null | undefined, fallbackNow: number = Date.now(), tz: string = DEFAULT_TIMEZONE): string {
-  const parsed = Date.parse(iso ?? "");
-  return zonedDateOnly(Number.isFinite(parsed) ? parsed : fallbackNow, tz);
-}
-
 function generatedAtMs(env: ContractEnvelope): number {
   const parsedGenerated = Date.parse(env.generated_at);
   return Number.isFinite(parsedGenerated) ? parsedGenerated : Date.now();
