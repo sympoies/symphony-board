@@ -64,7 +64,7 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
               html_url: "https://github.com/o/r/commit/abcdef123456",
               commit: {
                 message: "Ship activity feed\n\nBody",
-                author: { name: "A", date: "2026-06-09T10:00:00Z" },
+                author: { name: "A", email: "octo@example.com", date: "2026-06-09T10:00:00Z" },
                 committer: { name: "A", date: "2026-06-09T10:00:00Z" },
               },
               author: { login: "octocat" },
@@ -96,6 +96,39 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
   assert.deepEqual(activityBundles.map((b) => b.activities[0]!.kind).sort(), ["branch", "commit"]);
   assert.ok(calls.some((c) => c.path === "repos/o/r/commits" && c.params?.since === "2026-06-01T00:00:00Z"));
   assert.ok(calls.some((c) => c.path === "repos/o/r/activity" && c.params?.time_period === "month"));
+  // The linked account login wins over the commit email, and the push reuses it.
+  const commit = activityBundles.find((b) => b.activities[0]!.kind === "commit")!.activities[0]!;
+  assert.equal(commit.actorKey, "provider-user:github:github.com:octocat");
+  const push = activityBundles.find((b) => b.activities[0]!.kind === "branch")!.activities[0]!;
+  assert.equal(push.actorKey, "provider-user:github:github.com:octocat");
+});
+
+test("GitHub commit with no linked account keys the actor by hashed email", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "activity",
+    externalId: "commit:o/r:deadbeefcafe",
+    apiVersion: "github.graphql.v4.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "github_commit",
+      project: "o/r",
+      commit: {
+        sha: "deadbeefcafe",
+        html_url: "https://github.com/o/r/commit/deadbeefcafe",
+        commit: {
+          message: "Anonymous fix",
+          author: { name: "Anon Dev", email: "anon@example.com", date: "2026-06-09T10:00:00Z" },
+          committer: { name: "Anon Dev", date: "2026-06-09T10:00:00Z" },
+        },
+        author: null,
+      },
+    },
+  };
+  const activity = src.normalize(raw)!.activities[0]!;
+  assert.equal(activity.actor, "Anon Dev", "display string is unchanged");
+  assert.match(activity.actorKey ?? "", /^email:[0-9a-f]{16}$/, "no linked login -> hashed email key");
 });
 
 test("normalize emits mentions from non-closing cross-references (source -> self)", () => {

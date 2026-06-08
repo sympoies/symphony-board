@@ -124,6 +124,33 @@ open vocabulary; the stable contract is the row shape, not a closed event enum.
 tracked item. Human fields such as `project_path`, `target_iid`, and `title`
 are display metadata.
 
+## Actor identity
+
+`actor` is a raw display string and is not a reliable key: one human shows up as
+a provider username on issues/PRs/MRs and as several git author names on commits.
+So normalization also derives a stable `actor_key` (`src/model/actor.ts`,
+persisted on the `activity` row), and Repo Analytics' `top_actors[]` groups on
+that key, not on the display string.
+
+The key precedence is **username, then email, then name**:
+
+1. `provider-user:<source_id>:<username>` — a provider username/login. Issues,
+   PRs/MRs, pushes, and account-linked commits all carry one, so this groups a
+   person's whole footprint under one identity.
+2. `email:<hash>` — a commit author email, for account-less git authorship. The
+   address is hashed, so it collapses the many commit author-name variants for
+   one address without the raw email ever entering the canonical store or the
+   contract.
+3. `name:<normalized>` — the lowercased, whitespace-collapsed display name, as a
+   last resort.
+
+Username is deliberately preferred over email: keying account-linked commits by
+username merges them with that person's issues/PRs, where keying by email would
+re-split the same human (issues carry no email). The derivation is pure and
+deterministic, so it is replayable against stored raw exactly like `normalize`.
+Items carry only a username, so their key is recomputed at contract-build time
+rather than stored. Contract-facing rules live in docs/CONTRACT.md.
+
 ## Disappearance Handling
 
 Persistent stores need a strict rule for disappeared entities. "Not fetched this
@@ -176,7 +203,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v2. Current emitted version: `2.2.1`.
+Current major: v2. Current emitted version: `2.3.0`.
 
 Version `1.1.0` added display metadata:
 

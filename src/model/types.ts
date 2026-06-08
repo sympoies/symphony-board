@@ -88,6 +88,10 @@ export interface CanonicalActivity {
   title: string | null;
   url: string | null;
   actor: string | null;
+  // Stable actor identity key from `deriveActorKey` (see src/model/actor.ts).
+  // `actor` stays the raw display string; `actorKey` is what repo-metric actor
+  // aggregation groups on. Null when the record names no actor.
+  actorKey: string | null;
   occurredAt: string;
   summary: string | null;
   details: Record<string, unknown> | null;

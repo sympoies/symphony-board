@@ -671,7 +671,7 @@ export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
     ...Object.keys(metric.totals.by_activity_kind),
     ...Object.keys(metric.totals.by_activity_action),
     ...Object.keys(metric.totals.by_label_scope),
-    ...(metric.top_actors ?? []).map((actor) => actor.actor),
+    ...(metric.top_actors ?? []).flatMap((actor) => [actor.display_name, ...(actor.aliases ?? [])]),
     ...metric.data_quality.notes,
   ]
     .filter((part): part is string => !!part)

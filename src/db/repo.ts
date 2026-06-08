@@ -109,13 +109,14 @@ export function upsertActivity(db: DatabaseSync, a: CanonicalActivity, nowIso: s
     `INSERT INTO activity (
        source_id, external_id, kind, action, project_path, target_kind,
        target_source_id, target_external_id, target_iid, title, url, actor,
-       occurred_at, summary, details, first_seen_at, last_seen_at
-     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       actor_key, occurred_at, summary, details, first_seen_at, last_seen_at
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(source_id, external_id) DO UPDATE SET
        kind=excluded.kind, action=excluded.action, project_path=excluded.project_path,
        target_kind=excluded.target_kind, target_source_id=excluded.target_source_id,
        target_external_id=excluded.target_external_id, target_iid=excluded.target_iid,
        title=excluded.title, url=excluded.url, actor=excluded.actor,
+       actor_key=excluded.actor_key,
        occurred_at=excluded.occurred_at, summary=excluded.summary,
        details=excluded.details, last_seen_at=excluded.last_seen_at`,
   ).run(
@@ -131,6 +132,7 @@ export function upsertActivity(db: DatabaseSync, a: CanonicalActivity, nowIso: s
     nz(a.title),
     nz(a.url),
     nz(a.actor),
+    nz(a.actorKey),
     a.occurredAt,
     nz(a.summary),
     details,
@@ -290,6 +292,7 @@ export interface ActivityRow {
   title: string | null;
   url: string | null;
   actor: string | null;
+  actor_key: string | null;
   occurred_at: string;
   summary: string | null;
   details: string | null;
@@ -369,7 +372,7 @@ export function listActivities(db: DatabaseSync): ActivityRow[] {
     .prepare(
       `SELECT source_id, external_id, kind, action, project_path, target_kind,
               target_source_id, target_external_id, target_iid, title, url, actor,
-              occurred_at, summary, details, first_seen_at, last_seen_at
+              actor_key, occurred_at, summary, details, first_seen_at, last_seen_at
        FROM activity
        ORDER BY julianday(occurred_at) DESC, activity_id DESC`,
     )

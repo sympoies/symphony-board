@@ -72,6 +72,7 @@ function fixtureActivity(over: Partial<CanonicalActivity> = {}): CanonicalActivi
     title: "Opened an issue",
     url: "https://example/1",
     actor: "graysurf",
+    actorKey: "provider-user:github:github.com:graysurf",
     occurredAt: "2026-06-01T00:00:00Z",
     summary: "Opened issue #1",
     details: { source: "test" },
@@ -174,13 +175,14 @@ test("activities are upserted by provider id and listed newest first", () => {
   ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null }, "2026-06-01T00:00:00Z");
 
   upsertActivity(db, fixtureActivity(), "2026-06-01T00:00:00Z");
-  upsertActivity(db, fixtureActivity({ title: "Updated title", summary: "Updated summary" }), "2026-06-01T00:01:00Z");
+  upsertActivity(db, fixtureActivity({ title: "Updated title", summary: "Updated summary", actorKey: "provider-user:github:github.com:updated" }), "2026-06-01T00:01:00Z");
   upsertActivity(db, fixtureActivity({ externalId: "activity-2", occurredAt: "2026-06-02T00:00:00Z", action: "closed" }), "2026-06-02T00:00:00Z");
 
   const rows = listActivities(db);
   assert.equal(rows.length, 2, "same (source, external_id) updates in place");
   assert.equal(rows[0]!.external_id, "activity-2", "newest activity sorts first");
   assert.equal(rows[1]!.title, "Updated title");
+  assert.equal(rows[1]!.actor_key, "provider-user:github:github.com:updated", "actor_key persists and backfills on conflict");
   assert.deepEqual(JSON.parse(rows[1]!.details ?? "{}"), { source: "test" });
   db.close();
 });

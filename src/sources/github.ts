@@ -17,6 +17,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
+import { deriveActorKey } from "../model/actor.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 
@@ -353,6 +354,14 @@ export class GitHubSource implements Source {
       if (!sha || !occurredAt) return null;
       const title = firstLine(commit.commit?.message);
       const actor = commit.author?.login ?? commit.commit?.author?.name ?? commit.commit?.committer?.name ?? null;
+      // Prefer the linked account login (groups with this person's issues/PRs);
+      // fall back to the commit email for account-less commits, then the name.
+      const actorKey = deriveActorKey({
+        sourceId: this.descriptor.sourceId,
+        username: commit.author?.login ?? null,
+        email: commit.commit?.author?.email ?? commit.commit?.committer?.email ?? null,
+        name: commit.commit?.author?.name ?? commit.commit?.committer?.name ?? null,
+      });
       const activity: CanonicalActivity = {
         sourceId: this.descriptor.sourceId,
         externalId: raw.externalId,
@@ -365,6 +374,7 @@ export class GitHubSource implements Source {
         title,
         url: commit.html_url ?? null,
         actor,
+        actorKey,
         occurredAt,
         summary: `Committed ${sha.slice(0, 7)}${p.project ? ` in ${p.project}` : ""}`,
         details: { sha, message: title },
@@ -391,6 +401,7 @@ export class GitHubSource implements Source {
         title: shortRef(ref) ?? ref,
         url: null,
         actor: event.pusher?.login ?? null,
+        actorKey: deriveActorKey({ sourceId: this.descriptor.sourceId, username: event.pusher?.login ?? null }),
         occurredAt,
         summary: repoActivitySummary(action, ref, p.project ?? null),
         details: {

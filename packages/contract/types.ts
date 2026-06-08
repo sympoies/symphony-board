@@ -145,7 +145,17 @@ export interface RepoMetricSeriesPointDTO {
 }
 
 export interface RepoMetricActorDTO {
+  // Backward-compatible display field (added before actor identity); equals
+  // `display_name`. Kept so pre-2.3.0 consumers keep rendering.
   actor: string;
+  // Stable, non-PII actor identity key (added in 2.3.0). Scheme-prefixed:
+  // `provider-user:<source_id>:<username>`, `email:<hash>` (the raw address is
+  // never exposed), or `name:<normalized>`. Use it as the row's stable key.
+  actor_key: string;
+  // Deterministically chosen display name for the identity (added in 2.3.0).
+  display_name: string;
+  // Other display names observed for the identity, sorted; omitted when none.
+  aliases?: string[];
   activities: number;
   commits: number;
   items_opened: number;

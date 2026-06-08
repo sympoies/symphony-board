@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
 import { validateContract } from "../src/contract/validate.ts";
+import { deriveActorKey } from "../src/model/actor.ts";
 import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
 
 function itemRow(over: Partial<ItemRow>): ItemRow {
@@ -35,7 +36,7 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
 }
 
 function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
-  return {
+  const merged: ActivityRow = {
     source_id: "github:github.com",
     external_id: "activity-1",
     kind: "issue",
@@ -48,6 +49,7 @@ function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
     title: "An issue",
     url: "https://github.com/graysurf/repo/issues/7",
     actor: "graysurf",
+    actor_key: null,
     occurred_at: "2026-01-01T00:00:00Z",
     summary: "Opened issue #7",
     details: "{\"source\":\"test\"}",
@@ -55,6 +57,13 @@ function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
     last_seen_at: "2026-06-01T00:00:00Z",
     ...over,
   };
+  // Default the actor key from the (possibly overridden) actor as a provider
+  // username, so a fixture only has to set `actor_key` when exercising email /
+  // name identities. Matches the key build.ts recomputes for item authors.
+  if (!("actor_key" in over)) {
+    merged.actor_key = deriveActorKey({ sourceId: merged.source_id, username: merged.actor });
+  }
+  return merged;
 }
 
 test("buildContract emits a versioned envelope with composite-ref ids", () => {
@@ -273,7 +282,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "2.2.1");
+  assert.equal(env.contract_version, "2.3.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -321,4 +330,69 @@ test("buildContract counts review activity rows into reviews and approvals (issu
   assert.equal(metric?.totals.approvals, 1, "only the approved review counts as an approval");
   assert.equal(metric?.totals.by_activity_kind.review, 3);
   assert.equal(metric?.totals.by_activity_action.approved, 1);
+});
+
+test("repo metrics group top_actors by canonical identity (issue #95)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  // One issue authored by the username "carol". Its account-linked commit below
+  // must merge into the SAME actor identity, not a separate row.
+  const items: ItemRow[] = [
+    itemRow({
+      item_id: 1,
+      external_id: "ISSUE_carol",
+      kind: "issue",
+      state: "open",
+      author: "carol",
+      created_at: "2026-06-05T00:00:00Z",
+      updated_at: "2026-06-06T00:00:00Z",
+      project_path: "o/repo",
+    }),
+  ];
+
+  const emailA = deriveActorKey({ sourceId: "github:github.com", email: "user@example.com", name: "Example User" });
+  const emailB = deriveActorKey({ sourceId: "github:github.com", email: "other@example.com", name: "Example User" });
+  const carolKey = deriveActorKey({ sourceId: "github:github.com", username: "carol" });
+
+  const activities: ActivityRow[] = [
+    // Same email, two display-name variants -> one actor identity.
+    activityRow({ external_id: "c1", kind: "commit", action: "committed", project_path: "o/repo", actor: "Example User", actor_key: emailA, occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "c2", kind: "commit", action: "committed", project_path: "o/repo", actor: "Example User Alt", actor_key: emailA, occurred_at: "2026-06-07T11:00:00Z" }),
+    // A different email that happens to share a display name -> must NOT merge.
+    activityRow({ external_id: "c3", kind: "commit", action: "committed", project_path: "o/repo", actor: "Example User", actor_key: emailB, occurred_at: "2026-06-07T12:00:00Z" }),
+    // An account-linked commit by the issue author "carol" -> merges with the issue.
+    activityRow({ external_id: "c4", kind: "commit", action: "committed", project_path: "o/repo", actor: "carol", actor_key: carolKey, occurred_at: "2026-06-07T13:00:00Z" }),
+  ];
+
+  const env = buildContract({ sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(env), []);
+
+  const actors = env.repo_metrics?.[0]?.top_actors ?? [];
+  const byKey = new Map(actors.map((a) => [a.actor_key, a]));
+
+  // Same email, multiple display names -> one row; deterministic display name +
+  // aliases.
+  assert.equal([...byKey.keys()].filter((k) => k === emailA).length, 1);
+  const a = byKey.get(emailA!);
+  assert.equal(a?.display_name, "Example User", "most frequent / lexicographically-first name wins");
+  assert.deepEqual(a?.aliases, ["Example User Alt"]);
+  assert.equal(a?.commits, 2);
+  assert.equal(a?.activities, 2);
+
+  // Two different emails with the same display name stay separate.
+  assert.notEqual(emailA, emailB);
+  assert.ok(byKey.has(emailB!), "different email is its own identity");
+  assert.equal(byKey.get(emailB!)?.commits, 1);
+
+  // Username identity is stable and merges the issue with the account-linked commit.
+  const carol = byKey.get(carolKey!);
+  assert.equal(carol?.display_name, "carol");
+  assert.equal(carol?.items_opened, 1, "issue authored by carol");
+  assert.equal(carol?.commits, 1, "commit by carol merges into the same identity");
+
+  // Three identities total (emailA, emailB, carol); the two "Example User"
+  // display names are distinct rows keyed by identity.
+  assert.equal(actors.length, 3);
+  assert.equal(actors.filter((x) => x.display_name === "Example User").length, 2);
 });

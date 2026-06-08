@@ -43,6 +43,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
+import { deriveActorKey } from "../model/actor.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 
@@ -515,6 +516,13 @@ export class GitLabSource implements Source {
         title,
         url: commit.web_url ?? null,
         actor: commit.author_name ?? commit.committer_name ?? null,
+        // GitLab repository commits carry no username, so the email is the
+        // reliable key; it collapses the author-name variants for one address.
+        actorKey: deriveActorKey({
+          sourceId: this.descriptor.sourceId,
+          email: commit.author_email ?? commit.committer_email ?? null,
+          name: commit.author_name ?? commit.committer_name ?? null,
+        }),
         occurredAt,
         summary: `Committed ${sha.slice(0, 8)}${p.project ? ` in ${p.project}` : ""}`,
         details: { sha, message: title },
@@ -545,6 +553,11 @@ export class GitLabSource implements Source {
         title,
         url: null,
         actor: event.author_username ?? event.author?.username ?? null,
+        actorKey: deriveActorKey({
+          sourceId: this.descriptor.sourceId,
+          username: event.author_username ?? event.author?.username ?? null,
+          name: event.author?.name ?? null,
+        }),
         occurredAt,
         summary: gitLabEventSummary(action, targetKind, title, p.project ?? null),
         details: {
