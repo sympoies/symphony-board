@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `1.1.0`.
+Current emitted version: `1.2.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -37,6 +37,7 @@ package version, to decide compatibility.
   ],
   "items": [],
   "edges": [],
+  "activities": [],
   "repos": [
     {
       "source_id": "github:github.com",
@@ -55,11 +56,13 @@ Top-level fields:
 - `sources`: source health and source display metadata.
 - `items`: normalized work items.
 - `edges`: typed relationships between items.
+- `activities`: optional developer-significant event feed, added in `1.2.0`.
 - `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
 
-The producer currently emits `repos` every time, usually as an empty array. It is
-optional in the schema so old v1 readers are not broken by the minor addition.
-Consumers should read it as `env.repos ?? []`.
+The producer currently emits `activities` and `repos` every time, usually as
+empty arrays. They are optional in the schema so old v1 readers are not broken
+by minor additions. Consumers should read them as `env.activities ?? []` and
+`env.repos ?? []`.
 
 ## Refs
 
@@ -111,6 +114,32 @@ Non-`closes` edge types, such as `mentions` and `relates`, have
 Edge type is an open string so providers can add relationship vocabulary without
 changing the major version when the shape stays the same.
 
+## Activities
+
+`activities[]` is a newest-first feed of developer-significant records. It is
+separate from `items[]`: an item is current state, while an activity row is
+something that happened.
+
+Important fields:
+
+- `id`: composite ref for this activity record.
+- `source_id` / `external_id`: stable source identity for the record.
+- `kind`: open string such as `issue`, `change_request`, `commit`, `branch`,
+  `tag`, or `repository`.
+- `action`: open string such as `opened`, `closed`, `merged`, `committed`,
+  `pushed`, `force_pushed`, `created`, or `deleted`.
+- `project_path`: mutable repo/project display path, when known.
+- `target_kind`, `target_ref`, `target_iid`: optional target metadata. Only set
+  `target_ref` when the producer can identify the tracked item by provider
+  immutable id.
+- `occurred_at`: provider event timestamp.
+- `summary`: producer-readable text for UI display.
+- `details`: provider-specific JSON object for debugging and later consumers.
+
+Current sources derive item transition activities from canonical item timestamps
+and fetch provider REST activity surfaces for commits and repository/project
+events.
+
 ## Display Metadata
 
 Version `1.1.0` added display colors:
@@ -134,9 +163,11 @@ browser repo override -> repos[] color -> sources[].color -> no highlight
 
 The UI validates colors again before using them in CSS.
 
+Version `1.2.0` added optional top-level `activities[]`.
+
 ## Version Rules
 
-- **patch** (`1.1.x`): clarification only; no shape or semantic change.
+- **patch** (`1.2.x`): clarification only; no shape or semantic change.
 - **minor** (`1.x.0`): additive only. New fields must be optional and/or
   nullable. Old consumers must keep working.
 - **major** (`x.0.0`): breaking shape or semantic change, including removed

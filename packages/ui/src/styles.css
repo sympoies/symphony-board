@@ -48,36 +48,36 @@ body {
   font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll) {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list) {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll)::-webkit-scrollbar {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll)::-webkit-scrollbar-track {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
   border-radius: 999px;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll)::-webkit-scrollbar-thumb {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border: 2px solid var(--scrollbar-track);
   border-radius: 999px;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll)::-webkit-scrollbar-thumb:hover {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll)::-webkit-scrollbar-thumb:active {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll)::-webkit-scrollbar-corner {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
@@ -360,6 +360,33 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   padding: 1px 5px; border-radius: 4px;
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
 }
+
+/* activity page */
+.activity-page { margin: 12px 0; max-width: 980px; }
+.activity-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.activity-head h2 { margin: 0; border: none; padding: 0; }
+.activity-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
+  padding-right: 4px;
+}
+.activity-row {
+  position: relative;
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 12px;
+}
+.activity-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.activity-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.activity-title {
+  color: var(--text); font-weight: 600; min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  color: var(--muted); font-size: 12px;
+}
+.activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }

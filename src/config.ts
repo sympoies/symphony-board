@@ -21,6 +21,9 @@ export interface SourceConfig {
   color?: string;
   token_env: string; // name of the env var holding the PAT
   graphql_url: string;
+  // Optional REST base URL. Defaults by provider/host when omitted; used for
+  // activity surfaces such as commits and project/repository events.
+  rest_url?: string;
   projects: ProjectConfig[]; // owner/name (GitHub) or group/.../project (GitLab)
 }
 
@@ -55,6 +58,9 @@ export function loadConfig(explicitPath?: string | null): { cfg: AppConfig; path
     }
     if (s.color !== undefined && !HEX_COLOR.test(s.color)) {
       throw new Error(`Config ${path}: source "${s.source_id}" color "${s.color}" is not a hex color (#rgb or #rrggbb)`);
+    }
+    if (s.rest_url !== undefined && typeof s.rest_url !== "string") {
+      throw new Error(`Config ${path}: source "${s.source_id}" rest_url must be a string when set`);
     }
     if (!Array.isArray(s.projects) || s.projects.length === 0) {
       throw new Error(`Config ${path}: source "${s.source_id}" has no projects`);

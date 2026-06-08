@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { GitHubSource } from "../src/sources/github.ts";
 import { GitLabSource } from "../src/sources/gitlab.ts";
 import type { GqlClient } from "../src/sources/graphql.ts";
+import type { RestClient } from "../src/sources/rest.ts";
 import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
 
 const DESC: SourceDescriptor = { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null };
@@ -49,6 +50,52 @@ test("a full sweep ignores the watermark and fetches everything", async () => {
   const ids = res.records.map((r) => r.externalId).sort();
   assert.deepEqual(ids, ["I_fresh", "I_stale"], "full sweep keeps the stale issue too");
   assert.equal(res.watermark, "2026-06-10T00:00:00Z", "watermark is the max updatedAt seen");
+});
+
+test("GitHub fetch and normalize includes commit and repository activity from REST", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "repos/o/r/commits") {
+      return (params?.page === 1
+        ? [
+            {
+              sha: "abcdef123456",
+              html_url: "https://github.com/o/r/commit/abcdef123456",
+              commit: {
+                message: "Ship activity feed\n\nBody",
+                author: { name: "A", date: "2026-06-09T10:00:00Z" },
+                committer: { name: "A", date: "2026-06-09T10:00:00Z" },
+              },
+              author: { login: "octocat" },
+            },
+          ]
+        : []) as T;
+    }
+    if (path === "repos/o/r/activity") {
+      return (params?.page === 1
+        ? [
+            {
+              push_type: "normal",
+              ref: "refs/heads/main",
+              before: "111",
+              after: "222",
+              pushed_at: "2026-06-09T11:00:00Z",
+              pusher: { login: "octocat" },
+            },
+          ]
+        : []) as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  const activityBundles = res.records.filter((r) => r.entityKind === "activity").map((r) => src.normalize(r)!);
+  assert.equal(activityBundles.length, 2);
+  assert.deepEqual(activityBundles.map((b) => b.activities[0]!.kind).sort(), ["branch", "commit"]);
+  assert.ok(calls.some((c) => c.path === "repos/o/r/commits" && c.params?.since === "2026-06-01T00:00:00Z"));
+  assert.ok(calls.some((c) => c.path === "repos/o/r/activity" && c.params?.time_period === "month"));
 });
 
 test("normalize emits mentions from non-closing cross-references (source -> self)", () => {
@@ -106,16 +153,23 @@ function ghPrBundle(state: string, mergeable: string) {
 
 test("GitHub: a merged PR drops merge_state (UNKNOWN would otherwise read as 'unknown')", () => {
   const b = ghPrBundle("MERGED", "UNKNOWN");
+  assert.ok(b.item);
   assert.equal(b.item.state, "merged");
   assert.equal(b.item.mergeState, null, "merged PR carries no merge badge");
   assert.equal(b.item.ciState, "passing", "CI is still meaningful after merge");
 });
 
 test("GitHub: an open PR keeps its real merge_state", () => {
-  assert.equal(ghPrBundle("OPEN", "MERGEABLE").item.mergeState, "mergeable");
-  assert.equal(ghPrBundle("OPEN", "CONFLICTING").item.mergeState, "conflicting");
+  const mergeable = ghPrBundle("OPEN", "MERGEABLE").item;
+  const conflicting = ghPrBundle("OPEN", "CONFLICTING").item;
+  const unknown = ghPrBundle("OPEN", "UNKNOWN").item;
+  assert.ok(mergeable);
+  assert.ok(conflicting);
+  assert.ok(unknown);
+  assert.equal(mergeable.mergeState, "mergeable");
+  assert.equal(conflicting.mergeState, "conflicting");
   // UNKNOWN is a legitimate transient state while open and is preserved.
-  assert.equal(ghPrBundle("OPEN", "UNKNOWN").item.mergeState, "unknown");
+  assert.equal(unknown.mergeState, "unknown");
 });
 
 function glMrBundle(state: string, detailedMergeStatus: string) {
@@ -133,14 +187,52 @@ function glMrBundle(state: string, detailedMergeStatus: string) {
 
 test("GitLab: a merged MR drops merge_state (NOT_OPEN would otherwise read as 'mergeable')", () => {
   const b = glMrBundle("merged", "NOT_OPEN");
+  assert.ok(b.item);
   assert.equal(b.item.state, "merged");
   assert.equal(b.item.mergeState, null, "merged MR carries no merge badge");
   assert.equal(b.item.ciState, "passing");
 });
 
 test("GitLab: an open MR keeps its real merge_state", () => {
-  assert.equal(glMrBundle("opened", "MERGEABLE").item.mergeState, "mergeable");
-  assert.equal(glMrBundle("opened", "CI_MUST_PASS").item.mergeState, "blocked");
+  const mergeable = glMrBundle("opened", "MERGEABLE").item;
+  const blocked = glMrBundle("opened", "CI_MUST_PASS").item;
+  assert.ok(mergeable);
+  assert.ok(blocked);
+  assert.equal(mergeable.mergeState, "mergeable");
+  assert.equal(blocked.mergeState, "blocked");
+});
+
+test("GitLab project events normalize without fake tracked target refs", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "activity",
+    externalId: "event:1",
+    apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_project_event",
+      project: "g/p",
+      event: {
+        id: 1,
+        action_name: "closed",
+        target_type: "Issue",
+        target_id: 99,
+        target_iid: 5,
+        target_title: "Close me",
+        created_at: "2026-06-09T12:00:00Z",
+        author_username: "gitlab-user",
+      },
+    },
+  };
+  const b = src.normalize(raw);
+  assert.ok(b);
+  assert.equal(b!.item, null);
+  assert.equal(b!.activities.length, 1);
+  assert.equal(b!.activities[0]!.kind, "issue");
+  assert.equal(b!.activities[0]!.action, "closed");
+  assert.equal(b!.activities[0]!.target, null, "REST target_id is not the GraphQL global id");
+  assert.equal(b!.activities[0]!.targetIid, 5);
 });
 
 // --- GitLab: system-note cross-references (issue #13) ----------------------

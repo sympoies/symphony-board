@@ -13,6 +13,7 @@ import {
   upsertItem,
   replaceLabels,
   upsertEdge,
+  upsertActivity,
   startRun,
   finishRun,
   updateSyncState,
@@ -30,6 +31,7 @@ export interface SyncReport {
   status: "ok" | "partial" | "error";
   itemsSeen: number;
   edgesSeen: number;
+  activitiesSeen: number;
   softDeleted: number;
   softDeletedEdges: number;
   watermark: string | null;
@@ -54,10 +56,10 @@ export async function syncSource(
     if (!opts.dryRun) {
       ensureSource(db, source.descriptor, startedAt);
       const runId = startRun(db, sourceId, opts.full ? "full" : "incremental", startedAt);
-      finishRun(db, runId, "error", new Date().toISOString(), 0, 0, msg);
+      finishRun(db, runId, "error", new Date().toISOString(), 0, 0, 0, msg);
       updateSyncState(db, sourceId, null, "error", msg, startedAt);
     }
-    return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
+    return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, activitiesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
   }
 
   // --- normalize (pure) ---
@@ -68,12 +70,14 @@ export async function syncSource(
   }
   const stateByRef = new Map<string, ItemState>();
   for (const b of bundles) {
+    if (b.item === null) continue;
     stateByRef.set(refOf(b.item.sourceId, b.item.externalId), b.item.state);
   }
 
   // collect edges with the side that reported them (the bundle's own item)
   const discovered: Array<{ edge: CanonicalEdge; side: "from" | "to" }> = [];
   for (const b of bundles) {
+    if (b.item === null) continue;
     const self = refOf(b.item.sourceId, b.item.externalId);
     for (const edge of b.edges) {
       const side = refOf(edge.from.sourceId, edge.from.externalId) === self ? "from" : "to";
@@ -89,11 +93,14 @@ export async function syncSource(
   });
 
   const status: "ok" | "partial" = result.complete ? "ok" : "partial";
+  const itemBundles = bundles.filter((b) => b.item !== null);
+  const activities = bundles.flatMap((b) => b.activities);
   const report: SyncReport = {
     sourceId,
     status,
-    itemsSeen: bundles.length,
+    itemsSeen: itemBundles.length,
     edgesSeen: edges.length,
+    activitiesSeen: activities.length,
     softDeleted: 0,
     softDeletedEdges: 0,
     watermark: result.watermark,
@@ -107,16 +114,26 @@ export async function syncSource(
   try {
     ensureSource(db, source.descriptor, startedAt);
     const runId = startRun(db, sourceId, opts.full ? "full" : "incremental", startedAt);
-    const payloadByExternalId = new Map(result.records.map((r) => [r.externalId, r]));
+    for (const raw of result.records) {
+      upsertRaw(
+        db,
+        sourceId,
+        raw.entityKind,
+        raw.externalId,
+        raw.apiVersion ?? null,
+        raw.contentHash ?? null,
+        raw.fetchedAt,
+        JSON.stringify(raw.payload ?? null),
+      );
+    }
     for (const b of bundles) {
+      if (b.item === null) continue;
       const item = b.item;
-      const raw = payloadByExternalId.get(item.externalId);
-      const payloadJson = JSON.stringify(raw?.payload ?? null);
-      upsertRaw(db, sourceId, item.kind, item.externalId, raw?.apiVersion ?? null, raw?.contentHash ?? null, startedAt, payloadJson);
       const itemId = upsertItem(db, item, source.normalizerVersion, startedAt);
       replaceLabels(db, itemId, b.labels);
     }
     for (const e of edges) upsertEdge(db, e, startedAt);
+    for (const a of activities) upsertActivity(db, a, startedAt);
 
     // Disappearance handling: only a FULL + COMPLETE sweep may tombstone unseen
     // items AND edges (a partial fetch must never look like a mass deletion).
@@ -128,7 +145,7 @@ export async function syncSource(
       report.softDeletedEdges = softDeleteUnseenEdges(db, sourceId, startedAt, sweepAt);
     }
 
-    finishRun(db, runId, status, new Date().toISOString(), bundles.length, edges.length, result.error);
+    finishRun(db, runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, result.error);
     updateSyncState(db, sourceId, result.watermark, status, result.error, startedAt);
     db.exec("COMMIT");
   } catch (err) {

@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `1.1.0`.
+Current contract version emitted by the backend: `1.2.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -29,7 +29,7 @@ The shared closed vocabularies live here:
 ## Importing
 
 ```ts
-import type { ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
 import schema from "@symphony-board/contract/schema.json" with { type: "json" };
 ```
 
@@ -60,6 +60,11 @@ Version `1.1.0` added display metadata:
 
 - `sources[].color`
 - top-level sparse `repos[]`
+
+Version `1.2.0` added:
+
+- top-level optional `activities[]`
+- `ActivityDTO`
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, and any UI consumer logic

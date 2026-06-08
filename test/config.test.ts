@@ -41,9 +41,10 @@ test("projectPaths drops per-repo color metadata and keeps order", () => {
 });
 
 test("accepts a source-level color and a per-repo color (3- and 6-digit hex)", () => {
-  const path = writeConfig(baseSource({ color: "#1f6feb", projects: [{ path: "c/d", color: "#abc" }] }));
+  const path = writeConfig(baseSource({ color: "#1f6feb", rest_url: "https://api.github.com", projects: [{ path: "c/d", color: "#abc" }] }));
   const { cfg } = loadConfig(path);
   assert.equal(cfg.sources[0]!.color, "#1f6feb");
+  assert.equal(cfg.sources[0]!.rest_url, "https://api.github.com");
 });
 
 test("rejects a non-hex source color", () => {
@@ -59,6 +60,11 @@ test("rejects a non-hex per-repo color", () => {
 test("rejects a project entry with no path", () => {
   const path = writeConfig(baseSource({ projects: [{ color: "#fff" }] }));
   assert.throws(() => loadConfig(path), /project entry with no "path"/);
+});
+
+test("rejects a non-string rest_url", () => {
+  const path = writeConfig(baseSource({ rest_url: 42 }));
+  assert.throws(() => loadConfig(path), /rest_url must be a string/);
 });
 
 test("rejects document-shape violations: non-object, missing db_path, no sources", () => {

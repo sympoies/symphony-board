@@ -51,7 +51,7 @@ try {
     const prev = args.full ? null : getWatermark(db, sc.source_id);
     const rep = await syncSource(db, source, prev, { full: args.full, dryRun: args.dryRun });
     log.info(
-      `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} ` +
+      `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
         `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
     );
     if (rep.status === "error") failed = true;

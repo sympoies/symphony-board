@@ -113,3 +113,32 @@ test("an unknown property on a repo entry is rejected", () => {
   const errors = validateContract(env);
   assert.ok(errors.some((e) => e.path === "/repos/0/surprise" && /additional property/.test(e.message)));
 });
+
+test("activity records validate and reject malformed timestamps", () => {
+  const env: any = validEnvelope();
+  env.activities = [
+    {
+      id: "github:github.com|activity-1",
+      source_id: "github:github.com",
+      external_id: "activity-1",
+      kind: "issue",
+      action: "opened",
+      project_path: "graysurf/repo",
+      target_kind: "issue",
+      target_ref: "github:github.com|ISSUE_abc",
+      target_iid: 7,
+      title: "An issue",
+      url: "https://github.com/graysurf/repo/issues/7",
+      actor: "graysurf",
+      occurred_at: "2026-01-01T00:00:00Z",
+      summary: "Opened issue #7",
+      details: { source: "test" },
+      first_seen_at: "2026-06-01T00:00:00Z",
+      last_seen_at: "2026-06-01T00:00:00Z",
+    },
+  ];
+  assert.deepEqual(validateContract(env), []);
+  env.activities[0].occurred_at = "not-a-date";
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/activities/0/occurred_at" && /date-time/.test(e.message)));
+});

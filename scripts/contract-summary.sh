@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Summarize an emitted contract JSON: counts, per-source, items by kind/state,
-# edges by type/lifecycle. Read-only.
+# edges by type/lifecycle, and activity by kind/action. Read-only.
 # Usage: scripts/contract-summary.sh [path]   (default: data/contract.json)
 set -uo pipefail
 
@@ -16,10 +16,12 @@ fi
 jq '{
   contract_version,
   generated_at,
-  totals: { items: (.items | length), edges: (.edges | length) },
+  totals: { items: (.items | length), edges: (.edges | length), activities: ((.activities // []) | length) },
   items_by_source:    (.items | group_by(.source_id) | map({ (.[0].source_id): length }) | add),
   items_by_kind:      (.items | group_by(.kind)      | map({ (.[0].kind):      length }) | add),
   items_by_state:     (.items | group_by(.state)     | map({ (.[0].state):     length }) | add),
   edges_by_type:      (.edges | group_by(.type)      | map({ (.[0].type):      length }) | add),
-  edges_by_lifecycle: (.edges | group_by(.lifecycle) | map({ (.[0].lifecycle // "null"): length }) | add)
+  edges_by_lifecycle: (.edges | group_by(.lifecycle) | map({ (.[0].lifecycle // "null"): length }) | add),
+  activities_by_kind: (((.activities // []) | group_by(.kind)   | map({ (.[0].kind):   length }) | add) // {}),
+  activities_by_action: (((.activities // []) | group_by(.action) | map({ (.[0].action): length }) | add) // {})
 }' "$f"

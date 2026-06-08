@@ -3,6 +3,7 @@ import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
 import {
   emptyFilters,
+  activityMatches,
   indexItems,
   itemMatches,
   resolveEdges,
@@ -30,6 +31,7 @@ import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
+import { ActivityPage } from "./components/ActivityPage.tsx";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
 // page stays light; the chunk only loads when #/graph is opened.
@@ -37,11 +39,11 @@ const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
-// Three pages via a zero-dep hash route: "" (#/) is the full-width board,
-// "graph" (#/graph) the relationship graph, "settings" (#/settings) the
-// persistent repo display filter. The route may carry "?q=<search>" so the
-// visible search box is URL-backed; graph routes may also carry "?focus=<ref>"
-// from a board card.
+// Four pages via a zero-dep hash route: "" (#/) is the full-width board,
+// "graph" (#/graph) the relationship graph, "activity" (#/activity) the event
+// feed, and "settings" (#/settings) the persistent repo display filter. The
+// route may carry "?q=<search>" so the visible search box is URL-backed; graph
+// routes may also carry "?focus=<ref>" from a board card.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 
 export function App() {
@@ -74,7 +76,7 @@ export function App() {
   }, []);
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
-  const page = route.page === "graph" ? "graph" : route.page === "settings" ? "settings" : "board";
+  const page = route.page === "graph" ? "graph" : route.page === "activity" ? "activity" : route.page === "settings" ? "settings" : "board";
 
   useEffect(() => {
     saveHidden(hidden);
@@ -118,12 +120,20 @@ export function App() {
 
   const facets = useMemo(() => {
     if (!visibleEnv) return { sources: [], states: [], kinds: [] };
+    if (page === "activity") {
+      const activities = visibleEnv.activities ?? [];
+      return {
+        sources: uniq(activities.map((a) => a.source_id)),
+        states: [],
+        kinds: uniq(activities.map((a) => a.kind)),
+      };
+    }
     return {
       sources: uniq(visibleEnv.items.map((i) => i.source_id)),
       states: uniq(visibleEnv.items.map((i) => i.state)),
       kinds: uniq(visibleEnv.items.map((i) => i.kind)),
     };
-  }, [visibleEnv]);
+  }, [visibleEnv, page]);
 
   // source_id -> provider kind (github / gitlab), so a card can show its source
   // mark. Provider kind lives on SourceDTO, not the item — look it up here once.
@@ -134,6 +144,11 @@ export function App() {
 
   const filteredItems = useMemo(
     () => (visibleEnv ? visibleEnv.items.filter((i) => itemMatches(i, filters)) : []),
+    [visibleEnv, filters],
+  );
+
+  const filteredActivities = useMemo(
+    () => (visibleEnv ? (visibleEnv.activities ?? []).filter((a) => activityMatches(a, filters)) : []),
     [visibleEnv, filters],
   );
 
@@ -221,7 +236,7 @@ export function App() {
       .catch((err: unknown) => setError((err as Error).message));
   }
 
-  function routeHref(nextPage: "board" | "graph" | "settings"): string {
+  function routeHref(nextPage: "board" | "graph" | "activity" | "settings"): string {
     return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search });
   }
 
@@ -272,6 +287,9 @@ export function App() {
         <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
           Graph
         </a>
+        <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
+          Activity
+        </a>
         <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
           Settings
         </a>
@@ -283,8 +301,8 @@ export function App() {
         </div>
       )}
       {/* The facet Controls drive the data views; page-local StatsBars live beside
-          the Board/Graph windows they describe. The Settings page is a config
-          surface and has neither. */}
+          the Board/Graph windows they describe. Activity has no item/edge stats,
+          and Settings is a config surface. */}
       {page !== "settings" && (
         <Controls
           filters={filters}
@@ -308,6 +326,8 @@ export function App() {
           onSetColor={setColorOverride}
           onClearColor={clearColorOverride}
         />
+      ) : page === "activity" ? (
+        <ActivityPage activities={filteredActivities} sourceKind={sourceKind} colorOf={colorOf} />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
           {/* Keyed on the focus target so each distinct deep-link entry remounts

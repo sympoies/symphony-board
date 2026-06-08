@@ -76,10 +76,29 @@ export interface CanonicalItem {
   demand: number | null;
 }
 
+export interface CanonicalActivity {
+  sourceId: string;
+  externalId: string;
+  kind: string;
+  action: string;
+  projectPath: string | null;
+  targetKind: string | null;
+  target: ItemEndpoint | null;
+  targetIid: number | null;
+  title: string | null;
+  url: string | null;
+  actor: string | null;
+  occurredAt: string;
+  summary: string | null;
+  details: Record<string, unknown> | null;
+}
+
 // What normalizing one raw record yields: the item, its labels, and any edges
-// it asserts (from either endpoint's point of view).
+// it asserts (from either endpoint's point of view), plus any activity records
+// derived from that raw. Activity-only raw records set item to null.
 export interface NormalizedBundle {
-  item: CanonicalItem;
+  item: CanonicalItem | null;
   labels: CanonicalLabel[];
   edges: CanonicalEdge[];
+  activities: CanonicalActivity[];
 }

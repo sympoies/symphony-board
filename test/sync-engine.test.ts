@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db/open.ts";
 import { syncSource } from "../src/sync-engine.ts";
-import { listLiveItems, listLiveEdges, getWatermark } from "../src/db/repo.ts";
+import { listActivities, listLiveItems, listLiveEdges, getWatermark } from "../src/db/repo.ts";
 import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
-import type { NormalizedBundle, CanonicalItem, CanonicalEdge } from "../src/model/types.ts";
+import type { NormalizedBundle, CanonicalActivity, CanonicalItem, CanonicalEdge } from "../src/model/types.ts";
 
 // A fake, network-free Source: records the FetchOptions it was handed (so we can
 // assert the full/incremental `since` gating) and normalizes from a prebuilt map
@@ -53,11 +53,48 @@ function build(
     fetchedAt: "2026-06-01T00:00:00Z", payload: it, contentHash: it.externalId,
   }));
   const bundles = new Map<string, NormalizedBundle>();
-  for (const it of items) bundles.set(it.externalId, { item: it, labels: [], edges: edges[it.externalId] ?? [] });
+  for (const it of items) bundles.set(it.externalId, { item: it, labels: [], edges: edges[it.externalId] ?? [], activities: [] });
   const result: FetchResult = {
     records, watermark: opts.watermark ?? "2026-06-01T00:00:00Z", complete: opts.complete ?? true, error: null,
   };
   return new FakeSource(result, bundles);
+}
+
+function activity(externalId: string, over: Partial<CanonicalActivity> = {}): CanonicalActivity {
+  return {
+    sourceId: "fake:test",
+    externalId,
+    kind: "commit",
+    action: "committed",
+    projectPath: "x/y",
+    targetKind: "commit",
+    target: null,
+    targetIid: null,
+    title: "Commit title",
+    url: "http://x/commit",
+    actor: "a",
+    occurredAt: "2026-06-01T00:00:00Z",
+    summary: "Committed abc1234",
+    details: { sha: "abc1234" },
+    ...over,
+  };
+}
+
+function activitySource(activities: CanonicalActivity[]): FakeSource {
+  const records: RawRecord[] = activities.map((a) => ({
+    entityKind: "activity",
+    externalId: a.externalId,
+    apiVersion: "fake",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    payload: a,
+    contentHash: a.externalId,
+  }));
+  const bundles = new Map<string, NormalizedBundle>();
+  for (const a of activities) bundles.set(a.externalId, { item: null, labels: [], edges: [], activities: [a] });
+  return new FakeSource(
+    { records, watermark: "2026-06-01T00:00:00Z", complete: true, error: null },
+    bundles,
+  );
 }
 
 test("the engine forwards full + the prior watermark to the source's fetch", async () => {
@@ -80,6 +117,18 @@ test("the new watermark is persisted to sync_state for the next incremental run"
   const db = openDb(":memory:");
   await syncSource(db, build([item("A")], {}, { watermark: "2026-06-05T00:00:00Z" }), null, { full: true, dryRun: false });
   assert.equal(getWatermark(db, "fake:test"), "2026-06-05T00:00:00Z");
+  db.close();
+});
+
+test("the engine persists activity-only records without counting them as items", async () => {
+  const db = openDb(":memory:");
+  const rep = await syncSource(db, activitySource([activity("A1")]), null, { full: false, dryRun: false });
+  assert.equal(rep.itemsSeen, 0);
+  assert.equal(rep.activitiesSeen, 1);
+  const rows = listActivities(db);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.external_id, "A1");
+  assert.deepEqual(JSON.parse(rows[0]!.details ?? "{}"), { sha: "abc1234" });
   db.close();
 });
 

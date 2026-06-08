@@ -13,7 +13,7 @@ import { writeFileSync } from "node:fs";
 import type { RepoDTO } from "@symphony-board/contract";
 import { loadConfig } from "../config.ts";
 import { openDb } from "../db/open.ts";
-import { listSources, listLiveItems, listLabels, listLiveEdges } from "../db/repo.ts";
+import { listSources, listLiveItems, listLabels, listLiveEdges, listActivities } from "../db/repo.ts";
 import { buildContract } from "../contract/build.ts";
 import { validateContract } from "../contract/validate.ts";
 
@@ -58,6 +58,7 @@ const envelope = buildContract({
   items: listLiveItems(db),
   labels: listLabels(db),
   edges: listLiveEdges(db),
+  activities: listActivities(db),
   generatedAt: new Date().toISOString(),
   sourceColors,
   repoColors,
@@ -76,7 +77,7 @@ if (args.validate) {
 const json = JSON.stringify(envelope, null, 2);
 if (args.out) {
   writeFileSync(args.out, json + "\n");
-  process.stderr.write(`wrote ${envelope.items.length} items / ${envelope.edges.length} edges -> ${args.out}\n`);
+  process.stderr.write(`wrote ${envelope.items.length} items / ${envelope.edges.length} edges / ${envelope.activities?.length ?? 0} activities -> ${args.out}\n`);
 } else {
   process.stdout.write(json + "\n");
 }

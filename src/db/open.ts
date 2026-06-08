@@ -24,7 +24,10 @@ interface Migration {
 
 // Ordered list of migrations. Append future ones; never edit an applied file
 // (write a new migration that rebuilds the affected table).
-const MIGRATIONS: Migration[] = [{ version: 1, file: "0001_init.sql" }];
+const MIGRATIONS: Migration[] = [
+  { version: 1, file: "0001_init.sql" },
+  { version: 2, file: "0002_activity.sql" },
+];
 
 export function openDb(path: string): DatabaseSync {
   if (path !== ":memory:") {

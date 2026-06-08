@@ -2,8 +2,9 @@
 // given rows + a `generatedAt` instant, produce the versioned envelope. No DB
 // access here, so it is unit-testable with fabricated rows.
 
-import type { ItemRow, LabelRow, EdgeRow, SourceRow } from "../db/repo.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../db/repo.ts";
 import type {
+  ActivityDTO,
   ContractEnvelope,
   ItemDTO,
   EdgeDTO,
@@ -66,6 +67,44 @@ function toEdgeDTO(row: EdgeRow): EdgeDTO {
   };
 }
 
+function parseDetails(raw: string | null): Record<string, unknown> | null {
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function toActivityDTO(row: ActivityRow): ActivityDTO {
+  const target_ref =
+    row.target_source_id && row.target_external_id
+      ? refOf(row.target_source_id, row.target_external_id)
+      : null;
+  return {
+    id: refOf(row.source_id, row.external_id),
+    source_id: row.source_id,
+    external_id: row.external_id,
+    kind: row.kind,
+    action: row.action,
+    project_path: row.project_path,
+    target_kind: row.target_kind,
+    target_ref,
+    target_iid: row.target_iid,
+    title: row.title,
+    url: row.url,
+    actor: row.actor,
+    occurred_at: row.occurred_at,
+    summary: row.summary,
+    details: parseDetails(row.details),
+    first_seen_at: row.first_seen_at,
+    last_seen_at: row.last_seen_at,
+  };
+}
+
 function toSourceDTO(row: SourceRow, sourceColors: Record<string, string>): SourceDTO {
   return {
     source_id: row.source_id,
@@ -83,6 +122,7 @@ export interface BuildInput {
   items: ItemRow[];
   labels: LabelRow[];
   edges: EdgeRow[];
+  activities?: ActivityRow[];
   generatedAt: string;
   // Config-derived display colors (NOT stored in the DB). Threaded in by the
   // emit CLI, which reads config; buildContract stays a pure mapping of its
@@ -106,6 +146,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
     items: input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? [])),
     edges: input.edges.map(toEdgeDTO),
+    activities: (input.activities ?? []).map(toActivityDTO),
     repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
   };
 }

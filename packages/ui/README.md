@@ -1,8 +1,9 @@
 # @symphony-board/ui
 
 Read-only web UI for the `symphony-board` contract. It imports DTO types from
-`@symphony-board/contract`, fetches `./contract.json`, and renders the board.
-It never reads SQLite, provider APIs, or backend source modules.
+`@symphony-board/contract`, fetches `./contract.json`, and renders the board,
+graph, activity feed, and settings surface. It never reads SQLite, provider
+APIs, or backend source modules.
 
 The backend stays buildless. This package is the deliberate home for browser
 dependencies and the Vite + React build.
@@ -51,6 +52,16 @@ overview total.
 
 Untracked cross-repo endpoints render as unresolved refs.
 
+### Activity (`#/activity`)
+
+The Activity page renders `activities[]` newest first. It includes canonical
+item transitions and provider activity records such as commits, pushes, and
+branch/tag events.
+
+Activity shares the global search box plus source/kind filters. Search includes
+title, summary, actor, project path, target metadata, and provider details; a
+`#<iid>` token matches `target_iid` exactly.
+
 ### Settings (`#/settings`)
 
 Settings is a browser-local display surface:
@@ -60,7 +71,7 @@ Settings is a browser-local display surface:
 - set per-repo highlight color overrides
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
-Board and Graph before each page computes its scoped summary. They are
+Board, Graph, and Activity feed before each page computes its view. They are
 view-only; the daemon keeps syncing every configured source.
 
 Configured source/repo colors arrive on the contract (`sources[].color`,
@@ -94,9 +105,10 @@ Runtime contracts under `data/` stay gitignored.
 
 `pnpm --filter @symphony-board/ui run smoke` runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
-Chrome. It asserts the Board, Graph, Settings, deep-link search, focus path, and
-configured display colors render without console errors. It also verifies that
-Board and Graph scoped summaries change when their active-since windows change.
+Chrome. It asserts the Board, Graph, Activity feed, Settings, deep-link search,
+focus path, and configured display colors render without console errors. It also
+verifies that Board and Graph scoped summaries change when their active-since
+windows change.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.

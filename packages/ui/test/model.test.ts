@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import {
   ACTIVE_SINCE_PRESETS,
   DEFAULT_ACTIVE_SINCE_DAYS,
@@ -8,6 +8,7 @@ import {
   VIEW_SCOPE_LABEL,
   defaultActiveSince,
   emptyFilters,
+  activityMatches,
   itemMatches,
   indexItems,
   resolveEdges,
@@ -62,6 +63,16 @@ const edge = (from: string, to: string, lifecycle: EdgeDTO["lifecycle"] = null, 
   lifecycle,
 });
 
+function activity(over: Partial<ActivityDTO> = {}): ActivityDTO {
+  return {
+    id: "github:github.com|A1", source_id: "github:github.com", external_id: "A1", kind: "issue",
+    action: "closed", project_path: "o/r", target_kind: "issue", target_ref: "github:github.com|X",
+    target_iid: 13, title: "Closed issue", url: "https://x", actor: "graysurf",
+    occurred_at: "2026-06-07T00:00:00Z", summary: "Closed issue #13", details: { sha: "abc1234" },
+    first_seen_at: "2026-06-07T00:00:00Z", last_seen_at: "2026-06-07T00:00:00Z", ...over,
+  };
+}
+
 test("itemMatches applies source/state/kind/search filters (AND)", () => {
   const it = item({ title: "Flaky test", author: "graysurf", labels: [{ name: "bug", scope: null, color: null }] });
   assert.equal(itemMatches(it, emptyFilters()), true);
@@ -92,6 +103,22 @@ test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' deep-link pins 
   assert.equal(itemMatches(it13, f("owner/repo #13")), true);
   assert.equal(itemMatches(it130, f("owner/repo #13")), false, "same repo, wrong iid");
   assert.equal(itemMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
+});
+
+test("activityMatches applies source/kind/search filters with exact target #iid", () => {
+  const a13 = activity({ project_path: "owner/repo", target_iid: 13, summary: "Merged change request #13" });
+  const a130 = activity({ id: "github:github.com|A130", external_id: "A130", project_path: "owner/repo", target_iid: 130 });
+  const otherRepo = activity({ id: "github:github.com|B13", external_id: "B13", project_path: "owner/other", target_iid: 13 });
+  const f = (search: string) => ({ ...emptyFilters(), search });
+
+  assert.equal(activityMatches(a13, emptyFilters()), true);
+  assert.equal(activityMatches(a13, { ...emptyFilters(), sources: new Set(["gitlab:gitlab.com"]) }), false);
+  assert.equal(activityMatches(a13, { ...emptyFilters(), kinds: new Set(["issue"]) }), true);
+  assert.equal(activityMatches(a13, f("merged owner/repo")), true, "activity search is multi-term AND");
+  assert.equal(activityMatches(a13, f("abc1234")), true, "search includes provider details");
+  assert.equal(activityMatches(a13, f("#13")), true);
+  assert.equal(activityMatches(a130, f("#13")), false, "#13 must not match #130");
+  assert.equal(activityMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
 });
 
 test("itemSearchToken builds a 'repo #iid' token that itemMatches pins to its own item", () => {
@@ -326,6 +353,10 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
       { type: "mentions", from: "gh|PR", to: "gh|EXT", from_state: "merged", to_state: null, lifecycle: null }, // hidden + untracked
       { type: "closes", from: "gl|MR", to: "gh|EXT", from_state: "open", to_state: null, lifecycle: "declared" }, // visible + untracked
     ],
+    activities: [
+      activity({ id: "gh|A", source_id: "github:github.com", project_path: "o/a" }),
+      activity({ id: "gl|A", source_id: "gitlab:gitlab.com", project_path: "g/x" }),
+    ],
   };
   // nothing hidden -> identical reference (cheap no-op)
   assert.equal(applyVisibility(env, new Set()), env);
@@ -341,6 +372,7 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
     "edges touching the hidden repo are removed; the visible-end + untracked edge stays",
   );
   assert.equal(view.edges[0]!.from, "gl|MR");
+  assert.deepEqual(view.activities?.map((a) => a.id), ["gl|A"], "activity rows in hidden repos are removed");
 });
 
 test("applyVisibility hides a whole source independently of the repo set", () => {
@@ -351,11 +383,16 @@ test("applyVisibility hides a whole source independently of the repo set", () =>
       item({ id: "gl|B", source_id: "gitlab:gitlab.com", project_path: "g/x" }),
     ],
     edges: [{ type: "relates", from: "gh|A", to: "gl|B", from_state: "open", to_state: "open", lifecycle: null }],
+    activities: [
+      activity({ id: "gh|act", source_id: "github:github.com", project_path: "o/a" }),
+      activity({ id: "gl|act", source_id: "gitlab:gitlab.com", project_path: "g/x" }),
+    ],
   };
   // hide the github SOURCE with an EMPTY repo set: gh|A and the cross-repo edge go.
   const view = applyVisibility(env, new Set(), new Set(["github:github.com"]));
   assert.deepEqual(view.items.map((i) => i.id), ["gl|B"], "the hidden source's item is gone");
   assert.deepEqual(view.edges, [], "the edge touching the hidden source is gone");
+  assert.deepEqual(view.activities?.map((a) => a.id), ["gl|act"], "the hidden source's activity is gone");
   // the two layers compose (OR): hide gitlab's repo AND github's source -> nothing.
   const both = applyVisibility(env, new Set([repoKey("gitlab:gitlab.com", "g/x")]), new Set(["github:github.com"]));
   assert.deepEqual(both.items.map((i) => i.id), [], "source-hide and repo-hide compose");

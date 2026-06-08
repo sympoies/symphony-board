@@ -3,7 +3,7 @@
 // values are coerced via nz()/bint() before binding.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { CanonicalItem, CanonicalLabel } from "../model/types.ts";
+import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 
@@ -103,6 +103,42 @@ export function upsertEdge(db: DatabaseSync, e: ReconciledEdge, nowIso: string):
   );
 }
 
+export function upsertActivity(db: DatabaseSync, a: CanonicalActivity, nowIso: string): void {
+  const details = a.details === null ? null : JSON.stringify(a.details);
+  db.prepare(
+    `INSERT INTO activity (
+       source_id, external_id, kind, action, project_path, target_kind,
+       target_source_id, target_external_id, target_iid, title, url, actor,
+       occurred_at, summary, details, first_seen_at, last_seen_at
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(source_id, external_id) DO UPDATE SET
+       kind=excluded.kind, action=excluded.action, project_path=excluded.project_path,
+       target_kind=excluded.target_kind, target_source_id=excluded.target_source_id,
+       target_external_id=excluded.target_external_id, target_iid=excluded.target_iid,
+       title=excluded.title, url=excluded.url, actor=excluded.actor,
+       occurred_at=excluded.occurred_at, summary=excluded.summary,
+       details=excluded.details, last_seen_at=excluded.last_seen_at`,
+  ).run(
+    a.sourceId,
+    a.externalId,
+    a.kind,
+    a.action,
+    nz(a.projectPath),
+    nz(a.targetKind),
+    nz(a.target?.sourceId),
+    nz(a.target?.externalId),
+    nz(a.targetIid),
+    nz(a.title),
+    nz(a.url),
+    nz(a.actor),
+    a.occurredAt,
+    nz(a.summary),
+    details,
+    nowIso,
+    nowIso,
+  );
+}
+
 // ---- run bookkeeping & disappearance handling -----------------------------
 
 // Open a run row (status defaults to 'partial' so a crash mid-run never enables
@@ -121,11 +157,12 @@ export function finishRun(
   finishedAt: string,
   itemsSeen: number,
   edgesSeen: number,
+  activitiesSeen: number,
   error: string | null,
 ): void {
   db.prepare(
-    `UPDATE sync_run SET status=?, finished_at=?, items_seen=?, edges_seen=?, error=? WHERE run_id=?`,
-  ).run(status, finishedAt, itemsSeen, edgesSeen, nz(error), runId);
+    `UPDATE sync_run SET status=?, finished_at=?, items_seen=?, edges_seen=?, activities_seen=?, error=? WHERE run_id=?`,
+  ).run(status, finishedAt, itemsSeen, edgesSeen, activitiesSeen, nz(error), runId);
 }
 
 export function updateSyncState(
@@ -240,6 +277,26 @@ export interface SourceRow {
   last_status: string | null;
 }
 
+export interface ActivityRow {
+  source_id: string;
+  external_id: string;
+  kind: string;
+  action: string;
+  project_path: string | null;
+  target_kind: string | null;
+  target_source_id: string | null;
+  target_external_id: string | null;
+  target_iid: number | null;
+  title: string | null;
+  url: string | null;
+  actor: string | null;
+  occurred_at: string;
+  summary: string | null;
+  details: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
 export function listLiveItems(db: DatabaseSync): ItemRow[] {
   return db
     .prepare(
@@ -257,6 +314,18 @@ export function listLiveItems(db: DatabaseSync): ItemRow[] {
        ORDER BY COALESCE(closed_at, merged_at, updated_at, created_at) DESC, item_id DESC`,
     )
     .all() as unknown as ItemRow[];
+}
+
+export function listActivities(db: DatabaseSync): ActivityRow[] {
+  return db
+    .prepare(
+      `SELECT source_id, external_id, kind, action, project_path, target_kind,
+              target_source_id, target_external_id, target_iid, title, url, actor,
+              occurred_at, summary, details, first_seen_at, last_seen_at
+       FROM activity
+       ORDER BY occurred_at DESC, activity_id DESC`,
+    )
+    .all() as unknown as ActivityRow[];
 }
 
 export function listLabels(db: DatabaseSync): LabelRow[] {
