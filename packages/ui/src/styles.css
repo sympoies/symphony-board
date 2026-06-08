@@ -48,36 +48,36 @@ body {
   font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list) {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list) {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-track {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list)::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
   border-radius: 999px;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-thumb {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list)::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border: 2px solid var(--scrollbar-track);
   border-radius: 999px;
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-thumb:hover {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-thumb:active {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
 }
 
-:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list)::-webkit-scrollbar-corner {
+:where(body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list)::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
@@ -381,12 +381,31 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 
 /* activity page */
-.activity-page, .commits-page { margin: 12px 0; max-width: 980px; }
+.activity-page { margin: 12px 0; max-width: 980px; }
+.commits-page { margin: 12px 0; max-width: 1180px; }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
-/* Commits owns a single repo typeahead instead of the shared facet Controls. */
-.commits-filter { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 12px; }
+/* Commits owns SCM-style filters instead of the shared facet Controls. */
+.commits-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 10px 0 12px;
+}
+.commits-filter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; align-items: center; min-width: 0; }
 .commits-filter-hint { font-size: 12px; }
+.commit-branch-select {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 10px;
+  color: var(--muted); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.commit-branch-select select {
+  max-width: 210px;
+  color: var(--text); background: transparent; border: none; outline: none;
+  font: inherit; font-weight: 600;
+}
+.commit-branch-select:has(select:disabled) { opacity: 0.72; }
+.commit-branch-select select:disabled { color: var(--muted); }
 /* Self-styled typeahead combobox (replaces a native <datalist>, whose popup the
    browser renders with un-themeable OS chrome). The suggestion list is our own
    DOM, so it uses the same panel / border / accent tokens as the rest of the UI. */
@@ -460,6 +479,144 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   padding: 1px 7px; background: rgba(139, 164, 164, 0.08);
 }
 .activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 3px; }
+
+.commit-list {
+  position: relative;
+  max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
+  padding-right: 4px;
+}
+.commit-virtual-space {
+  position: relative;
+  min-height: 100%;
+}
+.commit-row {
+  position: absolute; left: 0; right: 0;
+  height: var(--commit-row-height);
+  box-sizing: border-box;
+  padding-top: 22px;
+}
+.commit-date-slot {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 20px;
+  display: flex; align-items: center;
+  color: var(--muted); font-size: 13px; font-weight: 600;
+}
+.commit-date-slot::before {
+  content: "";
+  width: 14px; height: 1px; margin-right: 10px;
+  background: var(--line);
+}
+.commit-row-body {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 68px; box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow: hidden;
+}
+.commit-row-accent .commit-row-body { box-shadow: inset 3px 0 0 var(--repo-color); }
+.commit-row-main {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.commit-message-link {
+  color: var(--text); font-weight: 600; line-height: 1.25;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.commit-message-link:hover { color: var(--accent); }
+.commit-message-text:hover { color: var(--text); }
+.commit-row-meta {
+  display: flex; align-items: center; gap: 6px 10px;
+  min-width: 0; overflow: hidden; white-space: nowrap;
+  color: var(--muted); font-size: 12px;
+}
+.commit-row-meta span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.commit-ref-chip {
+  flex: none;
+  max-width: 150px;
+  border: 1px solid rgba(139, 164, 164, 0.24);
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: rgba(139, 164, 164, 0.08);
+}
+.commit-row-actions {
+  flex: none;
+  display: flex; align-items: center; gap: 6px;
+}
+.commit-sha {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.commit-icon-button {
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.commit-icon-button:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+.commit-icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .app-wide { padding: 14px 12px; overflow-x: hidden; }
+  .page-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .tab {
+    display: block;
+    min-width: 0;
+    padding: 6px 8px;
+    line-height: 1.25;
+    text-align: center;
+    overflow-wrap: normal;
+  }
+  .brand .muted, .activity-head .muted { overflow-wrap: anywhere; }
+  .activity-head .muted { flex-basis: 100%; }
+  .time-range-controls { align-items: flex-start; gap: 8px; }
+  .time-range-controls .date-filter {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .time-range-controls .date-filter input { min-width: 0; width: 100%; }
+  .time-range-controls .toggle-group {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .time-range-controls .toggle-label { flex-basis: 100%; }
+  .commits-toolbar { align-items: stretch; flex-direction: column; }
+  .commits-filter { justify-content: flex-start; }
+  .repo-combobox { flex-basis: 100%; width: 100%; }
+  .commit-branch-select { width: 100%; box-sizing: border-box; }
+  .commit-branch-select select { max-width: none; flex: 1; }
+  .commit-row-body {
+    align-items: stretch;
+    flex-direction: column;
+    min-height: 128px;
+  }
+  .commit-row-actions { align-self: flex-start; margin-top: 0; }
+  .commit-row-meta { flex-wrap: wrap; white-space: normal; }
+  .commit-message-link { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+}
 
 /* repo analytics page */
 .repo-analytics-page { margin: 12px 0; }

@@ -125,7 +125,8 @@ export interface HashRoute {
   page: string; // "" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" (the part before any '?')
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   q: string | null; // a search token to seed the search bar (narrows the graph)
-  repo: string | null; // a project_path the Commits page filters to (its only filter)
+  repo: string | null; // a project_path the Commits page filters to
+  branch: string | null; // a branch/ref name the Commits page filters to when commit refs are present
   from: string | null; // YYYY-MM-DD explicit time-range start
   to: string | null; // YYYY-MM-DD explicit time-range end
   preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
@@ -147,23 +148,26 @@ export function parseHashRoute(hash: string): HashRoute {
     focus: routeParam(params?.get("focus")),
     q: routeParam(params?.get("q")),
     repo: routeParam(params?.get("repo")),
+    branch: routeParam(params?.get("branch")),
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
     preset: isTimeRangePresetId(preset) ? preset : null,
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; repo?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; repo?: string | null; branch?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
   const repo = routeParam(route.repo);
+  const branch = routeParam(route.branch);
   const from = routeParam(route.from);
   const to = routeParam(route.to);
   const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
+  if (branch) params.push(`branch=${encodeURIComponent(branch)}`);
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
   if (preset) params.push(`preset=${encodeURIComponent(preset)}`);
@@ -405,6 +409,14 @@ function detailText(details: ActivityDTO["details"], key: string): string | null
   return cleanText(details[key]);
 }
 
+function detailTextList(details: ActivityDTO["details"], key: string): string[] {
+  if (!details || typeof details !== "object") return [];
+  const value = details[key];
+  if (Array.isArray(value)) return value.map(cleanText).filter((part): part is string => part !== null);
+  const single = cleanText(value);
+  return single ? [single] : [];
+}
+
 function shortSha(value: string | null): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -543,22 +555,56 @@ export function activityMatches(a: ActivityDTO, f: Filters): boolean {
   return true;
 }
 
-// The Commits page is a focused projection of the activity feed: just the
-// `commit` records. Commit linking, the short SHA, message, author, and repo
-// already ride on the existing ActivityDTO (the producer fills `url` with the
-// provider's commit page), so this is a pure read-side narrowing, not a new
+// The Commits page is a focused SCM log over the Activity feed's `commit`
+// records. Commit linking, the short SHA, message, author, and repo already ride
+// on ActivityDTO, so the UI can render a provider-neutral log without a new
 // contract surface.
 export function isCommitActivity(a: ActivityDTO): boolean {
   return a.kind === "commit";
 }
 
-// The Commits page's ONLY filter is repo: keep commit records, optionally pinned
-// to one project_path. Repo is matched exactly (the picker offers a closed,
-// known set), so a value that is not a real repo yields an empty list rather
-// than a fuzzy match — the datalist guides the viewer back to a real option.
-export function filterCommits(activities: ActivityDTO[], repoPath: string | null): ActivityDTO[] {
+export function commitSha(activity: ActivityDTO): string | null {
+  return detailText(activity.details, "sha");
+}
+
+export function commitShortSha(activity: ActivityDTO): string | null {
+  return shortSha(commitSha(activity));
+}
+
+export function commitMessage(activity: ActivityDTO): string {
+  return cleanText(activity.title) ?? detailText(activity.details, "message") ?? cleanText(activity.summary) ?? "Untitled commit";
+}
+
+// Branch/ref membership is optional contract detail. Current producers do not
+// emit it for commit rows, but the UI can filter honestly when a future contract
+// or fixture carries `ref`/`refs` or `branch`/`branches`.
+export function commitBranches(activity: ActivityDTO): string[] {
+  const refs = [
+    ...detailTextList(activity.details, "ref"),
+    ...detailTextList(activity.details, "refs"),
+    ...detailTextList(activity.details, "branch"),
+    ...detailTextList(activity.details, "branches"),
+  ];
+  const out: string[] = [];
+  for (const raw of refs) {
+    const ref = shortRef(raw);
+    if (ref && !out.includes(ref)) out.push(ref);
+  }
+  return out.sort();
+}
+
+// The Commits page filters by repo and, when the contract carries branch refs,
+// by exact branch. Repo and branch are exact matches because both controls offer
+// closed option sets; a stale URL value intentionally narrows to zero rows.
+export function filterCommits(activities: ActivityDTO[], repoPath: string | null, branchName: string | null = null): ActivityDTO[] {
   const repo = repoPath?.trim() || null;
-  return activities.filter((a) => isCommitActivity(a) && (repo === null || a.project_path === repo));
+  const branch = branchName?.trim() || null;
+  return activities.filter(
+    (a) =>
+      isCommitActivity(a) &&
+      (repo === null || a.project_path === repo) &&
+      (branch === null || commitBranches(a).includes(branch)),
+  );
 }
 
 // The repo options the Commits page's typeahead suggests: only repos that
@@ -571,6 +617,11 @@ export interface CommitRepoOption {
   count: number;
 }
 
+export interface CommitBranchOption {
+  branch: string;
+  count: number;
+}
+
 export function commitRepoOptions(commits: ActivityDTO[]): CommitRepoOption[] {
   const byPath = new Map<string, CommitRepoOption>();
   for (const c of commits) {
@@ -580,6 +631,19 @@ export function commitRepoOptions(commits: ActivityDTO[]): CommitRepoOption[] {
     else byPath.set(c.project_path, { project_path: c.project_path, source_id: c.source_id, count: 1 });
   }
   return [...byPath.values()].sort((a, b) => b.count - a.count || a.project_path.localeCompare(b.project_path));
+}
+
+export function commitBranchOptions(commits: ActivityDTO[]): CommitBranchOption[] {
+  const byBranch = new Map<string, CommitBranchOption>();
+  for (const c of commits) {
+    if (!isCommitActivity(c)) continue;
+    for (const branch of commitBranches(c)) {
+      const existing = byBranch.get(branch);
+      if (existing) existing.count += 1;
+      else byBranch.set(branch, { branch, count: 1 });
+    }
+  }
+  return [...byBranch.values()].sort((a, b) => b.count - a.count || a.branch.localeCompare(b.branch));
 }
 
 export interface ResolvedEdge {

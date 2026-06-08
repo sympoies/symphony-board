@@ -318,6 +318,13 @@ Pages:
   range is applied before source/kind/search filters, and the page virtualizes
   matching rows so large activity histories remain scrollable without flooding
   the DOM.
+- **Commits**: commit-only SCM log over `activities[]`, styled separately from
+  Activity so it behaves like a provider-neutral commit history. It keeps repo
+  and branch filters local to the page, links each message to the provider
+  commit URL, exposes short SHAs with copy buttons, and shows branch choices
+  only when commit rows carry ref details. Provider-specific signals such as
+  GitHub Verified badges or check counts are intentionally omitted until the
+  contract has comparable GitHub and GitLab semantics.
 - **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
   the shared date range and source/state/kind/search controls, ranks repos by
   contract `activity_score`, renders compact trend bars from contract series

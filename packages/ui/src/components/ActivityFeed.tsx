@@ -12,8 +12,7 @@ import {
   type ColorOf,
 } from "../model.ts";
 
-// Action -> badge style. Shared by the Activity feed and the Commits page (both
-// render commit rows), so the colour vocabulary stays in one place.
+// Action -> badge style for the mixed Activity feed.
 export const ACTION_KIND: Record<string, string> = {
   opened: "open",
   closed: "closed",
@@ -29,11 +28,9 @@ export const ACTION_KIND: Record<string, string> = {
 
 const ACTIVITY_ROW_STRIDE_PX = ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX;
 
-// The scrollable, virtualized activity list. Lifted out of ActivityPage so the
-// Commits page can reuse the exact same row rendering + windowing instead of
-// duplicating ~70 lines; the page-specific header and controls live in the
-// pages. Rows render a clickable title when the record carries a `url` (e.g. a
-// commit links straight to its GitHub/GitLab page).
+// The scrollable, virtualized activity list. Rows render a clickable title when
+// the record carries a `url` (e.g. a commit links straight to its GitHub/GitLab
+// page), while the dedicated Commits page uses its own SCM-style renderer.
 export function ActivityFeed({
   activities,
   sourceKind,

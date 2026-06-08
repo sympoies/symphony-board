@@ -22,6 +22,11 @@ import {
   filterActivitiesByRange,
   isCommitActivity,
   filterCommits,
+  commitBranches,
+  commitBranchOptions,
+  commitMessage,
+  commitSha,
+  commitShortSha,
   commitRepoOptions,
   itemInTimeRange,
   activityInTimeRange,
@@ -204,13 +209,17 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
 });
 
 test("filterCommits keeps only commit records, optionally pinned to one repo", () => {
-  const commitA = activity({ id: "github:github.com|c1", external_id: "c1", kind: "commit", action: "committed", project_path: "owner/repo" });
-  const commitB = activity({ id: "gitlab:gitlab.com|c2", external_id: "c2", source_id: "gitlab:gitlab.com", kind: "commit", action: "committed", project_path: "grp/proj" });
+  const commitA = activity({ id: "github:github.com|c1", external_id: "c1", kind: "commit", action: "committed", project_path: "owner/repo", details: { sha: "aaaaaaaaaaaaaaaa", refs: ["refs/heads/main", "feature/x"] } });
+  const commitB = activity({ id: "gitlab:gitlab.com|c2", external_id: "c2", source_id: "gitlab:gitlab.com", kind: "commit", action: "committed", project_path: "grp/proj", details: { sha: "bbbbbbbbbbbbbbbb", branch: "main" } });
   const issueEvent = activity({ id: "github:github.com|i1", external_id: "i1", kind: "issue", action: "closed", project_path: "owner/repo" });
   const all = [commitA, issueEvent, commitB];
 
   assert.equal(isCommitActivity(commitA), true);
   assert.equal(isCommitActivity(issueEvent), false);
+  assert.equal(commitSha(commitA), "aaaaaaaaaaaaaaaa");
+  assert.equal(commitShortSha(commitA), "aaaaaaaa");
+  assert.equal(commitMessage(commitA), "Closed issue");
+  assert.deepEqual(commitBranches(commitA), ["feature/x", "main"]);
   // no repo -> every commit, no non-commit
   assert.deepEqual(filterCommits(all, null).map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2"]);
   // whitespace-only repo is treated as no filter
@@ -218,21 +227,29 @@ test("filterCommits keeps only commit records, optionally pinned to one repo", (
   // exact repo match (the picker offers a closed set), so a partial path matches nothing
   assert.deepEqual(filterCommits(all, "grp/proj").map((a) => a.id), ["gitlab:gitlab.com|c2"]);
   assert.deepEqual(filterCommits(all, "grp").map((a) => a.id), [], "partial repo path is not a fuzzy match");
+  assert.deepEqual(filterCommits(all, null, "main").map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2"]);
+  assert.deepEqual(filterCommits(all, "owner/repo", "feature/x").map((a) => a.id), ["github:github.com|c1"]);
+  assert.deepEqual(filterCommits(all, "grp/proj", "feature/x").map((a) => a.id), []);
 });
 
-test("commitRepoOptions counts only commit repos, busiest first", () => {
+test("commit repo and branch options count only commits, busiest first", () => {
   const mk = (id: string, project_path: string, source_id = "github:github.com", kind = "commit") =>
-    activity({ id, external_id: id, source_id, kind, action: kind === "commit" ? "committed" : "closed", project_path });
-  const options = commitRepoOptions([
+    activity({ id, external_id: id, source_id, kind, action: kind === "commit" ? "committed" : "closed", project_path, details: { refs: ["main"] } });
+  const commits = [
     mk("c1", "owner/repo"),
-    mk("c2", "owner/repo"),
-    mk("c3", "grp/proj", "gitlab:gitlab.com"),
+    activity({ id: "c2", external_id: "c2", kind: "commit", action: "committed", project_path: "owner/repo", details: { refs: ["main", "release"] } }),
+    activity({ id: "c3", external_id: "c3", source_id: "gitlab:gitlab.com", kind: "commit", action: "committed", project_path: "grp/proj", details: { branch: "release" } }),
     mk("i1", "owner/repo", "github:github.com", "issue"), // not a commit -> ignored
     activity({ id: "c4", external_id: "c4", kind: "commit", action: "committed", project_path: null }), // no repo -> ignored
-  ]);
+  ];
+  const options = commitRepoOptions(commits);
   assert.deepEqual(options, [
     { project_path: "owner/repo", source_id: "github:github.com", count: 2 },
     { project_path: "grp/proj", source_id: "gitlab:gitlab.com", count: 1 },
+  ]);
+  assert.deepEqual(commitBranchOptions(commits), [
+    { branch: "main", count: 2 },
+    { branch: "release", count: 2 },
   ]);
 });
 
@@ -902,26 +919,28 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null, repo: null, from: null, to: null, preset: null }, "empty hash -> board, no params");
-  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null, repo: null, from: null, to: null, preset: null });
-  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null, repo: null, from: null, to: null, preset: null });
-  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null, repo: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null }, "empty hash -> board, no params");
+  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
   // focus + q are pulled off the hash and percent-decoded
   assert.deepEqual(parseHashRoute("#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342"), {
     page: "graph",
     focus: "github:github.com|42",
     q: "owner/repo #42",
     repo: null,
+    branch: null,
     from: null,
     to: null,
     preset: null,
   });
   // the Commits page's repo filter is pulled off the hash and percent-decoded
-  assert.deepEqual(parseHashRoute("#/commits?repo=example-group%2Fsymphony-board-fixture"), {
+  assert.deepEqual(parseHashRoute("#/commits?repo=example-group%2Fsymphony-board-fixture&branch=feature%2Fui"), {
     page: "commits",
     focus: null,
     q: null,
     repo: "example-group/symphony-board-fixture",
+    branch: "feature/ui",
     from: null,
     to: null,
     preset: null,
@@ -931,17 +950,18 @@ test("parseHashRoute splits page from optional deep-link and range params", () =
     focus: null,
     q: null,
     repo: null,
+    branch: null,
     from: "2026-06-01",
     to: "2026-06-07",
     preset: "this-week",
   });
   // params on a non-graph page still parse (App only acts on them for the graph)
-  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null, repo: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null, repo: null, branch: null, from: null, to: null, preset: null });
   // empty/absent values are normalized to null
-  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null, repo: null, from: null, to: null, preset: null });
-  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null, repo: null, from: null, to: null, preset: null });
-  assert.deepEqual(parseHashRoute("#/commits?repo=%20%20"), { page: "commits", focus: null, q: null, repo: null, from: null, to: null, preset: null });
-  assert.deepEqual(parseHashRoute("#/graph?other=1&preset=bad"), { page: "graph", focus: null, q: null, repo: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/commits?repo=%20%20&branch=%20"), { page: "commits", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph?other=1&preset=bad"), { page: "graph", focus: null, q: null, repo: null, branch: null, from: null, to: null, preset: null });
 });
 
 test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
@@ -954,8 +974,8 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   );
   // the Commits page's repo filter round-trips through "?repo="
   assert.equal(
-    buildHashRoute({ page: "commits", repo: "example-group/symphony-board-fixture", preset: "this-week", from: "2026-06-01", to: "2026-06-07" }),
-    "#/commits?repo=example-group%2Fsymphony-board-fixture&from=2026-06-01&to=2026-06-07&preset=this-week",
+    buildHashRoute({ page: "commits", repo: "example-group/symphony-board-fixture", branch: "feature/ui", preset: "this-week", from: "2026-06-01", to: "2026-06-07" }),
+    "#/commits?repo=example-group%2Fsymphony-board-fixture&branch=feature%2Fui&from=2026-06-01&to=2026-06-07&preset=this-week",
   );
   assert.equal(buildHashRoute({ page: "settings", q: "  " }), "#/settings");
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "", q: "owner/repo #13" })), {
@@ -963,15 +983,17 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     focus: null,
     q: "owner/repo #13",
     repo: null,
+    branch: null,
     from: null,
     to: null,
     preset: null,
   });
-  assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", repo: "owner/repo" })), {
+  assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", repo: "owner/repo", branch: "main" })), {
     page: "commits",
     focus: null,
     q: null,
     repo: "owner/repo",
+    branch: "main",
     from: null,
     to: null,
     preset: null,
@@ -993,7 +1015,7 @@ test("graphFocusHref round-trips an item's id + search token through parseHashRo
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q, from: null, to: null });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, repo: null, branch: null, from: null, to: null, preset: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden
