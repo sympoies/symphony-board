@@ -173,6 +173,7 @@ export function App() {
   }, [activeRange, needsRangeEnv, staticRange]);
 
   const activeEnv = needsRangeEnv ? rangeEnv : env;
+  const chromeEnv = activeEnv ?? env;
 
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
@@ -180,7 +181,7 @@ export function App() {
   // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
   // is derived over the FULL contract so the Settings page can still list (and
   // re-enable) hidden repos.
-  const visibleEnv = useMemo(() => (activeEnv ? applyVisibility(activeEnv, hidden, hiddenSources) : null), [activeEnv, hidden, hiddenSources]);
+  const visibleEnv = useMemo(() => (chromeEnv ? applyVisibility(chromeEnv, hidden, hiddenSources) : null), [chromeEnv, hidden, hiddenSources]);
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const windowedActivities = useMemo(
@@ -428,16 +429,12 @@ export function App() {
     );
   }
 
-  if (!env || !activeRange || (needsRangeEnv && rangeLoading && !rangeEnv)) return <div className="state-msg">Loading range…</div>;
-  if (needsRangeEnv && rangeError && !rangeEnv) {
-    return (
-      <div className="state-msg error">
-        <p>Could not load selected range: {rangeError}</p>
-      </div>
-    );
-  }
-  if (!activeEnv || !visibleEnv) return null;
+  if (!env || !activeRange) return <div className="state-msg">Loading range…</div>;
+  if (!visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
+  const contentEnv = activeEnv;
+  const rangeContentPending = needsRangeEnv && rangeLoading && !rangeEnv;
+  const rangeContentError = needsRangeEnv && !!rangeError && !rangeEnv;
 
   return (
     <div className="app app-wide">
@@ -494,7 +491,15 @@ export function App() {
           />
         </>
       )}
-      {page === "settings" ? (
+      {rangeContentPending ? (
+        <div className="state-msg state-msg-inline">Loading range…</div>
+      ) : rangeContentError ? (
+        <div className="state-msg state-msg-inline error">
+          <p>Could not load selected range: {rangeError}</p>
+        </div>
+      ) : !contentEnv ? (
+        null
+      ) : page === "settings" ? (
         <SettingsPage
           sources={env.sources}
           repos={allRepos}
@@ -552,7 +557,7 @@ export function App() {
             focusRef={route.focus}
             narrowed={filters.search.trim() !== ""}
             aggregates={compatibleAggregates}
-            itemWindow={activeEnv.item_window}
+            itemWindow={contentEnv.item_window}
             range={activeRange}
           />
         </Suspense>
@@ -565,7 +570,7 @@ export function App() {
           colorOf={colorOf}
           linkedIds={linkedIds}
           aggregates={compatibleAggregates}
-          itemWindow={activeEnv.item_window}
+          itemWindow={contentEnv.item_window}
           range={activeRange}
         />
       )}

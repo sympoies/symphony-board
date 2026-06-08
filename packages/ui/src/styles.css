@@ -98,6 +98,7 @@ h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid var(--line); 
 h3 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; }
 
 .state-msg { max-width: 720px; margin: 80px auto; padding: 24px; text-align: center; }
+.state-msg-inline { margin-top: 32px; margin-bottom: 32px; }
 .state-msg.error { color: var(--text); }
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
