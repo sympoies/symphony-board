@@ -275,10 +275,20 @@ labels:
     applies_to: [issue, pr, mr]
 
   # --- workflow ----------------------------------------------------------
+  - name: "workflow::plan"
+    group: workflow
+    color: c5def5
+    description: Plan-backed workflow record.
+    applies_to: [issue, pr, mr]
   - name: "workflow::tracking"
     group: workflow
     color: bfdadc
     description: Lightweight issue-backed tracking workflow.
+    applies_to: [issue, pr, mr]
+  - name: "workflow::dispatch"
+    group: workflow
+    color: d4c5f9
+    description: Dispatch plan workflow with coordinated lanes.
     applies_to: [issue, pr, mr]
   - name: "workflow::follow-up"
     group: workflow
