@@ -401,6 +401,70 @@ try {
     expression: "document.querySelectorAll('.commits-page button[aria-label^=\"Show commit body\"]').length",
     returnByValue: true,
   })).result.value || 0;
+  const commitsToolbarLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const toolbar = document.querySelector('.commits-page .commits-toolbar');
+      const repoFilter = toolbar?.querySelector(':scope > .commits-filter');
+      const repoInput = repoFilter?.querySelector('input.search');
+      const branch = toolbar?.querySelector(':scope > .commit-branch-select');
+      const bodyButton = document.querySelector('.commits-page button[aria-label^="Show commit body"], .commits-page button[aria-label^="Hide commit body"]');
+      if (!repoFilter || !repoInput || !branch) return { repoBeforeBranch: false, topAligned: false, bodyToggleHasNoTitle: false };
+      const repoRect = repoInput.getBoundingClientRect();
+      const filterRect = repoFilter.getBoundingClientRect();
+      const branchRect = branch.getBoundingClientRect();
+      const stacked = getComputedStyle(toolbar).flexDirection === 'column';
+      const stackedGap = branchRect.top - filterRect.bottom;
+      return {
+        repoBeforeBranch: !!(repoFilter.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING),
+        topAligned: stacked ? stackedGap >= 8 && stackedGap <= 14 : Math.abs(repoRect.top - branchRect.top) <= 2,
+        topDelta: Math.round((stacked ? stackedGap : repoRect.top - branchRect.top) * 10) / 10,
+        stacked,
+        bodyToggleHasNoTitle: !!bodyButton && !bodyButton.hasAttribute('title'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const commitsBodyTogglePlacement = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const line = Array.from(document.querySelectorAll('.commits-page .commit-title-line'))
+        .find((el) => el.querySelector('.commit-body-toggle'));
+      if (!line) return { rendered: false, sameLine: false, hugsTitle: false };
+      const message = line.querySelector('.commit-message-link');
+      const button = line.querySelector('.commit-body-toggle');
+      const main = line.closest('.commit-row-main');
+      if (!message || !button || !main) return { rendered: false, sameLine: false, hugsTitle: false };
+      const lineRect = line.getBoundingClientRect();
+      const messageRect = message.getBoundingClientRect();
+      const buttonRect = button.getBoundingClientRect();
+      const mainRect = main.getBoundingClientRect();
+      return {
+        rendered: true,
+        sameLine: Math.abs((messageRect.top + messageRect.bottom) / 2 - (buttonRect.top + buttonRect.bottom) / 2) <= 8,
+        hugsTitle: mainRect.width - lineRect.width >= 80,
+        lineWidth: Math.round(lineRect.width),
+        mainWidth: Math.round(mainRect.width),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const commitsRowBodyGap = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.commits-page .commit-row-body'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom };
+        })
+        .sort((a, b) => a.top - b.top);
+      const gaps = [];
+      for (let i = 1; i < rows.length; i += 1) gaps.push(Math.round(rows[i].top - rows[i - 1].bottom));
+      return {
+        count: gaps.length,
+        minGap: gaps.length ? Math.min(...gaps) : null,
+        gaps,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Runtime.evaluate", {
     expression: "document.querySelector('.commits-page button[aria-label^=\"Show commit body\"]')?.click()",
   });
@@ -614,13 +678,18 @@ try {
     [commitsNoDatalist === true, "commits: native <datalist> is gone (replaced by the self-styled combobox)"],
     [commitsCombo.styledList === true, "commits: opening the filter renders the self-styled suggestion list"],
     [commitsCombo.options >= 2, `commits: combobox offers each repo with commits (${commitsCombo.options || 0} >= 2)`],
+    [commitsToolbarLayout.repoBeforeBranch === true, "commits: repo filter renders before the branch selector"],
+    [commitsToolbarLayout.topAligned === true, `commits: repo and branch filters ${commitsToolbarLayout.stacked ? "stack compactly" : "align at the top"} (${commitsToolbarLayout.topDelta ?? "n/a"}px)`],
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
     [commitsHasCopyHash === true, "commits: commit hash copy buttons rendered"],
     [commitsBranchControl.rendered === true && commitsBranchControl.enabled === true && commitsBranchControl.options >= 3, `commits: branch selector renders all plus synthetic branches (${commitsBranchControl.options || 0} options)`],
     [commitsBodyButtons >= 1, `commits: body toggle renders for commits with details.body (${commitsBodyButtons} >= 1)`],
+    [commitsToolbarLayout.bodyToggleHasNoTitle === true, "commits: body toggle has no hover title"],
+    [commitsBodyTogglePlacement.rendered === true && commitsBodyTogglePlacement.sameLine === true && commitsBodyTogglePlacement.hugsTitle === true, `commits: body toggle sits at the title tail (${commitsBodyTogglePlacement.lineWidth || 0}px of ${commitsBodyTogglePlacement.mainWidth || 0}px)`],
     [commitsBodyExpanded === true, "commits: clicking body toggle expands the commit body inline"],
     [commitsDateSlotsHaveLabels === true, "commits: date separator slots only render with date labels"],
     [commitsDateSlotsAreGrouped === true, "commits: rows without a date heading do not render standalone separators"],
+    [commitsRowBodyGap.count >= 1 && commitsRowBodyGap.minGap >= 6, `commits: row cards keep visible spacing without separator glyphs (${commitsRowBodyGap.minGap}px >= 6px)`],
     [has(commitsHtml, "Commits on") && has(commitsHtml, "abc1234"), "commits: date grouping and short hash rendered"],
     [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
     [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking an option writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],

@@ -387,11 +387,19 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 /* Commits owns SCM-style filters instead of the shared facet Controls. */
 .commits-toolbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
   margin: 10px 0 12px;
 }
-.commits-filter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; align-items: center; min-width: 0; }
-.commits-filter-hint { font-size: 12px; }
+.commits-filter {
+  flex: 1 1 420px;
+  max-width: 480px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+.commits-filter-hint { align-self: flex-end; font-size: 12px; }
 .commit-branch-select {
   flex: none;
   display: inline-flex; align-items: center; gap: 8px;
@@ -409,7 +417,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* Self-styled typeahead combobox (replaces a native <datalist>, whose popup the
    browser renders with un-themeable OS chrome). The suggestion list is our own
    DOM, so it uses the same panel / border / accent tokens as the rest of the UI. */
-.repo-combobox { position: relative; flex: 0 1 360px; }
+.repo-combobox { position: relative; flex: 0 1 auto; width: 100%; }
 .repo-combobox-field { position: relative; display: flex; align-items: center; }
 .repo-combobox .search { width: 100%; padding-right: 28px; }
 .repo-combobox-caret { position: absolute; right: 11px; color: var(--muted); font-size: 10px; pointer-events: none; }
@@ -525,10 +533,12 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 .commit-title-line {
   display: flex; align-items: center; gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
   min-width: 0;
 }
 .commit-message-link {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   color: var(--text); font-weight: 600; line-height: 1.25;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -545,7 +555,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   cursor: pointer;
 }
-.commit-body-toggle:hover, .commit-body-toggle[aria-expanded="true"] {
+.commit-body-toggle[aria-expanded="true"] {
   color: var(--text);
   border-color: var(--line);
 }
@@ -642,8 +652,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   }
   .time-range-controls .toggle-label { flex-basis: 100%; }
   .commits-toolbar { align-items: stretch; flex-direction: column; }
-  .commits-filter { justify-content: flex-start; }
-  .repo-combobox { flex-basis: 100%; width: 100%; }
+  .commits-filter { flex: none; max-width: none; }
+  .commits-filter-hint { align-self: flex-start; }
+  .repo-combobox { flex: none; width: 100%; }
   .commit-branch-select { width: 100%; box-sizing: border-box; }
   .commit-branch-select select { max-width: none; flex: 1; }
   .commit-row-body {

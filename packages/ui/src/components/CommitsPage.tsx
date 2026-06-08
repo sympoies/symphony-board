@@ -22,6 +22,7 @@ import {
 const COMMIT_ROW_BODY_HEIGHT_PX = 70;
 const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
 const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
+const COMMIT_ROW_GAP_PX = 8;
 const COMMIT_EXPANDED_BODY_EXTRA_PX = 128;
 const COMMIT_EXPANDED_BODY_EXTRA_NARROW_PX = 156;
 const COMMIT_DEFAULT_VIEWPORT_PX = 680;
@@ -117,7 +118,7 @@ function buildCommitRows({
     const showDate = previousDateKey === null || previousDateKey !== key;
     const body = commitBody(commit);
     const expanded = body !== null && commit.id === expandedBodyId;
-    const height = rowBodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + (expanded ? expandedExtraHeight : 0);
+    const height = rowBodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + (expanded ? expandedExtraHeight : 0) + COMMIT_ROW_GAP_PX;
     rows.push({ commit, index, offset, height, showDate, body, expanded });
     offset += height;
     previousDateKey = key;
@@ -290,7 +291,6 @@ function CommitTimeline({
                         className="commit-body-toggle"
                         aria-label={`${expanded ? "Hide" : "Show"} commit body ${short ?? index + 1}`}
                         aria-expanded={expanded}
-                        title={expanded ? "Hide commit body" : "Show commit body"}
                         onClick={() => setExpandedBodyId(expanded ? null : commit.id)}
                       >
                         <span aria-hidden="true">...</span>
@@ -385,6 +385,13 @@ export function CommitsPage({
         </span>
       </div>
       <div className="commits-toolbar">
+        <div className="commits-filter">
+          <RepoCombobox options={repoOptions} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
+          <span className="muted commits-filter-hint">
+            {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} with commits
+            {branchOptions.length > 0 ? ` · ${branchOptions.length} branch${branchOptions.length === 1 ? "" : "es"}` : ""}
+          </span>
+        </div>
         <label className="commit-branch-select">
           <BranchIcon />
           <select
@@ -404,13 +411,6 @@ export function CommitsPage({
             ))}
           </select>
         </label>
-        <div className="commits-filter">
-          <RepoCombobox options={repoOptions} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
-          <span className="muted commits-filter-hint">
-            {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} with commits
-            {branchOptions.length > 0 ? ` · ${branchOptions.length} branch${branchOptions.length === 1 ? "" : "es"}` : ""}
-          </span>
-        </div>
       </div>
       <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
     </main>
