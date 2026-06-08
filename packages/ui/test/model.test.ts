@@ -354,7 +354,7 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
   assert.equal(activeTimeRangePresetId({ from: "2026-06-08", to: "2026-06-08" }, Date.parse("2026-06-08T12:00:00Z"), "this-week"), "this-week");
   assert.equal(activeTimeRangePresetId({ from: "2026-06-08", to: "2026-06-08" }, Date.parse("2026-06-08T12:00:00Z"), "today"), "today");
   assert.deepEqual(timeRangeForPreset("this-week", Date.parse("2026-06-07T12:00:00Z")), { from: "2026-06-01", to: "2026-06-07" });
-  assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-01", to: "2026-06-08" });
+  assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-02", to: "2026-06-08" }, "1w is exactly 7 days ending today (today and the 6 before)");
   assert.deepEqual(normalizeTimeRange(range), range);
   assert.equal(normalizeTimeRange({ from: "2026-06-08", to: "2026-06-07" }), null);
   assert.deepEqual(routeTimeRange(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07")), range);
@@ -390,7 +390,7 @@ test("time-range presets and filtering honor a configured timezone", () => {
   assert.deepEqual(timeRangeForPreset("today", now, "Asia/Taipei"), { from: "2026-06-09", to: "2026-06-09" });
   // Tuesday 2026-06-09 in Taipei → week starts Monday the 8th.
   assert.deepEqual(timeRangeForPreset("this-week", now, "Asia/Taipei"), { from: "2026-06-08", to: "2026-06-09" });
-  assert.deepEqual(timeRangeForPreset("1w", now, "Asia/Taipei"), { from: "2026-06-02", to: "2026-06-09" });
+  assert.deepEqual(timeRangeForPreset("1w", now, "Asia/Taipei"), { from: "2026-06-03", to: "2026-06-09" });
   assert.equal(activeTimeRangePresetId({ from: "2026-06-09", to: "2026-06-09" }, now, "today", "Asia/Taipei"), "today");
 
   // A date-only range expands at the zone's day boundaries, not UTC midnight.
