@@ -9,6 +9,7 @@ import { loadConfig } from "../config.ts";
 import { openDbReadOnly } from "../db/open.ts";
 import { listSources, listLiveItems, listLabels, listLiveEdges, listActivities } from "../db/repo.ts";
 import { buildRangeContract } from "../contract/build.ts";
+import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
 
 interface Args {
   config: string | null;
@@ -43,19 +44,20 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body) + "\n");
 }
 
-function parseDateParam(value: string | null, field: "from" | "to"): string {
+function parseDateParam(value: string | null, field: "from" | "to", tz: string): string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new Error(`${field} must be YYYY-MM-DD`);
   }
-  const suffix = field === "from" ? "T00:00:00.000Z" : "T23:59:59.999Z";
-  const iso = `${value}${suffix}`;
+  // Expand the calendar date at the configured zone's day boundary, so the
+  // window matches the zoned preset the UI computed (defaults to UTC).
+  const iso = field === "from" ? zonedDayStartIso(value, tz) : zonedDayEndIso(value, tz);
   if (Number.isNaN(Date.parse(iso))) throw new Error(`${field} is not a valid date`);
   return iso;
 }
 
-function parseRange(url: URL): TimeRangeDTO {
-  const from = parseDateParam(url.searchParams.get("from"), "from");
-  const to = parseDateParam(url.searchParams.get("to"), "to");
+function parseRange(url: URL, tz: string): TimeRangeDTO {
+  const from = parseDateParam(url.searchParams.get("from"), "from", tz);
+  const to = parseDateParam(url.searchParams.get("to"), "to", tz);
   if (from > to) throw new Error("from must be on or before to");
   return { from, to };
 }
@@ -86,7 +88,7 @@ const server = createServer((req, res) => {
       return;
     }
 
-    const range = parseRange(url);
+    const range = parseRange(url, cfg.timezone ?? "UTC");
     const db = openDbReadOnly(cfg.db_path);
     try {
       const envelope = buildRangeContract({
@@ -100,6 +102,7 @@ const server = createServer((req, res) => {
         repoColors,
         identities: cfg.identities,
         excludeActors: cfg.exclude_actors,
+        timezone: cfg.timezone,
         range,
       });
       json(res, 200, envelope);

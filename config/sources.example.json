@@ -1,6 +1,8 @@
 {
   "$comment": "Copy to config/sources.json (gitignored) and fill in. Tokens come from env vars named by token_env, never inlined here. graphql_url is required; rest_url is optional and defaults from kind+host when omitted. Optional highlight colors (hex #rgb / #rrggbb): a source-level \"color\", and per-repo by giving a project entry the object form {\"path\":..., \"color\":...}. A repo with no color inherits its source's; the UI can override per-repo. Most repos stay bare strings.",
   "db_path": "data/symphony.db",
+  "$comment_timezone": "Optional IANA timezone the board buckets calendar days in (e.g. \"Asia/Taipei\"). Omit or leave empty for UTC. It aligns the UI's `today` / `this week` presets and the activity-heatmap day cells, and the range API's day boundaries, to this zone. Absolute timestamps stay UTC; only calendar-day bucketing honors it.",
+  "timezone": "Asia/Taipei",
   "sources": [
     {
       "source_id": "github:github.com",

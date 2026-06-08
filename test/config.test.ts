@@ -117,6 +117,16 @@ test("rejects a malformed identities map", () => {
   assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", usernames: [1] }])), /usernames must be an array of strings/);
 });
 
+test("accepts a valid timezone (UTC / IANA), defaults to undefined, and rejects bad values", () => {
+  const tzConfig = (timezone: unknown): string => writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], timezone });
+  assert.equal(loadConfig(writeRaw({ db_path: "data/symphony.db", sources: [baseSource()] })).cfg.timezone, undefined);
+  assert.equal(loadConfig(tzConfig("UTC")).cfg.timezone, "UTC");
+  assert.equal(loadConfig(tzConfig("Asia/Taipei")).cfg.timezone, "Asia/Taipei");
+  assert.throws(() => loadConfig(tzConfig("Not/AZone")), /is not a valid IANA timezone/);
+  assert.throws(() => loadConfig(tzConfig("")), /"timezone" must be a non-empty string/);
+  assert.throws(() => loadConfig(tzConfig(8)), /"timezone" must be a non-empty string/);
+});
+
 test("accepts a valid exclude_actors list and rejects a malformed one", () => {
   const ok = writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], exclude_actors: ["dependabot", "github-code-quality", "*-bot"] });
   assert.deepEqual(loadConfig(ok).cfg.exclude_actors, ["dependabot", "github-code-quality", "*-bot"]);

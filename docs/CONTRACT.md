@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.0.0`.
+Current emitted version: `3.1.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -194,6 +194,8 @@ Top-level fields:
 - `contract_version`: semver. Consumers branch on major.
 - `generated_at`: emit time.
 - `generator`: producer name and version.
+- `timezone`: optional IANA timezone the producer buckets calendar days in
+  (from config; `"UTC"` when unset), added in `3.1.0`.
 - `sources`: source health and source display metadata.
 - `items`: windowed normalized work items in contract v2.
 - `edges`: typed relationships whose endpoints are resolved by the v2 item
@@ -410,9 +412,12 @@ responses. The static `emit` path usually omits it. `GET /api/range` returns the
 same contract envelope shape, with `range_query` set to:
 
 - `kind: "time_range"`
-- `timezone: "UTC"`
-- `from`: inclusive UTC timestamp for the selected date's start
-- `to`: inclusive UTC timestamp for the selected date's end
+- `timezone`: the configured IANA zone (`"UTC"` when unset; equals the
+  envelope-level `timezone`). Relaxed from the `"UTC"` literal in `3.1.0`.
+- `from`: inclusive timestamp for the selected date's start, expanded at this
+  zone's day boundary
+- `to`: inclusive timestamp for the selected date's end, expanded at this zone's
+  day boundary
 
 The range response is a projection, not a second schema:
 
@@ -431,6 +436,29 @@ The range response is a projection, not a second schema:
 
 The API validates the date query and opens SQLite read-only; it is not a writer
 and does not mutate sync state.
+
+## Timezone
+
+Version `3.1.0` added the optional top-level `timezone` field and relaxed
+`range_query.timezone` from the `"UTC"` literal to any string. The producer
+reads `timezone` from config (`config/sources.json`); it defaults to `"UTC"`
+when unset and accepts any IANA zone name (e.g. `"Asia/Taipei"`).
+
+This is the zone the calendar-day boundaries are bucketed in:
+
+- the UI's `today` / `this week` presets and the activity-heatmap day cells use
+  it instead of UTC, so a viewer's local late-night activity lands in the
+  expected day;
+- `GET /api/range` expands the `from` / `to` date query at this zone's day
+  boundaries (00:00 / 23:59:59.999 local), so server-side windowing matches the
+  zoned preset the UI computed.
+
+It is a **minor** bump: `timezone` is a new optional top-level field old
+consumers ignore, and the `range_query.timezone` relaxation breaks no consumer
+(none constrains the value). A consumer reading a pre-`3.1.0` contract reads a
+missing `timezone` as `"UTC"`. Absolute-instant fields (`generated_at`,
+`updated_at`, `occurred_at`, …) stay UTC ISO-8601; only calendar-day bucketing
+honors the zone.
 
 ## Repo Stats
 

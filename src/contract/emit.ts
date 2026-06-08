@@ -47,6 +47,7 @@ export function buildContractEnvelope(db: DatabaseSync, cfg: AppConfig, generate
     repoColors,
     identities: cfg.identities,
     excludeActors: cfg.exclude_actors,
+    timezone: cfg.timezone,
   });
 }
 
