@@ -14,7 +14,7 @@
 - Branch/commit/PR: pending
 - Source document: docs/plans/2026-06-08-read-only-range-query-api/2026-06-08-read-only-range-query-api-plan.md
 - Direct source-doc execution waiver: not applicable
-- Tracking issue: pending
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/81>
 
 ## Validation Plan
 
