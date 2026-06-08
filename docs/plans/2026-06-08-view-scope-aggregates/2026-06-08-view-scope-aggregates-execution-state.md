@@ -3,7 +3,7 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: Sprint 2 implemented; validation pass; provider follow-up updated.
+- Status: complete; tracking issue closed
 - Target scope: symphony-board UI view-scoped stats followed by #56 contract
   aggregate/window redesign.
 - Execution window: Sprint 1 (UI view-scoped stats) -> Sprint 2 (contract
@@ -11,7 +11,7 @@
 - Current task: Task 2.4 - done.
 - Next task: PR delivery, review, merge, and plan-tracking close-ready probe.
 - Last updated: 2026-06-08
-- Branch/commit/PR: `feat/contract-scoped-aggregates`; PR pending.
+- Branch/commit/PR: sympoies/symphony-board#74 merged (https://github.com/sympoies/symphony-board/pull/74); sympoies/symphony-board#77 merged (https://github.com/sympoies/symphony-board/pull/77)
 - Source document: docs/plans/2026-06-08-view-scope-aggregates/2026-06-08-view-scope-aggregates-plan.md
 - Direct source-doc execution waiver: not applicable
 - Tracking issue: <https://github.com/sympoies/symphony-board/issues/70>
