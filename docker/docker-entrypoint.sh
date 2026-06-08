@@ -19,17 +19,17 @@
 # every FULL_EVERY-th iteration (and the first) runs a full sweep, the rest run
 # --incremental. A full sweep is REQUIRED for disappearance handling — only a
 # full + complete sweep may soft-delete unseen items/edges — so incremental
-# alone would never tombstone. With the defaults (INTERVAL 300, FULL_EVERY 12)
-# that is a full sweep about hourly, incremental every 5 minutes in between.
+# alone would never tombstone. With the defaults (INTERVAL 120, FULL_EVERY 30)
+# that is a full sweep about hourly, incremental every 2 minutes in between.
 #
-# Env: SYNC_MODE (once|loop), INTERVAL (seconds, default 300), FULL_EVERY (loop:
-# run a full sweep every Nth iteration, default 12; 1 = always full), SYMPHONY_CONFIG
+# Env: SYNC_MODE (once|loop), INTERVAL (seconds, default 120), FULL_EVERY (loop:
+# run a full sweep every Nth iteration, default 30; 1 = always full), SYMPHONY_CONFIG
 # (default config/sources.json), CONTRACT_OUT (default data/contract.json).
 set -eu
 
 MODE="${SYNC_MODE:-once}"
-INTERVAL="${INTERVAL:-300}"
-FULL_EVERY="${FULL_EVERY:-12}"
+INTERVAL="${INTERVAL:-120}"
+FULL_EVERY="${FULL_EVERY:-30}"
 [ "$FULL_EVERY" -ge 1 ] 2>/dev/null || FULL_EVERY=1   # guard: avoid modulo-by-zero
 CONFIG="${SYMPHONY_CONFIG:-config/sources.json}"
 OUT="${CONTRACT_OUT:-data/contract.json}"

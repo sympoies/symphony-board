@@ -215,11 +215,12 @@ There is intentionally no external cron and no second writer.
 
 Default loop cadence:
 
-- `INTERVAL=300`
-- `FULL_EVERY=12`
+- `INTERVAL=120`
+- `FULL_EVERY=30`
 
 That gives a full sweep on the first iteration and roughly hourly, with
-incremental syncs between. Set `FULL_EVERY=1` for every iteration to be full.
+incremental syncs about every 2 minutes between. Set `FULL_EVERY=1` for every
+iteration to be full.
 
 ## Runtime Decisions
 
