@@ -176,7 +176,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v2. Current emitted version: `2.1.0`.
+Current major: v2. Current emitted version: `2.2.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -216,6 +216,17 @@ Version `2.1.0` added optional `range_query` metadata for read-only range API
 responses. The static emitted contract usually omits it. The API response keeps
 the same v2 envelope shape but projects items, edges, and activities to an
 explicit UTC date range, with endpoint closure for relationships.
+
+Version `2.2.0` added optional `repo_metrics[]`. These rows are grouped by
+`(source_id, project_path)` for display and expose per-repo totals, bucketed
+series, bounded top actors, and data-quality metadata for either the static
+default active-since window or an explicit `/api/range` time window. They are
+separate from `repo_stats[]`: `repo_stats[]` stays the full canonical repo
+inventory/count surface, while `repo_metrics[]` is a selected analytics window.
+The first implementation derives useful metrics from canonical item, edge,
+label, and activity rows. Provider-specific fields that are not already
+normalized remain represented as nullable signals, open count maps, or
+data-quality notes rather than new stable raw-payload dependencies.
 
 Contract rules:
 
@@ -257,10 +268,16 @@ Pages:
   range is applied before source/kind/search filters, and the page virtualizes
   matching rows so large activity histories remain scrollable without flooding
   the DOM.
+- **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
+  the shared date range and source/state/kind/search controls, ranks repos by
+  activity, renders compact trend bars from contract series buckets, and shows
+  data-quality badges so missing activity rows do not look like true zero
+  activity.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources and set per-repo color overrides in `localStorage`. These preferences
-  are a pre-filter before Board, Graph, and Activity compute their views. They
-  are view-only; the daemon keeps syncing every configured source.
+  are a pre-filter before Board, Graph, Activity, and Repo Analytics compute
+  their views. They are view-only; the daemon keeps syncing every configured
+  source.
 
 The UI supports contract major v2. It warns when a different major is loaded.
 

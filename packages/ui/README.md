@@ -2,8 +2,8 @@
 
 Read-only web UI for the `symphony-board` contract. It imports DTO types from
 `@symphony-board/contract`, fetches `./contract.json`, and renders the board,
-graph, activity feed, and settings surface. It never reads SQLite, provider
-APIs, or backend source modules.
+graph, activity feed, repo analytics, and settings surface. It never reads
+SQLite, provider APIs, or backend source modules.
 
 The backend stays buildless. This package is the deliberate home for browser
 dependencies and the Vite + React build.
@@ -87,6 +87,22 @@ path, target metadata, and provider details; a `#<iid>` token matches
 source/kind/search facets, then virtualizes the matching rows so large windows
 keep the DOM bounded.
 
+### Repo Analytics (`#/repo-analytics`)
+
+Repo Analytics renders `repo_metrics[]`: per-repo totals, bucketed series,
+bounded top actors, and data-quality metadata for the selected window.
+
+The page uses the same URL-backed date range as Board, Graph, and Activity.
+Default static contracts render their active-since repo metrics; custom ranges
+load `/api/range` and render the returned time-range metrics. The table ranks
+repos by activity and active items, then shows lifecycle throughput, commits,
+pushes, comments/reviews when present, compact trend bars, and a data-quality
+badge.
+
+`repo_metrics[]` is not a full inventory surface. Settings and external
+inventory consumers should use `repo_stats[]`; Repo Analytics uses
+`repo_metrics[]` because it is explicitly scoped to the current date range.
+
 ### Settings (`#/settings`)
 
 Settings is a browser-local display surface:
@@ -96,8 +112,8 @@ Settings is a browser-local display surface:
 - set per-repo highlight color overrides
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
-Board, Graph, and Activity feed before each page computes its view. They are
-view-only; the daemon keeps syncing every configured source.
+Board, Graph, Activity feed, and Repo Analytics before each page computes its
+view. They are view-only; the daemon keeps syncing every configured source.
 
 Repo rows use `repo_stats[]` when present so Settings keeps full repo counts
 even though contract v2 `items[]` is windowed. Older v1 contracts fall back to
@@ -138,11 +154,12 @@ testing.
 
 `pnpm --filter @symphony-board/ui run smoke` runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
-Chrome. It asserts the Board, Graph, Activity feed, Settings, deep-link search,
-focus path, and configured display colors render without console errors. It also
-verifies that Board, Graph, and Activity share the same range presets, that
-Board/Graph scoped summaries change when the range narrows through `/api/range`,
-and that a large synthetic Activity feed stays virtualized.
+Chrome. It asserts the Board, Graph, Activity feed, Repo Analytics, Settings,
+deep-link search, focus path, and configured display colors render without
+console errors. It also verifies that Board, Graph, Activity, and Repo Analytics
+share the same range presets, that Board/Graph scoped summaries change when the
+range narrows through `/api/range`, and that a large synthetic Activity feed
+stays virtualized.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.

@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.1.0`.
+Current emitted version: `2.2.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.1.0",
+  "contract_version": "2.2.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -114,6 +114,68 @@ package version, to decide compatibility.
       "by_kind": { "issue": 90, "change_request": 10 }
     }
   ],
+  "repo_metrics": [
+    {
+      "source_id": "github:github.com",
+      "project_path": "sympoies/symphony-board",
+      "window": {
+        "kind": "time_range",
+        "basis": "repo_activity",
+        "from": "2026-06-01T00:00:00.000Z",
+        "to": "2026-06-08T23:59:59.999Z",
+        "bucket": "day"
+      },
+      "totals": {
+        "items_active": 12,
+        "items_opened": 3,
+        "items_closed": 2,
+        "change_requests_opened": 2,
+        "change_requests_closed": 1,
+        "change_requests_merged": 1,
+        "activities": 24,
+        "commits": 7,
+        "pushes": 3,
+        "comments": 5,
+        "reviews": 2,
+        "approvals": 1,
+        "edge_declared": 4,
+        "edge_fulfilled": 2,
+        "edge_broken": 1,
+        "by_item_state": { "open": 7, "closed": 4, "merged": 1 },
+        "by_item_kind": { "issue": 9, "change_request": 3 },
+        "by_activity_kind": { "commit": 7, "push": 3 },
+        "by_activity_action": { "committed": 7, "pushed": 3 },
+        "by_edge_type": { "closes": 7 },
+        "by_edge_lifecycle": { "declared": 4, "fulfilled": 2, "broken": 1 },
+        "by_review_state": { "approved": 1 },
+        "by_ci_state": { "passing": 1, "pending": 1 },
+        "by_merge_state": { "mergeable": 1, "blocked": 1 },
+        "by_label_scope": { "workflow": 2, "priority": 3 }
+      },
+      "series": [
+        {
+          "bucket_start": "2026-06-01T00:00:00.000Z",
+          "bucket_end": "2026-06-01T23:59:59.999Z",
+          "stats": { "...": "same shape as totals" }
+        }
+      ],
+      "top_actors": [
+        {
+          "actor": "graysurf",
+          "activities": 8,
+          "commits": 3,
+          "items_opened": 1,
+          "change_requests_merged": 1
+        }
+      ],
+      "data_quality": {
+        "activity_available": true,
+        "truncated": false,
+        "observed_since": "2026-05-24T00:00:00.000Z",
+        "notes": []
+      }
+    }
+  ],
   "range_query": {
     "kind": "time_range",
     "timezone": "UTC",
@@ -137,13 +199,15 @@ Top-level fields:
 - `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 - `item_window`: required v2 metadata describing the primary loaded item window.
 - `repo_stats`: required v2 full repo counts, independent of loaded item rows.
+- `repo_metrics`: optional window-scoped repo analytics rows, added in `2.2.0`.
 - `range_query`: optional metadata on read-only range API responses, added in
   `2.1.0`.
 
 The producer currently emits `activities`, `repos`, `aggregates`,
-`item_window`, and `repo_stats` every time, usually as empty arrays when no rows
-apply. Consumers should still read older optional v1 fields defensively as
-`env.activities ?? []`, `env.repos ?? []`, and `env.aggregates ?? []`.
+`item_window`, `repo_stats`, and `repo_metrics` every time, usually as empty
+arrays when no rows apply. Consumers should still read older optional fields
+defensively as `env.activities ?? []`, `env.repos ?? []`,
+`env.aggregates ?? []`, and `env.repo_metrics ?? []`.
 
 ## Refs
 
@@ -348,6 +412,42 @@ Each row is keyed by `(source_id, project_path)` and contains:
 - `items`: full live item count for that repo.
 - `by_state`: full item counts by normalized state.
 - `by_kind`: full item counts by kind.
+
+## Repo Metrics
+
+Version `2.2.0` added optional `repo_metrics[]` for the Repo Analytics page and
+external consumers that need per-repo trends. Each row is keyed by
+`(source_id, project_path)`, matching `repo_stats[]`, but the semantics are
+different:
+
+- `repo_stats[]` is full inventory over the canonical live item set.
+- `repo_metrics[]` is scoped to one time window and must not be used as full
+  inventory.
+
+Each row contains:
+
+- `window`: `active_since` for static emits or `time_range` for `/api/range`,
+  always with `basis: "repo_activity"`, inclusive UTC `from` / `to`, and an
+  explicit bucket width (`day`, `week`, or `month`).
+- `totals`: selected-window counts for active/opened/closed items, opened /
+  closed / merged change requests, activity event categories, edge lifecycle,
+  and open-vocabulary breakdown maps.
+- `series[]`: bucketed points using the same stats shape as `totals`.
+- `top_actors[]`: bounded actor summaries. This is an aggregate list, not an
+  unbounded user directory.
+- `data_quality`: whether activity rows exist for the repo, whether the metric
+  row is truncated, the earliest observed activity timestamp, and notes for
+  provider or coverage gaps.
+
+The producer currently derives repo metrics from canonical item, label, edge,
+and activity rows. That means item lifecycle metrics are available even when a
+provider has no activity rows, while commit/push/comment/review metrics depend
+on the activity fetch surfaces and their retention/coverage. Consumers should
+show `data_quality` rather than treating missing activity as true zero activity.
+
+Open maps such as `by_activity_kind`, `by_activity_action`, `by_edge_type`,
+`by_review_state`, `by_ci_state`, `by_merge_state`, and `by_label_scope` are
+deliberately open vocabulary. Do not hard-fail on an unknown key.
 
 ## Display Metadata
 

@@ -98,6 +98,77 @@ export interface RepoStatsDTO {
   by_kind: Record<string, number>;
 }
 
+export type RepoMetricWindowKind = "time_range" | "active_since";
+export type RepoMetricBasis = "repo_activity";
+export type RepoMetricBucket = "day" | "week" | "month";
+
+export interface RepoMetricWindowDTO {
+  kind: RepoMetricWindowKind;
+  basis: RepoMetricBasis;
+  from: string;
+  to: string;
+  bucket: RepoMetricBucket;
+}
+
+export interface RepoMetricStatsDTO {
+  items_active: number;
+  items_opened: number;
+  items_closed: number;
+  change_requests_opened: number;
+  change_requests_closed: number;
+  change_requests_merged: number;
+  activities: number;
+  commits: number;
+  pushes: number;
+  comments: number;
+  reviews: number;
+  approvals: number;
+  edge_declared: number;
+  edge_fulfilled: number;
+  edge_broken: number;
+  by_item_state: Record<string, number>;
+  by_item_kind: Record<string, number>;
+  by_activity_kind: Record<string, number>;
+  by_activity_action: Record<string, number>;
+  by_edge_type: Record<string, number>;
+  by_edge_lifecycle: Record<string, number>;
+  by_review_state: Record<string, number>;
+  by_ci_state: Record<string, number>;
+  by_merge_state: Record<string, number>;
+  by_label_scope: Record<string, number>;
+}
+
+export interface RepoMetricSeriesPointDTO {
+  bucket_start: string;
+  bucket_end: string;
+  stats: RepoMetricStatsDTO;
+}
+
+export interface RepoMetricActorDTO {
+  actor: string;
+  activities: number;
+  commits: number;
+  items_opened: number;
+  change_requests_merged: number;
+}
+
+export interface RepoMetricDataQualityDTO {
+  activity_available: boolean;
+  truncated: boolean;
+  observed_since: string | null;
+  notes: string[];
+}
+
+export interface RepoMetricDTO {
+  source_id: string;
+  project_path: string | null;
+  window: RepoMetricWindowDTO;
+  totals: RepoMetricStatsDTO;
+  series: RepoMetricSeriesPointDTO[];
+  top_actors?: RepoMetricActorDTO[];
+  data_quality: RepoMetricDataQualityDTO;
+}
+
 // ---- DTOs (the serialized envelope shape) -----------------------------------
 
 export interface SourceDTO {
@@ -214,6 +285,10 @@ export interface ContractEnvelope {
   // Full canonical repo counts for Settings and external consumers. This stays
   // separate from `items[]` because v2 no longer ships every item row.
   repo_stats?: RepoStatsDTO[];
+  // Window-scoped per-repo analytics rows. This is separate from `repo_stats[]`:
+  // repo_stats is full inventory, while repo_metrics is a selected time window
+  // with activity/lifecycle trends and data-quality metadata. Added in 2.2.0.
+  repo_metrics?: RepoMetricDTO[];
   // Present on dynamic read-only range-query API responses, not on the static
   // daemon-emitted `contract.json`. The UI uses it to label explicit historical
   // windows without changing the static v2 payload contract.

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
+import { validateContract } from "../src/contract/validate.ts";
 import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
 
 function itemRow(over: Partial<ItemRow>): ItemRow {
@@ -213,4 +214,87 @@ test("buildContract emits a windowed item set with endpoint closure and full tot
     [["o/old-linked", 1], ["o/old-unlinked", 1], ["o/recent", 1]],
     "settings counts are full repo totals, not loaded item counts",
   );
+});
+
+test("buildContract emits repo metrics for the static default window", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({
+      item_id: 1,
+      external_id: "ISSUE_recent",
+      kind: "issue",
+      state: "open",
+      author: "alice",
+      created_at: "2026-06-01T00:00:00Z",
+      updated_at: "2026-06-07T00:00:00Z",
+      project_path: "o/repo",
+    }),
+    itemRow({
+      item_id: 2,
+      external_id: "PR_recent",
+      kind: "change_request",
+      state: "merged",
+      author: "bob",
+      created_at: "2026-06-02T00:00:00Z",
+      updated_at: "2026-06-06T00:00:00Z",
+      closed_at: "2026-06-06T00:00:00Z",
+      merged_at: "2026-06-06T00:00:00Z",
+      review_state: "approved",
+      ci_state: "passing",
+      merge_state: "mergeable",
+      project_path: "o/repo",
+    }),
+  ];
+  const labels: LabelRow[] = [{ item_id: 1, name: "type::feature", scope: "type", color: null }];
+  const edges: EdgeRow[] = [
+    { type: "closes", from_source_id: "github:github.com", from_external_id: "PR_recent", to_source_id: "github:github.com", to_external_id: "ISSUE_recent", from_state: "merged", to_state: "open", lifecycle: "fulfilled" },
+  ];
+  const activities: ActivityRow[] = [
+    activityRow({
+      external_id: "commit-1",
+      kind: "commit",
+      action: "committed",
+      project_path: "o/repo",
+      actor: "alice",
+      occurred_at: "2026-06-07T10:00:00Z",
+    }),
+    activityRow({
+      external_id: "push-1",
+      kind: "push",
+      action: "pushed",
+      project_path: "o/repo",
+      actor: "bob",
+      occurred_at: "2026-06-07T11:00:00Z",
+    }),
+  ];
+
+  const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+
+  assert.deepEqual(validateContract(env), []);
+  assert.equal(env.contract_version, "2.2.0");
+  const metric = env.repo_metrics?.[0];
+  assert.equal(metric?.source_id, "github:github.com");
+  assert.equal(metric?.project_path, "o/repo");
+  assert.deepEqual(metric?.window, {
+    kind: "active_since",
+    basis: "repo_activity",
+    from: "2026-03-10T00:00:00.000Z",
+    to: "2026-06-08T00:00:00.000Z",
+    bucket: "week",
+  });
+  assert.equal(metric?.totals.items_active, 2);
+  assert.equal(metric?.totals.items_opened, 2);
+  assert.equal(metric?.totals.change_requests_opened, 1);
+  assert.equal(metric?.totals.change_requests_merged, 1);
+  assert.equal(metric?.totals.activities, 2);
+  assert.equal(metric?.totals.commits, 1);
+  assert.equal(metric?.totals.pushes, 1);
+  assert.equal(metric?.totals.edge_fulfilled, 1);
+  assert.deepEqual(metric?.totals.by_label_scope, { type: 1 });
+  assert.equal(metric?.data_quality.activity_available, true);
+  assert.equal(metric?.data_quality.observed_since, "2026-06-07T10:00:00Z");
+  assert.ok(metric?.series.some((bucket) => bucket.stats.commits === 1 && bucket.stats.pushes === 1));
+  assert.deepEqual(metric?.top_actors?.map((actor) => actor.actor).sort(), ["alice", "bob"]);
 });

@@ -59,6 +59,11 @@
       "description": "Full canonical repo counts for Settings and external consumers. Separate from `items[]` because v2 does not ship every item row.",
       "items": { "$ref": "#/$defs/repoStats" }
     },
+    "repo_metrics": {
+      "type": "array",
+      "description": "Window-scoped per-repo analytics rows. Separate from `repo_stats[]`: repo_stats is full inventory, repo_metrics is a selected window with activity/lifecycle trends and data-quality metadata. Optional (added in 2.2.0).",
+      "items": { "$ref": "#/$defs/repoMetric" }
+    },
     "range_query": {
       "$ref": "#/$defs/rangeQuery"
     }
@@ -335,6 +340,149 @@
         "items": { "type": "integer", "minimum": 0 },
         "by_state": { "$ref": "#/$defs/countMap" },
         "by_kind": { "$ref": "#/$defs/countMap" }
+      }
+    },
+    "repoMetricWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "basis", "from", "to", "bucket"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["time_range", "active_since"],
+          "description": "time_range for explicit API windows; active_since for the static default contract window."
+        },
+        "basis": {
+          "type": "string",
+          "enum": ["repo_activity"],
+          "description": "Repo metrics combine item lifecycle timestamps, edge endpoint activity, and activity occurred_at rows."
+        },
+        "from": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC metric window start."
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC metric window end."
+        },
+        "bucket": {
+          "type": "string",
+          "enum": ["day", "week", "month"],
+          "description": "Series bucket width used by this row."
+        }
+      }
+    },
+    "repoMetricStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items_active",
+        "items_opened",
+        "items_closed",
+        "change_requests_opened",
+        "change_requests_closed",
+        "change_requests_merged",
+        "activities",
+        "commits",
+        "pushes",
+        "comments",
+        "reviews",
+        "approvals",
+        "edge_declared",
+        "edge_fulfilled",
+        "edge_broken",
+        "by_item_state",
+        "by_item_kind",
+        "by_activity_kind",
+        "by_activity_action",
+        "by_edge_type",
+        "by_edge_lifecycle",
+        "by_review_state",
+        "by_ci_state",
+        "by_merge_state",
+        "by_label_scope"
+      ],
+      "properties": {
+        "items_active": { "type": "integer", "minimum": 0 },
+        "items_opened": { "type": "integer", "minimum": 0 },
+        "items_closed": { "type": "integer", "minimum": 0 },
+        "change_requests_opened": { "type": "integer", "minimum": 0 },
+        "change_requests_closed": { "type": "integer", "minimum": 0 },
+        "change_requests_merged": { "type": "integer", "minimum": 0 },
+        "activities": { "type": "integer", "minimum": 0 },
+        "commits": { "type": "integer", "minimum": 0 },
+        "pushes": { "type": "integer", "minimum": 0 },
+        "comments": { "type": "integer", "minimum": 0 },
+        "reviews": { "type": "integer", "minimum": 0 },
+        "approvals": { "type": "integer", "minimum": 0 },
+        "edge_declared": { "type": "integer", "minimum": 0 },
+        "edge_fulfilled": { "type": "integer", "minimum": 0 },
+        "edge_broken": { "type": "integer", "minimum": 0 },
+        "by_item_state": { "$ref": "#/$defs/countMap" },
+        "by_item_kind": { "$ref": "#/$defs/countMap" },
+        "by_activity_kind": { "$ref": "#/$defs/countMap" },
+        "by_activity_action": { "$ref": "#/$defs/countMap" },
+        "by_edge_type": { "$ref": "#/$defs/countMap" },
+        "by_edge_lifecycle": { "$ref": "#/$defs/countMap" },
+        "by_review_state": { "$ref": "#/$defs/countMap" },
+        "by_ci_state": { "$ref": "#/$defs/countMap" },
+        "by_merge_state": { "$ref": "#/$defs/countMap" },
+        "by_label_scope": { "$ref": "#/$defs/countMap" }
+      }
+    },
+    "repoMetricSeriesPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket_start", "bucket_end", "stats"],
+      "properties": {
+        "bucket_start": { "type": "string", "format": "date-time" },
+        "bucket_end": { "type": "string", "format": "date-time" },
+        "stats": { "$ref": "#/$defs/repoMetricStats" }
+      }
+    },
+    "repoMetricActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "activities", "commits", "items_opened", "change_requests_merged"],
+      "properties": {
+        "actor": { "type": "string" },
+        "activities": { "type": "integer", "minimum": 0 },
+        "commits": { "type": "integer", "minimum": 0 },
+        "items_opened": { "type": "integer", "minimum": 0 },
+        "change_requests_merged": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "repoMetricDataQuality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activity_available", "truncated", "observed_since", "notes"],
+      "properties": {
+        "activity_available": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "observed_since": { "type": ["string", "null"], "format": "date-time" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "repoMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "project_path", "window", "totals", "series", "data_quality"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "project_path": { "type": ["string", "null"] },
+        "window": { "$ref": "#/$defs/repoMetricWindow" },
+        "totals": { "$ref": "#/$defs/repoMetricStats" },
+        "series": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoMetricSeriesPoint" }
+        },
+        "top_actors": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoMetricActor" }
+        },
+        "data_quality": { "$ref": "#/$defs/repoMetricDataQuality" }
       }
     }
   }

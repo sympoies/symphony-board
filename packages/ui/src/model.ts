@@ -9,6 +9,7 @@ import type {
   ContractEnvelope,
   ItemDTO,
   EdgeDTO,
+  RepoMetricDTO,
 } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 
@@ -593,12 +594,52 @@ export function applyVisibility(
   const activities = (env.activities ?? []).filter(
     (a) => !hiddenSources.has(a.source_id) && !hiddenRepos.has(repoKey(a.source_id, a.project_path)),
   );
+  const repo_metrics = (env.repo_metrics ?? []).filter(
+    (m) => !hiddenSources.has(m.source_id) && !hiddenRepos.has(repoKey(m.source_id, m.project_path)),
+  );
   const edges = env.edges.filter((e) => {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     return !(from && isHidden(from)) && !(to && isHidden(to));
   });
-  return { ...env, items, edges, activities };
+  return env.repo_metrics ? { ...env, items, edges, activities, repo_metrics } : { ...env, items, edges, activities };
+}
+
+export function repoMetricKey(source_id: string, project_path: string | null): string {
+  return repoKey(source_id, project_path);
+}
+
+export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
+  if (f.sources.size && !f.sources.has(metric.source_id)) return false;
+  if (f.states.size && ![...f.states].some((state) => (metric.totals.by_item_state[state] ?? 0) > 0)) return false;
+  if (f.kinds.size && ![...f.kinds].some((kind) => (metric.totals.by_item_kind[kind] ?? 0) > 0)) return false;
+  const q = f.search.trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    metric.source_id,
+    metric.project_path,
+    ...Object.keys(metric.totals.by_item_state),
+    ...Object.keys(metric.totals.by_item_kind),
+    ...Object.keys(metric.totals.by_activity_kind),
+    ...Object.keys(metric.totals.by_activity_action),
+    ...Object.keys(metric.totals.by_label_scope),
+    ...(metric.top_actors ?? []).map((actor) => actor.actor),
+    ...metric.data_quality.notes,
+  ]
+    .filter((part): part is string => !!part)
+    .join(" ")
+    .toLowerCase();
+  return q.split(/\s+/).every((term) => hay.includes(term));
+}
+
+export function sortRepoMetrics(metrics: readonly RepoMetricDTO[]): RepoMetricDTO[] {
+  return [...metrics].sort(
+    (a, b) =>
+      b.totals.activities - a.totals.activities ||
+      b.totals.items_active - a.totals.items_active ||
+      (a.project_path ?? "").localeCompare(b.project_path ?? "") ||
+      a.source_id.localeCompare(b.source_id),
+  );
 }
 
 // --- highlight color (Settings page + board/graph rendering) ------------
