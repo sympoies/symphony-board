@@ -4,6 +4,8 @@ import { fetchContract, fetchRangeContract, parseContract, majorOf, SUPPORTED_MA
 import {
   emptyFilters,
   activityMatches,
+  filterCommits,
+  commitRepoOptions,
   preferredDefaultTimeRange,
   staticContractTimeRange,
   filterActivitiesByRange,
@@ -44,6 +46,7 @@ import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
+import { CommitsPage } from "./components/CommitsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
 
@@ -53,12 +56,14 @@ const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
-// Four pages via a zero-dep hash route: "" (#/) is the full-width board,
-// "graph" (#/graph) the relationship graph, "activity" (#/activity) the event
-// feed, "repo-analytics" (#/repo-analytics) the per-repo metrics view, and
-// "settings" (#/settings) the persistent repo display filter. The
-// route may carry "?q=<search>" so the visible search box is URL-backed; graph
-// routes may also carry "?focus=<ref>" from a board card.
+// Pages via a zero-dep hash route: "" (#/) is the full-width board, "graph"
+// (#/graph) the relationship graph, "activity" (#/activity) the event feed,
+// "commits" (#/commits) the cross-repo commit feed, "repo-analytics"
+// (#/repo-analytics) the per-repo metrics view, and "settings" (#/settings) the
+// persistent repo display filter. The route may carry "?q=<search>" so the
+// visible search box is URL-backed; graph routes may also carry "?focus=<ref>"
+// from a board card, and commits routes carry "?repo=<project_path>" for the
+// page's repo filter.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 
 export function App() {
@@ -101,11 +106,13 @@ export function App() {
       ? "graph"
       : route.page === "activity"
         ? "activity"
-        : route.page === "repo-analytics" || route.page === "repos"
-          ? "repo-analytics"
-          : route.page === "settings"
-            ? "settings"
-            : "board";
+        : route.page === "commits"
+          ? "commits"
+          : route.page === "repo-analytics" || route.page === "repos"
+            ? "repo-analytics"
+            : route.page === "settings"
+              ? "settings"
+              : "board";
   const staticRange = useMemo(() => (env ? staticContractTimeRange(env) : null), [env]);
   const defaultRange = useMemo(() => (env ? preferredDefaultTimeRange(env, defaultRangePreset) : null), [env, defaultRangePreset]);
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
@@ -238,6 +245,19 @@ export function App() {
     [windowedActivities, filters],
   );
 
+  // The Commits page is a focused projection of the activity feed: commit records
+  // only, with one filter (repo, from the URL's "?repo="). windowCommits is every
+  // commit in the shared range (the window total + the picker's option source);
+  // commits is that narrowed to the selected repo, if any. Both ride the same
+  // visibility + range pre-filters as the Activity feed.
+  const windowCommits = useMemo(() => filterCommits(windowedActivities, null), [windowedActivities]);
+  const commits = useMemo(() => filterCommits(windowedActivities, route.repo), [windowedActivities, route.repo]);
+  const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
+  const totalCommits = useMemo(
+    () => (env?.activities ?? activeEnv?.activities ?? []).filter((a) => a.kind === "commit").length,
+    [env, activeEnv],
+  );
+
   const filteredEdges = useMemo(() => {
     if (!visibleEnv) return [];
     const byId = indexItems(visibleEnv);
@@ -330,7 +350,7 @@ export function App() {
       .catch((err: unknown) => setError((err as Error).message));
   }
 
-  function routeHref(nextPage: "board" | "graph" | "activity" | "repo-analytics" | "settings"): string {
+  function routeHref(nextPage: "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings"): string {
     return buildHashRoute({
       page: nextPage === "board" ? "" : nextPage,
       q: filters.search,
@@ -346,7 +366,24 @@ export function App() {
     const next = buildHashRoute({
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
+      repo: page === "commits" ? route.repo : null,
       q,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  // The Commits page's repo filter is URL-backed (like search/focus) so it is
+  // shareable and survives reload. It preserves the active range/preset, and
+  // clearing it (repo === null) drops the "?repo=" param.
+  function setRouteRepo(repo: string | null) {
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({
+      page: "commits",
+      repo,
+      q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
       preset: explicitRange ? route.preset : null,
@@ -359,6 +396,7 @@ export function App() {
     const next = buildHashRoute({
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
+      repo: page === "commits" ? route.repo : null,
       q: filters.search,
       from: range.from,
       to: range.to,
@@ -414,6 +452,9 @@ export function App() {
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity
         </a>
+        <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
+          Commits
+        </a>
         <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
           Repo Analytics
         </a>
@@ -429,16 +470,20 @@ export function App() {
       )}
       {/* The facet Controls drive the data views; page-local StatsBars live beside
           the Board/Graph windows they describe. Activity has no item/edge stats,
-          and Settings is a config surface. */}
+          Settings is a config surface, and Commits owns its single repo filter (it
+          deliberately skips the shared facet Controls) — but every non-Settings
+          page shares the date-range control. */}
       {page !== "settings" && (
         <>
-          <Controls
-            filters={filters}
-            facets={facets}
-            onSearch={setRouteSearch}
-            onToggle={toggle}
-            onLoadFile={loadFile}
-          />
+          {page !== "commits" && (
+            <Controls
+              filters={filters}
+              facets={facets}
+              onSearch={setRouteSearch}
+              onToggle={toggle}
+              onLoadFile={loadFile}
+            />
+          )}
           <TimeRangeControls
             range={activeRange}
             generatedAt={env.generated_at}
@@ -470,6 +515,18 @@ export function App() {
           activities={filteredActivities}
           windowTotal={windowedActivities.length}
           totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
+          range={activeRange}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+        />
+      ) : page === "commits" ? (
+        <CommitsPage
+          commits={commits}
+          windowTotal={windowCommits.length}
+          totalCommits={totalCommits}
+          repoOptions={commitRepos}
+          selectedRepo={route.repo}
+          onRepo={setRouteRepo}
           range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}
