@@ -17,6 +17,7 @@ import type {
   AggregateWindowDTO,
   ItemWindowDTO,
   ItemWindowReason,
+  TimeRangeDTO,
   ItemState,
   ReviewState,
   CiState,
@@ -157,8 +158,35 @@ function cutoffIso(days: number, generatedAt: string): string {
   return new Date(Date.parse(generatedAt) - days * 86_400_000).toISOString();
 }
 
+function timestampMs(value: string | null | undefined): number | null {
+  const ms = Date.parse(value ?? "");
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function timestampAtOrAfter(value: string | null | undefined, cutoff: string | null): boolean {
+  if (!cutoff) return true;
+  const valueMs = timestampMs(value);
+  const cutoffMs = timestampMs(cutoff);
+  return valueMs !== null && cutoffMs !== null && valueMs >= cutoffMs;
+}
+
+function timestampInRange(value: string | null | undefined, range: TimeRangeDTO): boolean {
+  const valueMs = timestampMs(value);
+  const fromMs = timestampMs(range.from);
+  const toMs = timestampMs(range.to);
+  return valueMs !== null && fromMs !== null && toMs !== null && valueMs >= fromMs && valueMs <= toMs;
+}
+
 function itemActiveSince(item: ItemDTO, cutoff: string | null): boolean {
-  return !cutoff || (item.updated_at ?? "") >= cutoff;
+  return timestampAtOrAfter(item.updated_at, cutoff);
+}
+
+function itemUpdatedInRange(item: ItemDTO, range: TimeRangeDTO): boolean {
+  return timestampInRange(item.updated_at, range);
+}
+
+function activityOccurredInRange(activity: ActivityDTO, range: TimeRangeDTO): boolean {
+  return timestampInRange(activity.occurred_at, range);
 }
 
 function boardWindowEdges(items: ItemDTO[], edges: EdgeDTO[]): EdgeDTO[] {
@@ -172,7 +200,7 @@ function graphWindowEdges(edges: EdgeDTO[], byId: Map<string, ItemDTO>, cutoff: 
     const from = byId.get(edge.from);
     const to = byId.get(edge.to);
     if (!from && !to) return true;
-    return (from?.updated_at ?? "") >= cutoff || (to?.updated_at ?? "") >= cutoff;
+    return timestampAtOrAfter(from?.updated_at, cutoff) || timestampAtOrAfter(to?.updated_at, cutoff);
   });
 }
 
@@ -305,6 +333,61 @@ function buildWindowedProjection(
   };
 }
 
+function edgeKey(edge: EdgeDTO): string {
+  return JSON.stringify([edge.type, edge.from, edge.to]);
+}
+
+function buildRangeProjection(
+  items: ItemDTO[],
+  edges: EdgeDTO[],
+  activities: ActivityDTO[],
+  range: TimeRangeDTO,
+): { items: ItemDTO[]; edges: EdgeDTO[]; activities: ActivityDTO[]; itemWindow: ItemWindowDTO } {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const primaryIds = new Set(items.filter((item) => itemUpdatedInRange(item, range)).map((item) => item.id));
+  const boardEdges = edges.filter((edge) => primaryIds.has(edge.from) || primaryIds.has(edge.to));
+  const graphEdges = edges.filter((edge) => {
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
+    return (from ? itemUpdatedInRange(from, range) : false) || (to ? itemUpdatedInRange(to, range) : false);
+  });
+
+  const selectedByKey = new Map<string, EdgeDTO>();
+  for (const edge of [...boardEdges, ...graphEdges]) selectedByKey.set(edgeKey(edge), edge);
+  const selectedEdges = [...selectedByKey.values()];
+
+  const endpointIds = new Set<string>();
+  for (const edge of selectedEdges) {
+    endpointIds.add(edge.from);
+    endpointIds.add(edge.to);
+  }
+
+  const emittedIds = new Set([...primaryIds, ...endpointIds]);
+  const windowedItems = items
+    .filter((item) => emittedIds.has(item.id))
+    .map((item) => {
+      const reasons: ItemWindowReason[] = [];
+      if (primaryIds.has(item.id)) reasons.push("primary");
+      if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
+      return { ...item, window_reasons: reasons };
+    });
+
+  const edgeEndpointItems = windowedItems.filter((item) => !primaryIds.has(item.id) && endpointIds.has(item.id)).length;
+  return {
+    items: windowedItems,
+    edges: selectedEdges,
+    activities: activities.filter((activity) => activityOccurredInRange(activity, range)),
+    itemWindow: {
+      scope: "boardWindow",
+      window: aggregateWindow("active_since", "item_updated_at", range.from, null, null),
+      primary_items: primaryIds.size,
+      edge_endpoint_items: edgeEndpointItems,
+      total_items: items.length,
+      truncated: windowedItems.length < items.length,
+    },
+  };
+}
+
 export interface BuildInput {
   sources: SourceRow[];
   items: ItemRow[];
@@ -320,6 +403,30 @@ export interface BuildInput {
 }
 
 export function buildContract(input: BuildInput): ContractEnvelope {
+  const mapped = mapRows(input);
+  const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
+  return {
+    contract_version: CONTRACT_VERSION,
+    generated_at: input.generatedAt,
+    generator: GENERATOR,
+    sources: mapped.sources,
+    items: windowed.items,
+    edges: windowed.edges,
+    activities: mapped.activities,
+    repos: mapped.repos,
+    aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
+    item_window: windowed.itemWindow,
+    repo_stats: buildRepoStats(mapped.items),
+  };
+}
+
+function mapRows(input: BuildInput): {
+  sources: SourceDTO[];
+  items: ItemDTO[];
+  edges: EdgeDTO[];
+  activities: ActivityDTO[];
+  repos: RepoDTO[];
+} {
   const labelsByItem = new Map<number, LabelRow[]>();
   for (const l of input.labels) {
     const arr = labelsByItem.get(l.item_id) ?? [];
@@ -329,20 +436,34 @@ export function buildContract(input: BuildInput): ContractEnvelope {
   const sourceColors = input.sourceColors ?? {};
   const items = input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? []));
   const edges = input.edges.map(toEdgeDTO);
-  const repoStats = buildRepoStats(items);
-  const aggregates = buildAggregates(items, edges, input.generatedAt);
-  const windowed = buildWindowedProjection(items, edges, input.generatedAt);
+  return {
+    sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
+    activities: (input.activities ?? []).map(toActivityDTO),
+    repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
+    items,
+    edges,
+  };
+}
+
+export interface BuildRangeInput extends BuildInput {
+  range: TimeRangeDTO;
+}
+
+export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
+  const mapped = mapRows(input);
+  const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
-    sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
-    items: windowed.items,
-    edges: windowed.edges,
-    activities: (input.activities ?? []).map(toActivityDTO),
-    repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
-    aggregates,
-    item_window: windowed.itemWindow,
-    repo_stats: repoStats,
+    sources: mapped.sources,
+    items: ranged.items,
+    edges: ranged.edges,
+    activities: ranged.activities,
+    repos: mapped.repos,
+    aggregates: [],
+    item_window: ranged.itemWindow,
+    repo_stats: buildRepoStats(mapped.items),
+    range_query: { kind: "time_range", timezone: "UTC", from: input.range.from, to: input.range.to },
   };
 }

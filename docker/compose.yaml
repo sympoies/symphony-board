@@ -1,6 +1,7 @@
-# Two services: the loop daemon (board) — the always-on writer that
-# syncs + emits data/contract.json — and a read-only UI sidecar (web) that serves
-# the built board plus that daemon-emitted contract over HTTP.
+# Three services: the loop daemon (board) — the always-on writer that syncs +
+# emits data/contract.json; a read-only range API sidecar (api) that reads the
+# canonical DB; and a read-only UI sidecar (web) that serves the built board plus
+# that daemon-emitted contract over HTTP.
 #
 # Reads tokens from a gitignored .env (GITHUB_TOKEN, GITLAB_TOKEN, ...). Config
 # and the DB are bind-mounted so the SQLite store survives container rebuilds and
@@ -18,7 +19,8 @@
 # Pin the Compose project name to the repo. Without this it would default to the
 # compose file's directory ("docker"), which is unhelpful when several projects
 # share a Docker host; "symphony-board" makes the containers
-# (symphony-board-board-1 / symphony-board-web-1) and the project group obvious.
+# (symphony-board-board-1 / symphony-board-api-1 / symphony-board-web-1) and the
+# project group obvious.
 name: symphony-board
 
 services:
@@ -57,6 +59,34 @@ services:
       retries: 3
       start_period: 180s
 
+  # Read-only range-query sidecar. It shares the backend image but runs
+  # SYNC_MODE=api, mounts config/data read-only, and never syncs or emits. The
+  # web sidecar proxies /api/... to this service.
+  api:
+    image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SYNC_MODE: api
+      SYMPHONY_CONFIG: config/sources.json
+      PORT: "8081"
+    volumes:
+      - ../config:/app/config:ro
+      - ../data:/app/data:ro
+    depends_on:
+      board:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # Read-only UI sidecar: a multi-stage build of packages/ui served by nginx at
   # http://localhost:8080. It serves the daemon-emitted data/contract.json
   # (mounted read-only) at /contract.json, so the UI always renders the loop's
@@ -74,4 +104,6 @@ services:
       - ../data:/srv/data:ro
     depends_on:
       board:
+        condition: service_healthy
+      api:
         condition: service_healthy

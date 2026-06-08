@@ -6,11 +6,10 @@ import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
-  ACTIVITY_WINDOW_PRESETS,
   activityVirtualRange,
   relativeTime,
-  type ActivityWindowKey,
   type ColorOf,
+  type TimeRange,
 } from "../model.ts";
 
 const ACTION_KIND: Record<string, string> = {
@@ -36,16 +35,14 @@ export function ActivityPage({
   activities,
   windowTotal,
   totalActivities,
-  activityWindow,
-  onActivityWindow,
+  range,
   sourceKind,
   colorOf,
 }: {
   activities: ActivityDTO[];
   windowTotal: number;
   totalActivities: number;
-  activityWindow: ActivityWindowKey;
-  onActivityWindow: (window: ActivityWindowKey) => void;
+  range: TimeRange;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
 }) {
@@ -60,7 +57,7 @@ export function ActivityPage({
 
   useEffect(() => {
     resetScroll();
-  }, [activities, activityWindow, resetScroll]);
+  }, [activities, range, resetScroll]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -100,23 +97,8 @@ export function ActivityPage({
         <h2>Activity</h2>
         <span className="count">{countLabel}</span>
         <span className="muted">
-          {windowTotal} window / {totalActivities} total
+          {windowTotal} window / {totalActivities} total · {range.from} to {range.to}
         </span>
-      </div>
-      <div className="activity-controls">
-        <div className="toggle-group">
-          <span className="toggle-label">range</span>
-          {ACTIVITY_WINDOW_PRESETS.map(([label, key]) => (
-            <button
-              key={key}
-              type="button"
-              className={`toggle${activityWindow === key ? " toggle-on" : ""}`}
-              onClick={() => onActivityWindow(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
       {activities.length === 0 ? (
         <p className="empty">{windowTotal === 0 ? "No activity in this range." : "No activity matches the current filters."}</p>

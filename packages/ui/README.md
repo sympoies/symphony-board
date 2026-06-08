@@ -21,11 +21,11 @@ Status is derived from item state plus relationship edges. Spotlight lanes are
 cross-cuts based on label/kind conventions, so their counts do not sum to the
 item total.
 
-The Board has an item-local active-since window with quick presets (`1w`, `2w`,
-`1mo`, `3mo`, `all`). It filters cards by `updated_at` and defaults to the
-loaded contract item window (`3mo` in the current producer).
+The Board uses the shared URL-backed date range with quick presets (`1w`, `2w`,
+`1mo`, `3mo`). It filters cards by `updated_at` and defaults to the loaded
+contract item window (`3mo` in the current producer).
 The summary pills on the Board are scoped to that same Board window: item totals
-count the cards that survive the active-since filter, and edge lifecycle counts
+count the cards that survive the date-range filter, and edge lifecycle counts
 cover relationships touching those windowed cards. If the loaded contract
 contains a compatible `boardWindow` aggregate and no viewer-local filters are
 active, the summary uses it; otherwise it computes from the visible items and
@@ -33,9 +33,8 @@ edges.
 
 Contract v2 does not load all historical item rows. The Board renders primary
 `item_window` rows only, while edge-endpoint extras stay available to the Graph.
-When `item_window.truncated` is true, older/all-time card windows are disabled
-because the static JSON payload does not contain those cards; full totals still
-come from compatible `aggregates[]` rows.
+Custom ranges are loaded through `/api/range`. Full totals still come from
+compatible `aggregates[]` rows on the default static contract.
 
 Cards show source, repo, iid, author, timestamps, demand, labels, draft state,
 review/CI/merge signals, and optional repo/source highlight color. Cards with at
@@ -48,19 +47,20 @@ The Graph page renders edge-connected items with React Flow:
 - `closes` edges are the workflow spine and are colored by lifecycle.
 - `mentions` can be included for context.
 - side-list search and kind filters keep large graphs navigable.
-- active-since presets window the overview.
+- the shared date range windows the overview.
 - focusing an item narrows the canvas to that item's relationship
   neighborhood.
 - Board card deep-links use `#/graph?focus=<ref>&q=<repo #iid>` so the graph is
   narrowed before it renders.
 
 Graph summary pills are scoped to the graph currently being inspected. In the
-overview they count rendered nodes and links after the active-since window,
+overview they count rendered nodes and links after the date range,
 mention toggle, mention target, search, and facet filters. In focus view they
 switch to `focus` scope and count the focused subgraph instead of implying an
 overview total. Contract `graphWindow` aggregates are used only for the default
-no-mentions overview when the active-since window exactly matches an emitted
-aggregate row; local graph controls fall back to client-computed stats.
+no-mentions overview when the static range exactly matches an emitted aggregate
+row; custom range responses and local graph controls fall back to
+client-computed stats.
 
 With contract v2, the default overview stays inside the loaded item window.
 Board deep-link focus views can still inspect relationships present in the
@@ -75,15 +75,12 @@ The Activity page renders `activities[]` newest first. It includes canonical
 item transitions and provider activity records such as commits, pushes, and
 branch/tag events.
 
-Activity shares the global search box plus source/kind filters. Search includes
-title, summary, actor, project path, target metadata, and provider details; a
-`#<iid>` token matches `target_iid` exactly.
-
-The feed defaults to `this week`, where the week starts on Monday in local time
-relative to the loaded contract's `generated_at`. Quick ranges are `1d`, `3d`,
-`this week`, `1w`, `2w`, `1m`, and `all`. The page filters by range before the
-global source/kind/search facets, then virtualizes the matching rows so large
-windows such as `all` keep the DOM bounded.
+Activity uses the same date range as Board and Graph, plus the global search
+box and source/kind filters. Search includes title, summary, actor, project
+path, target metadata, and provider details; a `#<iid>` token matches
+`target_iid` exactly. The page filters by range before the global
+source/kind/search facets, then virtualizes the matching rows so large windows
+keep the DOM bounded.
 
 ### Settings (`#/settings`)
 
@@ -128,14 +125,19 @@ pnpm run emit --out packages/ui/public/contract.json
 
 Runtime contracts under `data/` stay gitignored.
 
+The standalone Vite dev server serves only the static sample contract. Custom
+date ranges call `/api/range`; use the Docker stack for full local range-query
+testing.
+
 ## Smoke Test
 
 `pnpm --filter @symphony-board/ui run smoke` runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
 Chrome. It asserts the Board, Graph, Activity feed, Settings, deep-link search,
 focus path, and configured display colors render without console errors. It also
-verifies that Board and Graph scoped summaries change when their active-since
-windows change, and that a large synthetic Activity feed stays virtualized.
+verifies that Board, Graph, and Activity share the same range presets, that
+Board/Graph scoped summaries change when the range narrows through `/api/range`,
+and that a large synthetic Activity feed stays virtualized.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.
@@ -151,6 +153,7 @@ pnpm --filter @symphony-board/ui dev
 ```
 
 For deployment, use the repo's Docker Compose stack. The `web` service serves
-the built UI and aliases the daemon-emitted `data/contract.json` to
-`/contract.json`, so the UI always reads the latest contract produced by the
-sole writer.
+the built UI, aliases the daemon-emitted `data/contract.json` to
+`/contract.json`, and proxies `/api/` to the read-only range API sidecar. The UI
+therefore reads the latest static contract and can request explicit date ranges
+without becoming a database writer.

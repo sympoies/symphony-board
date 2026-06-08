@@ -135,6 +135,15 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
 }
 .file-load { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.time-range-controls {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 10px;
+}
+.time-range-controls .date-filter input {
+  min-width: 132px;
+}
+.range-error {
+  color: var(--broken);
+}
 
 /* stats */
 .stats { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 0; }

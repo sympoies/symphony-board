@@ -1,11 +1,12 @@
 #!/bin/sh
-# Entrypoint for the symphony-board image. Two modes:
+# Entrypoint for the symphony-board image. Three modes:
 #
 #   once (default) - one sync + one contract emit, then exit. CMD args pass to
 #                    the sync (e.g. --dry-run, --incremental, --source <id>).
 #   loop           - daemon: sync + emit every INTERVAL seconds. For an always-on
 #                    box (the local Mac while it is on, or a server later):
 #                    docker compose up -d  /  docker run -d --restart=unless-stopped.
+#   api            - read-only HTTP range-query API. It never syncs or emits.
 #
 # This is the SOLE writer by design: no external cron/trigger. A single writer
 # also keeps SQLite happy while the UI sidecar and inspection helpers read.
@@ -22,9 +23,10 @@
 # alone would never tombstone. With the defaults (INTERVAL 120, FULL_EVERY 30)
 # that is a full sweep about hourly, incremental every 2 minutes in between.
 #
-# Env: SYNC_MODE (once|loop), INTERVAL (seconds, default 120), FULL_EVERY (loop:
+# Env: SYNC_MODE (once|loop|api), INTERVAL (seconds, default 120), FULL_EVERY (loop:
 # run a full sweep every Nth iteration, default 30; 1 = always full), SYMPHONY_CONFIG
-# (default config/sources.json), CONTRACT_OUT (default data/contract.json).
+# (default config/sources.json), CONTRACT_OUT (default data/contract.json), PORT
+# (api mode, default 8081).
 set -eu
 
 MODE="${SYNC_MODE:-once}"
@@ -66,8 +68,11 @@ case "$MODE" in
       sleep "$INTERVAL"
     done
     ;;
+  api)
+    exec $NODE src/cli/range-api.ts --config "$CONFIG"
+    ;;
   *)
-    echo "$(ts) ERROR: unknown SYNC_MODE='$MODE' (use once|loop)" >&2
+    echo "$(ts) ERROR: unknown SYNC_MODE='$MODE' (use once|loop|api)" >&2
     exit 2
     ;;
 esac

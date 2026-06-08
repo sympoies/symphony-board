@@ -64,6 +64,81 @@ function inflateActivityContract(body) {
   return JSON.stringify({ ...env, activities });
 }
 
+function parseInflatedContract(rawBody) {
+  const body = inflateActivityContract(rawBody);
+  return JSON.parse(Buffer.isBuffer(body) ? body.toString("utf8") : body);
+}
+
+function timestampMs(value) {
+  const ms = Date.parse(value || "");
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function inRange(value, fromMs, toMs) {
+  const ms = timestampMs(value);
+  return ms !== null && ms >= fromMs && ms <= toMs;
+}
+
+function rangeProjection(rawBody, reqUrl) {
+  const url = new URL(reqUrl, `http://127.0.0.1:${HTTP_PORT}`);
+  const fromDate = url.searchParams.get("from") || "";
+  const toDate = url.searchParams.get("to") || "";
+  const fromIso = `${fromDate}T00:00:00.000Z`;
+  const toIso = `${toDate}T23:59:59.999Z`;
+  const fromMs = timestampMs(fromIso);
+  const toMs = timestampMs(toIso);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromMs === null || toMs === null || fromMs > toMs) {
+    return { status: 400, body: JSON.stringify({ error: "bad range" }) };
+  }
+
+  const env = parseInflatedContract(rawBody);
+  const byId = new Map(env.items.map((item) => [item.id, item]));
+  const primaryIds = new Set(env.items.filter((item) => inRange(item.updated_at, fromMs, toMs)).map((item) => item.id));
+  const selectedEdges = new Map();
+  const addEdge = (edge) => selectedEdges.set(`${edge.type}\u0000${edge.from}\u0000${edge.to}`, edge);
+  for (const edge of env.edges) {
+    if (primaryIds.has(edge.from) || primaryIds.has(edge.to)) addEdge(edge);
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
+    if (inRange(from?.updated_at, fromMs, toMs) || inRange(to?.updated_at, fromMs, toMs)) addEdge(edge);
+  }
+
+  const endpointIds = new Set();
+  for (const edge of selectedEdges.values()) {
+    endpointIds.add(edge.from);
+    endpointIds.add(edge.to);
+  }
+  const emittedIds = new Set([...primaryIds, ...endpointIds]);
+  const items = env.items
+    .filter((item) => emittedIds.has(item.id))
+    .map((item) => {
+      const window_reasons = [];
+      if (primaryIds.has(item.id)) window_reasons.push("primary");
+      if (endpointIds.has(item.id)) window_reasons.push("edge_endpoint");
+      return { ...item, window_reasons };
+    });
+  const edgeEndpointItems = items.filter((item) => item.window_reasons.includes("edge_endpoint") && !item.window_reasons.includes("primary")).length;
+  return {
+    status: 200,
+    body: JSON.stringify({
+      ...env,
+      items,
+      edges: [...selectedEdges.values()],
+      activities: (env.activities || []).filter((activity) => inRange(activity.occurred_at, fromMs, toMs)),
+      aggregates: [],
+      item_window: {
+        scope: "boardWindow",
+        window: { kind: "active_since", basis: "item_updated_at", since: fromIso, days: null, edge_filter: null },
+        primary_items: primaryIds.size,
+        edge_endpoint_items: edgeEndpointItems,
+        total_items: env.items.length,
+        truncated: true,
+      },
+      range_query: { kind: "time_range", timezone: "UTC", from: fromIso, to: toIso },
+    }),
+  };
+}
+
 if (!existsSync(join(DIST, "index.html"))) {
   fail(`dist not built (${DIST}/index.html missing) — run \`vite build\` first`);
   process.exit(1);
@@ -73,6 +148,12 @@ if (!existsSync(join(DIST, "index.html"))) {
 const server = createServer(async (req, res) => {
   try {
     let p = decodeURIComponent((req.url || "/").split("?")[0]);
+    if (p === "/api/range") {
+      const rawBody = await readFile(join(DIST, "contract.json"));
+      const response = rangeProjection(rawBody, req.url || "/api/range");
+      res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
+      return;
+    }
     if (p === "/") p = "/index.html";
     const file = normalize(join(DIST, p));
     if (!file.startsWith(DIST)) {
@@ -169,6 +250,11 @@ try {
   };
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  const rangeButtonLabels = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).map((el) => el.textContent?.trim() || '')",
+      returnByValue: true,
+    })).result.value || [];
   const setControlledInput = async (selector, value) => {
     await send("Runtime.evaluate", {
       expression: `(() => {
@@ -176,6 +262,7 @@ try {
         if (!input) return false;
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, ${JSON.stringify(value)});
         input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
       })()`,
       returnByValue: true,
@@ -185,8 +272,10 @@ try {
 
   // Page 1 — the default full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
+  const boardRangeButtons = await rangeButtonLabels();
   const boardInitialStats = await textOf(".stats");
-  await setControlledInput(".board-since input", "2026-06-07");
+  await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-07");
+  const boardNarrowHtml = await waitHtml("document.querySelector('.board-7 .card') && !document.body.innerText.includes('Loading range')");
   const boardNarrowStats = await textOf(".stats");
   // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
@@ -194,10 +283,13 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  const graphRangeButtons = await rangeButtonLabels();
   const graphInitialStats = await textOf(".stats");
-  await setControlledInput(".graph-since input", "2026-06-07");
+  await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-07");
+  await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
   const graphNarrowStats = await textOf(".stats");
-  await setControlledInput(".graph-since input", "2026-03-01");
+  await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-03-01");
+  await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
   // Graph side list: capture the (enriched) list cards, then click one to enter
   // the focus view and confirm the back button + related-items header render.
   await waitHtml("document.querySelector('.graph-list-card')");
@@ -215,6 +307,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   const activityHtml = await waitHtml("document.querySelector('.activity-row')");
+  const activityRangeButtons = await rangeButtonLabels();
   const activityCountText = await textOf(".activity-head .count");
   const activityDomRows = (await send("Runtime.evaluate", {
     expression: "document.querySelectorAll('.activity-row').length",
@@ -267,14 +360,15 @@ try {
   const clearedDeepLink = (await send("Runtime.evaluate", {
     expression: `(() => {
       const search = document.querySelector('.search');
-      if (!search) return { search: null, since: null, active: null };
+      if (!search) return { search: null, from: null, to: null, active: null };
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, '');
       search.dispatchEvent(new Event('input', { bubbles: true }));
-      const since = document.querySelector('.graph-since input')?.value || '';
-      const active = Array.from(document.querySelectorAll('.graph-controls .toggle-on'))
+      search.dispatchEvent(new Event('change', { bubbles: true }));
+      const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls input[type="date"]'));
+      const active = Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
         .map((el) => el.textContent?.trim())
-        .find((txt) => txt === '3mo' || txt === 'all') || '';
-      return { search: search.value, since, active };
+        .find((txt) => txt === '3mo') || '';
+      return { search: search.value, from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', active };
     })()`,
     returnByValue: true,
   })).result.value || {};
@@ -307,6 +401,8 @@ try {
   const boardNarrowTotal = statTotal(boardNarrowStats, "items");
   const graphInitialTotal = statTotal(graphInitialStats, "nodes");
   const graphNarrowTotal = statTotal(graphNarrowStats, "nodes");
+  const expectedRangeButtons = ["1w", "2w", "1mo", "3mo"];
+  const sameRangeButtons = (labels) => JSON.stringify(labels) === JSON.stringify(expectedRangeButtons);
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -314,9 +410,10 @@ try {
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
-    [has(boardHtml, "board-controls") && has(boardHtml, ">1w<") && has(boardHtml, ">2w<") && has(boardHtml, ">all<"), "board: active-since quick presets rendered"],
+    [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
+    [has(boardNarrowHtml, "range 2026-06-07 to 2026-06-07"), "board: custom range label rendered after API projection"],
     [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],
-    [Number.isFinite(boardInitialTotal) && boardNarrowTotal < boardInitialTotal, `board: scoped stats change when active-since narrows (${boardInitialTotal} -> ${boardNarrowTotal})`],
+    [Number.isFinite(boardInitialTotal) && boardNarrowTotal < boardInitialTotal, `board: scoped stats change when range narrows (${boardInitialTotal} -> ${boardNarrowTotal})`],
     // provider source marks: the sample contract carries both github + gitlab
     [has(boardHtml, 'aria-label="GitHub"'), "board: GitHub source mark rendered"],
     [has(boardHtml, 'aria-label="GitLab"'), "board: GitLab source mark rendered"],
@@ -329,9 +426,9 @@ try {
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
     [graphNodeTimeOrder.count >= 1 && graphNodeTimeOrder.ok, `graph: node timestamps render updated before created (${graphNodeTimeOrder.count})`],
-    [has(graphHtml, ">1w<") && has(graphHtml, ">all<"), "graph: active-since quick presets rendered"],
+    [sameRangeButtons(graphRangeButtons), `graph: shared range quick presets rendered without all (${graphRangeButtons.join(", ")})`],
     [hasStatText(graphInitialStats, "scope graph window"), "graph: stats are labelled as graph-window scoped"],
-    [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when active-since narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
+    [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when range narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
@@ -344,7 +441,7 @@ try {
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
-    [has(activityHtml, ">1d<") && has(activityHtml, ">3d<") && has(activityHtml, ">this week<") && has(activityHtml, ">1m<") && has(activityHtml, ">all<"), "activity: range presets rendered"],
+    [sameRangeButtons(activityRangeButtons), `activity: shared range quick presets rendered without all (${activityRangeButtons.join(", ")})`],
     [activityRows >= 4, `activity: rows rendered (${activityRows} >= 4)`],
     [/1200 in range/.test(activityCountText), `activity: large smoke feed count rendered (${activityCountText})`],
     [activityRows < 80, `activity: virtualized rows stay bounded (${activityRows} < 80)`],
@@ -363,7 +460,7 @@ try {
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
-    [clearedDeepLink.search === "" && clearedDeepLink.since !== "" && clearedDeepLink.active === "3mo", `deep link: clearing search immediately restores the 3mo window (${clearedDeepLink.since || "empty"})`],
+    [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && clearedDeepLink.active === "3mo", `deep link: clearing search keeps the default 3mo range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
     // page 4: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

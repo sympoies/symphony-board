@@ -10,7 +10,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 
@@ -28,6 +28,7 @@ const MIGRATIONS: Migration[] = [
   { version: 1, file: "0001_init.sql" },
   { version: 2, file: "0002_activity.sql" },
 ];
+const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
 export function openDb(path: string): DatabaseSync {
   if (path !== ":memory:") {
@@ -40,6 +41,26 @@ export function openDb(path: string): DatabaseSync {
   db.exec("PRAGMA foreign_keys = ON;");
   migrate(db);
   return db;
+}
+
+export function openDbReadOnly(path: string): DatabaseSync {
+  const db = new DatabaseSync(readOnlyLocation(path));
+  db.exec("PRAGMA query_only = ON;");
+  db.exec("PRAGMA foreign_keys = ON;");
+  const have = currentVersion(db);
+  if (have < CURRENT_SCHEMA_VERSION) {
+    db.close();
+    throw new Error(`database schema version ${have} is older than expected ${CURRENT_SCHEMA_VERSION}`);
+  }
+  return db;
+}
+
+function readOnlyLocation(path: string): string {
+  if (path === ":memory:") return path;
+  const url = pathToFileURL(resolve(path));
+  url.searchParams.set("mode", "ro");
+  url.searchParams.set("immutable", "1");
+  return url.href;
 }
 
 function currentVersion(db: DatabaseSync): number {
