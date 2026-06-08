@@ -297,6 +297,19 @@ export interface ActivityRow {
   last_seen_at: string | null;
 }
 
+export interface CiRefreshCandidateRow {
+  source_id: string;
+  external_id: string;
+  project_path: string;
+  iid: number;
+  state: string;
+  ci_state: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+  merged_at: string | null;
+  last_seen_at: string | null;
+}
+
 export function listLiveItems(db: DatabaseSync): ItemRow[] {
   return db
     .prepare(
@@ -314,6 +327,41 @@ export function listLiveItems(db: DatabaseSync): ItemRow[] {
        ORDER BY COALESCE(closed_at, merged_at, updated_at, created_at) DESC, item_id DESC`,
     )
     .all() as unknown as ItemRow[];
+}
+
+export function listCiRefreshCandidates(
+  db: DatabaseSync,
+  sourceId: string,
+  cutoffIso: string,
+  limit: number,
+): CiRefreshCandidateRow[] {
+  const safeLimit = Math.max(0, Math.trunc(Number.isFinite(limit) ? limit : 0));
+  if (safeLimit === 0) return [];
+  return db
+    .prepare(
+      `SELECT source_id, external_id, project_path, iid, state, ci_state,
+              updated_at, closed_at, merged_at, last_seen_at
+       FROM item
+       WHERE deleted_at IS NULL
+         AND source_id=?
+         AND kind='change_request'
+         AND project_path IS NOT NULL
+         AND iid IS NOT NULL
+         AND (
+           state='open'
+           OR COALESCE(merged_at, closed_at, updated_at, created_at) >= ?
+         )
+       ORDER BY
+         CASE
+           WHEN ci_state IN ('pending', 'none') THEN 0
+           WHEN state='open' THEN 1
+           ELSE 2
+         END,
+         julianday(COALESCE(merged_at, closed_at, updated_at, created_at)) DESC,
+         item_id DESC
+       LIMIT ?`,
+    )
+    .all(sourceId, cutoffIso, safeLimit) as unknown as CiRefreshCandidateRow[];
 }
 
 export function listActivities(db: DatabaseSync): ActivityRow[] {

@@ -4,7 +4,7 @@
 // and pr.closingIssuesReferences) so reconcileEdges converges them.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "./types.ts";
+import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -66,6 +66,15 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
         commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
         closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
       }
+    }
+  }
+}`;
+
+const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) { ${COMMON} mergedAt isDraft reviewDecision mergeable
+      commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
+      closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
     }
   }
 }`;
@@ -142,6 +151,44 @@ export class GitHubSource implements Source {
       }
     }
     return { records, watermark: latest, complete, error: firstError };
+  }
+
+  async fetchRefresh(candidates: RefreshCandidate[], _opts: FetchOptions): Promise<FetchResult> {
+    const records: RawRecord[] = [];
+    const now = new Date().toISOString();
+    const configuredProjects = new Set(this.projects);
+    const seen = new Set<string>();
+    let complete = true;
+    let firstError: string | null = null;
+
+    for (const candidate of candidates) {
+      if (!configuredProjects.has(candidate.projectPath)) continue;
+      const key = `${candidate.projectPath}#${candidate.iid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const [owner, name] = candidate.projectPath.split("/");
+      if (!owner || !name) continue;
+      try {
+        const data: any = await this.gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.iid });
+        const node = data?.repository?.pullRequest;
+        if (!node) continue;
+        const payload = JSON.stringify(node);
+        records.push({
+          entityKind: "change_request",
+          externalId: node.id,
+          apiVersion: API_VERSION,
+          fetchedAt: now,
+          payload: node,
+          contentHash: hash(payload),
+        });
+      } catch (err) {
+        complete = false;
+        firstError ??= `${candidate.projectPath} #${candidate.iid} ci refresh: ${(err as Error).message}`;
+      }
+    }
+
+    return { records, watermark: null, complete, error: firstError };
   }
 
   normalize(raw: RawRecord): NormalizedBundle | null {

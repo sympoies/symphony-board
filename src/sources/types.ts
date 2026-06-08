@@ -49,10 +49,20 @@ export interface FetchResult {
   error: string | null;
 }
 
+export interface RefreshCandidate {
+  externalId: string;
+  projectPath: string;
+  iid: number;
+  reason: "ci_unresolved" | "open_change_request" | "recent_change_request";
+}
+
 export interface Source {
   readonly descriptor: SourceDescriptor;
   // Impure: network/IO allowed. Returns raw records + watermark + completeness.
   fetch(opts: FetchOptions): Promise<FetchResult>;
+  // Optional impure freshness repair for provider state that changes without
+  // bumping the provider's item-updated watermark, such as GitHub CI rollups.
+  fetchRefresh?(candidates: RefreshCandidate[], opts: FetchOptions): Promise<FetchResult>;
   // Pure: raw record -> canonical bundle. Returns null to drop a record the
   // source recognizes but does not map (e.g. an entity kind we ignore). MUST be
   // deterministic and side-effect-free so it is replayable.
