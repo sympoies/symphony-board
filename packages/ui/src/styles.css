@@ -110,7 +110,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   gap: 12px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
-.sources { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+/* Top-align the chips with the Sync button so they sit on one line; the sync
+   status then hangs below the button instead of pushing it above the chips. */
+.sources { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-self: flex-start; }
 .source-chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
@@ -119,7 +121,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
 /* UI-triggered manual sync: a compact Header action with its status stacked
    underneath, the whole control right-aligned. */
-.sync-control { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.sync-control { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; align-self: flex-start; }
 .sync-button { font-weight: 600; }
 .sync-button:disabled { opacity: 0.55; cursor: default; border-color: var(--line); }
 .sync-control.sync-running .sync-button { color: var(--accent); border-color: var(--accent); }
