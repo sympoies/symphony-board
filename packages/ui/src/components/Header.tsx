@@ -27,7 +27,7 @@ export function Header({ env, sync }: { env: ContractEnvelope; sync?: SyncState 
               <span key={s.source_id} className="source-chip" title={`${s.kind} @ ${s.host}`}>
                 <Badge text={s.last_status ?? "unknown"} kind={`status-${s.last_status ?? "unknown"}`} />
                 <span className="source-name">{s.display_name ?? s.source_id}</span>
-                <span className="muted">ok {relativeTime(s.last_success_at)}</span>
+                <span className="muted" title="last successful sync">{relativeTime(s.last_success_at)}</span>
               </span>
             ))}
           </div>
