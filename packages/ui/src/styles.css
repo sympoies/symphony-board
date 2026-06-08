@@ -377,13 +377,36 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 /* Commits owns a single repo typeahead instead of the shared facet Controls. */
 .commits-filter { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 12px; }
-.commits-filter .search { flex: 0 1 320px; }
 .commits-filter-hint { font-size: 12px; }
-.filter-clear {
-  background: var(--panel); border: 1px solid var(--line); color: var(--muted);
-  border-radius: 999px; padding: 3px 10px; cursor: pointer; font: inherit;
+/* Self-styled typeahead combobox (replaces a native <datalist>, whose popup the
+   browser renders with un-themeable OS chrome). The suggestion list is our own
+   DOM, so it uses the same panel / border / accent tokens as the rest of the UI. */
+.repo-combobox { position: relative; flex: 0 1 360px; }
+.repo-combobox-field { position: relative; display: flex; align-items: center; }
+.repo-combobox .search { width: 100%; padding-right: 28px; }
+.repo-combobox-caret { position: absolute; right: 11px; color: var(--muted); font-size: 10px; pointer-events: none; }
+.repo-combobox-clear {
+  position: absolute; right: 6px; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; background: none; border: none; border-radius: 6px;
+  color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0;
 }
-.filter-clear:hover { border-color: var(--accent); color: var(--text); }
+.repo-combobox-clear:hover { background: var(--line); color: var(--text); }
+.repo-combobox-list {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+  margin: 0; padding: 4px; list-style: none;
+  max-height: 320px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.repo-combobox-option {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 7px 10px; border-radius: 6px; cursor: pointer;
+}
+.repo-combobox-option.is-active { background: var(--accent); color: var(--accent-fg); }
+.repo-combobox-option.is-active .repo-combobox-meta { color: var(--accent-fg); }
+.repo-combobox-option.is-selected:not(.is-active) { box-shadow: inset 0 0 0 1px var(--accent); }
+.repo-combobox-name { font-weight: 500; }
+.repo-combobox-meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 .activity-list {
   position: relative;

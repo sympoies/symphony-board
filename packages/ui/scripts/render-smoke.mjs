@@ -363,18 +363,15 @@ try {
   })).result.value || 0;
   // Page 3b — Commits: a focused, repo-filterable projection of the activity feed
   // (commit records only). It reuses the virtualized feed; its single filter is a
-  // repo typeahead backed by a <datalist>. The sample carries a GitHub and a
-  // GitLab commit, so the picker offers two repos and selecting one narrows the
-  // feed AND writes "?repo=" to the URL.
+  // SELF-STYLED typeahead combobox — NOT a native <datalist>, whose popup the
+  // browser renders with un-themeable OS chrome. The sample carries a GitHub and a
+  // GitLab commit, so opening the combobox lists two repos and picking one narrows
+  // the feed AND writes "?repo=" to the URL.
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .activity-row')");
   const commitsRangeButtons = await rangeButtonLabels();
   const commitsCountText = await textOf(".commits-page .count");
-  const commitsRepoOptions = (await send("Runtime.evaluate", {
-    expression: "document.querySelectorAll('#commit-repo-options option').length",
-    returnByValue: true,
-  })).result.value || 0;
   const commitsRowsAll = (await send("Runtime.evaluate", {
     expression: "document.querySelectorAll('.commits-page .activity-row').length",
     returnByValue: true,
@@ -383,11 +380,36 @@ try {
     expression: "Array.from(document.querySelectorAll('.commits-page a.activity-title')).some((a) => (a.getAttribute('href') || '').includes('/commit'))",
     returnByValue: true,
   })).result.value || false;
-  await setControlledInput(".commits-filter input.search", "example-group/symphony-board-fixture");
+  const commitsNoDatalist = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('datalist, #commit-repo-options').length === 0",
+    returnByValue: true,
+  })).result.value || false;
+  // Open the combobox (focus + click both set it open) and inspect the styled list.
+  await send("Runtime.evaluate", {
+    expression: "(() => { const i = document.querySelector('.commits-filter input.search'); if (i) { i.focus(); i.click(); } })()",
+  });
+  await sleep(250);
+  const commitsCombo = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      styledList: !!document.querySelector('.repo-combobox-list'),
+      options: document.querySelectorAll('.repo-combobox-option').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Pick the GitLab repo by mouse-down on its option (commit fires before blur).
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const opt = Array.from(document.querySelectorAll('.repo-combobox-option'))
+        .find((el) => (el.textContent || '').includes('example-group/symphony-board-fixture'));
+      if (opt) opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    })()`,
+  });
+  await sleep(250);
   const commitsFiltered = (await send("Runtime.evaluate", {
     expression: `(() => ({
       hash: location.hash,
       rows: document.querySelectorAll('.commits-page .activity-row').length,
+      inputValue: document.querySelector('.commits-filter input.search')?.value || '',
       onlyPicked: Array.from(document.querySelectorAll('.commits-page .activity-meta'))
         .every((el) => (el.textContent || '').includes('example-group/symphony-board-fixture')),
     }))()`,
@@ -546,10 +568,13 @@ try {
     [commitsRowsAll >= 4, `commits: commit rows rendered (${commitsRowsAll} >= 4)`],
     [commitsRowsAll < 80, `commits: virtualized rows stay bounded (${commitsRowsAll} < 80)`],
     [!has(commitsHtml, 'class="controls"'), "commits: shared facet Controls are not rendered (repo is the only filter)"],
-    [commitsRepoOptions >= 2, `commits: repo typeahead offers each repo with commits (${commitsRepoOptions} >= 2)`],
+    [commitsNoDatalist === true, "commits: native <datalist> is gone (replaced by the self-styled combobox)"],
+    [commitsCombo.styledList === true, "commits: opening the filter renders the self-styled suggestion list"],
+    [commitsCombo.options >= 2, `commits: combobox offers each repo with commits (${commitsCombo.options || 0} >= 2)`],
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
     [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
-    [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking a repo writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],
+    [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking an option writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],
+    [commitsFiltered.inputValue.includes("example-group/symphony-board-fixture"), `commits: picked repo fills the combobox input (${commitsFiltered.inputValue || "empty"})`],
     [commitsFiltered.rows >= 1 && commitsFiltered.onlyPicked === true, `commits: feed narrows to the picked repo (${commitsFiltered.rows || 0} rows, onlyPicked=${commitsFiltered.onlyPicked})`],
     // page 4: repo analytics uses the contract's repo_metrics rows
     [has(repoHtml, "repo-analytics-page"), "repo analytics: page rendered"],
