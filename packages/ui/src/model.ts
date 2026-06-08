@@ -225,8 +225,8 @@ export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
 }
 
 // Shared quick-set presets for Board, Graph, Activity, and Repo Analytics.
-// `today` and `this-week` are calendar presets; the rest preserve the original
-// rolling-day behavior.
+// `today` and `this-week` are calendar presets; the rest are rolling windows of
+// exactly `days` calendar days ending today (inclusive) — e.g. `1w` = 7 days.
 export const TIME_RANGE_PRESETS = [
   { id: "today", label: "today", kind: "today" },
   { id: "this-week", label: "this week", kind: "this-week" },
@@ -263,8 +263,9 @@ export function timeRangeForPreset(presetId: TimeRangePresetId, now: number, tz:
     const daysSinceMonday = (zonedWeekday(now, tz) + 6) % 7;
     return { from: shiftDateOnly(to, -daysSinceMonday), to };
   }
-  // Rolling window: `days` calendar days back from the local `to` date.
-  return { from: shiftDateOnly(to, -preset.days), to };
+  // Rolling window: exactly `days` calendar days ending today (inclusive), so
+  // `1w` spans 7 local days (today and the 6 before it), not 8.
+  return { from: shiftDateOnly(to, -(preset.days - 1)), to };
 }
 
 export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {
