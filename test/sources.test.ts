@@ -222,6 +222,41 @@ test("GitLab: an open MR keeps its real merge_state", () => {
   assert.equal(blocked.mergeState, "blocked");
 });
 
+test("GitLab CI refresh fetches configured MR candidates without advancing the watermark", async () => {
+  const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
+  const refreshGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
+    calls.push({ query, vars: vars ?? {} });
+    return {
+      project: {
+        mergeRequest: glNode("gid:MR_refresh", "9", {
+          state: "merged",
+          mergedAt: "2026-06-01T00:00:00Z",
+          draft: false,
+          approved: false,
+          approvalsRequired: 0,
+          headPipeline: { status: "SUCCESS" },
+          detailedMergeStatus: "NOT_OPEN",
+        }),
+      },
+    };
+  }) as GqlClient;
+  const src = new GitLabSource(GL_DESC, refreshGql, ["g/p"]);
+
+  const res = await src.fetchRefresh([
+    { externalId: "gid:MR_refresh", projectPath: "g/p", iid: 9, reason: "ci_unresolved" },
+    { externalId: "gid:MR_skip", projectPath: "outside/project", iid: 1, reason: "ci_unresolved" },
+  ], { since: null, full: false });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.vars.path, "g/p");
+  assert.equal(calls[0]!.vars.iid, "9", "GitLab GraphQL mergeRequest iid is string-valued");
+  assert.equal(res.watermark, null, "refresh records must not move the updatedAt watermark");
+  assert.equal(res.records[0]!.externalId, "gid:MR_refresh");
+  const item = src.normalize(res.records[0]!)?.item;
+  assert.equal(item?.ciState, "passing");
+  assert.equal(item?.projectPath, "g/p");
+});
+
 test("GitLab project events normalize without fake tracked target refs", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {

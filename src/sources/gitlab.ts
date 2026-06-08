@@ -30,7 +30,7 @@
 // `complete:false` with the error and never corrupts/soft-deletes data.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "./types.ts";
+import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -82,6 +82,16 @@ const MR_Q = `query($path:ID!, $cursor:String) {
         headPipeline { status }
         detailedMergeStatus
       }
+    }
+  }
+}`;
+
+const MR_BY_IID_Q = `query($path:ID!, $iid:String!) {
+  project(fullPath:$path) {
+    mergeRequest(iid:$iid) { ${COMMON} closedAt mergedAt draft
+      approved approvalsRequired
+      headPipeline { status }
+      detailedMergeStatus
     }
   }
 }`;
@@ -265,6 +275,45 @@ export class GitLabSource implements Source {
       }
     }
     return { records, watermark: latest, complete, error: firstError };
+  }
+
+  async fetchRefresh(candidates: RefreshCandidate[], _opts: FetchOptions): Promise<FetchResult> {
+    const records: RawRecord[] = [];
+    const now = new Date().toISOString();
+    const configuredProjects = new Set(this.projects);
+    const seen = new Set<string>();
+    let complete = true;
+    let firstError: string | null = null;
+
+    for (const candidate of candidates) {
+      if (!configuredProjects.has(candidate.projectPath)) continue;
+      const key = `${candidate.projectPath}#${candidate.iid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      try {
+        const data: any = await this.gql(MR_BY_IID_Q, { path: candidate.projectPath, iid: String(candidate.iid) });
+        const node = data?.project?.mergeRequest;
+        if (!node) continue;
+        node.__projectPath = candidate.projectPath;
+        node.__mentions = [];
+        node.__relates = [];
+        const payload = JSON.stringify(node);
+        records.push({
+          entityKind: "change_request",
+          externalId: node.id,
+          apiVersion: API_VERSION,
+          fetchedAt: now,
+          payload: node,
+          contentHash: hash(payload),
+        });
+      } catch (err) {
+        complete = false;
+        firstError ??= `${candidate.projectPath} !${candidate.iid} ci refresh: ${(err as Error).message}`;
+      }
+    }
+
+    return { records, watermark: null, complete, error: firstError };
   }
 
   // Parse this item's system notes into resolved mention/relate endpoints. The
