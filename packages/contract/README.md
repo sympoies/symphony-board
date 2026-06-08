@@ -108,6 +108,12 @@ Version `2.2.0` added optional repo analytics rows:
 separate from `repo_stats[]`, which remains the full repo inventory/count
 surface.
 
+Version `2.3.0` added a canonical actor identity to `RepoMetricActorDTO`:
+`actor_key` (a stable, non-PII key — provider username, hashed commit email, or
+normalized name), `display_name`, and optional `aliases`. `top_actors[]` groups
+by `actor_key` so one human is one row; `actor` stays as a backward-compatible
+display field.
+
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, and any UI consumer logic
 in the same change set.

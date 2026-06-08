@@ -551,10 +551,16 @@ existing integer fields — so v2 consumers need no change.
 ## Version Rules
 
 - **patch** (`1.3.x`): clarification only; no shape or semantic change.
-- **minor** (`1.x.0`): additive only. New fields must be optional and/or
-  nullable. Old consumers must keep working.
+- **minor** (`1.x.0`): additive only. A new top-level field must be optional
+  and/or nullable. A new field added to an **optional or newly-added** object
+  MAY be `required` in the schema when the producer always emits it: old
+  consumers never depend on that object and ignore unknown fields, so the
+  tightening only guards the producer (e.g. `2.3.0` added `actor_key` /
+  `display_name` to the optional `top_actors[]` rows). Old consumers must keep
+  working.
 - **major** (`x.0.0`): breaking shape or semantic change, including removed
-  fields, renamed fields, repurposed fields, or changed required sets.
+  fields, renamed fields, repurposed fields, or tightening the required set of
+  an object that existing consumers already depend on.
 
 Hard rules:
 
