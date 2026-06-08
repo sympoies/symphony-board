@@ -383,7 +383,7 @@ function GraphListCard({
   accentColor,
   relation,
   active,
-  onFocus,
+  onActivate,
 }: {
   item: ItemDTO | null;
   fallbackLabel: string;
@@ -391,7 +391,11 @@ function GraphListCard({
   accentColor?: string | null;
   relation?: { type: string; direction: "out" | "in" | "both"; offWindow: boolean };
   active?: boolean;
-  onFocus: () => void;
+  // Generic click/keyboard activation handler (this card is a role="button").
+  // The parent decides what activation means per card: a normal card focuses ITS
+  // item; the active (already-focused) card clears focus. Hence the neutral name
+  // rather than onFocus — re-clicking the active card is a "clear", not a focus.
+  onActivate: () => void;
 }) {
   return (
     <div
@@ -399,14 +403,14 @@ function GraphListCard({
       role="button"
       tabIndex={0}
       // The active card is the currently-focused item; re-clicking it clears the
-      // focus (its onFocus is wired to that), so its hint says so. Every other
+      // focus (its onActivate is wired to that), so its hint says so. Every other
       // card focuses ITS item, which needs no hint.
       title={active ? "Click to clear focus" : undefined}
-      onClick={onFocus}
+      onClick={onActivate}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onFocus();
+          onActivate();
         }
       }}
     >
@@ -504,7 +508,7 @@ function GraphSideList({
         <div className="graph-list-scroll">
           {/* Re-clicking the focused item clears focus (toggle off) — same exit as
               "← all items", so the card the user just clicked is also the way back. */}
-          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onFocus={onBack} />
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onActivate={onBack} />
           {!windowedIds.has(focusId) && (
             <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
           )}
@@ -522,7 +526,7 @@ function GraphSideList({
                 sourceKind={kindOf(r.ref)}
                 accentColor={colorFor(r.ref)}
                 relation={{ type: r.type, direction: r.direction, offWindow: !windowedIds.has(r.ref) }}
-                onFocus={() => onFocus(r.ref)}
+                onActivate={() => onFocus(r.ref)}
               />
             ))
           )}
@@ -565,7 +569,7 @@ function GraphSideList({
           <p className="muted empty-list">no items match</p>
         ) : (
           filtered.map((n) => (
-            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} onFocus={() => onFocus(n.id)} />
+            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} onActivate={() => onFocus(n.id)} />
           ))
         )}
       </div>
