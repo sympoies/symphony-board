@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `2.4.0`.
+Current contract version emitted by the backend: `2.5.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -116,6 +116,10 @@ display field.
 
 Version `2.4.0` added optional `RepoMetricStatsDTO.activity_score`, a weighted
 decimal activity signal used for Repo Analytics sorting and rounded UI display.
+
+Version `2.5.0` added `RepoMetricDataQualityDTO.last_activity_at`, the most recent
+observed activity instant per repo (counterpart to the earliest `observed_since`),
+rendered as "last active" in Repo Analytics.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, and any UI consumer logic

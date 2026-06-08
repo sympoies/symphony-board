@@ -220,7 +220,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v2. Current emitted version: `2.4.0`.
+Current major: v2. Current emitted version: `2.5.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -277,6 +277,12 @@ It is a weighted, range-scoped activity signal over commits, opened issues,
 opened and merged change requests, comments, reviews, and approvals. It
 deliberately excludes `items_active` because active items are inventory, not
 in-window activity.
+
+Version `2.5.0` added `data_quality.last_activity_at`, the most recent observed
+activity instant per repo (the counterpart to the earliest `observed_since`).
+Unlike the range-scoped `activity_score`, it is computed over every activity row
+the repo carries, so it answers "when was this repo last touched" regardless of
+the selected window. The Repo Analytics row renders it as "last active".
 
 Contract rules:
 

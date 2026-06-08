@@ -621,6 +621,20 @@ function repoActivityObservedSince(activities: ActivityDTO[]): string | null {
   return earliest;
 }
 
+// The most recent activity instant observed for the repo, or null when no row
+// carries a parseable timestamp. Mirror of repoActivityObservedSince (max, not
+// min) — the "last active" surface the Repo Analytics row renders instead of the
+// less useful earliest-observed instant.
+function repoActivityObservedUntil(activities: ActivityDTO[]): string | null {
+  let latest: string | null = null;
+  for (const activity of activities) {
+    const ms = timestampMs(activity.occurred_at);
+    if (ms === null) continue;
+    if (latest === null || ms > Date.parse(latest)) latest = activity.occurred_at;
+  }
+  return latest;
+}
+
 function computeRepoMetricStats(
   items: ItemDTO[],
   edges: EdgeDTO[],
@@ -759,6 +773,7 @@ function buildRepoMetrics(
         stats: computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, bucket),
       }));
       const observedSince = repoActivityObservedSince(activitiesForRepo);
+      const lastActivityAt = repoActivityObservedUntil(activitiesForRepo);
       const notes: string[] = [];
       if (observedSince === null) {
         notes.push("No activity rows observed for this repo; commit, push, comment, and review metrics may be incomplete.");
@@ -775,6 +790,7 @@ function buildRepoMetrics(
           activity_available: observedSince !== null,
           truncated: false,
           observed_since: observedSince,
+          last_activity_at: lastActivityAt,
           notes,
         },
       };
