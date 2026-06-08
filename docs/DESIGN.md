@@ -226,7 +226,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v2. Current emitted version: `2.5.0`.
+Current major: v3. Current emitted version: `3.0.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -290,6 +290,14 @@ Unlike the range-scoped `activity_score`, it is computed over every activity row
 the repo carries, so it answers "when was this repo last touched" regardless of
 the selected window. The Repo Analytics row renders it as "last active".
 
+Version `3.0.0` removed the always-`false` `data_quality.truncated` field (repo
+metrics derive from the full canonical store, so a metric row is never
+truncated; the real signal is the top-level `item_window.truncated`). The UI now
+derives the Repo Analytics coverage badge from the surviving
+`activity_available` / `observed_since` / `last_activity_at` fields against the
+metric window — see `repoCoverage` in `packages/ui/src/model.ts`. Removing a
+field is breaking, hence the major bump.
+
 Contract rules:
 
 - patch: clarification only
@@ -341,8 +349,9 @@ Pages:
 - **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
   the shared date range and source/state/kind/search controls, ranks repos by
   contract `activity_score`, renders compact trend bars from contract series
-  buckets, and shows data-quality badges so missing activity rows do not look
-  like true zero activity.
+  buckets, and shows a coverage badge (`active` / `partial` / `idle` /
+  `no activity`) so a window with missing or merely dormant activity does not
+  look like healthy in-range activity.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
   overrides in `localStorage`. These preferences are a pre-filter before Board,

@@ -461,10 +461,9 @@
     "repoMetricDataQuality": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["activity_available", "truncated", "observed_since", "last_activity_at", "notes"],
+      "required": ["activity_available", "observed_since", "last_activity_at", "notes"],
       "properties": {
         "activity_available": { "type": "boolean" },
-        "truncated": { "type": "boolean" },
         "observed_since": { "type": ["string", "null"], "format": "date-time" },
         "last_activity_at": { "type": ["string", "null"], "format": "date-time" },
         "notes": { "type": "array", "items": { "type": "string" } }

@@ -27,7 +27,7 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v2, currently `2.5.0`, and validates the JSON
+- `emit` produces contract major v3, currently `3.0.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
   Activity feed, a GitHub-like Commits log, a Repo Analytics table/trend view,
@@ -230,7 +230,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v2, currently `2.5.0`.
+The current emitted contract is major v3, currently `3.0.0`.
 
 Version `1.1.0` added display colors:
 
@@ -288,6 +288,13 @@ raw decimal value.
 Version `2.5.0` adds `repo_metrics[].data_quality.last_activity_at`, the most
 recent observed activity instant per repo (the counterpart to the earliest
 `observed_since`). The Repo Analytics page renders it as "last active".
+
+Version `3.0.0` removes the always-`false` `repo_metrics[].data_quality.truncated`
+(repo metrics derive from the full canonical store, so a row is never truncated;
+the real signal is the top-level `item_window.truncated`). The Repo Analytics
+"Quality" badge now derives a coverage verdict — `active` / `partial` / `idle` /
+`no activity` — from the surviving `activity_available` / `observed_since` /
+`last_activity_at` fields against the metric window.
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.

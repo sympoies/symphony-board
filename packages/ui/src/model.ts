@@ -812,6 +812,33 @@ export function sortRepoMetrics(metrics: readonly RepoMetricDTO[]): RepoMetricDT
   );
 }
 
+// How completely a repo metric row's window is backed by observed activity. The
+// Repo Analytics "Quality" badge renders this so a window with no in-range
+// activity is not painted as healthy "activity":
+//   no_activity — no activity rows observed at all; commit/push/comment/review
+//                 metrics are unreliable (only item lifecycle is trustworthy).
+//   stale       — activity coverage exists but the latest observed activity
+//                 predates the window, so the in-window zeros are real dormancy.
+//   partial     — the earliest observed activity falls inside the window, so
+//                 counts before it are missing data, not true zero.
+//   ok          — observed activity spans the window start.
+// observed_since / last_activity_at are the repo's all-time bounds (the producer
+// computes them across every activity row, not just the window), which is why
+// they can sit outside metric.window.
+export type RepoCoverage = "ok" | "partial" | "stale" | "no_activity";
+
+export function repoCoverage(metric: RepoMetricDTO): RepoCoverage {
+  const dq = metric.data_quality;
+  if (!dq.activity_available) return "no_activity";
+  const from = Date.parse(metric.window.from);
+  if (Number.isNaN(from)) return "ok";
+  const last = dq.last_activity_at ? Date.parse(dq.last_activity_at) : Number.NaN;
+  if (!Number.isNaN(last) && last < from) return "stale";
+  const since = dq.observed_since ? Date.parse(dq.observed_since) : Number.NaN;
+  if (!Number.isNaN(since) && since > from) return "partial";
+  return "ok";
+}
+
 // --- highlight color (Settings page + board/graph rendering) ------------
 //
 // A repo/source can carry a highlight color so it stands out. Resolution, most

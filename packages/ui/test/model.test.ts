@@ -52,6 +52,7 @@ import {
   deriveRepoOptions,
   applyVisibility,
   repoMetricMatches,
+  repoCoverage,
   sortRepoMetrics,
   sourceDisplayName,
   itemIsPrimaryWindow,
@@ -161,7 +162,7 @@ function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
         change_requests_merged: 0,
       },
     ],
-    data_quality: { activity_available: true, truncated: false, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [] },
+    data_quality: { activity_available: true, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [] },
     ...over,
   };
 }
@@ -779,6 +780,23 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "alice workflow" }), true);
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "missing" }), false);
   assert.deepEqual(sortRepoMetrics([quiet, active]).map((metric) => metric.project_path), ["g/quiet", "o/active"]);
+});
+
+test("repoCoverage classifies a window against the repo's all-time activity bounds", () => {
+  // window is 2026-06-01 .. 2026-06-07 in the default fixture.
+  const win = (over: Partial<RepoMetricDTO["data_quality"]>) =>
+    repoCoverage(repoMetric({ data_quality: { activity_available: true, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [], ...over } }));
+
+  // observed since the window start, still active past it -> fully covered.
+  assert.equal(win({}), "ok");
+  // earliest-observed instant sits AFTER the window start -> early counts are missing.
+  assert.equal(win({ observed_since: "2026-06-04T00:00:00.000Z" }), "partial");
+  // last activity predates the window -> the in-window zeros are real dormancy.
+  assert.equal(win({ observed_since: "2026-05-01T00:00:00.000Z", last_activity_at: "2026-05-20T00:00:00.000Z" }), "stale");
+  // no activity rows at all -> commit/review metrics are unreliable.
+  assert.equal(win({ activity_available: false, observed_since: null, last_activity_at: null }), "no_activity");
+  // stale wins over partial when both timestamps fall before the window start.
+  assert.equal(win({ observed_since: "2026-05-01T00:00:00.000Z", last_activity_at: "2026-05-31T23:59:59.000Z" }), "stale");
 });
 
 test("applyVisibility hides a whole source independently of the repo set", () => {
