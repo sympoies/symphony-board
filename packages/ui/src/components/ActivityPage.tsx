@@ -6,6 +6,7 @@ import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
+  activityDisplay,
   activityVirtualRange,
   relativeTime,
   type ColorOf,
@@ -24,10 +25,6 @@ const ACTION_KIND: Record<string, string> = {
   commented: "status-partial",
   reopened: "open",
 };
-
-function activityTitle(a: ActivityDTO): string {
-  return a.summary ?? a.title ?? `${a.action} ${a.kind}`;
-}
 
 const ACTIVITY_ROW_STRIDE_PX = ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX;
 
@@ -119,7 +116,7 @@ export function ActivityPage({
             {visibleActivities.map((a, offset) => {
               const index = virtual.start + offset;
               const accentColor = colorOf(a.source_id, a.project_path);
-              const title = activityTitle(a);
+              const display = activityDisplay(a);
               return (
                 <article
                   key={a.id}
@@ -139,19 +136,25 @@ export function ActivityPage({
                       <Badge text={a.action} kind={ACTION_KIND[a.action] ?? "status-unknown"} />
                       {a.url ? (
                         <a className="activity-title" href={a.url} target="_blank" rel="noopener noreferrer">
-                          {title}
+                          {display.title}
                         </a>
                       ) : (
-                        <span className="activity-title">{title}</span>
+                        <span className="activity-title">{display.title}</span>
                       )}
                     </div>
                     <div className="activity-meta">
                       <SourceIcon kind={sourceKind.get(a.source_id)} />
-                      {a.project_path ? <span>{a.project_path}</span> : null}
-                      <span>{a.kind}</span>
-                      {a.target_iid != null ? <span>#{a.target_iid}</span> : null}
-                      {a.actor ? <span>@{a.actor}</span> : null}
+                      {display.meta.map((part) => (
+                        <span key={part}>{part}</span>
+                      ))}
                     </div>
+                    {display.chips.length > 0 ? (
+                      <div className="activity-chips">
+                        {display.chips.map((part) => (
+                          <span key={part}>{part}</span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <time className="activity-time" title={a.occurred_at}>
                     {relativeTime(a.occurred_at)}

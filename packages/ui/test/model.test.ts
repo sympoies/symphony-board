@@ -13,6 +13,7 @@ import {
   routeTimeRange,
   emptyFilters,
   activityMatches,
+  activityDisplay,
   activityVirtualRange,
   filterActivitiesByRange,
   itemInTimeRange,
@@ -128,6 +129,57 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
   assert.equal(activityMatches(a13, f("#13")), true);
   assert.equal(activityMatches(a130, f("#13")), false, "#13 must not match #130");
   assert.equal(activityMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
+});
+
+test("activityDisplay promotes work-item titles instead of showing only #iid", () => {
+  const display = activity({
+    kind: "change_request",
+    action: "merged",
+    target_kind: "change_request",
+    target_iid: 297,
+    title: "docs(heuristic): record session closeout findings",
+    summary: "Merged change request #297",
+  });
+
+  assert.equal(
+    activityDisplay(display).title,
+    "change request #297 · docs(heuristic): record session closeout findings",
+  );
+});
+
+test("activityDisplay exposes commit and ref details without fake #iid labels", () => {
+  const commit = activity({
+    kind: "commit",
+    action: "committed",
+    target_kind: "commit",
+    target_iid: null,
+    title: "chore(deploy): update test full-flow agent id",
+    summary: "Committed 4eae5cc5 in gim/manifest/livekit-agents-deploy",
+    details: {
+      sha: "4eae5cc5e61eee22e269035e5c5055d47c34dd98",
+      message: "chore(deploy): update test full-flow agent id",
+    },
+  });
+  assert.equal(activityDisplay(commit).title, "commit 4eae5cc5 · chore(deploy): update test full-flow agent id");
+  assert.deepEqual(activityDisplay(commit).chips, ["sha 4eae5cc5"]);
+
+  const deletedPush = activity({
+    kind: "push",
+    action: "deleted",
+    target_kind: "push",
+    target_iid: 1936,
+    title: "livekit-agents-deploy",
+    summary: "deleted push livekit-agents-deploy in gim/manifest/livekit-agents-deploy",
+    details: {
+      ref: "chore/deploy-test-full-flow-agent-9001",
+      commit_from: "4eae5cc5e61eee22e269035e5c5055d47c34dd98",
+      commit_to: null,
+    },
+  });
+  const pushDisplay = activityDisplay(deletedPush);
+  assert.equal(pushDisplay.title, "branch chore/deploy-test-full-flow-agent-9001");
+  assert.equal([...pushDisplay.meta, ...pushDisplay.chips].some((part) => part.includes("#1936")), false);
+  assert.deepEqual(pushDisplay.chips, ["ref chore/deploy-test-full-flow-agent-9001", "from 4eae5cc5"]);
 });
 
 test("date ranges are route-backed and filter inclusive timestamp bounds", () => {

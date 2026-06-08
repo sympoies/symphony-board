@@ -446,6 +446,9 @@ try {
     [/1200 in range/.test(activityCountText), `activity: large smoke feed count rendered (${activityCountText})`],
     [activityRows < 80, `activity: virtualized rows stay bounded (${activityRows} < 80)`],
     [has(activityHtml, "committed") && has(activityHtml, "merged") && has(activityHtml, "closed"), "activity: action badges rendered"],
+    [has(activityHtml, "commit abc1234") && has(activityHtml, "Ship activity feed"), "activity: commit headline shows short sha and title"],
+    [has(activityHtml, "change request #13") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
+    [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],

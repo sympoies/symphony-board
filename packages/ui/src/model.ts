@@ -280,7 +280,7 @@ export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRa
   return activities.filter((a) => activityInTimeRange(a, range));
 }
 
-export const ACTIVITY_ROW_HEIGHT_PX = 76;
+export const ACTIVITY_ROW_HEIGHT_PX = 96;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
@@ -324,6 +324,109 @@ export function activityVirtualRange({
   const start = Math.max(0, firstVisible - safeOverscan);
   const end = Math.min(safeCount, firstVisible + viewportRows + safeOverscan);
   return { start, end, visibleCount: end - start, totalHeightPx };
+}
+
+export interface ActivityDisplay {
+  title: string;
+  meta: string[];
+  chips: string[];
+}
+
+const WORK_ITEM_ACTIVITY_KINDS = new Set(["issue", "change_request"]);
+
+function cleanText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function detailText(details: ActivityDTO["details"], key: string): string | null {
+  if (!details || typeof details !== "object") return null;
+  return cleanText(details[key]);
+}
+
+function shortSha(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 8 ? trimmed.slice(0, 8) : trimmed;
+}
+
+function shortRef(value: string | null): string | null {
+  const ref = cleanText(value);
+  return ref?.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") ?? null;
+}
+
+function displayKind(kind: string | null | undefined): string | null {
+  const k = cleanText(kind);
+  if (!k) return null;
+  if (k === "change_request") return "change request";
+  return k.replace(/_/g, " ");
+}
+
+function isWorkItemKind(kind: string | null | undefined): boolean {
+  return !!kind && WORK_ITEM_ACTIVITY_KINDS.has(kind);
+}
+
+function workItemTargetLabel(activity: ActivityDTO): string | null {
+  const kind = isWorkItemKind(activity.target_kind)
+    ? activity.target_kind
+    : isWorkItemKind(activity.kind)
+      ? activity.kind
+      : null;
+  const label = displayKind(kind);
+  if (!label) return null;
+  return activity.target_iid != null ? `${label} #${activity.target_iid}` : label;
+}
+
+function activityRefKind(activity: ActivityDTO, ref: string | null): string {
+  if (activity.target_kind === "tag" || activity.kind === "tag" || ref?.startsWith("refs/tags/")) return "tag";
+  if (activity.target_kind === "branch" || activity.kind === "branch" || activity.kind === "push" || ref) return "branch";
+  return displayKind(activity.kind) ?? "ref";
+}
+
+function joinDistinct(parts: Array<string | null>): string {
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part && !out.includes(part)) out.push(part);
+  }
+  return out.join(" · ");
+}
+
+export function activityDisplay(activity: ActivityDTO): ActivityDisplay {
+  const title = cleanText(activity.title);
+  const summary = cleanText(activity.summary);
+  const meta = [
+    cleanText(activity.project_path),
+    displayKind(activity.kind),
+    activity.actor ? `@${activity.actor}` : null,
+  ].filter((part): part is string => part !== null);
+
+  const chips: string[] = [];
+  const sha = shortSha(detailText(activity.details, "sha"));
+  if (sha) chips.push(`sha ${sha}`);
+
+  const rawRef = detailText(activity.details, "ref");
+  const ref = shortRef(rawRef);
+  if (ref) chips.push(`ref ${ref}`);
+
+  const from = shortSha(detailText(activity.details, "commit_from") ?? detailText(activity.details, "before"));
+  const to = shortSha(detailText(activity.details, "commit_to") ?? detailText(activity.details, "after"));
+  if (from) chips.push(`from ${from}`);
+  if (to) chips.push(`to ${to}`);
+
+  const target = workItemTargetLabel(activity);
+  if (target) return { title: joinDistinct([target, title ?? summary]), meta, chips };
+
+  if (activity.kind === "commit" || activity.target_kind === "commit") {
+    const commitLabel = sha ? `commit ${sha}` : "commit";
+    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message") ?? summary]), meta, chips };
+  }
+
+  if (activity.kind === "push" || activity.kind === "branch" || activity.kind === "tag" || ref) {
+    const kind = activityRefKind(activity, rawRef);
+    return { title: ref ? `${kind} ${ref}` : (summary ?? title ?? `${activity.action} ${activity.kind}`), meta, chips };
+  }
+
+  const kind = displayKind(activity.kind);
+  return { title: joinDistinct([kind, title ?? summary]) || `${activity.action} ${activity.kind}`, meta, chips };
 }
 
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
