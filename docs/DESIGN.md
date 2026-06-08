@@ -44,7 +44,7 @@ These are deliberately separate:
 | Layer | Purpose | Location | Versioning |
 | --- | --- | --- | --- |
 | Raw store | Latest opaque provider payload per entity | `raw` table | tagged by `api_version` and `fetched_at` |
-| Canonical DB | Provider-agnostic items, labels, edges, sync state | `schema/*.sql`, `src/db/*` | SQLite migrations and `PRAGMA user_version` |
+| Canonical DB | Provider-agnostic items, labels, edges, activity, sync state | `schema/*.sql`, `src/db/*` | SQLite migrations and `PRAGMA user_version` |
 | Contract | Consumer-facing serialized projection | `packages/contract`, `src/contract/*` | semver `contract_version` |
 
 `normalize` maps raw provider records into canonical items and edges. It must be
@@ -105,6 +105,25 @@ Additional edge types are open vocabulary. Today the sources also populate:
 
 Non-`closes` edges have `lifecycle: null`.
 
+## Activity Records
+
+Activity records are timestamped events, not current state. They are stored in a
+dedicated `activity` table and emitted as optional top-level `activities[]` in
+the contract. This keeps the item/edge model focused on current workflow state
+while still exposing developer-significant actions for a feed UI.
+
+Current sources populate activity from two places:
+
+- canonical item timestamps: opened, closed, and merged transitions
+- provider REST activity surfaces: commits plus repository/project events such
+  as pushes, branch/tag creation, and branch/tag deletion
+
+Provider activity APIs are not identical. `kind`, `action`, and `details` are
+open vocabulary; the stable contract is the row shape, not a closed event enum.
+`target_ref` is set only when the producer has a provider immutable id for a
+tracked item. Human fields such as `project_path`, `target_iid`, and `title`
+are display metadata.
+
 ## Disappearance Handling
 
 Persistent stores need a strict rule for disappeared entities. "Not fetched this
@@ -140,6 +159,7 @@ payload remains in the raw store.
 | review | `reviewDecision` | approval fields | nullable `review_state` |
 | CI | `statusCheckRollup` | `headPipeline.status` | nullable `ci_state` |
 | mergeability | `mergeable` | `detailedMergeStatus` | nullable `merge_state` |
+| activity | commits + repository activity REST | commits + project events REST | `activities[]` |
 
 GitLab caveat: `Issue.relatedMergeRequests` is a superset of strict closing MRs.
 It is still modeled as `closes` because it provides the useful workflow signal
@@ -156,7 +176,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v1. Current emitted version: `1.1.0`.
+Current major: v1. Current emitted version: `1.2.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -166,6 +186,8 @@ Version `1.1.0` added display metadata:
 These fields are display-only. They are read from config at emit time and never
 stored in SQLite. The producer validates colors as `#rgb` or `#rrggbb`; the UI
 also validates before using colors in CSS sinks.
+
+Version `1.2.0` added optional top-level `activities[]`.
 
 Contract rules:
 
@@ -198,9 +220,12 @@ Pages:
   summary stats are scoped to the rendered overview graph after the edge window,
   mention controls, search, and facets. Focus view uses a separate `focus`
   summary for the focused subgraph instead of reusing overview totals.
+- **Activity**: newest-first feed of commit, repository/project event, and
+  item-transition records. It shares search/source/kind filters with the other
+  data views and respects Settings visibility.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources and set per-repo color overrides in `localStorage`. These preferences
-  are a pre-filter before Board and Graph compute their scoped summaries. They
+  are a pre-filter before Board, Graph, and Activity compute their views. They
   are view-only; the daemon keeps syncing every configured source.
 
 The UI supports contract major v1. It warns when a different major is loaded.

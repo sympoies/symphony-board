@@ -2,8 +2,8 @@
 // `vite build` covers the type/bundle layer — but neither RENDERS the React
 // tree, so a render-only crash (e.g. a reserved `ref` prop) slips through. This
 // script actually renders the built app in headless Chrome against the bundled
-// sample contract and asserts the board drew (item cards + all three edge
-// lifecycle buckets) with ZERO console errors / uncaught exceptions.
+// sample contract and asserts the board, graph, activity feed, and settings page
+// draw with ZERO console errors / uncaught exceptions.
 //
 // Self-contained: it serves dist/ from an in-process HTTP server and drives
 // Chrome over the DevTools Protocol using Node's built-in WebSocket/fetch — no
@@ -185,7 +185,12 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
   await sleep(300);
   const backHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
-  // Page 3 — the Settings display filter: a per-repo checkbox list with bulk
+  // Page 3 — the Activity feed: developer-significant events from item state
+  // transitions plus provider REST activity surfaces.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(300);
+  const activityHtml = await waitHtml("document.querySelector('.activity-row')");
+  // Page 4 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
@@ -260,6 +265,7 @@ try {
   const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
+  const activityRows = m(activityHtml, /class="activity-row/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
@@ -306,6 +312,11 @@ try {
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
+    // page 3: activity feed renders activity rows and shared filtering surfaces
+    [has(activityHtml, "activity-page"), "activity: page rendered"],
+    [activityRows >= 4, `activity: rows rendered (${activityRows} >= 4)`],
+    [has(activityHtml, "committed") && has(activityHtml, "merged") && has(activityHtml, "closed"), "activity: action badges rendered"],
+    [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
@@ -320,7 +331,7 @@ try {
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
     [clearedDeepLink.search === "" && clearedDeepLink.since !== "" && clearedDeepLink.active === "3mo", `deep link: clearing search immediately restores the 3mo window (${clearedDeepLink.since || "empty"})`],
-    // page 3: the settings repo filter renders its checkboxes + count
+    // page 4: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
     [/repos shown/.test(settingsHtml), "settings: repo count shown"],

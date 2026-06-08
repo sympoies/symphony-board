@@ -21,15 +21,16 @@ store, not the consumer API.
 
 The basic product path is implemented:
 
-- GitHub and GitLab GraphQL sources fetch issues and change requests.
-- Raw provider payloads, canonical rows, labels, sync state, and relationship
-  edges are stored in SQLite.
+- GitHub and GitLab GraphQL sources fetch issues and change requests; REST
+  activity surfaces add commit and repository/project event records.
+- Raw provider payloads, canonical rows, labels, sync state, relationship
+  edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v1, currently `1.1.0`, and validates the JSON
+- `emit` produces contract major v1, currently `1.2.0`, and validates the JSON
   envelope before writing.
-- The UI renders the contract as a 7-column Board, a relationship Graph, and a
-  persistent Settings display filter.
+- The UI renders the contract as a 7-column Board, a relationship Graph, an
+  Activity feed, and a persistent Settings display filter.
 - Docker Compose runs the sync/emit loop as the sole writer and serves the UI as
   a read-only sidecar over the latest emitted contract.
 - CI runs backend checks, UI build/tests/render-smoke, and a combined
@@ -46,7 +47,7 @@ providers --fetch--> [1] raw store
                        | normalize (pure)
                        v
                     [2] canonical DB
-                       item / edge / label / sync_* in SQLite
+                       item / edge / activity / label / sync_* in SQLite
                        |
                        | buildContract (pure)
                        v
@@ -71,6 +72,10 @@ derived lifecycle:
 
 The graph also supports non-lifecycle edges such as `mentions` and `relates`
 where a provider exposes enough information.
+
+Activity rows are separate from items and edges. Items are current state;
+activity records are timestamped developer-significant events such as commit
+pushes, branch/tag events, and issue or PR/MR open/close/merge transitions.
 
 ## Workspace
 
@@ -192,8 +197,9 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v1, currently `1.1.0`. Version `1.1.0`
-added display colors:
+The current emitted contract is major v1, currently `1.2.0`.
+
+Version `1.1.0` added display colors:
 
 - optional `sources[].color`
 - optional sparse top-level `repos[]`
@@ -205,6 +211,10 @@ color as:
 ```text
 localStorage repo override -> configured repo color -> configured source color -> none
 ```
+
+Version `1.2.0` added optional top-level `activities[]`, a newest-first feed of
+developer-significant records. Existing v1 consumers can keep reading
+`env.activities ?? []` and ignore it when unsupported.
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.

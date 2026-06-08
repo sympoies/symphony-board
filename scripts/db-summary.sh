@@ -41,7 +41,7 @@ q "SELECT COUNT(*) AS tombstoned FROM item WHERE deleted_at IS NOT NULL;"
 
 echo
 echo "# latest sync run per source"
-q "SELECT source_id, mode, status, started_at, items_seen, edges_seen
+q "SELECT source_id, mode, status, started_at, items_seen, edges_seen, activities_seen
      FROM sync_run
      WHERE run_id IN (SELECT MAX(run_id) FROM sync_run GROUP BY source_id)
      ORDER BY source_id;"

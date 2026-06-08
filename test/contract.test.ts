@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
-import type { ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
 
 function itemRow(over: Partial<ItemRow>): ItemRow {
   return {
@@ -28,6 +28,29 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
     merge_state: null,
     milestone: null,
     demand: 3,
+    last_seen_at: "2026-06-01T00:00:00Z",
+    ...over,
+  };
+}
+
+function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
+  return {
+    source_id: "github:github.com",
+    external_id: "activity-1",
+    kind: "issue",
+    action: "opened",
+    project_path: "graysurf/repo",
+    target_kind: "issue",
+    target_source_id: "github:github.com",
+    target_external_id: "ISSUE_abc",
+    target_iid: 7,
+    title: "An issue",
+    url: "https://github.com/graysurf/repo/issues/7",
+    actor: "graysurf",
+    occurred_at: "2026-01-01T00:00:00Z",
+    summary: "Opened issue #7",
+    details: "{\"source\":\"test\"}",
+    first_seen_at: "2026-06-01T00:00:00Z",
     last_seen_at: "2026-06-01T00:00:00Z",
     ...over,
   };
@@ -92,4 +115,19 @@ test("buildContract defaults to no colors when none are supplied", () => {
   const env = buildContract({ sources, items: [], labels: [], edges: [], generatedAt: "2026-06-02T00:00:00Z" });
   assert.equal(env.sources[0]!.color, null);
   assert.deepEqual(env.repos, []);
+});
+
+test("buildContract emits activity records with refs and parsed details", () => {
+  const env = buildContract({
+    sources: [],
+    items: [],
+    labels: [],
+    edges: [],
+    activities: [activityRow()],
+    generatedAt: "2026-06-02T00:00:00Z",
+  });
+  assert.equal(env.activities?.length, 1);
+  assert.equal(env.activities![0]!.id, "github:github.com|activity-1");
+  assert.equal(env.activities![0]!.target_ref, "github:github.com|ISSUE_abc");
+  assert.deepEqual(env.activities![0]!.details, { source: "test" });
 });

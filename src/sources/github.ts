@@ -9,17 +9,21 @@ import type {
   NormalizedBundle,
   CanonicalItem,
   CanonicalEdge,
+  CanonicalActivity,
   ItemState,
   ReviewState,
   CiState,
   MergeState,
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
+import { itemActivities, stableActivityId } from "../model/activity.ts";
 import type { GqlClient } from "./graphql.ts";
+import type { RestClient } from "./rest.ts";
 
 const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40; // safety cap (~2000 items/connection)
+const MAX_REST_PAGES = 10; // safety cap for paginated REST activity surfaces
 
 function mapState(s: string | null | undefined): ItemState {
   if (s === "OPEN") return "open";
@@ -73,11 +77,13 @@ export class GitHubSource implements Source {
   readonly normalizerVersion = "github/1";
   private gql: GqlClient;
   private projects: string[];
+  private rest: RestClient | null;
 
-  constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[]) {
+  constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[], rest: RestClient | null = null) {
     this.descriptor = descriptor;
     this.gql = gql;
     this.projects = projects;
+    this.rest = rest;
   }
 
   async fetch(opts: FetchOptions): Promise<FetchResult> {
@@ -123,10 +129,24 @@ export class GitHubSource implements Source {
         }
       }
     }
+    if (this.rest) {
+      for (const project of this.projects) {
+        try {
+          const activity = await this.fetchRepoActivity(project, since, now);
+          records.push(...activity.records);
+          if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
+        } catch (err) {
+          complete = false;
+          firstError ??= `${project} activity: ${(err as Error).message}`;
+        }
+      }
+    }
     return { records, watermark: latest, complete, error: firstError };
   }
 
   normalize(raw: RawRecord): NormalizedBundle | null {
+    if (raw.entityKind === "activity") return this.normalizeActivity(raw);
+
     const p = raw.payload as any;
     const sourceId = this.descriptor.sourceId;
     const self = { sourceId, externalId: raw.externalId };
@@ -153,7 +173,7 @@ export class GitHubSource implements Source {
         ciState: null,
         mergeState: null,
       };
-      return { item, labels: this.labels(p), edges };
+      return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
     }
 
     // change_request (pull request)
@@ -181,7 +201,125 @@ export class GitHubSource implements Source {
       // `merged` lifecycle state. Drop it for non-open items.
       mergeState: selfState === "open" ? mapMerge(p.mergeable) : null,
     };
-    return { item, labels: this.labels(p), edges };
+    return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
+  }
+
+  private async fetchRepoActivity(project: string, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
+    if (!this.rest) return { records: [], latest: null };
+    const [owner, name] = project.split("/");
+    const records: RawRecord[] = [];
+    let latest: string | null = null;
+
+    for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      const commits = await this.rest<any[]>(`repos/${owner}/${name}/commits`, {
+        per_page: 100,
+        page,
+        ...(since ? { since } : {}),
+      });
+      for (const commit of commits ?? []) {
+        const occurred = commit?.commit?.committer?.date ?? commit?.commit?.author?.date ?? null;
+        if (!occurred) continue;
+        if (!latest || occurred > latest) latest = occurred;
+        const payload = { __activityKind: "github_commit", project, commit };
+        const payloadJson = JSON.stringify(payload);
+        records.push({
+          entityKind: "activity",
+          externalId: stableActivityId(["commit", project, commit.sha]),
+          apiVersion: `${API_VERSION}.rest`,
+          fetchedAt: now,
+          payload,
+          contentHash: hash(payloadJson),
+        });
+      }
+      if ((commits ?? []).length < 100) break;
+    }
+
+    for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      const repoActivity = await this.rest<any[]>(`repos/${owner}/${name}/activity`, {
+        per_page: 100,
+        page,
+        time_period: since ? "month" : "quarter",
+      });
+      for (const event of repoActivity ?? []) {
+        const occurred = event?.pushed_at ?? null;
+        if (!occurred) continue;
+        if (!latest || occurred > latest) latest = occurred;
+        const payload = { __activityKind: "github_repo_activity", project, event };
+        const payloadJson = JSON.stringify(payload);
+        records.push({
+          entityKind: "activity",
+          externalId: stableActivityId(["repo-activity", project, event.push_type, event.ref, event.before, event.after, occurred]),
+          apiVersion: `${API_VERSION}.rest`,
+          fetchedAt: now,
+          payload,
+          contentHash: hash(payloadJson),
+        });
+      }
+      if ((repoActivity ?? []).length < 100) break;
+    }
+    return { records, latest };
+  }
+
+  private normalizeActivity(raw: RawRecord): NormalizedBundle | null {
+    const p = raw.payload as any;
+    const kind = p?.__activityKind;
+    if (kind === "github_commit") {
+      const commit = p.commit ?? {};
+      const sha = String(commit.sha ?? "");
+      const occurredAt = commit.commit?.committer?.date ?? commit.commit?.author?.date;
+      if (!sha || !occurredAt) return null;
+      const title = firstLine(commit.commit?.message);
+      const actor = commit.author?.login ?? commit.commit?.author?.name ?? commit.commit?.committer?.name ?? null;
+      const activity: CanonicalActivity = {
+        sourceId: this.descriptor.sourceId,
+        externalId: raw.externalId,
+        kind: "commit",
+        action: "committed",
+        projectPath: p.project ?? commit.repository?.full_name ?? null,
+        targetKind: "commit",
+        target: null,
+        targetIid: null,
+        title,
+        url: commit.html_url ?? null,
+        actor,
+        occurredAt,
+        summary: `Committed ${sha.slice(0, 7)}${p.project ? ` in ${p.project}` : ""}`,
+        details: { sha, message: title },
+      };
+      return { item: null, labels: [], edges: [], activities: [activity] };
+    }
+    if (kind === "github_repo_activity") {
+      const event = p.event ?? {};
+      const occurredAt = event.pushed_at;
+      if (!occurredAt) return null;
+      const ref = String(event.ref ?? "");
+      const pushType = String(event.push_type ?? "push");
+      const targetKind = ref.startsWith("refs/tags/") ? "tag" : ref.startsWith("refs/heads/") ? "branch" : "ref";
+      const action = mapRepoActivityAction(pushType);
+      const activity: CanonicalActivity = {
+        sourceId: this.descriptor.sourceId,
+        externalId: raw.externalId,
+        kind: targetKind === "ref" ? "repository" : targetKind,
+        action,
+        projectPath: p.project ?? null,
+        targetKind,
+        target: null,
+        targetIid: null,
+        title: shortRef(ref) ?? ref,
+        url: null,
+        actor: event.pusher?.login ?? null,
+        occurredAt,
+        summary: repoActivitySummary(action, ref, p.project ?? null),
+        details: {
+          ref,
+          before: event.before ?? null,
+          after: event.after ?? null,
+          push_type: pushType,
+        },
+      };
+      return { item: null, labels: [], edges: [], activities: [activity] };
+    }
+    return null;
   }
 
   // Incoming cross-references → `mentions` edges (source mentioned this item).
@@ -227,6 +365,34 @@ export class GitHubSource implements Source {
   private labels(p: any) {
     return (p.labels?.nodes ?? []).map((l: any) => toLabel(l.name, l.color ?? null));
   }
+}
+
+function firstLine(s: unknown): string | null {
+  if (typeof s !== "string") return null;
+  return s.split(/\r?\n/, 1)[0]?.trim() || null;
+}
+
+function shortRef(ref: string): string | null {
+  return ref.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") || null;
+}
+
+function mapRepoActivityAction(pushType: string): string {
+  if (pushType === "force_push") return "force_pushed";
+  if (pushType === "branch_creation") return "created";
+  if (pushType === "branch_deletion") return "deleted";
+  if (pushType === "pr_merge") return "merged";
+  if (pushType === "merge_queue_merge") return "merged";
+  return "pushed";
+}
+
+function repoActivitySummary(action: string, ref: string, project: string | null): string {
+  const target = shortRef(ref) ?? ref;
+  const suffix = project ? ` in ${project}` : "";
+  if (action === "created") return `Created ${target}${suffix}`;
+  if (action === "deleted") return `Deleted ${target}${suffix}`;
+  if (action === "force_pushed") return `Force-pushed ${target}${suffix}`;
+  if (action === "merged") return `Merged into ${target}${suffix}`;
+  return `Pushed ${target}${suffix}`;
 }
 
 function mapReview(d: string | null | undefined): ReviewState | null {

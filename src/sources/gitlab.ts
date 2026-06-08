@@ -35,17 +35,21 @@ import type {
   NormalizedBundle,
   CanonicalItem,
   CanonicalEdge,
+  CanonicalActivity,
   ItemState,
   ReviewState,
   CiState,
   MergeState,
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
+import { itemActivities, stableActivityId } from "../model/activity.ts";
 import type { GqlClient } from "./graphql.ts";
+import type { RestClient } from "./rest.ts";
 
 const API_VERSION = "gitlab.graphql";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40;
+const MAX_REST_PAGES = 10;
 const NOTES_PAGE = 50; // system notes per item (fetched per-item to stay under the complexity limit)
 
 function mapState(s: string | null | undefined): ItemState {
@@ -150,11 +154,13 @@ export class GitLabSource implements Source {
   readonly normalizerVersion = "gitlab/2";
   private gql: GqlClient;
   private projects: string[];
+  private rest: RestClient | null;
 
-  constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[]) {
+  constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[], rest: RestClient | null = null) {
     this.descriptor = descriptor;
     this.gql = gql;
     this.projects = projects;
+    this.rest = rest;
   }
 
   async fetch(opts: FetchOptions): Promise<FetchResult> {
@@ -246,6 +252,18 @@ export class GitLabSource implements Source {
       const payload = JSON.stringify(node);
       records.push({ entityKind: kind, externalId: node.id, apiVersion: API_VERSION, fetchedAt: now, payload: node, contentHash: hash(payload) });
     }
+    if (this.rest) {
+      for (const project of this.projects) {
+        try {
+          const activity = await this.fetchProjectActivity(project, since, now);
+          records.push(...activity.records);
+          if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
+        } catch (err) {
+          complete = false;
+          firstError ??= `${project} activity: ${(err as Error).message}`;
+        }
+      }
+    }
     return { records, watermark: latest, complete, error: firstError };
   }
 
@@ -276,6 +294,8 @@ export class GitLabSource implements Source {
   }
 
   normalize(raw: RawRecord): NormalizedBundle | null {
+    if (raw.entityKind === "activity") return this.normalizeActivity(raw);
+
     const p = raw.payload as any;
     const sourceId = this.descriptor.sourceId;
     const self = { sourceId, externalId: raw.externalId };
@@ -298,7 +318,7 @@ export class GitLabSource implements Source {
         // lifecycle state. Drop it for non-open items, matching GitHub.
         mergeState: selfState === "open" ? mapMerge(p.detailedMergeStatus) : null,
       };
-      return { item, labels: this.labels(p), edges };
+      return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
     }
 
     // issue: discover the `closes` edge from the issue's related MRs (GitLab
@@ -327,7 +347,126 @@ export class GitLabSource implements Source {
       ciState: null,
       mergeState: null,
     };
-    return { item, labels: this.labels(p), edges };
+    return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
+  }
+
+  private async fetchProjectActivity(project: string, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
+    if (!this.rest) return { records: [], latest: null };
+    const projectId = encodeURIComponent(project);
+    const records: RawRecord[] = [];
+    let latest: string | null = null;
+
+    for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      const commits = await this.rest<any[]>(`projects/${projectId}/repository/commits`, {
+        per_page: 100,
+        page,
+        ...(since ? { since } : {}),
+      });
+      for (const commit of commits ?? []) {
+        const occurred = commit.committed_date ?? commit.created_at ?? commit.authored_date ?? null;
+        if (!occurred) continue;
+        if (!latest || occurred > latest) latest = occurred;
+        const payload = { __activityKind: "gitlab_commit", project, commit };
+        const payloadJson = JSON.stringify(payload);
+        records.push({
+          entityKind: "activity",
+          externalId: stableActivityId(["commit", project, commit.id]),
+          apiVersion: `${API_VERSION}.rest`,
+          fetchedAt: now,
+          payload,
+          contentHash: hash(payloadJson),
+        });
+      }
+      if ((commits ?? []).length < 100) break;
+    }
+
+    for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      const events = await this.rest<any[]>(`projects/${projectId}/events`, {
+        per_page: 100,
+        page,
+        ...(since ? { after: since.slice(0, 10) } : {}),
+        sort: "desc",
+      });
+      for (const event of events ?? []) {
+        const occurred = event.created_at ?? null;
+        if (!occurred) continue;
+        if (!latest || occurred > latest) latest = occurred;
+        const payload = { __activityKind: "gitlab_project_event", project, event };
+        const payloadJson = JSON.stringify(payload);
+        records.push({
+          entityKind: "activity",
+          externalId: stableActivityId(["event", project, event.id]),
+          apiVersion: `${API_VERSION}.rest`,
+          fetchedAt: now,
+          payload,
+          contentHash: hash(payloadJson),
+        });
+      }
+      if ((events ?? []).length < 100) break;
+    }
+    return { records, latest };
+  }
+
+  private normalizeActivity(raw: RawRecord): NormalizedBundle | null {
+    const p = raw.payload as any;
+    const kind = p?.__activityKind;
+    if (kind === "gitlab_commit") {
+      const commit = p.commit ?? {};
+      const sha = String(commit.id ?? "");
+      const occurredAt = commit.committed_date ?? commit.created_at ?? commit.authored_date;
+      if (!sha || !occurredAt) return null;
+      const title = firstLine(commit.title ?? commit.message);
+      const activity: CanonicalActivity = {
+        sourceId: this.descriptor.sourceId,
+        externalId: raw.externalId,
+        kind: "commit",
+        action: "committed",
+        projectPath: p.project ?? null,
+        targetKind: "commit",
+        target: null,
+        targetIid: null,
+        title,
+        url: commit.web_url ?? null,
+        actor: commit.author_name ?? commit.committer_name ?? null,
+        occurredAt,
+        summary: `Committed ${sha.slice(0, 8)}${p.project ? ` in ${p.project}` : ""}`,
+        details: { sha, message: title },
+      };
+      return { item: null, labels: [], edges: [], activities: [activity] };
+    }
+    if (kind === "gitlab_project_event") {
+      const event = p.event ?? {};
+      const occurredAt = event.created_at;
+      if (!occurredAt) return null;
+      const data = event.push_data ?? event.data ?? null;
+      const targetKind = mapEventTargetKind(event.target_type, event.action_name, data);
+      const action = mapGitLabAction(event.action_name);
+      const title = event.target_title ?? data?.commit_title ?? data?.ref ?? null;
+      const activity: CanonicalActivity = {
+        sourceId: this.descriptor.sourceId,
+        externalId: raw.externalId,
+        kind: targetKind,
+        action,
+        projectPath: p.project ?? null,
+        targetKind,
+        target: null,
+        targetIid: typeof event.target_iid === "number" ? event.target_iid : null,
+        title,
+        url: null,
+        actor: event.author_username ?? event.author?.username ?? null,
+        occurredAt,
+        summary: gitLabEventSummary(action, targetKind, title, p.project ?? null),
+        details: {
+          action_name: event.action_name ?? null,
+          target_type: event.target_type ?? null,
+          ref: data?.ref ?? null,
+          commit_from: data?.commit_from ?? null,
+          commit_to: data?.commit_to ?? null,
+        },
+      };
+      return { item: null, labels: [], edges: [], activities: [activity] };
+    }
+    return null;
   }
 
   // Resolved cross-references → `mentions` edges (referencer -> self). Skips a
@@ -393,6 +532,40 @@ export class GitLabSource implements Source {
   private labels(p: any) {
     return (p.labels?.nodes ?? []).map((l: any) => toLabel(l.title, l.color ?? null));
   }
+}
+
+function firstLine(s: unknown): string | null {
+  if (typeof s !== "string") return null;
+  return s.split(/\r?\n/, 1)[0]?.trim() || null;
+}
+
+function mapGitLabAction(action: unknown): string {
+  const s = String(action ?? "").toLowerCase();
+  if (s === "commented on") return "commented";
+  if (s === "pushed to") return "pushed";
+  if (s === "pushed new") return "created";
+  if (s === "deleted") return "deleted";
+  if (s === "opened") return "opened";
+  if (s === "closed") return "closed";
+  if (s === "merged") return "merged";
+  if (s === "reopened") return "reopened";
+  return s.replace(/\s+/g, "_") || "updated";
+}
+
+function mapEventTargetKind(targetType: unknown, action: unknown, data: any): string {
+  if (targetType === "Issue") return "issue";
+  if (targetType === "MergeRequest") return "change_request";
+  if (targetType === "Note") return "comment";
+  if (data?.ref) return "push";
+  const s = String(action ?? "").toLowerCase();
+  if (s.includes("push")) return "push";
+  return "repository";
+}
+
+function gitLabEventSummary(action: string, kind: string, title: string | null, project: string | null): string {
+  const target = title ? ` ${title}` : "";
+  const suffix = project ? ` in ${project}` : "";
+  return `${action.replace(/_/g, " ")} ${kind}${target}${suffix}`.trim();
 }
 
 // approved + approvalsRequired -> a coarse review state. GitLab has no direct

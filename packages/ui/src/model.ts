@@ -1,7 +1,7 @@
 // Pure view-model helpers over the contract: filtering, edge resolution, and
 // small stats. No React here — easy to reason about and reuse.
 
-import type { ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 
 // Board status columns, after project-board-automation's Status model
@@ -105,14 +105,15 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 // --- hash route -----------------------------------------------------------
 //
 // The app routes purely on the URL hash (zero-dep): "#/" board, "#/graph"
-// relationship graph, "#/settings". A board card can deep-link INTO the graph
-// with a focus target — the item ref encoded as a query on the hash, e.g.
+// relationship graph, "#/activity" feed, "#/settings". A board card can
+// deep-link INTO the graph with a focus target — the item ref encoded as a
+// query on the hash, e.g.
 // "#/graph?focus=<encodeURIComponent(item.id)>". The Graph page seeds its focus
 // view (and frames the camera) from it. Parse + build are kept pure here so the
 // round-trip is unit-tested; refs contain '|' / ':' / '/' so they MUST be
 // percent-encoded to survive the query.
 export interface HashRoute {
-  page: string; // "" | "graph" | "settings" (the part before any '?')
+  page: string; // "" | "graph" | "activity" | "settings" (the part before any '?')
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   q: string | null; // a search token to seed the search bar (narrows the graph)
 }
@@ -238,6 +239,28 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   return true;
 }
 
+export function activityMatches(a: ActivityDTO, f: Filters): boolean {
+  if (f.sources.size && !f.sources.has(a.source_id)) return false;
+  if (f.kinds.size && !f.kinds.has(a.kind)) return false;
+  const q = f.search.trim().toLowerCase();
+  if (q) {
+    const details = a.details ? JSON.stringify(a.details) : "";
+    const hay = [a.title, a.summary, a.actor, a.project_path, a.target_kind, a.target_ref, details]
+      .filter((s): s is string => !!s)
+      .join(" ")
+      .toLowerCase();
+    for (const term of q.split(/\s+/)) {
+      const num = /^#(\d+)$/.exec(term);
+      if (num) {
+        if (a.target_iid == null || String(a.target_iid) !== num[1]) return false;
+      } else if (!hay.includes(term)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 export interface ResolvedEdge {
   edge: EdgeDTO;
   from: ItemDTO | null; // null = endpoint in an untracked project (cross-repo)
@@ -317,12 +340,15 @@ export function applyVisibility(
     hiddenSources.has(it.source_id) || hiddenRepos.has(repoKey(it.source_id, it.project_path));
   const byId = indexItems(env);
   const items = env.items.filter((it) => !isHidden(it));
+  const activities = (env.activities ?? []).filter(
+    (a) => !hiddenSources.has(a.source_id) && !hiddenRepos.has(repoKey(a.source_id, a.project_path)),
+  );
   const edges = env.edges.filter((e) => {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     return !(from && isHidden(from)) && !(to && isHidden(to));
   });
-  return { ...env, items, edges };
+  return { ...env, items, edges, activities };
 }
 
 // --- highlight color (Settings page + board/graph rendering) ------------

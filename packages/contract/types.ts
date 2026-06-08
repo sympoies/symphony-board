@@ -98,6 +98,26 @@ export interface EdgeDTO {
   lifecycle: EdgeLifecycle | null;
 }
 
+export interface ActivityDTO {
+  id: Ref;
+  source_id: string;
+  external_id: string;
+  kind: string;
+  action: string;
+  project_path: string | null;
+  target_kind: string | null;
+  target_ref: Ref | null;
+  target_iid: number | null;
+  title: string | null;
+  url: string | null;
+  actor: string | null;
+  occurred_at: string;
+  summary: string | null;
+  details: Record<string, unknown> | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
 export interface ContractEnvelope {
   contract_version: string;
   generated_at: string;
@@ -105,6 +125,9 @@ export interface ContractEnvelope {
   sources: SourceDTO[];
   items: ItemDTO[];
   edges: EdgeDTO[];
+  // Developer-significant activity records. Optional so pre-1.2.0 v1 contracts
+  // remain readable; consumers should read it as `env.activities ?? []`.
+  activities?: ActivityDTO[];
   // Per-repo display metadata (currently: highlight color). Sparse — only
   // configured repos appear. The producer always emits it (possibly empty);
   // OPTIONAL in the type so a consumer reading a pre-1.1.0 contract (no `repos`

@@ -8,8 +8,8 @@ coverage scripts write only their declared coverage/badge outputs.
 | Script | What it does |
 | --- | --- |
 | `devlog-search.sh <term> [YYYY-MM]` | Case-insensitive search of `docs/devlog/*.md`, optionally limited to one month. |
-| `contract-summary.sh [contract.json]` | Counts sources, items by kind/state, and edges by type/lifecycle from an emitted contract. Defaults to `data/contract.json`; requires `jq`. |
-| `db-summary.sh [db_path]` | Summarizes sources, live/tombstoned items and edges, and latest sync runs from the canonical SQLite store. Defaults to `data/symphony.db`; opens with `PRAGMA query_only`; requires `sqlite3`. |
+| `contract-summary.sh [contract.json]` | Counts sources, items by kind/state, edges by type/lifecycle, and activity by kind/action from an emitted contract. Defaults to `data/contract.json`; requires `jq`. |
+| `db-summary.sh [db_path]` | Summarizes sources, live/tombstoned items and edges, and latest sync runs with activity counts from the canonical SQLite store. Defaults to `data/symphony.db`; opens with `PRAGMA query_only`; requires `sqlite3`. |
 
 Examples:
 
