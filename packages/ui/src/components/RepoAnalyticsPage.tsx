@@ -196,7 +196,7 @@ export function RepoAnalyticsPage({
                       </span>
                       <span className="repo-name-meta">
                         {metric.source_id}
-                        {metric.data_quality.observed_since ? ` · since ${relativeTime(metric.data_quality.observed_since)}` : ""}
+                        {metric.data_quality.last_activity_at ? ` · active ${relativeTime(metric.data_quality.last_activity_at)}` : ""}
                       </span>
                     </td>
                     <td><TrendBars metric={metric} /></td>

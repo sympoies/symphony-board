@@ -602,6 +602,9 @@ try {
     [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],
+    // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
+    // (2.5.0) rather than the old earliest-observed "since" timestamp.
+    [/active \d/.test(repoHtml), "repo analytics: repo row renders the 'last active' timestamp label"],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],

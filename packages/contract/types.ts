@@ -167,6 +167,11 @@ export interface RepoMetricDataQualityDTO {
   activity_available: boolean;
   truncated: boolean;
   observed_since: string | null;
+  // The most recent activity instant observed for the repo (max occurred_at), or
+  // null when no activity row carries a parseable timestamp. The counterpart to
+  // observed_since; the Repo Analytics row renders this as "last active". Added
+  // in 2.5.0.
+  last_activity_at: string | null;
   notes: string[];
 }
 

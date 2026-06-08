@@ -27,7 +27,7 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v2, currently `2.4.0`, and validates the JSON
+- `emit` produces contract major v2, currently `2.5.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
   Activity feed, a GitHub-like Commits log, a Repo Analytics table/trend view,
@@ -206,7 +206,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v2, currently `2.4.0`.
+The current emitted contract is major v2, currently `2.5.0`.
 
 Version `1.1.0` added display colors:
 
@@ -260,6 +260,10 @@ matching bucketed `series[].stats.activity_score`. The score is a weighted
 activity signal derived from commits, issue openings, PR/MR openings and merges,
 comments, reviews, and approvals; the UI rounds it for display but sorts by the
 raw decimal value.
+
+Version `2.5.0` adds `repo_metrics[].data_quality.last_activity_at`, the most
+recent observed activity instant per repo (the counterpart to the earliest
+`observed_since`). The Repo Analytics page renders it as "last active".
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.

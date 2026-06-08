@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.4.0`.
+Current emitted version: `2.5.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.4.0",
+  "contract_version": "2.5.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -176,6 +176,7 @@ package version, to decide compatibility.
         "activity_available": true,
         "truncated": false,
         "observed_since": "2026-05-24T00:00:00.000Z",
+        "last_activity_at": "2026-06-07T08:50:00.000Z",
         "notes": []
       }
     }
@@ -462,8 +463,10 @@ Each row contains:
 - `top_actors[]`: bounded actor summaries. This is an aggregate list, not an
   unbounded user directory. See "Actor identity" below.
 - `data_quality`: whether activity rows exist for the repo, whether the metric
-  row is truncated, the earliest observed activity timestamp, and notes for
-  provider or coverage gaps.
+  row is truncated, the earliest (`observed_since`) and latest
+  (`last_activity_at`) observed activity timestamps, and notes for provider or
+  coverage gaps. Both timestamps are `null` when no activity row carries a
+  parseable instant.
 
 ### Actor identity
 
@@ -535,6 +538,12 @@ Because GitHub and GitLab expose different review surfaces, treat `reviews` as
 "available review signal per provider" and `approvals` as the cross-provider
 comparable subset. A repo with `data_quality.activity_available: true` and
 `reviews: 0` genuinely had no review activity in the window.
+
+Version `2.5.0` added `data_quality.last_activity_at` to each repo metric row —
+the most recent observed activity instant (max `occurred_at`), the counterpart to
+the existing earliest `observed_since`. The producer always emits it (`null` when
+no activity row has a parseable timestamp); the Repo Analytics page renders it as
+"last active" instead of the earliest-observed instant.
 
 Version `2.4.0` added optional `activity_score` to the repo metric stats shape.
 The current producer emits it for every repo metric totals row and series point:

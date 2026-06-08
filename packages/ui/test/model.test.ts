@@ -155,7 +155,7 @@ function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
         change_requests_merged: 0,
       },
     ],
-    data_quality: { activity_available: true, truncated: false, observed_since: "2026-06-01T00:00:00.000Z", notes: [] },
+    data_quality: { activity_available: true, truncated: false, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [] },
     ...over,
   };
 }

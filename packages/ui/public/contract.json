@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.4.0",
+  "contract_version": "2.5.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "sources": [
@@ -1083,6 +1083,7 @@
         "activity_available": true,
         "truncated": false,
         "observed_since": "2026-05-24T12:00:00.000Z",
+        "last_activity_at": "2026-06-07T08:50:00.000Z",
         "notes": []
       }
     },
@@ -1219,6 +1220,7 @@
         "activity_available": true,
         "truncated": false,
         "observed_since": "2026-06-05T12:00:00.000Z",
+        "last_activity_at": "2026-06-05T18:30:00.000Z",
         "notes": []
       }
     }

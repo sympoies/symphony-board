@@ -282,7 +282,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "2.4.0");
+  assert.equal(env.contract_version, "2.5.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -305,8 +305,27 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.deepEqual(metric?.totals.by_label_scope, { type: 1 });
   assert.equal(metric?.data_quality.activity_available, true);
   assert.equal(metric?.data_quality.observed_since, "2026-06-07T10:00:00Z");
+  assert.equal(metric?.data_quality.last_activity_at, "2026-06-07T11:00:00Z");
   assert.ok(metric?.series.some((bucket) => bucket.stats.commits === 1 && bucket.stats.pushes === 1));
   assert.deepEqual(metric?.top_actors?.map((actor) => actor.actor).sort(), ["alice", "bob"]);
+});
+
+test("repo metric data_quality timestamps are null when a repo has no activity rows", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  // An item creates the repo's metric row, but no activity rows exist for it, so
+  // both the earliest and latest observed-activity timestamps fall back to null.
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_quiet", project_path: "o/quiet", created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-07T00:00:00Z" }),
+  ];
+  const env = buildContract({ sources, items, labels: [], edges: [], activities: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+
+  assert.deepEqual(validateContract(env), []);
+  const metric = env.repo_metrics?.find((m) => m.project_path === "o/quiet");
+  assert.equal(metric?.data_quality.activity_available, false);
+  assert.equal(metric?.data_quality.observed_since, null);
+  assert.equal(metric?.data_quality.last_activity_at, null);
 });
 
 test("buildContract counts review activity rows into reviews and approvals (issue #93)", () => {
