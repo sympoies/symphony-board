@@ -315,6 +315,14 @@ try {
   await sleep(400);
   const focusHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   const focusStats = await textOf(".stats");
+  // Re-click the focused (active) card to toggle focus OFF — it returns to the
+  // searchable list, the same exit as "← all items". Then re-enter focus so the
+  // back-button assertion below still exercises that path.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card.active')?.click()" });
+  await sleep(300);
+  const toggleOffHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
+  await sleep(300);
   // Click "← all items" and confirm the searchable list returns.
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
   await sleep(300);
@@ -461,6 +469,7 @@ try {
     [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
+    [has(toggleOffHtml, "graph-list-search") && !has(toggleOffHtml, "graph-list-back"), "graph: re-clicking the focused card toggles focus off (back to the searchable list)"],
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
