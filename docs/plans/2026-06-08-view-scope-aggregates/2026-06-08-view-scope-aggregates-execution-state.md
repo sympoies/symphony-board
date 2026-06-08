@@ -14,7 +14,7 @@
 - Branch/commit/PR: not yet started
 - Source document: docs/plans/2026-06-08-view-scope-aggregates/2026-06-08-view-scope-aggregates-plan.md
 - Direct source-doc execution waiver: not applicable
-- Tracking issue: not yet opened
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/70>
 
 ## Validation Plan
 
