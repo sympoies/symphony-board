@@ -405,26 +405,28 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* activity page */
 .activity-page { margin: 12px 0; }
 .commits-page { margin: 12px 0; max-width: 1180px; }
-.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 980px; }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 960px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 
-/* The feed keeps its ≤980px column; the heatmap rail fills the space that was
-   empty to its right. Below ~1800px the rail wraps under the feed. */
+/* The feed keeps a ≤960px reading column (wide enough not to clip card titles)
+   and the two-block heatmap rail sits to its right. Below ~1560px — where the
+   wider feed and larger heatmap no longer fit side by side — the rail wraps under
+   the feed. */
 .activity-layout {
   display: grid;
-  grid-template-columns: minmax(0, 980px) auto;
+  grid-template-columns: minmax(0, 960px) auto;
   justify-content: start;
   align-items: start;
   gap: 20px;
 }
 .activity-layout > .activity-list { min-width: 0; }
-@media (max-width: 1800px) {
-  .activity-layout { grid-template-columns: minmax(0, 980px); }
+@media (max-width: 1560px) {
+  .activity-layout { grid-template-columns: minmax(0, 960px); }
 }
 
 /* --- Activity heatmap (trailing 12 months) --- */
 .activity-heatmap {
-  --hm-cell: 11px;
+  --hm-cell: 13px;
   --hm-gap: 3px;
   --hm-step: calc(var(--hm-cell) + var(--hm-gap));
   --hm-weekday-w: 28px;
@@ -435,7 +437,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .hm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .hm-head h3 { margin: 0; font-size: 14px; }
 .hm-head .hm-total { margin-left: auto; font-size: 12px; color: var(--text); font-weight: 600; }
-.hm-calendar { display: flex; flex-direction: column; gap: 5px; }
+/* Two stacked horizontal blocks split the year in half: weekday labels down the
+   left, months across the top, weeks as columns left→right — wider and shorter
+   than one tall column, so it fills the rail. */
+.hm-calendar { display: flex; flex-direction: column; gap: 14px; }
+.hm-block { display: flex; flex-direction: column; gap: 5px; }
 .hm-months {
   position: relative; height: 13px; margin-left: var(--hm-weekday-w);
   font-size: 10px; color: var(--muted);
