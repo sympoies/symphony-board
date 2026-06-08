@@ -1,0 +1,221 @@
+name: publish-image
+
+# Publish the public backend daemon and read-only UI sidecar images to GHCR on
+# a GitHub Release. The workflow smoke-tests local amd64 images before pushing
+# multi-arch linux/amd64 + linux/arm64 manifests.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: build, smoke-test, push to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (board)
+        id: board_meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+
+      - name: Docker metadata (web)
+        id: web_meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+
+      - name: Build board amd64 for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: symphony-board:smoke
+          cache-from: type=gha,scope=board
+          cache-to: type=gha,mode=max,scope=board
+
+      - name: Build web amd64 for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/ui.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: symphony-board-web:smoke
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Smoke test images
+        run: |
+          set -euo pipefail
+
+          docker run --rm --entrypoint node \
+            -v "$PWD/packages/ui/public/contract.json:/tmp/sample-contract.json:ro" \
+            symphony-board:smoke \
+            --disable-warning=ExperimentalWarning src/cli/validate-contract.ts \
+            --in /tmp/sample-contract.json
+
+          smoke_dir="$(mktemp -d)"
+          cleanup() {
+            docker rm -f symphony-board-web-smoke >/dev/null 2>&1 || true
+            rm -rf "$smoke_dir"
+          }
+          trap cleanup EXIT
+
+          cp config/sources.example.json "$smoke_dir/sources.json"
+          mkdir -p "$smoke_dir/data"
+          docker run --rm \
+            -v "$smoke_dir/sources.json:/app/config/sources.json:ro" \
+            -v "$smoke_dir/data:/app/data" \
+            symphony-board:smoke --dry-run
+          test -s "$smoke_dir/data/contract.json"
+
+          if docker run --rm --entrypoint node symphony-board:smoke \
+            --disable-warning=ExperimentalWarning src/cli/validate-contract.ts \
+            --in /app/data/contract.json \
+            2>/dev/null; then
+              echo "unexpected: image should not contain runtime /app/data/contract.json" >&2
+              exit 1
+          fi
+
+          docker run --rm symphony-board-web:smoke \
+            sh -c 'test ! -e /usr/share/nginx/html/contract.json'
+
+          docker run -d --rm --name symphony-board-web-smoke \
+            -p 8080:80 \
+            -v "$PWD/packages/ui/public/contract.json:/srv/data/contract.json:ro" \
+            symphony-board-web:smoke
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null &&
+               curl -fsS http://127.0.0.1:8080/contract.json | grep -q '"contract_version": "1.1.0"'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs symphony-board-web-smoke || true
+          exit 1
+
+      - name: Build and push board multi-arch
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.board_meta.outputs.tags }}
+          labels: ${{ steps.board_meta.outputs.labels }}
+          cache-from: type=gha,scope=board
+          cache-to: type=gha,mode=max,scope=board
+
+      - name: Build and push web multi-arch
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/ui.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.web_meta.outputs.tags }}
+          labels: ${{ steps.web_meta.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Verify public GHCR manifests
+        run: |
+          set -euo pipefail
+
+          token_for() {
+            local image_path="$1"
+            curl -fsSL \
+              "https://ghcr.io/token?service=ghcr.io&scope=repository:${image_path}:pull" |
+              python3 -c 'import json, sys; data = json.load(sys.stdin); print(data.get("token") or data.get("access_token") or "")'
+          }
+
+          platforms_for() {
+            python3 -c 'import json, sys
+          data = json.load(sys.stdin)
+          platforms = []
+          for item in data.get("manifests") or []:
+              platform = item.get("platform") or {}
+              os = platform.get("os")
+              arch = platform.get("architecture")
+              if os and arch:
+                  platforms.append(f"{os}/{arch}")
+          print(" ".join(platforms))'
+          }
+
+          verify_ref() {
+            local image_ref="$1"
+            local image_path tag token manifest platforms
+
+            image_ref="${image_ref#ghcr.io/}"
+            image_path="${image_ref%:*}"
+            tag="${image_ref##*:}"
+
+            token="$(token_for "$image_path")"
+            test -n "$token"
+            manifest="$(curl -fsSL \
+              -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              "https://ghcr.io/v2/${image_path}/manifests/${tag}")"
+            platforms="$(printf '%s' "$manifest" | platforms_for)"
+
+            case " $platforms " in
+              *" linux/amd64 "*) ;;
+              *)
+                echo "missing linux/amd64 for ghcr.io/${image_path}:${tag} (platforms: ${platforms:-none})" >&2
+                exit 1
+                ;;
+            esac
+            case " $platforms " in
+              *" linux/arm64 "*) ;;
+              *)
+                echo "missing linux/arm64 for ghcr.io/${image_path}:${tag} (platforms: ${platforms:-none})" >&2
+                exit 1
+                ;;
+            esac
+
+            echo "verified public GHCR manifest: ghcr.io/${image_path}:${tag} (${platforms})"
+          }
+
+          {
+            printf '%s\n' "${{ steps.board_meta.outputs.tags }}"
+            printf '%s\n' "${{ steps.web_meta.outputs.tags }}"
+          } | while IFS= read -r image_ref; do
+            test -n "$image_ref" || continue
+            verify_ref "$image_ref"
+          done

@@ -11,8 +11,8 @@
       "token_env": "GITHUB_TOKEN",
       "graphql_url": "https://api.github.com/graphql",
       "projects": [
-        "graysurf/project-board-automation",
-        "graysurf/agent-runtime-kit",
+        "example-org/public-roadmap",
+        "example-org/service-api",
         "sympoies/nils-cli",
         "sympoies/nils-alfredworkflow",
         { "path": "sympoies/symphony-board", "color": "#e0af68" }

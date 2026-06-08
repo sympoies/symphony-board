@@ -23,6 +23,7 @@ name: symphony-board
 
 services:
   board:
+    image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -37,7 +38,8 @@ services:
       SYMPHONY_CONFIG: config/sources.json
       CONTRACT_OUT: data/contract.json
     env_file:
-      - ../.env
+      - path: ../.env
+        required: false
     volumes:
       - ../config:/app/config:ro
       - ../data:/app/data
@@ -61,6 +63,7 @@ services:
   # latest emit — no hand-seeded fixture. Gated on the daemon being healthy so it
   # never serves before the first contract exists.
   web:
+    image: ghcr.io/sympoies/symphony-board-web:${SYMPHONY_IMAGE_TAG:-dev}
     build:
       context: ..
       dockerfile: docker/ui.Dockerfile

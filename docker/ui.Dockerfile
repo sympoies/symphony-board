@@ -26,6 +26,13 @@ COPY packages/ui packages/ui
 RUN pnpm --filter @symphony-board/ui run build
 
 FROM nginx:alpine
+LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-board" \
+      org.opencontainers.image.title="symphony-board-web" \
+      org.opencontainers.image.description="Read-only symphony-board UI sidecar" \
+      org.opencontainers.image.licenses="MIT"
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/ui/dist /usr/share/nginx/html
+# The public UI image must not bake a sample or runtime-emitted contract. The
+# nginx config serves /contract.json from the operator-mounted /srv/data path.
+RUN rm -f /usr/share/nginx/html/contract.json
 EXPOSE 80

@@ -10,10 +10,10 @@
 #   plus: scoped + plain labels, a draft PR.
 #
 # Requires: gh (authenticated). Run once against a FRESH repo:
-#   scripts/fixtures/seed-github-fixture.sh [owner/repo]   (default: graysurf/symphony-board-fixture)
+#   scripts/fixtures/seed-github-fixture.sh [owner/repo]   (default: sympoies/symphony-board-fixture)
 set -euo pipefail
 
-REPO="${1:-graysurf/symphony-board-fixture}"
+REPO="${1:-sympoies/symphony-board-fixture}"
 echo "seeding $REPO ..."
 
 num() { grep -oE '[0-9]+$'; }  # extract the trailing #N from a gh-printed URL

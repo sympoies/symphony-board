@@ -2,8 +2,7 @@
   /* === Night Owl theme ===
      Every colour the UI uses lives in this block; the rules below derive their
      tints, fills and borders from these tokens via color-mix(), so a palette
-     swap only touches the values here. Palette is the source of truth at
-     ~/Project/graysurf/night-owl-cli (PALETTE.md). */
+     swap only touches the values here. The palette is Night Owl-inspired. */
 
   /* surfaces — Night Owl navy ramp (bg → panel → nested) + a border tone */
   --bg: #011627;       /* core deep navy                       */
