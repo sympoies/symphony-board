@@ -39,6 +39,14 @@ function CopyIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m3.5 8.4 3 3 6-6.8" />
+    </svg>
+  );
+}
+
 function CodeIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -301,6 +309,7 @@ function CommitTimeline({
           const { commit, index, showDate, body, expanded } = row;
           const sha = commitSha(commit);
           const short = commitShortSha(commit);
+          const copied = copiedId === commit.id;
           const branches = commitBranches(commit);
           const accentColor = colorOf(commit.source_id, commit.project_path);
           const actor = commit.actor ? `@${commit.actor}` : "unknown author";
@@ -364,16 +373,17 @@ function CommitTimeline({
                   {short ? <code className="commit-sha">{short}</code> : null}
                   <button
                     type="button"
-                    className="commit-icon-button"
+                    className={`commit-icon-button commit-copy-button${copied ? " is-copied" : ""}`}
                     aria-label={sha ? `Copy commit hash ${short ?? sha}` : "Commit hash unavailable"}
-                    title={sha ? (copiedId === commit.id ? "Copied" : "Copy commit hash") : "Commit hash unavailable"}
+                    title={sha ? "Copy commit hash" : "Commit hash unavailable"}
                     disabled={!sha}
                     onClick={() => {
                       if (!sha) return;
                       void copyToClipboard(sha).then(() => setCopiedId(commit.id));
                     }}
                   >
-                    <CopyIcon />
+                    {copied ? <CheckIcon /> : <CopyIcon />}
+                    {copied ? <span className="commit-copy-tooltip" role="status">Copied!</span> : null}
                   </button>
                   {commit.url ? (
                     <a className="commit-icon-button" href={commit.url} target="_blank" rel="noopener noreferrer" aria-label="Open commit" title="Open commit">
