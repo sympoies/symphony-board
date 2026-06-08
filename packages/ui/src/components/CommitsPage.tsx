@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
@@ -23,8 +23,9 @@ const COMMIT_ROW_BODY_HEIGHT_PX = 70;
 const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
 const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
 const COMMIT_ROW_GAP_PX = 8;
-const COMMIT_EXPANDED_BODY_EXTRA_PX = 128;
-const COMMIT_EXPANDED_BODY_EXTRA_NARROW_PX = 156;
+const COMMIT_EXPANDED_PANEL_CHROME_PX = 18;
+const COMMIT_EXPANDED_PANEL_LINE_HEIGHT_PX = 18;
+const COMMIT_EXPANDED_PANEL_MAIN_GAP_PX = 6;
 const COMMIT_DEFAULT_VIEWPORT_PX = 680;
 const COMMIT_OVERSCAN_ROWS = 8;
 
@@ -93,33 +94,47 @@ interface CommitVirtualRow {
   index: number;
   offset: number;
   height: number;
+  bodyHeight: number;
   showDate: boolean;
   body: string | null;
   expanded: boolean;
 }
 
+function estimateCommitBodyPanelHeight(body: string, narrow: boolean): number {
+  const wrapWidth = narrow ? 44 : 96;
+  const estimatedLines = body
+    .split(/\r\n|\r|\n/)
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / wrapWidth)), 0);
+  return COMMIT_EXPANDED_PANEL_CHROME_PX + estimatedLines * COMMIT_EXPANDED_PANEL_LINE_HEIGHT_PX;
+}
+
 function buildCommitRows({
   commits,
   rowBodyHeight,
-  expandedExtraHeight,
   expandedBodyId,
+  measuredExpandedBodyHeights,
 }: {
   commits: ActivityDTO[];
   rowBodyHeight: number;
-  expandedExtraHeight: number;
   expandedBodyId: string | null;
+  measuredExpandedBodyHeights: ReadonlyMap<string, number>;
 }): { rows: CommitVirtualRow[]; totalHeightPx: number } {
   const rows: CommitVirtualRow[] = [];
   let offset = 0;
   let previousDateKey: string | null = null;
+  const narrow = rowBodyHeight > COMMIT_ROW_BODY_HEIGHT_PX;
 
   commits.forEach((commit, index) => {
     const key = dateKey(commit.occurred_at);
     const showDate = previousDateKey === null || previousDateKey !== key;
     const body = commitBody(commit);
     const expanded = body !== null && commit.id === expandedBodyId;
-    const height = rowBodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + (expanded ? expandedExtraHeight : 0) + COMMIT_ROW_GAP_PX;
-    rows.push({ commit, index, offset, height, showDate, body, expanded });
+    const bodyHeight = expanded
+      ? measuredExpandedBodyHeights.get(commit.id) ??
+        rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
+      : rowBodyHeight;
+    const height = bodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + COMMIT_ROW_GAP_PX;
+    rows.push({ commit, index, offset, height, bodyHeight, showDate, body, expanded });
     offset += height;
     previousDateKey = key;
   });
@@ -174,7 +189,8 @@ function CommitTimeline({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(COMMIT_DEFAULT_VIEWPORT_PX);
   const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
-  const [expandedExtraHeight, setExpandedExtraHeight] = useState(COMMIT_EXPANDED_BODY_EXTRA_PX);
+  const expandedRowBodyRef = useRef<HTMLDivElement | null>(null);
+  const [measuredExpandedBodyHeights, setMeasuredExpandedBodyHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [expandedBodyId, setExpandedBodyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -185,8 +201,13 @@ function CommitTimeline({
 
   useEffect(() => {
     setExpandedBodyId(null);
+    setMeasuredExpandedBodyHeights(new Map());
     resetScroll();
   }, [commits, resetScroll]);
+
+  useEffect(() => {
+    setMeasuredExpandedBodyHeights(new Map());
+  }, [rowBodyHeight]);
 
   useEffect(() => {
     if (!copiedId) return;
@@ -202,7 +223,6 @@ function CommitTimeline({
       setViewportHeight(el.clientHeight || COMMIT_DEFAULT_VIEWPORT_PX);
       const narrow = el.clientWidth <= 760;
       setRowBodyHeight(narrow ? COMMIT_ROW_BODY_HEIGHT_NARROW_PX : COMMIT_ROW_BODY_HEIGHT_PX);
-      setExpandedExtraHeight(narrow ? COMMIT_EXPANDED_BODY_EXTRA_NARROW_PX : COMMIT_EXPANDED_BODY_EXTRA_PX);
     };
     updateHeight();
 
@@ -216,9 +236,35 @@ function CommitTimeline({
     return () => resizeObserver.disconnect();
   }, [commits.length]);
 
+  useLayoutEffect(() => {
+    const el = expandedRowBodyRef.current;
+    if (!el || !expandedBodyId) return;
+
+    const updateHeight = () => {
+      const height = Math.ceil(el.getBoundingClientRect().height);
+      if (height <= 0) return;
+      setMeasuredExpandedBodyHeights((previous) => {
+        if (previous.get(expandedBodyId) === height) return previous;
+        const next = new Map(previous);
+        next.set(expandedBodyId, height);
+        return next;
+      });
+    };
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateHeight);
+      return () => window.removeEventListener("resize", updateHeight);
+    }
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, [expandedBodyId, rowBodyHeight]);
+
   const layout = useMemo(
-    () => buildCommitRows({ commits, rowBodyHeight, expandedExtraHeight, expandedBodyId }),
-    [commits, expandedBodyId, expandedExtraHeight, rowBodyHeight],
+    () => buildCommitRows({ commits, rowBodyHeight, expandedBodyId, measuredExpandedBodyHeights }),
+    [commits, expandedBodyId, measuredExpandedBodyHeights, rowBodyHeight],
   );
   const virtual = useMemo(
     () => commitVirtualRange({
@@ -243,7 +289,6 @@ function CommitTimeline({
       style={
         {
           "--commit-row-body-height": `${rowBodyHeight}px`,
-          "--commit-body-panel-max-height": `${Math.max(92, expandedExtraHeight - 28)}px`,
         } as CSSProperties
       }
     >
@@ -265,6 +310,7 @@ function CommitTimeline({
               style={
                 {
                   "--commit-row-height": `${row.height}px`,
+                  "--commit-row-body-height": `${row.bodyHeight}px`,
                   "--repo-color": accentColor ?? undefined,
                   transform: `translateY(${row.offset}px)`,
                 } as CSSProperties
@@ -275,7 +321,7 @@ function CommitTimeline({
                   <span>Commits on {dateLabel(commit.occurred_at)}</span>
                 </div>
               ) : null}
-              <div className="commit-row-body">
+              <div className="commit-row-body" ref={expanded ? expandedRowBodyRef : undefined}>
                 <div className="commit-row-main">
                   <div className="commit-title-line">
                     {commit.url ? (

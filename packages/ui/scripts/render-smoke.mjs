@@ -468,7 +468,7 @@ try {
   await send("Runtime.evaluate", {
     expression: "document.querySelector('.commits-page button[aria-label^=\"Show commit body\"]')?.click()",
   });
-  await sleep(250);
+  await sleep(350);
   const commitsBodyExpanded = (await send("Runtime.evaluate", {
     expression: `(() => {
       const panel = document.querySelector('.commits-page .commit-body-panel');
@@ -476,6 +476,30 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || false;
+  const commitsExpandedBodyLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const panel = document.querySelector('.commits-page .commit-body-panel');
+      const row = panel?.closest('.commit-row');
+      const body = row?.querySelector('.commit-row-body');
+      const bodies = Array.from(document.querySelectorAll('.commits-page .commit-row-body'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return { el, top: rect.top, bottom: rect.bottom };
+        })
+        .sort((a, b) => a.top - b.top);
+      const index = body ? bodies.findIndex((entry) => entry.el === body) : -1;
+      const afterGap = index >= 0 && bodies[index + 1] ? Math.round(bodies[index + 1].top - bodies[index].bottom) : null;
+      const panelStyle = panel ? getComputedStyle(panel) : null;
+      return {
+        afterGap,
+        overflowY: panelStyle?.overflowY || null,
+        scrollHeight: panel?.scrollHeight || null,
+        clientHeight: panel?.clientHeight || null,
+        scrollsInternally: panel ? panel.scrollHeight > panel.clientHeight + 1 && ['auto', 'scroll'].includes(panelStyle?.overflowY || '') : null,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const commitsBranchControl = (await send("Runtime.evaluate", {
     expression: `(() => {
       const select = document.querySelector('.commit-branch-select select');
@@ -687,6 +711,8 @@ try {
     [commitsToolbarLayout.bodyToggleHasNoTitle === true, "commits: body toggle has no hover title"],
     [commitsBodyTogglePlacement.rendered === true && commitsBodyTogglePlacement.sameLine === true && commitsBodyTogglePlacement.hugsTitle === true, `commits: body toggle sits at the title tail (${commitsBodyTogglePlacement.lineWidth || 0}px of ${commitsBodyTogglePlacement.mainWidth || 0}px)`],
     [commitsBodyExpanded === true, "commits: clicking body toggle expands the commit body inline"],
+    [commitsExpandedBodyLayout.scrollsInternally === false, `commits: expanded commit body renders without an inner scroller (${commitsExpandedBodyLayout.overflowY || "unknown"})`],
+    [commitsExpandedBodyLayout.afterGap >= 6 && commitsExpandedBodyLayout.afterGap <= 14, `commits: expanded row keeps compact spacing before the next row (${commitsExpandedBodyLayout.afterGap}px)`],
     [commitsDateSlotsHaveLabels === true, "commits: date separator slots only render with date labels"],
     [commitsDateSlotsAreGrouped === true, "commits: rows without a date heading do not render standalone separators"],
     [commitsRowBodyGap.count >= 1 && commitsRowBodyGap.minGap >= 6, `commits: row cards keep visible spacing without separator glyphs (${commitsRowBodyGap.minGap}px >= 6px)`],
