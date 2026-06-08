@@ -614,11 +614,16 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
-  overflow: hidden;
+  /* visible so a collapsed row's copy-confirmation bubble can sit just below the
+     icon; collapsed content is single-line and already fits the fixed height. */
+  overflow: visible;
 }
 .commit-row-expanded .commit-row-body {
   align-items: flex-start;
   min-height: 0;
+  /* expanded rows clip their measured body so the <pre> stays inside the
+     virtualized row height. */
+  overflow: hidden;
 }
 .commit-row-accent .commit-row-body { box-shadow: inset 3px 0 0 var(--repo-color); }
 .commit-row-main {
@@ -693,6 +698,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   font-size: 12px;
 }
 .commit-icon-button {
+  position: relative;
   width: 30px; height: 30px;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--muted);
@@ -709,6 +715,47 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .commit-icon-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+/* Copy feedback, GitHub-style: the icon flips to a green check and a transient
+   bubble confirms the copy, then both fade as the copied state clears. */
+.commit-copy-button.is-copied,
+.commit-copy-button.is-copied:hover {
+  color: var(--open);
+}
+.commit-copy-tooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 6;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font: 600 12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(1, 22, 39, 0.6);
+  transform: translateX(-50%);
+  animation: commit-copy-pop 1200ms ease forwards;
+}
+.commit-copy-tooltip::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--panel-2);
+}
+@keyframes commit-copy-pop {
+  0%   { opacity: 0; transform: translate(-50%, -4px); }
+  12%  { opacity: 1; transform: translate(-50%, 0); }
+  78%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .commit-copy-tooltip { animation: none; }
 }
 
 @media (max-width: 760px) {
