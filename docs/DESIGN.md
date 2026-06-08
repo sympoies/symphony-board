@@ -187,7 +187,9 @@ Pages:
 - **Board**: 7 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
   `Closed`) plus three Spotlight lanes (`Follow-up`, `Plan-tracking`, `PR`).
   Status is derived from item state and relationship edges. Spotlight lanes are
-  cross-cuts, so their counts do not sum to the item total.
+  cross-cuts, so their counts do not sum to the item total. The Board supports
+  an item-local active-since window (`1w`, `2w`, `1mo`, `3mo`, `all`) that
+  filters cards by `updated_at`.
 - **Graph**: relationship view built from edge-connected items. It supports an
   active-since window, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`.
