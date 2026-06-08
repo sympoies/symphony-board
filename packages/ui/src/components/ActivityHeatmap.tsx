@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { buildActivityHeatmap } from "../model.ts";
 
@@ -10,11 +10,18 @@ const WEEKDAY_LABELS: Record<number, string> = { 1: "Mon", 3: "Wed", 5: "Fri" };
 const BLOCKS = 2;
 const LEVELS = [0, 1, 2, 3, 4] as const;
 
+// One cell's hover label. A custom tooltip renders this instead of the native
+// `title` attribute — `title` only appears after a dwell, dismisses on its own,
+// and is easy to miss on 13px cells, so it felt all-or-nothing.
+const cellTip = (cell: { date: string; count: number }) =>
+  `${cell.date} · ${cell.count.toLocaleString()} ${cell.count === 1 ? "event" : "events"}`;
+
 // A trailing-12-month activity calendar that fills the empty rail beside the
 // Activity feed. Read-only: density comes purely from `occurred_at`, decoupled
 // from the feed's range picker so the long-term rhythm stays put while filtering.
 export function ActivityHeatmap({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
   const hm = useMemo(() => buildActivityHeatmap(activities, Date.now(), timezone), [activities, timezone]);
+  const [tip, setTip] = useState<{ label: string; x: number; y: number } | null>(null);
 
   if (hm.total === 0) return null;
 
@@ -39,7 +46,12 @@ export function ActivityHeatmap({ activities, timezone }: { activities: Activity
         <span className="hm-total">{hm.total.toLocaleString()} events</span>
       </div>
 
-      <div className="hm-calendar" role="img" aria-label={`Daily activity from ${hm.from} to ${hm.to}`}>
+      <div
+        className="hm-calendar"
+        role="img"
+        aria-label={`Daily activity from ${hm.from} to ${hm.to}`}
+        onMouseLeave={() => setTip(null)}
+      >
         {blocks.map((block, bi) => (
           <div className="hm-block" key={bi}>
             <div className="hm-months" aria-hidden="true">
@@ -64,7 +76,8 @@ export function ActivityHeatmap({ activities, timezone }: { activities: Activity
                           key={cell.date}
                           className="hm-cell"
                           data-level={cell.level}
-                          title={`${cell.date} · ${cell.count} ${cell.count === 1 ? "event" : "events"}`}
+                          onMouseEnter={(e) => setTip({ label: cellTip(cell), x: e.clientX, y: e.clientY })}
+                          onMouseMove={(e) => setTip({ label: cellTip(cell), x: e.clientX, y: e.clientY })}
                         />
                       ) : (
                         <div key={`empty-${bi}-${col}-${row}`} className="hm-cell hm-cell-empty" />
@@ -101,6 +114,12 @@ export function ActivityHeatmap({ activities, timezone }: { activities: Activity
           </div>
         ))}
       </dl>
+
+      {tip ? (
+        <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>
+          {tip.label}
+        </div>
+      ) : null}
     </aside>
   );
 }
