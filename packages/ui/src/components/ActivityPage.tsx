@@ -9,6 +9,7 @@ export function ActivityPage({
   windowTotal,
   totalActivities,
   range,
+  timezone,
   sourceKind,
   colorOf,
 }: {
@@ -19,6 +20,7 @@ export function ActivityPage({
   windowTotal: number;
   totalActivities: number;
   range: TimeRange;
+  timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
 }) {
@@ -40,7 +42,7 @@ export function ActivityPage({
       </div>
       <div className="activity-layout">
         <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
-        <ActivityHeatmap activities={allActivities} />
+        <ActivityHeatmap activities={allActivities} timezone={timezone} />
       </div>
     </main>
   );

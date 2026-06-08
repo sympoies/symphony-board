@@ -3,6 +3,7 @@ import { activeTimeRangePresetId, TIME_RANGE_PRESETS, timeRangeForPreset, type T
 export function TimeRangeControls({
   range,
   generatedAt,
+  timezone,
   preferredPresetId,
   loading,
   error,
@@ -10,14 +11,15 @@ export function TimeRangeControls({
 }: {
   range: TimeRange;
   generatedAt: string;
+  timezone: string;
   preferredPresetId?: TimeRangePresetId | null;
   loading?: boolean;
   error?: string | null;
   onRange: (range: TimeRange, presetId?: TimeRangePresetId | null) => void;
 }) {
   const generatedAtMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
-  const presetOptions = TIME_RANGE_PRESETS.map((option) => ({ option, range: timeRangeForPreset(option.id, generatedAtMs) }));
-  const activePresetId = activeTimeRangePresetId(range, generatedAtMs, preferredPresetId);
+  const presetOptions = TIME_RANGE_PRESETS.map((option) => ({ option, range: timeRangeForPreset(option.id, generatedAtMs, timezone) }));
+  const activePresetId = activeTimeRangePresetId(range, generatedAtMs, preferredPresetId, timezone);
   const setFrom = (from: string) => onRange({ ...range, from }, null);
   const setTo = (to: string) => onRange({ ...range, to }, null);
   return (

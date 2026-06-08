@@ -12,6 +12,12 @@ import type {
   RepoMetricDTO,
 } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
+import { zonedDateOnly, zonedWeekday, zonedDayStartIso, zonedDayEndIso, shiftDateOnly } from "./tz.ts";
+
+// The board buckets calendar days in this IANA zone (from the contract's
+// `timezone`, defaulting to UTC). Threaded through the time-range presets,
+// range filtering, and the activity heatmap; "UTC" keeps the original behavior.
+export const DEFAULT_TIMEZONE = "UTC";
 
 // Board status columns, after project-board-automation's Status model
 // (Open / Trailing / Closed) plus an explicit In Progress lane:
@@ -238,9 +244,9 @@ export interface TimeRange {
   to: string;
 }
 
-export function dateOnlyFromIso(iso: string | null | undefined, fallbackNow: number = Date.now()): string {
+export function dateOnlyFromIso(iso: string | null | undefined, fallbackNow: number = Date.now(), tz: string = DEFAULT_TIMEZONE): string {
   const parsed = Date.parse(iso ?? "");
-  return new Date(Number.isFinite(parsed) ? parsed : fallbackNow).toISOString().slice(0, 10);
+  return zonedDateOnly(Number.isFinite(parsed) ? parsed : fallbackNow, tz);
 }
 
 function generatedAtMs(env: ContractEnvelope): number {
@@ -248,29 +254,27 @@ function generatedAtMs(env: ContractEnvelope): number {
   return Number.isFinite(parsedGenerated) ? parsedGenerated : Date.now();
 }
 
-const dateOnlyFromMs = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
-
 export function isTimeRangePresetId(value: unknown): value is TimeRangePresetId {
   return typeof value === "string" && TIME_RANGE_PRESETS.some((preset) => preset.id === value);
 }
 
-export function timeRangeForPreset(presetId: TimeRangePresetId, now: number): TimeRange {
-  const to = dateOnlyFromMs(now);
+export function timeRangeForPreset(presetId: TimeRangePresetId, now: number, tz: string = DEFAULT_TIMEZONE): TimeRange {
+  const to = zonedDateOnly(now, tz);
   const preset = TIME_RANGE_PRESETS.find((candidate) => candidate.id === presetId);
-  if (!preset) return timeRangeForPreset(DEFAULT_TIME_RANGE_PRESET_ID, now);
+  if (!preset) return timeRangeForPreset(DEFAULT_TIME_RANGE_PRESET_ID, now, tz);
   if (preset.kind === "today") return { from: to, to };
   if (preset.kind === "this-week") {
-    const d = new Date(now);
-    const startOfTodayUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-    const daysSinceMonday = (d.getUTCDay() + 6) % 7;
-    return { from: dateOnlyFromMs(startOfTodayUtc - daysSinceMonday * 86_400_000), to };
+    // Monday of the local week: walk back from today's local weekday.
+    const daysSinceMonday = (zonedWeekday(now, tz) + 6) % 7;
+    return { from: shiftDateOnly(to, -daysSinceMonday), to };
   }
-  return { from: cutoffIso(preset.days, now).slice(0, 10), to };
+  // Rolling window: `days` calendar days back from the local `to` date.
+  return { from: shiftDateOnly(to, -preset.days), to };
 }
 
-export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null): TimeRangePresetId | null {
+export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {
   const matchingPresetIds = TIME_RANGE_PRESETS
-    .filter((candidate) => sameTimeRange(range, timeRangeForPreset(candidate.id, now)))
+    .filter((candidate) => sameTimeRange(range, timeRangeForPreset(candidate.id, now, tz)))
     .map((candidate) => candidate.id);
   return preferredPresetId && matchingPresetIds.includes(preferredPresetId)
     ? preferredPresetId
@@ -278,16 +282,17 @@ export function activeTimeRangePresetId(range: TimeRange, now: number, preferred
 }
 
 export function preferredDefaultTimeRange(env: ContractEnvelope, presetId: TimeRangePresetId): TimeRange {
-  return timeRangeForPreset(presetId, generatedAtMs(env));
+  return timeRangeForPreset(presetId, generatedAtMs(env), env.timezone ?? DEFAULT_TIMEZONE);
 }
 
 export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
   const generatedAt = generatedAtMs(env);
-  const from =
-    env.item_window?.window.kind === "active_since" && env.item_window.window.since
-      ? env.item_window.window.since.slice(0, 10)
-      : cutoffIso(DEFAULT_TIME_RANGE_DAYS, generatedAt).slice(0, 10);
-  return { from, to: dateOnlyFromIso(env.generated_at, generatedAt) };
+  const tz = env.timezone ?? DEFAULT_TIMEZONE;
+  const sinceMs =
+    env.item_window?.window.kind === "active_since" && env.item_window.window.since && Number.isFinite(Date.parse(env.item_window.window.since))
+      ? Date.parse(env.item_window.window.since)
+      : generatedAt - DEFAULT_TIME_RANGE_DAYS * DAY_MS;
+  return { from: zonedDateOnly(sinceMs, tz), to: zonedDateOnly(generatedAt, tz) };
 }
 
 export function isDateOnly(value: string | null | undefined): value is string {
@@ -308,8 +313,8 @@ export function sameTimeRange(a: TimeRange | null | undefined, b: TimeRange | nu
   return !!a && !!b && a.from === b.from && a.to === b.to;
 }
 
-export function timeRangeToIso(range: TimeRange): { from: string; to: string } {
-  return { from: `${range.from}T00:00:00.000Z`, to: `${range.to}T23:59:59.999Z` };
+export function timeRangeToIso(range: TimeRange, tz: string = DEFAULT_TIMEZONE): { from: string; to: string } {
+  return { from: zonedDayStartIso(range.from, tz), to: zonedDayEndIso(range.to, tz) };
 }
 
 function timestampMs(value: string | null | undefined): number | null {
@@ -317,20 +322,20 @@ function timestampMs(value: string | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function timestampInTimeRange(value: string | null | undefined, range: TimeRange): boolean {
-  const { from, to } = timeRangeToIso(range);
+function timestampInTimeRange(value: string | null | undefined, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
+  const { from, to } = timeRangeToIso(range, tz);
   const valueMs = timestampMs(value);
   const fromMs = timestampMs(from);
   const toMs = timestampMs(to);
   return valueMs !== null && fromMs !== null && toMs !== null && valueMs >= fromMs && valueMs <= toMs;
 }
 
-export function itemInTimeRange(it: ItemDTO, range: TimeRange): boolean {
-  return timestampInTimeRange(it.updated_at, range);
+export function itemInTimeRange(it: ItemDTO, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
+  return timestampInTimeRange(it.updated_at, range, tz);
 }
 
-export function activityInTimeRange(activity: ActivityDTO, range: TimeRange): boolean {
-  return timestampInTimeRange(activity.occurred_at, range);
+export function activityInTimeRange(activity: ActivityDTO, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
+  return timestampInTimeRange(activity.occurred_at, range, tz);
 }
 
 function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
@@ -342,8 +347,8 @@ function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
   return 0;
 }
 
-export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRange): ActivityDTO[] {
-  return activities.filter((a) => activityInTimeRange(a, range)).sort(compareActivityInstantDesc);
+export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRange, tz: string = DEFAULT_TIMEZONE): ActivityDTO[] {
+  return activities.filter((a) => activityInTimeRange(a, range, tz)).sort(compareActivityInstantDesc);
 }
 
 // --- Activity heatmap -------------------------------------------------------
@@ -359,7 +364,7 @@ const HEATMAP_MONTH_LABELS = [
 ];
 
 export interface HeatmapCell {
-  date: string; // YYYY-MM-DD (UTC), matching dateOnlyFromMs keys
+  date: string; // YYYY-MM-DD local calendar date (the contract `timezone`)
   count: number;
   level: 0 | 1 | 2 | 3 | 4;
 }
@@ -405,13 +410,14 @@ function heatmapLevelFn(counts: number[]): (count: number) => HeatmapCell["level
 export function buildActivityHeatmap(
   activities: readonly ActivityDTO[],
   now: number = Date.now(),
+  tz: string = DEFAULT_TIMEZONE,
 ): ActivityHeatmap {
-  const today = dateOnlyFromMs(now);
-  const endMs = Date.parse(`${today}T00:00:00.000Z`);
-  const endWeekday = new Date(endMs).getUTCDay(); // 0 = Sunday
+  // Work in local calendar-date space so the grid and buckets honor `tz` (and
+  // stay DST-immune): today's local date, its weekday, and whole-day shifts.
+  const today = zonedDateOnly(now, tz);
+  const endWeekday = zonedWeekday(now, tz); // 0 = Sunday
   // Last column is the week containing today; back up 52 further weeks → 53 cols.
-  const startMs = endMs - endWeekday * DAY_MS - (HEATMAP_WEEKS - 1) * 7 * DAY_MS;
-  const startKey = dateOnlyFromMs(startMs);
+  const startKey = shiftDateOnly(today, -(endWeekday + (HEATMAP_WEEKS - 1) * 7));
 
   const countByDay = new Map<string, number>();
   const kindCounts = new Map<string, number>();
@@ -419,7 +425,7 @@ export function buildActivityHeatmap(
   for (const a of activities) {
     const ms = timestampMs(a.occurred_at);
     if (ms === null) continue;
-    const key = dateOnlyFromMs(ms);
+    const key = zonedDateOnly(ms, tz);
     // String compare is safe for fixed-width YYYY-MM-DD keys.
     if (key < startKey || key > today) continue;
     countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
@@ -436,20 +442,19 @@ export function buildActivityHeatmap(
 
   for (let col = 0; col < HEATMAP_WEEKS; col += 1) {
     const column: (HeatmapCell | null)[] = [];
-    const colDate = new Date(startMs + col * 7 * DAY_MS);
-    const colMonth = colDate.getUTCMonth();
+    const colStart = shiftDateOnly(startKey, col * 7);
+    const colMonth = Number(colStart.slice(5, 7)) - 1; // 0-11
     // Label a column when its Sunday opens a month not yet labelled.
     if (colMonth !== prevMonth) {
       monthLabels.push({ col, label: HEATMAP_MONTH_LABELS[colMonth] ?? "" });
       prevMonth = colMonth;
     }
     for (let row = 0; row < 7; row += 1) {
-      const dayMs = startMs + (col * 7 + row) * DAY_MS;
-      if (dayMs > endMs) {
+      const date = shiftDateOnly(startKey, col * 7 + row);
+      if (date > today) {
         column.push(null);
         continue;
       }
-      const date = dateOnlyFromMs(dayMs);
       const count = countByDay.get(date) ?? 0;
       const cell: HeatmapCell = { date, count, level: level(count) };
       if (count > maxCount) {
@@ -1058,15 +1063,15 @@ export function cutoffIso(days: number, now: number = Date.now()): string {
   return new Date(now - days * 86_400_000).toISOString();
 }
 
-export function graphEdgeInTimeRange(re: ResolvedEdge, range: TimeRange): boolean {
+export function graphEdgeInTimeRange(re: ResolvedEdge, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
   const ends = [re.from, re.to];
-  const within = ends.some((it) => it && timestampInTimeRange(it.updated_at, range));
+  const within = ends.some((it) => it && timestampInTimeRange(it.updated_at, range, tz));
   const bothUntracked = !re.from && !re.to;
   return within || bothUntracked;
 }
 
-export function graphWindowEdgesInRange(edges: ResolvedEdge[], range: TimeRange): ResolvedEdge[] {
-  return edges.filter((re) => graphEdgeInTimeRange(re, range));
+export function graphWindowEdgesInRange(edges: ResolvedEdge[], range: TimeRange, tz: string = DEFAULT_TIMEZONE): ResolvedEdge[] {
+  return edges.filter((re) => graphEdgeInTimeRange(re, range, tz));
 }
 
 // Build a relationship graph from already-windowed resolved edges, keeping only

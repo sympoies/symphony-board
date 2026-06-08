@@ -586,6 +586,7 @@ export function GraphPage({
   aggregates = [],
   itemWindow,
   range,
+  timezone,
 }: {
   edges: ResolvedEdge[];
   sourceKind: Map<string, string>;
@@ -595,6 +596,7 @@ export function GraphPage({
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
+  timezone: string;
 }) {
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
@@ -615,7 +617,7 @@ export function GraphPage({
     return visible;
   }, [edges, showMentions, mentionTarget]);
 
-  const graphEdges = useMemo(() => graphWindowEdgesInRange(graphInputEdges, range), [graphInputEdges, range]);
+  const graphEdges = useMemo(() => graphWindowEdgesInRange(graphInputEdges, range, timezone), [graphInputEdges, range, timezone]);
   const graph = useMemo(() => buildGraph(graphEdges), [graphEdges]);
 
   // Side-list derivations over the FULL edge set (not the time-windowed graph):

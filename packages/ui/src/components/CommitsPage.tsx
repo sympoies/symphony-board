@@ -14,6 +14,7 @@ import {
   type CommitRepoOption,
   type TimeRange,
 } from "../model.ts";
+import { zonedDateOnly } from "../tz.ts";
 
 // A cross-provider commit log over ActivityDTO commit rows. It intentionally does
 // not render GitHub-only badges such as Verified or check counts; only fields
@@ -59,16 +60,16 @@ function BranchIcon() {
   );
 }
 
-function dateLabel(iso: string): string {
+function dateLabel(iso: string, tz: string): string {
   const parsed = Date.parse(iso);
   if (!Number.isFinite(parsed)) return "unknown date";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(parsed);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: tz }).format(parsed);
 }
 
-function dateKey(iso: string): string {
+function dateKey(iso: string, tz: string): string {
   const parsed = Date.parse(iso);
   if (!Number.isFinite(parsed)) return "unknown";
-  return new Date(parsed).toISOString().slice(0, 10);
+  return zonedDateOnly(parsed, tz);
 }
 
 function copyToClipboard(text: string): Promise<void> {
@@ -112,11 +113,13 @@ function buildCommitRows({
   rowBodyHeight,
   expandedBodyId,
   measuredExpandedBodyHeights,
+  timezone,
 }: {
   commits: ActivityDTO[];
   rowBodyHeight: number;
   expandedBodyId: string | null;
   measuredExpandedBodyHeights: ReadonlyMap<string, number>;
+  timezone: string;
 }): { rows: CommitVirtualRow[]; totalHeightPx: number } {
   const rows: CommitVirtualRow[] = [];
   let offset = 0;
@@ -124,7 +127,7 @@ function buildCommitRows({
   const narrow = rowBodyHeight > COMMIT_ROW_BODY_HEIGHT_PX;
 
   commits.forEach((commit, index) => {
-    const key = dateKey(commit.occurred_at);
+    const key = dateKey(commit.occurred_at, timezone);
     const showDate = previousDateKey === null || previousDateKey !== key;
     const body = commitBody(commit);
     const expanded = body !== null && commit.id === expandedBodyId;
@@ -178,11 +181,13 @@ function CommitTimeline({
   sourceKind,
   colorOf,
   emptyMessage,
+  timezone,
 }: {
   commits: ActivityDTO[];
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
   emptyMessage: string;
+  timezone: string;
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -262,8 +267,8 @@ function CommitTimeline({
   }, [expandedBodyId, rowBodyHeight]);
 
   const layout = useMemo(
-    () => buildCommitRows({ commits, rowBodyHeight, expandedBodyId, measuredExpandedBodyHeights }),
-    [commits, expandedBodyId, measuredExpandedBodyHeights, rowBodyHeight],
+    () => buildCommitRows({ commits, rowBodyHeight, expandedBodyId, measuredExpandedBodyHeights, timezone }),
+    [commits, expandedBodyId, measuredExpandedBodyHeights, rowBodyHeight, timezone],
   );
   const virtual = useMemo(
     () => commitVirtualRange({
@@ -316,7 +321,7 @@ function CommitTimeline({
             >
               {showDate ? (
                 <div className="commit-date-slot">
-                  <span>Commits on {dateLabel(commit.occurred_at)}</span>
+                  <span>Commits on {dateLabel(commit.occurred_at, timezone)}</span>
                 </div>
               ) : null}
               <div className="commit-row-body" ref={expanded ? expandedRowBodyRef : undefined}>
@@ -396,6 +401,7 @@ export function CommitsPage({
   onRepo,
   onBranch,
   range,
+  timezone,
   sourceKind,
   colorOf,
 }: {
@@ -409,6 +415,7 @@ export function CommitsPage({
   onRepo: (repo: string | null) => void;
   onBranch: (branch: string | null) => void;
   range: TimeRange;
+  timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
 }) {
@@ -456,7 +463,7 @@ export function CommitsPage({
           </select>
         </label>
       </div>
-      <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
+      <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} timezone={timezone} />
     </main>
   );
 }
