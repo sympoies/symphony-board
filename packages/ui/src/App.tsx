@@ -558,6 +558,7 @@ export function App() {
       ) : page === "activity" ? (
         <ActivityPage
           activities={filteredActivities}
+          allActivities={env.activities ?? activeEnv.activities ?? []}
           windowTotal={windowedActivities.length}
           totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
           range={activeRange}

@@ -12,9 +12,9 @@ import {
 } from "../src/contract.ts";
 
 test("majorOf reads the leading integer of a version string (never NaN)", () => {
-  assert.equal(SUPPORTED_MAJOR, 2);
+  assert.equal(SUPPORTED_MAJOR, 3);
   assert.equal(majorOf("1.2.3"), 1);
-  assert.equal(majorOf("2.0.0"), 2);
+  assert.equal(majorOf("3.0.0"), 3);
   assert.equal(majorOf("10.4.1"), 10);
   assert.equal(majorOf(""), 0, "empty -> 0, not NaN");
 });

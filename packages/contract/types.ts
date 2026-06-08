@@ -164,13 +164,17 @@ export interface RepoMetricActorDTO {
 }
 
 export interface RepoMetricDataQualityDTO {
+  // Whether any activity row was observed for the repo at all. False means the
+  // commit/push/comment/review metrics are unreliable (only item lifecycle is
+  // trustworthy); the Repo Analytics badge renders this as "no activity".
   activity_available: boolean;
-  truncated: boolean;
+  // The earliest and latest activity instants observed for the repo, across ALL
+  // activity rows (not just the window) — so they can sit outside `window`. The
+  // Repo Analytics row renders `last_activity_at` as "last active", and derives
+  // its coverage badge by comparing both bounds to the window (see repoCoverage
+  // in the UI model). Both are null when no activity row carries a parseable
+  // timestamp.
   observed_since: string | null;
-  // The most recent activity instant observed for the repo (max occurred_at), or
-  // null when no activity row carries a parseable timestamp. The counterpart to
-  // observed_since; the Repo Analytics row renders this as "last active". Added
-  // in 2.5.0.
   last_activity_at: string | null;
   notes: string[];
 }

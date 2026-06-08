@@ -198,10 +198,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .badge-lifecycle-declared, .badge-status-partial { --h: var(--declared); }
 .badge-lifecycle-fulfilled, .badge-status-ok { --h: var(--fulfilled); }
 .badge-lifecycle-broken, .badge-status-error { --h: var(--broken); }
+.badge-status-idle { --h: var(--muted); } /* dormant coverage: same outlined shape, quiet neutral hue */
 .badge-open, .badge-closed, .badge-merged,
 .badge-lifecycle-declared, .badge-status-partial,
 .badge-lifecycle-fulfilled, .badge-status-ok,
-.badge-lifecycle-broken, .badge-status-error {
+.badge-lifecycle-broken, .badge-status-error, .badge-status-idle {
   color: color-mix(in srgb, var(--h) 82%, var(--text));
   border-color: var(--h);
   background: color-mix(in srgb, var(--h) 16%, transparent);
@@ -402,10 +403,73 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 
 /* activity page */
-.activity-page { margin: 12px 0; max-width: 980px; }
+.activity-page { margin: 12px 0; }
 .commits-page { margin: 12px 0; max-width: 1180px; }
-.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 980px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
+
+/* The feed keeps its ≤980px column; the heatmap rail fills the space that was
+   empty to its right. Below ~1800px the rail wraps under the feed. */
+.activity-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 980px) auto;
+  justify-content: start;
+  align-items: start;
+  gap: 20px;
+}
+.activity-layout > .activity-list { min-width: 0; }
+@media (max-width: 1800px) {
+  .activity-layout { grid-template-columns: minmax(0, 980px); }
+}
+
+/* --- Activity heatmap (trailing 12 months) --- */
+.activity-heatmap {
+  --hm-cell: 11px;
+  --hm-gap: 3px;
+  --hm-step: calc(var(--hm-cell) + var(--hm-gap));
+  --hm-weekday-w: 28px;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.hm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.hm-head h3 { margin: 0; font-size: 14px; }
+.hm-head .hm-total { margin-left: auto; font-size: 12px; color: var(--text); font-weight: 600; }
+.hm-calendar { display: flex; flex-direction: column; gap: 5px; }
+.hm-months {
+  position: relative; height: 13px; margin-left: var(--hm-weekday-w);
+  font-size: 10px; color: var(--muted);
+}
+.hm-months > span { position: absolute; left: calc(var(--hm-col) * var(--hm-step)); white-space: nowrap; }
+.hm-body { display: flex; gap: var(--hm-gap); }
+.hm-weekdays {
+  display: flex; flex-direction: column; gap: var(--hm-gap);
+  width: calc(var(--hm-weekday-w) - var(--hm-gap)); flex: none;
+  font-size: 10px; color: var(--muted);
+}
+.hm-weekdays > span { height: var(--hm-cell); line-height: var(--hm-cell); }
+.hm-grid { display: flex; gap: var(--hm-gap); }
+.hm-col { display: flex; flex-direction: column; gap: var(--hm-gap); }
+.hm-cell { width: var(--hm-cell); height: var(--hm-cell); border-radius: 2px; }
+.hm-cell[data-level="0"] { background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
+.hm-cell[data-level="1"] { background: color-mix(in srgb, var(--open) 28%, var(--panel)); }
+.hm-cell[data-level="2"] { background: color-mix(in srgb, var(--open) 52%, var(--panel)); }
+.hm-cell[data-level="3"] { background: color-mix(in srgb, var(--open) 76%, var(--panel)); }
+.hm-cell[data-level="4"] { background: var(--open); }
+.hm-cell-empty { background: transparent; }
+.hm-legend {
+  display: flex; align-items: center; gap: 4px; margin-left: var(--hm-weekday-w);
+  font-size: 10px; color: var(--muted);
+}
+.hm-legend .hm-cell { border-radius: 2px; }
+.hm-stats {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 16px;
+  margin: 0; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.hm-stats > div { display: contents; }
+.hm-stats dt { color: var(--muted); text-transform: capitalize; }
+.hm-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 /* Commits owns SCM-style filters instead of the shared facet Controls. */
 .commits-toolbar {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
@@ -750,7 +814,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .repo-table th:nth-child(2),
 .repo-table td:nth-child(2) { width: 150px; }
 .repo-table th:nth-child(11),
-.repo-table td:nth-child(11) { width: 96px; text-align: left; }
+.repo-table td:nth-child(11) { width: 104px; text-align: center; }
+/* Quality coverage pills: one fixed width with centered text so the column
+   reads as a tidy stack regardless of label length (active / partial / idle /
+   no data) — snug, ~2 chars of breathing room beside the widest label. */
+.repo-table td:nth-child(11) .badge { min-width: 64px; text-align: center; }
 .repo-table th:nth-child(12),
 .repo-table td:nth-child(12) { width: 180px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }

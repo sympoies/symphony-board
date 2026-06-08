@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.5.0`.
+Current emitted version: `3.0.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.5.0",
+  "contract_version": "3.0.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -174,7 +174,6 @@ package version, to decide compatibility.
       ],
       "data_quality": {
         "activity_available": true,
-        "truncated": false,
         "observed_since": "2026-05-24T00:00:00.000Z",
         "last_activity_at": "2026-06-07T08:50:00.000Z",
         "notes": []
@@ -466,11 +465,14 @@ Each row contains:
 - `series[]`: bucketed points using the same stats shape as `totals`.
 - `top_actors[]`: bounded actor summaries. This is an aggregate list, not an
   unbounded user directory. See "Actor identity" below.
-- `data_quality`: whether activity rows exist for the repo, whether the metric
-  row is truncated, the earliest (`observed_since`) and latest
+- `data_quality`: whether activity rows exist for the repo
+  (`activity_available`), the earliest (`observed_since`) and latest
   (`last_activity_at`) observed activity timestamps, and notes for provider or
-  coverage gaps. Both timestamps are `null` when no activity row carries a
-  parseable instant.
+  coverage gaps. Both timestamps are the repo's all-time bounds (computed across
+  every activity row, not just the window), so they can sit outside `window`;
+  both are `null` when no activity row carries a parseable instant. The UI
+  derives the Repo Analytics coverage badge from these against the window — see
+  the `3.0.0` note below.
 
 ### Actor identity
 
@@ -542,6 +544,19 @@ Because GitHub and GitLab expose different review surfaces, treat `reviews` as
 "available review signal per provider" and `approvals` as the cross-provider
 comparable subset. A repo with `data_quality.activity_available: true` and
 `reviews: 0` genuinely had no review activity in the window.
+
+Version `3.0.0` **removed** `data_quality.truncated` from each repo metric row.
+It was always `false`: repo metrics are derived from the full canonical item /
+edge / activity store, never from the windowed `items[]` payload, so a per-repo
+metric row is never truncated. The genuine truncation signal lives at the
+top-level `item_window.truncated`. No replacement field is added — the producer
+keeps emitting `activity_available`, `observed_since`, and `last_activity_at`,
+and the Repo Analytics "Quality" badge now derives a coverage verdict from them
+against the metric's window (no producer-side enum): `no activity` when
+`activity_available` is false; `idle` when `last_activity_at` predates the
+window (real dormancy, not a data gap); `partial` when `observed_since` falls
+inside the window (earlier counts are missing, not zero); otherwise `active`.
+This is a major bump because removing a field is breaking per the rules below.
 
 Version `2.5.0` added `data_quality.last_activity_at` to each repo metric row —
 the most recent observed activity instant (max `occurred_at`), the counterpart to
@@ -646,7 +661,7 @@ pnpm run validate --in data/contract.json
 ```
 
 For a major bump, plan a transition. The UI currently supports contract major
-v2 and warns on any other major.
+v3 and warns on any other major.
 
 ## Validation
 

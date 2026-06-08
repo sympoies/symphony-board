@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
-import { relativeTime, sourceDisplayName, type ColorOf, type TimeRange } from "../model.ts";
+import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 
@@ -91,10 +91,32 @@ function TrendBars({ metric }: { metric: RepoMetricDTO }) {
   );
 }
 
+// Coverage verdict -> badge text, hue, and a one-line "why". `partial`/`stale`
+// stay quiet visually (a dormant or recently-onboarded repo is not a fault),
+// while the data-gap states use the warning hue. `ok` is the green default.
+const COVERAGE_BADGE: Record<RepoCoverage, { text: string; kind: string; hint: string }> = {
+  ok: { text: "active", kind: "status-ok", hint: "" },
+  partial: {
+    text: "partial",
+    kind: "status-partial",
+    hint: "Activity coverage starts inside this window; counts before then are missing, not zero.",
+  },
+  stale: {
+    text: "idle",
+    kind: "status-idle",
+    hint: "No activity in this window; the repo was last active earlier.",
+  },
+  no_activity: {
+    text: "no data",
+    kind: "status-partial",
+    hint: "No activity rows observed; commit, push, comment, and review metrics may be incomplete.",
+  },
+};
+
 function QualityBadge({ metric }: { metric: RepoMetricDTO }) {
-  if (metric.data_quality.truncated) return <Badge text="truncated" kind="status-error" />;
-  if (!metric.data_quality.activity_available) return <Badge text="limited" kind="status-partial" />;
-  return <Badge text="activity" kind="status-ok" />;
+  const { text, kind, hint } = COVERAGE_BADGE[repoCoverage(metric)];
+  const title = [hint, ...metric.data_quality.notes].filter(Boolean).join(" ") || undefined;
+  return <Badge text={text} kind={kind} title={title} />;
 }
 
 function TopActors({ metric }: { metric: RepoMetricDTO }) {
@@ -211,7 +233,7 @@ export function RepoAnalyticsPage({
                     <td>{metric.totals.items_closed}</td>
                     <td>{metric.totals.change_requests_merged}</td>
                     <td title={`${metric.totals.approvals} approved`}>{metric.totals.reviews}</td>
-                    <td title={metric.data_quality.notes.join(" ") || undefined}><QualityBadge metric={metric} /></td>
+                    <td><QualityBadge metric={metric} /></td>
                     <td><TopActors metric={metric} /></td>
                   </tr>
                 );

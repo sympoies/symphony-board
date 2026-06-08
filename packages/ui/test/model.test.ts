@@ -20,6 +20,7 @@ import {
   activityDisplay,
   activityVirtualRange,
   filterActivitiesByRange,
+  buildActivityHeatmap,
   isCommitActivity,
   filterCommits,
   commitBranches,
@@ -52,6 +53,7 @@ import {
   deriveRepoOptions,
   applyVisibility,
   repoMetricMatches,
+  repoCoverage,
   sortRepoMetrics,
   sourceDisplayName,
   itemIsPrimaryWindow,
@@ -161,7 +163,7 @@ function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
         change_requests_merged: 0,
       },
     ],
-    data_quality: { activity_available: true, truncated: false, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [] },
+    data_quality: { activity_available: true, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [] },
     ...over,
   };
 }
@@ -781,6 +783,23 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
   assert.deepEqual(sortRepoMetrics([quiet, active]).map((metric) => metric.project_path), ["g/quiet", "o/active"]);
 });
 
+test("repoCoverage classifies a window against the repo's all-time activity bounds", () => {
+  // window is 2026-06-01 .. 2026-06-07 in the default fixture.
+  const win = (over: Partial<RepoMetricDTO["data_quality"]>) =>
+    repoCoverage(repoMetric({ data_quality: { activity_available: true, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-20T00:00:00.000Z", notes: [], ...over } }));
+
+  // observed since the window start, still active past it -> fully covered.
+  assert.equal(win({}), "ok");
+  // earliest-observed instant sits AFTER the window start -> early counts are missing.
+  assert.equal(win({ observed_since: "2026-06-04T00:00:00.000Z" }), "partial");
+  // last activity predates the window -> the in-window zeros are real dormancy.
+  assert.equal(win({ observed_since: "2026-05-01T00:00:00.000Z", last_activity_at: "2026-05-20T00:00:00.000Z" }), "stale");
+  // no activity rows at all -> commit/review metrics are unreliable.
+  assert.equal(win({ activity_available: false, observed_since: null, last_activity_at: null }), "no_activity");
+  // stale wins over partial when both timestamps fall before the window start.
+  assert.equal(win({ observed_since: "2026-05-01T00:00:00.000Z", last_activity_at: "2026-05-31T23:59:59.000Z" }), "stale");
+});
+
 test("applyVisibility hides a whole source independently of the repo set", () => {
   const env: ContractEnvelope = {
     contract_version: "1.1.0", generated_at: "2026-06-07T00:00:00Z", generator: "t", sources: [],
@@ -1109,4 +1128,48 @@ test("syncRunSummary distinguishes running, reloaded, dry-run, and error states"
   assert.match(syncRunSummary(syncRun({ dry_run: true, emitted: false }), now), /Dry-run completed/);
   assert.match(syncRunSummary(syncRun({ status: "error", emitted: false, error: "boom" }), now), /Sync failed .*: boom/);
   assert.equal(syncRunSummary(null, now), "");
+});
+
+test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid", () => {
+  const now = Date.parse("2026-06-08T12:00:00Z");
+  const activities = [
+    activity({ id: "t1", occurred_at: "2026-06-08T01:00:00Z", kind: "commit" }),
+    activity({ id: "t2", occurred_at: "2026-06-08T22:00:00Z", kind: "commit" }),
+    activity({ id: "t3", occurred_at: "2026-06-08T23:30:00Z", kind: "issue" }),
+    activity({ id: "y1", occurred_at: "2026-06-01T08:00:00Z", kind: "commit" }),
+    // Far outside the trailing 12-month window — must be excluded entirely.
+    activity({ id: "old", occurred_at: "2024-01-01T00:00:00Z", kind: "commit" }),
+    // After "today" — must not leak into a future cell.
+    activity({ id: "future", occurred_at: "2026-06-30T00:00:00Z", kind: "commit" }),
+  ];
+
+  const hm = buildActivityHeatmap(activities, now);
+
+  assert.equal(hm.weeks.length, 53, "53 week columns");
+  assert.ok(hm.weeks.every((w) => w.length === 7), "each column has 7 weekday rows");
+  assert.equal(hm.to, "2026-06-08");
+
+  const cells = hm.weeks.flat().filter((c): c is NonNullable<typeof c> => c !== null);
+  const byDate = new Map(cells.map((c) => [c.date, c]));
+
+  assert.equal(byDate.get("2026-06-08")?.count, 3, "three events land on the busiest day");
+  assert.equal(byDate.get("2026-06-01")?.count, 1);
+  assert.equal(byDate.get("2024-01-01"), undefined, "out-of-window day is not in the grid");
+
+  // No cell may carry a date after today — future activity stays out.
+  assert.ok(cells.every((c) => c.date <= "2026-06-08"), "no future-dated cells");
+  assert.equal(byDate.get("2026-06-30"), undefined);
+
+  assert.equal(hm.total, 4, "only the four in-window events count");
+  assert.equal(hm.maxCount, 3);
+  assert.equal(hm.busiest?.date, "2026-06-08");
+  assert.deepEqual(hm.byKind, [
+    { kind: "commit", count: 3 },
+    { kind: "issue", count: 1 },
+  ]);
+
+  const busy = byDate.get("2026-06-08");
+  const quiet = byDate.get("2026-06-01");
+  assert.ok((busy?.level ?? 0) > (quiet?.level ?? 0), "denser day gets a higher level");
+  assert.equal(byDate.get("2026-05-15")?.level, 0, "an empty day is level 0");
 });

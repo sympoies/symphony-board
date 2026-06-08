@@ -788,7 +788,6 @@ function buildRepoMetrics(
         ...(actorRows.length ? { top_actors: actorRows } : {}),
         data_quality: {
           activity_available: observedSince !== null,
-          truncated: false,
           observed_since: observedSince,
           last_activity_at: lastActivityAt,
           notes,

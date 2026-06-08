@@ -1,9 +1,11 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { ActivityFeed } from "./ActivityFeed.tsx";
+import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
 import type { ColorOf, TimeRange } from "../model.ts";
 
 export function ActivityPage({
   activities,
+  allActivities,
   windowTotal,
   totalActivities,
   range,
@@ -11,6 +13,9 @@ export function ActivityPage({
   colorOf,
 }: {
   activities: ActivityDTO[];
+  // The full, range-independent activity set powering the trailing-12-month
+  // heatmap; `activities` above is the range-filtered feed.
+  allActivities: ActivityDTO[];
   windowTotal: number;
   totalActivities: number;
   range: TimeRange;
@@ -33,7 +38,10 @@ export function ActivityPage({
           {windowTotal} window / {totalActivities} total · {range.from} to {range.to}
         </span>
       </div>
-      <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
+      <div className="activity-layout">
+        <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
+        <ActivityHeatmap activities={allActivities} />
+      </div>
     </main>
   );
 }
