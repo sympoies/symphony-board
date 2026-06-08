@@ -111,6 +111,7 @@ export function App() {
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
+  const needsRangeEnv = customRange && page !== "settings";
 
   useEffect(() => {
     saveHidden(hidden);
@@ -137,7 +138,7 @@ export function App() {
 
   useEffect(() => {
     if (!activeRange || !staticRange) return;
-    if (!customRange) {
+    if (!needsRangeEnv) {
       setRangeEnv(null);
       setRangeError(null);
       setRangeLoading(false);
@@ -162,9 +163,9 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeRange, customRange, staticRange]);
+  }, [activeRange, needsRangeEnv, staticRange]);
 
-  const activeEnv = customRange ? rangeEnv : env;
+  const activeEnv = needsRangeEnv ? rangeEnv : env;
 
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
@@ -381,8 +382,8 @@ export function App() {
     );
   }
 
-  if (!env || !activeRange || (customRange && rangeLoading && !rangeEnv)) return <div className="state-msg">Loading range…</div>;
-  if (customRange && rangeError && !rangeEnv) {
+  if (!env || !activeRange || (needsRangeEnv && rangeLoading && !rangeEnv)) return <div className="state-msg">Loading range…</div>;
+  if (needsRangeEnv && rangeError && !rangeEnv) {
     return (
       <div className="state-msg error">
         <p>Could not load selected range: {rangeError}</p>
