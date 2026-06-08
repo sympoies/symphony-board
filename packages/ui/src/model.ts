@@ -194,6 +194,20 @@ export const ACTIVE_SINCE_PRESETS = [
 ] as const satisfies ReadonlyArray<readonly [string, number | null]>;
 export const DEFAULT_ACTIVE_SINCE_DAYS = 90;
 
+export function defaultActiveSince(now: number = Date.now()): string {
+  return cutoffIso(DEFAULT_ACTIVE_SINCE_DAYS, now).slice(0, 10);
+}
+
+export function graphEffectiveSince(
+  since: string,
+  opts: { narrowed: boolean; relaxedForFocus: boolean; now?: number },
+): string {
+  if (since === "" && opts.relaxedForFocus && !opts.narrowed) {
+    return defaultActiveSince(opts.now);
+  }
+  return since;
+}
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;

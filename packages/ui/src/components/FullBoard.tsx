@@ -3,9 +3,9 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
 import {
   ACTIVE_SINCE_PRESETS,
-  DEFAULT_ACTIVE_SINCE_DAYS,
   anchorId,
   cutoffIso,
+  defaultActiveSince,
   itemActiveSince,
   STATUS_ORDER,
   STATUS_LABEL,
@@ -70,7 +70,6 @@ function Column({
 // in practice. The header still reports the true total either way.
 const COLUMN_CAP = 100;
 const CAPPED_STATUS: ReadonlySet<ItemStatus> = new Set<ItemStatus>(["trailing", "closed"]);
-const DEFAULT_SINCE = (): string => cutoffIso(DEFAULT_ACTIVE_SINCE_DAYS).slice(0, 10);
 
 // The primary, full-bleed board (GitHub-Projects style): the 4 status columns
 // and the 3 Spotlight lanes fused into one 7-column row.
@@ -93,7 +92,7 @@ export function FullBoard({
   colorOf: ColorOf;
   linkedIds: Set<string>;
 }) {
-  const [since, setSince] = useState<string>(DEFAULT_SINCE);
+  const [since, setSince] = useState<string>(defaultActiveSince);
   const cutoff = useMemo(() => (since ? new Date(since + "T00:00:00Z").toISOString() : null), [since]);
   const boardItems = useMemo(() => items.filter((it) => itemActiveSince(it, cutoff)), [items, cutoff]);
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };

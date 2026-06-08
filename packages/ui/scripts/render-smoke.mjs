@@ -206,6 +206,20 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  const clearedDeepLink = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const search = document.querySelector('.search');
+      if (!search) return { search: null, since: null, active: null };
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, '');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      const since = document.querySelector('.graph-since input')?.value || '';
+      const active = Array.from(document.querySelectorAll('.graph-controls .toggle-on'))
+        .map((el) => el.textContent?.trim())
+        .find((txt) => txt === '3mo' || txt === 'all') || '';
+      return { search: search.value, since, active };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   ws.close();
 
   // --- assertions ---
@@ -270,6 +284,7 @@ try {
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
+    [clearedDeepLink.search === "" && clearedDeepLink.since !== "" && clearedDeepLink.active === "3mo", `deep link: clearing search immediately restores the 3mo window (${clearedDeepLink.since || "empty"})`],
     // page 3: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

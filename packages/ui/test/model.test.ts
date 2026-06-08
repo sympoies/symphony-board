@@ -4,6 +4,7 @@ import type { ContractEnvelope, ItemDTO } from "@symphony-board/contract";
 import {
   ACTIVE_SINCE_PRESETS,
   DEFAULT_ACTIVE_SINCE_DAYS,
+  defaultActiveSince,
   emptyFilters,
   itemMatches,
   indexItems,
@@ -30,6 +31,7 @@ import {
   edgeEndpointIds,
   itemSearchToken,
   itemActiveSince,
+  graphEffectiveSince,
   type ResolvedEdge,
   type GraphNode,
 } from "../src/model.ts";
@@ -133,11 +135,20 @@ test("cutoffIso is deterministic for a fixed now", () => {
 test("active-since presets are shared and itemActiveSince uses updated_at", () => {
   assert.equal(DEFAULT_ACTIVE_SINCE_DAYS, 90);
   assert.deepEqual(ACTIVE_SINCE_PRESETS.map(([label]) => label), ["1w", "2w", "1mo", "3mo", "all"]);
+  assert.equal(defaultActiveSince(Date.parse("2026-06-10T00:00:00Z")), "2026-03-12");
   const cutoff = "2026-06-01T00:00:00.000Z";
   assert.equal(itemActiveSince(item({ updated_at: "2026-06-01T00:00:00Z" }), cutoff), true);
   assert.equal(itemActiveSince(item({ updated_at: "2026-05-31T23:59:59Z" }), cutoff), false);
   assert.equal(itemActiveSince(item({ updated_at: null }), cutoff), false);
   assert.equal(itemActiveSince(item({ updated_at: null }), null), true, "all keeps undated items");
+});
+
+test("graphEffectiveSince defaults a deep-link-owned all window before cleared search renders", () => {
+  const now = Date.parse("2026-06-10T00:00:00Z");
+  assert.equal(graphEffectiveSince("", { narrowed: false, relaxedForFocus: true, now }), "2026-03-12");
+  assert.equal(graphEffectiveSince("", { narrowed: true, relaxedForFocus: true, now }), "", "search narrowing keeps the focused all-time relaxation");
+  assert.equal(graphEffectiveSince("", { narrowed: false, relaxedForFocus: false, now }), "", "manual all-time choice is preserved");
+  assert.equal(graphEffectiveSince("2026-01-01", { narrowed: false, relaxedForFocus: true, now }), "2026-01-01", "manual date is preserved");
 });
 
 test("buildGraph keeps only edge-connected nodes, applies the time window, and flags untracked ends", () => {
