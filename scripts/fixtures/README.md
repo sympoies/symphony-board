@@ -14,7 +14,7 @@ The fixtures exercise:
 
 | Script | What it does |
 | --- | --- |
-| `seed-github-fixture.sh [owner/repo]` | Seeds a GitHub fixture repo via `gh`. Default target is `graysurf/symphony-board-fixture`. Requires authenticated `gh`. |
+| `seed-github-fixture.sh [owner/repo]` | Seeds a GitHub fixture repo via `gh`. Default target is `sympoies/symphony-board-fixture`. Requires authenticated `gh`. |
 | `seed-gitlab-fixture.mjs [namespace/path]` | Seeds a gitlab.com fixture project via REST. Default project is `symphony-board-fixture` under the token user's namespace. Requires `GITLAB_TOKEN` with API scope. |
 | `verify-board.mjs` | Headless-Chrome CDP probe of an already-served board URL. Checks board columns, graph nodes, links, theme/link styling, and fixture-derived counts. Read-only against the UI. |
 

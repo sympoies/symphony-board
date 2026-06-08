@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS meta (
 -- ---------------------------------------------------------------------------
 -- source: every registered record source (a provider instance). source_id is
 -- the stable handle used everywhere else, e.g. "github:github.com",
--- "gitlab:gitlab.gamania.com". source_id MUST NOT contain the '|' character —
+-- "gitlab:gitlab.example.com". source_id MUST NOT contain the '|' character —
 -- the contract composite ref ("<source_id>|<external_id>") splits on the first
 -- '|', and external_id (GitLab gids) may itself contain ':' and '/'.
 -- ---------------------------------------------------------------------------

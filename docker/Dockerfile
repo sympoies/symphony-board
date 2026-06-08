@@ -6,6 +6,11 @@
 # below are relative to the repo root, not to this docker/ directory.
 FROM node:24-alpine
 
+LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-board" \
+      org.opencontainers.image.title="symphony-board" \
+      org.opencontainers.image.description="Provider-agnostic work-item board sync and contract emitter" \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 # Source + the normative SQL schema (read at runtime by the migrator) + the
@@ -16,7 +21,7 @@ WORKDIR /app
 # stripping; the schema is read as a file from packages/contract).
 COPY package.json tsconfig.json ./
 COPY schema ./schema
-COPY packages ./packages
+COPY packages/contract ./packages/contract
 COPY src ./src
 COPY docker/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
