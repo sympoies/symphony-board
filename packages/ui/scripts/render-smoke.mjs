@@ -705,32 +705,32 @@ try {
   // enabled, enters the running (disabled) state on click, then completes and
   // shows the reloaded status. The "disabled" state is the run-active button;
   // the "unavailable" state (no control surface) is covered by the unit tests.
-  await waitValue("document.querySelector('.sync-control .sync-button') ? 1 : null");
+  await waitValue("document.querySelector('.header-aside .sync-button') ? 1 : null");
   const syncInitial = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const btn = document.querySelector('.sync-control .sync-button');
+      const btn = document.querySelector('.header-aside .sync-button');
       return { rendered: !!btn, enabled: !!btn && !btn.disabled, label: btn?.textContent?.trim() || '' };
     })()`,
     returnByValue: true,
   })).result.value || {};
-  await send("Runtime.evaluate", { expression: "document.querySelector('.sync-control .sync-button')?.click()" });
+  await send("Runtime.evaluate", { expression: "document.querySelector('.header-aside .sync-button')?.click()" });
   await sleep(150);
   const syncRunning = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const btn = document.querySelector('.sync-control .sync-button');
-      const status = document.querySelector('.sync-control .sync-status');
+      const btn = document.querySelector('.header-aside .sync-button');
+      const status = document.querySelector('.header-aside .sync-status');
       return { disabled: !!btn && btn.disabled, label: btn?.textContent?.trim() || '', status: status?.textContent?.trim() || '' };
     })()`,
     returnByValue: true,
   })).result.value || {};
   await waitValue(`(() => {
-    const status = document.querySelector('.sync-control .sync-status');
+    const status = document.querySelector('.header-aside .sync-status');
     return status && /Synced|reloaded/.test(status.textContent || '') ? 1 : null;
   })()`);
   const syncDone = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const btn = document.querySelector('.sync-control .sync-button');
-      const status = document.querySelector('.sync-control .sync-status');
+      const btn = document.querySelector('.header-aside .sync-button');
+      const status = document.querySelector('.header-aside .sync-status');
       return { enabled: !!btn && !btn.disabled, label: btn?.textContent?.trim() || '', status: status?.textContent?.trim() || '' };
     })()`,
     returnByValue: true,
