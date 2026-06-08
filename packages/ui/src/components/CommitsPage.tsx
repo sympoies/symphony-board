@@ -94,7 +94,6 @@ interface CommitVirtualRow {
   index: number;
   offset: number;
   height: number;
-  bodyHeight: number;
   showDate: boolean;
   body: string | null;
   expanded: boolean;
@@ -134,7 +133,7 @@ function buildCommitRows({
         rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
       : rowBodyHeight;
     const height = bodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + COMMIT_ROW_GAP_PX;
-    rows.push({ commit, index, offset, height, bodyHeight, showDate, body, expanded });
+    rows.push({ commit, index, offset, height, showDate, body, expanded });
     offset += height;
     previousDateKey = key;
   });
@@ -310,7 +309,6 @@ function CommitTimeline({
               style={
                 {
                   "--commit-row-height": `${row.height}px`,
-                  "--commit-row-body-height": `${row.bodyHeight}px`,
                   "--repo-color": accentColor ?? undefined,
                   transform: `translateY(${row.offset}px)`,
                 } as CSSProperties

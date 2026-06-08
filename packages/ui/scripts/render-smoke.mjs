@@ -481,6 +481,14 @@ try {
       const panel = document.querySelector('.commits-page .commit-body-panel');
       const row = panel?.closest('.commit-row');
       const body = row?.querySelector('.commit-row-body');
+      const main = row?.querySelector('.commit-row-main');
+      const actions = row?.querySelector('.commit-row-actions');
+      const panelRect = panel?.getBoundingClientRect();
+      const rowRect = row?.getBoundingClientRect();
+      const bodyRect = body?.getBoundingClientRect();
+      const mainRect = main?.getBoundingClientRect();
+      const actionsRect = actions?.getBoundingClientRect();
+      const contentBottom = Math.max(mainRect?.bottom ?? 0, actionsRect?.bottom ?? 0);
       const bodies = Array.from(document.querySelectorAll('.commits-page .commit-row-body'))
         .map((el) => {
           const rect = el.getBoundingClientRect();
@@ -492,6 +500,10 @@ try {
       const panelStyle = panel ? getComputedStyle(panel) : null;
       return {
         afterGap,
+        bodyTrailingGap: bodyRect && panelRect ? Math.round(bodyRect.bottom - panelRect.bottom) : null,
+        bodyContentTrailingGap: bodyRect && contentBottom > 0 ? Math.round(bodyRect.bottom - contentBottom) : null,
+        mainTrailingGap: mainRect && panelRect ? Math.round(mainRect.bottom - panelRect.bottom) : null,
+        rowTrailingGap: rowRect && bodyRect ? Math.round(rowRect.bottom - bodyRect.bottom) : null,
         overflowY: panelStyle?.overflowY || null,
         scrollHeight: panel?.scrollHeight || null,
         clientHeight: panel?.clientHeight || null,
@@ -712,7 +724,10 @@ try {
     [commitsBodyTogglePlacement.rendered === true && commitsBodyTogglePlacement.sameLine === true && commitsBodyTogglePlacement.hugsTitle === true, `commits: body toggle sits at the title tail (${commitsBodyTogglePlacement.lineWidth || 0}px of ${commitsBodyTogglePlacement.mainWidth || 0}px)`],
     [commitsBodyExpanded === true, "commits: clicking body toggle expands the commit body inline"],
     [commitsExpandedBodyLayout.scrollsInternally === false, `commits: expanded commit body renders without an inner scroller (${commitsExpandedBodyLayout.overflowY || "unknown"})`],
+    [commitsExpandedBodyLayout.mainTrailingGap >= 0 && commitsExpandedBodyLayout.mainTrailingGap <= 2, `commits: expanded body panel is the last main-column item (${commitsExpandedBodyLayout.mainTrailingGap}px)`],
+    [commitsExpandedBodyLayout.bodyContentTrailingGap >= 8 && commitsExpandedBodyLayout.bodyContentTrailingGap <= 18, `commits: expanded card shrinks to rendered content (${commitsExpandedBodyLayout.bodyContentTrailingGap}px)`],
     [commitsExpandedBodyLayout.afterGap >= 6 && commitsExpandedBodyLayout.afterGap <= 14, `commits: expanded row keeps compact spacing before the next row (${commitsExpandedBodyLayout.afterGap}px)`],
+    [commitsExpandedBodyLayout.rowTrailingGap >= 6 && commitsExpandedBodyLayout.rowTrailingGap <= 14, `commits: expanded virtual row reserves only the row gap (${commitsExpandedBodyLayout.rowTrailingGap}px)`],
     [commitsDateSlotsHaveLabels === true, "commits: date separator slots only render with date labels"],
     [commitsDateSlotsAreGrouped === true, "commits: rows without a date heading do not render standalone separators"],
     [commitsRowBodyGap.count >= 1 && commitsRowBodyGap.minGap >= 6, `commits: row cards keep visible spacing without separator glyphs (${commitsRowBodyGap.minGap}px >= 6px)`],

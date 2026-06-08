@@ -525,7 +525,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   padding: 10px 12px;
   overflow: hidden;
 }
-.commit-row-expanded .commit-row-body { align-items: flex-start; }
+.commit-row-expanded .commit-row-body {
+  align-items: flex-start;
+  min-height: 0;
+}
 .commit-row-accent .commit-row-body { box-shadow: inset 3px 0 0 var(--repo-color); }
 .commit-row-main {
   flex: 1 1 auto; min-width: 0;
