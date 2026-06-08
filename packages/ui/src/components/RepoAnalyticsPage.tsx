@@ -107,7 +107,7 @@ const COVERAGE_BADGE: Record<RepoCoverage, { text: string; kind: string; hint: s
     hint: "No activity in this window; the repo was last active earlier.",
   },
   no_activity: {
-    text: "no activity",
+    text: "no data",
     kind: "status-partial",
     hint: "No activity rows observed; commit, push, comment, and review metrics may be incomplete.",
   },

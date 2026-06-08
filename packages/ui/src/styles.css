@@ -814,11 +814,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .repo-table th:nth-child(2),
 .repo-table td:nth-child(2) { width: 150px; }
 .repo-table th:nth-child(11),
-.repo-table td:nth-child(11) { width: 124px; text-align: center; }
+.repo-table td:nth-child(11) { width: 104px; text-align: center; }
 /* Quality coverage pills: one fixed width with centered text so the column
    reads as a tidy stack regardless of label length (active / partial / idle /
-   no activity). */
-.repo-table td:nth-child(11) .badge { min-width: 92px; text-align: center; }
+   no data) — snug, ~2 chars of breathing room beside the widest label. */
+.repo-table td:nth-child(11) .badge { min-width: 64px; text-align: center; }
 .repo-table th:nth-child(12),
 .repo-table td:nth-child(12) { width: 180px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
