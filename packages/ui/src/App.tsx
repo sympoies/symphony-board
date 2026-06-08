@@ -331,7 +331,13 @@ export function App() {
   }
 
   function routeHref(nextPage: "board" | "graph" | "activity" | "repo-analytics" | "settings"): string {
-    return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search, from: explicitRange?.from, to: explicitRange?.to });
+    return buildHashRoute({
+      page: nextPage === "board" ? "" : nextPage,
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
   }
 
   function setRouteSearch(q: string) {
@@ -343,11 +349,12 @@ export function App() {
       q,
       from: explicitRange?.from,
       to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
     });
     if (readHash() !== next) window.location.hash = next;
   }
 
-  function setRouteRange(range: TimeRange) {
+  function setRouteRange(range: TimeRange, presetId: TimeRangePresetId | null = null) {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
       page: page === "board" ? "" : page,
@@ -355,6 +362,7 @@ export function App() {
       q: filters.search,
       from: range.from,
       to: range.to,
+      preset: presetId,
     });
     if (readHash() !== next) window.location.hash = next;
   }
@@ -434,7 +442,7 @@ export function App() {
           <TimeRangeControls
             range={activeRange}
             generatedAt={env.generated_at}
-            preferredPresetId={explicitRange ? null : defaultRangePreset}
+            preferredPresetId={explicitRange ? route.preset : defaultRangePreset}
             loading={rangeLoading}
             error={rangeError}
             onRange={setRouteRange}

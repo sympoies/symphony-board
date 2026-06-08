@@ -1,4 +1,4 @@
-import { sameTimeRange, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "../model.ts";
+import { activeTimeRangePresetId, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "../model.ts";
 
 export function TimeRangeControls({
   range,
@@ -13,19 +13,13 @@ export function TimeRangeControls({
   preferredPresetId?: TimeRangePresetId | null;
   loading?: boolean;
   error?: string | null;
-  onRange: (range: TimeRange) => void;
+  onRange: (range: TimeRange, presetId?: TimeRangePresetId | null) => void;
 }) {
   const generatedAtMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
   const presetOptions = TIME_RANGE_PRESETS.map((option) => ({ option, range: timeRangeForPreset(option.id, generatedAtMs) }));
-  const matchingPresetIds = presetOptions
-    .filter((candidate) => sameTimeRange(range, candidate.range))
-    .map((candidate) => candidate.option.id);
-  const activePresetId =
-    preferredPresetId && matchingPresetIds.includes(preferredPresetId)
-      ? preferredPresetId
-      : (matchingPresetIds[0] ?? null);
-  const setFrom = (from: string) => onRange({ ...range, from });
-  const setTo = (to: string) => onRange({ ...range, to });
+  const activePresetId = activeTimeRangePresetId(range, generatedAtMs, preferredPresetId);
+  const setFrom = (from: string) => onRange({ ...range, from }, null);
+  const setTo = (to: string) => onRange({ ...range, to }, null);
   return (
     <div className="time-range-controls">
       <span className="muted">range</span>
@@ -40,7 +34,7 @@ export function TimeRangeControls({
         {presetOptions.map(({ option, range: preset }) => {
           const active = option.id === activePresetId;
           return (
-            <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset)}>
+            <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset, option.id)}>
               {option.label}
             </button>
           );

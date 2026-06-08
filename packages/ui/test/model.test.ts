@@ -9,6 +9,7 @@ import {
   ACTIVITY_ROW_HEIGHT_PX,
   VIEW_SCOPES,
   VIEW_SCOPE_LABEL,
+  activeTimeRangePresetId,
   preferredDefaultTimeRange,
   staticContractTimeRange,
   timeRangeForPreset,
@@ -264,6 +265,8 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
   assert.deepEqual(staticContractTimeRange(env), { from: "2026-03-10", to: "2026-06-08" });
   assert.deepEqual(preferredDefaultTimeRange(env, "this-week"), { from: "2026-06-08", to: "2026-06-08" });
   assert.deepEqual(timeRangeForPreset("today", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-08", to: "2026-06-08" });
+  assert.equal(activeTimeRangePresetId({ from: "2026-06-08", to: "2026-06-08" }, Date.parse("2026-06-08T12:00:00Z"), "this-week"), "this-week");
+  assert.equal(activeTimeRangePresetId({ from: "2026-06-08", to: "2026-06-08" }, Date.parse("2026-06-08T12:00:00Z"), "today"), "today");
   assert.deepEqual(timeRangeForPreset("this-week", Date.parse("2026-06-07T12:00:00Z")), { from: "2026-06-01", to: "2026-06-07" });
   assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-01", to: "2026-06-08" });
   assert.deepEqual(normalizeTimeRange(range), range);
@@ -849,11 +852,11 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
   assert.ok(compareGraphNodes(t1, t2) > 0, "same bucket/date/label -> id tie-break stays stable");
 });
 
-test("parseHashRoute splits page from the optional ?focus= / ?q= deep-link params", () => {
-  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null, from: null, to: null }, "empty hash -> board, no params");
-  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null, from: null, to: null });
-  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null, from: null, to: null });
-  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null, from: null, to: null });
+test("parseHashRoute splits page from optional deep-link and range params", () => {
+  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null, from: null, to: null, preset: null }, "empty hash -> board, no params");
+  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null, from: null, to: null, preset: null });
   // focus + q are pulled off the hash and percent-decoded
   assert.deepEqual(parseHashRoute("#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342"), {
     page: "graph",
@@ -861,26 +864,28 @@ test("parseHashRoute splits page from the optional ?focus= / ?q= deep-link param
     q: "owner/repo #42",
     from: null,
     to: null,
+    preset: null,
   });
-  assert.deepEqual(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07"), {
+  assert.deepEqual(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07&preset=this-week"), {
     page: "activity",
     focus: null,
     q: null,
     from: "2026-06-01",
     to: "2026-06-07",
+    preset: "this-week",
   });
   // params on a non-graph page still parse (App only acts on them for the graph)
-  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null, from: null, to: null });
+  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null, from: null, to: null, preset: null });
   // empty/absent values are normalized to null
-  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null, from: null, to: null });
-  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null, from: null, to: null });
-  assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null, q: null, from: null, to: null });
+  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null, from: null, to: null, preset: null });
+  assert.deepEqual(parseHashRoute("#/graph?other=1&preset=bad"), { page: "graph", focus: null, q: null, from: null, to: null, preset: null });
 });
 
 test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.equal(buildHashRoute({ page: "" }), "#/");
   assert.equal(buildHashRoute({ page: "graph", q: "owner/repo #13" }), "#/graph?q=owner%2Frepo%20%2313");
-  assert.equal(buildHashRoute({ page: "activity", from: "2026-06-01", to: "2026-06-07" }), "#/activity?from=2026-06-01&to=2026-06-07");
+  assert.equal(buildHashRoute({ page: "activity", from: "2026-06-01", to: "2026-06-07", preset: "this-week" }), "#/activity?from=2026-06-01&to=2026-06-07&preset=this-week");
   assert.equal(
     buildHashRoute({ page: "graph", focus: "github:github.com|42", q: "owner/repo #42" }),
     "#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342",
@@ -892,6 +897,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     q: "owner/repo #13",
     from: null,
     to: null,
+    preset: null,
   });
 });
 
