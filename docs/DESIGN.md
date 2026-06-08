@@ -124,6 +124,12 @@ open vocabulary; the stable contract is the row shape, not a closed event enum.
 tracked item. Human fields such as `project_path`, `target_iid`, and `title`
 are display metadata.
 
+Commit activities keep the title/subject as the first message line and may carry
+the remaining message text in `details.body`. REST commit feeds are annotated
+with the provider default branch as `details.branch` / `details.ref` when the
+repository/project metadata call succeeds; this is the low-cost branch selector
+signal, not a complete multi-branch membership graph.
+
 ## Actor identity
 
 `actor` is a raw display string and is not a reliable key: one human shows up as
@@ -327,10 +333,11 @@ Pages:
 - **Commits**: commit-only SCM log over `activities[]`, styled separately from
   Activity so it behaves like a provider-neutral commit history. It keeps repo
   and branch filters local to the page, links each message to the provider
-  commit URL, exposes short SHAs with copy buttons, and shows branch choices
-  only when commit rows carry ref details. Provider-specific signals such as
-  GitHub Verified badges or check counts are intentionally omitted until the
-  contract has comparable GitHub and GitLab semantics.
+  commit URL, exposes short SHAs with copy buttons, expands commit body text
+  when available, and shows branch choices only when commit rows carry ref
+  details. Provider-specific signals such as GitHub Verified badges or check
+  counts are intentionally omitted until the contract has comparable GitHub and
+  GitLab semantics.
 - **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
   the shared date range and source/state/kind/search controls, ranks repos by
   contract `activity_score`, renders compact trend bars from contract series

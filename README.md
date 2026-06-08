@@ -79,6 +79,8 @@ where a provider exposes enough information.
 Activity rows are separate from items and edges. Items are current state;
 activity records are timestamped developer-significant events such as commit
 pushes, branch/tag events, and issue or PR/MR open/close/merge transitions.
+Commit activity details may include the full commit body and the provider
+default branch/ref when the REST source exposes that metadata.
 
 ## Workspace
 

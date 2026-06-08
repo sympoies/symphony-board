@@ -24,6 +24,7 @@ import {
   filterCommits,
   commitBranches,
   commitBranchOptions,
+  commitBody,
   commitMessage,
   commitSha,
   commitShortSha,
@@ -209,7 +210,18 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
 });
 
 test("filterCommits keeps only commit records, optionally pinned to one repo", () => {
-  const commitA = activity({ id: "github:github.com|c1", external_id: "c1", kind: "commit", action: "committed", project_path: "owner/repo", details: { sha: "aaaaaaaaaaaaaaaa", refs: ["refs/heads/main", "feature/x"] } });
+  const commitA = activity({
+    id: "github:github.com|c1",
+    external_id: "c1",
+    kind: "commit",
+    action: "committed",
+    project_path: "owner/repo",
+    details: {
+      sha: "aaaaaaaaaaaaaaaa",
+      refs: ["refs/heads/main", "feature/x"],
+      body: "Explain the change\n\nMore detail",
+    },
+  });
   const commitB = activity({ id: "gitlab:gitlab.com|c2", external_id: "c2", source_id: "gitlab:gitlab.com", kind: "commit", action: "committed", project_path: "grp/proj", details: { sha: "bbbbbbbbbbbbbbbb", branch: "main" } });
   const issueEvent = activity({ id: "github:github.com|i1", external_id: "i1", kind: "issue", action: "closed", project_path: "owner/repo" });
   const all = [commitA, issueEvent, commitB];
@@ -219,6 +231,8 @@ test("filterCommits keeps only commit records, optionally pinned to one repo", (
   assert.equal(commitSha(commitA), "aaaaaaaaaaaaaaaa");
   assert.equal(commitShortSha(commitA), "aaaaaaaa");
   assert.equal(commitMessage(commitA), "Closed issue");
+  assert.equal(commitBody(commitA), "Explain the change\n\nMore detail");
+  assert.equal(commitBody(commitB), null);
   assert.deepEqual(commitBranches(commitA), ["feature/x", "main"]);
   // no repo -> every commit, no non-commit
   assert.deepEqual(filterCommits(all, null).map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2"]);

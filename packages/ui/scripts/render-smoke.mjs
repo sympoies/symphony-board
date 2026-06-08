@@ -58,7 +58,12 @@ function inflateActivityContract(body) {
       summary: `${summary} smoke ${i}`,
       details: {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
-        ...(a.kind === "commit" ? { refs: [i % 2 === 0 ? "refs/heads/main" : "refs/heads/release"] } : {}),
+        ...(a.kind === "commit"
+          ? {
+              refs: [i % 2 === 0 ? "refs/heads/main" : "refs/heads/release"],
+              ...(i % 3 === 0 ? { body: `Smoke body ${i}\n\nRendered commit body details.` } : {}),
+            }
+          : {}),
         smoke_index: i,
       },
     };
@@ -383,6 +388,30 @@ try {
     expression: "document.querySelectorAll('.commits-page button[aria-label^=\"Copy commit hash\"]').length > 0",
     returnByValue: true,
   })).result.value || false;
+  const commitsDateSlotsHaveLabels = (await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.commits-page .commit-date-slot'))
+      .every((el) => (el.textContent || '').includes('Commits on '))`,
+    returnByValue: true,
+  })).result.value || false;
+  const commitsDateSlotsAreGrouped = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('.commits-page .commit-date-slot').length < document.querySelectorAll('.commits-page .commit-row').length",
+    returnByValue: true,
+  })).result.value || false;
+  const commitsBodyButtons = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('.commits-page button[aria-label^=\"Show commit body\"]').length",
+    returnByValue: true,
+  })).result.value || 0;
+  await send("Runtime.evaluate", {
+    expression: "document.querySelector('.commits-page button[aria-label^=\"Show commit body\"]')?.click()",
+  });
+  await sleep(250);
+  const commitsBodyExpanded = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const panel = document.querySelector('.commits-page .commit-body-panel');
+      return !!panel && (panel.textContent || '').includes('Rendered commit body details.');
+    })()`,
+    returnByValue: true,
+  })).result.value || false;
   const commitsBranchControl = (await send("Runtime.evaluate", {
     expression: `(() => {
       const select = document.querySelector('.commit-branch-select select');
@@ -588,6 +617,10 @@ try {
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
     [commitsHasCopyHash === true, "commits: commit hash copy buttons rendered"],
     [commitsBranchControl.rendered === true && commitsBranchControl.enabled === true && commitsBranchControl.options >= 3, `commits: branch selector renders all plus synthetic branches (${commitsBranchControl.options || 0} options)`],
+    [commitsBodyButtons >= 1, `commits: body toggle renders for commits with details.body (${commitsBodyButtons} >= 1)`],
+    [commitsBodyExpanded === true, "commits: clicking body toggle expands the commit body inline"],
+    [commitsDateSlotsHaveLabels === true, "commits: date separator slots only render with date labels"],
+    [commitsDateSlotsAreGrouped === true, "commits: rows without a date heading do not render standalone separators"],
     [has(commitsHtml, "Commits on") && has(commitsHtml, "abc1234"), "commits: date grouping and short hash rendered"],
     [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
     [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking an option writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],

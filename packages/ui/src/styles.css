@@ -493,8 +493,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   position: absolute; left: 0; right: 0;
   height: var(--commit-row-height);
   box-sizing: border-box;
-  padding-top: 22px;
+  padding-top: 0;
 }
+.commit-row-has-date { padding-top: 22px; }
 .commit-date-slot {
   position: absolute; top: 0; left: 0; right: 0;
   height: 20px;
@@ -508,24 +509,61 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 .commit-row-body {
   display: flex; align-items: center; gap: 12px;
-  min-height: 68px; box-sizing: border-box;
+  min-height: var(--commit-row-body-height);
+  box-sizing: border-box;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
   overflow: hidden;
 }
+.commit-row-expanded .commit-row-body { align-items: flex-start; }
 .commit-row-accent .commit-row-body { box-shadow: inset 3px 0 0 var(--repo-color); }
 .commit-row-main {
   flex: 1 1 auto; min-width: 0;
   display: flex; flex-direction: column; gap: 6px;
 }
+.commit-title-line {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0;
+}
 .commit-message-link {
+  flex: 1 1 auto;
   color: var(--text); font-weight: 600; line-height: 1.25;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .commit-message-link:hover { color: var(--accent); }
 .commit-message-text:hover { color: var(--text); }
+.commit-body-toggle {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 25px; height: 20px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+.commit-body-toggle:hover, .commit-body-toggle[aria-expanded="true"] {
+  color: var(--text);
+  border-color: var(--line);
+}
+.commit-body-panel {
+  max-height: var(--commit-body-panel-max-height);
+  overflow: auto;
+  border: 1px solid rgba(139, 164, 164, 0.24);
+  border-radius: 6px;
+  background: rgba(139, 164, 164, 0.08);
+  padding: 8px 10px;
+}
+.commit-body-panel pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 .commit-row-meta {
   display: flex; align-items: center; gap: 6px 10px;
   min-width: 0; overflow: hidden; white-space: nowrap;
@@ -611,10 +649,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   .commit-row-body {
     align-items: stretch;
     flex-direction: column;
-    min-height: 128px;
+    min-height: var(--commit-row-body-height);
   }
   .commit-row-actions { align-self: flex-start; margin-top: 0; }
   .commit-row-meta { flex-wrap: wrap; white-space: normal; }
+  .commit-title-line { align-items: flex-start; }
   .commit-message-link { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 }
 
