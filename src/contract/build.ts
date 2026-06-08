@@ -11,6 +11,11 @@ import type {
   SourceDTO,
   RepoDTO,
   RepoStatsDTO,
+  RepoMetricActorDTO,
+  RepoMetricBucket,
+  RepoMetricDTO,
+  RepoMetricStatsDTO,
+  RepoMetricWindowDTO,
   LabelDTO,
   AggregateDTO,
   AggregateStatsDTO,
@@ -31,6 +36,7 @@ const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
 const ACTIVE_WINDOW_DAYS = [7, 14, 30, 90] as const;
 const CONTRACT_ITEM_WINDOW_DAYS = 90;
+const MAX_REPO_METRIC_ACTORS = 5;
 
 function toLabelDTO(l: LabelRow): LabelDTO {
   return { name: l.name, scope: l.scope, color: l.color };
@@ -265,6 +271,315 @@ function buildRepoStats(items: ItemDTO[]): RepoStatsDTO[] {
   );
 }
 
+function emptyRepoMetricStats(): RepoMetricStatsDTO {
+  return {
+    items_active: 0,
+    items_opened: 0,
+    items_closed: 0,
+    change_requests_opened: 0,
+    change_requests_closed: 0,
+    change_requests_merged: 0,
+    activities: 0,
+    commits: 0,
+    pushes: 0,
+    comments: 0,
+    reviews: 0,
+    approvals: 0,
+    edge_declared: 0,
+    edge_fulfilled: 0,
+    edge_broken: 0,
+    by_item_state: {},
+    by_item_kind: {},
+    by_activity_kind: {},
+    by_activity_action: {},
+    by_edge_type: {},
+    by_edge_lifecycle: {},
+    by_review_state: {},
+    by_ci_state: {},
+    by_merge_state: {},
+    by_label_scope: {},
+  };
+}
+
+function repoKey(sourceId: string, projectPath: string | null): string {
+  return JSON.stringify([sourceId, projectPath]);
+}
+
+function repoSort(a: { source_id: string; project_path: string | null }, b: { source_id: string; project_path: string | null }): number {
+  return a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? "");
+}
+
+function rangeMs(range: TimeRangeDTO): { fromMs: number; toMs: number } {
+  return { fromMs: Date.parse(range.from), toMs: Date.parse(range.to) };
+}
+
+function windowDays(range: TimeRangeDTO): number {
+  const { fromMs, toMs } = rangeMs(range);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return 0;
+  return Math.ceil((toMs - fromMs + 1) / 86_400_000);
+}
+
+function repoMetricBucket(range: TimeRangeDTO): RepoMetricBucket {
+  const days = windowDays(range);
+  if (days <= 31) return "day";
+  if (days <= 180) return "week";
+  return "month";
+}
+
+function startOfUtcDay(ms: number): number {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+function addBucket(startMs: number, bucket: RepoMetricBucket): number {
+  const d = new Date(startMs);
+  if (bucket === "day") d.setUTCDate(d.getUTCDate() + 1);
+  else if (bucket === "week") d.setUTCDate(d.getUTCDate() + 7);
+  else d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.getTime();
+}
+
+function bucketRanges(range: TimeRangeDTO, bucket: RepoMetricBucket): TimeRangeDTO[] {
+  const { fromMs, toMs } = rangeMs(range);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return [];
+  const buckets: TimeRangeDTO[] = [];
+  let cursor = startOfUtcDay(fromMs);
+  while (cursor <= toMs) {
+    const next = addBucket(cursor, bucket);
+    const start = Math.max(cursor, fromMs);
+    const end = Math.min(next - 1, toMs);
+    buckets.push({ from: new Date(start).toISOString(), to: new Date(end).toISOString() });
+    cursor = next;
+  }
+  return buckets;
+}
+
+function valueInRange(value: string | null | undefined, range: TimeRangeDTO): boolean {
+  const valueMs = timestampMs(value);
+  const { fromMs, toMs } = rangeMs(range);
+  return valueMs !== null && Number.isFinite(fromMs) && Number.isFinite(toMs) && valueMs >= fromMs && valueMs <= toMs;
+}
+
+function isCommitActivity(activity: ActivityDTO): boolean {
+  return activity.kind === "commit" || activity.action === "committed";
+}
+
+function isPushActivity(activity: ActivityDTO): boolean {
+  return activity.kind === "push" || activity.action === "pushed" || activity.action === "force_pushed";
+}
+
+function isCommentActivity(activity: ActivityDTO): boolean {
+  return activity.kind === "comment" || activity.action.includes("comment");
+}
+
+function isReviewActivity(activity: ActivityDTO): boolean {
+  return activity.kind === "review" || activity.action.includes("review");
+}
+
+function isApprovalActivity(activity: ActivityDTO): boolean {
+  return activity.action === "approved" || activity.action.includes("approval");
+}
+
+function actorStats(map: Map<string, RepoMetricActorDTO>, actor: string | null): RepoMetricActorDTO | null {
+  const name = actor?.trim();
+  if (!name) return null;
+  const existing = map.get(name);
+  if (existing) return existing;
+  const next = { actor: name, activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
+  map.set(name, next);
+  return next;
+}
+
+function topActors(map: Map<string, RepoMetricActorDTO>): RepoMetricActorDTO[] {
+  return [...map.values()]
+    .sort(
+      (a, b) =>
+        b.activities - a.activities ||
+        b.commits - a.commits ||
+        b.items_opened - a.items_opened ||
+        b.change_requests_merged - a.change_requests_merged ||
+        a.actor.localeCompare(b.actor),
+    )
+    .slice(0, MAX_REPO_METRIC_ACTORS);
+}
+
+function edgeEndpointItems(edge: EdgeDTO, byId: Map<string, ItemDTO>): ItemDTO[] {
+  const items: ItemDTO[] = [];
+  const from = byId.get(edge.from);
+  const to = byId.get(edge.to);
+  if (from) items.push(from);
+  if (to && to.id !== from?.id) items.push(to);
+  return items;
+}
+
+function edgeTouchesRange(edge: EdgeDTO, byId: Map<string, ItemDTO>, range: TimeRangeDTO): boolean {
+  const endpoints = edgeEndpointItems(edge, byId);
+  return endpoints.length === 0 || endpoints.some((item) => valueInRange(item.updated_at, range));
+}
+
+function repoActivityObservedSince(activities: ActivityDTO[]): string | null {
+  let earliest: string | null = null;
+  for (const activity of activities) {
+    const ms = timestampMs(activity.occurred_at);
+    if (ms === null) continue;
+    if (earliest === null || ms < Date.parse(earliest)) earliest = activity.occurred_at;
+  }
+  return earliest;
+}
+
+function computeRepoMetricStats(
+  items: ItemDTO[],
+  edges: EdgeDTO[],
+  activities: ActivityDTO[],
+  byId: Map<string, ItemDTO>,
+  range: TimeRangeDTO,
+  actors?: Map<string, RepoMetricActorDTO>,
+): RepoMetricStatsDTO {
+  const stats = emptyRepoMetricStats();
+
+  for (const item of items) {
+    const active = valueInRange(item.updated_at, range);
+    if (active) {
+      stats.items_active += 1;
+      inc(stats.by_item_state, item.state);
+      inc(stats.by_item_kind, item.kind);
+      if (item.review_state) inc(stats.by_review_state, item.review_state);
+      if (item.ci_state) inc(stats.by_ci_state, item.ci_state);
+      if (item.merge_state) inc(stats.by_merge_state, item.merge_state);
+      for (const label of item.labels) inc(stats.by_label_scope, label.scope ?? "unscoped");
+    }
+
+    if (valueInRange(item.created_at, range)) {
+      stats.items_opened += 1;
+      const actor = actors ? actorStats(actors, item.author) : null;
+      if (actor) actor.items_opened += 1;
+      if (item.kind === "change_request") stats.change_requests_opened += 1;
+    }
+    if (valueInRange(item.closed_at, range)) {
+      stats.items_closed += 1;
+      if (item.kind === "change_request" && item.state === "closed") stats.change_requests_closed += 1;
+    }
+    if (item.kind === "change_request" && valueInRange(item.merged_at, range)) {
+      stats.change_requests_merged += 1;
+      const actor = actors ? actorStats(actors, item.author) : null;
+      if (actor) actor.change_requests_merged += 1;
+    }
+  }
+
+  for (const activity of activities) {
+    if (!valueInRange(activity.occurred_at, range)) continue;
+    stats.activities += 1;
+    inc(stats.by_activity_kind, activity.kind);
+    inc(stats.by_activity_action, activity.action);
+    const actor = actors ? actorStats(actors, activity.actor) : null;
+    if (actor) actor.activities += 1;
+
+    if (isCommitActivity(activity)) {
+      stats.commits += 1;
+      if (actor) actor.commits += 1;
+    }
+    if (isPushActivity(activity)) stats.pushes += 1;
+    if (isCommentActivity(activity)) stats.comments += 1;
+    if (isReviewActivity(activity)) stats.reviews += 1;
+    if (isApprovalActivity(activity)) stats.approvals += 1;
+  }
+
+  for (const edge of edges) {
+    if (!edgeTouchesRange(edge, byId, range)) continue;
+    inc(stats.by_edge_type, edge.type);
+    inc(stats.by_edge_lifecycle, edge.lifecycle ?? "other");
+    if (edge.lifecycle === "declared") stats.edge_declared += 1;
+    else if (edge.lifecycle === "fulfilled") stats.edge_fulfilled += 1;
+    else if (edge.lifecycle === "broken") stats.edge_broken += 1;
+  }
+
+  return stats;
+}
+
+function buildRepoMetricWindow(kind: RepoMetricWindowDTO["kind"], range: TimeRangeDTO): RepoMetricWindowDTO {
+  return { kind, basis: "repo_activity", from: range.from, to: range.to, bucket: repoMetricBucket(range) };
+}
+
+function buildRepoMetrics(
+  items: ItemDTO[],
+  edges: EdgeDTO[],
+  activities: ActivityDTO[],
+  window: RepoMetricWindowDTO,
+): RepoMetricDTO[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const repoItems = new Map<string, ItemDTO[]>();
+  const repoActivities = new Map<string, ActivityDTO[]>();
+  const repoEdges = new Map<string, EdgeDTO[]>();
+  const repoIdentity = new Map<string, { source_id: string; project_path: string | null }>();
+
+  const ensureRepo = (source_id: string, project_path: string | null): string => {
+    const key = repoKey(source_id, project_path);
+    if (!repoIdentity.has(key)) repoIdentity.set(key, { source_id, project_path });
+    return key;
+  };
+
+  for (const item of items) {
+    const key = ensureRepo(item.source_id, item.project_path);
+    const list = repoItems.get(key) ?? [];
+    list.push(item);
+    repoItems.set(key, list);
+  }
+
+  for (const activity of activities) {
+    const key = ensureRepo(activity.source_id, activity.project_path);
+    const list = repoActivities.get(key) ?? [];
+    list.push(activity);
+    repoActivities.set(key, list);
+  }
+
+  for (const edge of edges) {
+    const keys = new Set<string>();
+    for (const endpoint of edgeEndpointItems(edge, byId)) keys.add(ensureRepo(endpoint.source_id, endpoint.project_path));
+    for (const key of keys) {
+      const list = repoEdges.get(key) ?? [];
+      list.push(edge);
+      repoEdges.set(key, list);
+    }
+  }
+
+  const range: TimeRangeDTO = { from: window.from, to: window.to };
+  return [...repoIdentity.entries()]
+    .map(([key, identity]) => {
+      const itemsForRepo = repoItems.get(key) ?? [];
+      const activitiesForRepo = repoActivities.get(key) ?? [];
+      const edgesForRepo = repoEdges.get(key) ?? [];
+      const actors = new Map<string, RepoMetricActorDTO>();
+      const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors);
+      const actorRows = topActors(actors);
+      const series = bucketRanges(range, window.bucket).map((bucket) => ({
+        bucket_start: bucket.from,
+        bucket_end: bucket.to,
+        stats: computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, bucket),
+      }));
+      const observedSince = repoActivityObservedSince(activitiesForRepo);
+      const notes: string[] = [];
+      if (observedSince === null) {
+        notes.push("No activity rows observed for this repo; commit, push, comment, and review metrics may be incomplete.");
+      }
+      if (identity.project_path === null) notes.push("Project path is missing, so this row groups provider data without repo display metadata.");
+      return {
+        source_id: identity.source_id,
+        project_path: identity.project_path,
+        window,
+        totals,
+        series,
+        ...(actorRows.length ? { top_actors: actorRows } : {}),
+        data_quality: {
+          activity_available: observedSince !== null,
+          truncated: false,
+          observed_since: observedSince,
+          notes,
+        },
+      };
+    })
+    .sort(repoSort);
+}
+
 function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string): AggregateDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const graphBaseEdges = noMentions(edges);
@@ -418,6 +733,11 @@ export interface BuildInput {
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
   const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
+  const repoMetricRange = {
+    from: cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, input.generatedAt),
+    to: input.generatedAt,
+  };
+  const repoMetricWindow = buildRepoMetricWindow("active_since", repoMetricRange);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
@@ -430,6 +750,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow),
   };
 }
 
@@ -465,6 +786,7 @@ export interface BuildRangeInput extends BuildInput {
 export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const mapped = mapRows(input);
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
+  const repoMetricWindow = buildRepoMetricWindow("time_range", input.range);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
@@ -477,6 +799,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow),
     range_query: { kind: "time_range", timezone: "UTC", from: input.range.from, to: input.range.to },
   };
 }

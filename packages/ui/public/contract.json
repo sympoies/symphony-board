@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.1.0",
+  "contract_version": "2.2.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "sources": [
@@ -811,6 +811,362 @@
       "by_kind": {
         "issue": 1,
         "change_request": 1
+      }
+    }
+  ],
+  "repo_metrics": [
+    {
+      "source_id": "github:github.com",
+      "project_path": "sympoies/symphony-board",
+      "window": {
+        "kind": "active_since",
+        "basis": "repo_activity",
+        "from": "2026-03-09T09:00:00.000Z",
+        "to": "2026-06-07T09:00:00.000Z",
+        "bucket": "week"
+      },
+      "totals": {
+        "items_active": 6,
+        "items_opened": 5,
+        "items_closed": 2,
+        "change_requests_opened": 3,
+        "change_requests_closed": 1,
+        "change_requests_merged": 1,
+        "activities": 9,
+        "commits": 3,
+        "pushes": 2,
+        "comments": 2,
+        "reviews": 1,
+        "approvals": 1,
+        "edge_declared": 2,
+        "edge_fulfilled": 1,
+        "edge_broken": 1,
+        "by_item_state": {
+          "closed": 2,
+          "merged": 1,
+          "open": 3
+        },
+        "by_item_kind": {
+          "issue": 3,
+          "change_request": 3
+        },
+        "by_activity_kind": {
+          "commit": 3,
+          "push": 2,
+          "issue": 2,
+          "change_request": 2
+        },
+        "by_activity_action": {
+          "committed": 3,
+          "pushed": 2,
+          "closed": 1,
+          "merged": 1,
+          "commented": 1,
+          "approved": 1
+        },
+        "by_edge_type": {
+          "closes": 4
+        },
+        "by_edge_lifecycle": {
+          "declared": 2,
+          "fulfilled": 1,
+          "broken": 1
+        },
+        "by_review_state": {
+          "approved": 1,
+          "review_required": 1,
+          "changes_requested": 1
+        },
+        "by_ci_state": {
+          "passing": 1,
+          "pending": 1,
+          "failing": 1
+        },
+        "by_merge_state": {
+          "mergeable": 1,
+          "blocked": 1,
+          "conflicting": 1
+        },
+        "by_label_scope": {
+          "priority": 3,
+          "workflow": 2,
+          "unscoped": 4
+        }
+      },
+      "series": [
+        {
+          "bucket_start": "2026-05-24T00:00:00.000Z",
+          "bucket_end": "2026-05-30T23:59:59.999Z",
+          "stats": {
+            "items_active": 1,
+            "items_opened": 1,
+            "items_closed": 0,
+            "change_requests_opened": 0,
+            "change_requests_closed": 0,
+            "change_requests_merged": 0,
+            "activities": 2,
+            "commits": 1,
+            "pushes": 1,
+            "comments": 0,
+            "reviews": 0,
+            "approvals": 0,
+            "edge_declared": 1,
+            "edge_fulfilled": 0,
+            "edge_broken": 0,
+            "by_item_state": {
+              "open": 1
+            },
+            "by_item_kind": {
+              "issue": 1
+            },
+            "by_activity_kind": {
+              "commit": 1,
+              "push": 1
+            },
+            "by_activity_action": {
+              "committed": 1,
+              "pushed": 1
+            },
+            "by_edge_type": {
+              "closes": 1
+            },
+            "by_edge_lifecycle": {
+              "declared": 1
+            },
+            "by_review_state": {},
+            "by_ci_state": {},
+            "by_merge_state": {},
+            "by_label_scope": {
+              "workflow": 1
+            }
+          }
+        },
+        {
+          "bucket_start": "2026-05-31T00:00:00.000Z",
+          "bucket_end": "2026-06-07T09:00:00.000Z",
+          "stats": {
+            "items_active": 5,
+            "items_opened": 4,
+            "items_closed": 2,
+            "change_requests_opened": 3,
+            "change_requests_closed": 1,
+            "change_requests_merged": 1,
+            "activities": 7,
+            "commits": 2,
+            "pushes": 1,
+            "comments": 2,
+            "reviews": 1,
+            "approvals": 1,
+            "edge_declared": 1,
+            "edge_fulfilled": 1,
+            "edge_broken": 1,
+            "by_item_state": {
+              "closed": 2,
+              "merged": 1,
+              "open": 2
+            },
+            "by_item_kind": {
+              "issue": 2,
+              "change_request": 3
+            },
+            "by_activity_kind": {
+              "commit": 2,
+              "push": 1,
+              "issue": 2,
+              "change_request": 2
+            },
+            "by_activity_action": {
+              "committed": 2,
+              "pushed": 1,
+              "closed": 1,
+              "merged": 1,
+              "commented": 1,
+              "approved": 1
+            },
+            "by_edge_type": {
+              "closes": 3
+            },
+            "by_edge_lifecycle": {
+              "declared": 1,
+              "fulfilled": 1,
+              "broken": 1
+            },
+            "by_review_state": {
+              "approved": 1,
+              "review_required": 1,
+              "changes_requested": 1
+            },
+            "by_ci_state": {
+              "passing": 1,
+              "pending": 1,
+              "failing": 1
+            },
+            "by_merge_state": {
+              "mergeable": 1,
+              "blocked": 1,
+              "conflicting": 1
+            },
+            "by_label_scope": {
+              "priority": 3,
+              "workflow": 1,
+              "unscoped": 4
+            }
+          }
+        }
+      ],
+      "top_actors": [
+        {
+          "actor": "maintainer",
+          "activities": 4,
+          "commits": 1,
+          "items_opened": 2,
+          "change_requests_merged": 0
+        },
+        {
+          "actor": "reviewer",
+          "activities": 3,
+          "commits": 2,
+          "items_opened": 2,
+          "change_requests_merged": 1
+        }
+      ],
+      "data_quality": {
+        "activity_available": true,
+        "truncated": false,
+        "observed_since": "2026-05-24T12:00:00.000Z",
+        "notes": []
+      }
+    },
+    {
+      "source_id": "gitlab:gitlab.com",
+      "project_path": "example-group/symphony-board-fixture",
+      "window": {
+        "kind": "active_since",
+        "basis": "repo_activity",
+        "from": "2026-03-09T09:00:00.000Z",
+        "to": "2026-06-07T09:00:00.000Z",
+        "bucket": "week"
+      },
+      "totals": {
+        "items_active": 2,
+        "items_opened": 2,
+        "items_closed": 0,
+        "change_requests_opened": 1,
+        "change_requests_closed": 0,
+        "change_requests_merged": 0,
+        "activities": 2,
+        "commits": 1,
+        "pushes": 1,
+        "comments": 0,
+        "reviews": 0,
+        "approvals": 0,
+        "edge_declared": 1,
+        "edge_fulfilled": 0,
+        "edge_broken": 0,
+        "by_item_state": {
+          "open": 2
+        },
+        "by_item_kind": {
+          "issue": 1,
+          "change_request": 1
+        },
+        "by_activity_kind": {
+          "commit": 1,
+          "push": 1
+        },
+        "by_activity_action": {
+          "committed": 1,
+          "pushed": 1
+        },
+        "by_edge_type": {
+          "closes": 1
+        },
+        "by_edge_lifecycle": {
+          "declared": 1
+        },
+        "by_review_state": {
+          "review_required": 1
+        },
+        "by_ci_state": {
+          "pending": 1
+        },
+        "by_merge_state": {
+          "blocked": 1
+        },
+        "by_label_scope": {
+          "workflow": 1
+        }
+      },
+      "series": [
+        {
+          "bucket_start": "2026-05-31T00:00:00.000Z",
+          "bucket_end": "2026-06-07T09:00:00.000Z",
+          "stats": {
+            "items_active": 2,
+            "items_opened": 2,
+            "items_closed": 0,
+            "change_requests_opened": 1,
+            "change_requests_closed": 0,
+            "change_requests_merged": 0,
+            "activities": 2,
+            "commits": 1,
+            "pushes": 1,
+            "comments": 0,
+            "reviews": 0,
+            "approvals": 0,
+            "edge_declared": 1,
+            "edge_fulfilled": 0,
+            "edge_broken": 0,
+            "by_item_state": {
+              "open": 2
+            },
+            "by_item_kind": {
+              "issue": 1,
+              "change_request": 1
+            },
+            "by_activity_kind": {
+              "commit": 1,
+              "push": 1
+            },
+            "by_activity_action": {
+              "committed": 1,
+              "pushed": 1
+            },
+            "by_edge_type": {
+              "closes": 1
+            },
+            "by_edge_lifecycle": {
+              "declared": 1
+            },
+            "by_review_state": {
+              "review_required": 1
+            },
+            "by_ci_state": {
+              "pending": 1
+            },
+            "by_merge_state": {
+              "blocked": 1
+            },
+            "by_label_scope": {
+              "workflow": 1
+            }
+          }
+        }
+      ],
+      "top_actors": [
+        {
+          "actor": "gitlab-bot",
+          "activities": 2,
+          "commits": 1,
+          "items_opened": 1,
+          "change_requests_merged": 0
+        }
+      ],
+      "data_quality": {
+        "activity_available": true,
+        "truncated": false,
+        "observed_since": "2026-06-05T12:00:00.000Z",
+        "notes": []
       }
     }
   ]

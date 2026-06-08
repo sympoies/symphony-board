@@ -126,6 +126,10 @@ function rangeProjection(rawBody, reqUrl) {
       edges: [...selectedEdges.values()],
       activities: (env.activities || []).filter((activity) => inRange(activity.occurred_at, fromMs, toMs)),
       aggregates: [],
+      repo_metrics: (env.repo_metrics || []).map((metric) => ({
+        ...metric,
+        window: { ...metric.window, kind: "time_range", from: fromIso, to: toIso },
+      })),
       item_window: {
         scope: "boardWindow",
         window: { kind: "active_since", basis: "item_updated_at", since: fromIso, days: null, edge_filter: null },
@@ -313,7 +317,13 @@ try {
     expression: "document.querySelectorAll('.activity-row').length",
     returnByValue: true,
   })).result.value || 0;
-  // Page 4 — the Settings display filter: a per-repo checkbox list with bulk
+  // Page 4 — Repo Analytics: the per-repo contract metrics table and trends.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
+  await sleep(300);
+  const repoHtml = await waitHtml("document.querySelector('.repo-table tbody tr')");
+  const repoRangeButtons = await rangeButtonLabels();
+  const repoCountText = await textOf(".repo-analytics-head .count");
+  // Page 5 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
@@ -390,6 +400,7 @@ try {
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
+  const repoRows = m(repoHtml, /class="repo-name-main/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
@@ -450,6 +461,14 @@ try {
     [has(activityHtml, "change request #13") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
     [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
+    // page 4: repo analytics uses the contract's repo_metrics rows
+    [has(repoHtml, "repo-analytics-page"), "repo analytics: page rendered"],
+    [sameRangeButtons(repoRangeButtons), `repo analytics: shared range quick presets rendered without all (${repoRangeButtons.join(", ")})`],
+    [repoRows >= 2, `repo analytics: repo rows rendered (${repoRows} >= 2)`],
+    [/repos/.test(repoCountText), `repo analytics: repo count rendered (${repoCountText})`],
+    [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
+    [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
+    [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
@@ -464,7 +483,7 @@ try {
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
     [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && clearedDeepLink.active === "3mo", `deep link: clearing search keeps the default 3mo range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
-    // page 4: the settings repo filter renders its checkboxes + count
+    // page 5: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
     [/repos shown/.test(settingsHtml), "settings: repo count shown"],

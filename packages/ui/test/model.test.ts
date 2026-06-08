@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
+import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
   TIME_RANGE_PRESETS,
@@ -38,6 +38,8 @@ import {
   deriveRepos,
   deriveRepoOptions,
   applyVisibility,
+  repoMetricMatches,
+  sortRepoMetrics,
   itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
@@ -80,6 +82,58 @@ function activity(over: Partial<ActivityDTO> = {}): ActivityDTO {
     target_iid: 13, title: "Closed issue", url: "https://x", actor: "graysurf",
     occurred_at: "2026-06-07T00:00:00Z", summary: "Closed issue #13", details: { sha: "abc1234" },
     first_seen_at: "2026-06-07T00:00:00Z", last_seen_at: "2026-06-07T00:00:00Z", ...over,
+  };
+}
+
+function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
+  const totals = {
+    items_active: 2,
+    items_opened: 1,
+    items_closed: 0,
+    change_requests_opened: 1,
+    change_requests_closed: 0,
+    change_requests_merged: 1,
+    activities: 4,
+    commits: 2,
+    pushes: 1,
+    comments: 1,
+    reviews: 0,
+    approvals: 0,
+    edge_declared: 0,
+    edge_fulfilled: 1,
+    edge_broken: 0,
+    by_item_state: { open: 1, merged: 1 },
+    by_item_kind: { issue: 1, change_request: 1 },
+    by_activity_kind: { commit: 2, push: 1, comment: 1 },
+    by_activity_action: { committed: 2, pushed: 1, commented: 1 },
+    by_edge_type: { closes: 1 },
+    by_edge_lifecycle: { fulfilled: 1 },
+    by_review_state: {},
+    by_ci_state: { passing: 1 },
+    by_merge_state: { mergeable: 1 },
+    by_label_scope: { workflow: 1 },
+  };
+  return {
+    source_id: "github:github.com",
+    project_path: "o/r",
+    window: {
+      kind: "time_range",
+      basis: "repo_activity",
+      from: "2026-06-01T00:00:00.000Z",
+      to: "2026-06-07T23:59:59.999Z",
+      bucket: "day",
+    },
+    totals,
+    series: [
+      {
+        bucket_start: "2026-06-01T00:00:00.000Z",
+        bucket_end: "2026-06-01T23:59:59.999Z",
+        stats: totals,
+      },
+    ],
+    top_actors: [{ actor: "alice", activities: 2, commits: 2, items_opened: 1, change_requests_merged: 0 }],
+    data_quality: { activity_available: true, truncated: false, observed_since: "2026-06-01T00:00:00.000Z", notes: [] },
+    ...over,
   };
 }
 
@@ -565,6 +619,10 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
       activity({ id: "gh|A", source_id: "github:github.com", project_path: "o/a" }),
       activity({ id: "gl|A", source_id: "gitlab:gitlab.com", project_path: "g/x" }),
     ],
+    repo_metrics: [
+      repoMetric({ source_id: "github:github.com", project_path: "o/a" }),
+      repoMetric({ source_id: "gitlab:gitlab.com", project_path: "g/x" }),
+    ],
   };
   // nothing hidden -> identical reference (cheap no-op)
   assert.equal(applyVisibility(env, new Set()), env);
@@ -581,6 +639,43 @@ test("applyVisibility drops a hidden repo's items AND every edge touching it", (
   );
   assert.equal(view.edges[0]!.from, "gl|MR");
   assert.deepEqual(view.activities?.map((a) => a.id), ["gl|A"], "activity rows in hidden repos are removed");
+  assert.deepEqual(view.repo_metrics?.map((m) => m.source_id), ["gitlab:gitlab.com"], "repo metrics follow the same visibility boundary");
+});
+
+test("repoMetricMatches supports source/state/kind/search filters and sortRepoMetrics ranks active repos", () => {
+  const active = repoMetric({
+    source_id: "github:github.com",
+    project_path: "o/active",
+    totals: {
+      ...repoMetric().totals,
+      activities: 12,
+      items_active: 4,
+      by_item_state: { open: 3, merged: 1 },
+      by_item_kind: { issue: 3, change_request: 1 },
+    },
+    top_actors: [{ actor: "alice", activities: 7, commits: 5, items_opened: 2, change_requests_merged: 1 }],
+  });
+  const quiet = repoMetric({
+    source_id: "gitlab:gitlab.com",
+    project_path: "g/quiet",
+    totals: {
+      ...repoMetric().totals,
+      activities: 1,
+      items_active: 1,
+      by_item_state: { closed: 1 },
+      by_item_kind: { issue: 1 },
+    },
+    top_actors: [{ actor: "bob", activities: 1, commits: 0, items_opened: 1, change_requests_merged: 0 }],
+  });
+
+  assert.equal(repoMetricMatches(active, emptyFilters()), true);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), sources: new Set(["gitlab:gitlab.com"]) }), false);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), states: new Set(["open"]) }), true);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), states: new Set(["closed"]) }), false);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), kinds: new Set(["change_request"]) }), true);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "alice workflow" }), true);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "missing" }), false);
+  assert.deepEqual(sortRepoMetrics([quiet, active]).map((metric) => metric.project_path), ["o/active", "g/quiet"]);
 });
 
 test("applyVisibility hides a whole source independently of the repo set", () => {

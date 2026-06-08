@@ -161,6 +161,12 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.edges.length, 1);
   assert.deepEqual(env.activities?.map((a) => a.external_id), ["activity-recent"]);
   assert.equal(env.repo_stats?.[0]?.items, 3, "repo stats remain full canonical counts");
+  assert.equal(env.repo_metrics?.[0]?.window.kind, "time_range");
+  assert.equal(env.repo_metrics?.[0]?.window.from, "2026-05-01T00:00:00.000Z");
+  assert.equal(env.repo_metrics?.[0]?.window.to, "2026-05-31T23:59:59.999Z");
+  assert.equal(env.repo_metrics?.[0]?.window.bucket, "day");
+  assert.equal(env.repo_metrics?.[0]?.totals.items_active, 1);
+  assert.equal(env.repo_metrics?.[0]?.totals.activities, 1);
 });
 
 test("openDbReadOnly can read but cannot write or migrate", () => {

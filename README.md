@@ -27,11 +27,12 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v2, currently `2.1.0`, and validates the JSON
+- `emit` produces contract major v2, currently `2.2.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
-  Activity feed, and a persistent Settings display filter. Board, Graph, and
-  Activity share one URL-backed date-range control.
+  Activity feed, a Repo Analytics table/trend view, and a persistent Settings
+  display filter. Board, Graph, Activity, and Repo Analytics share one
+  URL-backed date-range control.
 - Docker Compose runs the sync/emit loop as the sole writer, a read-only range
   API sidecar over SQLite, and a read-only web sidecar over the latest emitted
   contract.
@@ -204,7 +205,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v2, currently `2.1.0`.
+The current emitted contract is major v2, currently `2.2.0`.
 
 Version `1.1.0` added display colors:
 
@@ -239,6 +240,12 @@ the payload is truncated.
 Version `2.1.0` adds optional `range_query` metadata for read-only range API
 responses. Static emits usually omit it; `/api/range` includes it and returns a
 windowed contract for the requested UTC date range.
+
+Version `2.2.0` adds optional top-level `repo_metrics[]`: per-repo windowed
+analytics totals, bucketed series, top bounded actors, and data-quality
+metadata. `repo_stats[]` remains the full inventory count surface for Settings
+and external consumers; `repo_metrics[]` is range-scoped and powers the Repo
+Analytics page.
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.

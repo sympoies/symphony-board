@@ -8,6 +8,8 @@ import {
   filterActivitiesByRange,
   indexItems,
   itemMatches,
+  repoMetricMatches,
+  sortRepoMetrics,
   resolveEdges,
   edgeMatches,
   deriveStatuses,
@@ -38,6 +40,7 @@ import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
+import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
@@ -48,7 +51,8 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
 // Four pages via a zero-dep hash route: "" (#/) is the full-width board,
 // "graph" (#/graph) the relationship graph, "activity" (#/activity) the event
-// feed, and "settings" (#/settings) the persistent repo display filter. The
+// feed, "repo-analytics" (#/repo-analytics) the per-repo metrics view, and
+// "settings" (#/settings) the persistent repo display filter. The
 // route may carry "?q=<search>" so the visible search box is URL-backed; graph
 // routes may also carry "?focus=<ref>" from a board card.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
@@ -86,7 +90,16 @@ export function App() {
   }, []);
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
-  const page = route.page === "graph" ? "graph" : route.page === "activity" ? "activity" : route.page === "settings" ? "settings" : "board";
+  const page =
+    route.page === "graph"
+      ? "graph"
+      : route.page === "activity"
+        ? "activity"
+        : route.page === "repo-analytics" || route.page === "repos"
+          ? "repo-analytics"
+          : route.page === "settings"
+            ? "settings"
+            : "board";
   const defaultRange = useMemo(() => (env ? defaultTimeRange(env) : null), [env]);
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
@@ -156,6 +169,10 @@ export function App() {
     () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange) : []),
     [visibleEnv, activeRange],
   );
+  const repoMetrics = useMemo(
+    () => sortRepoMetrics((visibleEnv?.repo_metrics ?? []).filter((metric) => repoMetricMatches(metric, filters))),
+    [visibleEnv, filters],
+  );
 
   // Highlight color: the config layers (per-repo + per-source) ride in on the
   // contract; the per-repo override is this viewer's localStorage. colorOf
@@ -175,6 +192,14 @@ export function App() {
         sources: uniq(windowedActivities.map((a) => a.source_id)),
         states: [],
         kinds: uniq(windowedActivities.map((a) => a.kind)),
+      };
+    }
+    if (page === "repo-analytics") {
+      const metrics = visibleEnv.repo_metrics ?? [];
+      return {
+        sources: uniq(metrics.map((m) => m.source_id)),
+        states: uniq(metrics.flatMap((m) => Object.keys(m.totals.by_item_state))),
+        kinds: uniq(metrics.flatMap((m) => Object.keys(m.totals.by_item_kind))),
       };
     }
     const facetItems = page === "graph" ? visibleEnv.items : primaryItems;
@@ -294,7 +319,7 @@ export function App() {
       .catch((err: unknown) => setError((err as Error).message));
   }
 
-  function routeHref(nextPage: "board" | "graph" | "activity" | "settings"): string {
+  function routeHref(nextPage: "board" | "graph" | "activity" | "repo-analytics" | "settings"): string {
     return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search, from: activeRange?.from, to: activeRange?.to });
   }
 
@@ -370,6 +395,9 @@ export function App() {
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity
         </a>
+        <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
+          Repo Analytics
+        </a>
         <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
           Settings
         </a>
@@ -420,6 +448,14 @@ export function App() {
           activities={filteredActivities}
           windowTotal={windowedActivities.length}
           totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
+          range={activeRange}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+        />
+      ) : page === "repo-analytics" ? (
+        <RepoAnalyticsPage
+          metrics={repoMetrics}
+          windowTotal={visibleEnv.repo_metrics?.length ?? 0}
           range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}
