@@ -278,6 +278,19 @@ try {
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
   const boardRangeButtons = await rangeButtonLabels();
   const boardInitialStats = await textOf(".stats");
+  await send("Runtime.evaluate", {
+    expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).find((el) => el.textContent?.trim() === 'this week')?.click()",
+  });
+  await waitHtml("location.hash.includes('preset=this-week') && !document.body.innerText.includes('Loading range')");
+  const boardThisWeekClick = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      active: Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
+        .map((el) => el.textContent?.trim())
+        .filter(Boolean),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-07");
   const boardNarrowHtml = await waitHtml("document.querySelector('.board-7 .card') && !document.body.innerText.includes('Loading range')");
   const boardNarrowStats = await textOf(".stats");
@@ -422,6 +435,7 @@ try {
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
+    [boardThisWeekClick.hash?.includes("preset=this-week") && JSON.stringify(boardThisWeekClick.active) === JSON.stringify(["this week"]), `board: clicking this week preserves this week as the only active preset (${boardThisWeekClick.hash || "empty"})`],
     [has(boardNarrowHtml, "range 2026-06-07 to 2026-06-07"), "board: custom range label rendered after API projection"],
     [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],
     [Number.isFinite(boardInitialTotal) && boardNarrowTotal < boardInitialTotal, `board: scoped stats change when range narrows (${boardInitialTotal} -> ${boardNarrowTotal})`],

@@ -127,6 +127,7 @@ export interface HashRoute {
   q: string | null; // a search token to seed the search bar (narrows the graph)
   from: string | null; // YYYY-MM-DD explicit time-range start
   to: string | null; // YYYY-MM-DD explicit time-range end
+  preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
 }
 
 const routeParam = (value: string | null | undefined): string | null => {
@@ -139,25 +140,29 @@ export function parseHashRoute(hash: string): HashRoute {
   const i = raw.indexOf("?");
   const page = i === -1 ? raw : raw.slice(0, i);
   const params = i === -1 ? null : new URLSearchParams(raw.slice(i + 1));
+  const preset = routeParam(params?.get("preset"));
   return {
     page,
     focus: routeParam(params?.get("focus")),
     q: routeParam(params?.get("q")),
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
+    preset: isTimeRangePresetId(preset) ? preset : null,
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; from?: string | null; to?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
   const from = routeParam(route.from);
   const to = routeParam(route.to);
+  const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
+  if (preset) params.push(`preset=${encodeURIComponent(preset)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 
@@ -253,6 +258,15 @@ export function timeRangeForPreset(presetId: TimeRangePresetId, now: number): Ti
     return { from: dateOnlyFromMs(startOfTodayUtc - daysSinceMonday * 86_400_000), to };
   }
   return { from: cutoffIso(preset.days, now).slice(0, 10), to };
+}
+
+export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null): TimeRangePresetId | null {
+  const matchingPresetIds = TIME_RANGE_PRESETS
+    .filter((candidate) => sameTimeRange(range, timeRangeForPreset(candidate.id, now)))
+    .map((candidate) => candidate.id);
+  return preferredPresetId && matchingPresetIds.includes(preferredPresetId)
+    ? preferredPresetId
+    : (matchingPresetIds[0] ?? null);
 }
 
 export function preferredDefaultTimeRange(env: ContractEnvelope, presetId: TimeRangePresetId): TimeRange {
