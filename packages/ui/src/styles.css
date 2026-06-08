@@ -132,10 +132,19 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .toggle:hover { border-color: var(--accent); }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-.file-load input[type="file"] {
-  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
-}
 .file-load { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+/* The bare control box plus its browser-rendered "Choose File" button: the box
+   is styled directly, the button only through the ::file-selector-button
+   pseudo-element (else it keeps the native light chrome). Shaped like .toggle. */
+input[type="file"] {
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+  border-radius: 8px; padding: 4px 8px; font: inherit; max-width: 280px;
+}
+input[type="file"]::file-selector-button {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 10px; margin-right: 8px; cursor: pointer; font: inherit;
+}
+input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .time-range-controls {
   display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 10px;
 }
