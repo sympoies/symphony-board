@@ -26,7 +26,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
-import { ACTIVE_SINCE_PRESETS, DEFAULT_ACTIVE_SINCE_DAYS, buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { ACTIVE_SINCE_PRESETS, buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNodes, cutoffIso, defaultActiveSince, graphEffectiveSince, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -566,8 +566,6 @@ function GraphSideList({
   );
 }
 
-const DEFAULT_SINCE = (): string => cutoffIso(DEFAULT_ACTIVE_SINCE_DAYS).slice(0, 10);
-
 export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; colorOf: ColorOf; focusRef?: string | null; narrowed?: boolean }) {
   // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
   // filters on entry so the target is GUARANTEED on the graph and framable: it
@@ -577,7 +575,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
   // any item with at least one edge — exactly the items that show the link — is
   // on the canvas. Absent a focus, keep the 90-day, no-mentions defaults. App
   // keys the page on the focus target, so each entry re-runs these initializers.
-  const [since, setSince] = useState<string>(() => (focusRef ? "" : DEFAULT_SINCE()));
+  const [since, setSince] = useState<string>(() => (focusRef ? "" : defaultActiveSince()));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
@@ -588,28 +586,24 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
 
   // The deep-link's all-time window only makes sense WHILE the narrowing search
   // (the "?q=" seed) is active — that search is what keeps the canvas down to the
-  // focused item + neighbours. Once the user clears the search (the search box's
-  // ✕), an all-time window with no narrowing would dump the entire history, so
-  // snap back to the default window. Only fires on the narrowed → not-narrowed
-  // EDGE, and only while we still own the relaxation: any manual window change
-  // (chooseSince) opts out, so we never override a window the user picked.
+  // focused item + neighbours. Once search is cleared, use the default window in
+  // the same render that removes the search filter, then sync the state/ref after
+  // commit. Manual window changes (chooseSince) opt out.
   const relaxedForFocus = useRef(!!focusRef);
-  const prevNarrowed = useRef(!!narrowed);
   function chooseSince(val: string) {
     relaxedForFocus.current = false;
     setSince(val);
   }
+  const effectiveSince = graphEffectiveSince(since, { narrowed: !!narrowed, relaxedForFocus: relaxedForFocus.current });
   useEffect(() => {
-    const wasNarrowed = prevNarrowed.current;
-    prevNarrowed.current = !!narrowed;
-    if (wasNarrowed && !narrowed && relaxedForFocus.current) {
+    if (effectiveSince !== since) {
       relaxedForFocus.current = false;
-      setSince(DEFAULT_SINCE());
+      setSince(effectiveSince);
     }
-  }, [narrowed]);
+  }, [effectiveSince, since]);
 
   const graph = useMemo(() => {
-    const cutoff = since ? new Date(since + "T00:00:00Z").toISOString() : null;
+    const cutoff = effectiveSince ? new Date(effectiveSince + "T00:00:00Z").toISOString() : null;
     let visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
     // Mention-direction filter: keep mentions only when the mentioned (target)
     // item is the chosen kind. Non-mention edges are unaffected; an untracked
@@ -618,7 +612,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
       visible = visible.filter((re) => re.edge.type !== "mentions" || re.to?.kind === mentionTarget);
     }
     return buildGraph(visible, cutoff);
-  }, [edges, since, showMentions, mentionTarget]);
+  }, [edges, effectiveSince, showMentions, mentionTarget]);
 
   // Side-list derivations over the FULL edge set (not the time-windowed graph):
   // every resolvable item (so the focus view can surface relations the window
@@ -723,7 +717,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
   // `fitView` to frame the new subgraph — that is what makes clicking a related
   // item visibly switch the canvas to that item (the old design only panned the
   // full graph, so a neighbour barely moved the camera).
-  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${since}|${focusId ?? ""}|${view.nodes.length}`;
+  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${effectiveSince}|${focusId ?? ""}|${view.nodes.length}`;
 
   return (
     <section className="graph-page">
@@ -733,14 +727,14 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
           {focusId ? " · focused" : ""}
         </span>
         <label className="date-filter graph-since">
-          active since <input type="date" value={since} onChange={(e) => chooseSince(e.target.value)} />
+          active since <input type="date" value={effectiveSince} onChange={(e) => chooseSince(e.target.value)} />
         </label>
         <div className="toggle-group">
           <span className="toggle-label">since</span>
           {ACTIVE_SINCE_PRESETS.map(([lab, days]) => {
             const val = days == null ? "" : cutoffIso(days).slice(0, 10);
             return (
-              <button key={lab} type="button" className={`toggle${since === val ? " toggle-on" : ""}`} onClick={() => chooseSince(val)}>
+              <button key={lab} type="button" className={`toggle${effectiveSince === val ? " toggle-on" : ""}`} onClick={() => chooseSince(val)}>
                 {lab}
               </button>
             );
