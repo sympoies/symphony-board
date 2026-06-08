@@ -274,10 +274,12 @@ Pages:
   data-quality badges so missing activity rows do not look like true zero
   activity.
 - **Settings**: browser-local display preferences. It can hide repos or whole
-  sources and set per-repo color overrides in `localStorage`. These preferences
-  are a pre-filter before Board, Graph, Activity, and Repo Analytics compute
-  their views. They are view-only; the daemon keeps syncing every configured
-  source.
+  sources, set the default shared date range preset, and set per-repo color
+  overrides in `localStorage`. These preferences are a pre-filter before Board,
+  Graph, Activity, and Repo Analytics compute their views. They are view-only;
+  the daemon keeps syncing every configured source. When the URL has no explicit
+  `from` / `to`, new browsers default to `this week`, calculated from Monday in
+  the contract's UTC date basis.
 
 The UI supports contract major v2. It warns when a different major is loaded.
 

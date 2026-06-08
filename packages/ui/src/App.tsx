@@ -4,7 +4,8 @@ import { fetchContract, fetchRangeContract, parseContract, majorOf, SUPPORTED_MA
 import {
   emptyFilters,
   activityMatches,
-  defaultTimeRange,
+  preferredDefaultTimeRange,
+  staticContractTimeRange,
   filterActivitiesByRange,
   indexItems,
   itemMatches,
@@ -24,6 +25,7 @@ import {
   edgeEndpointIds,
   routeTimeRange,
   sameTimeRange,
+  type TimeRangePresetId,
   type TimeRange,
   type Filters,
 } from "./model.ts";
@@ -34,6 +36,8 @@ import {
   saveHiddenSources,
   loadColorOverrides,
   saveColorOverrides,
+  loadDefaultRangePreset,
+  saveDefaultRangePreset,
 } from "./viewconfig.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
@@ -73,9 +77,11 @@ export function App() {
   //   • hidden        — HIDDEN repoKeys
   //   • hiddenSources — HIDDEN source_ids (an independent layer; see applyVisibility)
   //   • colorOverrides — repoKey -> hex, this viewer's per-repo highlight override
+  //   • defaultRangePreset — which quick preset is used when the route has no from/to
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
+  const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
 
   useEffect(() => {
     const onHash = () => {
@@ -100,10 +106,12 @@ export function App() {
           : route.page === "settings"
             ? "settings"
             : "board";
-  const defaultRange = useMemo(() => (env ? defaultTimeRange(env) : null), [env]);
+  const staticRange = useMemo(() => (env ? staticContractTimeRange(env) : null), [env]);
+  const defaultRange = useMemo(() => (env ? preferredDefaultTimeRange(env, defaultRangePreset) : null), [env, defaultRangePreset]);
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
-  const customRange = !!activeRange && !!defaultRange && !sameTimeRange(activeRange, defaultRange);
+  const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
+  const needsRangeEnv = customRange && page !== "settings";
 
   useEffect(() => {
     saveHidden(hidden);
@@ -114,6 +122,9 @@ export function App() {
   useEffect(() => {
     saveColorOverrides(colorOverrides);
   }, [colorOverrides]);
+  useEffect(() => {
+    saveDefaultRangePreset(defaultRangePreset);
+  }, [defaultRangePreset]);
 
   useEffect(() => {
     fetchContract()
@@ -126,8 +137,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!activeRange || !defaultRange) return;
-    if (!customRange) {
+    if (!activeRange || !staticRange) return;
+    if (!needsRangeEnv) {
       setRangeEnv(null);
       setRangeError(null);
       setRangeLoading(false);
@@ -152,9 +163,9 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeRange, customRange, defaultRange]);
+  }, [activeRange, needsRangeEnv, staticRange]);
 
-  const activeEnv = customRange ? rangeEnv : env;
+  const activeEnv = needsRangeEnv ? rangeEnv : env;
 
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
@@ -320,7 +331,7 @@ export function App() {
   }
 
   function routeHref(nextPage: "board" | "graph" | "activity" | "repo-analytics" | "settings"): string {
-    return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search, from: activeRange?.from, to: activeRange?.to });
+    return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search, from: explicitRange?.from, to: explicitRange?.to });
   }
 
   function setRouteSearch(q: string) {
@@ -330,8 +341,8 @@ export function App() {
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
       q,
-      from: activeRange?.from,
-      to: activeRange?.to,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
     });
     if (readHash() !== next) window.location.hash = next;
   }
@@ -371,8 +382,8 @@ export function App() {
     );
   }
 
-  if (!env || !activeRange || (customRange && rangeLoading && !rangeEnv)) return <div className="state-msg">Loading range…</div>;
-  if (customRange && rangeError && !rangeEnv) {
+  if (!env || !activeRange || (needsRangeEnv && rangeLoading && !rangeEnv)) return <div className="state-msg">Loading range…</div>;
+  if (needsRangeEnv && rangeError && !rangeEnv) {
     return (
       <div className="state-msg error">
         <p>Could not load selected range: {rangeError}</p>
@@ -442,6 +453,8 @@ export function App() {
           colorOverrides={colorOverrides}
           onSetColor={setColorOverride}
           onClearColor={clearColorOverride}
+          defaultRangePreset={defaultRangePreset}
+          onDefaultRangePreset={setDefaultRangePreset}
         />
       ) : page === "activity" ? (
         <ActivityPage

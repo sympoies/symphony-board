@@ -4,6 +4,7 @@ import {
   loadHidden, saveHidden,
   loadHiddenSources, saveHiddenSources,
   loadColorOverrides, saveColorOverrides,
+  loadDefaultRangePreset, saveDefaultRangePreset,
 } from "../src/viewconfig.ts";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
@@ -62,12 +63,22 @@ test("color overrides keep only valid hex and round-trip", () => {
   assert.equal(loadColorOverrides().size, 0, "malformed -> empty");
 });
 
+test("default range preset falls back to this week and round-trips valid preset ids", () => {
+  assert.equal(loadDefaultRangePreset(), "this-week");
+  saveDefaultRangePreset("today");
+  assert.equal(loadDefaultRangePreset(), "today");
+  store._raw("symphony-board:default-range-preset", "not-a-preset");
+  assert.equal(loadDefaultRangePreset(), "this-week", "invalid value -> default");
+});
+
 test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () => {
   const boom = new Proxy({}, { get() { throw new Error("storage disabled"); } });
   (globalThis as { localStorage?: unknown }).localStorage = boom;
   assert.deepEqual([...loadHidden()], [], "load degrades to empty");
   assert.equal(loadColorOverrides().size, 0, "load degrades to no overrides");
+  assert.equal(loadDefaultRangePreset(), "this-week", "load degrades to default range");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));
+  assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
 });

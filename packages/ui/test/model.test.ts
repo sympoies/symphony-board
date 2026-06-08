@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
+  DEFAULT_TIME_RANGE_PRESET_ID,
   TIME_RANGE_PRESETS,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
   VIEW_SCOPES,
   VIEW_SCOPE_LABEL,
-  defaultTimeRange,
+  preferredDefaultTimeRange,
+  staticContractTimeRange,
+  timeRangeForPreset,
   normalizeTimeRange,
   routeTimeRange,
   emptyFilters,
@@ -256,8 +259,13 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
   const range = { from: "2026-06-01", to: "2026-06-07" };
 
   assert.equal(DEFAULT_TIME_RANGE_DAYS, 90);
-  assert.deepEqual(TIME_RANGE_PRESETS.map(([label]) => label), ["1w", "2w", "1mo", "3mo"]);
-  assert.deepEqual(defaultTimeRange(env), { from: "2026-03-10", to: "2026-06-08" });
+  assert.equal(DEFAULT_TIME_RANGE_PRESET_ID, "this-week");
+  assert.deepEqual(TIME_RANGE_PRESETS.map((preset) => preset.label), ["today", "this week", "1w", "2w", "1mo", "3mo"]);
+  assert.deepEqual(staticContractTimeRange(env), { from: "2026-03-10", to: "2026-06-08" });
+  assert.deepEqual(preferredDefaultTimeRange(env, "this-week"), { from: "2026-06-08", to: "2026-06-08" });
+  assert.deepEqual(timeRangeForPreset("today", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-08", to: "2026-06-08" });
+  assert.deepEqual(timeRangeForPreset("this-week", Date.parse("2026-06-07T12:00:00Z")), { from: "2026-06-01", to: "2026-06-07" });
+  assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-01", to: "2026-06-08" });
   assert.deepEqual(normalizeTimeRange(range), range);
   assert.equal(normalizeTimeRange({ from: "2026-06-08", to: "2026-06-07" }), null);
   assert.deepEqual(routeTimeRange(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07")), range);

@@ -1,4 +1,4 @@
-import { cutoffIso, TIME_RANGE_PRESETS, type TimeRange } from "../model.ts";
+import { TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange } from "../model.ts";
 
 export function TimeRangeControls({
   range,
@@ -27,12 +27,12 @@ export function TimeRangeControls({
       </label>
       <div className="toggle-group">
         <span className="toggle-label">quick</span>
-        {TIME_RANGE_PRESETS.map(([label, days]) => {
-          const preset = { from: cutoffIso(days, generatedAtMs).slice(0, 10), to: new Date(generatedAtMs).toISOString().slice(0, 10) };
+        {TIME_RANGE_PRESETS.map((option) => {
+          const preset = timeRangeForPreset(option.id, generatedAtMs);
           const active = range.from === preset.from && range.to === preset.to;
           return (
-            <button key={label} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset)}>
-              {label}
+            <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset)}>
+              {option.label}
             </button>
           );
         })}
