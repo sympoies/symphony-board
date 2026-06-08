@@ -124,6 +124,8 @@ export interface HashRoute {
   page: string; // "" | "graph" | "activity" | "settings" (the part before any '?')
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   q: string | null; // a search token to seed the search bar (narrows the graph)
+  from: string | null; // YYYY-MM-DD explicit time-range start
+  to: string | null; // YYYY-MM-DD explicit time-range end
 }
 
 const routeParam = (value: string | null | undefined): string | null => {
@@ -136,15 +138,25 @@ export function parseHashRoute(hash: string): HashRoute {
   const i = raw.indexOf("?");
   const page = i === -1 ? raw : raw.slice(0, i);
   const params = i === -1 ? null : new URLSearchParams(raw.slice(i + 1));
-  return { page, focus: routeParam(params?.get("focus")), q: routeParam(params?.get("q")) };
+  return {
+    page,
+    focus: routeParam(params?.get("focus")),
+    q: routeParam(params?.get("q")),
+    from: routeParam(params?.get("from")),
+    to: routeParam(params?.get("to")),
+  };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; from?: string | null; to?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
+  const from = routeParam(route.from);
+  const to = routeParam(route.to);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
+  if (from) params.push(`from=${encodeURIComponent(from)}`);
+  if (to) params.push(`to=${encodeURIComponent(to)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 
@@ -192,79 +204,80 @@ export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
   return ids;
 }
 
-// Shared "active since" quick-set presets for Board + Graph. `null` means all
-// history / no cutoff.
-export const ACTIVE_SINCE_PRESETS = [
+// Shared quick-set presets for Board, Graph, and Activity date ranges.
+export const TIME_RANGE_PRESETS = [
   ["1w", 7],
   ["2w", 14],
   ["1mo", 30],
   ["3mo", 90],
-  ["all", null],
-] as const satisfies ReadonlyArray<readonly [string, number | null]>;
-export const DEFAULT_ACTIVE_SINCE_DAYS = 90;
+] as const satisfies ReadonlyArray<readonly [string, number]>;
+export const DEFAULT_TIME_RANGE_DAYS = 90;
 
-export function defaultActiveSince(now: number = Date.now()): string {
-  return cutoffIso(DEFAULT_ACTIVE_SINCE_DAYS, now).slice(0, 10);
+export interface TimeRange {
+  from: string;
+  to: string;
 }
 
-export function graphEffectiveSince(
-  since: string,
-  opts: { narrowed: boolean; relaxedForFocus: boolean; now?: number },
-): string {
-  if (since === "" && opts.relaxedForFocus && !opts.narrowed) {
-    return defaultActiveSince(opts.now);
-  }
-  return since;
+export function dateOnlyFromIso(iso: string | null | undefined, fallbackNow: number = Date.now()): string {
+  const parsed = Date.parse(iso ?? "");
+  return new Date(Number.isFinite(parsed) ? parsed : fallbackNow).toISOString().slice(0, 10);
 }
 
-export type ActivityWindowKey = "1d" | "3d" | "thisWeek" | "1w" | "2w" | "1m" | "all";
-
-export const ACTIVITY_WINDOW_PRESETS = [
-  ["1d", "1d"],
-  ["3d", "3d"],
-  ["this week", "thisWeek"],
-  ["1w", "1w"],
-  ["2w", "2w"],
-  ["1m", "1m"],
-  ["all", "all"],
-] as const satisfies ReadonlyArray<readonly [string, ActivityWindowKey]>;
-
-export const DEFAULT_ACTIVITY_WINDOW: ActivityWindowKey = "thisWeek";
-
-const ACTIVITY_ROLLING_DAYS: Partial<Record<ActivityWindowKey, number>> = {
-  "1d": 1,
-  "3d": 3,
-  "1w": 7,
-  "2w": 14,
-  "1m": 30,
-};
-
-export function activityWindowCutoffMs(windowKey: ActivityWindowKey, now: number = Date.now()): number | null {
-  if (windowKey === "all") return null;
-  if (windowKey === "thisWeek") {
-    const d = new Date(now);
-    const daysSinceMonday = (d.getDay() + 6) % 7;
-    d.setDate(d.getDate() - daysSinceMonday);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }
-  const days = ACTIVITY_ROLLING_DAYS[windowKey];
-  return days == null ? null : now - days * 24 * 60 * 60 * 1000;
+export function defaultTimeRange(env: ContractEnvelope): TimeRange {
+  const parsedGenerated = Date.parse(env.generated_at);
+  const generatedAtMs = Number.isFinite(parsedGenerated) ? parsedGenerated : Date.now();
+  const from =
+    env.item_window?.window.kind === "active_since" && env.item_window.window.since
+      ? env.item_window.window.since.slice(0, 10)
+      : cutoffIso(DEFAULT_TIME_RANGE_DAYS, generatedAtMs).slice(0, 10);
+  return { from, to: dateOnlyFromIso(env.generated_at, generatedAtMs) };
 }
 
-export function activityActiveSince(activity: ActivityDTO, cutoffMs: number | null): boolean {
-  if (cutoffMs === null) return true;
-  const occurred = Date.parse(activity.occurred_at);
-  return Number.isFinite(occurred) && occurred >= cutoffMs;
+export function isDateOnly(value: string | null | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
 }
 
-export function filterActivitiesByWindow(
-  activities: ActivityDTO[],
-  windowKey: ActivityWindowKey,
-  now: number = Date.now(),
-): ActivityDTO[] {
-  const cutoffMs = activityWindowCutoffMs(windowKey, now);
-  return activities.filter((a) => activityActiveSince(a, cutoffMs));
+export function normalizeTimeRange(range: Partial<TimeRange> | null | undefined): TimeRange | null {
+  if (!isDateOnly(range?.from) || !isDateOnly(range?.to)) return null;
+  return range.from <= range.to ? { from: range.from, to: range.to } : null;
+}
+
+export function routeTimeRange(route: HashRoute): TimeRange | null {
+  return normalizeTimeRange({ from: route.from ?? undefined, to: route.to ?? undefined });
+}
+
+export function sameTimeRange(a: TimeRange | null | undefined, b: TimeRange | null | undefined): boolean {
+  return !!a && !!b && a.from === b.from && a.to === b.to;
+}
+
+export function timeRangeToIso(range: TimeRange): { from: string; to: string } {
+  return { from: `${range.from}T00:00:00.000Z`, to: `${range.to}T23:59:59.999Z` };
+}
+
+function timestampMs(value: string | null | undefined): number | null {
+  const ms = Date.parse(value ?? "");
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function timestampInTimeRange(value: string | null | undefined, range: TimeRange): boolean {
+  const { from, to } = timeRangeToIso(range);
+  const valueMs = timestampMs(value);
+  const fromMs = timestampMs(from);
+  const toMs = timestampMs(to);
+  return valueMs !== null && fromMs !== null && toMs !== null && valueMs >= fromMs && valueMs <= toMs;
+}
+
+export function itemInTimeRange(it: ItemDTO, range: TimeRange): boolean {
+  return timestampInTimeRange(it.updated_at, range);
+}
+
+export function activityInTimeRange(activity: ActivityDTO, range: TimeRange): boolean {
+  return timestampInTimeRange(activity.occurred_at, range);
+}
+
+export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRange): ActivityDTO[] {
+  return activities.filter((a) => activityInTimeRange(a, range));
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 76;
@@ -573,32 +586,24 @@ export function cutoffIso(days: number, now: number = Date.now()): string {
   return new Date(now - days * 86_400_000).toISOString();
 }
 
-// Board's active-since window is item-local: show items updated at/after the
-// cutoff. Items without an updated_at are only visible when the window is "all".
-export function itemActiveSince(it: ItemDTO, cutoff: string | null): boolean {
-  return !cutoff || (it.updated_at ?? "") >= cutoff;
-}
-
-export function graphEdgeActiveSince(re: ResolvedEdge, cutoff: string | null): boolean {
+export function graphEdgeInTimeRange(re: ResolvedEdge, range: TimeRange): boolean {
   const ends = [re.from, re.to];
-  const within = ends.some((it) => it && (!cutoff || (it.updated_at ?? "") >= cutoff));
+  const within = ends.some((it) => it && timestampInTimeRange(it.updated_at, range));
   const bothUntracked = !re.from && !re.to;
-  return !cutoff || within || bothUntracked;
+  return within || bothUntracked;
 }
 
-export function graphWindowEdges(edges: ResolvedEdge[], cutoff: string | null): ResolvedEdge[] {
-  return edges.filter((re) => graphEdgeActiveSince(re, cutoff));
+export function graphWindowEdgesInRange(edges: ResolvedEdge[], range: TimeRange): ResolvedEdge[] {
+  return edges.filter((re) => graphEdgeInTimeRange(re, range));
 }
 
-// Build a relationship graph from resolved edges, keeping only nodes that take
-// part in an edge (no isolated-dot sea). An edge survives the time window if any
-// tracked endpoint was updated at/after the cutoff; an edge whose endpoints are
-// both untracked (undateable) is always kept.
-export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphData {
+// Build a relationship graph from already-windowed resolved edges, keeping only
+// nodes that take part in an edge (no isolated-dot sea).
+export function buildGraph(edges: ResolvedEdge[]): GraphData {
   const nodes = new Map<string, GraphNode>();
   const links: GraphLink[] = [];
   let i = 0;
-  for (const re of graphWindowEdges(edges, cutoff)) {
+  for (const re of edges) {
     const ensure = (it: ItemDTO | null, ref: string) => {
       if (nodes.has(ref)) return;
       nodes.set(
@@ -640,9 +645,9 @@ export function compareGraphNodes(a: GraphNode, b: GraphNode): number {
 
 // A related endpoint of an item, for the graph side list's focus view: the other
 // end of an edge, the edge type, and which way it points (out = this -> other,
-// in = other -> this). Built from the FULL edge set — NOT the time-windowed graph
-// — so focusing an item can surface relations the "active since" window hides
-// (the side list marks those off-window). Deduped on (ref, type, direction).
+// in = other -> this). Built from the full resolved edge set so focusing an item
+// can surface every relation available in the loaded/range payload. Deduped on
+// (ref, type, direction).
 export interface RelatedRef {
   ref: string;
   type: string;
@@ -669,10 +674,10 @@ export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]>
 // Build the focus-view subgraph for the Graph page's canvas: the focused item +
 // its DIRECT neighbours (the other end of every edge touching it) and EVERY edge
 // among that set (the focus's own edges PLUS neighbour-neighbour links). It is
-// built from the FULL edge set with NO time window and mentions INCLUDED, on
+// built from the full resolved edge set with mentions INCLUDED, on
 // purpose: a focus view exists to inspect ONE item's relationships, so it should
 // show all of them — closes, mentions, and relates — independent of the overview
-// graph's "active since" window and "+ mentions" toggle (those declutter the
+// graph's range and "+ mentions" toggle (those declutter the
 // whole-graph view, not a single item's neighbourhood). Returns an empty graph
 // when the focus has no edges, so the caller can fall back to the full graph.
 // Pure: same inputs -> same GraphData, so it is unit-testable.
@@ -683,7 +688,7 @@ export function focusSubgraph(edges: ResolvedEdge[], focusId: string): GraphData
     else if (re.edge.to === focusId) keep.add(re.edge.from);
   }
   const sub = edges.filter((re) => keep.has(re.edge.from) && keep.has(re.edge.to));
-  return buildGraph(sub, null);
+  return buildGraph(sub);
 }
 
 // A related item for DISPLAY: ONE card per related ref. buildAdjacency's

@@ -50,6 +50,16 @@ export type AggregateBasis =
 export type AggregateEdgeFilter = "all" | "no_mentions";
 export type ItemWindowReason = "primary" | "edge_endpoint";
 
+export interface TimeRangeDTO {
+  from: string;
+  to: string;
+}
+
+export interface RangeQueryDTO extends TimeRangeDTO {
+  kind: "time_range";
+  timezone: "UTC";
+}
+
 export interface AggregateStatsDTO {
   items: number;
   by_state: Record<string, number>;
@@ -204,4 +214,8 @@ export interface ContractEnvelope {
   // Full canonical repo counts for Settings and external consumers. This stays
   // separate from `items[]` because v2 no longer ships every item row.
   repo_stats?: RepoStatsDTO[];
+  // Present on dynamic read-only range-query API responses, not on the static
+  // daemon-emitted `contract.json`. The UI uses it to label explicit historical
+  // windows without changing the static v2 payload contract.
+  range_query?: RangeQueryDTO;
 }

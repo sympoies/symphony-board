@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `2.0.0`.
+Current contract version emitted by the backend: `2.1.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -87,6 +87,15 @@ Version `2.0.0` changed payload semantics:
 
 Use `aggregates[]` and `repo_stats[]` for full totals. Use `items[]` and
 `edges[]` only for the loaded window unless a future API provides more rows.
+
+Version `2.1.0` added optional range-query metadata:
+
+- top-level `range_query`
+- `TimeRangeDTO`
+- `RangeQueryDTO`
+
+Static emits usually omit `range_query`. Read-only `/api/range` responses set it
+and return a windowed envelope for the requested UTC date range.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, and any UI consumer logic

@@ -1,11 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
+import { fetchContract, fetchRangeContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
 import {
   emptyFilters,
   activityMatches,
-  DEFAULT_ACTIVITY_WINDOW,
-  filterActivitiesByWindow,
+  defaultTimeRange,
+  filterActivitiesByRange,
   indexItems,
   itemMatches,
   resolveEdges,
@@ -20,7 +20,9 @@ import {
   buildHashRoute,
   applyRouteSearch,
   edgeEndpointIds,
-  type ActivityWindowKey,
+  routeTimeRange,
+  sameTimeRange,
+  type TimeRange,
   type Filters,
 } from "./model.ts";
 import {
@@ -36,6 +38,7 @@ import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
+import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
 // page stays light; the chunk only loads when #/graph is opened.
@@ -52,6 +55,9 @@ const readHash = (): string => (typeof location !== "undefined" ? location.hash 
 
 export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
+  const [rangeEnv, setRangeEnv] = useState<ContractEnvelope | null>(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Seed the search from the hash's "?q=" token if present; the URL is the source
@@ -66,7 +72,6 @@ export function App() {
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
-  const [activityWindow, setActivityWindow] = useState<ActivityWindowKey>(DEFAULT_ACTIVITY_WINDOW);
 
   useEffect(() => {
     const onHash = () => {
@@ -82,6 +87,10 @@ export function App() {
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
   const page = route.page === "graph" ? "graph" : route.page === "activity" ? "activity" : route.page === "settings" ? "settings" : "board";
+  const defaultRange = useMemo(() => (env ? defaultTimeRange(env) : null), [env]);
+  const explicitRange = useMemo(() => routeTimeRange(route), [route]);
+  const activeRange = explicitRange ?? defaultRange;
+  const customRange = !!activeRange && !!defaultRange && !sameTimeRange(activeRange, defaultRange);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -103,22 +112,49 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!activeRange || !defaultRange) return;
+    if (!customRange) {
+      setRangeEnv(null);
+      setRangeError(null);
+      setRangeLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRangeLoading(true);
+    setRangeError(null);
+    fetchRangeContract(activeRange)
+      .then((next) => {
+        if (!cancelled) setRangeEnv(next);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setRangeEnv(null);
+          setRangeError((err as Error).message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRangeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRange, customRange, defaultRange]);
+
+  const activeEnv = customRange ? rangeEnv : env;
+
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
   // their edges). Everything below — facets, filters, stats, statuses — works
   // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
   // is derived over the FULL contract so the Settings page can still list (and
   // re-enable) hidden repos.
-  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
+  const visibleEnv = useMemo(() => (activeEnv ? applyVisibility(activeEnv, hidden, hiddenSources) : null), [activeEnv, hidden, hiddenSources]);
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
-  const activityNow = useMemo(() => {
-    const parsed = Date.parse(env?.generated_at ?? "");
-    return Number.isFinite(parsed) ? parsed : Date.now();
-  }, [env?.generated_at]);
   const windowedActivities = useMemo(
-    () => (visibleEnv ? filterActivitiesByWindow(visibleEnv.activities ?? [], activityWindow, activityNow) : []),
-    [visibleEnv, activityWindow, activityNow],
+    () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange) : []),
+    [visibleEnv, activeRange],
   );
 
   // Highlight color: the config layers (per-repo + per-source) ride in on the
@@ -152,8 +188,8 @@ export function App() {
   // source_id -> provider kind (github / gitlab), so a card can show its source
   // mark. Provider kind lives on SourceDTO, not the item — look it up here once.
   const sourceKind = useMemo(
-    () => new Map((env?.sources ?? []).map((s) => [s.source_id, s.kind])),
-    [env],
+    () => new Map((activeEnv?.sources ?? []).map((s) => [s.source_id, s.kind])),
+    [activeEnv],
   );
 
   const filteredItems = useMemo(
@@ -180,7 +216,7 @@ export function App() {
     filters.sources.size === 0 &&
     filters.states.size === 0 &&
     filters.kinds.size === 0;
-  const compatibleAggregates = canUseContractAggregates ? (env?.aggregates ?? []) : [];
+  const compatibleAggregates = canUseContractAggregates && !customRange ? (env?.aggregates ?? []) : [];
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
   // items are placed into columns (so a closed item's Trailing status is correct
@@ -252,13 +288,14 @@ export function App() {
       .text()
       .then((t) => {
         setEnv(parseContract(t));
+        setRangeEnv(null);
         setError(null);
       })
       .catch((err: unknown) => setError((err as Error).message));
   }
 
   function routeHref(nextPage: "board" | "graph" | "activity" | "settings"): string {
-    return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search });
+    return buildHashRoute({ page: nextPage === "board" ? "" : nextPage, q: filters.search, from: activeRange?.from, to: activeRange?.to });
   }
 
   function setRouteSearch(q: string) {
@@ -268,6 +305,20 @@ export function App() {
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
       q,
+      from: activeRange?.from,
+      to: activeRange?.to,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  function setRouteRange(range: TimeRange) {
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({
+      page: page === "board" ? "" : page,
+      focus: page === "graph" ? route.focus : null,
+      q: filters.search,
+      from: range.from,
+      to: range.to,
     });
     if (readHash() !== next) window.location.hash = next;
   }
@@ -295,7 +346,15 @@ export function App() {
     );
   }
 
-  if (!env || !visibleEnv) return null;
+  if (!env || !activeRange || (customRange && rangeLoading && !rangeEnv)) return <div className="state-msg">Loading range…</div>;
+  if (customRange && rangeError && !rangeEnv) {
+    return (
+      <div className="state-msg error">
+        <p>Could not load selected range: {rangeError}</p>
+      </div>
+    );
+  }
+  if (!activeEnv || !visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
 
   return (
@@ -325,13 +384,22 @@ export function App() {
           the Board/Graph windows they describe. Activity has no item/edge stats,
           and Settings is a config surface. */}
       {page !== "settings" && (
-        <Controls
-          filters={filters}
-          facets={facets}
-          onSearch={setRouteSearch}
-          onToggle={toggle}
-          onLoadFile={loadFile}
-        />
+        <>
+          <Controls
+            filters={filters}
+            facets={facets}
+            onSearch={setRouteSearch}
+            onToggle={toggle}
+            onLoadFile={loadFile}
+          />
+          <TimeRangeControls
+            range={activeRange}
+            generatedAt={env.generated_at}
+            loading={rangeLoading}
+            error={rangeError}
+            onRange={setRouteRange}
+          />
+        </>
       )}
       {page === "settings" ? (
         <SettingsPage
@@ -351,9 +419,8 @@ export function App() {
         <ActivityPage
           activities={filteredActivities}
           windowTotal={windowedActivities.length}
-          totalActivities={visibleEnv.activities?.length ?? 0}
-          activityWindow={activityWindow}
-          onActivityWindow={setActivityWindow}
+          totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
+          range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}
         />
@@ -370,8 +437,8 @@ export function App() {
             focusRef={route.focus}
             narrowed={filters.search.trim() !== ""}
             aggregates={compatibleAggregates}
-            itemWindow={env.item_window}
-            generatedAt={env.generated_at}
+            itemWindow={activeEnv.item_window}
+            range={activeRange}
           />
         </Suspense>
       ) : (
@@ -383,8 +450,8 @@ export function App() {
           colorOf={colorOf}
           linkedIds={linkedIds}
           aggregates={compatibleAggregates}
-          itemWindow={env.item_window}
-          generatedAt={env.generated_at}
+          itemWindow={activeEnv.item_window}
+          range={activeRange}
         />
       )}
     </div>

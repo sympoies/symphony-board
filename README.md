@@ -27,12 +27,14 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v2, currently `2.0.0`, and validates the JSON
+- `emit` produces contract major v2, currently `2.1.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
-  Activity feed, and a persistent Settings display filter.
-- Docker Compose runs the sync/emit loop as the sole writer and serves the UI as
-  a read-only sidecar over the latest emitted contract.
+  Activity feed, and a persistent Settings display filter. Board, Graph, and
+  Activity share one URL-backed date-range control.
+- Docker Compose runs the sync/emit loop as the sole writer, a read-only range
+  API sidecar over SQLite, and a read-only web sidecar over the latest emitted
+  contract.
 - CI runs backend checks, UI build/tests/render-smoke, and a combined
   logic-tier coverage gate.
 
@@ -159,15 +161,20 @@ pnpm --filter @symphony-board/ui run preview
 ```
 
 The tracked `packages/ui/public/contract.json` is a small sample contract for
-development and smoke tests. Runtime output under `data/` remains gitignored.
+development and smoke tests. UI-only dev serves the static default window; use
+the Docker stack when testing custom date ranges through `/api/range`.
+Runtime output under `data/` remains gitignored.
 
 ## Run Continuously
 
-Docker Compose runs two services:
+Docker Compose runs three services:
 
 - `board`: the sole writer. It loops `sync` and `emit`.
+- `api`: a read-only Node sidecar. It opens SQLite with `query_only` and serves
+  `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
-  latest `data/contract.json` as `/contract.json`.
+  latest `data/contract.json` as `/contract.json`, and proxies `/api/` to
+  `api`.
 
 ```sh
 echo "GITHUB_TOKEN=ghp_xxx" > .env
@@ -197,7 +204,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v2, currently `2.0.0`.
+The current emitted contract is major v2, currently `2.1.0`.
 
 Version `1.1.0` added display colors:
 
@@ -228,6 +235,10 @@ payload: the default 90-day Board item window plus extra relationship endpoints
 needed by emitted edges. Full item totals stay in `aggregates[]`; Settings repo
 counts use `repo_stats[]`; `item_window` describes the loaded window and whether
 the payload is truncated.
+
+Version `2.1.0` adds optional `range_query` metadata for read-only range API
+responses. Static emits usually omit it; `/api/range` includes it and returns a
+windowed contract for the requested UTC date range.
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.

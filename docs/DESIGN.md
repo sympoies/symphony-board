@@ -176,7 +176,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v2. Current emitted version: `2.0.0`.
+Current major: v2. Current emitted version: `2.1.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -212,6 +212,11 @@ from edge-endpoint closure rows. Full canonical totals remain available through
 `aggregates[]`, and full Settings repo counts move to `repo_stats[]` so the
 Settings page is not forced to infer repo inventory from the windowed item set.
 
+Version `2.1.0` added optional `range_query` metadata for read-only range API
+responses. The static emitted contract usually omits it. The API response keeps
+the same v2 envelope shape but projects items, edges, and activities to an
+explicit UTC date range, with endpoint closure for relationships.
+
 Contract rules:
 
 - patch: clarification only
@@ -232,31 +237,26 @@ Pages:
 - **Board**: 7 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
   `Closed`) plus three Spotlight lanes (`Follow-up`, `Plan-tracking`, `PR`).
   Status is derived from item state and relationship edges. Spotlight lanes are
-  cross-cuts, so their counts do not sum to the item total. The Board supports
-  item-local active-since windows inside the loaded contract window and filters
-  cards by `updated_at`. Board summary stats are scoped to that same item
-  window; edge lifecycle counts include relationships touching the windowed
-  Board items. When the loaded contract has a matching `boardWindow` aggregate
-  and no viewer-local filters are active, the summary can use that aggregate;
-  otherwise it computes locally. Under contract v2, the Board renders only
-  primary-window items and disables older card windows that the static payload
-  did not load.
+  cross-cuts, so their counts do not sum to the item total. The Board uses the
+  shared date range and filters primary cards by item `updated_at`. For the
+  default static window it can consume a matching `boardWindow` aggregate when
+  no viewer-local filters are active. For custom `/api/range` responses and
+  viewer-local filters, it computes scoped summary stats locally from the
+  returned window.
 - **Graph**: relationship view built from edge-connected items. It supports an
-  active-since window, mention toggles, side-list search, focus subgraphs, and
+  shared date range, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`. Graph overview
-  summary stats are scoped to the rendered overview graph after the edge window,
+  summary stats are scoped to the rendered overview graph after the range,
   mention controls, search, and facets. Focus view uses a separate `focus`
   summary for the focused subgraph instead of reusing overview totals. Contract
-  aggregates are used only for the default no-mentions overview when the
-  active-since window exactly matches an emitted aggregate row. Under contract
-  v2, default overview controls stay inside the loaded window; focus views can
-  still inspect relationships present in the emitted endpoint-closed edge set.
+  aggregates are used only for the default no-mentions overview when the static
+  window exactly matches an emitted aggregate row; custom range responses compute
+  from the returned edges.
 - **Activity**: newest-first feed of commit, repository/project event, and
-  item-transition records. It defaults to `this week` (Monday start, relative to
-  the loaded contract's `generated_at`) and supports `1d`, `3d`, `this week`,
-  `1w`, `2w`, `1m`, and `all`. The range is applied before source/kind/search
-  filters, and the page virtualizes matching rows so large activity histories
-  remain scrollable without flooding the DOM.
+  item-transition records. It uses the same date range as Board and Graph. The
+  range is applied before source/kind/search filters, and the page virtualizes
+  matching rows so large activity histories remain scrollable without flooding
+  the DOM.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources and set per-repo color overrides in `localStorage`. These preferences
   are a pre-filter before Board, Graph, and Activity compute their views. They
@@ -266,15 +266,18 @@ The UI supports contract major v2. It warns when a different major is loaded.
 
 ## Docker Operation
 
-`docker/compose.yaml` has two services:
+`docker/compose.yaml` has three services:
 
 - `board`: backend loop daemon and sole writer
+- `api`: read-only range query sidecar over the SQLite store
 - `web`: read-only nginx sidecar serving the built UI and `/contract.json`
 
-The daemon writes `data/contract.json`. The sidecar mounts `data/` read-only and
-serves that file with `Cache-Control: no-store`, so a reload pulls the latest
-emit. `web` depends on the `board` healthcheck so it does not serve before the
-first contract exists.
+The daemon writes `data/contract.json`. The API sidecar mounts config and data
+read-only, opens SQLite with `query_only`, and serves
+`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`. The web sidecar mounts `data/`
+read-only, serves `/contract.json` with `Cache-Control: no-store`, and proxies
+`/api/` to the API sidecar. `web` depends on both `board` and `api` healthchecks
+so it does not serve before the first contract and read-only API are ready.
 
 There is intentionally no external cron and no second writer.
 
@@ -308,10 +311,9 @@ iteration to be full.
 - External write actions from the UI. The UI is intentionally view-only.
 - Splitting UI or contract into separate repos. The package boundary is enough
   until third-party consumers or release cadence require more.
-- Payload trimming / partial item delivery. Contract v1.3 has aggregate/window
-  metadata but still emits the full live item and edge sets for compatibility.
-  Reducing transfer/parse/memory cost by shipping a windowed item set remains a
-  separate #56 decision.
+- Historical pagination beyond explicit date ranges. The read-only range API
+  can return a bounded contract for a selected range, but there is no cursor,
+  infinite scroll, or provider write-back surface.
 
 ## Validation Baseline
 

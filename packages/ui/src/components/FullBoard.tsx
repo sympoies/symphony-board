@@ -1,21 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { AggregateDTO, EdgeDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import {
-  ACTIVE_SINCE_PRESETS,
   anchorId,
   computeBoardWindowStats,
-  cutoffIso,
-  defaultActiveSince,
   findContractScopedStats,
-  itemActiveSince,
   STATUS_ORDER,
   STATUS_LABEL,
   STATUS_DESC,
   spotlight,
   type ItemStatus,
   type ColorOf,
+  type TimeRange,
 } from "../model.ts";
 
 // A column renders at most `cap` cards (the list arrives already sorted, newest
@@ -91,7 +88,7 @@ export function FullBoard({
   linkedIds,
   aggregates = [],
   itemWindow,
-  generatedAt,
+  range,
 }: {
   items: ItemDTO[];
   edges: EdgeDTO[];
@@ -101,22 +98,12 @@ export function FullBoard({
   linkedIds: Set<string>;
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
-  generatedAt: string;
+  range: TimeRange;
 }) {
-  const generatedAtMs = useMemo(() => {
-    const parsed = Date.parse(generatedAt);
-    return Number.isFinite(parsed) ? parsed : Date.now();
-  }, [generatedAt]);
-  const loadedSince = itemWindow?.window.kind === "active_since" ? itemWindow.window.since?.slice(0, 10) ?? null : null;
-  const [since, setSince] = useState<string>(() => loadedSince ?? defaultActiveSince(generatedAtMs));
-  useEffect(() => {
-    if (loadedSince && (since === "" || since < loadedSince)) setSince(loadedSince);
-  }, [loadedSince, since]);
-  const cutoff = useMemo(() => (since ? new Date(since + "T00:00:00Z").toISOString() : null), [since]);
-  const boardItems = useMemo(() => items.filter((it) => itemActiveSince(it, cutoff)), [items, cutoff]);
+  const boardItems = items;
   const contractBoardStats = useMemo(
-    () => findContractScopedStats(aggregates, { scope: "boardWindow", since }),
-    [aggregates, since],
+    () => findContractScopedStats(aggregates, { scope: "boardWindow", since: range.from }),
+    [aggregates, range.from],
   );
   const boardStats = useMemo(
     () => contractBoardStats ?? computeBoardWindowStats(boardItems, edges),
@@ -130,30 +117,8 @@ export function FullBoard({
       <div className="board-controls">
         <span className="muted">
           showing {boardItems.length} of {items.length} items
-          {itemWindow?.truncated ? ` · loaded since ${loadedSince} · total ${itemWindow.total_items}` : ""}
+          {itemWindow?.truncated ? ` · range ${range.from} to ${range.to} · total ${itemWindow.total_items}` : ""}
         </span>
-        <label className="date-filter board-since">
-          active since <input type="date" min={loadedSince ?? undefined} value={since} onChange={(e) => setSince(e.target.value)} />
-        </label>
-        <div className="toggle-group">
-          <span className="toggle-label">since</span>
-          {ACTIVE_SINCE_PRESETS.map(([lab, days]) => {
-            const val = days == null ? "" : cutoffIso(days, generatedAtMs).slice(0, 10);
-            const disabled = loadedSince !== null && (days == null || val < loadedSince);
-            return (
-              <button
-                key={lab}
-                type="button"
-                className={`toggle${since === val ? " toggle-on" : ""}`}
-                onClick={() => setSince(val)}
-                disabled={disabled}
-                title={disabled ? "Not loaded by this windowed contract" : undefined}
-              >
-                {lab}
-              </button>
-            );
-          })}
-        </div>
       </div>
       <StatsBar scoped={boardStats} />
       <section className="board-7">

@@ -2,21 +2,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import {
-  ACTIVE_SINCE_PRESETS,
-  DEFAULT_ACTIVE_SINCE_DAYS,
-  DEFAULT_ACTIVITY_WINDOW,
+  DEFAULT_TIME_RANGE_DAYS,
+  TIME_RANGE_PRESETS,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
   VIEW_SCOPES,
   VIEW_SCOPE_LABEL,
-  ACTIVITY_WINDOW_PRESETS,
-  defaultActiveSince,
+  defaultTimeRange,
+  normalizeTimeRange,
+  routeTimeRange,
   emptyFilters,
-  activityActiveSince,
   activityMatches,
   activityVirtualRange,
-  activityWindowCutoffMs,
-  filterActivitiesByWindow,
+  filterActivitiesByRange,
+  itemInTimeRange,
+  activityInTimeRange,
   itemMatches,
   indexItems,
   resolveEdges,
@@ -48,9 +48,7 @@ import {
   applyRouteSearch,
   edgeEndpointIds,
   itemSearchToken,
-  itemActiveSince,
-  graphWindowEdges,
-  graphEffectiveSince,
+  graphWindowEdgesInRange,
   type ResolvedEdge,
   type GraphNode,
 } from "../src/model.ts";
@@ -132,39 +130,53 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
   assert.equal(activityMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
 });
 
-test("activity windows expose requested presets and compute local Monday for this week", () => {
-  assert.equal(DEFAULT_ACTIVITY_WINDOW, "thisWeek");
-  assert.deepEqual(ACTIVITY_WINDOW_PRESETS.map(([label]) => label), ["1d", "3d", "this week", "1w", "2w", "1m", "all"]);
-  const now = new Date(2026, 5, 10, 15, 30, 0).getTime(); // local Wednesday
+test("date ranges are route-backed and filter inclusive timestamp bounds", () => {
+  const env: ContractEnvelope = {
+    contract_version: "2.0.0",
+    generated_at: "2026-06-08T12:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [],
+    edges: [],
+    item_window: {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-03-10T00:00:00.000Z", days: 90, edge_filter: null },
+      primary_items: 0,
+      edge_endpoint_items: 0,
+      total_items: 0,
+      truncated: false,
+    },
+  };
+  const range = { from: "2026-06-01", to: "2026-06-07" };
 
-  assert.equal(activityWindowCutoffMs("1d", now), now - 24 * 60 * 60 * 1000);
-  assert.equal(activityWindowCutoffMs("3d", now), now - 3 * 24 * 60 * 60 * 1000);
-  assert.equal(activityWindowCutoffMs("1w", now), now - 7 * 24 * 60 * 60 * 1000);
-  assert.equal(activityWindowCutoffMs("2w", now), now - 14 * 24 * 60 * 60 * 1000);
-  assert.equal(activityWindowCutoffMs("1m", now), now - 30 * 24 * 60 * 60 * 1000);
-  assert.equal(activityWindowCutoffMs("all", now), null);
+  assert.equal(DEFAULT_TIME_RANGE_DAYS, 90);
+  assert.deepEqual(TIME_RANGE_PRESETS.map(([label]) => label), ["1w", "2w", "1mo", "3mo"]);
+  assert.deepEqual(defaultTimeRange(env), { from: "2026-03-10", to: "2026-06-08" });
+  assert.deepEqual(normalizeTimeRange(range), range);
+  assert.equal(normalizeTimeRange({ from: "2026-06-08", to: "2026-06-07" }), null);
+  assert.deepEqual(routeTimeRange(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07")), range);
+  assert.equal(routeTimeRange(parseHashRoute("#/activity?from=2026-06-01&to=not-a-date")), null);
 
-  const week = new Date(activityWindowCutoffMs("thisWeek", now)!);
-  assert.equal(week.getFullYear(), 2026);
-  assert.equal(week.getMonth(), 5);
-  assert.equal(week.getDate(), 8, "this week starts on Monday");
-  assert.equal(week.getHours(), 0);
-  assert.equal(week.getMinutes(), 0);
-});
+  assert.equal(itemInTimeRange(item({ updated_at: "2026-06-01T00:00:00Z" }), range), true);
+  assert.equal(itemInTimeRange(item({ updated_at: "2026-06-07T23:59:59Z" }), range), true, "upper bound accepts ISO without milliseconds");
+  assert.equal(itemInTimeRange(item({ updated_at: "2026-06-08T00:00:00Z" }), range), false);
 
-test("activity window filtering preserves order and includes boundary timestamps", () => {
-  const now = Date.parse("2026-06-08T12:00:00Z");
-  const a = (id: string, offsetMs: number) =>
-    activity({ id, external_id: id, occurred_at: new Date(now - offsetMs).toISOString() });
   const activities = [
-    a("recent", 60 * 1000),
-    a("boundary", 24 * 60 * 60 * 1000),
-    a("old", 24 * 60 * 60 * 1000 + 1),
+    activity({ id: "start", external_id: "start", occurred_at: "2026-06-01T00:00:00Z" }),
+    activity({ id: "end", external_id: "end", occurred_at: "2026-06-07T23:59:59Z" }),
+    activity({ id: "old", external_id: "old", occurred_at: "2026-05-31T23:59:59Z" }),
   ];
+  assert.equal(activityInTimeRange(activities[1]!, range), true);
+  assert.deepEqual(filterActivitiesByRange(activities, range).map((a) => a.id), ["start", "end"]);
 
-  assert.equal(activityActiveSince(activities[0]!, activityWindowCutoffMs("1d", now)), true);
-  assert.deepEqual(filterActivitiesByWindow(activities, "1d", now).map((x) => x.id), ["recent", "boundary"]);
-  assert.deepEqual(filterActivitiesByWindow(activities, "all", now).map((x) => x.id), ["recent", "boundary", "old"]);
+  const recent = item({ id: "recent", updated_at: "2026-06-07T23:59:59Z" });
+  const old = item({ id: "old", updated_at: "2026-05-31T23:59:59Z" });
+  const resolved: ResolvedEdge[] = [
+    { edge: edge("recent", "old", "fulfilled", "closes"), from: recent, to: old },
+    { edge: edge("old", "missing", null, "mentions"), from: old, to: null },
+    { edge: edge("external-a", "external-b", null, "relates"), from: null, to: null },
+  ];
+  assert.deepEqual(graphWindowEdgesInRange(resolved, range).map((re) => re.edge.type), ["closes", "relates"]);
 });
 
 test("activityVirtualRange renders only the visible rows plus overscan", () => {
@@ -361,10 +373,10 @@ test("computeGraphStats follows the graph window and can separately describe foc
     { edge: edge("recent-pr", "recent-issue", "fulfilled", "closes"), from: recentPr, to: recentIssue },
     { edge: edge("old-pr", "old-issue", "broken", "closes"), from: oldPr, to: oldIssue },
   ];
-  const windowedEdges = graphWindowEdges(resolved, "2026-06-01T00:00:00Z");
+  const windowedEdges = graphWindowEdgesInRange(resolved, { from: "2026-06-01", to: "2026-06-07" });
   assert.equal(windowedEdges.length, 1);
 
-  const overview = buildGraph(windowedEdges, null);
+  const overview = buildGraph(windowedEdges);
   const overviewStats = computeGraphStats(overview, "graphWindow");
   assert.equal(overviewStats.scope, "graphWindow");
   assert.equal(overviewStats.stats.items, 2, "graph stats count rendered nodes");
@@ -390,26 +402,7 @@ test("cutoffIso is deterministic for a fixed now", () => {
   assert.equal(cutoffIso(90, now).slice(0, 10), "2026-03-09");
 });
 
-test("active-since presets are shared and itemActiveSince uses updated_at", () => {
-  assert.equal(DEFAULT_ACTIVE_SINCE_DAYS, 90);
-  assert.deepEqual(ACTIVE_SINCE_PRESETS.map(([label]) => label), ["1w", "2w", "1mo", "3mo", "all"]);
-  assert.equal(defaultActiveSince(Date.parse("2026-06-10T00:00:00Z")), "2026-03-12");
-  const cutoff = "2026-06-01T00:00:00.000Z";
-  assert.equal(itemActiveSince(item({ updated_at: "2026-06-01T00:00:00Z" }), cutoff), true);
-  assert.equal(itemActiveSince(item({ updated_at: "2026-05-31T23:59:59Z" }), cutoff), false);
-  assert.equal(itemActiveSince(item({ updated_at: null }), cutoff), false);
-  assert.equal(itemActiveSince(item({ updated_at: null }), null), true, "all keeps undated items");
-});
-
-test("graphEffectiveSince defaults a deep-link-owned all window before cleared search renders", () => {
-  const now = Date.parse("2026-06-10T00:00:00Z");
-  assert.equal(graphEffectiveSince("", { narrowed: false, relaxedForFocus: true, now }), "2026-03-12");
-  assert.equal(graphEffectiveSince("", { narrowed: true, relaxedForFocus: true, now }), "", "search narrowing keeps the focused all-time relaxation");
-  assert.equal(graphEffectiveSince("", { narrowed: false, relaxedForFocus: false, now }), "", "manual all-time choice is preserved");
-  assert.equal(graphEffectiveSince("2026-01-01", { narrowed: false, relaxedForFocus: true, now }), "2026-01-01", "manual date is preserved");
-});
-
-test("buildGraph keeps only edge-connected nodes, applies the time window, and flags untracked ends", () => {
+test("buildGraph keeps only edge-connected nodes and flags untracked ends", () => {
   const pr = item({ id: "P", kind: "change_request", state: "merged", updated_at: "2026-06-01T00:00:00Z", url: "https://pr" });
   const iss = item({ id: "I", kind: "issue", state: "closed", created_at: "2026-05-20T00:00:00Z", updated_at: "2026-06-01T00:00:00Z", title: "Closed issue" });
   const oldPr = item({ id: "OP", kind: "change_request", state: "merged", updated_at: "2020-01-01T00:00:00Z" });
@@ -419,8 +412,8 @@ test("buildGraph keeps only edge-connected nodes, applies the time window, and f
     { edge: { type: "closes", from: "OP", to: "OI", from_state: "merged", to_state: "closed", lifecycle: "fulfilled" }, from: oldPr, to: oldIss },
     { edge: { type: "closes", from: "P", to: "github:github.com|UNTRACKED", from_state: "merged", to_state: null, lifecycle: "declared" }, from: pr, to: null },
   ];
-  const g = buildGraph(edges, "2026-03-01T00:00:00Z");
-  assert.equal(g.links.length, 2, "the all-old edge is dropped; recent + untracked kept");
+  const g = buildGraph([edges[0]!, edges[2]!]);
+  assert.equal(g.links.length, 2, "the caller supplies the already-windowed edge set");
   const ids = new Set(g.nodes.map((n) => n.id));
   assert.ok(ids.has("P") && ids.has("I") && ids.has("github:github.com|UNTRACKED"));
   assert.ok(!ids.has("OP") && !ids.has("OI"), "nodes outside the window are excluded");
@@ -433,21 +426,20 @@ test("buildGraph keeps only edge-connected nodes, applies the time window, and f
   const tracked = g.nodes.find((n) => n.id === "I");
   assert.equal(tracked?.created_at, "2026-05-20T00:00:00Z", "tracked node carries created_at");
   assert.equal(tracked?.updated_at, "2026-06-01T00:00:00Z", "tracked node carries updated_at");
-  assert.equal(buildGraph(edges, null).links.length, 3, "no cutoff keeps every edge");
+  assert.equal(buildGraph(edges).links.length, 3, "the graph renderer keeps every supplied edge");
 });
 
 // The Graph page's focus view: focusSubgraph builds the focused item + its direct
-// neighbours and every edge among that set, from the RAW edges — all edge types,
-// no time window — so a focus shows ALL its relationships (the overview graph's
-// mentions toggle / "active since" window do not apply in focus).
+// neighbours and every edge among that set, from the loaded/range edge payload.
+// A focus shows every available relationship; the overview graph's mentions
+// toggle does not apply in focus.
 const redge = (from: string, to: string, type: string): ResolvedEdge => ({
-  // 2020 timestamps: well outside any recent window, to prove focusSubgraph ignores it.
   edge: { type, from, to, from_state: null, to_state: null, lifecycle: type === "closes" ? "fulfilled" : null },
   from: item({ id: from, updated_at: "2020-01-01T00:00:00Z" }),
   to: item({ id: to, updated_at: "2020-01-01T00:00:00Z" }),
 });
 
-test("focusSubgraph: a focus shows its full neighbourhood — every edge type, no time window", () => {
+test("focusSubgraph: a focus shows its full loaded neighbourhood — every edge type", () => {
   const edges: ResolvedEdge[] = [
     redge("A", "F", "closes"),
     redge("B", "F", "mentions"), // a mention TO the focus IS drawn (the overview filters mentions; focus does not)
@@ -456,7 +448,7 @@ test("focusSubgraph: a focus shows its full neighbourhood — every edge type, n
   ];
   const g = focusSubgraph(edges, "F");
   assert.deepEqual(g.nodes.map((n) => n.id).sort(), ["A", "B", "F"], "focus + direct neighbours only (Z dropped)");
-  assert.equal(g.links.length, 3, "A–F, B–F, A–B all kept despite 2020 timestamps (no window) and the mention");
+  assert.equal(g.links.length, 3, "A-F, B-F, A-B all kept, including the mention");
   assert.ok(g.links.some((l) => l.type === "mentions"), "the mention to the focus is drawn");
 });
 
@@ -693,27 +685,37 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from the optional ?focus= / ?q= deep-link params", () => {
-  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null }, "empty hash -> board, no params");
-  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null });
-  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null });
-  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null });
+  assert.deepEqual(parseHashRoute(""), { page: "", focus: null, q: null, from: null, to: null }, "empty hash -> board, no params");
+  assert.deepEqual(parseHashRoute("#/"), { page: "", focus: null, q: null, from: null, to: null });
+  assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", focus: null, q: null, from: null, to: null });
+  assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", focus: null, q: null, from: null, to: null });
   // focus + q are pulled off the hash and percent-decoded
   assert.deepEqual(parseHashRoute("#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342"), {
     page: "graph",
     focus: "github:github.com|42",
     q: "owner/repo #42",
+    from: null,
+    to: null,
+  });
+  assert.deepEqual(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07"), {
+    page: "activity",
+    focus: null,
+    q: null,
+    from: "2026-06-01",
+    to: "2026-06-07",
   });
   // params on a non-graph page still parse (App only acts on them for the graph)
-  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null });
+  assert.deepEqual(parseHashRoute("#/?focus=x"), { page: "", focus: "x", q: null, from: null, to: null });
   // empty/absent values are normalized to null
-  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null });
-  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null });
-  assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null, q: null });
+  assert.deepEqual(parseHashRoute("#/graph?focus="), { page: "graph", focus: null, q: null, from: null, to: null });
+  assert.deepEqual(parseHashRoute("#/graph?q=%20%20"), { page: "graph", focus: null, q: null, from: null, to: null });
+  assert.deepEqual(parseHashRoute("#/graph?other=1"), { page: "graph", focus: null, q: null, from: null, to: null });
 });
 
 test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.equal(buildHashRoute({ page: "" }), "#/");
   assert.equal(buildHashRoute({ page: "graph", q: "owner/repo #13" }), "#/graph?q=owner%2Frepo%20%2313");
+  assert.equal(buildHashRoute({ page: "activity", from: "2026-06-01", to: "2026-06-07" }), "#/activity?from=2026-06-01&to=2026-06-07");
   assert.equal(
     buildHashRoute({ page: "graph", focus: "github:github.com|42", q: "owner/repo #42" }),
     "#/graph?focus=github%3Agithub.com%7C42&q=owner%2Frepo%20%2342",
@@ -723,6 +725,8 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     page: "",
     focus: null,
     q: "owner/repo #13",
+    from: null,
+    to: null,
   });
 });
 
@@ -741,7 +745,7 @@ test("graphFocusHref round-trips an item's id + search token through parseHashRo
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, from: null, to: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden

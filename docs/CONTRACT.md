@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.0.0`.
+Current emitted version: `2.1.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -113,7 +113,13 @@ package version, to decide compatibility.
       "by_state": { "open": 12, "closed": 88 },
       "by_kind": { "issue": 90, "change_request": 10 }
     }
-  ]
+  ],
+  "range_query": {
+    "kind": "time_range",
+    "timezone": "UTC",
+    "from": "2026-06-01T00:00:00.000Z",
+    "to": "2026-06-08T23:59:59.999Z"
+  }
 }
 ```
 
@@ -131,6 +137,8 @@ Top-level fields:
 - `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 - `item_window`: required v2 metadata describing the primary loaded item window.
 - `repo_stats`: required v2 full repo counts, independent of loaded item rows.
+- `range_query`: optional metadata on read-only range API responses, added in
+  `2.1.0`.
 
 The producer currently emits `activities`, `repos`, `aggregates`,
 `item_window`, and `repo_stats` every time, usually as empty arrays when no rows
@@ -240,7 +248,7 @@ Scopes use the same vocabulary as the UI:
 
 | Scope | Meaning |
 | --- | --- |
-| `global` | full emitted contract totals for all live items and edges |
+| `global` | full canonical live totals for all items and edges |
 | `boardWindow` | Board item-window totals; items are selected by `updated_at` |
 | `graphWindow` | Graph overview totals; edges are selected by endpoint activity, and item total means rendered graph nodes |
 | `focus` | focus-local subgraph totals; schema-supported but not backend-emitted because focus target is viewer-local |
@@ -262,7 +270,7 @@ Each aggregate has:
 The backend currently emits aggregates over the full canonical live set before
 v2 payload windowing:
 
-- `global` full aggregate over all emitted items and edges.
+- `global` full aggregate over all canonical live items and edges.
 - `boardWindow` full plus `1w`, `2w`, `1mo`, and `3mo` active-since aggregates.
 - `graphWindow` full plus `1w`, `2w`, `1mo`, and `3mo` active-since aggregates
   for the default overview edge filter (`edge_filter: "no_mentions"`).
@@ -297,10 +305,38 @@ Fields:
 - `truncated`: true when at least one live item row is omitted from `items[]`.
 
 Consumers should treat `items[]` as complete only for the primary window.
-Choosing an older/all-time Board or overview Graph card window requires another
-payload or a future load-more API; the static v2 contract cannot synthesize
-missing historical cards. Consumers can still show true full totals from
-`aggregates[]`.
+Choosing a different Board, Graph, or Activity date range requires another
+payload such as `/api/range`; the static v2 contract cannot synthesize missing
+historical cards. Consumers can still show true full totals from `aggregates[]`.
+
+## Range Query
+
+Version `2.1.0` added optional `range_query` metadata for read-only API
+responses. The static `emit` path usually omits it. `GET /api/range` returns the
+same contract envelope shape, with `range_query` set to:
+
+- `kind: "time_range"`
+- `timezone: "UTC"`
+- `from`: inclusive UTC timestamp for the selected date's start
+- `to`: inclusive UTC timestamp for the selected date's end
+
+The range response is a projection, not a second schema:
+
+- primary Board items are selected by `items[].updated_at` inside
+  `[from, to]`.
+- edges are included when they touch a primary item or when a tracked endpoint
+  was updated inside the range, so Graph can use the same selected range.
+- tracked edge endpoints are included in `items[]` with
+  `window_reasons: ["edge_endpoint"]` when they are outside the primary item
+  set.
+- `activities[]` is filtered by `occurred_at` inside `[from, to]`.
+- `aggregates[]` is empty in range responses; consumers compute scoped visible
+  stats from the returned rows.
+- `repo_stats[]` remains the full canonical repo inventory, not only loaded
+  range rows.
+
+The API validates the date query and opens SQLite read-only; it is not a writer
+and does not mutate sync state.
 
 ## Repo Stats
 
@@ -373,7 +409,7 @@ pnpm run validate --in data/contract.json
 ```
 
 For a major bump, plan a transition. The UI currently supports contract major
-v1 and warns on any other major.
+v2 and warns on any other major.
 
 ## Validation
 

@@ -27,7 +27,7 @@ import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contr
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { ACTIVE_SINCE_PRESETS, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdges, relatedItems, compareGraphNodes, cutoffIso, defaultActiveSince, graphEffectiveSince, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdgesInRange, relatedItems, compareGraphNodes, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf, type TimeRange } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -575,7 +575,7 @@ export function GraphPage({
   narrowed,
   aggregates = [],
   itemWindow,
-  generatedAt,
+  range,
 }: {
   edges: ResolvedEdge[];
   sourceKind: Map<string, string>;
@@ -584,22 +584,8 @@ export function GraphPage({
   narrowed?: boolean;
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
-  generatedAt: string;
+  range: TimeRange;
 }) {
-  const generatedAtMs = useMemo(() => {
-    const parsed = Date.parse(generatedAt);
-    return Number.isFinite(parsed) ? parsed : Date.now();
-  }, [generatedAt]);
-  const loadedSince = itemWindow?.window.kind === "active_since" ? itemWindow.window.since?.slice(0, 10) ?? null : null;
-  // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
-  // filters on entry so the target is GUARANTEED on the graph and framable: it
-  // clears the time window (an older item would land off the default 90-day
-  // window) AND turns mentions on (an item whose only relationships are mentions
-  // would otherwise have no node, since mentions are off by default). Together
-  // any item with at least one edge — exactly the items that show the link — is
-  // on the canvas. Absent a focus, keep the 90-day, no-mentions defaults. App
-  // keys the page on the focus target, so each entry re-runs these initializers.
-  const [since, setSince] = useState<string>(() => (focusRef ? "" : loadedSince ?? defaultActiveSince(generatedAtMs)));
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
@@ -607,29 +593,6 @@ export function GraphPage({
   // list's focus view and the canvas subgraph below; null = the flat list +
   // full graph.
   const [focusId, setFocusId] = useState<string | null>(focusRef ?? null);
-
-  // The deep-link's all-time window only makes sense WHILE the narrowing search
-  // (the "?q=" seed) is active — that search is what keeps the canvas down to the
-  // focused item + neighbours. Once search is cleared, use the default window in
-  // the same render that removes the search filter, then sync the state/ref after
-  // commit. Manual window changes (chooseSince) opt out.
-  const relaxedForFocus = useRef(!!focusRef);
-  function chooseSince(val: string) {
-    relaxedForFocus.current = false;
-    setSince(val);
-  }
-  const effectiveSince = graphEffectiveSince(since, { narrowed: !!narrowed, relaxedForFocus: relaxedForFocus.current, now: generatedAtMs });
-  useEffect(() => {
-    if (effectiveSince !== since) {
-      relaxedForFocus.current = false;
-      setSince(effectiveSince);
-    }
-  }, [effectiveSince, since]);
-  useEffect(() => {
-    if (!focusId && loadedSince && (since === "" || since < loadedSince)) setSince(loadedSince);
-  }, [focusId, loadedSince, since]);
-
-  const graphCutoff = useMemo(() => (effectiveSince ? new Date(effectiveSince + "T00:00:00Z").toISOString() : null), [effectiveSince]);
 
   const graphInputEdges = useMemo(() => {
     let visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
@@ -642,8 +605,8 @@ export function GraphPage({
     return visible;
   }, [edges, showMentions, mentionTarget]);
 
-  const graphEdges = useMemo(() => graphWindowEdges(graphInputEdges, graphCutoff), [graphInputEdges, graphCutoff]);
-  const graph = useMemo(() => buildGraph(graphEdges, null), [graphEdges]);
+  const graphEdges = useMemo(() => graphWindowEdgesInRange(graphInputEdges, range), [graphInputEdges, range]);
+  const graph = useMemo(() => buildGraph(graphEdges), [graphEdges]);
 
   // Side-list derivations over the FULL edge set (not the time-windowed graph):
   // every resolvable item (so the focus view can surface relations the window
@@ -675,7 +638,7 @@ export function GraphPage({
 
   // When an item is focused, the canvas shows that item's FULL relationship
   // neighbourhood (focusSubgraph, built from the raw edges — all edge types, no
-  // time window) instead of the windowed overview graph, so every relationship
+  // overview range filter) instead of the windowed overview graph, so every relationship
   // the side list lists is drawn (incl. mentions, regardless of the toggle).
   // Falls back to the full graph if the focus has no edges (nothing to render).
   const view = useMemo<GraphData>(() => {
@@ -690,9 +653,9 @@ export function GraphPage({
   const contractGraphStats = useMemo(
     () =>
       !inFocus && !showMentions && mentionTarget === "all"
-        ? findContractScopedStats(aggregates, { scope: "graphWindow", since: effectiveSince, edgeFilter: "no_mentions" })
+        ? findContractScopedStats(aggregates, { scope: "graphWindow", since: range.from, edgeFilter: "no_mentions" })
         : null,
-    [aggregates, effectiveSince, inFocus, showMentions, mentionTarget],
+    [aggregates, range.from, inFocus, showMentions, mentionTarget],
   );
   const scopedStats = useMemo(
     () => contractGraphStats ?? computeGraphStats(view, inFocus ? "focus" : "graphWindow"),
@@ -759,7 +722,7 @@ export function GraphPage({
   // `fitView` to frame the new subgraph — that is what makes clicking a related
   // item visibly switch the canvas to that item (the old design only panned the
   // full graph, so a neighbour barely moved the camera).
-  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${effectiveSince}|${focusId ?? ""}|${view.nodes.length}`;
+  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${range.from}|${range.to}|${focusId ?? ""}|${view.nodes.length}`;
 
   return (
     <section className="graph-page">
@@ -767,30 +730,8 @@ export function GraphPage({
         <span className="muted">
           showing {view.nodes.length} nodes · {view.links.length} links
           {focusId ? " · focused" : ""}
-          {itemWindow?.truncated && !focusId ? ` · loaded since ${loadedSince}` : ""}
+          {itemWindow?.truncated && !focusId ? ` · range ${range.from} to ${range.to}` : ""}
         </span>
-        <label className="date-filter graph-since">
-          active since <input type="date" min={!focusId ? loadedSince ?? undefined : undefined} value={effectiveSince} onChange={(e) => chooseSince(e.target.value)} />
-        </label>
-        <div className="toggle-group">
-          <span className="toggle-label">since</span>
-          {ACTIVE_SINCE_PRESETS.map(([lab, days]) => {
-            const val = days == null ? "" : cutoffIso(days, generatedAtMs).slice(0, 10);
-            const disabled = !focusId && loadedSince !== null && (days == null || val < loadedSince);
-            return (
-              <button
-                key={lab}
-                type="button"
-                className={`toggle${effectiveSince === val ? " toggle-on" : ""}`}
-                onClick={() => chooseSince(val)}
-                disabled={disabled}
-                title={disabled ? "Not loaded by this windowed contract" : undefined}
-              >
-                {lab}
-              </button>
-            );
-          })}
-        </div>
         <div className="toggle-group">
           <span className="toggle-label">layout</span>
           <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
@@ -837,7 +778,7 @@ export function GraphPage({
       </div>
       <StatsBar scoped={scopedStats} totalLabel="nodes" edgeLabel="links" />
       {graph.links.length === 0 ? (
-        <p className="empty">No relationships in this window — widen the “active since” date.</p>
+        <p className="empty">No relationships in this range.</p>
       ) : (
         // One shared ReactFlowProvider wraps the side list + canvas; remounting
         // <Flow> on a focus change (flowKey) is what reframes the camera now.

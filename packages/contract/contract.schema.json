@@ -58,9 +58,48 @@
       "type": "array",
       "description": "Full canonical repo counts for Settings and external consumers. Separate from `items[]` because v2 does not ship every item row.",
       "items": { "$ref": "#/$defs/repoStats" }
+    },
+    "range_query": {
+      "$ref": "#/$defs/rangeQuery"
     }
   },
   "$defs": {
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC range start."
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC range end."
+        }
+      }
+    },
+    "rangeQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "timezone", "from", "to"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["time_range"] },
+        "timezone": { "type": "string", "enum": ["UTC"] },
+        "from": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC range start."
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC range end."
+        }
+      }
+    },
     "ref": {
       "type": "string",
       "description": "Composite item reference \"<source_id>|<external_id>\". source_id never contains '|'; split on the FIRST '|' only (external_id may contain ':' and '/', e.g. a GitLab gid).",

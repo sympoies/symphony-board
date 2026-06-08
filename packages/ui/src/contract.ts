@@ -4,6 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope } from "@symphony-board/contract";
+import type { TimeRange } from "./model.ts";
 
 // The major this UI understands. The contract versions independently; if a
 // future emit bumps the MAJOR, the UI should branch (or warn) rather than
@@ -21,6 +22,11 @@ export async function fetchContract(url = "./contract.json"): Promise<ContractEn
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`could not load ${url}: HTTP ${res.status}`);
   return (await res.json()) as ContractEnvelope;
+}
+
+export async function fetchRangeContract(range: TimeRange): Promise<ContractEnvelope> {
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  return fetchContract(`./api/range?${params.toString()}`);
 }
 
 // Parse a contract the user dropped in via the file picker.
