@@ -122,9 +122,10 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 // round-trip is unit-tested; refs contain '|' / ':' / '/' so they MUST be
 // percent-encoded to survive the query.
 export interface HashRoute {
-  page: string; // "" | "graph" | "activity" | "settings" (the part before any '?')
+  page: string; // "" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" (the part before any '?')
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   q: string | null; // a search token to seed the search bar (narrows the graph)
+  repo: string | null; // a project_path the Commits page filters to (its only filter)
   from: string | null; // YYYY-MM-DD explicit time-range start
   to: string | null; // YYYY-MM-DD explicit time-range end
   preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
@@ -145,21 +146,24 @@ export function parseHashRoute(hash: string): HashRoute {
     page,
     focus: routeParam(params?.get("focus")),
     q: routeParam(params?.get("q")),
+    repo: routeParam(params?.get("repo")),
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
     preset: isTimeRangePresetId(preset) ? preset : null,
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; repo?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
+  const repo = routeParam(route.repo);
   const from = routeParam(route.from);
   const to = routeParam(route.to);
   const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
+  if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
   if (preset) params.push(`preset=${encodeURIComponent(preset)}`);
@@ -537,6 +541,45 @@ export function activityMatches(a: ActivityDTO, f: Filters): boolean {
     }
   }
   return true;
+}
+
+// The Commits page is a focused projection of the activity feed: just the
+// `commit` records. Commit linking, the short SHA, message, author, and repo
+// already ride on the existing ActivityDTO (the producer fills `url` with the
+// provider's commit page), so this is a pure read-side narrowing, not a new
+// contract surface.
+export function isCommitActivity(a: ActivityDTO): boolean {
+  return a.kind === "commit";
+}
+
+// The Commits page's ONLY filter is repo: keep commit records, optionally pinned
+// to one project_path. Repo is matched exactly (the picker offers a closed,
+// known set), so a value that is not a real repo yields an empty list rather
+// than a fuzzy match — the datalist guides the viewer back to a real option.
+export function filterCommits(activities: ActivityDTO[], repoPath: string | null): ActivityDTO[] {
+  const repo = repoPath?.trim() || null;
+  return activities.filter((a) => isCommitActivity(a) && (repo === null || a.project_path === repo));
+}
+
+// The repo options the Commits page's typeahead suggests: only repos that
+// actually have a commit in the loaded window (so we never suggest an empty
+// repo), each with its commit count and source for the option label. Sorted by
+// count desc, then path, so the busiest repo is the first suggestion.
+export interface CommitRepoOption {
+  project_path: string;
+  source_id: string;
+  count: number;
+}
+
+export function commitRepoOptions(commits: ActivityDTO[]): CommitRepoOption[] {
+  const byPath = new Map<string, CommitRepoOption>();
+  for (const c of commits) {
+    if (!isCommitActivity(c) || !c.project_path) continue;
+    const existing = byPath.get(c.project_path);
+    if (existing) existing.count += 1;
+    else byPath.set(c.project_path, { project_path: c.project_path, source_id: c.source_id, count: 1 });
+  }
+  return [...byPath.values()].sort((a, b) => b.count - a.count || a.project_path.localeCompare(b.project_path));
 }
 
 export interface ResolvedEdge {

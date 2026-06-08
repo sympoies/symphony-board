@@ -338,6 +338,38 @@ try {
     expression: "document.querySelectorAll('.activity-row').length",
     returnByValue: true,
   })).result.value || 0;
+  // Page 3b — Commits: a focused, repo-filterable projection of the activity feed
+  // (commit records only). It reuses the virtualized feed; its single filter is a
+  // repo typeahead backed by a <datalist>. The sample carries a GitHub and a
+  // GitLab commit, so the picker offers two repos and selecting one narrows the
+  // feed AND writes "?repo=" to the URL.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(300);
+  const commitsHtml = await waitHtml("document.querySelector('.commits-page .activity-row')");
+  const commitsRangeButtons = await rangeButtonLabels();
+  const commitsCountText = await textOf(".commits-page .count");
+  const commitsRepoOptions = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('#commit-repo-options option').length",
+    returnByValue: true,
+  })).result.value || 0;
+  const commitsRowsAll = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('.commits-page .activity-row').length",
+    returnByValue: true,
+  })).result.value || 0;
+  const commitsHasCommitLink = (await send("Runtime.evaluate", {
+    expression: "Array.from(document.querySelectorAll('.commits-page a.activity-title')).some((a) => (a.getAttribute('href') || '').includes('/commit'))",
+    returnByValue: true,
+  })).result.value || false;
+  await setControlledInput(".commits-filter input.search", "example-group/symphony-board-fixture");
+  const commitsFiltered = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      rows: document.querySelectorAll('.commits-page .activity-row').length,
+      onlyPicked: Array.from(document.querySelectorAll('.commits-page .activity-meta'))
+        .every((el) => (el.textContent || '').includes('example-group/symphony-board-fixture')),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // Page 4 — Repo Analytics: the per-repo contract metrics table and trends.
   await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
   await sleep(300);
@@ -484,6 +516,17 @@ try {
     [has(activityHtml, "change request #13") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
     [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
+    // page 3b: commits feed — commit-only projection with a repo typeahead
+    [has(commitsHtml, "commits-page"), "commits: page rendered"],
+    [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],
+    [commitsRowsAll >= 4, `commits: commit rows rendered (${commitsRowsAll} >= 4)`],
+    [commitsRowsAll < 80, `commits: virtualized rows stay bounded (${commitsRowsAll} < 80)`],
+    [!has(commitsHtml, 'class="controls"'), "commits: shared facet Controls are not rendered (repo is the only filter)"],
+    [commitsRepoOptions >= 2, `commits: repo typeahead offers each repo with commits (${commitsRepoOptions} >= 2)`],
+    [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
+    [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
+    [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking a repo writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],
+    [commitsFiltered.rows >= 1 && commitsFiltered.onlyPicked === true, `commits: feed narrows to the picked repo (${commitsFiltered.rows || 0} rows, onlyPicked=${commitsFiltered.onlyPicked})`],
     // page 4: repo analytics uses the contract's repo_metrics rows
     [has(repoHtml, "repo-analytics-page"), "repo analytics: page rendered"],
     [sameRangeButtons(repoRangeButtons), `repo analytics: shared range quick presets rendered without all (${repoRangeButtons.join(", ")})`],
