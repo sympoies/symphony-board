@@ -479,17 +479,30 @@ username (issues/PRs/MRs) and several commit author names (commits). Added in
     authorship); the address is hashed, so it groups records that share an
     address without exposing the address.
   - `name:<normalized>` as a final fallback.
+  - `person:<slug>` when a producer-side config identity map merged several of
+    the above into one declared human (see below). Treat `actor_key` as an
+    opaque, open-vocabulary string — match it, do not parse it.
   Username wins over email so a person's account-linked commits join their
   issues/PRs instead of splitting into a separate email-keyed row. Two records
   that share neither a username nor an email stay separate even when their
-  display name matches.
-- `display_name`: the deterministically chosen name for the identity — the most
-  frequently observed raw name, tie-broken case-insensitively then by code unit.
+  display name matches — except where a config identity explicitly joins them.
+- `display_name`: the deterministically chosen name for the identity — the
+  config identity's declared name when one applies, otherwise the most frequently
+  observed raw name, tie-broken case-insensitively then by code unit.
 - `aliases`: the other distinct display names observed for the identity, sorted;
   omitted when there is only one.
 - `actor`: a backward-compatibility display field equal to `display_name`, kept
   so pre-`2.3.0` consumers keep rendering. Render `display_name` and key React
   lists on `actor_key`.
+
+An optional producer-side **config identity map** (`identities[]` in
+`config/sources.json`) can declare that several of the keys above are one human —
+the cross-facet case the automatic key can't bridge, such as a GitLab person
+whose issues carry a username while their commits carry only an email. Matching
+identities collapse into one `person:<slug>` row named by the config, with the
+other observed names as `aliases`. This is producer/display config (read at emit
+time, never stored, never exposing raw email); it changes which `actor_key`
+values appear but not the contract shape, so it is not a version change.
 
 The producer currently derives repo metrics from canonical item, label, edge,
 and activity rows. That means item lifecycle metrics are available even when a

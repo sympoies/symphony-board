@@ -30,7 +30,8 @@ import type {
   EdgeLifecycle,
 } from "@symphony-board/contract";
 import { refOf } from "../model/ref.ts";
-import { deriveActorKey } from "../model/actor.ts";
+import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/actor.ts";
+import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
@@ -402,6 +403,9 @@ function repoActivityScore(stats: RepoMetricStatsDTO): number {
 interface ActorAccumulator {
   key: string;
   names: Map<string, number>;
+  // Set when a config identity merged this accumulator: the declared display
+  // name wins over the frequency pick (see chooseDisplayName).
+  canonicalName?: string;
   activities: number;
   commits: number;
   items_opened: number;
@@ -433,17 +437,99 @@ function compareName(a: string, b: string): number {
   return a.toLowerCase().localeCompare(b.toLowerCase()) || a.localeCompare(b);
 }
 
-// Deterministic display name for an identity: the most frequently observed raw
-// name, tie-broken by `compareName`. The remaining distinct names become aliases.
-// An identity with no name ever observed (e.g. an email-only record) falls back
-// to its key so the field is never empty.
+// Deterministic display name for an identity: a config-declared `canonicalName`
+// when one merged this actor, else the most frequently observed raw name,
+// tie-broken by `compareName`. The remaining distinct names become aliases. An
+// identity with no name ever observed (e.g. an email-only record) falls back to
+// its key so the field is never empty.
 function chooseDisplayName(acc: ActorAccumulator): { displayName: string; aliases: string[] } {
-  const entries = [...acc.names.entries()];
-  if (entries.length === 0) return { displayName: acc.key, aliases: [] };
-  entries.sort((a, b) => b[1] - a[1] || compareName(a[0], b[0]));
-  const displayName = entries[0]![0];
-  const aliases = entries.slice(1).map(([name]) => name).sort(compareName);
-  return { displayName, aliases };
+  const observed = [...acc.names.entries()].sort((a, b) => b[1] - a[1] || compareName(a[0], b[0])).map(([name]) => name);
+  if (acc.canonicalName) {
+    return { displayName: acc.canonicalName, aliases: observed.filter((n) => n !== acc.canonicalName).sort(compareName) };
+  }
+  if (observed.length === 0) return { displayName: acc.key, aliases: [] };
+  return { displayName: observed[0]!, aliases: observed.slice(1).sort(compareName) };
+}
+
+// A compiled config identity: the canonical key/name plus the match sets it owns
+// (provider usernames, hashed email keys, normalized names). See IdentityConfig.
+interface IdentityMatcher {
+  key: string; // person:<slug>
+  name: string;
+  usernames: Set<string>; // lowercased
+  emailKeys: Set<string>; // email:<hash>
+  names: Set<string>; // normalized
+}
+
+function identitySlug(name: string, index: number): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `person:${slug || index}`;
+}
+
+function buildIdentityMatchers(identities: IdentityConfig[] | undefined): IdentityMatcher[] {
+  // Two entries whose names slug to the same value (e.g. "Terry Lin" and
+  // "terry-lin"), or that collide with the empty-slug index fallback, would
+  // otherwise share a person:<slug> key and wrongly merge two distinct declared
+  // people. Disambiguate so every entry gets a unique canonical key.
+  const used = new Set<string>();
+  return (identities ?? []).map((id, i) => {
+    const base = identitySlug(id.name, i);
+    let key = base;
+    for (let n = 0; used.has(key); n++) key = `${base}-${i}-${n}`;
+    used.add(key);
+    return {
+      key,
+      name: id.name,
+      usernames: new Set((id.usernames ?? []).map((u) => u.trim().toLowerCase()).filter(Boolean)),
+      emailKeys: new Set((id.emails ?? []).map((e) => emailActorKey(e)).filter((k): k is string => !!k)),
+      names: new Set((id.names ?? []).map((n) => normalizeActorName(n)).filter(Boolean)),
+    };
+  });
+}
+
+// The username component of a `provider-user:<source_id>:<username>` key. Usernames
+// never contain ':' at the providers we model, so the final segment is the username.
+function usernameOfKey(key: string): string | null {
+  if (!key.startsWith("provider-user:")) return null;
+  const i = key.lastIndexOf(":");
+  return i >= 0 ? key.slice(i + 1) : null;
+}
+
+// First identity that claims this accumulator (by username, hashed email, or any
+// observed display name), or null. First-match wins on a (mis)configured overlap.
+function resolveIdentity(acc: ActorAccumulator, matchers: IdentityMatcher[]): IdentityMatcher | null {
+  if (matchers.length === 0) return null;
+  const username = usernameOfKey(acc.key);
+  const observed = [...acc.names.keys()].map((n) => normalizeActorName(n));
+  for (const m of matchers) {
+    if (username && m.usernames.has(username)) return m;
+    if (m.emailKeys.has(acc.key)) return m;
+    if (observed.some((n) => m.names.has(n))) return m;
+  }
+  return null;
+}
+
+// Collapse every accumulator a config identity claims into one canonical row,
+// summing counters and unioning observed names. Untouched actors keep their key.
+function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: IdentityMatcher[]): Map<string, ActorAccumulator> {
+  if (matchers.length === 0) return actors;
+  const merged = new Map<string, ActorAccumulator>();
+  for (const acc of actors.values()) {
+    const id = resolveIdentity(acc, matchers);
+    const key = id ? id.key : acc.key;
+    let target = merged.get(key);
+    if (!target) {
+      target = { key, names: new Map(), activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
+      if (id) target.canonicalName = id.name;
+      merged.set(key, target);
+    }
+    target.activities += acc.activities;
+    target.commits += acc.commits;
+    target.items_opened += acc.items_opened;
+    target.change_requests_merged += acc.change_requests_merged;
+    for (const [name, count] of acc.names) target.names.set(name, (target.names.get(name) ?? 0) + count);
+  }
+  return merged;
 }
 
 function topActors(map: Map<string, ActorAccumulator>): RepoMetricActorDTO[] {
@@ -581,6 +667,7 @@ function buildRepoMetrics(
   activities: ActivityDTO[],
   window: RepoMetricWindowDTO,
   actorKeys: Map<string, string | null>,
+  identityMatchers: IdentityMatcher[],
 ): RepoMetricDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const repoItems = new Map<string, ItemDTO[]>();
@@ -626,7 +713,7 @@ function buildRepoMetrics(
       const edgesForRepo = repoEdges.get(key) ?? [];
       const actors = new Map<string, ActorAccumulator>();
       const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
-      const actorRows = topActors(actors);
+      const actorRows = topActors(applyIdentities(actors, identityMatchers));
       const series = bucketRanges(range, window.bucket).map((bucket) => ({
         bucket_start: bucket.from,
         bucket_end: bucket.to,
@@ -804,6 +891,10 @@ export interface BuildInput {
   // inputs. Both default to empty, so existing callers/tests are unaffected.
   sourceColors?: Record<string, string>; // source_id -> hex
   repoColors?: RepoDTO[]; // sparse: only repos with a configured color
+  // Config-declared identity aliases (NOT stored in the DB). Collapse a person's
+  // separate actor identities (e.g. a GitLab username vs their commit email) into
+  // one top_actors row. Empty/absent leaves automatic keying untouched.
+  identities?: IdentityConfig[];
 }
 
 // Map each activity DTO id to its persisted canonical actor key. Kept off the
@@ -819,6 +910,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
   const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
   const actorKeys = activityActorKeyMap(input.activities);
+  const identityMatchers = buildIdentityMatchers(input.identities);
   const repoMetricRange = {
     from: cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, input.generatedAt),
     to: input.generatedAt,
@@ -836,7 +928,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers),
   };
 }
 
@@ -873,6 +965,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const mapped = mapRows(input);
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
   const actorKeys = activityActorKeyMap(input.activities);
+  const identityMatchers = buildIdentityMatchers(input.identities);
   const repoMetricWindow = buildRepoMetricWindow("time_range", input.range);
   return {
     contract_version: CONTRACT_VERSION,
@@ -886,7 +979,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers),
     range_query: { kind: "time_range", timezone: "UTC", from: input.range.from, to: input.range.to },
   };
 }

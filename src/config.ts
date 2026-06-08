@@ -27,9 +27,26 @@ export interface SourceConfig {
   projects: ProjectConfig[]; // owner/name (GitHub) or group/.../project (GitLab)
 }
 
+// A declared person: the provider usernames, commit emails, and raw commit
+// display names that are the same human. The contract's repo-analytics actor
+// grouping (`top_actors[]`) collapses every matching identity into one canonical
+// row named `name`. This is the .mailmap-style escape hatch for the cases the
+// automatic key cannot bridge — most notably a GitLab person whose issues/MRs
+// carry a username while their commits carry only an email. Emails are matched
+// by hash (the raw address is never stored or emitted); names are matched
+// case-insensitively with whitespace collapsed. Display-only config, like colors
+// — never stored in the DB, applied at emit time.
+export interface IdentityConfig {
+  name: string; // canonical display name for the merged actor
+  usernames?: string[]; // provider usernames (any source) that are this person
+  emails?: string[]; // commit emails that are this person
+  names?: string[]; // raw commit display names that are this person
+}
+
 export interface AppConfig {
   db_path: string;
   sources: SourceConfig[];
+  identities?: IdentityConfig[];
 }
 
 const DEFAULT_PATH = "config/sources.json";
@@ -72,6 +89,22 @@ export function loadConfig(explicitPath?: string | null): { cfg: AppConfig; path
       }
       if (typeof entry !== "string" && entry.color !== undefined && !HEX_COLOR.test(entry.color)) {
         throw new Error(`Config ${path}: project "${projPath}" color "${entry.color}" is not a hex color (#rgb or #rrggbb)`);
+      }
+    }
+  }
+  if (cfg.identities !== undefined) {
+    if (!Array.isArray(cfg.identities)) {
+      throw new Error(`Config ${path}: "identities" must be an array when set`);
+    }
+    for (const id of cfg.identities) {
+      if (typeof id !== "object" || id === null || typeof id.name !== "string" || id.name.trim().length === 0) {
+        throw new Error(`Config ${path}: every identity needs a non-empty "name"`);
+      }
+      for (const field of ["usernames", "emails", "names"] as const) {
+        const v = id[field];
+        if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+          throw new Error(`Config ${path}: identity "${id.name}" ${field} must be an array of strings when set`);
+        }
       }
     }
   }

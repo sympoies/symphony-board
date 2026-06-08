@@ -99,7 +99,7 @@ function QualityBadge({ metric }: { metric: RepoMetricDTO }) {
 
 function TopActors({ metric }: { metric: RepoMetricDTO }) {
   const actors = (metric.top_actors ?? []).slice(0, 3);
-  if (actors.length === 0) return <span className="muted">none</span>;
+  if (actors.length === 0) return null;
   return (
     <span className="repo-actors">
       {actors.map((actor) => {

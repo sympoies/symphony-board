@@ -64,3 +64,17 @@ export function deriveActorKey(signals: ActorSignals): string | null {
   if (name) return `name:${normalizeName(name)}`;
   return null;
 }
+
+// The `email:<hash>` key for a raw address, or null when empty. Lets a consumer
+// (e.g. the config identity map) match a declared email against stored keys
+// without ever handling the raw address again — same hash, same key.
+export function emailActorKey(email: string | null | undefined): string | null {
+  const e = clean(email);
+  return e ? `email:${hashEmail(e.toLowerCase())}` : null;
+}
+
+// The normalized form used by the `name:` key, exposed so display-name matching
+// (config identities) folds case + whitespace exactly like the key does.
+export function normalizeActorName(name: string): string {
+  return normalizeName(name);
+}

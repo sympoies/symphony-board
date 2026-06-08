@@ -62,6 +62,7 @@ const envelope = buildContract({
   generatedAt: new Date().toISOString(),
   sourceColors,
   repoColors,
+  identities: cfg.identities,
 });
 db.close();
 

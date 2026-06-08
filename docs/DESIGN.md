@@ -151,6 +151,17 @@ deterministic, so it is replayable against stored raw exactly like `normalize`.
 Items carry only a username, so their key is recomputed at contract-build time
 rather than stored. Contract-facing rules live in docs/CONTRACT.md.
 
+Some facets the automatic key cannot bridge: a GitLab person's issues/MRs carry a
+username while their commits carry only an email, with no provider field linking
+the two, so they stay separate identities. For those, an optional config identity
+map (`identities[]` in `config/sources.json`, .mailmap in spirit) declares the
+usernames / commit emails / commit names that are one human; at emit time
+`buildRepoMetrics` collapses every matching identity into one canonical
+`person:<slug>` actor named by the config. This is deterministic and explicit —
+no fuzzy matching — so it never silently merges two different people. Like
+colors, it is display-only config: read at emit time, never stored in the DB,
+and it leaves automatic keying untouched for everyone not declared.
+
 ## Disappearance Handling
 
 Persistent stores need a strict rule for disappeared entities. "Not fetched this

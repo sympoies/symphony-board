@@ -93,3 +93,26 @@ test("tokenFor reads the declared env var, trims it, and returns null when unset
   assert.equal(tokenFor(s), "ghp_secret", "surrounding whitespace is trimmed");
   delete process.env.SB_TEST_TOKEN_XYZ;
 });
+
+// A full config (db_path + one valid source) plus an arbitrary identities value,
+// so the identity guards can be exercised independently of the source guards.
+function writeWithIdentities(identities: unknown): string {
+  return writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], identities });
+}
+
+test("accepts a valid identities map and leaves it on the config", () => {
+  const { cfg } = loadConfig(
+    writeWithIdentities([{ name: "Terry Lin", usernames: ["terrylin"], emails: ["terry@example.com"], names: ["Terry LIN"] }]),
+  );
+  assert.equal(cfg.identities?.length, 1);
+  assert.equal(cfg.identities?.[0]!.name, "Terry Lin");
+  assert.deepEqual(cfg.identities?.[0]!.usernames, ["terrylin"]);
+});
+
+test("rejects a malformed identities map", () => {
+  assert.throws(() => loadConfig(writeWithIdentities({})), /"identities" must be an array/);
+  assert.throws(() => loadConfig(writeWithIdentities([{ usernames: ["x"] }])), /needs a non-empty "name"/);
+  assert.throws(() => loadConfig(writeWithIdentities([{ name: "  " }])), /needs a non-empty "name"/);
+  assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", emails: "a@b.com" }])), /emails must be an array of strings/);
+  assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", usernames: [1] }])), /usernames must be an array of strings/);
+});

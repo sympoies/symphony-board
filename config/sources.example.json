@@ -32,5 +32,14 @@
         "your-group/your-subgroup/another-project"
       ]
     }
+  ],
+  "$comment_identities": "Optional. Collapse one human's separate Repo Analytics actor identities into a single top_actors row — most useful for a GitLab person whose issues/MRs carry a username while their commits carry only an email + name. List the usernames (any source), commit emails (matched by hash; never stored or emitted), and raw commit display names that are the same person; `name` is the canonical display. Display-only, like colors — applied at emit time, never stored in the DB.",
+  "identities": [
+    {
+      "name": "Your Name",
+      "usernames": ["your-gitlab-username"],
+      "emails": ["you@example.com"],
+      "names": ["Your Name", "Y. Name"]
+    }
   ]
 }
