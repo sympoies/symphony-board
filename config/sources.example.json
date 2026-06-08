@@ -41,5 +41,7 @@
       "emails": ["you@example.com"],
       "names": ["Your Name", "Y. Name"]
     }
-  ]
+  ],
+  "$comment_exclude_actors": "Optional. Drop CI/dependency bots from Repo Analytics top_actors as noise (they still count in repo totals). The board already auto-drops unambiguous markers — a GitHub `[bot]` login suffix and GitLab service-account usernames (project_/group_<id>_bot_…) — so list only the unmarked ones here. Each entry matches an actor's provider username OR a display name, case-insensitively, with `*` as a wildcard.",
+  "exclude_actors": ["dependabot", "github-code-quality", "renovate*"]
 }

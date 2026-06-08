@@ -116,3 +116,10 @@ test("rejects a malformed identities map", () => {
   assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", emails: "a@b.com" }])), /emails must be an array of strings/);
   assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", usernames: [1] }])), /usernames must be an array of strings/);
 });
+
+test("accepts a valid exclude_actors list and rejects a malformed one", () => {
+  const ok = writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], exclude_actors: ["dependabot", "github-code-quality", "*-bot"] });
+  assert.deepEqual(loadConfig(ok).cfg.exclude_actors, ["dependabot", "github-code-quality", "*-bot"]);
+  assert.throws(() => loadConfig(writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], exclude_actors: "dependabot" })), /"exclude_actors" must be an array of strings/);
+  assert.throws(() => loadConfig(writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], exclude_actors: [1, 2] })), /"exclude_actors" must be an array of strings/);
+});

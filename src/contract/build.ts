@@ -532,6 +532,44 @@ function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: Identi
   return merged;
 }
 
+// Auto-detected service accounts: a GitHub `[bot]` login suffix (reserved by
+// GitHub) or a GitLab project/group access-token username. Official,
+// zero-false-positive markers, dropped from top_actors without any config.
+function isAutoBot(key: string): boolean {
+  const username = usernameOfKey(key);
+  if (!username) return false;
+  return username.endsWith("[bot]") || /^(project|group)_\d+_bot_/.test(username);
+}
+
+// Compile config `exclude_actors` into anchored, case-insensitive matchers with
+// `*` as a wildcard, tested against an actor's provider username and its display
+// names — for the unmarked bots the auto-detector can't catch (e.g. "dependabot").
+function compileActorExcludes(patterns: string[] | undefined): RegExp[] {
+  return (patterns ?? [])
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean)
+    .map((p) => new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`));
+}
+
+function isExcludedActor(acc: ActorAccumulator, excludes: RegExp[]): boolean {
+  if (excludes.length === 0) return false;
+  const candidates = [usernameOfKey(acc.key), ...acc.names.keys()]
+    .filter((s): s is string => !!s)
+    .map((s) => s.toLowerCase());
+  return candidates.some((c) => excludes.some((re) => re.test(c)));
+}
+
+// Drop bot / config-excluded actors from the ranked set. Their counters already
+// landed in the repo `totals`; this only trims the bounded top_actors list.
+function excludeBots(map: Map<string, ActorAccumulator>, excludes: RegExp[]): Map<string, ActorAccumulator> {
+  const kept = new Map<string, ActorAccumulator>();
+  for (const [key, acc] of map) {
+    if (isAutoBot(key) || isExcludedActor(acc, excludes)) continue;
+    kept.set(key, acc);
+  }
+  return kept;
+}
+
 function topActors(map: Map<string, ActorAccumulator>): RepoMetricActorDTO[] {
   return [...map.values()]
     .map((acc): RepoMetricActorDTO => {
@@ -668,6 +706,7 @@ function buildRepoMetrics(
   window: RepoMetricWindowDTO,
   actorKeys: Map<string, string | null>,
   identityMatchers: IdentityMatcher[],
+  actorExcludes: RegExp[],
 ): RepoMetricDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const repoItems = new Map<string, ItemDTO[]>();
@@ -713,7 +752,7 @@ function buildRepoMetrics(
       const edgesForRepo = repoEdges.get(key) ?? [];
       const actors = new Map<string, ActorAccumulator>();
       const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
-      const actorRows = topActors(applyIdentities(actors, identityMatchers));
+      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers), actorExcludes));
       const series = bucketRanges(range, window.bucket).map((bucket) => ({
         bucket_start: bucket.from,
         bucket_end: bucket.to,
@@ -895,6 +934,10 @@ export interface BuildInput {
   // separate actor identities (e.g. a GitLab username vs their commit email) into
   // one top_actors row. Empty/absent leaves automatic keying untouched.
   identities?: IdentityConfig[];
+  // Config-declared actor exclusions (NOT stored in the DB). Drop CI/dependency
+  // bots from top_actors; combines with the built-in [bot] / service-account
+  // auto-detector. Excluded actors still count in totals.
+  excludeActors?: string[];
 }
 
 // Map each activity DTO id to its persisted canonical actor key. Kept off the
@@ -911,6 +954,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
   const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
+  const actorExcludes = compileActorExcludes(input.excludeActors);
   const repoMetricRange = {
     from: cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, input.generatedAt),
     to: input.generatedAt,
@@ -928,7 +972,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes),
   };
 }
 
@@ -966,6 +1010,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
+  const actorExcludes = compileActorExcludes(input.excludeActors);
   const repoMetricWindow = buildRepoMetricWindow("time_range", input.range);
   return {
     contract_version: CONTRACT_VERSION,
@@ -979,7 +1024,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes),
     range_query: { kind: "time_range", timezone: "UTC", from: input.range.from, to: input.range.to },
   };
 }

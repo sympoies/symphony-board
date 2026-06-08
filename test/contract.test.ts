@@ -458,3 +458,37 @@ test("two identities whose names slug alike stay distinct people (no collision m
   assert.equal(new Set(rows.map((r) => r.actor_key)).size, 2, "canonical keys are unique");
   assert.equal(rows.reduce((n, r) => n + r.items_opened, 0), 2, "each person keeps their own item");
 });
+
+test("bot actors are filtered from top_actors but still count in totals", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  // One human plus four bots: two with official markers ([bot] suffix, GitLab
+  // service-account username) and two unmarked (need the config list).
+  const commit = (id: string, actor: string) =>
+    activityRow({ external_id: id, kind: "commit", action: "committed", project_path: "o/repo", actor, occurred_at: "2026-06-07T10:00:00Z" });
+  const activities: ActivityRow[] = [
+    commit("c-human", "graysurf"),
+    commit("c-dependabot-bot", "dependabot[bot]"),
+    commit("c-gl-service", "project_1936_bot_f58c77dbc1"),
+    commit("c-ghcq", "github-code-quality"),
+    commit("c-dependabot", "dependabot"),
+  ];
+
+  // Auto-detection alone drops the two marked bots; the two unmarked ones remain.
+  const auto = buildContract({ sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  const autoRows = auto.repo_metrics?.[0]?.top_actors ?? [];
+  assert.deepEqual(autoRows.map((r) => r.display_name).sort(), ["dependabot", "github-code-quality", "graysurf"], "marked bots auto-dropped; unmarked remain");
+
+  // The config list removes the unmarked bots too, leaving only the human.
+  const filtered = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    excludeActors: ["dependabot", "github-code-quality"],
+  });
+  assert.deepEqual(validateContract(filtered), []);
+  const metric = filtered.repo_metrics?.[0];
+  const rows = metric?.top_actors ?? [];
+  assert.deepEqual(rows.map((r) => r.display_name), ["graysurf"], "only the human remains");
+  assert.equal(metric?.totals.commits, 5, "bot commits still count in totals");
+  assert.equal(metric?.totals.activities, 5, "bot activity still counts in totals");
+});

@@ -63,6 +63,7 @@ const envelope = buildContract({
   sourceColors,
   repoColors,
   identities: cfg.identities,
+  excludeActors: cfg.exclude_actors,
 });
 db.close();
 
