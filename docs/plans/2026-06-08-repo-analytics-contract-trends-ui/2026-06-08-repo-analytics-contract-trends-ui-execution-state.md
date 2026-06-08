@@ -14,7 +14,7 @@
 - Branch/commit/PR: none yet.
 - Source document: docs/plans/2026-06-08-repo-analytics-contract-trends-ui/2026-06-08-repo-analytics-contract-trends-ui-discussion-source.md
 - Direct source-doc execution waiver: not applicable.
-- Tracking issue: not opened yet.
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/90>
 
 ## Validation Plan
 
