@@ -30,9 +30,9 @@ The basic product path is implemented:
 - `emit` produces contract major v2, currently `2.2.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
-  Activity feed, a Repo Analytics table/trend view, and a persistent Settings
-  display filter. Board, Graph, Activity, and Repo Analytics share one
-  URL-backed date-range control.
+  Activity feed, a Repo Analytics table/trend view, and persistent Settings.
+  Board, Graph, Activity, and Repo Analytics share one URL-backed date-range
+  control with a browser-local default preset.
 - Docker Compose runs the sync/emit loop as the sole writer, a read-only range
   API sidecar over SQLite, and a read-only web sidecar over the latest emitted
   contract.
@@ -162,8 +162,9 @@ pnpm --filter @symphony-board/ui run preview
 ```
 
 The tracked `packages/ui/public/contract.json` is a small sample contract for
-development and smoke tests. UI-only dev serves the static default window; use
-the Docker stack when testing custom date ranges through `/api/range`.
+development and smoke tests. UI-only dev serves the static contract file; use
+the Docker stack when testing the default `this week` range or other custom date
+ranges through `/api/range`.
 Runtime output under `data/` remains gitignored.
 
 ## Run Continuously

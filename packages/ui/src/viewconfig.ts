@@ -3,11 +3,12 @@
 //   • hidden repos   — set of HIDDEN repoKeys (see model.repoKey)
 //   • hidden sources — set of HIDDEN source_ids (an independent layer)
 //   • color overrides — repoKey -> hex, this viewer's per-repo highlight override
+//   • default range preset — one of the shared quick preset ids
 // We store what is HIDDEN (not what is visible) so a repo/source that first
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { isHexColor } from "./model.ts";
+import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, type TimeRangePresetId } from "./model.ts";
 
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
@@ -16,6 +17,7 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 // Per-repo color OVERRIDE: repoKey -> hex. Stored as an object (repoKey is a
 // JSON-string tuple, a valid object key); a repo absent here inherits from config.
 const COLORS_KEY = "symphony-board:repo-colors";
+const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
 
 function loadStringSet(key: string): Set<string> {
   try {
@@ -64,5 +66,22 @@ export function saveColorOverrides(overrides: ReadonlyMap<string, string>): void
     localStorage.setItem(COLORS_KEY, JSON.stringify(Object.fromEntries(overrides)));
   } catch {
     /* storage unavailable / over quota — the override just won't persist */
+  }
+}
+
+export function loadDefaultRangePreset(): TimeRangePresetId {
+  try {
+    const raw = localStorage.getItem(DEFAULT_RANGE_PRESET_KEY);
+    return isTimeRangePresetId(raw) ? raw : DEFAULT_TIME_RANGE_PRESET_ID;
+  } catch {
+    return DEFAULT_TIME_RANGE_PRESET_ID;
+  }
+}
+
+export function saveDefaultRangePreset(preset: TimeRangePresetId): void {
+  try {
+    localStorage.setItem(DEFAULT_RANGE_PRESET_KEY, preset);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
   }
 }

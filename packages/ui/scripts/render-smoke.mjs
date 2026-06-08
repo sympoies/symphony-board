@@ -377,7 +377,7 @@ try {
       const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls input[type="date"]'));
       const active = Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
         .map((el) => el.textContent?.trim())
-        .find((txt) => txt === '3mo') || '';
+        .find((txt) => txt === 'this week') || '';
       return { search: search.value, from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', active };
     })()`,
     returnByValue: true,
@@ -412,7 +412,7 @@ try {
   const boardNarrowTotal = statTotal(boardNarrowStats, "items");
   const graphInitialTotal = statTotal(graphInitialStats, "nodes");
   const graphNarrowTotal = statTotal(graphNarrowStats, "nodes");
-  const expectedRangeButtons = ["1w", "2w", "1mo", "3mo"];
+  const expectedRangeButtons = ["today", "this week", "1w", "2w", "1mo", "3mo"];
   const sameRangeButtons = (labels) => JSON.stringify(labels) === JSON.stringify(expectedRangeButtons);
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
@@ -482,7 +482,7 @@ try {
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
-    [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && clearedDeepLink.active === "3mo", `deep link: clearing search keeps the default 3mo range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
+    [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && clearedDeepLink.active === "this week", `deep link: clearing search keeps the default this week range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
     // page 5: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
@@ -490,6 +490,7 @@ try {
     // settings: source hide toggle, the read-only source color swatch, and the
     // per-repo color picker (the new display controls)
     [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
+    [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],
     [consoleErrors.length === 0, `no console errors (${consoleErrors.length})`],

@@ -21,9 +21,9 @@ Status is derived from item state plus relationship edges. Spotlight lanes are
 cross-cuts based on label/kind conventions, so their counts do not sum to the
 item total.
 
-The Board uses the shared URL-backed date range with quick presets (`1w`, `2w`,
-`1mo`, `3mo`). It filters cards by `updated_at` and defaults to the loaded
-contract item window (`3mo` in the current producer).
+The Board uses the shared URL-backed date range with quick presets (`today`,
+`this week`, `1w`, `2w`, `1mo`, `3mo`). It filters cards by `updated_at` and
+defaults to the Settings default range preset (`this week` for new browsers).
 The summary pills on the Board are scoped to that same Board window: item totals
 count the cards that survive the date-range filter, and edge lifecycle counts
 cover relationships touching those windowed cards. If the loaded contract
@@ -109,6 +109,7 @@ Settings is a browser-local display surface:
 
 - hide/show individual repos
 - hide/show whole sources
+- choose the default shared date range preset
 - set per-repo highlight color overrides
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
@@ -146,9 +147,9 @@ pnpm run emit --out packages/ui/public/contract.json
 
 Runtime contracts under `data/` stay gitignored.
 
-The standalone Vite dev server serves only the static sample contract. Custom
-date ranges call `/api/range`; use the Docker stack for full local range-query
-testing.
+The standalone Vite dev server serves only the static sample contract. The
+default `this week` range and other custom ranges call `/api/range`; use the
+Docker stack for full local range-query testing.
 
 ## Smoke Test
 
@@ -157,9 +158,9 @@ testing.
 Chrome. It asserts the Board, Graph, Activity feed, Repo Analytics, Settings,
 deep-link search, focus path, and configured display colors render without
 console errors. It also verifies that Board, Graph, Activity, and Repo Analytics
-share the same range presets, that Board/Graph scoped summaries change when the
-range narrows through `/api/range`, and that a large synthetic Activity feed
-stays virtualized.
+share the same range presets, that the Settings default-range selector renders,
+that Board/Graph scoped summaries change when the range narrows through
+`/api/range`, and that a large synthetic Activity feed stays virtualized.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.

@@ -205,13 +205,19 @@ export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
   return ids;
 }
 
-// Shared quick-set presets for Board, Graph, and Activity date ranges.
+// Shared quick-set presets for Board, Graph, Activity, and Repo Analytics.
+// `today` and `this-week` are calendar presets; the rest preserve the original
+// rolling-day behavior.
 export const TIME_RANGE_PRESETS = [
-  ["1w", 7],
-  ["2w", 14],
-  ["1mo", 30],
-  ["3mo", 90],
-] as const satisfies ReadonlyArray<readonly [string, number]>;
+  { id: "today", label: "today", kind: "today" },
+  { id: "this-week", label: "this week", kind: "this-week" },
+  { id: "1w", label: "1w", kind: "rolling", days: 7 },
+  { id: "2w", label: "2w", kind: "rolling", days: 14 },
+  { id: "1mo", label: "1mo", kind: "rolling", days: 30 },
+  { id: "3mo", label: "3mo", kind: "rolling", days: 90 },
+] as const;
+export type TimeRangePresetId = (typeof TIME_RANGE_PRESETS)[number]["id"];
+export const DEFAULT_TIME_RANGE_PRESET_ID: TimeRangePresetId = "this-week";
 export const DEFAULT_TIME_RANGE_DAYS = 90;
 
 export interface TimeRange {
@@ -224,14 +230,42 @@ export function dateOnlyFromIso(iso: string | null | undefined, fallbackNow: num
   return new Date(Number.isFinite(parsed) ? parsed : fallbackNow).toISOString().slice(0, 10);
 }
 
-export function defaultTimeRange(env: ContractEnvelope): TimeRange {
+function generatedAtMs(env: ContractEnvelope): number {
   const parsedGenerated = Date.parse(env.generated_at);
-  const generatedAtMs = Number.isFinite(parsedGenerated) ? parsedGenerated : Date.now();
+  return Number.isFinite(parsedGenerated) ? parsedGenerated : Date.now();
+}
+
+const dateOnlyFromMs = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
+export function isTimeRangePresetId(value: unknown): value is TimeRangePresetId {
+  return typeof value === "string" && TIME_RANGE_PRESETS.some((preset) => preset.id === value);
+}
+
+export function timeRangeForPreset(presetId: TimeRangePresetId, now: number): TimeRange {
+  const to = dateOnlyFromMs(now);
+  const preset = TIME_RANGE_PRESETS.find((candidate) => candidate.id === presetId);
+  if (!preset) return timeRangeForPreset(DEFAULT_TIME_RANGE_PRESET_ID, now);
+  if (preset.kind === "today") return { from: to, to };
+  if (preset.kind === "this-week") {
+    const d = new Date(now);
+    const startOfTodayUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const daysSinceMonday = (d.getUTCDay() + 6) % 7;
+    return { from: dateOnlyFromMs(startOfTodayUtc - daysSinceMonday * 86_400_000), to };
+  }
+  return { from: cutoffIso(preset.days, now).slice(0, 10), to };
+}
+
+export function preferredDefaultTimeRange(env: ContractEnvelope, presetId: TimeRangePresetId): TimeRange {
+  return timeRangeForPreset(presetId, generatedAtMs(env));
+}
+
+export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
+  const generatedAt = generatedAtMs(env);
   const from =
     env.item_window?.window.kind === "active_since" && env.item_window.window.since
       ? env.item_window.window.since.slice(0, 10)
-      : cutoffIso(DEFAULT_TIME_RANGE_DAYS, generatedAtMs).slice(0, 10);
-  return { from, to: dateOnlyFromIso(env.generated_at, generatedAtMs) };
+      : cutoffIso(DEFAULT_TIME_RANGE_DAYS, generatedAt).slice(0, 10);
+  return { from, to: dateOnlyFromIso(env.generated_at, generatedAt) };
 }
 
 export function isDateOnly(value: string | null | undefined): value is string {

@@ -1,5 +1,13 @@
 import type { SourceDTO } from "@symphony-board/contract";
-import { relativeTime, isHexColor, type RepoOption, type ColorOf } from "../model.ts";
+import {
+  relativeTime,
+  isHexColor,
+  isTimeRangePresetId,
+  TIME_RANGE_PRESETS,
+  type RepoOption,
+  type ColorOf,
+  type TimeRangePresetId,
+} from "../model.ts";
 import { Badge } from "./Badge.tsx";
 
 interface Props {
@@ -14,6 +22,8 @@ interface Props {
   colorOverrides: ReadonlyMap<string, string>; // repoKey -> override (presence drives the reset affordance)
   onSetColor: (key: string, color: string) => void;
   onClearColor: (key: string) => void;
+  defaultRangePreset: TimeRangePresetId;
+  onDefaultRangePreset: (preset: TimeRangePresetId) => void;
 }
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
@@ -36,6 +46,7 @@ function toInputHex(color: string | null): string {
 //   • hide individual repos, or a whole source (independent layers — hiding a
 //     source leaves its per-repo choices remembered);
 //   • give a repo a highlight color, overriding the config repo/source color.
+//   • choose the default shared date range when the URL has no explicit from/to.
 // Repos are grouped by source so each source's sync health sits next to its repos.
 export function SettingsPage({
   sources,
@@ -49,6 +60,8 @@ export function SettingsPage({
   colorOverrides,
   onSetColor,
   onClearColor,
+  defaultRangePreset,
+  onDefaultRangePreset,
 }: Props) {
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
@@ -68,9 +81,8 @@ export function SettingsPage({
         <div>
           <h2>Display</h2>
           <p className="muted">
-            Choose which repos and sources appear on the Board and Graph, and give a repo a highlight color. These are
-            view-only preferences saved in your browser — hiding a repo or source removes its items and edges
-            everywhere; a color overrides the one configured for that repo/source. The daemon keeps syncing every source.
+            Choose which repos and sources appear, set the default shared date range, and give a repo a highlight color.
+            These are view-only preferences saved in your browser. The daemon keeps syncing every source.
           </p>
         </div>
         <div className="settings-bulk">
@@ -84,6 +96,26 @@ export function SettingsPage({
             Hide all
           </button>
         </div>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Default range</h3>
+          <p className="muted">Used when the URL does not include from/to dates.</p>
+        </div>
+        <select
+          className="settings-select"
+          value={defaultRangePreset}
+          onChange={(e) => {
+            if (isTimeRangePresetId(e.target.value)) onDefaultRangePreset(e.target.value);
+          }}
+        >
+          {TIME_RANGE_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {[...bySource.entries()].map(([sourceId, list]) => {
