@@ -58,10 +58,10 @@
 | --- | --- | --- | --- |
 | `fnm exec --using 24 pnpm run typecheck` | pass | TypeScript clean. | local |
 | `fnm exec --using 24 pnpm test` | pass | 72/72 root tests passed, including contract aggregate producer/schema coverage. | local |
-| `fnm exec --using 24 pnpm --filter @symphony-board/ui run test` | pass | 40/40 UI tests passed, including compatible-aggregate lookup fallback coverage. | local |
+| `fnm exec --using 24 pnpm --filter @symphony-board/ui run test` | pass | 42/42 UI tests passed, including compatible-aggregate lookup fallback coverage. | local |
 | `fnm exec --using 24 pnpm --filter @symphony-board/ui run build` | pass | Vite production build clean. | local |
 | `fnm exec --using 24 pnpm --filter @symphony-board/ui run smoke` | pass | Board scoped stats changed 8 -> 2, Graph scoped stats changed 9 -> 2, and focus stats were labelled separately. | local |
 | `fnm exec --using 24 pnpm run validate --in packages/ui/public/contract.json` | pass | Tracked v1.3 sample contract validates. | local |
 | `fnm exec --using 24 pnpm run emit --config $HOME/.local/state/agent-runtime-kit/out/projects/sympoies__symphony-board/20260608-141640-issue70-sprint2/throwaway-sources.json --out $HOME/.local/state/agent-runtime-kit/out/projects/sympoies__symphony-board/20260608-141640-issue70-sprint2/contract-empty-node24.json` | pass | Throwaway producer emit wrote a valid aggregate-bearing contract. | local |
-| `fnm exec --using 24 pnpm coverage` | pass | Combined line coverage 86.65% (3011/3475), above 85% floor. | local |
+| `fnm exec --using 24 pnpm coverage` | pass | Combined line coverage 86.84% (3061/3525), above 85% floor. | local |
 | `git diff --check` | pass | Clean. | local |
