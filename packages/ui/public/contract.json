@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.2.0",
+  "contract_version": "2.2.1",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "sources": [
@@ -394,6 +394,25 @@
       "occurred_at": "2026-06-06T18:00:00Z",
       "summary": "Merged change request #13",
       "details": null,
+      "first_seen_at": "2026-06-07T08:58:00Z",
+      "last_seen_at": "2026-06-07T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|review:PR_b:R1",
+      "source_id": "github:github.com",
+      "external_id": "review:PR_b:R1",
+      "kind": "review",
+      "action": "approved",
+      "project_path": "sympoies/symphony-board",
+      "target_kind": "change_request",
+      "target_ref": "github:github.com|PR_b",
+      "target_iid": 13,
+      "title": "Fix flaky sync-engine test",
+      "url": "https://github.com/sympoies/symphony-board/pull/13",
+      "actor": "reviewer",
+      "occurred_at": "2026-06-06T17:55:00Z",
+      "summary": "Approved change request #13",
+      "details": { "state": "APPROVED" },
       "first_seen_at": "2026-06-07T08:58:00Z",
       "last_seen_at": "2026-06-07T08:58:00Z"
     },

@@ -192,6 +192,33 @@ test("GitHub CI refresh fetches configured PR candidates without advancing the w
   assert.equal(src.normalize(res.records[0]!)?.item?.ciState, "passing");
 });
 
+test("GitHub: submitted PR reviews normalize into review activities (issue #93)", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "PR_rev", apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: {
+      ...prNode("PR_rev", "OPEN", "MERGEABLE"),
+      reviews: {
+        nodes: [
+          { id: "R1", author: { login: "alice" }, state: "APPROVED", submittedAt: "2026-06-05T09:00:00Z", url: "https://x/r1" },
+          { id: "R2", author: { login: "bob" }, state: "CHANGES_REQUESTED", submittedAt: "2026-06-05T10:00:00Z", url: null },
+          { id: "R3", author: { login: "carol" }, state: "COMMENTED", submittedAt: "2026-06-05T11:00:00Z", url: null },
+          { id: "R4", author: { login: "dan" }, state: "PENDING", submittedAt: null, url: null },
+        ],
+      },
+    },
+  };
+  const reviews = src.normalize(raw)!.activities.filter((a) => a.kind === "review");
+  assert.equal(reviews.length, 3, "PENDING (unsubmitted) reviews are skipped");
+  assert.deepEqual(reviews.map((a) => a.action).sort(), ["approved", "changes_requested", "reviewed"]);
+  const approved = reviews.find((a) => a.action === "approved")!;
+  assert.equal(approved.actor, "alice");
+  assert.equal(approved.occurredAt, "2026-06-05T09:00:00Z");
+  assert.equal(approved.target?.externalId, "PR_rev", "review targets the tracked PR");
+  assert.equal(approved.targetKind, "change_request");
+});
+
 function glMrBundle(state: string, detailedMergeStatus: string) {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {
@@ -368,4 +395,38 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(mr1men.length, 1);
   assert.equal(mr1men[0]!.from.externalId, "gid:I6");
   assert.equal(mr1men[0]!.to.externalId, "gid:MR1");
+});
+
+test("GitLab: MR approvers normalize into approved review activities (issue #93)", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "gid:MR_appr", apiVersion: "gitlab.graphql",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: glNode("gid:MR_appr", "9", {
+      state: "merged", mergedAt: "2026-06-05T00:00:00Z", updatedAt: "2026-06-06T00:00:00Z", draft: false,
+      approved: true, approvalsRequired: 1,
+      approvedBy: { nodes: [{ username: "alice" }, { username: "bob" }] },
+      headPipeline: { status: "SUCCESS" }, detailedMergeStatus: "NOT_OPEN",
+    }),
+  };
+  const reviews = src.normalize(raw)!.activities.filter((a) => a.kind === "review");
+  assert.equal(reviews.length, 2, "one review activity per current approver");
+  assert.ok(reviews.every((a) => a.action === "approved"), "GitLab review activity is always an approval");
+  assert.deepEqual(reviews.map((a) => a.actor).sort(), ["alice", "bob"]);
+  assert.equal(reviews[0]!.occurredAt, "2026-06-05T00:00:00Z", "dated by merged_at when merged");
+  assert.equal(reviews[0]!.target?.externalId, "gid:MR_appr");
+});
+
+test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy (issue #93)", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "activity", externalId: "event:appr", apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_project_event",
+      project: "g/p",
+      event: { id: 7, action_name: "approved", target_type: "MergeRequest", target_iid: 9, created_at: "2026-06-05T00:00:00Z", author_username: "alice" },
+    },
+  };
+  assert.equal(src.normalize(raw), null, "events-feed approval is skipped; approvedBy is the canonical source");
 });

@@ -32,6 +32,10 @@ function mapState(s: string | null | undefined): ItemState {
 }
 
 const REF_NODE = `id number url state repository { nameWithOwner }`;
+// Submitted pull request reviews — the trustworthy review-event surface (issue
+// #93). `state` is PENDING|COMMENTED|APPROVED|CHANGES_REQUESTED|DISMISSED;
+// PENDING reviews have a null `submittedAt` and are skipped in normalize.
+const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedAt url } }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
 // really a `closes` link, which we skip (closingIssuesReferences covers those).
@@ -64,6 +68,7 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
       pageInfo { hasNextPage endCursor }
       nodes { ${COMMON} mergedAt isDraft reviewDecision mergeable
         commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
+        ${REVIEWS}
         closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
       }
     }
@@ -74,6 +79,7 @@ const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
     pullRequest(number:$number) { ${COMMON} mergedAt isDraft reviewDecision mergeable
       commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
+      ${REVIEWS}
       closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
     }
   }
@@ -248,7 +254,37 @@ export class GitHubSource implements Source {
       // `merged` lifecycle state. Drop it for non-open items.
       mergeState: selfState === "open" ? mapMerge(p.mergeable) : null,
     };
-    return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
+    return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.reviewActivities(p, item)] };
+  }
+
+  // Submitted PR reviews -> `review` activity rows (issue #93). Each submission
+  // is an event with a real `submittedAt`; PENDING (unsubmitted) reviews are
+  // skipped. Pure: derived only from the PR payload, so it replays from raw.
+  private reviewActivities(p: any, item: CanonicalItem): CanonicalActivity[] {
+    const out: CanonicalActivity[] = [];
+    const sourceId = this.descriptor.sourceId;
+    for (const r of p.reviews?.nodes ?? []) {
+      const occurredAt = r?.submittedAt;
+      if (!occurredAt) continue; // PENDING / never submitted
+      const action = mapReviewAction(String(r.state ?? ""));
+      out.push({
+        sourceId,
+        externalId: stableActivityId(["review", p.id, r.id ?? occurredAt]),
+        kind: "review",
+        action,
+        projectPath: item.projectPath,
+        targetKind: "change_request",
+        target: { sourceId, externalId: p.id },
+        targetIid: item.iid,
+        title: item.title,
+        url: r.url ?? item.url ?? null,
+        actor: r.author?.login ?? null,
+        occurredAt,
+        summary: reviewSummary(action, item.iid),
+        details: { state: r.state ?? null },
+      });
+    }
+    return out;
   }
 
   private async fetchRepoActivity(project: string, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
@@ -440,6 +476,23 @@ function repoActivitySummary(action: string, ref: string, project: string | null
   if (action === "force_pushed") return `Force-pushed ${target}${suffix}`;
   if (action === "merged") return `Merged into ${target}${suffix}`;
   return `Pushed ${target}${suffix}`;
+}
+
+// PullRequestReviewState -> a review activity action. Everything submitted is a
+// `review` activity (issue #93); only APPROVED is also counted as an approval.
+function mapReviewAction(state: string): string {
+  if (state === "APPROVED") return "approved";
+  if (state === "CHANGES_REQUESTED") return "changes_requested";
+  if (state === "DISMISSED") return "dismissed";
+  return "reviewed"; // COMMENTED and any future submitted state
+}
+
+function reviewSummary(action: string, iid: number | null): string {
+  const ref = iid != null ? ` #${iid}` : "";
+  if (action === "approved") return `Approved change request${ref}`;
+  if (action === "changes_requested") return `Requested changes on change request${ref}`;
+  if (action === "dismissed") return `Dismissed review on change request${ref}`;
+  return `Reviewed change request${ref}`;
 }
 
 function mapReview(d: string | null | undefined): ReviewState | null {

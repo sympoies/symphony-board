@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.2.0`.
+Current emitted version: `2.2.1`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.2.0",
+  "contract_version": "2.2.1",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -286,9 +286,10 @@ Important fields:
 - `id`: composite ref for this activity record.
 - `source_id` / `external_id`: stable source identity for the record.
 - `kind`: open string such as `issue`, `change_request`, `commit`, `branch`,
-  `tag`, or `repository`.
+  `tag`, `repository`, or `review`.
 - `action`: open string such as `opened`, `closed`, `merged`, `committed`,
-  `pushed`, `force_pushed`, `created`, or `deleted`.
+  `pushed`, `force_pushed`, `created`, `deleted`, `approved`,
+  `changes_requested`, or `reviewed`.
 - `project_path`: mutable repo/project display path, when known.
 - `target_kind`, `target_ref`, `target_iid`: optional target metadata. Only set
   `target_ref` when the producer can identify the tracked item by provider
@@ -300,6 +301,26 @@ Important fields:
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for commits and repository/project
 events.
+
+Review activity (`kind: "review"`) is derived per provider and feeds the
+`reviews` / `approvals` repo metrics (see Repo Metrics):
+
+- GitHub: every submitted pull request review becomes one `review` activity,
+  dated by the review's `submittedAt`. `action` reflects the review verdict:
+  `approved`, `changes_requested`, `reviewed` (a plain review comment), or
+  `dismissed`. Unsubmitted (`PENDING`) reviews are skipped.
+- GitLab: GraphQL exposes no per-review event with a timestamp, so each current
+  merge request approver (`MergeRequest.approvedBy`) becomes one
+  `review` / `approved` activity, dated by the merge request's `merged_at` when
+  merged, else its `updated_at`. This is an approximate event time, not a true
+  per-approval timestamp. GitLab has no "changes requested" / "commented" review
+  enum, so a GitLab `review` activity is always an `approved` one. We count
+  `approvedBy` (the real approvers), **not** the `approved` boolean: a merge
+  request with no approval rule reports `approved: true` with an empty
+  `approvedBy`, so it contributes zero approvals — a trustworthy zero rather
+  than a vacuous approval. (The `approved` boolean still drives the per-item
+  `review_state` / `by_review_state`, which is a current-state signal, not an
+  event count.)
 
 ## Aggregates
 
@@ -445,6 +466,22 @@ provider has no activity rows, while commit/push/comment/review metrics depend
 on the activity fetch surfaces and their retention/coverage. Consumers should
 show `data_quality` rather than treating missing activity as true zero activity.
 
+`reviews` and `approvals` are activity-event counts, defined as:
+
+- `reviews`: number of `review` activity events in the window (see Activities).
+  On GitHub this counts every submitted PR review (approve / changes-requested /
+  comment); on GitLab it counts current MR approvers (GitLab exposes no other
+  review event). It is **not** the count of items currently carrying a
+  `review_state` — that is `by_review_state`.
+- `approvals`: the subset of those events whose `action` is `approved`. On
+  GitLab every review event is an approval, so `approvals == reviews`; on GitHub
+  `approvals <= reviews`.
+
+Because GitHub and GitLab expose different review surfaces, treat `reviews` as
+"available review signal per provider" and `approvals` as the cross-provider
+comparable subset. A repo with `data_quality.activity_available: true` and
+`reviews: 0` genuinely had no review activity in the window.
+
 Open maps such as `by_activity_kind`, `by_activity_action`, `by_edge_type`,
 `by_review_state`, `by_ci_state`, `by_merge_state`, and `by_label_scope` are
 deliberately open vocabulary. Do not hard-fail on an unknown key.
@@ -473,6 +510,13 @@ browser repo override -> repos[] color -> sources[].color -> no highlight
 The UI validates colors again before using them in CSS.
 
 Version `1.2.0` added optional top-level `activities[]`.
+
+Version `2.2.1` is a clarification + producer-behavior patch: the producer now
+ingests review activity (`kind: "review"`) from GitHub PR reviews and GitLab MR
+approvers, and the `reviews` / `approvals` repo metrics are documented as
+activity-event counts (see Activities and Repo Metrics). The shape is unchanged
+— `review` is existing open `kind` vocabulary and `reviews` / `approvals` are
+existing integer fields — so v2 consumers need no change.
 
 ## Version Rules
 

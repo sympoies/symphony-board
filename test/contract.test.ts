@@ -273,7 +273,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "2.2.0");
+  assert.equal(env.contract_version, "2.2.1");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -297,4 +297,28 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.data_quality.observed_since, "2026-06-07T10:00:00Z");
   assert.ok(metric?.series.some((bucket) => bucket.stats.commits === 1 && bucket.stats.pushes === 1));
   assert.deepEqual(metric?.top_actors?.map((actor) => actor.actor).sort(), ["alice", "bob"]);
+});
+
+test("buildContract counts review activity rows into reviews and approvals (issue #93)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "PR_1", kind: "change_request", state: "merged", project_path: "o/repo", updated_at: "2026-06-06T00:00:00Z" }),
+  ];
+  // Three review events on PR_1: an approval, a changes-requested, and a plain
+  // review comment. reviews counts all three; approvals counts only the first.
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "rev-approved", kind: "review", action: "approved", target_external_id: "PR_1", actor: "alice", project_path: "o/repo", occurred_at: "2026-06-05T09:00:00Z" }),
+    activityRow({ external_id: "rev-changes", kind: "review", action: "changes_requested", target_external_id: "PR_1", actor: "bob", project_path: "o/repo", occurred_at: "2026-06-05T10:00:00Z" }),
+    activityRow({ external_id: "rev-comment", kind: "review", action: "reviewed", target_external_id: "PR_1", actor: "carol", project_path: "o/repo", occurred_at: "2026-06-05T11:00:00Z" }),
+  ];
+
+  const env = buildContract({ sources, items, labels: [], edges: [], activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(env), []);
+  const metric = env.repo_metrics?.find((m) => m.project_path === "o/repo");
+  assert.equal(metric?.totals.reviews, 3, "every review activity counts as a review");
+  assert.equal(metric?.totals.approvals, 1, "only the approved review counts as an approval");
+  assert.equal(metric?.totals.by_activity_kind.review, 3);
+  assert.equal(metric?.totals.by_activity_action.approved, 1);
 });
