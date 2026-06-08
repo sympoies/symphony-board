@@ -346,6 +346,128 @@ export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRa
   return activities.filter((a) => activityInTimeRange(a, range)).sort(compareActivityInstantDesc);
 }
 
+// --- Activity heatmap -------------------------------------------------------
+// A GitHub-style trailing-12-month calendar of activity density, derived purely
+// from `occurred_at`. The Activity feed's range picker controls the *feed*; this
+// overview is deliberately decoupled from it and always shows the same fixed
+// trailing window so the long-term rhythm stays stable while filtering.
+
+const DAY_MS = 86_400_000;
+export const HEATMAP_WEEKS = 53;
+const HEATMAP_MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+export interface HeatmapCell {
+  date: string; // YYYY-MM-DD (UTC), matching dateOnlyFromMs keys
+  count: number;
+  level: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface ActivityKindCount {
+  kind: string;
+  count: number;
+}
+
+export interface ActivityHeatmap {
+  // Column-major: weeks[col] is one Sunday→Saturday column of 7 entries. Cells
+  // before the window start or after `to` (today) are null so the grid stays a
+  // clean rectangle without inventing out-of-range days.
+  weeks: (HeatmapCell | null)[][];
+  monthLabels: { col: number; label: string }[];
+  from: string; // window start (the Sunday 52 weeks before today's week), YYYY-MM-DD
+  to: string; // today, YYYY-MM-DD
+  total: number; // events counted inside the window
+  maxCount: number;
+  busiest: HeatmapCell | null;
+  byKind: ActivityKindCount[]; // descending, ties broken by kind name
+}
+
+// Map a per-nonzero-day count onto a 1..4 intensity using quartile thresholds of
+// the observed nonzero counts. Empty days are level 0. Thresholds derive from the
+// data (not fixed) so a quiet repo and a busy one each get a usable spread.
+function heatmapLevelFn(counts: number[]): (count: number) => HeatmapCell["level"] {
+  const nonzero = counts.filter((c) => c > 0).sort((a, b) => a - b);
+  if (nonzero.length === 0) return () => 0;
+  const at = (q: number) => nonzero[Math.min(nonzero.length - 1, Math.floor(q * nonzero.length))] ?? 0;
+  const q1 = at(0.25);
+  const q2 = at(0.5);
+  const q3 = at(0.75);
+  return (count) => {
+    if (count <= 0) return 0;
+    if (count <= q1) return 1;
+    if (count <= q2) return 2;
+    if (count <= q3) return 3;
+    return 4;
+  };
+}
+
+export function buildActivityHeatmap(
+  activities: readonly ActivityDTO[],
+  now: number = Date.now(),
+): ActivityHeatmap {
+  const today = dateOnlyFromMs(now);
+  const endMs = Date.parse(`${today}T00:00:00.000Z`);
+  const endWeekday = new Date(endMs).getUTCDay(); // 0 = Sunday
+  // Last column is the week containing today; back up 52 further weeks → 53 cols.
+  const startMs = endMs - endWeekday * DAY_MS - (HEATMAP_WEEKS - 1) * 7 * DAY_MS;
+  const startKey = dateOnlyFromMs(startMs);
+
+  const countByDay = new Map<string, number>();
+  const kindCounts = new Map<string, number>();
+  let total = 0;
+  for (const a of activities) {
+    const ms = timestampMs(a.occurred_at);
+    if (ms === null) continue;
+    const key = dateOnlyFromMs(ms);
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (key < startKey || key > today) continue;
+    countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
+    kindCounts.set(a.kind, (kindCounts.get(a.kind) ?? 0) + 1);
+    total += 1;
+  }
+
+  const level = heatmapLevelFn([...countByDay.values()]);
+  const weeks: (HeatmapCell | null)[][] = [];
+  const monthLabels: { col: number; label: string }[] = [];
+  let busiest: HeatmapCell | null = null;
+  let maxCount = 0;
+  let prevMonth = -1;
+
+  for (let col = 0; col < HEATMAP_WEEKS; col += 1) {
+    const column: (HeatmapCell | null)[] = [];
+    const colDate = new Date(startMs + col * 7 * DAY_MS);
+    const colMonth = colDate.getUTCMonth();
+    // Label a column when its Sunday opens a month not yet labelled.
+    if (colMonth !== prevMonth) {
+      monthLabels.push({ col, label: HEATMAP_MONTH_LABELS[colMonth] ?? "" });
+      prevMonth = colMonth;
+    }
+    for (let row = 0; row < 7; row += 1) {
+      const dayMs = startMs + (col * 7 + row) * DAY_MS;
+      if (dayMs > endMs) {
+        column.push(null);
+        continue;
+      }
+      const date = dateOnlyFromMs(dayMs);
+      const count = countByDay.get(date) ?? 0;
+      const cell: HeatmapCell = { date, count, level: level(count) };
+      if (count > maxCount) {
+        maxCount = count;
+        busiest = cell;
+      }
+      column.push(cell);
+    }
+    weeks.push(column);
+  }
+
+  const byKind = [...kindCounts.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
+
+  return { weeks, monthLabels, from: startKey, to: today, total, maxCount, busiest, byKind };
+}
+
 export const ACTIVITY_ROW_HEIGHT_PX = 96;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
