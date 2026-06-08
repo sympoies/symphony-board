@@ -3,7 +3,7 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: not started; tracking issue not yet opened
+- Status: not started; tracking issue open
 - Target scope: symphony-board UI view-scoped stats followed by #56 contract
   aggregate/window redesign.
 - Execution window: Sprint 1 (UI view-scoped stats) -> Sprint 2 (contract
@@ -41,6 +41,9 @@
 - 2026-06-08: Created this bundle after deciding the UI stats issue should not
   be fixed as a narrow one-off. The chosen sequence is UI scoped-stats first,
   then #56 contract aggregate/window redesign using the same scope vocabulary.
+- 2026-06-08: Opened tracking issue
+  <https://github.com/sympoies/symphony-board/issues/70> and recorded the URL in
+  this execution-state file before PR delivery.
 
 ## Validation
 
