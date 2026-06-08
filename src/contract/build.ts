@@ -30,6 +30,7 @@ import type {
   EdgeLifecycle,
 } from "@symphony-board/contract";
 import { refOf } from "../model/ref.ts";
+import { deriveActorKey } from "../model/actor.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
@@ -380,25 +381,80 @@ function isApprovalActivity(activity: ActivityDTO): boolean {
   return activity.action === "approved" || activity.action.includes("approval");
 }
 
-function actorStats(map: Map<string, RepoMetricActorDTO>, actor: string | null): RepoMetricActorDTO | null {
-  const name = actor?.trim();
-  if (!name) return null;
-  const existing = map.get(name);
-  if (existing) return existing;
-  const next = { actor: name, activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
-  map.set(name, next);
-  return next;
+// One human's aggregated repo-metric counters, keyed by canonical actor identity
+// (see src/model/actor.ts), not by raw display string. `names` tallies every raw
+// display string seen for the identity so the build can pick a deterministic
+// display name and surface the rest as aliases.
+interface ActorAccumulator {
+  key: string;
+  names: Map<string, number>;
+  activities: number;
+  commits: number;
+  items_opened: number;
+  change_requests_merged: number;
 }
 
-function topActors(map: Map<string, RepoMetricActorDTO>): RepoMetricActorDTO[] {
+// Get-or-create the accumulator for `key`, recording one observation of the raw
+// display `name`. A null key (a record that names no actor) is dropped, matching
+// the old raw-string behavior of skipping empty actors.
+function recordActor(
+  map: Map<string, ActorAccumulator>,
+  key: string | null,
+  name: string | null,
+): ActorAccumulator | null {
+  if (!key) return null;
+  let acc = map.get(key);
+  if (!acc) {
+    acc = { key, names: new Map(), activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
+    map.set(key, acc);
+  }
+  const display = name?.trim();
+  if (display) acc.names.set(display, (acc.names.get(display) ?? 0) + 1);
+  return acc;
+}
+
+// Case-insensitive then code-unit ordering: deterministic across runs (unlike a
+// bare localeCompare tie) while still folding case for the primary comparison.
+function compareName(a: string, b: string): number {
+  return a.toLowerCase().localeCompare(b.toLowerCase()) || a.localeCompare(b);
+}
+
+// Deterministic display name for an identity: the most frequently observed raw
+// name, tie-broken by `compareName`. The remaining distinct names become aliases.
+// An identity with no name ever observed (e.g. an email-only record) falls back
+// to its key so the field is never empty.
+function chooseDisplayName(acc: ActorAccumulator): { displayName: string; aliases: string[] } {
+  const entries = [...acc.names.entries()];
+  if (entries.length === 0) return { displayName: acc.key, aliases: [] };
+  entries.sort((a, b) => b[1] - a[1] || compareName(a[0], b[0]));
+  const displayName = entries[0]![0];
+  const aliases = entries.slice(1).map(([name]) => name).sort(compareName);
+  return { displayName, aliases };
+}
+
+function topActors(map: Map<string, ActorAccumulator>): RepoMetricActorDTO[] {
   return [...map.values()]
+    .map((acc): RepoMetricActorDTO => {
+      const { displayName, aliases } = chooseDisplayName(acc);
+      return {
+        actor: displayName,
+        actor_key: acc.key,
+        display_name: displayName,
+        ...(aliases.length ? { aliases } : {}),
+        activities: acc.activities,
+        commits: acc.commits,
+        items_opened: acc.items_opened,
+        change_requests_merged: acc.change_requests_merged,
+      };
+    })
     .sort(
       (a, b) =>
         b.activities - a.activities ||
         b.commits - a.commits ||
         b.items_opened - a.items_opened ||
         b.change_requests_merged - a.change_requests_merged ||
-        a.actor.localeCompare(b.actor),
+        compareName(a.display_name, b.display_name) ||
+        a.actor_key.localeCompare(b.actor_key),
     )
     .slice(0, MAX_REPO_METRIC_ACTORS);
 }
@@ -433,7 +489,10 @@ function computeRepoMetricStats(
   activities: ActivityDTO[],
   byId: Map<string, ItemDTO>,
   range: TimeRangeDTO,
-  actors?: Map<string, RepoMetricActorDTO>,
+  actors?: Map<string, ActorAccumulator>,
+  // activity id -> canonical actor key, persisted at normalization time. Items
+  // carry no email, so their key is recomputed here from (source, author).
+  actorKeys?: Map<string, string | null>,
 ): RepoMetricStatsDTO {
   const stats = emptyRepoMetricStats();
 
@@ -449,9 +508,10 @@ function computeRepoMetricStats(
       for (const label of item.labels) inc(stats.by_label_scope, label.scope ?? "unscoped");
     }
 
+    const itemActorKey = actors ? deriveActorKey({ sourceId: item.source_id, username: item.author }) : null;
     if (valueInRange(item.created_at, range)) {
       stats.items_opened += 1;
-      const actor = actors ? actorStats(actors, item.author) : null;
+      const actor = actors ? recordActor(actors, itemActorKey, item.author) : null;
       if (actor) actor.items_opened += 1;
       if (item.kind === "change_request") stats.change_requests_opened += 1;
     }
@@ -461,7 +521,7 @@ function computeRepoMetricStats(
     }
     if (item.kind === "change_request" && valueInRange(item.merged_at, range)) {
       stats.change_requests_merged += 1;
-      const actor = actors ? actorStats(actors, item.author) : null;
+      const actor = actors ? recordActor(actors, itemActorKey, item.author) : null;
       if (actor) actor.change_requests_merged += 1;
     }
   }
@@ -471,7 +531,7 @@ function computeRepoMetricStats(
     stats.activities += 1;
     inc(stats.by_activity_kind, activity.kind);
     inc(stats.by_activity_action, activity.action);
-    const actor = actors ? actorStats(actors, activity.actor) : null;
+    const actor = actors ? recordActor(actors, actorKeys?.get(activity.id) ?? null, activity.actor) : null;
     if (actor) actor.activities += 1;
 
     if (isCommitActivity(activity)) {
@@ -505,6 +565,7 @@ function buildRepoMetrics(
   edges: EdgeDTO[],
   activities: ActivityDTO[],
   window: RepoMetricWindowDTO,
+  actorKeys: Map<string, string | null>,
 ): RepoMetricDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const repoItems = new Map<string, ItemDTO[]>();
@@ -548,8 +609,8 @@ function buildRepoMetrics(
       const itemsForRepo = repoItems.get(key) ?? [];
       const activitiesForRepo = repoActivities.get(key) ?? [];
       const edgesForRepo = repoEdges.get(key) ?? [];
-      const actors = new Map<string, RepoMetricActorDTO>();
-      const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors);
+      const actors = new Map<string, ActorAccumulator>();
+      const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
       const actorRows = topActors(actors);
       const series = bucketRanges(range, window.bucket).map((bucket) => ({
         bucket_start: bucket.from,
@@ -730,9 +791,19 @@ export interface BuildInput {
   repoColors?: RepoDTO[]; // sparse: only repos with a configured color
 }
 
+// Map each activity DTO id to its persisted canonical actor key. Kept off the
+// emitted ActivityDTO (the contract's actor identity surface is repo_metrics'
+// top_actors); repo-metric aggregation reads it through this side map.
+function activityActorKeyMap(rows: ActivityRow[] | undefined): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const row of rows ?? []) map.set(refOf(row.source_id, row.external_id), row.actor_key);
+  return map;
+}
+
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
   const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
+  const actorKeys = activityActorKeyMap(input.activities);
   const repoMetricRange = {
     from: cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, input.generatedAt),
     to: input.generatedAt,
@@ -750,7 +821,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys),
   };
 }
 
@@ -786,6 +857,7 @@ export interface BuildRangeInput extends BuildInput {
 export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const mapped = mapRows(input);
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
+  const actorKeys = activityActorKeyMap(input.activities);
   const repoMetricWindow = buildRepoMetricWindow("time_range", input.range);
   return {
     contract_version: CONTRACT_VERSION,
@@ -799,7 +871,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys),
     range_query: { kind: "time_range", timezone: "UTC", from: input.range.from, to: input.range.to },
   };
 }

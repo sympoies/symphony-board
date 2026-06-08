@@ -92,11 +92,17 @@ function TopActors({ metric }: { metric: RepoMetricDTO }) {
   if (actors.length === 0) return <span className="muted">none</span>;
   return (
     <span className="repo-actors">
-      {actors.map((actor) => (
-        <span key={actor.actor} title={`${actor.activities} activities`}>
-          @{actor.actor}
-        </span>
-      ))}
+      {actors.map((actor) => {
+        const aliases = actor.aliases ?? [];
+        const title = aliases.length
+          ? `${actor.activities} activities (also ${aliases.join(", ")})`
+          : `${actor.activities} activities`;
+        return (
+          <span key={actor.actor_key} title={title}>
+            @{actor.display_name}
+          </span>
+        );
+      })}
     </span>
   );
 }

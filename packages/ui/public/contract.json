@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.2.1",
+  "contract_version": "2.3.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "sources": [
@@ -1036,6 +1036,9 @@
       "top_actors": [
         {
           "actor": "maintainer",
+          "actor_key": "provider-user:github:github.com:maintainer",
+          "display_name": "maintainer",
+          "aliases": ["Maintainer Bot"],
           "activities": 4,
           "commits": 1,
           "items_opened": 2,
@@ -1043,6 +1046,8 @@
         },
         {
           "actor": "reviewer",
+          "actor_key": "provider-user:github:github.com:reviewer",
+          "display_name": "reviewer",
           "activities": 3,
           "commits": 2,
           "items_opened": 2,
@@ -1175,6 +1180,8 @@
       "top_actors": [
         {
           "actor": "gitlab-bot",
+          "actor_key": "provider-user:gitlab:gitlab.com:gitlab-bot",
+          "display_name": "gitlab-bot",
           "activities": 2,
           "commits": 1,
           "items_opened": 1,

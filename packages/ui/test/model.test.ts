@@ -135,7 +135,17 @@ function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
         stats: totals,
       },
     ],
-    top_actors: [{ actor: "alice", activities: 2, commits: 2, items_opened: 1, change_requests_merged: 0 }],
+    top_actors: [
+      {
+        actor: "alice",
+        actor_key: "provider-user:github:github.com:alice",
+        display_name: "alice",
+        activities: 2,
+        commits: 2,
+        items_opened: 1,
+        change_requests_merged: 0,
+      },
+    ],
     data_quality: { activity_available: true, truncated: false, observed_since: "2026-06-01T00:00:00.000Z", notes: [] },
     ...over,
   };
@@ -664,7 +674,7 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
       by_item_state: { open: 3, merged: 1 },
       by_item_kind: { issue: 3, change_request: 1 },
     },
-    top_actors: [{ actor: "alice", activities: 7, commits: 5, items_opened: 2, change_requests_merged: 1 }],
+    top_actors: [{ actor: "alice", actor_key: "provider-user:github:github.com:alice", display_name: "alice", activities: 7, commits: 5, items_opened: 2, change_requests_merged: 1 }],
   });
   const quiet = repoMetric({
     source_id: "gitlab:gitlab.com",
@@ -676,7 +686,7 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
       by_item_state: { closed: 1 },
       by_item_kind: { issue: 1 },
     },
-    top_actors: [{ actor: "bob", activities: 1, commits: 0, items_opened: 1, change_requests_merged: 0 }],
+    top_actors: [{ actor: "bob", actor_key: "provider-user:gitlab:gitlab.com:bob", display_name: "bob", activities: 1, commits: 0, items_opened: 1, change_requests_merged: 0 }],
   });
 
   assert.equal(repoMetricMatches(active, emptyFilters()), true);

@@ -1,4 +1,5 @@
 import type { CanonicalActivity, CanonicalItem } from "./types.ts";
+import { deriveActorKey } from "./actor.ts";
 
 export function stableActivityId(parts: Array<string | number | null | undefined>): string {
   return parts
@@ -18,6 +19,10 @@ export function itemActivities(item: CanonicalItem): CanonicalActivity[] {
     title: item.title,
     url: item.url,
     actor: item.author,
+    // Item authors are always a provider username, so the key is the
+    // `provider-user:*` form — the same key build.ts recomputes for the item
+    // row, which merges an "opened" transition with the item it describes.
+    actorKey: deriveActorKey({ sourceId: item.sourceId, username: item.author }),
     details: null,
   } satisfies Partial<CanonicalActivity>;
   const out: CanonicalActivity[] = [];

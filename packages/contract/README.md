@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `2.2.1`.
+Current contract version emitted by the backend: `2.3.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -107,6 +107,12 @@ Version `2.2.0` added optional repo analytics rows:
 `repo_metrics[]` is range-scoped and powers the Repo Analytics UI. It is
 separate from `repo_stats[]`, which remains the full repo inventory/count
 surface.
+
+Version `2.3.0` added a canonical actor identity to `RepoMetricActorDTO`:
+`actor_key` (a stable, non-PII key — provider username, hashed commit email, or
+normalized name), `display_name`, and optional `aliases`. `top_actors[]` groups
+by `actor_key` so one human is one row; `actor` stays as a backward-compatible
+display field.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, and any UI consumer logic

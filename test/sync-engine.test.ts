@@ -86,6 +86,7 @@ function activity(externalId: string, over: Partial<CanonicalActivity> = {}): Ca
     title: "Commit title",
     url: "http://x/commit",
     actor: "a",
+    actorKey: "provider-user:fake:test:a",
     occurredAt: "2026-06-01T00:00:00Z",
     summary: "Committed abc1234",
     details: { sha: "abc1234" },

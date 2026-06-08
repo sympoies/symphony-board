@@ -27,6 +27,7 @@ interface Migration {
 const MIGRATIONS: Migration[] = [
   { version: 1, file: "0001_init.sql" },
   { version: 2, file: "0002_activity.sql" },
+  { version: 3, file: "0003_actor_identity.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 

@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `2.2.1`.
+Current emitted version: `2.3.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "2.2.1",
+  "contract_version": "2.3.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -162,6 +162,9 @@ package version, to decide compatibility.
       "top_actors": [
         {
           "actor": "graysurf",
+          "actor_key": "provider-user:github:github.com:graysurf",
+          "display_name": "graysurf",
+          "aliases": ["Gray Surf"],
           "activities": 8,
           "commits": 3,
           "items_opened": 1,
@@ -455,10 +458,37 @@ Each row contains:
   and open-vocabulary breakdown maps.
 - `series[]`: bucketed points using the same stats shape as `totals`.
 - `top_actors[]`: bounded actor summaries. This is an aggregate list, not an
-  unbounded user directory.
+  unbounded user directory. See "Actor identity" below.
 - `data_quality`: whether activity rows exist for the repo, whether the metric
   row is truncated, the earliest observed activity timestamp, and notes for
   provider or coverage gaps.
+
+### Actor identity
+
+`top_actors[]` groups by a canonical actor identity, not by raw display string,
+so one human collapses to one row instead of duplicating across a provider
+username (issues/PRs/MRs) and several commit author names (commits). Added in
+`2.3.0`, each actor row carries:
+
+- `actor_key`: the stable identity the row is grouped on. It is scheme-prefixed
+  and **never contains a raw email**:
+  - `provider-user:<source_id>:<username>` when the record carries a provider
+    username (issue/PR/MR authors, pushes, and account-linked commits).
+  - `email:<hash>` when only a commit email is available (account-less git
+    authorship); the address is hashed, so it groups records that share an
+    address without exposing the address.
+  - `name:<normalized>` as a final fallback.
+  Username wins over email so a person's account-linked commits join their
+  issues/PRs instead of splitting into a separate email-keyed row. Two records
+  that share neither a username nor an email stay separate even when their
+  display name matches.
+- `display_name`: the deterministically chosen name for the identity — the most
+  frequently observed raw name, tie-broken case-insensitively then by code unit.
+- `aliases`: the other distinct display names observed for the identity, sorted;
+  omitted when there is only one.
+- `actor`: a backward-compatibility display field equal to `display_name`, kept
+  so pre-`2.3.0` consumers keep rendering. Render `display_name` and key React
+  lists on `actor_key`.
 
 The producer currently derives repo metrics from canonical item, label, edge,
 and activity rows. That means item lifecycle metrics are available even when a
@@ -521,10 +551,16 @@ existing integer fields — so v2 consumers need no change.
 ## Version Rules
 
 - **patch** (`1.3.x`): clarification only; no shape or semantic change.
-- **minor** (`1.x.0`): additive only. New fields must be optional and/or
-  nullable. Old consumers must keep working.
+- **minor** (`1.x.0`): additive only. A new top-level field must be optional
+  and/or nullable. A new field added to an **optional or newly-added** object
+  MAY be `required` in the schema when the producer always emits it: old
+  consumers never depend on that object and ignore unknown fields, so the
+  tightening only guards the producer (e.g. `2.3.0` added `actor_key` /
+  `display_name` to the optional `top_actors[]` rows). Old consumers must keep
+  working.
 - **major** (`x.0.0`): breaking shape or semantic change, including removed
-  fields, renamed fields, repurposed fields, or changed required sets.
+  fields, renamed fields, repurposed fields, or tightening the required set of
+  an object that existing consumers already depend on.
 
 Hard rules:
 

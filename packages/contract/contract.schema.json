@@ -445,9 +445,12 @@
     "repoMetricActor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["actor", "activities", "commits", "items_opened", "change_requests_merged"],
+      "required": ["actor", "actor_key", "display_name", "activities", "commits", "items_opened", "change_requests_merged"],
       "properties": {
-        "actor": { "type": "string" },
+        "actor": { "type": "string", "description": "Backward-compatible display field; equals display_name." },
+        "actor_key": { "type": "string", "description": "Stable, non-PII actor identity key. Scheme-prefixed: provider-user:<source_id>:<username>, email:<hash> (raw email is never exposed), or name:<normalized>." },
+        "display_name": { "type": "string", "description": "Deterministically chosen display name for this actor identity." },
+        "aliases": { "type": "array", "items": { "type": "string" }, "description": "Other display names observed for this identity (omitted when none)." },
         "activities": { "type": "integer", "minimum": 0 },
         "commits": { "type": "integer", "minimum": 0 },
         "items_opened": { "type": "integer", "minimum": 0 },
