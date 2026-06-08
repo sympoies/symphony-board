@@ -76,6 +76,7 @@ test("buildContract emits a versioned envelope with composite-ref ids", () => {
   assert.equal(env.edges.length, 1);
   assert.equal(env.edges[0]!.from, "github:github.com|PR_xyz");
   assert.equal(env.edges[0]!.to, "github:github.com|ISSUE_abc");
+  assert.ok(env.aggregates?.some((a) => a.scope === "global" && a.window.kind === "full"));
 });
 
 test("buildContract groups labels by item and leaves label-less items empty", () => {
@@ -130,4 +131,37 @@ test("buildContract emits activity records with refs and parsed details", () => 
   assert.equal(env.activities![0]!.id, "github:github.com|activity-1");
   assert.equal(env.activities![0]!.target_ref, "github:github.com|ISSUE_abc");
   assert.deepEqual(env.activities![0]!.details, { source: "test" });
+});
+
+test("buildContract emits scoped full and active-since aggregates", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", kind: "issue", state: "open", updated_at: "2026-06-07T00:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "PR_recent", kind: "change_request", state: "merged", updated_at: "2026-06-06T00:00:00Z" }),
+    itemRow({ item_id: 3, external_id: "ISSUE_old", kind: "issue", state: "closed", updated_at: "2020-01-01T00:00:00Z" }),
+    itemRow({ item_id: 4, external_id: "PR_old", kind: "change_request", state: "closed", updated_at: "2020-01-01T00:00:00Z" }),
+  ];
+  const edges: EdgeRow[] = [
+    { type: "closes", from_source_id: "github:github.com", from_external_id: "PR_recent", to_source_id: "github:github.com", to_external_id: "ISSUE_recent", from_state: "merged", to_state: "open", lifecycle: "fulfilled" },
+    { type: "closes", from_source_id: "github:github.com", from_external_id: "PR_old", to_source_id: "github:github.com", to_external_id: "ISSUE_old", from_state: "closed", to_state: "closed", lifecycle: "broken" },
+    { type: "mentions", from_source_id: "github:github.com", from_external_id: "PR_recent", to_source_id: "github:github.com", to_external_id: "ISSUE_old", from_state: "merged", to_state: "closed", lifecycle: null },
+  ];
+
+  const env = buildContract({ sources, items, labels: [], edges, generatedAt: "2026-06-08T00:00:00.000Z" });
+  const aggregates = env.aggregates ?? [];
+  assert.equal(aggregates.length, 11, "global + board full + graph full + four board/graph active windows");
+
+  const boardWeek = aggregates.find((a) => a.scope === "boardWindow" && a.window.days === 7);
+  assert.equal(boardWeek?.window.basis, "item_updated_at");
+  assert.equal(boardWeek?.window.since, "2026-06-01T00:00:00.000Z");
+  assert.equal(boardWeek?.stats.items, 2, "Board windows count item-updated rows");
+  assert.deepEqual(boardWeek?.stats.by_lifecycle, { fulfilled: 1, other: 1 }, "Board lifecycle counts edges touching windowed items");
+
+  const graphWeek = aggregates.find((a) => a.scope === "graphWindow" && a.window.days === 7);
+  assert.equal(graphWeek?.window.basis, "edge_endpoint_updated_at");
+  assert.equal(graphWeek?.window.edge_filter, "no_mentions");
+  assert.equal(graphWeek?.stats.items, 2, "Graph windows count rendered nodes");
+  assert.deepEqual(graphWeek?.stats.by_lifecycle, { fulfilled: 1 }, "Graph default aggregates exclude mention edges");
 });

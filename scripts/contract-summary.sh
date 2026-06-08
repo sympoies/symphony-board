@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Summarize an emitted contract JSON: counts, per-source, items by kind/state,
-# edges by type/lifecycle, and activity by kind/action. Read-only.
+# edges by type/lifecycle, activity by kind/action, and aggregate rows.
+# Read-only.
 # Usage: scripts/contract-summary.sh [path]   (default: data/contract.json)
 set -uo pipefail
 
@@ -16,7 +17,12 @@ fi
 jq '{
   contract_version,
   generated_at,
-  totals: { items: (.items | length), edges: (.edges | length), activities: ((.activities // []) | length) },
+  totals: {
+    items: (.items | length),
+    edges: (.edges | length),
+    activities: ((.activities // []) | length),
+    aggregates: ((.aggregates // []) | length)
+  },
   items_by_source:    (.items | group_by(.source_id) | map({ (.[0].source_id): length }) | add),
   items_by_kind:      (.items | group_by(.kind)      | map({ (.[0].kind):      length }) | add),
   items_by_state:     (.items | group_by(.state)     | map({ (.[0].state):     length }) | add),

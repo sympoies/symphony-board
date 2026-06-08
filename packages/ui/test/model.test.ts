@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
+import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import {
   ACTIVE_SINCE_PRESETS,
   DEFAULT_ACTIVE_SINCE_DAYS,
@@ -20,6 +20,7 @@ import {
   edgeMatches,
   computeStats,
   computeGlobalStats,
+  findContractScopedStats,
   boardWindowEdges,
   computeBoardWindowStats,
   computeGraphStats,
@@ -201,6 +202,30 @@ test("computeStats counts items by state/kind and edges by lifecycle", () => {
   assert.deepEqual(stats.byState, { open: 1, merged: 1 });
   assert.deepEqual(stats.byKind, { issue: 1, change_request: 1 });
   assert.deepEqual(stats.byLifecycle, { fulfilled: 1, other: 1 });
+});
+
+test("findContractScopedStats uses only exact scope/window/filter matches", () => {
+  const aggregates: AggregateDTO[] = [
+    {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-06-01T00:00:00.000Z", days: 7, edge_filter: null },
+      stats: { items: 2, by_state: { open: 2 }, by_kind: { issue: 2 }, by_lifecycle: { declared: 1 } },
+    },
+    {
+      scope: "graphWindow",
+      window: { kind: "active_since", basis: "edge_endpoint_updated_at", since: "2026-06-01T00:00:00.000Z", days: 7, edge_filter: "no_mentions" },
+      stats: { items: 3, by_state: { open: 2, merged: 1 }, by_kind: { issue: 2, change_request: 1 }, by_lifecycle: { fulfilled: 1 } },
+    },
+  ];
+
+  const board = findContractScopedStats(aggregates, { scope: "boardWindow", since: "2026-06-01" });
+  assert.equal(board?.scope, "boardWindow");
+  assert.equal(board?.stats.items, 2);
+  assert.deepEqual(board?.stats.byLifecycle, { declared: 1 });
+
+  assert.equal(findContractScopedStats(aggregates, { scope: "boardWindow", since: "2026-06-02" }), null, "custom dates fall back to local computation");
+  assert.equal(findContractScopedStats(aggregates, { scope: "graphWindow", since: "2026-06-01", edgeFilter: "all" }), null, "edge-filter mismatch falls back");
+  assert.equal(findContractScopedStats(aggregates, { scope: "graphWindow", since: "2026-06-01", edgeFilter: "no_mentions" })?.stats.items, 3);
 });
 
 test("view scopes are explicit and keep the old full-filter stats available as global", () => {

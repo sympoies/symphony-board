@@ -27,7 +27,7 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v1, currently `1.2.0`, and validates the JSON
+- `emit` produces contract major v1, currently `1.3.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
   Activity feed, and a persistent Settings display filter.
@@ -197,7 +197,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v1, currently `1.2.0`.
+The current emitted contract is major v1, currently `1.3.0`.
 
 Version `1.1.0` added display colors:
 
@@ -218,6 +218,13 @@ developer-significant records. Existing v1 consumers can keep reading
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.
+
+Version `1.3.0` added optional `aggregates[]`: server-computed totals for
+`global`, `boardWindow`, and `graphWindow` scopes, including active-since window
+metadata. These aggregates describe the emitted contract before viewer-local
+filters such as Settings visibility, search, facets, Graph mention toggles, or
+focus targets. The UI uses them only when the visible scope/window/filter is an
+exact match and computes locally otherwise.
 
 ## Testing Model
 

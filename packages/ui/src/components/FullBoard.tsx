@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { EdgeDTO, ItemDTO } from "@symphony-board/contract";
+import type { AggregateDTO, EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import {
@@ -8,6 +8,7 @@ import {
   computeBoardWindowStats,
   cutoffIso,
   defaultActiveSince,
+  findContractScopedStats,
   itemActiveSince,
   STATUS_ORDER,
   STATUS_LABEL,
@@ -88,6 +89,7 @@ export function FullBoard({
   sourceKind,
   colorOf,
   linkedIds,
+  aggregates = [],
 }: {
   items: ItemDTO[];
   edges: EdgeDTO[];
@@ -95,11 +97,19 @@ export function FullBoard({
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   linkedIds: Set<string>;
+  aggregates?: readonly AggregateDTO[];
 }) {
   const [since, setSince] = useState<string>(defaultActiveSince);
   const cutoff = useMemo(() => (since ? new Date(since + "T00:00:00Z").toISOString() : null), [since]);
   const boardItems = useMemo(() => items.filter((it) => itemActiveSince(it, cutoff)), [items, cutoff]);
-  const boardStats = useMemo(() => computeBoardWindowStats(boardItems, edges), [boardItems, edges]);
+  const contractBoardStats = useMemo(
+    () => findContractScopedStats(aggregates, { scope: "boardWindow", since }),
+    [aggregates, since],
+  );
+  const boardStats = useMemo(
+    () => contractBoardStats ?? computeBoardWindowStats(boardItems, edges),
+    [contractBoardStats, boardItems, edges],
+  );
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(boardItems);

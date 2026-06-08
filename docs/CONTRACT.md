@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `1.2.0`.
+Current emitted version: `1.3.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "1.2.0",
+  "contract_version": "1.3.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -44,6 +44,24 @@ package version, to decide compatibility.
       "project_path": "sympoies/symphony-board",
       "color": "#e0af68"
     }
+  ],
+  "aggregates": [
+    {
+      "scope": "boardWindow",
+      "window": {
+        "kind": "active_since",
+        "basis": "item_updated_at",
+        "since": "2026-03-10T00:00:00.000Z",
+        "days": 90,
+        "edge_filter": null
+      },
+      "stats": {
+        "items": 42,
+        "by_state": { "open": 10, "closed": 32 },
+        "by_kind": { "issue": 36, "change_request": 6 },
+        "by_lifecycle": { "fulfilled": 5, "declared": 1 }
+      }
+    }
   ]
 }
 ```
@@ -58,11 +76,12 @@ Top-level fields:
 - `edges`: typed relationships between items.
 - `activities`: optional developer-significant event feed, added in `1.2.0`.
 - `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
+- `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 
-The producer currently emits `activities` and `repos` every time, usually as
-empty arrays. They are optional in the schema so old v1 readers are not broken
-by minor additions. Consumers should read them as `env.activities ?? []` and
-`env.repos ?? []`.
+The producer currently emits `activities`, `repos`, and `aggregates` every time,
+usually as empty arrays when no rows apply. They are optional in the schema so
+old v1 readers are not broken by minor additions. Consumers should read them as
+`env.activities ?? []`, `env.repos ?? []`, and `env.aggregates ?? []`.
 
 ## Refs
 
@@ -140,6 +159,48 @@ Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for commits and repository/project
 events.
 
+## Aggregates
+
+Version `1.3.0` added optional `aggregates[]`. These rows provide
+server-computed totals for named scopes and windows while the contract still
+emits the full `items[]` and `edges[]` sets for v1 compatibility.
+
+Scopes use the same vocabulary as the UI:
+
+| Scope | Meaning |
+| --- | --- |
+| `global` | full emitted contract totals for all live items and edges |
+| `boardWindow` | Board item-window totals; items are selected by `updated_at` |
+| `graphWindow` | Graph overview totals; edges are selected by endpoint activity, and item total means rendered graph nodes |
+| `focus` | focus-local subgraph totals; schema-supported but not backend-emitted because focus target is viewer-local |
+
+Each aggregate has:
+
+- `scope`: one of the scope values above.
+- `window.kind`: `full`, `active_since`, or `focus`.
+- `window.basis`: the selection rule, such as `item_updated_at` for Board or
+  `edge_endpoint_updated_at` for Graph.
+- `window.since`: inclusive UTC cutoff for `active_since`, otherwise `null`.
+- `window.days`: preset length used to derive `since` from `generated_at`, or
+  `null` for full/custom rows.
+- `window.edge_filter`: `no_mentions`, `all`, or `null` when no edge filter
+  applies.
+- `stats`: total plus open string-keyed count maps:
+  `by_state`, `by_kind`, and `by_lifecycle`.
+
+The backend currently emits:
+
+- `global` full aggregate over all emitted items and edges.
+- `boardWindow` full plus `1w`, `2w`, `1mo`, and `3mo` active-since aggregates.
+- `graphWindow` full plus `1w`, `2w`, `1mo`, and `3mo` active-since aggregates
+  for the default overview edge filter (`edge_filter: "no_mentions"`).
+
+Viewer-local choices are not represented by backend aggregates. Source/repo
+visibility, search, facet filters, Graph mention toggles, and focus targets are
+client display state; consumers should use a contract aggregate only when its
+scope/window/filter exactly matches the view, otherwise compute locally from
+`items[]` and `edges[]`.
+
 ## Display Metadata
 
 Version `1.1.0` added display colors:
@@ -167,7 +228,7 @@ Version `1.2.0` added optional top-level `activities[]`.
 
 ## Version Rules
 
-- **patch** (`1.2.x`): clarification only; no shape or semantic change.
+- **patch** (`1.3.x`): clarification only; no shape or semantic change.
 - **minor** (`1.x.0`): additive only. New fields must be optional and/or
   nullable. Old consumers must keep working.
 - **major** (`x.0.0`): breaking shape or semantic change, including removed

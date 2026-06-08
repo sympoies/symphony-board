@@ -11,6 +11,9 @@ import type {
   SourceDTO,
   RepoDTO,
   LabelDTO,
+  AggregateDTO,
+  AggregateStatsDTO,
+  AggregateWindowDTO,
   ItemState,
   ReviewState,
   CiState,
@@ -22,6 +25,7 @@ import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
+const ACTIVE_WINDOW_DAYS = [7, 14, 30, 90] as const;
 
 function toLabelDTO(l: LabelRow): LabelDTO {
   return { name: l.name, scope: l.scope, color: l.color };
@@ -117,6 +121,121 @@ function toSourceDTO(row: SourceRow, sourceColors: Record<string, string>): Sour
   };
 }
 
+function inc(counts: Record<string, number>, key: string): void {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function computeItemEdgeStats(items: ItemDTO[], edges: EdgeDTO[]): AggregateStatsDTO {
+  const by_state: Record<string, number> = {};
+  const by_kind: Record<string, number> = {};
+  for (const it of items) {
+    inc(by_state, it.state);
+    inc(by_kind, it.kind);
+  }
+
+  const by_lifecycle: Record<string, number> = {};
+  for (const edge of edges) inc(by_lifecycle, edge.lifecycle ?? "other");
+  return { items: items.length, by_state, by_kind, by_lifecycle };
+}
+
+function aggregateWindow(
+  kind: AggregateWindowDTO["kind"],
+  basis: AggregateWindowDTO["basis"],
+  since: string | null,
+  days: number | null,
+  edgeFilter: AggregateWindowDTO["edge_filter"],
+): AggregateWindowDTO {
+  return { kind, basis, since, days, edge_filter: edgeFilter };
+}
+
+function cutoffIso(days: number, generatedAt: string): string {
+  return new Date(Date.parse(generatedAt) - days * 86_400_000).toISOString();
+}
+
+function itemActiveSince(item: ItemDTO, cutoff: string | null): boolean {
+  return !cutoff || (item.updated_at ?? "") >= cutoff;
+}
+
+function boardWindowEdges(items: ItemDTO[], edges: EdgeDTO[]): EdgeDTO[] {
+  const ids = new Set(items.map((item) => item.id));
+  return edges.filter((edge) => ids.has(edge.from) || ids.has(edge.to));
+}
+
+function graphWindowEdges(edges: EdgeDTO[], byId: Map<string, ItemDTO>, cutoff: string | null): EdgeDTO[] {
+  return edges.filter((edge) => {
+    if (!cutoff) return true;
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
+    if (!from && !to) return true;
+    return (from?.updated_at ?? "") >= cutoff || (to?.updated_at ?? "") >= cutoff;
+  });
+}
+
+function noMentions(edges: EdgeDTO[]): EdgeDTO[] {
+  return edges.filter((edge) => edge.type !== "mentions");
+}
+
+function computeGraphStats(edges: EdgeDTO[], byId: Map<string, ItemDTO>): AggregateStatsDTO {
+  const refs = new Set<string>();
+  for (const edge of edges) {
+    refs.add(edge.from);
+    refs.add(edge.to);
+  }
+
+  const by_state: Record<string, number> = {};
+  const by_kind: Record<string, number> = {};
+  for (const ref of refs) {
+    const item = byId.get(ref);
+    inc(by_state, item?.state ?? "unknown");
+    inc(by_kind, item?.kind ?? "unknown");
+  }
+
+  const by_lifecycle: Record<string, number> = {};
+  for (const edge of edges) inc(by_lifecycle, edge.lifecycle ?? "other");
+  return { items: refs.size, by_state, by_kind, by_lifecycle };
+}
+
+function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string): AggregateDTO[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const graphBaseEdges = noMentions(edges);
+  const aggregates: AggregateDTO[] = [
+    {
+      scope: "global",
+      window: aggregateWindow("full", "full_contract", null, null, null),
+      stats: computeItemEdgeStats(items, edges),
+    },
+    {
+      scope: "boardWindow",
+      window: aggregateWindow("full", "item_updated_at", null, null, null),
+      stats: computeItemEdgeStats(items, boardWindowEdges(items, edges)),
+    },
+    {
+      scope: "graphWindow",
+      window: aggregateWindow("full", "edge_endpoint_updated_at", null, null, "no_mentions"),
+      stats: computeGraphStats(graphBaseEdges, byId),
+    },
+  ];
+
+  for (const days of ACTIVE_WINDOW_DAYS) {
+    const since = cutoffIso(days, generatedAt);
+    const boardItems = items.filter((item) => itemActiveSince(item, since));
+    aggregates.push({
+      scope: "boardWindow",
+      window: aggregateWindow("active_since", "item_updated_at", since, days, null),
+      stats: computeItemEdgeStats(boardItems, boardWindowEdges(boardItems, edges)),
+    });
+
+    const graphEdges = graphWindowEdges(graphBaseEdges, byId, since);
+    aggregates.push({
+      scope: "graphWindow",
+      window: aggregateWindow("active_since", "edge_endpoint_updated_at", since, days, "no_mentions"),
+      stats: computeGraphStats(graphEdges, byId),
+    });
+  }
+
+  return aggregates;
+}
+
 export interface BuildInput {
   sources: SourceRow[];
   items: ItemRow[];
@@ -139,14 +258,17 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     labelsByItem.set(l.item_id, arr);
   }
   const sourceColors = input.sourceColors ?? {};
+  const items = input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? []));
+  const edges = input.edges.map(toEdgeDTO);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
     sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
-    items: input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? [])),
-    edges: input.edges.map(toEdgeDTO),
+    items,
+    edges,
     activities: (input.activities ?? []).map(toActivityDTO),
     repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
+    aggregates: buildAggregates(items, edges, input.generatedAt),
   };
 }
