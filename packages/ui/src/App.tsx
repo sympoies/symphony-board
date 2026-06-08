@@ -434,6 +434,7 @@ export function App() {
           <TimeRangeControls
             range={activeRange}
             generatedAt={env.generated_at}
+            preferredPresetId={explicitRange ? null : defaultRangePreset}
             loading={rangeLoading}
             error={rangeError}
             onRange={setRouteRange}
