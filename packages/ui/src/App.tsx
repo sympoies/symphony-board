@@ -170,7 +170,14 @@ export function App() {
   }, [visibleEnv, filters]);
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
-
+  const canUseContractAggregates =
+    hidden.size === 0 &&
+    hiddenSources.size === 0 &&
+    filters.search.trim() === "" &&
+    filters.sources.size === 0 &&
+    filters.states.size === 0 &&
+    filters.kinds.size === 0;
+  const compatibleAggregates = canUseContractAggregates ? (env?.aggregates ?? []) : [];
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
   // items are placed into columns (so a closed item's Trailing status is correct
@@ -352,10 +359,26 @@ export function App() {
           {/* Keyed on the focus target so each distinct deep-link entry remounts
               the graph with a fresh window + focus seed (the seed is mount-time);
               a new "?focus=" — or clearing it — never leaves a stale focus. */}
-          <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} focusRef={route.focus} narrowed={filters.search.trim() !== ""} />
+          <GraphPage
+            key={route.focus ?? "graph"}
+            edges={filteredEdges}
+            sourceKind={sourceKind}
+            colorOf={colorOf}
+            focusRef={route.focus}
+            narrowed={filters.search.trim() !== ""}
+            aggregates={compatibleAggregates}
+          />
         </Suspense>
       ) : (
-        <FullBoard items={filteredItems} edges={filteredEdgeDTOs} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
+        <FullBoard
+          items={filteredItems}
+          edges={filteredEdgeDTOs}
+          statuses={statuses}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+          linkedIds={linkedIds}
+          aggregates={compatibleAggregates}
+        />
       )}
     </div>
   );

@@ -33,6 +33,43 @@ export type MergeState = "mergeable" | "conflicting" | "blocked" | "unknown";
 // Derived state of a `closes` edge.
 export type EdgeLifecycle = "declared" | "fulfilled" | "broken";
 
+// Named aggregate scopes. These intentionally mirror the UI view-scope
+// vocabulary so contract-provided totals cannot silently mean a different
+// window than the summary beside them.
+export type AggregateScope = "global" | "boardWindow" | "graphWindow" | "focus";
+
+// How an aggregate's row set was selected. `focus` is schema-supported for
+// consumers that compute/persist focus-local aggregates, but the backend does
+// not emit focus rows because focus is viewer-local.
+export type AggregateWindowKind = "full" | "active_since" | "focus";
+export type AggregateBasis =
+  | "full_contract"
+  | "item_updated_at"
+  | "edge_endpoint_updated_at"
+  | "focus_neighborhood";
+export type AggregateEdgeFilter = "all" | "no_mentions";
+
+export interface AggregateStatsDTO {
+  items: number;
+  by_state: Record<string, number>;
+  by_kind: Record<string, number>;
+  by_lifecycle: Record<string, number>;
+}
+
+export interface AggregateWindowDTO {
+  kind: AggregateWindowKind;
+  basis: AggregateBasis;
+  since: string | null;
+  days: number | null;
+  edge_filter: AggregateEdgeFilter | null;
+}
+
+export interface AggregateDTO {
+  scope: AggregateScope;
+  window: AggregateWindowDTO;
+  stats: AggregateStatsDTO;
+}
+
 // ---- DTOs (the serialized envelope shape) -----------------------------------
 
 export interface SourceDTO {
@@ -133,4 +170,8 @@ export interface ContractEnvelope {
   // OPTIONAL in the type so a consumer reading a pre-1.1.0 contract (no `repos`
   // key) still type-checks — read it as `env.repos ?? []`. (added in 1.1.0)
   repos?: RepoDTO[];
+  // Optional server-provided totals aligned to the explicit view-scope
+  // vocabulary. Added in 1.3.0; consumers fall back to local computation when a
+  // local filter/window is not represented by a compatible aggregate row.
+  aggregates?: AggregateDTO[];
 }

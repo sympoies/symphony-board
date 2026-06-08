@@ -23,11 +23,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
-import type { ItemDTO } from "@symphony-board/contract";
+import type { AggregateDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { ACTIVE_SINCE_PRESETS, buildGraph, buildAdjacency, computeGraphStats, focusSubgraph, graphWindowEdges, relatedItems, compareGraphNodes, cutoffIso, defaultActiveSince, graphEffectiveSince, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { ACTIVE_SINCE_PRESETS, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdges, relatedItems, compareGraphNodes, cutoffIso, defaultActiveSince, graphEffectiveSince, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -567,7 +567,21 @@ function GraphSideList({
   );
 }
 
-export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; colorOf: ColorOf; focusRef?: string | null; narrowed?: boolean }) {
+export function GraphPage({
+  edges,
+  sourceKind,
+  colorOf,
+  focusRef,
+  narrowed,
+  aggregates = [],
+}: {
+  edges: ResolvedEdge[];
+  sourceKind: Map<string, string>;
+  colorOf: ColorOf;
+  focusRef?: string | null;
+  narrowed?: boolean;
+  aggregates?: readonly AggregateDTO[];
+}) {
   // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
   // filters on entry so the target is GUARANTEED on the graph and framable: it
   // clears the time window (an older item would land off the default 90-day
@@ -661,7 +675,17 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
   // focus there is no clutter to fight, so edges — mentions especially — are
   // drawn at full strength rather than the overview's de-emphasised styling.
   const inFocus = view !== graph;
-  const scopedStats = useMemo(() => computeGraphStats(view, inFocus ? "focus" : "graphWindow"), [view, inFocus]);
+  const contractGraphStats = useMemo(
+    () =>
+      !inFocus && !showMentions && mentionTarget === "all"
+        ? findContractScopedStats(aggregates, { scope: "graphWindow", since: effectiveSince, edgeFilter: "no_mentions" })
+        : null,
+    [aggregates, effectiveSince, inFocus, showMentions, mentionTarget],
+  );
+  const scopedStats = useMemo(
+    () => contractGraphStats ?? computeGraphStats(view, inFocus ? "focus" : "graphWindow"),
+    [contractGraphStats, view, inFocus],
+  );
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();

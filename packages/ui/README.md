@@ -25,7 +25,10 @@ The Board has an item-local active-since window with quick presets (`1w`, `2w`,
 `1mo`, `3mo`, `all`). It filters cards by `updated_at` and defaults to `3mo`.
 The summary pills on the Board are scoped to that same Board window: item totals
 count the cards that survive the active-since filter, and edge lifecycle counts
-cover relationships touching those windowed cards.
+cover relationships touching those windowed cards. If the loaded contract
+contains a compatible `boardWindow` aggregate and no viewer-local filters are
+active, the summary uses it; otherwise it computes from the visible items and
+edges.
 
 Cards show source, repo, iid, author, timestamps, demand, labels, draft state,
 review/CI/merge signals, and optional repo/source highlight color. Cards with at
@@ -48,7 +51,9 @@ Graph summary pills are scoped to the graph currently being inspected. In the
 overview they count rendered nodes and links after the active-since window,
 mention toggle, mention target, search, and facet filters. In focus view they
 switch to `focus` scope and count the focused subgraph instead of implying an
-overview total.
+overview total. Contract `graphWindow` aggregates are used only for the default
+no-mentions overview when the active-since window exactly matches an emitted
+aggregate row; local graph controls fall back to client-computed stats.
 
 Untracked cross-repo endpoints render as unresolved refs.
 

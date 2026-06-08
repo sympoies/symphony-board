@@ -142,3 +142,32 @@ test("activity records validate and reject malformed timestamps", () => {
   const errors = validateContract(env);
   assert.ok(errors.some((e) => e.path === "/activities/0/occurred_at" && /date-time/.test(e.message)));
 });
+
+test("aggregate rows validate their scope, window, and open count maps", () => {
+  const env: any = validEnvelope();
+  const global = env.aggregates.find((a: any) => a.scope === "global");
+  assert.equal(global.window.kind, "full");
+  assert.equal(global.stats.items, 2);
+  assert.deepEqual(validateContract(env), []);
+});
+
+test("an aggregate with an out-of-vocabulary scope is rejected", () => {
+  const env: any = validEnvelope();
+  env.aggregates[0].scope = "sidebar";
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/aggregates/0/scope" && /enum/.test(e.message)));
+});
+
+test("aggregate count-map values must be integers", () => {
+  const env: any = validEnvelope();
+  env.aggregates[0].stats.by_state.open = "one";
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/aggregates/0/stats/by_state/open" && /expected type integer/.test(e.message)));
+});
+
+test("aggregate counts must be non-negative", () => {
+  const env: any = validEnvelope();
+  env.aggregates[0].stats.by_state.open = -1;
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/aggregates/0/stats/by_state/open" && /minimum 0/.test(e.message)));
+});

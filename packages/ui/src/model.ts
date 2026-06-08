@@ -1,7 +1,15 @@
 // Pure view-model helpers over the contract: filtering, edge resolution, and
 // small stats. No React here — easy to reason about and reuse.
 
-import type { ActivityDTO, ContractEnvelope, ItemDTO, EdgeDTO } from "@symphony-board/contract";
+import type {
+  ActivityDTO,
+  AggregateDTO,
+  AggregateEdgeFilter,
+  AggregateScope,
+  ContractEnvelope,
+  ItemDTO,
+  EdgeDTO,
+} from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 
 // Board status columns, after project-board-automation's Status model
@@ -658,8 +666,8 @@ export interface Stats {
   byLifecycle: Record<string, number>;
 }
 
-export const VIEW_SCOPES = ["global", "boardWindow", "graphWindow", "focus"] as const;
-export type ViewScope = (typeof VIEW_SCOPES)[number];
+export const VIEW_SCOPES = ["global", "boardWindow", "graphWindow", "focus"] as const satisfies ReadonlyArray<AggregateScope>;
+export type ViewScope = AggregateScope;
 
 export const VIEW_SCOPE_LABEL: Record<ViewScope, string> = {
   global: "global",
@@ -671,6 +679,12 @@ export const VIEW_SCOPE_LABEL: Record<ViewScope, string> = {
 export interface ScopedStats {
   scope: ViewScope;
   stats: Stats;
+}
+
+export interface ContractStatsRequest {
+  scope: Exclude<ViewScope, "focus">;
+  since: string;
+  edgeFilter?: AggregateEdgeFilter | null;
 }
 
 export function computeStats(items: ItemDTO[], edges: EdgeDTO[]): Stats {
@@ -690,6 +704,34 @@ export function computeStats(items: ItemDTO[], edges: EdgeDTO[]): Stats {
 
 export function computeGlobalStats(items: ItemDTO[], edges: EdgeDTO[]): ScopedStats {
   return { scope: "global", stats: computeStats(items, edges) };
+}
+
+export function aggregateToScopedStats(aggregate: AggregateDTO): ScopedStats {
+  return {
+    scope: aggregate.scope,
+    stats: {
+      items: aggregate.stats.items,
+      byState: aggregate.stats.by_state,
+      byKind: aggregate.stats.by_kind,
+      byLifecycle: aggregate.stats.by_lifecycle,
+    },
+  };
+}
+
+export function findContractScopedStats(
+  aggregates: readonly AggregateDTO[] | undefined,
+  request: ContractStatsRequest,
+): ScopedStats | null {
+  const edgeFilter = request.edgeFilter ?? null;
+  const kind = request.since === "" ? "full" : "active_since";
+  const aggregate = (aggregates ?? []).find((candidate) => {
+    if (candidate.scope !== request.scope) return false;
+    if (candidate.window.kind !== kind) return false;
+    if ((candidate.window.edge_filter ?? null) !== edgeFilter) return false;
+    if (kind === "full") return candidate.window.since === null;
+    return candidate.window.since?.slice(0, 10) === request.since;
+  });
+  return aggregate ? aggregateToScopedStats(aggregate) : null;
 }
 
 export function boardWindowEdges(items: ItemDTO[], edges: EdgeDTO[]): EdgeDTO[] {

@@ -176,7 +176,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v1. Current emitted version: `1.2.0`.
+Current major: v1. Current emitted version: `1.3.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -188,6 +188,20 @@ stored in SQLite. The producer validates colors as `#rgb` or `#rrggbb`; the UI
 also validates before using colors in CSS sinks.
 
 Version `1.2.0` added optional top-level `activities[]`.
+
+Version `1.3.0` added optional top-level `aggregates[]`. These rows carry
+server-computed totals for explicit `global`, `boardWindow`, and `graphWindow`
+scopes. Board aggregate windows are based on item `updated_at`; Graph aggregate
+windows are based on relationship endpoints and describe the default overview
+edge filter (`no_mentions`). The schema also reserves `focus` as a scope, but
+the backend does not emit focus aggregates because the focus target is
+viewer-local.
+
+Aggregates describe the emitted contract before local viewer state. Source/repo
+visibility, search, facets, Graph mention toggles, and focus targets remain UI
+display filters; the UI consumes a contract aggregate only when its scope,
+window, and edge filter exactly match the visible view, otherwise it computes a
+local scoped summary from `items[]` and `edges[]`.
 
 Contract rules:
 
@@ -213,13 +227,17 @@ Pages:
   an item-local active-since window (`1w`, `2w`, `1mo`, `3mo`, `all`) that
   filters cards by `updated_at`. Board summary stats are scoped to that same
   item window; edge lifecycle counts include relationships touching the windowed
-  Board items.
+  Board items. When the loaded contract has a matching `boardWindow` aggregate
+  and no viewer-local filters are active, the summary can use that aggregate;
+  otherwise it computes locally.
 - **Graph**: relationship view built from edge-connected items. It supports an
   active-since window, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`. Graph overview
   summary stats are scoped to the rendered overview graph after the edge window,
   mention controls, search, and facets. Focus view uses a separate `focus`
-  summary for the focused subgraph instead of reusing overview totals.
+  summary for the focused subgraph instead of reusing overview totals. Contract
+  aggregates are used only for the default no-mentions overview when the
+  active-since window exactly matches an emitted aggregate row.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It defaults to `this week` (Monday start, relative to
   the loaded contract's `generated_at`) and supports `1d`, `3d`, `this week`,
@@ -277,10 +295,10 @@ iteration to be full.
 - External write actions from the UI. The UI is intentionally view-only.
 - Splitting UI or contract into separate repos. The package boundary is enough
   until third-party consumers or release cadence require more.
-- A windowed contract format. The current contract emits all live items; the UI
-  computes scoped Board/Graph summaries client-side and caps expensive columns
-  in the view. A future contract redesign can add aggregate/window separation if
-  transfer or parse cost becomes the bottleneck.
+- Payload trimming / partial item delivery. Contract v1.3 has aggregate/window
+  metadata but still emits the full live item and edge sets for compatibility.
+  Reducing transfer/parse/memory cost by shipping a windowed item set remains a
+  separate #56 decision.
 
 ## Validation Baseline
 

@@ -8,7 +8,8 @@
 //
 //   * $ref to local "#/$defs/..."        * required
 //   * type, incl. ["string","null"]      * additionalProperties:false
-//   * enum (members may include null)     * properties
+//   * enum (members may include null)     * additionalProperties:<schema>
+//   * minimum (numbers/integers)          * properties
 //   * pattern (strings)                   * items (arrays)
 //   * format:date-time (pragmatic check)
 //
@@ -115,6 +116,10 @@ function validateNode(data: unknown, schema: Schema, root: Schema, path: string,
     }
   }
 
+  if (typeof data === "number" && typeof schema.minimum === "number" && data < schema.minimum) {
+    errors.push({ path, message: `number is less than minimum ${schema.minimum}` });
+  }
+
   if (matchesType(data, "object")) {
     const obj = data as Record<string, unknown>;
     const props: Record<string, Schema> = schema.properties ?? {};
@@ -126,6 +131,10 @@ function validateNode(data: unknown, schema: Schema, root: Schema, path: string,
     if (schema.additionalProperties === false) {
       for (const key of Object.keys(obj)) {
         if (!(key in props)) errors.push({ path: `${path}/${key}`, message: "additional property not allowed" });
+      }
+    } else if (typeof schema.additionalProperties === "object" && schema.additionalProperties !== null) {
+      for (const key of Object.keys(obj)) {
+        if (!(key in props)) validateNode(obj[key], schema.additionalProperties, root, `${path}/${key}`, errors);
       }
     }
     for (const [key, sub] of Object.entries(props)) {
