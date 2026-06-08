@@ -30,9 +30,9 @@ The basic product path is implemented:
 - `emit` produces contract major v2, currently `2.4.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
-  Activity feed, a Repo Analytics table/trend view, and persistent Settings.
-  Board, Graph, Activity, and Repo Analytics share one URL-backed date-range
-  control with a browser-local default preset.
+  Activity feed, a GitHub-like Commits log, a Repo Analytics table/trend view,
+  and persistent Settings. Board, Graph, Activity, Commits, and Repo Analytics
+  share one URL-backed date-range control with a browser-local default preset.
 - Docker Compose runs the sync/emit loop as the sole writer, a read-only range
   API sidecar over SQLite, and a read-only web sidecar over the latest emitted
   contract.

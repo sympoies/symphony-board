@@ -6,6 +6,7 @@ import {
   activityMatches,
   filterCommits,
   commitRepoOptions,
+  commitBranchOptions,
   preferredDefaultTimeRange,
   staticContractTimeRange,
   filterActivitiesByRange,
@@ -58,12 +59,12 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
 // Pages via a zero-dep hash route: "" (#/) is the full-width board, "graph"
 // (#/graph) the relationship graph, "activity" (#/activity) the event feed,
-// "commits" (#/commits) the cross-repo commit feed, "repo-analytics"
+// "commits" (#/commits) the cross-repo commit log, "repo-analytics"
 // (#/repo-analytics) the per-repo metrics view, and "settings" (#/settings) the
 // persistent repo display filter. The route may carry "?q=<search>" so the
 // visible search box is URL-backed; graph routes may also carry "?focus=<ref>"
-// from a board card, and commits routes carry "?repo=<project_path>" for the
-// page's repo filter.
+// from a board card, and commits routes carry "?repo=<project_path>" and
+// "?branch=<branch>" for the page-local SCM filters.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 
 export function App() {
@@ -246,14 +247,16 @@ export function App() {
     [windowedActivities, filters],
   );
 
-  // The Commits page is a focused projection of the activity feed: commit records
-  // only, with one filter (repo, from the URL's "?repo="). windowCommits is every
-  // commit in the shared range (the window total + the picker's option source);
-  // commits is that narrowed to the selected repo, if any. Both ride the same
-  // visibility + range pre-filters as the Activity feed.
+  // The Commits page is a focused SCM log over commit records, with SCM filters
+  // in the URL. windowCommits is every commit in the
+  // shared range (the window total + repo option source); repoCommits narrows to
+  // the selected repo for branch options; commits applies the optional branch
+  // filter when commit rows carry branch/ref details.
   const windowCommits = useMemo(() => filterCommits(windowedActivities, null), [windowedActivities]);
-  const commits = useMemo(() => filterCommits(windowedActivities, route.repo), [windowedActivities, route.repo]);
+  const repoCommits = useMemo(() => filterCommits(windowedActivities, route.repo), [windowedActivities, route.repo]);
+  const commits = useMemo(() => filterCommits(windowedActivities, route.repo, route.branch), [windowedActivities, route.repo, route.branch]);
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
+  const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
   const totalCommits = useMemo(
     () => (env?.activities ?? activeEnv?.activities ?? []).filter((a) => a.kind === "commit").length,
     [env, activeEnv],
@@ -368,6 +371,7 @@ export function App() {
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
       repo: page === "commits" ? route.repo : null,
+      branch: page === "commits" ? route.branch : null,
       q,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -376,14 +380,28 @@ export function App() {
     if (readHash() !== next) window.location.hash = next;
   }
 
-  // The Commits page's repo filter is URL-backed (like search/focus) so it is
-  // shareable and survives reload. It preserves the active range/preset, and
-  // clearing it (repo === null) drops the "?repo=" param.
+  // The Commits page's SCM filters are URL-backed (like search/focus) so they
+  // are shareable and survive reload. Clearing a value drops that query param.
   function setRouteRepo(repo: string | null) {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
       page: "commits",
       repo,
+      branch: route.branch,
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  function setRouteBranch(branch: string | null) {
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({
+      page: "commits",
+      repo: route.repo,
+      branch,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -398,6 +416,7 @@ export function App() {
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
       repo: page === "commits" ? route.repo : null,
+      branch: page === "commits" ? route.branch : null,
       q: filters.search,
       from: range.from,
       to: range.to,
@@ -467,9 +486,9 @@ export function App() {
       )}
       {/* The facet Controls drive the data views; page-local StatsBars live beside
           the Board/Graph windows they describe. Activity has no item/edge stats,
-          Settings is a config surface, and Commits owns its single repo filter (it
-          deliberately skips the shared facet Controls) — but every non-Settings
-          page shares the date-range control. */}
+          Settings is a config surface, and Commits owns SCM-specific repo/branch
+          filters (so it deliberately skips the shared facet Controls) — but
+          every non-Settings page shares the date-range control. */}
       {page !== "settings" && (
         <>
           {page !== "commits" && (
@@ -530,8 +549,11 @@ export function App() {
           windowTotal={windowCommits.length}
           totalCommits={totalCommits}
           repoOptions={commitRepos}
+          branchOptions={commitBranches}
           selectedRepo={route.repo}
+          selectedBranch={route.branch}
           onRepo={setRouteRepo}
+          onBranch={setRouteBranch}
           range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}

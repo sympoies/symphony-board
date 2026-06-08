@@ -2,8 +2,8 @@
 
 Read-only web UI for the `symphony-board` contract. It imports DTO types from
 `@symphony-board/contract`, fetches `./contract.json`, and renders the board,
-graph, activity feed, repo analytics, and settings surface. It never reads
-SQLite, provider APIs, or backend source modules.
+graph, activity feed, commits log, repo analytics, and settings surface. It
+never reads SQLite, provider APIs, or backend source modules.
 
 The backend stays buildless. This package is the deliberate home for browser
 dependencies and the Vite + React build.
@@ -87,16 +87,31 @@ path, target metadata, and provider details; a `#<iid>` token matches
 source/kind/search facets, then virtualizes the matching rows so large windows
 keep the DOM bounded.
 
+### Commits (`#/commits`)
+
+The Commits page renders a commit-only SCM log over `activities[]`, visually
+separate from the mixed Activity feed. It uses the shared URL-backed date range
+and page-local SCM filters:
+
+- repo: self-styled typeahead over repos with commits in the loaded window
+- branch: enabled only when commit rows carry `details.ref`, `details.refs`,
+  `details.branch`, or `details.branches`
+
+Rows group by commit date, link the commit message to the provider commit URL,
+show provider/repo/actor metadata, and expose short SHAs with copy buttons.
+Provider-specific signals such as GitHub Verified or check counts are omitted
+until the contract has comparable GitHub and GitLab semantics.
+
 ### Repo Analytics (`#/repo-analytics`)
 
 Repo Analytics renders `repo_metrics[]`: per-repo totals, bucketed series,
 bounded top actors, and data-quality metadata for the selected window.
 
-The page uses the same URL-backed date range as Board, Graph, and Activity.
-Default static contracts render their active-since repo metrics; custom ranges
-load `/api/range` and render the returned time-range metrics. The table ranks
-repos by contract `activity_score`, then shows activity, commits, opened issue
-and PR/MR throughput, closed/merged totals, review counts with approval
+The page uses the same URL-backed date range as Board, Graph, Activity, and
+Commits. Default static contracts render their active-since repo metrics; custom
+ranges load `/api/range` and render the returned time-range metrics. The table
+ranks repos by contract `activity_score`, then shows activity, commits, opened
+issue and PR/MR throughput, closed/merged totals, review counts with approval
 tooltips, compact trend bars, and a data-quality badge.
 
 `repo_metrics[]` is not a full inventory surface. Settings and external
@@ -113,8 +128,9 @@ Settings is a browser-local display surface:
 - set per-repo highlight color overrides
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
-Board, Graph, Activity feed, and Repo Analytics before each page computes its
-view. They are view-only; the daemon keeps syncing every configured source.
+Board, Graph, Activity feed, Commits log, and Repo Analytics before each page
+computes its view. They are view-only; the daemon keeps syncing every configured
+source.
 
 Repo rows use `repo_stats[]` when present so Settings keeps full repo counts
 even though contract v2 `items[]` is windowed. Older v1 contracts fall back to
@@ -155,12 +171,13 @@ Docker stack for full local range-query testing.
 
 `pnpm --filter @symphony-board/ui run smoke` runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
-Chrome. It asserts the Board, Graph, Activity feed, Repo Analytics, Settings,
-deep-link search, focus path, and configured display colors render without
-console errors. It also verifies that Board, Graph, Activity, and Repo Analytics
-share the same range presets, that the Settings default-range selector renders,
-that Board/Graph scoped summaries change when the range narrows through
-`/api/range`, and that a large synthetic Activity feed stays virtualized.
+Chrome. It asserts the Board, Graph, Activity feed, Commits log, Repo Analytics,
+Settings, deep-link search, focus path, and configured display colors render
+without console errors. It also verifies that Board, Graph, Activity, Commits,
+and Repo Analytics share the same range presets, that the Settings default-range
+selector renders, that Board/Graph scoped summaries change when the range
+narrows through `/api/range`, and that large synthetic Activity/Commits feeds
+stay virtualized.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.

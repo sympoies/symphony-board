@@ -58,6 +58,7 @@ function inflateActivityContract(body) {
       summary: `${summary} smoke ${i}`,
       details: {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
+        ...(a.kind === "commit" ? { refs: [i % 2 === 0 ? "refs/heads/main" : "refs/heads/release"] } : {}),
         smoke_index: i,
       },
     };
@@ -361,25 +362,38 @@ try {
     expression: "document.querySelectorAll('.activity-row').length",
     returnByValue: true,
   })).result.value || 0;
-  // Page 3b — Commits: a focused, repo-filterable projection of the activity feed
-  // (commit records only). It reuses the virtualized feed; its single filter is a
-  // SELF-STYLED typeahead combobox — NOT a native <datalist>, whose popup the
-  // browser renders with un-themeable OS chrome. The sample carries a GitHub and a
-  // GitLab commit, so opening the combobox lists two repos and picking one narrows
-  // the feed AND writes "?repo=" to the URL.
+  // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
+  // uses the self-styled combobox; branch uses optional commit ref details when
+  // present. The smoke inflation above adds synthetic refs to exercise that path
+  // without changing the tracked sample contract.
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
-  const commitsHtml = await waitHtml("document.querySelector('.commits-page .activity-row')");
+  const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
   const commitsRangeButtons = await rangeButtonLabels();
   const commitsCountText = await textOf(".commits-page .count");
   const commitsRowsAll = (await send("Runtime.evaluate", {
-    expression: "document.querySelectorAll('.commits-page .activity-row').length",
+    expression: "document.querySelectorAll('.commits-page .commit-row').length",
     returnByValue: true,
   })).result.value || 0;
   const commitsHasCommitLink = (await send("Runtime.evaluate", {
-    expression: "Array.from(document.querySelectorAll('.commits-page a.activity-title')).some((a) => (a.getAttribute('href') || '').includes('/commit'))",
+    expression: "Array.from(document.querySelectorAll('.commits-page a.commit-message-link')).some((a) => (a.getAttribute('href') || '').includes('/commit'))",
     returnByValue: true,
   })).result.value || false;
+  const commitsHasCopyHash = (await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('.commits-page button[aria-label^=\"Copy commit hash\"]').length > 0",
+    returnByValue: true,
+  })).result.value || false;
+  const commitsBranchControl = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = document.querySelector('.commit-branch-select select');
+      return {
+        rendered: !!select,
+        enabled: !!select && !select.disabled,
+        options: select ? select.options.length : 0,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const commitsNoDatalist = (await send("Runtime.evaluate", {
     expression: "document.querySelectorAll('datalist, #commit-repo-options').length === 0",
     returnByValue: true,
@@ -408,9 +422,9 @@ try {
   const commitsFiltered = (await send("Runtime.evaluate", {
     expression: `(() => ({
       hash: location.hash,
-      rows: document.querySelectorAll('.commits-page .activity-row').length,
+      rows: document.querySelectorAll('.commits-page .commit-row').length,
       inputValue: document.querySelector('.commits-filter input.search')?.value || '',
-      onlyPicked: Array.from(document.querySelectorAll('.commits-page .activity-meta'))
+      onlyPicked: Array.from(document.querySelectorAll('.commits-page .commit-row-meta'))
         .every((el) => (el.textContent || '').includes('example-group/symphony-board-fixture')),
     }))()`,
     returnByValue: true,
@@ -562,16 +576,19 @@ try {
     [has(activityHtml, "change request #13") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
     [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
-    // page 3b: commits feed — commit-only projection with a repo typeahead
+    // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],
     [commitsRowsAll >= 4, `commits: commit rows rendered (${commitsRowsAll} >= 4)`],
     [commitsRowsAll < 80, `commits: virtualized rows stay bounded (${commitsRowsAll} < 80)`],
-    [!has(commitsHtml, 'class="controls"'), "commits: shared facet Controls are not rendered (repo is the only filter)"],
+    [!has(commitsHtml, 'class="controls"'), "commits: shared facet Controls are not rendered (SCM filters are page-local)"],
     [commitsNoDatalist === true, "commits: native <datalist> is gone (replaced by the self-styled combobox)"],
     [commitsCombo.styledList === true, "commits: opening the filter renders the self-styled suggestion list"],
     [commitsCombo.options >= 2, `commits: combobox offers each repo with commits (${commitsCombo.options || 0} >= 2)`],
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
+    [commitsHasCopyHash === true, "commits: commit hash copy buttons rendered"],
+    [commitsBranchControl.rendered === true && commitsBranchControl.enabled === true && commitsBranchControl.options >= 3, `commits: branch selector renders all plus synthetic branches (${commitsBranchControl.options || 0} options)`],
+    [has(commitsHtml, "Commits on") && has(commitsHtml, "abc1234"), "commits: date grouping and short hash rendered"],
     [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
     [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking an option writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],
     [commitsFiltered.inputValue.includes("example-group/symphony-board-fixture"), `commits: picked repo fills the combobox input (${commitsFiltered.inputValue || "empty"})`],

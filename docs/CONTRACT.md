@@ -394,9 +394,10 @@ Fields:
 - `truncated`: true when at least one live item row is omitted from `items[]`.
 
 Consumers should treat `items[]` as complete only for the primary window.
-Choosing a different Board, Graph, or Activity date range requires another
-payload such as `/api/range`; the static v2 contract cannot synthesize missing
-historical cards. Consumers can still show true full totals from `aggregates[]`.
+Choosing a different Board, Graph, Activity, or Commits date range requires
+another payload such as `/api/range`; the static v2 contract cannot synthesize
+missing historical cards or events. Consumers can still show true full totals
+from `aggregates[]`.
 
 ## Range Query
 
