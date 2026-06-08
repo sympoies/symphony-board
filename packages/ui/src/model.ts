@@ -183,6 +183,17 @@ export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
   return ids;
 }
 
+// Shared "active since" quick-set presets for Board + Graph. `null` means all
+// history / no cutoff.
+export const ACTIVE_SINCE_PRESETS = [
+  ["1w", 7],
+  ["2w", 14],
+  ["1mo", 30],
+  ["3mo", 90],
+  ["all", null],
+] as const satisfies ReadonlyArray<readonly [string, number | null]>;
+export const DEFAULT_ACTIVE_SINCE_DAYS = 90;
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;
@@ -394,6 +405,12 @@ const EDGE_STROKE: Record<string, string> = { declared: "#ffcb6b", fulfilled: "#
 // ISO cutoff for "N days ago" (browser-side; now is injectable for tests).
 export function cutoffIso(days: number, now: number = Date.now()): string {
   return new Date(now - days * 86_400_000).toISOString();
+}
+
+// Board's active-since window is item-local: show items updated at/after the
+// cutoff. Items without an updated_at are only visible when the window is "all".
+export function itemActiveSince(it: ItemDTO, cutoff: string | null): boolean {
+  return !cutoff || (it.updated_at ?? "") >= cutoff;
 }
 
 // Build a relationship graph from resolved edges, keeping only nodes that take

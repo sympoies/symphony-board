@@ -26,7 +26,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
-import { buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { ACTIVE_SINCE_PRESETS, DEFAULT_ACTIVE_SINCE_DAYS, buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNodes, cutoffIso, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -83,17 +83,6 @@ const NODE_LEGEND = [
   { c: "#c792ea", t: "closed" },
   { c: "#7e57c2", t: "merged" },
   { c: "#637777", t: "untracked" },
-];
-
-// "active since" quick-set presets: label -> days back (null = all / no cutoff).
-// One click sets the window, so it is fast to re-narrow after the deep-link (or a
-// manual "all") opens the full history.
-const SINCE_PRESETS: Array<[string, number | null]> = [
-  ["1w", 7],
-  ["2w", 14],
-  ["1mo", 30],
-  ["3mo", 90],
-  ["all", null],
 ];
 
 // What the mention-direction filter keeps: all mentions, or only those whose
@@ -577,7 +566,7 @@ function GraphSideList({
   );
 }
 
-const DEFAULT_SINCE = (): string => cutoffIso(90).slice(0, 10);
+const DEFAULT_SINCE = (): string => cutoffIso(DEFAULT_ACTIVE_SINCE_DAYS).slice(0, 10);
 
 export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { edges: ResolvedEdge[]; sourceKind: Map<string, string>; colorOf: ColorOf; focusRef?: string | null; narrowed?: boolean }) {
   // A deep-link focus (a board card → "#/graph?focus=<ref>") relaxes both edge
@@ -743,12 +732,12 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
           showing {view.nodes.length} items · {view.links.length} links
           {focusId ? " · focused" : ""}
         </span>
-        <label className="graph-since">
+        <label className="date-filter graph-since">
           active since <input type="date" value={since} onChange={(e) => chooseSince(e.target.value)} />
         </label>
         <div className="toggle-group">
           <span className="toggle-label">since</span>
-          {SINCE_PRESETS.map(([lab, days]) => {
+          {ACTIVE_SINCE_PRESETS.map(([lab, days]) => {
             const val = days == null ? "" : cutoffIso(days).slice(0, 10);
             return (
               <button key={lab} type="button" className={`toggle${since === val ? " toggle-on" : ""}`} onClick={() => chooseSince(val)}>

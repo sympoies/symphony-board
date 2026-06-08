@@ -1,7 +1,12 @@
+import { useMemo, useState } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
 import {
+  ACTIVE_SINCE_PRESETS,
+  DEFAULT_ACTIVE_SINCE_DAYS,
   anchorId,
+  cutoffIso,
+  itemActiveSince,
   STATUS_ORDER,
   STATUS_LABEL,
   STATUS_DESC,
@@ -65,6 +70,7 @@ function Column({
 // in practice. The header still reports the true total either way.
 const COLUMN_CAP = 100;
 const CAPPED_STATUS: ReadonlySet<ItemStatus> = new Set<ItemStatus>(["trailing", "closed"]);
+const DEFAULT_SINCE = (): string => cutoffIso(DEFAULT_ACTIVE_SINCE_DAYS).slice(0, 10);
 
 // The primary, full-bleed board (GitHub-Projects style): the 4 status columns
 // and the 3 Spotlight lanes fused into one 7-column row.
@@ -87,17 +93,41 @@ export function FullBoard({
   colorOf: ColorOf;
   linkedIds: Set<string>;
 }) {
+  const [since, setSince] = useState<string>(DEFAULT_SINCE);
+  const cutoff = useMemo(() => (since ? new Date(since + "T00:00:00Z").toISOString() : null), [since]);
+  const boardItems = useMemo(() => items.filter((it) => itemActiveSince(it, cutoff)), [items, cutoff]);
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
-  for (const it of items) statusCols[statuses.get(it.id) ?? "open"].push(it);
-  const lanes = spotlight(items);
+  for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
+  const lanes = spotlight(boardItems);
   return (
-    <section className="board-7">
-      {STATUS_ORDER.map((s) => (
-        <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
-      ))}
-      {lanes.map(({ lane, items: laneItems }) => (
-        <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} cap={COLUMN_CAP} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
-      ))}
-    </section>
+    <>
+      <div className="board-controls">
+        <span className="muted">
+          showing {boardItems.length} of {items.length} items
+        </span>
+        <label className="date-filter board-since">
+          active since <input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
+        </label>
+        <div className="toggle-group">
+          <span className="toggle-label">since</span>
+          {ACTIVE_SINCE_PRESETS.map(([lab, days]) => {
+            const val = days == null ? "" : cutoffIso(days).slice(0, 10);
+            return (
+              <button key={lab} type="button" className={`toggle${since === val ? " toggle-on" : ""}`} onClick={() => setSince(val)}>
+                {lab}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <section className="board-7">
+        {STATUS_ORDER.map((s) => (
+          <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
+        ))}
+        {lanes.map(({ lane, items: laneItems }) => (
+          <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} cap={COLUMN_CAP} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
+        ))}
+      </section>
+    </>
   );
 }

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ContractEnvelope, ItemDTO } from "@symphony-board/contract";
 import {
+  ACTIVE_SINCE_PRESETS,
+  DEFAULT_ACTIVE_SINCE_DAYS,
   emptyFilters,
   itemMatches,
   indexItems,
@@ -27,6 +29,7 @@ import {
   applyRouteSearch,
   edgeEndpointIds,
   itemSearchToken,
+  itemActiveSince,
   type ResolvedEdge,
   type GraphNode,
 } from "../src/model.ts";
@@ -125,6 +128,16 @@ test("relativeTime renders coarse buckets from an injected now", () => {
 test("cutoffIso is deterministic for a fixed now", () => {
   const now = Date.parse("2026-06-07T00:00:00Z");
   assert.equal(cutoffIso(90, now).slice(0, 10), "2026-03-09");
+});
+
+test("active-since presets are shared and itemActiveSince uses updated_at", () => {
+  assert.equal(DEFAULT_ACTIVE_SINCE_DAYS, 90);
+  assert.deepEqual(ACTIVE_SINCE_PRESETS.map(([label]) => label), ["1w", "2w", "1mo", "3mo", "all"]);
+  const cutoff = "2026-06-01T00:00:00.000Z";
+  assert.equal(itemActiveSince(item({ updated_at: "2026-06-01T00:00:00Z" }), cutoff), true);
+  assert.equal(itemActiveSince(item({ updated_at: "2026-05-31T23:59:59Z" }), cutoff), false);
+  assert.equal(itemActiveSince(item({ updated_at: null }), cutoff), false);
+  assert.equal(itemActiveSince(item({ updated_at: null }), null), true, "all keeps undated items");
 });
 
 test("buildGraph keeps only edge-connected nodes, applies the time window, and flags untracked ends", () => {

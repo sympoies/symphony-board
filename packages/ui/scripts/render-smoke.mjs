@@ -234,6 +234,7 @@ try {
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
+    [has(boardHtml, "board-controls") && has(boardHtml, ">1w<") && has(boardHtml, ">2w<") && has(boardHtml, ">all<"), "board: active-since quick presets rendered"],
     // provider source marks: the sample contract carries both github + gitlab
     [has(boardHtml, 'aria-label="GitHub"'), "board: GitHub source mark rendered"],
     [has(boardHtml, 'aria-label="GitLab"'), "board: GitLab source mark rendered"],

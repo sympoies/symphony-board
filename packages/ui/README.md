@@ -20,6 +20,9 @@ Status is derived from item state plus relationship edges. Spotlight lanes are
 cross-cuts based on label/kind conventions, so their counts do not sum to the
 item total.
 
+The Board has an item-local active-since window with quick presets (`1w`, `2w`,
+`1mo`, `3mo`, `all`). It filters cards by `updated_at` and defaults to `3mo`.
+
 Cards show source, repo, iid, author, timestamps, demand, labels, draft state,
 review/CI/merge signals, and optional repo/source highlight color. Cards with at
 least one relationship include a graph-focus link.

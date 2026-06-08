@@ -225,6 +225,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 /* primary full-bleed board: 4 status + 3 spotlight lanes in one 7-column row.
    Columns are a fixed-ish width and scroll horizontally (GitHub-Projects style);
    they share a uniform height via the same .col cap + internal scroll. */
+.board-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 8px 0; }
 .board-7 {
   display: grid;
   grid-auto-flow: column;
@@ -277,7 +278,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 /* graph page (relationship graph, cytoscape) */
 .graph-page { margin: 8px 0; }
 .graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
-.graph-since input[type="date"] {
+.date-filter input[type="date"] {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 3px 6px; margin-left: 4px;
 }
