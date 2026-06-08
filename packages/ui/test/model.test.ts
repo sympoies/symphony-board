@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ContractEnvelope, ItemDTO } from "@symphony-board/contract";
+import type { ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import {
   ACTIVE_SINCE_PRESETS,
   DEFAULT_ACTIVE_SINCE_DAYS,
+  VIEW_SCOPES,
+  VIEW_SCOPE_LABEL,
   defaultActiveSince,
   emptyFilters,
   itemMatches,
@@ -11,6 +13,10 @@ import {
   resolveEdges,
   edgeMatches,
   computeStats,
+  computeGlobalStats,
+  boardWindowEdges,
+  computeBoardWindowStats,
+  computeGraphStats,
   relativeTime,
   buildGraph,
   buildAdjacency,
@@ -31,6 +37,7 @@ import {
   edgeEndpointIds,
   itemSearchToken,
   itemActiveSince,
+  graphWindowEdges,
   graphEffectiveSince,
   type ResolvedEdge,
   type GraphNode,
@@ -45,6 +52,15 @@ function item(over: Partial<ItemDTO> = {}): ItemDTO {
     demand: 0, last_seen_at: null, ...over,
   };
 }
+
+const edge = (from: string, to: string, lifecycle: EdgeDTO["lifecycle"] = null, type = "relates"): EdgeDTO => ({
+  type,
+  from,
+  to,
+  from_state: null,
+  to_state: null,
+  lifecycle,
+});
 
 test("itemMatches applies source/state/kind/search filters (AND)", () => {
   const it = item({ title: "Flaky test", author: "graysurf", labels: [{ name: "bug", scope: null, color: null }] });
@@ -118,6 +134,67 @@ test("computeStats counts items by state/kind and edges by lifecycle", () => {
   assert.deepEqual(stats.byState, { open: 1, merged: 1 });
   assert.deepEqual(stats.byKind, { issue: 1, change_request: 1 });
   assert.deepEqual(stats.byLifecycle, { fulfilled: 1, other: 1 });
+});
+
+test("view scopes are explicit and keep the old full-filter stats available as global", () => {
+  assert.deepEqual([...VIEW_SCOPES], ["global", "boardWindow", "graphWindow", "focus"]);
+  assert.equal(VIEW_SCOPE_LABEL.boardWindow, "board window");
+  const scoped = computeGlobalStats(
+    [item({ id: "A", state: "open" }), item({ id: "B", state: "closed" })],
+    [edge("A", "B", "fulfilled", "closes")],
+  );
+  assert.equal(scoped.scope, "global");
+  assert.equal(scoped.stats.items, 2);
+  assert.deepEqual(scoped.stats.byLifecycle, { fulfilled: 1 });
+});
+
+test("computeBoardWindowStats counts windowed items and only relationships touching them", () => {
+  const recent = item({ id: "recent", state: "open", kind: "issue", updated_at: "2026-06-07T00:00:00Z" });
+  const old = item({ id: "old", state: "closed", kind: "issue", updated_at: "2020-01-01T00:00:00Z" });
+  const other = item({ id: "other", state: "merged", kind: "change_request", updated_at: "2020-01-01T00:00:00Z" });
+  const windowed = [recent];
+  const edges = [
+    edge("recent", "old", "declared", "closes"),
+    edge("old", "other", "fulfilled", "closes"),
+    edge("recent", "untracked|external", null, "mentions"),
+  ];
+
+  assert.deepEqual(
+    boardWindowEdges(windowed, edges).map((e) => e.type),
+    ["closes", "mentions"],
+    "only relationships with at least one windowed board item are relevant",
+  );
+  const scoped = computeBoardWindowStats(windowed, edges);
+  assert.equal(scoped.scope, "boardWindow");
+  assert.equal(scoped.stats.items, 1);
+  assert.deepEqual(scoped.stats.byState, { open: 1 });
+  assert.deepEqual(scoped.stats.byLifecycle, { declared: 1, other: 1 });
+});
+
+test("computeGraphStats follows the graph window and can separately describe focus", () => {
+  const recentIssue = item({ id: "recent-issue", state: "open", kind: "issue", updated_at: "2026-06-07T00:00:00Z" });
+  const recentPr = item({ id: "recent-pr", state: "merged", kind: "change_request", updated_at: "2026-06-06T00:00:00Z" });
+  const oldIssue = item({ id: "old-issue", state: "closed", kind: "issue", updated_at: "2020-01-01T00:00:00Z" });
+  const oldPr = item({ id: "old-pr", state: "merged", kind: "change_request", updated_at: "2020-01-01T00:00:00Z" });
+  const resolved: ResolvedEdge[] = [
+    { edge: edge("recent-pr", "recent-issue", "fulfilled", "closes"), from: recentPr, to: recentIssue },
+    { edge: edge("old-pr", "old-issue", "broken", "closes"), from: oldPr, to: oldIssue },
+  ];
+  const windowedEdges = graphWindowEdges(resolved, "2026-06-01T00:00:00Z");
+  assert.equal(windowedEdges.length, 1);
+
+  const overview = buildGraph(windowedEdges, null);
+  const overviewStats = computeGraphStats(overview, "graphWindow");
+  assert.equal(overviewStats.scope, "graphWindow");
+  assert.equal(overviewStats.stats.items, 2, "graph stats count rendered nodes");
+  assert.deepEqual(overviewStats.stats.byState, { merged: 1, open: 1 });
+  assert.deepEqual(overviewStats.stats.byLifecycle, { fulfilled: 1 });
+
+  const focus = focusSubgraph(resolved, "old-issue");
+  const focusStats = computeGraphStats(focus, "focus");
+  assert.equal(focusStats.scope, "focus");
+  assert.equal(focusStats.stats.items, 2, "focus stats describe the focused subgraph, not the overview window");
+  assert.deepEqual(focusStats.stats.byLifecycle, { broken: 1 });
 });
 
 test("relativeTime renders coarse buckets from an injected now", () => {

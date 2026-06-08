@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import type { ItemDTO } from "@symphony-board/contract";
+import type { EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
+import { StatsBar } from "./StatsBar.tsx";
 import {
   ACTIVE_SINCE_PRESETS,
   anchorId,
+  computeBoardWindowStats,
   cutoffIso,
   defaultActiveSince,
   itemActiveSince,
@@ -81,12 +83,14 @@ const CAPPED_STATUS: ReadonlySet<ItemStatus> = new Set<ItemStatus>(["trailing", 
 // on one surface. The column counts therefore won't sum to the item total.
 export function FullBoard({
   items,
+  edges,
   statuses,
   sourceKind,
   colorOf,
   linkedIds,
 }: {
   items: ItemDTO[];
+  edges: EdgeDTO[];
   statuses: Map<string, ItemStatus>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
@@ -95,6 +99,7 @@ export function FullBoard({
   const [since, setSince] = useState<string>(defaultActiveSince);
   const cutoff = useMemo(() => (since ? new Date(since + "T00:00:00Z").toISOString() : null), [since]);
   const boardItems = useMemo(() => items.filter((it) => itemActiveSince(it, cutoff)), [items, cutoff]);
+  const boardStats = useMemo(() => computeBoardWindowStats(boardItems, edges), [boardItems, edges]);
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(boardItems);
@@ -119,6 +124,7 @@ export function FullBoard({
           })}
         </div>
       </div>
+      <StatsBar scoped={boardStats} />
       <section className="board-7">
         {STATUS_ORDER.map((s) => (
           <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />

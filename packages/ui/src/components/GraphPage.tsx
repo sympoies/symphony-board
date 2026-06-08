@@ -26,7 +26,8 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
-import { ACTIVE_SINCE_PRESETS, buildGraph, buildAdjacency, focusSubgraph, relatedItems, compareGraphNodes, cutoffIso, defaultActiveSince, graphEffectiveSince, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
+import { StatsBar } from "./StatsBar.tsx";
+import { ACTIVE_SINCE_PRESETS, buildGraph, buildAdjacency, computeGraphStats, focusSubgraph, graphWindowEdges, relatedItems, compareGraphNodes, cutoffIso, defaultActiveSince, graphEffectiveSince, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -602,8 +603,9 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
     }
   }, [effectiveSince, since]);
 
-  const graph = useMemo(() => {
-    const cutoff = effectiveSince ? new Date(effectiveSince + "T00:00:00Z").toISOString() : null;
+  const graphCutoff = useMemo(() => (effectiveSince ? new Date(effectiveSince + "T00:00:00Z").toISOString() : null), [effectiveSince]);
+
+  const graphInputEdges = useMemo(() => {
     let visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
     // Mention-direction filter: keep mentions only when the mentioned (target)
     // item is the chosen kind. Non-mention edges are unaffected; an untracked
@@ -611,8 +613,11 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
     if (showMentions && mentionTarget !== "all") {
       visible = visible.filter((re) => re.edge.type !== "mentions" || re.to?.kind === mentionTarget);
     }
-    return buildGraph(visible, cutoff);
-  }, [edges, effectiveSince, showMentions, mentionTarget]);
+    return visible;
+  }, [edges, showMentions, mentionTarget]);
+
+  const graphEdges = useMemo(() => graphWindowEdges(graphInputEdges, graphCutoff), [graphInputEdges, graphCutoff]);
+  const graph = useMemo(() => buildGraph(graphEdges, null), [graphEdges]);
 
   // Side-list derivations over the FULL edge set (not the time-windowed graph):
   // every resolvable item (so the focus view can surface relations the window
@@ -656,6 +661,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
   // focus there is no clutter to fight, so edges — mentions especially — are
   // drawn at full strength rather than the overview's de-emphasised styling.
   const inFocus = view !== graph;
+  const scopedStats = useMemo(() => computeGraphStats(view, inFocus ? "focus" : "graphWindow"), [view, inFocus]);
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
@@ -723,7 +729,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
     <section className="graph-page">
       <div className="graph-controls">
         <span className="muted">
-          showing {view.nodes.length} items · {view.links.length} links
+          showing {view.nodes.length} nodes · {view.links.length} links
           {focusId ? " · focused" : ""}
         </span>
         <label className="date-filter graph-since">
@@ -784,6 +790,7 @@ export function GraphPage({ edges, sourceKind, colorOf, focusRef, narrowed }: { 
           <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to focus · list → jump</span>
         </div>
       </div>
+      <StatsBar scoped={scopedStats} totalLabel="nodes" edgeLabel="links" />
       {graph.links.length === 0 ? (
         <p className="empty">No relationships in this window — widen the “active since” date.</p>
       ) : (

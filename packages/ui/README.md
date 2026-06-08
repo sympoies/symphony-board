@@ -22,6 +22,9 @@ item total.
 
 The Board has an item-local active-since window with quick presets (`1w`, `2w`,
 `1mo`, `3mo`, `all`). It filters cards by `updated_at` and defaults to `3mo`.
+The summary pills on the Board are scoped to that same Board window: item totals
+count the cards that survive the active-since filter, and edge lifecycle counts
+cover relationships touching those windowed cards.
 
 Cards show source, repo, iid, author, timestamps, demand, labels, draft state,
 review/CI/merge signals, and optional repo/source highlight color. Cards with at
@@ -40,6 +43,12 @@ The Graph page renders edge-connected items with React Flow:
 - Board card deep-links use `#/graph?focus=<ref>&q=<repo #iid>` so the graph is
   narrowed before it renders.
 
+Graph summary pills are scoped to the graph currently being inspected. In the
+overview they count rendered nodes and links after the active-since window,
+mention toggle, mention target, search, and facet filters. In focus view they
+switch to `focus` scope and count the focused subgraph instead of implying an
+overview total.
+
 Untracked cross-repo endpoints render as unresolved refs.
 
 ### Settings (`#/settings`)
@@ -51,8 +60,8 @@ Settings is a browser-local display surface:
 - set per-repo highlight color overrides
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
-Board, Graph, and stats. They are view-only; the daemon keeps syncing every
-configured source.
+Board and Graph before each page computes its scoped summary. They are
+view-only; the daemon keeps syncing every configured source.
 
 Configured source/repo colors arrive on the contract (`sources[].color`,
 `repos[]`). UI overrides beat configured repo colors, which beat source colors.
@@ -86,7 +95,8 @@ Runtime contracts under `data/` stay gitignored.
 `pnpm --filter @symphony-board/ui run smoke` runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
 Chrome. It asserts the Board, Graph, Settings, deep-link search, focus path, and
-configured display colors render without console errors.
+configured display colors render without console errors. It also verifies that
+Board and Graph scoped summaries change when their active-since windows change.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.
