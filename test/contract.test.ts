@@ -434,3 +434,26 @@ test("config identities collapse a GitLab username and commit-email facet into o
   assert.equal(row.change_requests_merged, 1, "MR merge counted under the same identity");
   assert.ok((row.aliases ?? []).includes("Terry LIN"), "observed commit name kept as an alias");
 });
+
+test("two identities whose names slug alike stay distinct people (no collision merge)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "I_a", author: "alice", project_path: "o/repo", created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "I_b", author: "bob", project_path: "o/repo", created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z" }),
+  ];
+  // "Terry Lin" and "terry-lin" both slug to person:terry-lin — they MUST NOT merge.
+  const env = buildContract({
+    sources, items, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [
+      { name: "Terry Lin", usernames: ["alice"] },
+      { name: "terry-lin", usernames: ["bob"] },
+    ],
+  });
+  assert.deepEqual(validateContract(env), []);
+  const rows = env.repo_metrics?.[0]?.top_actors ?? [];
+  assert.equal(rows.length, 2, "distinct declared people remain two rows");
+  assert.equal(new Set(rows.map((r) => r.actor_key)).size, 2, "canonical keys are unique");
+  assert.equal(rows.reduce((n, r) => n + r.items_opened, 0), 2, "each person keeps their own item");
+});

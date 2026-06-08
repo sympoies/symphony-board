@@ -453,13 +453,24 @@ function identitySlug(name: string, index: number): string {
 }
 
 function buildIdentityMatchers(identities: IdentityConfig[] | undefined): IdentityMatcher[] {
-  return (identities ?? []).map((id, i) => ({
-    key: identitySlug(id.name, i),
-    name: id.name,
-    usernames: new Set((id.usernames ?? []).map((u) => u.trim().toLowerCase()).filter(Boolean)),
-    emailKeys: new Set((id.emails ?? []).map((e) => emailActorKey(e)).filter((k): k is string => !!k)),
-    names: new Set((id.names ?? []).map((n) => normalizeActorName(n)).filter(Boolean)),
-  }));
+  // Two entries whose names slug to the same value (e.g. "Terry Lin" and
+  // "terry-lin"), or that collide with the empty-slug index fallback, would
+  // otherwise share a person:<slug> key and wrongly merge two distinct declared
+  // people. Disambiguate so every entry gets a unique canonical key.
+  const used = new Set<string>();
+  return (identities ?? []).map((id, i) => {
+    const base = identitySlug(id.name, i);
+    let key = base;
+    for (let n = 0; used.has(key); n++) key = `${base}-${i}-${n}`;
+    used.add(key);
+    return {
+      key,
+      name: id.name,
+      usernames: new Set((id.usernames ?? []).map((u) => u.trim().toLowerCase()).filter(Boolean)),
+      emailKeys: new Set((id.emails ?? []).map((e) => emailActorKey(e)).filter((k): k is string => !!k)),
+      names: new Set((id.names ?? []).map((n) => normalizeActorName(n)).filter(Boolean)),
+    };
+  });
 }
 
 // The username component of a `provider-user:<source_id>:<username>` key. Usernames
