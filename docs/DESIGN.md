@@ -189,12 +189,18 @@ Pages:
   Status is derived from item state and relationship edges. Spotlight lanes are
   cross-cuts, so their counts do not sum to the item total. The Board supports
   an item-local active-since window (`1w`, `2w`, `1mo`, `3mo`, `all`) that
-  filters cards by `updated_at`.
+  filters cards by `updated_at`. Board summary stats are scoped to that same
+  item window; edge lifecycle counts include relationships touching the windowed
+  Board items.
 - **Graph**: relationship view built from edge-connected items. It supports an
   active-since window, mention toggles, side-list search, focus subgraphs, and
-  board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`.
+  board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`. Graph overview
+  summary stats are scoped to the rendered overview graph after the edge window,
+  mention controls, search, and facets. Focus view uses a separate `focus`
+  summary for the focused subgraph instead of reusing overview totals.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources and set per-repo color overrides in `localStorage`. These preferences
+  are a pre-filter before Board and Graph compute their scoped summaries. They
   are view-only; the daemon keeps syncing every configured source.
 
 The UI supports contract major v1. It warns when a different major is loaded.
@@ -244,8 +250,9 @@ iteration to be full.
 - Splitting UI or contract into separate repos. The package boundary is enough
   until third-party consumers or release cadence require more.
 - A windowed contract format. The current contract emits all live items; the UI
-  caps expensive columns in the view. A future contract redesign can add
-  aggregate/window separation if transfer or parse cost becomes the bottleneck.
+  computes scoped Board/Graph summaries client-side and caps expensive columns
+  in the view. A future contract redesign can add aggregate/window separation if
+  transfer or parse cost becomes the bottleneck.
 
 ## Validation Baseline
 

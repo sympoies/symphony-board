@@ -7,7 +7,6 @@ import {
   itemMatches,
   resolveEdges,
   edgeMatches,
-  computeStats,
   deriveStatuses,
   deriveRepos,
   applyVisibility,
@@ -28,7 +27,6 @@ import {
   saveColorOverrides,
 } from "./viewconfig.ts";
 import { Header } from "./components/Header.tsx";
-import { StatsBar } from "./components/StatsBar.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
@@ -145,10 +143,8 @@ export function App() {
     return resolveEdges(visibleEnv, byId).filter((re) => edgeMatches(re, filters));
   }, [visibleEnv, filters]);
 
-  const stats = useMemo(
-    () => computeStats(filteredItems, filteredEdges.map((re) => re.edge)),
-    [filteredItems, filteredEdges],
-  );
+  const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
+
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
   // items are placed into columns (so a closed item's Trailing status is correct
@@ -286,19 +282,17 @@ export function App() {
           fields may not render correctly.
         </div>
       )}
-      {/* The facet Controls + StatsBar drive the data views; the Settings page is
-          a config surface and has neither. */}
+      {/* The facet Controls drive the data views; page-local StatsBars live beside
+          the Board/Graph windows they describe. The Settings page is a config
+          surface and has neither. */}
       {page !== "settings" && (
-        <>
-          <Controls
-            filters={filters}
-            facets={facets}
-            onSearch={setRouteSearch}
-            onToggle={toggle}
-            onLoadFile={loadFile}
-          />
-          <StatsBar stats={stats} />
-        </>
+        <Controls
+          filters={filters}
+          facets={facets}
+          onSearch={setRouteSearch}
+          onToggle={toggle}
+          onLoadFile={loadFile}
+        />
       )}
       {page === "settings" ? (
         <SettingsPage
@@ -322,7 +316,7 @@ export function App() {
           <GraphPage key={route.focus ?? "graph"} edges={filteredEdges} sourceKind={sourceKind} colorOf={colorOf} focusRef={route.focus} narrowed={filters.search.trim() !== ""} />
         </Suspense>
       ) : (
-        <FullBoard items={filteredItems} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
+        <FullBoard items={filteredItems} edges={filteredEdgeDTOs} statuses={statuses} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
       )}
     </div>
   );

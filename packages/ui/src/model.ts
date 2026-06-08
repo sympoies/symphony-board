@@ -404,6 +404,7 @@ export interface GraphLink {
   source: string;
   target: string;
   type: string;
+  lifecycle: string | null;
   color: string; // stroke, by lifecycle
 }
 export interface GraphData {
@@ -427,6 +428,17 @@ export function itemActiveSince(it: ItemDTO, cutoff: string | null): boolean {
   return !cutoff || (it.updated_at ?? "") >= cutoff;
 }
 
+export function graphEdgeActiveSince(re: ResolvedEdge, cutoff: string | null): boolean {
+  const ends = [re.from, re.to];
+  const within = ends.some((it) => it && (!cutoff || (it.updated_at ?? "") >= cutoff));
+  const bothUntracked = !re.from && !re.to;
+  return !cutoff || within || bothUntracked;
+}
+
+export function graphWindowEdges(edges: ResolvedEdge[], cutoff: string | null): ResolvedEdge[] {
+  return edges.filter((re) => graphEdgeActiveSince(re, cutoff));
+}
+
 // Build a relationship graph from resolved edges, keeping only nodes that take
 // part in an edge (no isolated-dot sea). An edge survives the time window if any
 // tracked endpoint was updated at/after the cutoff; an edge whose endpoints are
@@ -435,11 +447,7 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
   const nodes = new Map<string, GraphNode>();
   const links: GraphLink[] = [];
   let i = 0;
-  for (const re of edges) {
-    const ends = [re.from, re.to];
-    const within = ends.some((it) => it && (!cutoff || (it.updated_at ?? "") >= cutoff));
-    const bothUntracked = !re.from && !re.to;
-    if (cutoff && !within && !bothUntracked) continue;
+  for (const re of graphWindowEdges(edges, cutoff)) {
     const ensure = (it: ItemDTO | null, ref: string) => {
       if (nodes.has(ref)) return;
       nodes.set(
@@ -451,7 +459,14 @@ export function buildGraph(edges: ResolvedEdge[], cutoff: string | null): GraphD
     };
     ensure(re.from, re.edge.from);
     ensure(re.to, re.edge.to);
-    links.push({ id: `g${i++}`, source: re.edge.from, target: re.edge.to, type: re.edge.type, color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "#637777" });
+    links.push({
+      id: `g${i++}`,
+      source: re.edge.from,
+      target: re.edge.to,
+      type: re.edge.type,
+      lifecycle: re.edge.lifecycle ?? null,
+      color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "#637777",
+    });
   }
   return { nodes: [...nodes.values()], links };
 }
@@ -567,6 +582,21 @@ export interface Stats {
   byLifecycle: Record<string, number>;
 }
 
+export const VIEW_SCOPES = ["global", "boardWindow", "graphWindow", "focus"] as const;
+export type ViewScope = (typeof VIEW_SCOPES)[number];
+
+export const VIEW_SCOPE_LABEL: Record<ViewScope, string> = {
+  global: "global",
+  boardWindow: "board window",
+  graphWindow: "graph window",
+  focus: "focus",
+};
+
+export interface ScopedStats {
+  scope: ViewScope;
+  stats: Stats;
+}
+
 export function computeStats(items: ItemDTO[], edges: EdgeDTO[]): Stats {
   const byState: Record<string, number> = {};
   const byKind: Record<string, number> = {};
@@ -580,6 +610,34 @@ export function computeStats(items: ItemDTO[], edges: EdgeDTO[]): Stats {
     byLifecycle[k] = (byLifecycle[k] ?? 0) + 1;
   }
   return { items: items.length, byState, byKind, byLifecycle };
+}
+
+export function computeGlobalStats(items: ItemDTO[], edges: EdgeDTO[]): ScopedStats {
+  return { scope: "global", stats: computeStats(items, edges) };
+}
+
+export function boardWindowEdges(items: ItemDTO[], edges: EdgeDTO[]): EdgeDTO[] {
+  const ids = new Set(items.map((it) => it.id));
+  return edges.filter((edge) => ids.has(edge.from) || ids.has(edge.to));
+}
+
+export function computeBoardWindowStats(items: ItemDTO[], edges: EdgeDTO[]): ScopedStats {
+  return { scope: "boardWindow", stats: computeStats(items, boardWindowEdges(items, edges)) };
+}
+
+export function computeGraphStats(graph: GraphData, scope: Extract<ViewScope, "graphWindow" | "focus">): ScopedStats {
+  const byState: Record<string, number> = {};
+  const byKind: Record<string, number> = {};
+  for (const node of graph.nodes) {
+    byState[node.state] = (byState[node.state] ?? 0) + 1;
+    byKind[node.kind] = (byKind[node.kind] ?? 0) + 1;
+  }
+  const byLifecycle: Record<string, number> = {};
+  for (const link of graph.links) {
+    const k = link.lifecycle ?? "other";
+    byLifecycle[k] = (byLifecycle[k] ?? 0) + 1;
+  }
+  return { scope, stats: { items: graph.nodes.length, byState, byKind, byLifecycle } };
 }
 
 // "3d ago" / "just now" from an ISO timestamp. now is injectable for testing.

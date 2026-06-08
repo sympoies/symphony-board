@@ -142,15 +142,37 @@ try {
     }
     return h;
   };
+  const textOf = async (selector) =>
+    (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  const setControlledInput = async (selector, value) => {
+    await send("Runtime.evaluate", {
+      expression: `(() => {
+        const input = document.querySelector(${JSON.stringify(selector)});
+        if (!input) return false;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, ${JSON.stringify(value)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(300);
+  };
 
   // Page 1 — the default full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
+  const boardInitialStats = await textOf(".stats");
+  await setControlledInput(".board-since input", "2026-06-07");
+  const boardNarrowStats = await textOf(".stats");
   // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
   // chunk loads without errors).
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  const graphInitialStats = await textOf(".stats");
+  await setControlledInput(".graph-since input", "2026-06-07");
+  const graphNarrowStats = await textOf(".stats");
+  await setControlledInput(".graph-since input", "2026-03-01");
   // Graph side list: capture the (enriched) list cards, then click one to enter
   // the focus view and confirm the back button + related-items header render.
   await waitHtml("document.querySelector('.graph-list-card')");
@@ -158,6 +180,7 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   await sleep(400);
   const focusHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  const focusStats = await textOf(".stats");
   // Click "← all items" and confirm the searchable list returns.
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
   await sleep(300);
@@ -241,6 +264,13 @@ try {
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
   const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
+  const normalizedStats = (text) => text.replace(/\s+/g, " ").trim();
+  const hasStatText = (text, phrase) => normalizedStats(text).toLowerCase().includes(phrase);
+  const statTotal = (text, label) => Number(new RegExp(`${label}\\s+total\\s+(\\d+)`, "i").exec(normalizedStats(text))?.[1] ?? Number.NaN);
+  const boardInitialTotal = statTotal(boardInitialStats, "items");
+  const boardNarrowTotal = statTotal(boardNarrowStats, "items");
+  const graphInitialTotal = statTotal(graphInitialStats, "nodes");
+  const graphNarrowTotal = statTotal(graphNarrowStats, "nodes");
   const checks = [
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -249,6 +279,8 @@ try {
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
     [has(boardHtml, "board-controls") && has(boardHtml, ">1w<") && has(boardHtml, ">2w<") && has(boardHtml, ">all<"), "board: active-since quick presets rendered"],
+    [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],
+    [Number.isFinite(boardInitialTotal) && boardNarrowTotal < boardInitialTotal, `board: scoped stats change when active-since narrows (${boardInitialTotal} -> ${boardNarrowTotal})`],
     // provider source marks: the sample contract carries both github + gitlab
     [has(boardHtml, 'aria-label="GitHub"'), "board: GitHub source mark rendered"],
     [has(boardHtml, 'aria-label="GitLab"'), "board: GitLab source mark rendered"],
@@ -262,10 +294,13 @@ try {
     [/react-flow__node/.test(graphHtml), "graph: React Flow card nodes rendered (DOM)"],
     [graphNodeTimeOrder.count >= 1 && graphNodeTimeOrder.ok, `graph: node timestamps render updated before created (${graphNodeTimeOrder.count})`],
     [has(graphHtml, ">1w<") && has(graphHtml, ">all<"), "graph: active-since quick presets rendered"],
+    [hasStatText(graphInitialStats, "scope graph window"), "graph: stats are labelled as graph-window scoped"],
+    [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when active-since narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
+    [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
