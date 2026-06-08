@@ -47,6 +47,16 @@ function CheckIcon() {
   );
 }
 
+function MoreIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="3.4" cy="8" r="1.3" />
+      <circle cx="8" cy="8" r="1.3" />
+      <circle cx="12.6" cy="8" r="1.3" />
+    </svg>
+  );
+}
+
 function CodeIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -351,7 +361,7 @@ function CommitTimeline({
                         aria-expanded={expanded}
                         onClick={() => setExpandedBodyId(expanded ? null : commit.id)}
                       >
-                        <span aria-hidden="true">...</span>
+                        <MoreIcon />
                       </button>
                     ) : null}
                   </div>
