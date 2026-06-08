@@ -653,18 +653,26 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 .commit-message-link:hover { color: var(--accent); }
 .commit-message-text:hover { color: var(--text); }
+/* GitHub-style invisible icon button: no persistent fill — the ellipsis octicon
+   carries the affordance, and hover / expanded states paint a subtle panel. */
 .commit-body-toggle {
   flex: none;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 25px; height: 20px;
+  width: 24px; height: 20px;
   color: var(--muted);
-  background: var(--panel-2);
+  background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
 }
+.commit-body-toggle:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line);
+}
 .commit-body-toggle[aria-expanded="true"] {
   color: var(--text);
+  background: var(--panel-2);
   border-color: var(--line);
 }
 .commit-body-panel {

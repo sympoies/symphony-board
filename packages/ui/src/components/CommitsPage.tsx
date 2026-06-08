@@ -47,12 +47,12 @@ function CheckIcon() {
   );
 }
 
-function MoreIcon() {
+// GitHub's `ellipsis` octicon: a rounded box with three cut-out dots, used as the
+// "show more / expand description" affordance on a commit row.
+function EllipsisIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <circle cx="3.4" cy="8" r="1.3" />
-      <circle cx="8" cy="8" r="1.3" />
-      <circle cx="12.6" cy="8" r="1.3" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M0 5.75C0 4.784.784 4 1.75 4h12.5c.966 0 1.75.784 1.75 1.75v4.5A1.75 1.75 0 0 1 14.25 12H1.75A1.75 1.75 0 0 1 0 10.25Zm12 .75a1 1 0 1 0 0 2 1 1 0 0 0 0-2M8 6.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2M5 7.5a1 1 0 1 0-2 0 1 1 0 0 0 2 0" />
     </svg>
   );
 }
@@ -361,7 +361,7 @@ function CommitTimeline({
                         aria-expanded={expanded}
                         onClick={() => setExpandedBodyId(expanded ? null : commit.id)}
                       >
-                        <MoreIcon />
+                        <EllipsisIcon />
                       </button>
                     ) : null}
                   </div>
