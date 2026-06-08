@@ -11,8 +11,9 @@ import {
   resolveEdges,
   edgeMatches,
   deriveStatuses,
-  deriveRepos,
+  deriveRepoOptions,
   applyVisibility,
+  itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
   parseHashRoute,
@@ -109,7 +110,8 @@ export function App() {
   // is derived over the FULL contract so the Settings page can still list (and
   // re-enable) hidden repos.
   const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
-  const allRepos = useMemo(() => (env ? deriveRepos(env.items) : []), [env]);
+  const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
+  const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const activityNow = useMemo(() => {
     const parsed = Date.parse(env?.generated_at ?? "");
     return Number.isFinite(parsed) ? parsed : Date.now();
@@ -139,12 +141,13 @@ export function App() {
         kinds: uniq(windowedActivities.map((a) => a.kind)),
       };
     }
+    const facetItems = page === "graph" ? visibleEnv.items : primaryItems;
     return {
-      sources: uniq(visibleEnv.items.map((i) => i.source_id)),
-      states: uniq(visibleEnv.items.map((i) => i.state)),
-      kinds: uniq(visibleEnv.items.map((i) => i.kind)),
+      sources: uniq(facetItems.map((i) => i.source_id)),
+      states: uniq(facetItems.map((i) => i.state)),
+      kinds: uniq(facetItems.map((i) => i.kind)),
     };
-  }, [visibleEnv, page, windowedActivities]);
+  }, [visibleEnv, page, windowedActivities, primaryItems]);
 
   // source_id -> provider kind (github / gitlab), so a card can show its source
   // mark. Provider kind lives on SourceDTO, not the item — look it up here once.
@@ -154,8 +157,8 @@ export function App() {
   );
 
   const filteredItems = useMemo(
-    () => (visibleEnv ? visibleEnv.items.filter((i) => itemMatches(i, filters)) : []),
-    [visibleEnv, filters],
+    () => primaryItems.filter((i) => itemMatches(i, filters)),
+    [primaryItems, filters],
   );
 
   const filteredActivities = useMemo(
@@ -183,8 +186,8 @@ export function App() {
   // items are placed into columns (so a closed item's Trailing status is correct
   // even when its related open item is removed by a transient facet filter).
   const statuses = useMemo(
-    () => (visibleEnv ? deriveStatuses(visibleEnv.items, visibleEnv.edges) : new Map()),
-    [visibleEnv],
+    () => (visibleEnv ? deriveStatuses(primaryItems, visibleEnv.edges) : new Map()),
+    [visibleEnv, primaryItems],
   );
 
   // Ids of items that take part in at least one relationship (an edge endpoint),
@@ -278,7 +281,7 @@ export function App() {
           Could not load <code>./contract.json</code>: {error}
         </p>
         <p className="muted">
-          Emit one with <code>pnpm run emit -- --out packages/ui/public/contract.json</code>, or load a file:
+          Emit one with <code>pnpm run emit --out packages/ui/public/contract.json</code>, or load a file:
         </p>
         <input
           type="file"
@@ -367,6 +370,8 @@ export function App() {
             focusRef={route.focus}
             narrowed={filters.search.trim() !== ""}
             aggregates={compatibleAggregates}
+            itemWindow={env.item_window}
+            generatedAt={env.generated_at}
           />
         </Suspense>
       ) : (
@@ -378,6 +383,8 @@ export function App() {
           colorOf={colorOf}
           linkedIds={linkedIds}
           aggregates={compatibleAggregates}
+          itemWindow={env.item_window}
+          generatedAt={env.generated_at}
         />
       )}
     </div>

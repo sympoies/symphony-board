@@ -426,6 +426,27 @@ export function deriveRepos(items: ItemDTO[]): RepoOption[] {
   );
 }
 
+export function deriveRepoOptions(env: ContractEnvelope): RepoOption[] {
+  const stats = env.repo_stats;
+  if (stats && stats.length > 0) {
+    return stats
+      .map((repo) => ({
+        key: repoKey(repo.source_id, repo.project_path),
+        source_id: repo.source_id,
+        project_path: repo.project_path,
+        count: repo.items,
+      }))
+      .sort(
+        (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),
+      );
+  }
+  return deriveRepos(env.items);
+}
+
+export function itemIsPrimaryWindow(item: ItemDTO): boolean {
+  return item.window_reasons === undefined || item.window_reasons.includes("primary");
+}
+
 // Apply the visibility pre-filter, returning a contract VIEW with hidden items
 // AND any edge touching them removed (an edge belongs to a repo if a resolvable
 // endpoint does). Two INDEPENDENT layers gate an item: its source can be hidden

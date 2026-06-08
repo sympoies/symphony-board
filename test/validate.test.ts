@@ -15,7 +15,7 @@ function validEnvelope() {
       item_id: 1, source_id: "github:github.com", external_id: "ISSUE_abc", kind: "issue",
       project_path: "graysurf/repo", iid: 7, url: "https://github.com/graysurf/repo/issues/7",
       title: "An issue", state: "open", state_raw: "OPEN", state_reason: null, is_draft: null,
-      author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z",
+      author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: null, merged_at: null, review_state: null, ci_state: null, merge_state: null,
       milestone: null, demand: 3, last_seen_at: "2026-06-01T00:00:00Z",
     },
@@ -23,7 +23,7 @@ function validEnvelope() {
       item_id: 2, source_id: "github:github.com", external_id: "PR_xyz", kind: "change_request",
       project_path: "graysurf/repo", iid: 8, url: "https://github.com/graysurf/repo/pull/8",
       title: "A PR", state: "merged", state_raw: "MERGED", state_reason: null, is_draft: 0,
-      author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z",
+      author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: "2026-01-03T00:00:00Z", merged_at: "2026-01-03T00:00:00Z", review_state: "approved",
       ci_state: "passing", merge_state: "mergeable", milestone: null, demand: 1, last_seen_at: "2026-06-01T00:00:00Z",
     },
@@ -41,7 +41,7 @@ test("a freshly built envelope passes the schema clean", () => {
 
 test("loadContractSchema reads the normative schema with the expected $id", () => {
   const schema = loadContractSchema();
-  assert.equal(schema.$id, "https://sympoies.dev/symphony-board/contract/v1.json");
+  assert.equal(schema.$id, "https://sympoies.dev/symphony-board/contract/v2.json");
 });
 
 test("a missing required envelope field is rejected", () => {
@@ -170,4 +170,13 @@ test("aggregate counts must be non-negative", () => {
   env.aggregates[0].stats.by_state.open = -1;
   const errors = validateContract(env);
   assert.ok(errors.some((e) => e.path === "/aggregates/0/stats/by_state/open" && /minimum 0/.test(e.message)));
+});
+
+test("window metadata and repo stats are required in contract v2", () => {
+  const env: any = validEnvelope();
+  delete env.item_window;
+  delete env.repo_stats;
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/item_window" && /required/.test(e.message)));
+  assert.ok(errors.some((e) => e.path === "/repo_stats" && /required/.test(e.message)));
 });

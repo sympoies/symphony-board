@@ -35,7 +35,9 @@ import {
   cutoffIso,
   repoKey,
   deriveRepos,
+  deriveRepoOptions,
   applyVisibility,
+  itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
   isHexColor,
@@ -239,6 +241,44 @@ test("resolveEdges + edgeMatches handle tracked and cross-repo endpoints", () =>
   // both endpoints untracked -> always shown; otherwise must match a resolved end
   assert.equal(edgeMatches(resolved[1]!, { ...emptyFilters(), states: new Set(["open"]) }), false, "merged PR end fails an open-only filter");
   assert.equal(edgeMatches(resolved[0]!, { ...emptyFilters(), states: new Set(["closed"]) }), true, "closed issue end passes");
+});
+
+test("v2 window helpers separate primary board items from endpoint extras", () => {
+  const primary = item({ id: "primary", window_reasons: ["primary", "edge_endpoint"] });
+  const endpoint = item({ id: "endpoint", window_reasons: ["edge_endpoint"] });
+  const oldV1 = item({ id: "old-v1" });
+
+  assert.equal(itemIsPrimaryWindow(primary), true);
+  assert.equal(itemIsPrimaryWindow(endpoint), false);
+  assert.equal(itemIsPrimaryWindow(oldV1), true, "missing reasons means old v1 full item payload");
+});
+
+test("deriveRepoOptions uses full v2 repo_stats instead of loaded item counts", () => {
+  const env: ContractEnvelope = {
+    contract_version: "2.0.0",
+    generated_at: "2026-06-08T00:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [item({ id: "loaded", source_id: "github:github.com", project_path: "o/loaded" })],
+    edges: [],
+    item_window: {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-03-10T00:00:00.000Z", days: 90, edge_filter: null },
+      primary_items: 1,
+      edge_endpoint_items: 0,
+      total_items: 11,
+      truncated: true,
+    },
+    repo_stats: [
+      { source_id: "github:github.com", project_path: "o/loaded", items: 1, by_state: { open: 1 }, by_kind: { issue: 1 } },
+      { source_id: "github:github.com", project_path: "o/old", items: 10, by_state: { closed: 10 }, by_kind: { issue: 10 } },
+    ],
+  };
+
+  assert.deepEqual(
+    deriveRepoOptions(env).map((repo) => [repo.project_path, repo.count]),
+    [["o/loaded", 1], ["o/old", 10]],
+  );
 });
 
 test("computeStats counts items by state/kind and edges by lifecycle", () => {

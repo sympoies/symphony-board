@@ -22,13 +22,20 @@ cross-cuts based on label/kind conventions, so their counts do not sum to the
 item total.
 
 The Board has an item-local active-since window with quick presets (`1w`, `2w`,
-`1mo`, `3mo`, `all`). It filters cards by `updated_at` and defaults to `3mo`.
+`1mo`, `3mo`, `all`). It filters cards by `updated_at` and defaults to the
+loaded contract item window (`3mo` in the current producer).
 The summary pills on the Board are scoped to that same Board window: item totals
 count the cards that survive the active-since filter, and edge lifecycle counts
 cover relationships touching those windowed cards. If the loaded contract
 contains a compatible `boardWindow` aggregate and no viewer-local filters are
 active, the summary uses it; otherwise it computes from the visible items and
 edges.
+
+Contract v2 does not load all historical item rows. The Board renders primary
+`item_window` rows only, while edge-endpoint extras stay available to the Graph.
+When `item_window.truncated` is true, older/all-time card windows are disabled
+because the static JSON payload does not contain those cards; full totals still
+come from compatible `aggregates[]` rows.
 
 Cards show source, repo, iid, author, timestamps, demand, labels, draft state,
 review/CI/merge signals, and optional repo/source highlight color. Cards with at
@@ -54,6 +61,11 @@ switch to `focus` scope and count the focused subgraph instead of implying an
 overview total. Contract `graphWindow` aggregates are used only for the default
 no-mentions overview when the active-since window exactly matches an emitted
 aggregate row; local graph controls fall back to client-computed stats.
+
+With contract v2, the default overview stays inside the loaded item window.
+Board deep-link focus views can still inspect relationships present in the
+emitted endpoint-closed edge set, but the static payload does not contain
+relationships wholly outside the loaded window.
 
 Untracked cross-repo endpoints render as unresolved refs.
 
@@ -85,6 +97,10 @@ The choices are stored in `localStorage` and apply as a pre-filter across the
 Board, Graph, and Activity feed before each page computes its view. They are
 view-only; the daemon keeps syncing every configured source.
 
+Repo rows use `repo_stats[]` when present so Settings keeps full repo counts
+even though contract v2 `items[]` is windowed. Older v1 contracts fall back to
+deriving repo counts from loaded items.
+
 Configured source/repo colors arrive on the contract (`sources[].color`,
 `repos[]`). UI overrides beat configured repo colors, which beat source colors.
 Only `#rgb` and `#rrggbb` values are accepted before reaching CSS.
@@ -107,7 +123,7 @@ contract that covers the important UI states. Regenerate it from local data when
 you intentionally want to refresh the sample:
 
 ```sh
-pnpm run emit -- --out packages/ui/public/contract.json
+pnpm run emit --out packages/ui/public/contract.json
 ```
 
 Runtime contracts under `data/` stay gitignored.
@@ -130,7 +146,7 @@ The app fetches `./contract.json`. For local dev, write a contract into
 `public/`:
 
 ```sh
-pnpm run emit -- --out packages/ui/public/contract.json
+pnpm run emit --out packages/ui/public/contract.json
 pnpm --filter @symphony-board/ui dev
 ```
 

@@ -48,6 +48,7 @@ export type AggregateBasis =
   | "edge_endpoint_updated_at"
   | "focus_neighborhood";
 export type AggregateEdgeFilter = "all" | "no_mentions";
+export type ItemWindowReason = "primary" | "edge_endpoint";
 
 export interface AggregateStatsDTO {
   items: number;
@@ -68,6 +69,23 @@ export interface AggregateDTO {
   scope: AggregateScope;
   window: AggregateWindowDTO;
   stats: AggregateStatsDTO;
+}
+
+export interface ItemWindowDTO {
+  scope: Extract<AggregateScope, "boardWindow">;
+  window: AggregateWindowDTO;
+  primary_items: number;
+  edge_endpoint_items: number;
+  total_items: number;
+  truncated: boolean;
+}
+
+export interface RepoStatsDTO {
+  source_id: string;
+  project_path: string | null;
+  items: number;
+  by_state: Record<string, number>;
+  by_kind: Record<string, number>;
 }
 
 // ---- DTOs (the serialized envelope shape) -----------------------------------
@@ -124,6 +142,12 @@ export interface ItemDTO {
   milestone: string | null;
   demand: number | null;
   last_seen_at: string | null;
+  // Present in contract v2 windowed payloads. `primary` means the item is part
+  // of the contract's primary Board item window; `edge_endpoint` means the item
+  // is included so emitted edges resolve to concrete nodes instead of anonymous
+  // refs. Consumers reading old v1 payloads should treat a missing value as
+  // "primary".
+  window_reasons?: ItemWindowReason[];
 }
 
 export interface EdgeDTO {
@@ -174,4 +198,10 @@ export interface ContractEnvelope {
   // vocabulary. Added in 1.3.0; consumers fall back to local computation when a
   // local filter/window is not represented by a compatible aggregate row.
   aggregates?: AggregateDTO[];
+  // Contract v2 metadata for the bounded item projection. `items[]` is complete
+  // for this primary window, plus any extra edge endpoints needed by `edges[]`.
+  item_window?: ItemWindowDTO;
+  // Full canonical repo counts for Settings and external consumers. This stays
+  // separate from `items[]` because v2 no longer ships every item row.
+  repo_stats?: RepoStatsDTO[];
 }

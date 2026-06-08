@@ -77,7 +77,8 @@ if (args.validate) {
 const json = JSON.stringify(envelope, null, 2);
 if (args.out) {
   writeFileSync(args.out, json + "\n");
-  process.stderr.write(`wrote ${envelope.items.length} items / ${envelope.edges.length} edges / ${envelope.activities?.length ?? 0} activities -> ${args.out}\n`);
+  const totalItems = envelope.item_window?.total_items ?? envelope.items.length;
+  process.stderr.write(`wrote ${envelope.items.length}/${totalItems} items / ${envelope.edges.length} edges / ${envelope.activities?.length ?? 0} activities -> ${args.out}\n`);
 } else {
   process.stdout.write(json + "\n");
 }

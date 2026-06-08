@@ -20,7 +20,7 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
     is_draft: null,
     author: "graysurf",
     created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-02T00:00:00Z",
+    updated_at: "2026-06-01T00:00:00Z",
     closed_at: null,
     merged_at: null,
     review_state: null,
@@ -164,4 +164,37 @@ test("buildContract emits scoped full and active-since aggregates", () => {
   assert.equal(graphWeek?.window.edge_filter, "no_mentions");
   assert.equal(graphWeek?.stats.items, 2, "Graph windows count rendered nodes");
   assert.deepEqual(graphWeek?.stats.by_lifecycle, { fulfilled: 1 }, "Graph default aggregates exclude mention edges");
+});
+
+test("buildContract emits a windowed item set with endpoint closure and full totals", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", kind: "issue", state: "open", updated_at: "2026-06-07T00:00:00Z", project_path: "o/recent" }),
+    itemRow({ item_id: 2, external_id: "PR_old_linked", kind: "change_request", state: "merged", updated_at: "2020-01-01T00:00:00Z", project_path: "o/old-linked" }),
+    itemRow({ item_id: 3, external_id: "ISSUE_old_unlinked", kind: "issue", state: "closed", updated_at: "2020-01-01T00:00:00Z", project_path: "o/old-unlinked" }),
+  ];
+  const edges: EdgeRow[] = [
+    { type: "closes", from_source_id: "github:github.com", from_external_id: "PR_old_linked", to_source_id: "github:github.com", to_external_id: "ISSUE_recent", from_state: "merged", to_state: "open", lifecycle: "fulfilled" },
+  ];
+
+  const env = buildContract({ sources, items, labels: [], edges, generatedAt: "2026-06-08T00:00:00.000Z" });
+
+  assert.equal(env.contract_version, CONTRACT_VERSION);
+  assert.equal(env.item_window?.window.days, 90);
+  assert.equal(env.item_window?.window.since, "2026-03-10T00:00:00.000Z");
+  assert.equal(env.item_window?.primary_items, 1);
+  assert.equal(env.item_window?.edge_endpoint_items, 1);
+  assert.equal(env.item_window?.total_items, 3);
+  assert.equal(env.item_window?.truncated, true);
+  assert.deepEqual(env.items.map((it) => it.external_id).sort(), ["ISSUE_recent", "PR_old_linked"]);
+  assert.deepEqual(env.items.find((it) => it.external_id === "ISSUE_recent")?.window_reasons, ["primary", "edge_endpoint"]);
+  assert.deepEqual(env.items.find((it) => it.external_id === "PR_old_linked")?.window_reasons, ["edge_endpoint"]);
+  assert.equal(env.aggregates?.find((a) => a.scope === "global")?.stats.items, 3, "aggregates still count the full canonical set");
+  assert.deepEqual(
+    env.repo_stats?.map((repo) => [repo.project_path, repo.items]).sort(),
+    [["o/old-linked", 1], ["o/old-unlinked", 1], ["o/recent", 1]],
+    "settings counts are full repo totals, not loaded item counts",
+  );
 });
