@@ -681,6 +681,8 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || { providerLinks: [], metricLinks: [] };
+  await send("Emulation.setDeviceMetricsOverride", { width: 3440, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
   const repoTableLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
       const table = document.querySelector('.repo-table');
@@ -688,12 +690,20 @@ try {
       const headers = Array.from(document.querySelectorAll('.repo-table thead th'));
       const widthOf = (idx) => Math.round(headers[idx]?.getBoundingClientRect().width || 0);
       const numericWidths = headers.slice(2, 10).map((el) => Math.round(el.getBoundingClientRect().width));
+      const tableWidth = Math.round(table?.getBoundingClientRect().width || 0);
+      const wrapWidth = Math.round(wrap?.getBoundingClientRect().width || 0);
+      const repoWidth = widthOf(0);
+      const actorsWidth = widthOf(11);
       return {
-        tableWidth: Math.round(table?.getBoundingClientRect().width || 0),
-        repoWidth: widthOf(0),
-        actorsWidth: widthOf(11),
+        tableWidth,
+        wrapWidth,
+        repoWidth,
+        trendWidth: widthOf(1),
+        actorsWidth,
         numericMin: numericWidths.length ? Math.min(...numericWidths) : 0,
         numericMax: numericWidths.length ? Math.max(...numericWidths) : 0,
+        repoShare: tableWidth ? Math.round((repoWidth / tableWidth) * 1000) / 1000 : 0,
+        actorsShare: tableWidth ? Math.round((actorsWidth / tableWidth) * 1000) / 1000 : 0,
         scrolls: wrap ? wrap.scrollWidth > wrap.clientWidth : false,
       };
     })()`,
@@ -923,7 +933,7 @@ try {
     [repoLinks.metricLinks.some((href) => href.startsWith("#/commits") && href.includes("source=") && href.includes("repo=")), "repo analytics: commit metric links are source-aware"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [repoQualityBadgeLayout.count >= 1 && repoQualityBadgeLayout.sameWidth === true && repoQualityBadgeLayout.maxWidth <= 56, `repo analytics: quality badges use one compact active-sized width (${repoQualityBadgeLayout.maxWidth || 0}px, ${repoQualityBadgeLayout.texts?.join(", ") || "none"})`],
-    [repoTableLayout.tableWidth >= 1550 && repoTableLayout.repoWidth >= 300 && repoTableLayout.actorsWidth >= 250 && repoTableLayout.numericMin >= 88 && repoTableLayout.numericMax <= 100, `repo analytics: table keeps wide repo/actors columns and compact numeric columns (table=${repoTableLayout.tableWidth || 0}px repo=${repoTableLayout.repoWidth || 0}px actors=${repoTableLayout.actorsWidth || 0}px numeric=${repoTableLayout.numericMin || 0}-${repoTableLayout.numericMax || 0}px scrolls=${repoTableLayout.scrolls === true})`],
+    [repoTableLayout.tableWidth >= 3200 && Math.abs((repoTableLayout.tableWidth || 0) - (repoTableLayout.wrapWidth || 0)) <= 24 && repoTableLayout.repoWidth >= 420 && repoTableLayout.repoWidth <= 520 && repoTableLayout.trendWidth >= 210 && repoTableLayout.actorsWidth >= 1500 && repoTableLayout.numericMin >= 104 && repoTableLayout.numericMax <= 112 && repoTableLayout.repoShare <= 0.16 && repoTableLayout.actorsShare >= 0.44, `repo analytics: ultra-wide layout fills the table and gives surplus width to actors (table=${repoTableLayout.tableWidth || 0}px wrap=${repoTableLayout.wrapWidth || 0}px repo=${repoTableLayout.repoWidth || 0}px trend=${repoTableLayout.trendWidth || 0}px actors=${repoTableLayout.actorsWidth || 0}px numeric=${repoTableLayout.numericMin || 0}-${repoTableLayout.numericMax || 0}px shares=${repoTableLayout.repoShare || 0}/${repoTableLayout.actorsShare || 0})`],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],
     // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
     // (2.5.0) rather than the old earliest-observed "since" timestamp.
