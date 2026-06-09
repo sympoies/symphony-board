@@ -37,6 +37,11 @@ services:
       # disappeared items/edges) every FULL_EVERY iterations, incremental in
       # between. 30 x 120s ~= a full sweep hourly. Set to 1 to always full-sweep.
       FULL_EVERY: "30"
+      # Per-request network timeout (ms). Bounds each provider fetch so a stalled
+      # socket (e.g. a half-up network/VPN right after the host wakes) fails that
+      # source cleanly and the iteration moves on, instead of hanging for minutes.
+      # A timeout reads as an incomplete fetch, so it never soft-deletes.
+      SYNC_FETCH_TIMEOUT_MS: "30000"
       SYMPHONY_CONFIG: config/sources.json
       CONTRACT_OUT: data/contract.json
       # UI-triggered manual sync: the loop daemon serves a writer-owned control

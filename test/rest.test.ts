@@ -71,3 +71,16 @@ test("makeRestClient reports non-JSON and HTTP failures", async () => {
   mockFetch(() => new Response(JSON.stringify({ message: "rate limited" }), { status: 403 }));
   await assert.rejects(() => client("repos/o/r/commits"), /REST HTTP 403: rate limited/);
 });
+
+test("makeRestClient aborts a stalled request after the timeout", { timeout: 2000 }, async () => {
+  // A socket that hangs (e.g. half-up network/VPN right after the Mac wakes):
+  // the mock respects the abort signal but otherwise never settles.
+  mockFetch(
+    (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      }),
+  );
+  const client = makeRestClient("https://api.github.com", "tok", "github", 50);
+  await assert.rejects(() => client("repos/o/r/commits"), /timed out after 50ms/);
+});

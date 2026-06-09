@@ -101,6 +101,10 @@ export async function executeSyncRun(
 
   for (const { config, source } of prepared) {
     const prev = full ? null : getWatermark(db, config.source_id);
+    // Announce the in-flight source before the (possibly slow) fetch so a tail of
+    // the logs shows which source is currently syncing — the prior line, if it has
+    // no matching result, is where a stall is happening.
+    log.info(`[${config.source_id}] syncing…`);
     const rep = await syncSource(db, source, prev, { full, dryRun: opts.dryRun });
     log.info(
       `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +

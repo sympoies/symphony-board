@@ -1,6 +1,8 @@
+import { DEFAULT_FETCH_TIMEOUT_MS, fetchWithTimeout } from "./http.ts";
+
 export type RestClient = <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>) => Promise<T>;
 
-export function makeRestClient(baseUrl: string, token: string, provider: "github" | "gitlab"): RestClient {
+export function makeRestClient(baseUrl: string, token: string, provider: "github" | "gitlab", timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS): RestClient {
   const base = baseUrl.replace(/\/+$/, "");
   return async function rest<T = any>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
     const url = new URL(`${base}/${path.replace(/^\/+/, "")}`);
@@ -17,7 +19,7 @@ export function makeRestClient(baseUrl: string, token: string, provider: "github
     } else {
       headers["PRIVATE-TOKEN"] = token;
     }
-    const res = await fetch(url, { headers });
+    const res = await fetchWithTimeout(url, { headers }, timeoutMs);
     const text = await res.text();
     let json: any;
     try {
