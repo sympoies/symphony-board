@@ -229,89 +229,37 @@ scripts/contract-summary.sh
 scripts/devlog-search.sh graph
 ```
 
-## Contract And Display Metadata
+## Contract Summary
 
-The current emitted contract is major v3, currently `3.2.0`.
-
-Version `1.1.0` added display colors:
-
-- optional `sources[].color`
-- optional sparse top-level `repos[]`
-
-Colors are display metadata. They are read from config at emit time, validated
-as `#rgb` or `#rrggbb`, and never stored in SQLite. The UI resolves highlight
-color as:
-
-```text
-localStorage repo override -> configured repo color -> configured source color -> none
-```
-
-Version `1.2.0` added optional top-level `activities[]`, a newest-first feed of
-developer-significant records. Existing v1 consumers can keep reading
-`env.activities ?? []` and ignore it when unsupported.
-
-Version `1.3.0` added optional `aggregates[]`: server-computed totals for
-`global`, `boardWindow`, and `graphWindow` scopes, including active-since window
-metadata. These aggregates describe the emitted contract before viewer-local
-filters such as Settings visibility, search, facets, Graph mention toggles, or
-focus targets. The UI uses them only when the visible scope/window/filter is an
-exact match and computes locally otherwise.
-
-Version `2.0.0` changes `items[]` from the full live item set to a windowed
-payload: the default 90-day Board item window plus extra relationship endpoints
-needed by emitted edges. Full item totals stay in `aggregates[]`; Settings repo
-counts use `repo_stats[]`; `item_window` describes the loaded window and whether
-the payload is truncated.
-
-Version `2.1.0` adds optional `range_query` metadata for read-only range API
-responses. Static emits usually omit it; `/api/range` includes it and returns a
-windowed contract for the requested UTC date range.
-
-Version `2.2.0` adds optional top-level `repo_metrics[]`: per-repo windowed
-analytics totals, bucketed series, top bounded actors, and data-quality
-metadata. `repo_stats[]` remains the full inventory count surface for Settings
-and external consumers; `repo_metrics[]` is range-scoped and powers the Repo
-Analytics page.
-
-Version `2.2.1` clarifies review activity ingestion and metrics without changing
-shape: `activities[].kind` can be `review`, and repo metric `reviews` /
-`approvals` are activity-event counts.
-
-Version `2.3.0` adds a canonical actor identity to `repo_metrics[].top_actors[]`:
-each row gains `actor_key` (a stable, non-PII identity — provider username,
-hashed commit email, or normalized name), `display_name`, and optional
-`aliases`, so one human collapses to one row instead of duplicating across a
-provider username and several commit author names. `actor` stays as a
-backward-compatible display field.
-
-Version `2.4.0` adds optional `repo_metrics[].totals.activity_score` and
-matching bucketed `series[].stats.activity_score`. The score is a weighted
-activity signal derived from commits, issue openings, PR/MR openings and merges,
-comments, reviews, and approvals; the UI rounds it for display but sorts by the
-raw decimal value.
-
-Version `2.5.0` adds `repo_metrics[].data_quality.last_activity_at`, the most
-recent observed activity instant per repo (the counterpart to the earliest
-`observed_since`). The Repo Analytics page renders it as "last active".
-
-Version `3.0.0` removes the always-`false` `repo_metrics[].data_quality.truncated`
-(repo metrics derive from the full canonical store, so a row is never truncated;
-the real signal is the top-level `item_window.truncated`). The Repo Analytics
-"Quality" badge now derives a coverage verdict — `active` / `partial` / `idle` /
-`no activity` — from the surviving `activity_available` / `observed_since` /
-`last_activity_at` fields against the metric window.
-
-Version `3.1.0` adds optional envelope-level `timezone` metadata for calendar-day
-range expansion and UI date presets; version `3.1.1` aligns repo metric day /
-week / month series buckets to that timezone.
-
-Version `3.2.0` adds optional nullable `repo_metrics[].repo_url` for provider
-repo links in Repo Analytics. It also standardizes producer-filled
-`activities[].url` for reliable issue, change-request, commit, ref, and push
-destinations; no separate activity `target_url` field is added.
+The current emitted contract is major v3, currently `3.2.0`. The canonical
+schema, field semantics, version rules, and full version history live in
+[docs/CONTRACT.md](docs/CONTRACT.md). The TypeScript DTO and JSON Schema entry
+point is [`@symphony-board/contract`](packages/contract).
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.
+
+Current consumer-facing semantics:
+
+- `items[]` is a windowed payload in v2+; use `aggregates[]` and `repo_stats[]`
+  for full totals and inventory counts.
+- `item_window` describes the loaded primary Board window and whether the
+  emitted payload is truncated.
+- Static emits usually omit `range_query`; `/api/range` includes it and returns
+  a windowed contract for the requested date range.
+- `repo_metrics[]` is range-scoped analytics for Repo Analytics. `repo_stats[]`
+  remains the full inventory/count surface for Settings and external consumers.
+- `timezone` controls calendar-day range expansion, presets, and day / week /
+  month series buckets. Older contracts without it should be treated as UTC.
+- `repo_metrics[].repo_url` and `activities[].url` are producer-filled provider
+  destinations when the source can prove a stable target.
+
+Display colors are contract metadata, read from config at emit time and never
+stored in SQLite. The UI resolves highlight color in this order:
+
+```text
+browser repo override -> repos[] color -> sources[].color -> no highlight
+```
 
 ## Testing Model
 

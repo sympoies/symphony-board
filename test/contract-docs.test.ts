@@ -38,11 +38,18 @@ test("current contract version is documented in the public contract docs", () =>
   }
 });
 
-test("package contract README summarizes the canonical contract version history", () => {
+test("canonical contract docs own version history and entrypoints link to it", () => {
   const canonicalVersions = documentedVersions(read("docs/CONTRACT.md"));
   assert.ok(canonicalVersions.includes(CONTRACT_VERSION), "docs/CONTRACT.md should include a Version note for the current contract version");
 
+  const rootReadme = read("README.md");
   const packageReadme = read("packages/contract/README.md");
-  const missing = canonicalVersions.filter((version) => !packageReadme.includes(`Version \`${version}\``));
-  assert.deepEqual(missing, [], `packages/contract/README.md is missing version summaries: ${missing.join(", ")}`);
+
+  assert.match(rootReadme, /\[docs\/CONTRACT\.md\]\(docs\/CONTRACT\.md\)/, "README.md should link to the canonical contract docs");
+  assert.match(
+    packageReadme,
+    /\[.*docs\/CONTRACT\.md.*\]\(\.\.\/\.\.\/docs\/CONTRACT\.md\)/,
+    "packages/contract/README.md should link to the canonical contract docs",
+  );
+  assert.match(packageReadme, /full .*version history/i, "packages/contract/README.md should identify docs/CONTRACT.md as the full version history");
 });
