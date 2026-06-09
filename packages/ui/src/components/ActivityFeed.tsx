@@ -12,18 +12,28 @@ import {
   type ColorOf,
 } from "../model.ts";
 
-// Action -> badge style for the mixed Activity feed.
+// Action -> badge style for the mixed Activity feed. Every `action` the sources
+// emit (see src/sources/* and src/model/activity.ts) needs an entry here; an
+// unmapped action falls through to the quiet neutral "status-unknown" pill.
 export const ACTION_KIND: Record<string, string> = {
+  // item lifecycle
   opened: "open",
+  reopened: "open",
   closed: "closed",
   merged: "merged",
+  accepted: "merged", // GitLab emits "accepted" when an MR is merged
+  // commits / pushes
   committed: "status-ok",
+  created: "status-ok",
   pushed: "lifecycle-declared",
   force_pushed: "lifecycle-broken",
-  created: "status-ok",
   deleted: "status-error",
+  // comments + reviews
   commented: "status-partial",
-  reopened: "open",
+  approved: "status-ok",
+  reviewed: "status-partial",
+  changes_requested: "status-error",
+  dismissed: "status-idle",
 };
 
 const ACTIVITY_ROW_STRIDE_PX = ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX;

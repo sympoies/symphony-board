@@ -198,21 +198,25 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .badge-lifecycle-declared, .badge-status-partial { --h: var(--declared); }
 .badge-lifecycle-fulfilled, .badge-status-ok { --h: var(--fulfilled); }
 .badge-lifecycle-broken, .badge-status-error { --h: var(--broken); }
-.badge-status-idle { --h: var(--muted); } /* dormant coverage: same outlined shape, quiet neutral hue */
+/* quiet neutral hue — dormant coverage (idle) plus the fallback any unmapped
+   kind lands on (status-unknown / lifecycle-other); all share the outlined
+   shape below so an unrecognized state still reads as an intentional pill
+   rather than a flat, washed-out box. */
+.badge-status-idle, .badge-status-unknown, .badge-lifecycle-other { --h: var(--muted); }
 .badge-open, .badge-closed, .badge-merged,
 .badge-lifecycle-declared, .badge-status-partial,
 .badge-lifecycle-fulfilled, .badge-status-ok,
-.badge-lifecycle-broken, .badge-status-error, .badge-status-idle {
+.badge-lifecycle-broken, .badge-status-error,
+.badge-status-idle, .badge-status-unknown, .badge-lifecycle-other {
   color: color-mix(in srgb, var(--h) 82%, var(--text));
   border-color: var(--h);
   background: color-mix(in srgb, var(--h) 16%, transparent);
 }
 .badge-draft { background: var(--panel-2); color: var(--muted); }
-.badge-lifecycle-other, .badge-status-unknown { color: var(--muted); }
 /* signal badges (CI / review / merge): healthy states stay quiet (muted text,
    neutral border) so they don't compete with the lifecycle pill's green; only
    states that need attention keep a saturated hue. */
-.badge-ci-passing, .badge-review-approved, .badge-merge-mergeable { color: var(--muted); border-color: var(--line); }
+.badge-ci-passing, .badge-ci-none, .badge-review-approved, .badge-merge-mergeable { color: var(--muted); border-color: var(--line); }
 .badge-ci-failing, .badge-merge-conflicting, .badge-review-changes_requested { color: var(--broken); border-color: var(--broken); }
 .badge-ci-pending, .badge-merge-blocked, .badge-review-review_required { color: var(--declared); border-color: var(--declared); }
 
