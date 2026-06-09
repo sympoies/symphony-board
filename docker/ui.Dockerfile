@@ -5,8 +5,10 @@
 # always renders the daemon's latest emit.
 #
 # Build context is the REPO ROOT (compose sets context: ..), so COPY paths are
-# relative to the repo root.
-FROM node:24-alpine AS build
+# relative to the repo root. The UI build emits static assets, so keep this
+# stage on the native build platform; only the final nginx stage needs target
+# platform variants.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 RUN corepack enable
 
