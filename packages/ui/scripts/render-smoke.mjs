@@ -681,6 +681,24 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || { providerLinks: [], metricLinks: [] };
+  const repoTableLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const table = document.querySelector('.repo-table');
+      const wrap = document.querySelector('.repo-table-wrap');
+      const headers = Array.from(document.querySelectorAll('.repo-table thead th'));
+      const widthOf = (idx) => Math.round(headers[idx]?.getBoundingClientRect().width || 0);
+      const numericWidths = headers.slice(2, 10).map((el) => Math.round(el.getBoundingClientRect().width));
+      return {
+        tableWidth: Math.round(table?.getBoundingClientRect().width || 0),
+        repoWidth: widthOf(0),
+        actorsWidth: widthOf(11),
+        numericMin: numericWidths.length ? Math.min(...numericWidths) : 0,
+        numericMax: numericWidths.length ? Math.max(...numericWidths) : 0,
+        scrolls: wrap ? wrap.scrollWidth > wrap.clientWidth : false,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // Page 5 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -905,6 +923,7 @@ try {
     [repoLinks.metricLinks.some((href) => href.startsWith("#/commits") && href.includes("source=") && href.includes("repo=")), "repo analytics: commit metric links are source-aware"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [repoQualityBadgeLayout.count >= 1 && repoQualityBadgeLayout.sameWidth === true && repoQualityBadgeLayout.maxWidth <= 56, `repo analytics: quality badges use one compact active-sized width (${repoQualityBadgeLayout.maxWidth || 0}px, ${repoQualityBadgeLayout.texts?.join(", ") || "none"})`],
+    [repoTableLayout.tableWidth >= 1550 && repoTableLayout.repoWidth >= 300 && repoTableLayout.actorsWidth >= 250 && repoTableLayout.numericMin >= 88 && repoTableLayout.numericMax <= 100, `repo analytics: table keeps wide repo/actors columns and compact numeric columns (table=${repoTableLayout.tableWidth || 0}px repo=${repoTableLayout.repoWidth || 0}px actors=${repoTableLayout.actorsWidth || 0}px numeric=${repoTableLayout.numericMin || 0}-${repoTableLayout.numericMax || 0}px scrolls=${repoTableLayout.scrolls === true})`],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],
     // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
     // (2.5.0) rather than the old earliest-observed "since" timestamp.
