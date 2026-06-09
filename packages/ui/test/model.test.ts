@@ -23,6 +23,7 @@ import {
   activityVirtualRange,
   filterActivitiesByRange,
   buildActivityHeatmap,
+  buildActivityTrend,
   isCommitActivity,
   filterCommits,
   commitBranches,
@@ -1243,4 +1244,83 @@ test("buildActivityHeatmap buckets days in the configured timezone", () => {
   const tpe = counts("Asia/Taipei");
   assert.equal(tpe.get("2026-06-09"), 1, "late-night UTC activity lands on the local day");
   assert.equal(tpe.get("2026-06-08") ?? 0, 0);
+});
+
+test("buildActivityTrend returns daily points and a smoothed activity average", () => {
+  const trend = buildActivityTrend(
+    [
+      activity({ id: "d1", occurred_at: "2026-06-01T12:00:00Z" }),
+      activity({ id: "d2a", occurred_at: "2026-06-02T12:00:00Z" }),
+      activity({ id: "d2b", occurred_at: "2026-06-02T13:00:00Z" }),
+      activity({ id: "out", occurred_at: "2026-06-05T12:00:00Z" }),
+    ],
+    { from: "2026-06-01", to: "2026-06-04" },
+  );
+
+  assert.equal(trend.total, 3);
+  assert.equal(trend.bucket, "day");
+  assert.equal(trend.maxCount, 2);
+  assert.equal(trend.points.length, 4);
+  assert.deepEqual(
+    trend.points.map((point) => [point.date, point.count]),
+    [
+      ["2026-06-01", 1],
+      ["2026-06-02", 2],
+      ["2026-06-03", 0],
+      ["2026-06-04", 0],
+    ],
+  );
+  assert.equal(trend.points[1]?.average, 0.75);
+  assert.equal(trend.maxAverage, 1);
+});
+
+test("buildActivityTrend uses hourly buckets for a single selected day", () => {
+  const trend = buildActivityTrend(
+    [
+      activity({ id: "h1", occurred_at: "2026-06-10T00:30:00Z" }),
+      activity({ id: "h2a", occurred_at: "2026-06-10T13:00:00Z" }),
+      activity({ id: "h2b", occurred_at: "2026-06-10T13:30:00Z" }),
+    ],
+    { from: "2026-06-10", to: "2026-06-10" },
+  );
+
+  assert.equal(trend.bucket, "hour");
+  assert.equal(trend.points.length, 24);
+  assert.equal(trend.points[0]?.label, "00:00");
+  assert.equal(trend.points[23]?.label, "23:00");
+  assert.equal(trend.points[0]?.count, 1);
+  assert.equal(trend.points[13]?.count, 2);
+  assert.equal(trend.total, 3);
+});
+
+test("buildActivityTrend rolls longer ranges up to weekly buckets", () => {
+  const trend = buildActivityTrend(
+    [
+      activity({ id: "w1", occurred_at: "2026-03-01T12:00:00Z" }),
+      activity({ id: "w2", occurred_at: "2026-03-08T12:00:00Z" }),
+      activity({ id: "w3", occurred_at: "2026-05-30T12:00:00Z" }),
+    ],
+    { from: "2026-03-01", to: "2026-06-01" },
+  );
+
+  assert.equal(trend.bucket, "week");
+  assert.equal(trend.points.length, 14);
+  assert.deepEqual(
+    trend.points.filter((point) => point.count > 0).map((point) => [point.date, point.count]),
+    [
+      ["2026-03-01", 1],
+      ["2026-03-08", 1],
+      ["2026-05-24", 1],
+    ],
+  );
+});
+
+test("buildActivityTrend buckets days in the configured timezone", () => {
+  const activities = [activity({ id: "late", occurred_at: "2026-06-08T18:00:00Z" })];
+
+  const utc = buildActivityTrend(activities, { from: "2026-06-08", to: "2026-06-09" }, "UTC");
+  const tpe = buildActivityTrend(activities, { from: "2026-06-08", to: "2026-06-09" }, "Asia/Taipei");
+
+  assert.deepEqual(utc.points.map((point) => point.count), [1, 0]);
+  assert.deepEqual(tpe.points.map((point) => point.count), [0, 1]);
 });

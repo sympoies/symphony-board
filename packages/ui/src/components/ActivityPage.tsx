@@ -42,7 +42,7 @@ export function ActivityPage({
       </div>
       <div className="activity-layout">
         <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
-        <ActivityHeatmap activities={allActivities} timezone={timezone} range={range} />
+        <ActivityHeatmap activities={allActivities} trendActivities={activities} timezone={timezone} range={range} />
       </div>
     </main>
   );
