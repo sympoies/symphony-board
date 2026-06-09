@@ -7,25 +7,18 @@ export function isTauriRuntime(): boolean {
 }
 
 export const DESKTOP_DEFAULT_HASH = "#/activity";
-const DESKTOP_STARTUP_ROUTE_KEY = "symphony-board:desktop-startup-route-normalized";
 
-export function desktopStartupRouteHash(currentHash: string, alreadyNormalized: boolean): string | null {
-  if (alreadyNormalized) return null;
+export function desktopStartupRouteHash(currentHash: string, navigationType: string | null): string | null {
+  if (navigationType === "reload") return null;
   return currentHash === DESKTOP_DEFAULT_HASH ? null : DESKTOP_DEFAULT_HASH;
 }
 
 export function normalizeDesktopStartupRoute(): void {
   if (!isTauriRuntime() || typeof window === "undefined") return;
 
-  let alreadyNormalized = false;
-  try {
-    alreadyNormalized = window.sessionStorage.getItem(DESKTOP_STARTUP_ROUTE_KEY) === "1";
-    window.sessionStorage.setItem(DESKTOP_STARTUP_ROUTE_KEY, "1");
-  } catch {
-    alreadyNormalized = false;
-  }
-
-  const nextHash = desktopStartupRouteHash(window.location.hash, alreadyNormalized);
+  const navigation = window.performance.getEntriesByType("navigation")[0];
+  const navigationType = navigation && "type" in navigation && typeof navigation.type === "string" ? navigation.type : null;
+  const nextHash = desktopStartupRouteHash(window.location.hash, navigationType);
   if (nextHash && window.location.hash !== nextHash) window.location.hash = nextHash;
 }
 
