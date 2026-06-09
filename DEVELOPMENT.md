@@ -19,6 +19,7 @@ The repo is a pnpm workspace:
 - root package: backend CLI, sync engine, DB, sources, tests, CI helpers
 - `packages/contract`: versioned contract schema and DTOs
 - `packages/ui`: Vite + React web UI
+- `packages/desktop`: Tauri macOS desktop shell for the same UI
 
 Backend runtime imports from `@symphony-board/contract` are type-only. The
 Docker backend image copies source and schema files but does not run
@@ -48,6 +49,7 @@ test/                         backend node --test suite
 
 packages/contract/            LAYER 3 package: schema + mirrored DTO types
 packages/ui/                  Vite + React UI, UI tests, render-smoke
+packages/desktop/             Tauri macOS app shell; no DB, daemon, or tokens
 
 docker/                       backend daemon image, UI sidecar image, compose
 scripts/                      read-only helpers and CI support scripts
@@ -69,6 +71,9 @@ docs/devlog/                  append-only development log
 - Tokens are referenced by env-var name in config and read from the environment.
   Never commit tokens, `.env`, `config/sources.json`, SQLite DB files, or runtime
   emitted contracts.
+- The desktop app remains a thin client. Do not place SQLite, provider tokens,
+  or sync sidecars inside `packages/desktop`; connect it to the Docker/server
+  HTTP surface instead.
 
 ## Validation Commands
 
@@ -85,6 +90,12 @@ UI gate:
 pnpm --filter @symphony-board/ui run build
 pnpm --filter @symphony-board/ui run test
 pnpm --filter @symphony-board/ui run smoke
+```
+
+Desktop app gate:
+
+```sh
+pnpm desktop:build
 ```
 
 Coverage gate:
@@ -183,6 +194,16 @@ repurposing, or changing required fields is a major version change.
 4. Keep Settings changes view-only. The UI must not write back to the backend,
    provider APIs, SQLite, or generated contracts.
 5. Run the UI gate and root typecheck. Run render-smoke after a build.
+
+### Changing The Desktop App
+
+1. Keep `packages/desktop` as a Tauri shell around `packages/ui`.
+2. Keep server selection in the UI endpoint resolver; web defaults stay
+   same-origin, while Tauri defaults to `http://localhost:8080/`.
+3. Use Tauri HTTP only as a client-side transport bridge. It must not become a
+   second sync writer or a database layer.
+4. Run `pnpm desktop:build` and the UI gate when desktop changes touch shared
+   UI code.
 
 ### Changing Docker Operation
 

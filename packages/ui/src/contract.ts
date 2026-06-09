@@ -5,6 +5,8 @@
 
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest } from "./model.ts";
+import { appFetch } from "./runtime.ts";
+import { loadServerBaseUrl } from "./viewconfig.ts";
 
 // The major this UI understands. The contract versions independently; if a
 // future emit bumps the MAJOR, the UI should branch (or warn) rather than
@@ -15,18 +17,38 @@ export function majorOf(version: string): number {
   return Number(version.split(".")[0] ?? "0");
 }
 
+export function resolveEndpoint(url: string, serverBaseUrl: string | null = loadServerBaseUrl()): string {
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(url)) return url;
+  if (!serverBaseUrl) return url;
+  const path = url.startsWith("./") ? url.slice(2) : url.startsWith("/") ? url.slice(1) : url;
+  return new URL(path, serverBaseUrl).toString();
+}
+
+async function readJson(res: Response): Promise<unknown> {
+  const body = (await res.json()) as unknown;
+  return typeof body === "string" ? JSON.parse(body) : body;
+}
+
+function asContractEnvelope(body: unknown): ContractEnvelope {
+  if (!body || typeof body !== "object" || !Array.isArray((body as { items?: unknown }).items) || typeof (body as { contract_version?: unknown }).contract_version !== "string") {
+    throw new Error("not a symphony-board contract (missing contract_version / items)");
+  }
+  return body as ContractEnvelope;
+}
+
 // Fetch the contract emitted alongside the app (the loop daemon writes
 // data/contract.json; deploy it next to index.html). Relative URL so it works
 // under any base path.
-export async function fetchContract(url = "./contract.json"): Promise<ContractEnvelope> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`could not load ${url}: HTTP ${res.status}`);
-  return (await res.json()) as ContractEnvelope;
+export async function fetchContract(url = "./contract.json", serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ContractEnvelope> {
+  const target = resolveEndpoint(url, serverBaseUrl);
+  const res = await appFetch(target, { cache: "no-store" });
+  if (!res.ok) throw new Error(`could not load ${target}: HTTP ${res.status}`);
+  return asContractEnvelope(await readJson(res));
 }
 
-export async function fetchRangeContract(range: TimeRange): Promise<ContractEnvelope> {
+export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ContractEnvelope> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
-  return fetchContract(`./api/range?${params.toString()}`);
+  return fetchContract(`./api/range?${params.toString()}`, serverBaseUrl);
 }
 
 // --- UI-triggered manual sync control plane client ---
@@ -41,27 +63,27 @@ export const SYNC_CONTROL_HEADER = "X-Symphony-Sync-Control";
 // Availability probe. Returns null on ANY failure (route missing, network error,
 // non-2xx) so the caller treats sync control as simply unavailable and hides the
 // affordance — the common case for a static deploy without the daemon.
-export async function fetchSyncControl(): Promise<SyncControlInfo | null> {
+export async function fetchSyncControl(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SyncControlInfo | null> {
   try {
-    const res = await fetch("./api/sync-control", { cache: "no-store" });
+    const res = await appFetch(resolveEndpoint("./api/sync-control", serverBaseUrl), { cache: "no-store" });
     if (!res.ok) return null;
-    return (await res.json()) as SyncControlInfo;
+    return (await readJson(res)) as SyncControlInfo;
   } catch {
     return null;
   }
 }
 
-export async function fetchCurrentSyncRun(): Promise<SyncRunStatus | null> {
-  const res = await fetch("./api/sync-runs/current", { cache: "no-store" });
+export async function fetchCurrentSyncRun(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SyncRunStatus | null> {
+  const res = await appFetch(resolveEndpoint("./api/sync-runs/current", serverBaseUrl), { cache: "no-store" });
   if (!res.ok) throw new Error(`sync status: HTTP ${res.status}`);
-  const body = (await res.json()) as { current: SyncRunStatus | null };
+  const body = (await readJson(res)) as { current: SyncRunStatus | null };
   return body.current ?? null;
 }
 
-export async function fetchLastSyncRun(): Promise<SyncRunStatus | null> {
-  const res = await fetch("./api/sync-runs/last", { cache: "no-store" });
+export async function fetchLastSyncRun(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SyncRunStatus | null> {
+  const res = await appFetch(resolveEndpoint("./api/sync-runs/last", serverBaseUrl), { cache: "no-store" });
   if (!res.ok) throw new Error(`sync status: HTTP ${res.status}`);
-  const body = (await res.json()) as { last: SyncRunStatus | null };
+  const body = (await readJson(res)) as { last: SyncRunStatus | null };
   return body.last ?? null;
 }
 
@@ -74,15 +96,15 @@ export interface StartSyncResult {
   error: string | null;
 }
 
-export async function startSyncRun(req: SyncRunRequest): Promise<StartSyncResult> {
-  const res = await fetch("./api/sync-runs", {
+export async function startSyncRun(req: SyncRunRequest, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<StartSyncResult> {
+  const res = await appFetch(resolveEndpoint("./api/sync-runs", serverBaseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
     body: JSON.stringify(req),
   });
   let body: { current?: SyncRunStatus | null; error?: string } | null = null;
   try {
-    body = (await res.json()) as { current?: SyncRunStatus | null; error?: string };
+    body = (await readJson(res)) as { current?: SyncRunStatus | null; error?: string };
   } catch {
     body = null;
   }
@@ -96,9 +118,5 @@ export async function startSyncRun(req: SyncRunRequest): Promise<StartSyncResult
 
 // Parse a contract the user dropped in via the file picker.
 export function parseContract(text: string): ContractEnvelope {
-  const env = JSON.parse(text) as ContractEnvelope;
-  if (!env || !Array.isArray(env.items) || typeof env.contract_version !== "string") {
-    throw new Error("not a symphony-board contract (missing contract_version / items)");
-  }
-  return env;
+  return asContractEnvelope(JSON.parse(text));
 }

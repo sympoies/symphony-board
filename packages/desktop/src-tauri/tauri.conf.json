@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Symphony Board",
+  "version": "1.0.1",
+  "identifier": "com.sympoies.symphony-board",
+  "build": {
+    "beforeDevCommand": "pnpm --dir ../.. --filter @symphony-board/ui dev -- --host 127.0.0.1 --port 5173",
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @symphony-board/ui build",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Symphony Board",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1024,
+        "minHeight": 720
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "DeveloperTool",
+    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "shortDescription": "Read-only desktop client for Symphony Board.",
+    "longDescription": "A macOS desktop shell for the Symphony Board contract and UI. Sync, SQLite, tokens, and provider API access stay on the server."
+  }
+}

@@ -5,6 +5,7 @@ import {
   majorOf,
   parseContract,
   fetchContract,
+  resolveEndpoint,
   fetchSyncControl,
   fetchCurrentSyncRun,
   startSyncRun,
@@ -30,6 +31,17 @@ test("parseContract accepts a well-formed envelope and rejects malformed input",
   assert.throws(() => parseContract(JSON.stringify({ contract_version: "1.0.0" })), /missing contract_version \/ items/, "no items");
 });
 
+test("resolveEndpoint keeps web defaults relative and joins desktop server URLs", () => {
+  assert.equal(resolveEndpoint("./contract.json", null), "./contract.json");
+  assert.equal(resolveEndpoint("./api/range?from=2026-06-01&to=2026-06-09", null), "./api/range?from=2026-06-01&to=2026-06-09");
+  assert.equal(resolveEndpoint("./contract.json", "http://localhost:8080/"), "http://localhost:8080/contract.json");
+  assert.equal(
+    resolveEndpoint("./api/range?from=2026-06-01&to=2026-06-09", "https://board.example.com/app/"),
+    "https://board.example.com/app/api/range?from=2026-06-01&to=2026-06-09",
+  );
+  assert.equal(resolveEndpoint("https://x.example/contract.json", "http://localhost:8080/"), "https://x.example/contract.json");
+});
+
 test("fetchContract parses the JSON on a 2xx and throws with the status on a non-ok response", async () => {
   const realFetch = globalThis.fetch;
   try {
@@ -38,11 +50,28 @@ test("fetchContract parses the JSON on a 2xx and throws with the status on a non
       status: 200,
       json: async () => ({ contract_version: "1.0.0", items: [] }),
     })) as unknown as typeof fetch;
-    const env = await fetchContract("./x.json");
+    const env = await fetchContract("./x.json", null);
     assert.equal(env.contract_version, "1.0.0");
 
     globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
-    await assert.rejects(() => fetchContract("./missing.json"), /could not load .* HTTP 404/);
+    await assert.rejects(() => fetchContract("./missing.json", null), /could not load .* HTTP 404/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract accepts a JSON string body and rejects a non-contract body", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => JSON.stringify({ contract_version: "1.0.0", items: [] }),
+    })) as unknown as typeof fetch;
+    assert.equal((await fetchContract("./string-body.json", null)).contract_version, "1.0.0");
+
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => "not a contract" })) as unknown as typeof fetch;
+    await assert.rejects(() => fetchContract("./bad.json", null), /Unexpected token|not a symphony-board contract/);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -52,18 +81,18 @@ test("fetchSyncControl returns the info on 2xx and null on any failure", async (
   const realFetch = globalThis.fetch;
   try {
     globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ enabled: true, sources: [], current: null, last: null }) })) as unknown as typeof fetch;
-    const info = await fetchSyncControl();
+    const info = await fetchSyncControl(null);
     assert.equal(info?.enabled, true);
 
     // a missing control surface (404) reads as "unavailable", not an error
     globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
-    assert.equal(await fetchSyncControl(), null);
+    assert.equal(await fetchSyncControl(null), null);
 
     // a network failure also reads as unavailable
     globalThis.fetch = (async () => {
       throw new Error("offline");
     }) as unknown as typeof fetch;
-    assert.equal(await fetchSyncControl(), null);
+    assert.equal(await fetchSyncControl(null), null);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -73,10 +102,10 @@ test("fetchCurrentSyncRun unwraps the current run", async () => {
   const realFetch = globalThis.fetch;
   try {
     globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ current: { run_id: "r1", status: "running" } }) })) as unknown as typeof fetch;
-    assert.equal((await fetchCurrentSyncRun())?.run_id, "r1");
+    assert.equal((await fetchCurrentSyncRun(null))?.run_id, "r1");
 
     globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ current: null }) })) as unknown as typeof fetch;
-    assert.equal(await fetchCurrentSyncRun(), null);
+    assert.equal(await fetchCurrentSyncRun(null), null);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -90,14 +119,14 @@ test("startSyncRun sends the same-origin header and adopts the 409 active run", 
       seenHeader = (init.headers as Record<string, string>)[SYNC_CONTROL_HEADER];
       return { ok: true, status: 202, json: async () => ({ current: { run_id: "r2", status: "running" } }) };
     }) as unknown as typeof fetch;
-    const ok = await startSyncRun({ mode: "incremental", dry_run: false, source_id: null });
+    const ok = await startSyncRun({ mode: "incremental", dry_run: false, source_id: null }, null);
     assert.equal(ok.ok, true);
     assert.equal(ok.run?.run_id, "r2");
     assert.equal(seenHeader, "1", "the mutating POST carries the same-origin guard header");
 
     // 409: a run is already active; the active run rides back in `current`.
     globalThis.fetch = (async () => ({ ok: false, status: 409, json: async () => ({ error: "run_active", current: { run_id: "r3", status: "running" } }) })) as unknown as typeof fetch;
-    const busy = await startSyncRun({ mode: "full", dry_run: false, source_id: null });
+    const busy = await startSyncRun({ mode: "full", dry_run: false, source_id: null }, null);
     assert.equal(busy.ok, false);
     assert.equal(busy.status, 409);
     assert.equal(busy.run?.run_id, "r3", "the 409 response adopts the active run for polling");

@@ -14,7 +14,10 @@ packages:
 #     installs the platform binary and is REQUIRED for `vite build`. The UI is
 #     the deliberate home for a build step + heavy deps (see docs/DESIGN.md), so
 #     this one trusted build-tool exception is intentional and scoped to the UI.
+#   * @tauri-apps/cli: true — packages/desktop uses the official Tauri CLI
+#     binary wrapper to build the local macOS app bundle.
 # The backend (root package) still has zero third-party runtime deps.
 allowBuilds:
+  "@tauri-apps/cli": true
   esbuild: true
   lefthook: false

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContract, fetchRangeContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
+import { fetchContract, fetchRangeContract, parseContract, majorOf, resolveEndpoint, SUPPORTED_MAJOR } from "./contract.ts";
 import {
   emptyFilters,
   activityRouteMatches,
@@ -42,6 +42,9 @@ import {
   saveColorOverrides,
   loadDefaultRangePreset,
   saveDefaultRangePreset,
+  loadServerBaseUrl,
+  saveServerBaseUrl,
+  normalizeServerBaseUrl,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
 import { Header } from "./components/Header.tsx";
@@ -52,6 +55,7 @@ import { ActivityPage } from "./components/ActivityPage.tsx";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
+import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
 // page stays light; the chunk only loads when #/graph is opened.
@@ -90,6 +94,7 @@ export function App() {
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
+  const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
 
   useEffect(() => {
     const onHash = () => {
@@ -132,19 +137,19 @@ export function App() {
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
   const reloadData = useCallback(() => {
-    fetchContract()
+    fetchContract(undefined, serverBaseUrl)
       .then((e) => {
         setEnv(e);
         setError(null);
       })
       .catch((err: unknown) => setError((err as Error).message));
     if (needsRangeEnv && activeRange) {
-      fetchRangeContract(activeRange)
+      fetchRangeContract(activeRange, serverBaseUrl)
         .then((next) => setRangeEnv(next))
         .catch((err: unknown) => setRangeError((err as Error).message));
     }
-  }, [needsRangeEnv, activeRange]);
-  const sync = useSync(reloadData);
+  }, [needsRangeEnv, activeRange, serverBaseUrl]);
+  const sync = useSync(reloadData, serverBaseUrl);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -159,15 +164,35 @@ export function App() {
     saveDefaultRangePreset(defaultRangePreset);
   }, [defaultRangePreset]);
 
+  const applyServerBaseUrl = useCallback((nextRaw: string | null) => {
+    saveServerBaseUrl(normalizeServerBaseUrl(nextRaw));
+    setServerBaseUrl(loadServerBaseUrl());
+    setEnv(null);
+    setRangeEnv(null);
+    setError(null);
+    setRangeError(null);
+    setLoading(true);
+  }, []);
+
   useEffect(() => {
-    fetchContract()
+    let cancelled = false;
+    setLoading(true);
+    fetchContract(undefined, serverBaseUrl)
       .then((e) => {
+        if (cancelled) return;
         setEnv(e);
         setError(null);
       })
-      .catch((err: unknown) => setError((err as Error).message))
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((err: unknown) => {
+        if (!cancelled) setError((err as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverBaseUrl]);
 
   useEffect(() => {
     if (!activeRange || !staticRange) return;
@@ -180,7 +205,7 @@ export function App() {
     let cancelled = false;
     setRangeLoading(true);
     setRangeError(null);
-    fetchRangeContract(activeRange)
+    fetchRangeContract(activeRange, serverBaseUrl)
       .then((next) => {
         if (!cancelled) setRangeEnv(next);
       })
@@ -196,7 +221,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeRange, needsRangeEnv, staticRange]);
+  }, [activeRange, needsRangeEnv, serverBaseUrl, staticRange]);
 
   const activeEnv = needsRangeEnv ? rangeEnv : env;
   const chromeEnv = activeEnv ?? env;
@@ -469,8 +494,9 @@ export function App() {
     return (
       <div className="state-msg error">
         <p>
-          Could not load <code>./contract.json</code>: {error}
+          Could not load <code>{resolveEndpoint("./contract.json", serverBaseUrl)}</code>: {error}
         </p>
+        <ServerConnectionForm serverBaseUrl={serverBaseUrl} onServerBaseUrl={applyServerBaseUrl} />
         <p className="muted">
           Emit one with <code>pnpm run emit --out packages/ui/public/contract.json</code>, or load a file:
         </p>
@@ -486,7 +512,8 @@ export function App() {
     );
   }
 
-  if (!env || !activeRange) return <div className="state-msg">Loading range…</div>;
+  if (!env) return <div className="state-msg">Loading contract…</div>;
+  if (!activeRange) return <div className="state-msg error">Could not derive a default range from the loaded contract.</div>;
   if (!visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
   const contentEnv = activeEnv;
@@ -572,6 +599,8 @@ export function App() {
           onClearColor={clearColorOverride}
           defaultRangePreset={defaultRangePreset}
           onDefaultRangePreset={setDefaultRangePreset}
+          serverBaseUrl={serverBaseUrl}
+          onServerBaseUrl={applyServerBaseUrl}
           sync={sync}
         />
       ) : page === "activity" ? (
