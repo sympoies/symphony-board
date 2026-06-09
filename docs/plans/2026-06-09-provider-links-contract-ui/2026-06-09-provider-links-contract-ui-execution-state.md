@@ -3,7 +3,7 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: implementation validated; delivery pending
+- Status: complete; tracking issue closed
 - Target scope: provider-link contract additions, producer URL emission, and
   Activity / Repo Analytics UI links.
 - Execution window: Sprint 1 (contract and producer link semantics) -> Sprint 2
@@ -11,7 +11,7 @@
 - Current task: commit and deliver PR.
 - Next task: close tracking issue after PR delivery and close-ready audit.
 - Last updated: 2026-06-09
-- Branch/commit/PR: branch `feature/provider-links-contract-ui`; commit/PR pending.
+- Branch/commit/PR: sympoies/symphony-board#133 merged (https://github.com/sympoies/symphony-board/pull/133)
 - Source document: docs/plans/2026-06-09-provider-links-contract-ui/2026-06-09-provider-links-contract-ui-plan.md
 - Direct source-doc execution waiver: not applicable.
 - Tracking issue: <https://github.com/sympoies/symphony-board/issues/130>
