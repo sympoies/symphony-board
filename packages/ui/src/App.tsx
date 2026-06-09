@@ -483,17 +483,17 @@ export function App() {
     <div className="app app-wide">
       <Header env={env} sync={sync} />
       <nav className="page-tabs">
-        <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
-          Board
-        </a>
-        <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
-          Graph
-        </a>
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity
         </a>
         <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
           Commits
+        </a>
+        <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
+          Board
+        </a>
+        <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
+          Graph
         </a>
         <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
           Repo Analytics
