@@ -150,6 +150,32 @@ test("skipped sources are reported without counting as a failure", async () => {
   db.close();
 });
 
+test("each source logs a 'syncing' progress line before its result line", async () => {
+  const db = openDb(":memory:");
+  const lines: string[] = [];
+  const origLog = console.log;
+  console.log = (msg?: unknown): void => {
+    lines.push(String(msg));
+  };
+  try {
+    await executeSyncRun(
+      db,
+      [prepared("fake:a", [item("A1")]), prepared("fake:b", [item("B1")])],
+      [],
+      { mode: "full", dryRun: false, sourceId: null },
+      () => {},
+    );
+  } finally {
+    console.log = origLog;
+  }
+  db.close();
+  const syncingA = lines.findIndex((l) => l.includes("[fake:a] syncing"));
+  const statusA = lines.findIndex((l) => l.includes("[fake:a] status="));
+  assert.ok(syncingA >= 0, "logs a syncing line for fake:a");
+  assert.ok(statusA > syncingA, "the syncing line precedes the status line");
+  assert.ok(lines.some((l) => l.includes("[fake:b] syncing")), "logs a syncing line for fake:b");
+});
+
 test("an emit failure fails the run instead of silently shipping nothing", async () => {
   const db = openDb(":memory:");
   const result = await executeSyncRun(

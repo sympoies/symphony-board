@@ -2,19 +2,25 @@
 // GitLab accept `Authorization: Bearer <PAT>` on their GraphQL endpoints, so one
 // helper serves both; only the URL and token differ.
 
+import { DEFAULT_FETCH_TIMEOUT_MS, fetchWithTimeout } from "./http.ts";
+
 export type GqlClient = <T = any>(query: string, variables?: Record<string, unknown>) => Promise<T>;
 
-export function makeGqlClient(url: string, token: string): GqlClient {
+export function makeGqlClient(url: string, token: string, timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS): GqlClient {
   return async function gql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "symphony-board",
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "symphony-board",
+        },
+        body: JSON.stringify({ query, variables }),
       },
-      body: JSON.stringify({ query, variables }),
-    });
+      timeoutMs,
+    );
     const text = await res.text();
     let json: any;
     try {
