@@ -21,6 +21,7 @@ import { deriveActorKey } from "../model/actor.ts";
 import { providerPushUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
+import { log } from "../log.ts";
 
 const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
@@ -112,8 +113,11 @@ export class GitHubSource implements Source {
     let firstError: string | null = null;
 
     for (const project of this.projects) {
+      log.info(`[${this.descriptor.sourceId}] project ${project}: GraphQL fetch start`);
       const [owner, name] = project.split("/");
       for (const kind of ["issue", "change_request"] as const) {
+        const before = records.length;
+        let failed = false;
         try {
           let cursor: string | null = null;
           for (let page = 0; page < MAX_PAGES; page++) {
@@ -141,18 +145,26 @@ export class GitHubSource implements Source {
             cursor = conn.pageInfo.endCursor;
           }
         } catch (err) {
+          failed = true;
+          log.warn(`[${this.descriptor.sourceId}] project ${project}: ${kind} fetch failed: ${(err as Error).message}`);
           complete = false;
           firstError ??= `${project} ${kind}: ${(err as Error).message}`;
+        } finally {
+          const suffix = failed ? " before failure" : "";
+          log.info(`[${this.descriptor.sourceId}] project ${project}: ${kind} fetched ${records.length - before} records${suffix}`);
         }
       }
     }
     if (this.rest) {
       for (const project of this.projects) {
+        log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetch start`);
         try {
           const activity = await this.fetchRepoActivity(project, since, now);
           records.push(...activity.records);
           if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
+          log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetched ${activity.records.length} records`);
         } catch (err) {
+          log.warn(`[${this.descriptor.sourceId}] project ${project}: activity fetch failed: ${(err as Error).message}`);
           complete = false;
           firstError ??= `${project} activity: ${(err as Error).message}`;
         }

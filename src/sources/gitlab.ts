@@ -47,6 +47,7 @@ import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
+import { log } from "../log.ts";
 
 const API_VERSION = "gitlab.graphql";
 const PAGE_SIZE = 50;
@@ -193,7 +194,9 @@ export class GitLabSource implements Source {
 
     // --- pass 1: bulk-fetch every project's MRs and issues ---
     for (const path of this.projects) {
+      log.info(`[${this.descriptor.sourceId}] project ${path}: bulk fetch start`);
       try {
+        const before = collected.length;
         let cursor: string | null = null;
         mrPages: for (let page = 0; page < MAX_PAGES; page++) {
           const data: any = await this.gql(MR_Q, { path, cursor });
@@ -208,12 +211,15 @@ export class GitLabSource implements Source {
           if (!conn.pageInfo.hasNextPage) break;
           cursor = conn.pageInfo.endCursor;
         }
+        log.info(`[${this.descriptor.sourceId}] project ${path}: change_request fetched ${collected.length - before} records`);
       } catch (err) {
+        log.warn(`[${this.descriptor.sourceId}] project ${path}: change_request fetch failed: ${(err as Error).message}`);
         complete = false;
         firstError ??= `${path} change_request: ${(err as Error).message}`;
       }
 
       try {
+        const before = collected.length;
         let cursor: string | null = null;
         issuePages: for (let page = 0; page < MAX_PAGES; page++) {
           const data: any = await this.gql(ISSUE_Q, { path, cursor });
@@ -228,7 +234,9 @@ export class GitLabSource implements Source {
           if (!conn.pageInfo.hasNextPage) break;
           cursor = conn.pageInfo.endCursor;
         }
+        log.info(`[${this.descriptor.sourceId}] project ${path}: issue fetched ${collected.length - before} records`);
       } catch (err) {
+        log.warn(`[${this.descriptor.sourceId}] project ${path}: issue fetch failed: ${(err as Error).message}`);
         complete = false;
         firstError ??= `${path} issue: ${(err as Error).message}`;
       }
@@ -243,6 +251,8 @@ export class GitLabSource implements Source {
     // --- pass 2: per-item resolve (closing MRs for issues; system notes for all),
     // then turn the notes into resolved mention/relate endpoints on the payload ---
     const records: RawRecord[] = [];
+    log.info(`[${this.descriptor.sourceId}] resolve start (${collected.length} items)`);
+    let resolved = 0;
     for (const { kind, node, project } of collected) {
       try {
         if (kind === "issue") {
@@ -256,6 +266,7 @@ export class GitLabSource implements Source {
           node.notes = d?.project?.mergeRequest?.notes ?? { nodes: [] };
         }
       } catch (err) {
+        log.warn(`[${this.descriptor.sourceId}] project ${project}: ${kind}#${node.iid} resolve failed: ${(err as Error).message}`);
         complete = false;
         firstError ??= `${project} ${kind}#${node.iid} resolve: ${(err as Error).message}`;
         node.relatedMergeRequests ??= { nodes: [] };
@@ -267,14 +278,21 @@ export class GitLabSource implements Source {
       node.__relates = relates;
       const payload = JSON.stringify(node);
       records.push({ entityKind: kind, externalId: node.id, apiVersion: API_VERSION, fetchedAt: now, payload: node, contentHash: hash(payload) });
+      resolved++;
+      if (resolved === collected.length || resolved % 25 === 0) {
+        log.info(`[${this.descriptor.sourceId}] resolve progress ${resolved}/${collected.length} items`);
+      }
     }
     if (this.rest) {
       for (const project of this.projects) {
+        log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetch start`);
         try {
           const activity = await this.fetchProjectActivity(project, since, now);
           records.push(...activity.records);
           if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
+          log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetched ${activity.records.length} records`);
         } catch (err) {
+          log.warn(`[${this.descriptor.sourceId}] project ${project}: activity fetch failed: ${(err as Error).message}`);
           complete = false;
           firstError ??= `${project} activity: ${(err as Error).message}`;
         }
