@@ -23,7 +23,7 @@ package version, to decide compatibility.
 {
   "contract_version": "3.2.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
-  "generator": "symphony-board/0.1.0",
+  "generator": "symphony-board/1.0.1",
   "sources": [
     {
       "source_id": "github:github.com",

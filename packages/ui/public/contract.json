@@ -1,7 +1,7 @@
 {
   "contract_version": "3.2.0",
   "generated_at": "2026-06-07T09:00:00Z",
-  "generator": "symphony-board/0.1.0 (sample)",
+  "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
   "sources": [
     {

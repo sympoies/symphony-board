@@ -19,7 +19,7 @@
     },
     "generator": {
       "type": "string",
-      "description": "Tool + version that produced this payload, e.g. \"symphony-board/0.1.0\"."
+      "description": "Tool + version that produced this payload, e.g. \"symphony-board/1.0.1\"."
     },
     "timezone": {
       "type": "string",
