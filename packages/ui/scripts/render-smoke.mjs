@@ -671,6 +671,16 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  const repoLinks = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const providerLinks = Array.from(document.querySelectorAll('.repo-provider-link'))
+        .map((el) => el.getAttribute('href') || '');
+      const metricLinks = Array.from(document.querySelectorAll('.repo-metric-link'))
+        .map((el) => el.getAttribute('href') || '');
+      return { providerLinks, metricLinks };
+    })()`,
+    returnByValue: true,
+  })).result.value || { providerLinks: [], metricLinks: [] };
   // Page 5 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -890,6 +900,9 @@ try {
     [/repos/.test(repoCountText), `repo analytics: repo count rendered (${repoCountText})`],
     [has(repoHtml, "Activity") && has(repoHtml, "Commits"), "repo analytics: activity and commits columns rendered"],
     [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
+    [repoLinks.providerLinks.some((href) => href.startsWith("https://")), "repo analytics: repo names link to provider repo pages"],
+    [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("source=") && href.includes("repo=")), "repo analytics: activity metric links are source-aware"],
+    [repoLinks.metricLinks.some((href) => href.startsWith("#/commits") && href.includes("source=") && href.includes("repo=")), "repo analytics: commit metric links are source-aware"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [repoQualityBadgeLayout.count >= 1 && repoQualityBadgeLayout.sameWidth === true && repoQualityBadgeLayout.maxWidth <= 56, `repo analytics: quality badges use one compact active-sized width (${repoQualityBadgeLayout.maxWidth || 0}px, ${repoQualityBadgeLayout.texts?.join(", ") || "none"})`],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],

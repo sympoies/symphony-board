@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.1.1`.
+Current emitted version: `3.2.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "3.0.0",
+  "contract_version": "3.2.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/0.1.0",
   "sources": [
@@ -118,6 +118,7 @@ package version, to decide compatibility.
     {
       "source_id": "github:github.com",
       "project_path": "sympoies/symphony-board",
+      "repo_url": "https://github.com/sympoies/symphony-board",
       "window": {
         "kind": "time_range",
         "basis": "repo_activity",
@@ -302,6 +303,10 @@ Important fields:
   immutable id.
 - `occurred_at`: provider event timestamp.
 - `summary`: producer-readable text for UI display.
+- `url`: optional primary provider link for the activity row. Current producers
+  fill it only when the target is reliable: issue / change-request pages,
+  commit pages, repository pages, branch/tag ref pages, or push compare /
+  fallback commit destinations.
 - `details`: provider-specific JSON object for debugging and later consumers.
   Commit rows may include `details.sha`, subject `details.message`, optional
   `details.body`, and optional `details.branch` / `details.ref` when the source
@@ -311,6 +316,13 @@ Important fields:
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for commits and repository/project
 events.
+
+There is no separate `target_url` field. Consumers should use `activities[].url`
+as the row's provider destination and treat `null` as intentionally unlinked.
+GitHub and GitLab comments currently stay unlinked because their stable
+per-comment anchors are not normalized. Push events link to a compare page when
+both endpoint SHAs are usable; new refs link to the ref page and deleted refs
+link to the last known commit when available.
 
 Review activity (`kind: "review"`) is derived per provider and feeds the
 `reviews` / `approvals` repo metrics (see Repo Metrics):
@@ -489,6 +501,9 @@ different:
 
 Each row contains:
 
+- `repo_url`: optional nullable provider repo URL, added in `3.2.0`. It is
+  emitted only for supported GitHub/GitLab source descriptors and valid provider
+  project paths. Use it as a display/navigation convenience, not as identity.
 - `window`: `active_since` for static emits or `time_range` for `/api/range`,
   always with `basis: "repo_activity"`, inclusive UTC `from` / `to`, and an
   explicit bucket width (`day`, `week`, or `month`).
@@ -590,6 +605,12 @@ against the metric's window (no producer-side enum): `no activity` when
 window (real dormancy, not a data gap); `partial` when `observed_since` falls
 inside the window (earlier counts are missing, not zero); otherwise `active`.
 This is a major bump because removing a field is breaking per the rules below.
+
+Version `3.2.0` added optional nullable `repo_metrics[].repo_url` so consumers can
+link a Repo Analytics row back to its provider repository without reconstructing
+provider URL rules. It is additive within contract major v3. The row key remains
+`(source_id, project_path)`, and `repo_url` may be `null` when the source kind,
+host, or path cannot produce a safe provider URL.
 
 Version `2.5.0` added `data_quality.last_activity_at` to each repo metric row —
 the most recent observed activity instant (max `occurred_at`), the counterpart to

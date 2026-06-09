@@ -579,6 +579,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   color: var(--text); font-weight: 600; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.activity-title:hover { color: var(--accent); }
 .activity-meta {
   display: flex; align-items: center; gap: 6px 10px;
   color: var(--muted); font-size: 12px;
@@ -919,6 +920,19 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.repo-provider-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.repo-provider-link:hover { color: var(--accent); }
+.repo-metric-link {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.repo-metric-link:hover { color: var(--accent); }
 .repo-name-meta {
   display: block;
   color: var(--muted);

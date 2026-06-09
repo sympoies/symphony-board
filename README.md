@@ -27,7 +27,7 @@ The basic product path is implemented:
   edges, and activity rows are stored in SQLite.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v3, currently `3.0.0`, and validates the JSON
+- `emit` produces contract major v3, currently `3.2.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
   Activity feed, a GitHub-like Commits log, a Repo Analytics table/trend view,
@@ -230,7 +230,7 @@ scripts/devlog-search.sh graph
 
 ## Contract And Display Metadata
 
-The current emitted contract is major v3, currently `3.0.0`.
+The current emitted contract is major v3, currently `3.2.0`.
 
 Version `1.1.0` added display colors:
 
@@ -295,6 +295,15 @@ the real signal is the top-level `item_window.truncated`). The Repo Analytics
 "Quality" badge now derives a coverage verdict — `active` / `partial` / `idle` /
 `no activity` — from the surviving `activity_available` / `observed_since` /
 `last_activity_at` fields against the metric window.
+
+Version `3.1.0` adds optional envelope-level `timezone` metadata for calendar-day
+range expansion and UI date presets; version `3.1.1` aligns repo metric day /
+week / month series buckets to that timezone.
+
+Version `3.2.0` adds optional nullable `repo_metrics[].repo_url` for provider
+repo links in Repo Analytics. It also standardizes producer-filled
+`activities[].url` for reliable issue, change-request, commit, ref, and push
+destinations; no separate activity `target_url` field is added.
 
 Consumers must branch on contract major and ignore unknown fields within a
 major. Producers validate strictly before emitting.

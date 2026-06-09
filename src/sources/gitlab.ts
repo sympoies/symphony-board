@@ -44,6 +44,7 @@ import type {
 import { toLabel } from "../model/labels.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
+import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 
@@ -164,7 +165,7 @@ const indexKey = (project: string | null, kind: string, iid: string): string =>
 
 export class GitLabSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "gitlab/2";
+  readonly normalizerVersion = "gitlab/3";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -554,17 +555,19 @@ export class GitLabSource implements Source {
       // it here so the approval metric is never double-counted.
       if (action === "approved") return null;
       const title = event.target_title ?? data?.commit_title ?? data?.ref ?? null;
+      const projectPath = p.project ?? null;
+      const targetIid = typeof event.target_iid === "number" ? event.target_iid : null;
       const activity: CanonicalActivity = {
         sourceId: this.descriptor.sourceId,
         externalId: raw.externalId,
         kind: targetKind,
         action,
-        projectPath: p.project ?? null,
+        projectPath,
         targetKind,
         target: null,
-        targetIid: typeof event.target_iid === "number" ? event.target_iid : null,
+        targetIid,
         title,
-        url: null,
+        url: gitLabProjectEventUrl(this.descriptor, projectPath, targetKind, action, targetIid, data),
         actor: event.author_username ?? event.author?.username ?? null,
         actorKey: deriveActorKey({
           sourceId: this.descriptor.sourceId,
@@ -572,7 +575,7 @@ export class GitLabSource implements Source {
           name: event.author?.name ?? null,
         }),
         occurredAt,
-        summary: gitLabEventSummary(action, targetKind, title, p.project ?? null),
+        summary: gitLabEventSummary(action, targetKind, title, projectPath),
         details: {
           action_name: event.action_name ?? null,
           target_type: event.target_type ?? null,
@@ -697,6 +700,21 @@ function mapEventTargetKind(targetType: unknown, action: unknown, data: any): st
   const s = String(action ?? "").toLowerCase();
   if (s.includes("push")) return "push";
   return "repository";
+}
+
+function gitLabProjectEventUrl(
+  source: SourceDescriptor,
+  projectPath: string | null,
+  targetKind: string,
+  action: string,
+  targetIid: number | null,
+  data: any,
+): string | null {
+  if (targetKind === "issue") return providerIssueUrl(source, projectPath, targetIid);
+  if (targetKind === "change_request") return providerChangeRequestUrl(source, projectPath, targetIid);
+  if (targetKind === "push") return providerPushUrl(source, projectPath, action, data?.ref, data?.commit_from, data?.commit_to);
+  if (targetKind === "repository") return providerRepoUrl(source, projectPath);
+  return null;
 }
 
 function gitLabEventSummary(action: string, kind: string, title: string | null, project: string | null): string {

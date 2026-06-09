@@ -226,7 +226,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v3. Current emitted version: `3.0.0`.
+Current major: v3. Current emitted version: `3.2.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -300,6 +300,12 @@ derives the Repo Analytics coverage badge from the surviving
 metric window — see `repoCoverage` in `packages/ui/src/model.ts`. Removing a
 field is breaking, hence the major bump.
 
+Version `3.2.0` adds optional nullable `repo_metrics[].repo_url`. Provider link
+construction stays in the producer layer so Repo Analytics can link row labels
+without duplicating GitHub/GitLab URL rules in the UI. Activity rows continue to
+use the existing `activities[].url` field as the primary provider destination;
+no separate `target_url` field is introduced.
+
 Contract rules:
 
 - patch: clarification only
@@ -339,7 +345,8 @@ Pages:
   item-transition records. It uses the same date range as Board and Graph. The
   range is applied before source/kind/search filters, and the page virtualizes
   matching rows so large activity histories remain scrollable without flooding
-  the DOM.
+  the DOM. Rows link to `activities[].url` only when the producer supplied a
+  reliable provider destination.
 - **Commits**: commit-only SCM log over `activities[]`, styled separately from
   Activity so it behaves like a provider-neutral commit history. It keeps repo
   and branch filters local to the page, links each message to the provider
@@ -353,7 +360,9 @@ Pages:
   contract `activity_score`, renders compact trend bars from contract series
   buckets, and shows a coverage badge (`active` / `partial` / `idle` /
   `no activity`) so a window with missing or merely dormant activity does not
-  look like healthy in-range activity.
+  look like healthy in-range activity. Repo names link through
+  `repo_metrics[].repo_url` when present; non-zero metric values deep-link to the
+  source-aware Activity or Commits view for the same date range.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
   overrides in `localStorage`. These preferences are a pre-filter before Board,
@@ -362,7 +371,7 @@ Pages:
   `from` / `to`, new browsers default to `this week`, calculated from Monday in
   the contract's configured `timezone` (default UTC).
 
-The UI supports contract major v2. It warns when a different major is loaded.
+The UI supports contract major v3. It warns when a different major is loaded.
 
 ## Docker Operation
 
@@ -486,6 +495,11 @@ never reloads the data view as if it were fresh.
   (consumer) because the contract package is type-only at runtime. Absolute
   instants (`generated_at`, `updated_at`, `occurred_at`) stay UTC ISO-8601 —
   only calendar-day bucketing honors the zone.
+- **Provider links (3.2.0)**: the producer owns GitHub/GitLab URL construction
+  for repo metrics and activity rows. Repo Analytics uses `repo_url` for external
+  repo navigation and hash routes for internal drilldowns; Activity uses
+  `activities[].url` directly and leaves rows unlinked when the provider cannot
+  expose a reliable destination.
 
 ## Deferred Or Explicit Non-Goals
 

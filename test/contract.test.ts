@@ -294,10 +294,11 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "3.1.1");
+  assert.equal(env.contract_version, "3.2.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
+  assert.equal(metric?.repo_url, "https://github.com/o/repo");
   assert.deepEqual(metric?.window, {
     kind: "active_since",
     basis: "repo_activity",
@@ -320,6 +321,26 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.data_quality.last_activity_at, "2026-06-07T11:00:00Z");
   assert.ok(metric?.series.some((bucket) => bucket.stats.commits === 1 && bucket.stats.pushes === 1));
   assert.deepEqual(metric?.top_actors?.map((actor) => actor.actor).sort(), ["alice", "bob"]);
+});
+
+test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const env = buildContract({
+    sources,
+    items: [
+      itemRow({ item_id: 1, source_id: "gitlab:gitlab.gamania.com", external_id: "GL_1", project_path: "group/sub/project" }),
+      itemRow({ item_id: 2, source_id: "github:github.com", external_id: "GH_bad", project_path: "too/deep/for/github" }),
+    ],
+    labels: [],
+    edges: [],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+  });
+  assert.deepEqual(validateContract(env), []);
+  assert.equal(env.repo_metrics?.find((m) => m.project_path === "group/sub/project")?.repo_url, "https://gitlab.gamania.com/group/sub/project");
+  assert.equal(env.repo_metrics?.find((m) => m.project_path === "too/deep/for/github")?.repo_url, null);
 });
 
 test("repo metric data_quality timestamps are null when a repo has no activity rows", () => {

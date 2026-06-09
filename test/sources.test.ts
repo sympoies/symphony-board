@@ -81,8 +81,8 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
             {
               push_type: "normal",
               ref: "refs/heads/main",
-              before: "111",
-              after: "222",
+              before: "1111111",
+              after: "2222222",
               pushed_at: "2026-06-09T11:00:00Z",
               pusher: { login: "octocat" },
             },
@@ -112,6 +112,7 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
   });
   const push = activityBundles.find((b) => b.activities[0]!.kind === "branch")!.activities[0]!;
   assert.equal(push.actorKey, "provider-user:github:github.com:octocat");
+  assert.equal(push.url, "https://github.com/o/r/compare/1111111...2222222");
 });
 
 test("GitHub commit with no linked account keys the actor by hashed email", () => {
@@ -140,6 +141,40 @@ test("GitHub commit with no linked account keys the actor by hashed email", () =
   const activity = src.normalize(raw)!.activities[0]!;
   assert.equal(activity.actor, "Anon Dev", "display string is unchanged");
   assert.match(activity.actorKey ?? "", /^email:[0-9a-f]{16}$/, "no linked login -> hashed email key");
+});
+
+test("GitHub repository activity links created refs and deleted refs conservatively", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw = (externalId: string, event: Record<string, unknown>): RawRecord => ({
+    entityKind: "activity",
+    externalId,
+    apiVersion: "github.graphql.v4.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: { __activityKind: "github_repo_activity", project: "o/r", event },
+  });
+
+  const created = src.normalize(raw("created", {
+    push_type: "branch_creation",
+    ref: "refs/heads/feature/link-ui",
+    before: "0000000",
+    after: "abc1234",
+    pushed_at: "2026-06-09T11:00:00Z",
+    pusher: { login: "octocat" },
+  }))!.activities[0]!;
+  assert.equal(created.action, "created");
+  assert.equal(created.url, "https://github.com/o/r/tree/feature%2Flink-ui");
+
+  const deleted = src.normalize(raw("deleted", {
+    push_type: "branch_deletion",
+    ref: "refs/heads/feature/link-ui",
+    before: "deadbeef",
+    after: "0000000",
+    pushed_at: "2026-06-09T12:00:00Z",
+    pusher: { login: "octocat" },
+  }))!.activities[0]!;
+  assert.equal(deleted.action, "deleted");
+  assert.equal(deleted.url, "https://github.com/o/r/commit/deadbeef");
 });
 
 test("normalize emits mentions from non-closing cross-references (source -> self)", () => {
@@ -359,6 +394,57 @@ test("GitLab project events normalize without fake tracked target refs", () => {
   assert.equal(b!.activities[0]!.action, "closed");
   assert.equal(b!.activities[0]!.target, null, "REST target_id is not the GraphQL global id");
   assert.equal(b!.activities[0]!.targetIid, 5);
+  assert.equal(b!.activities[0]!.url, "https://gitlab.com/g/p/-/issues/5");
+});
+
+test("GitLab project events link reliable push destinations and leave comments unlinked", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const push: RawRecord = {
+    entityKind: "activity",
+    externalId: "event:push",
+    apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_project_event",
+      project: "g/p",
+      event: {
+        id: 2,
+        action_name: "pushed to",
+        created_at: "2026-06-09T12:00:00Z",
+        author_username: "gitlab-user",
+        push_data: {
+          ref: "main",
+          commit_from: "aaaaaaaa",
+          commit_to: "bbbbbbbb",
+        },
+      },
+    },
+  };
+  const comment: RawRecord = {
+    entityKind: "activity",
+    externalId: "event:comment",
+    apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_project_event",
+      project: "g/p",
+      event: {
+        id: 3,
+        action_name: "commented on",
+        target_type: "Note",
+        target_iid: 5,
+        target_title: "A note",
+        created_at: "2026-06-09T12:05:00Z",
+        author_username: "gitlab-user",
+      },
+    },
+  };
+
+  assert.equal(src.normalize(push)?.activities[0]?.url, "https://gitlab.com/g/p/-/compare/aaaaaaaa...bbbbbbbb");
+  assert.equal(src.normalize(comment)?.activities[0]?.kind, "comment");
+  assert.equal(src.normalize(comment)?.activities[0]?.url, null);
 });
 
 test("GitLab fetch and normalize includes commit body and default branch refs from REST", async () => {

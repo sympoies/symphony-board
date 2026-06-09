@@ -11,13 +11,15 @@ import type { CommitRepoOption } from "../model.ts";
 // value pins the feed to exactly that repo (the parent matches it exactly).
 export function RepoCombobox({
   options,
+  selectedSource,
   value,
   onChange,
   sourceKind,
 }: {
   options: CommitRepoOption[];
+  selectedSource: string | null;
   value: string | null;
-  onChange: (repo: string | null) => void;
+  onChange: (repo: CommitRepoOption | null) => void;
   sourceKind: ReadonlyMap<string, string>;
 }) {
   const [query, setQuery] = useState(value ?? "");
@@ -33,6 +35,7 @@ export function RepoCombobox({
   }, [value, open]);
 
   const q = query.trim().toLowerCase();
+  const selectedKey = value ? `${selectedSource ?? ""}|${value}` : null;
   // When the query still equals the applied value, show every option (so opening
   // a pinned combobox lists all repos, not just the current one); otherwise filter
   // by substring on the repo path.
@@ -43,9 +46,9 @@ export function RepoCombobox({
 
   const activeIndex = filtered.length === 0 ? -1 : Math.min(highlight, filtered.length - 1);
 
-  const commit = (repo: string | null) => {
+  const commit = (repo: CommitRepoOption | null) => {
     onChange(repo);
-    setQuery(repo ?? "");
+    setQuery(repo?.project_path ?? "");
     setOpen(false);
   };
 
@@ -61,7 +64,7 @@ export function RepoCombobox({
       const chosen = activeIndex >= 0 ? filtered[activeIndex] : undefined;
       if (open && chosen) {
         e.preventDefault();
-        commit(chosen.project_path);
+        commit(chosen);
       }
     } else if (e.key === "Escape") {
       if (open) {
@@ -110,15 +113,15 @@ export function RepoCombobox({
         <ul className="repo-combobox-list" id="repo-combobox-list" role="listbox">
           {filtered.map((o, i) => (
             <li
-              key={o.project_path}
+              key={`${o.source_id}|${o.project_path}`}
               role="option"
-              aria-selected={o.project_path === value}
-              className={`repo-combobox-option${i === activeIndex ? " is-active" : ""}${o.project_path === value ? " is-selected" : ""}`}
+              aria-selected={`${o.source_id}|${o.project_path}` === selectedKey}
+              className={`repo-combobox-option${i === activeIndex ? " is-active" : ""}${`${o.source_id}|${o.project_path}` === selectedKey ? " is-selected" : ""}`}
               // Mouse-down (not click) so the commit lands before the input's blur,
               // and preventDefault keeps focus on the input so blur never fires here.
               onMouseDown={(e) => {
                 e.preventDefault();
-                commit(o.project_path);
+                commit(o);
               }}
               onMouseEnter={() => setHighlight(i)}
             >
