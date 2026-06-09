@@ -548,6 +548,16 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   color: var(--muted);
   font-size: 12px;
 }
+.hm-trend-head > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hm-trend-head small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
 .hm-trend-head b {
   color: var(--text);
   font-weight: 700;
@@ -580,6 +590,82 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   color: var(--muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+.hm-range {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.hm-range-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.hm-range-head h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.hm-range-head span {
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.hm-range-summary {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.hm-range-repos {
+  margin-top: 12px;
+}
+.hm-range-repos-head,
+.hm-range-repos li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+}
+.hm-range-repos-head {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.hm-range-repos ol {
+  list-style: none;
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+}
+.hm-range-repos li {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+.hm-range-repos b {
+  font-variant-numeric: tabular-nums;
+}
+.hm-range-repo {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.hm-range-repo-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-range-repo small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Custom cell tooltip: tracks the cursor (fixed, viewport coords), centered just
    above it, and never intercepts the pointer. Replaces the flaky native title. */

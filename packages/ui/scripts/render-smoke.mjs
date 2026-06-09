@@ -452,19 +452,25 @@ try {
   const activityHeatmap = (await send("Runtime.evaluate", {
     expression: `(() => {
       const heatmap = document.querySelector('.activity-heatmap');
-      if (!heatmap) return { present: false, total: 0, inRange: 0, columns: 0, summary: false, trend: false, trendBucket: null };
+      if (!heatmap) return { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false };
+      const repoCounts = Array.from(heatmap.querySelectorAll('.hm-range-repos li b')).map((node) => Number((node.textContent || '').replace(/,/g, '')));
       return {
         present: true,
         total: heatmap.querySelectorAll('.hm-grid .hm-cell:not(.hm-cell-empty)').length,
         inRange: heatmap.querySelectorAll('.hm-grid .hm-cell[data-in-range]').length,
         columns: heatmap.querySelectorAll('.hm-grid .hm-col').length,
         summary: !!heatmap.querySelector('.hm-summary dd'),
+        scope: (heatmap.querySelector('.hm-head .muted')?.textContent || '').includes(' to '),
         trend: !!heatmap.querySelector('.hm-trend-line[d]'),
         trendBucket: heatmap.querySelector('.hm-trend')?.getAttribute('data-bucket') || null,
+        trendScope: (heatmap.querySelector('.hm-trend-head small')?.textContent || '').includes(' to '),
+        rangeSummary: !!heatmap.querySelector('.hm-range-summary dd'),
+        rangeRepos: repoCounts.length,
+        rangeReposSorted: repoCounts.length > 0 && repoCounts.every((count, index) => index === 0 || repoCounts[index - 1] >= count),
       };
     })()`,
     returnByValue: true,
-  })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, trend: false, trendBucket: null };
+  })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false };
   // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
@@ -894,9 +900,14 @@ try {
     [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     [!activityHeatmap.present || activityHeatmap.summary === true, "activity: rhythm summary row rendered"],
+    [!activityHeatmap.present || activityHeatmap.scope === true, "activity: rhythm section shows its 12-month date range"],
     [!activityHeatmap.present || activityHeatmap.columns === 53, `activity: rhythm heatmap renders one 53-week grid (${activityHeatmap.columns})`],
     [!activityHeatmap.present || activityHeatmap.trend === true, "activity: selected-range trend line rendered"],
     [!activityHeatmap.present || activityHeatmap.trendBucket === "day", `activity: this-week trend uses daily buckets (${activityHeatmap.trendBucket})`],
+    [!activityHeatmap.present || activityHeatmap.trendScope === true, "activity: selected-range trend shows its date range"],
+    [!activityHeatmap.present || activityHeatmap.rangeSummary === true, "activity: selected-range summary rendered below the trend"],
+    [!activityHeatmap.present || activityHeatmap.rangeRepos >= 1, `activity: selected-range repo summary rendered (${activityHeatmap.rangeRepos || 0} rows)`],
+    [!activityHeatmap.present || activityHeatmap.rangeReposSorted === true, "activity: selected-range repo summary sorted by events desc"],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
