@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.1.1",
+  "contract_version": "3.2.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/0.1.0 (sample)",
   "timezone": "UTC",
@@ -435,7 +435,9 @@
       "actor": "reviewer",
       "occurred_at": "2026-06-06T17:55:00Z",
       "summary": "Approved change request #13",
-      "details": { "state": "APPROVED" },
+      "details": {
+        "state": "APPROVED"
+      },
       "first_seen_at": "2026-06-07T08:58:00Z",
       "last_seen_at": "2026-06-07T08:58:00Z"
     },
@@ -1064,7 +1066,9 @@
           "actor": "maintainer",
           "actor_key": "provider-user:github:github.com:maintainer",
           "display_name": "maintainer",
-          "aliases": ["Maintainer Bot"],
+          "aliases": [
+            "Maintainer Bot"
+          ],
           "activities": 4,
           "commits": 1,
           "items_opened": 2,
@@ -1085,7 +1089,8 @@
         "observed_since": "2026-05-24T12:00:00.000Z",
         "last_activity_at": "2026-06-07T08:50:00.000Z",
         "notes": []
-      }
+      },
+      "repo_url": "https://github.com/sympoies/symphony-board"
     },
     {
       "source_id": "gitlab:gitlab.com",
@@ -1221,7 +1226,8 @@
         "observed_since": "2026-06-05T12:00:00.000Z",
         "last_activity_at": "2026-06-05T18:30:00.000Z",
         "notes": []
-      }
+      },
+      "repo_url": "https://gitlab.com/example-group/symphony-board-fixture"
     }
   ]
 }

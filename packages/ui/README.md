@@ -80,6 +80,10 @@ change-request events show the provider number plus title, commits show a short
 SHA plus commit title, and push/ref events show the branch or tag plus available
 commit-range chips.
 
+Rows link to `activities[].url` when the producer supplied a reliable provider
+destination. Unlinked rows are intentional; the UI does not reconstruct provider
+URLs locally.
+
 Activity uses the same date range as Board and Graph, plus the global search
 box and source/kind filters. Search includes title, summary, actor, project
 path, target metadata, and provider details; a `#<iid>` token matches
@@ -116,6 +120,10 @@ ranges load `/api/range` and render the returned time-range metrics. The table
 ranks repos by contract `activity_score`, then shows activity, commits, opened
 issue and PR/MR throughput, closed/merged totals, review counts with approval
 tooltips, compact trend bars, and a data-quality badge.
+
+Repo labels link to `repo_metrics[].repo_url` when present. Non-zero metric values
+deep-link to source-aware Activity or Commits routes for the same selected date
+range so repeated provider paths from different sources stay distinct.
 
 `repo_metrics[]` is not a full inventory surface. Settings and external
 inventory consumers should use `repo_stats[]`; Repo Analytics uses

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
-import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
+import { buildHashRoute, relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 
@@ -71,6 +71,31 @@ function activityScore(stats: RepoMetricStatsDTO): number {
 
 function displayScore(value: number): number {
   return Math.round(value);
+}
+
+function repoDrilldownBase(metric: RepoMetricDTO, range: TimeRange): { source: string; repo: string; from: string; to: string } | null {
+  if (!metric.project_path) return null;
+  return { source: metric.source_id, repo: metric.project_path, from: range.from, to: range.to };
+}
+
+function activityHref(metric: RepoMetricDTO, range: TimeRange, filter: { kind?: string; action?: string } = {}): string | null {
+  const base = repoDrilldownBase(metric, range);
+  return base ? buildHashRoute({ page: "activity", ...base, ...filter }) : null;
+}
+
+function commitsHref(metric: RepoMetricDTO, range: TimeRange): string | null {
+  const base = repoDrilldownBase(metric, range);
+  return base ? buildHashRoute({ page: "commits", ...base }) : null;
+}
+
+function MetricValue({ value, href, label }: { value: number; href: string | null; label: string }) {
+  return value > 0 && href ? (
+    <a className="repo-metric-link" href={href} aria-label={label}>
+      {value}
+    </a>
+  ) : (
+    <>{value}</>
+  );
 }
 
 function TrendBars({ metric }: { metric: RepoMetricDTO }) {
@@ -217,7 +242,13 @@ export function RepoAnalyticsPage({
                     <td className="repo-name-cell">
                       <span className="repo-name-main">
                         <SourceIcon kind={sourceKind.get(metric.source_id)} />
-                        <span>{metric.project_path ?? "(unknown repo)"}</span>
+                        {metric.repo_url ? (
+                          <a className="repo-provider-link" href={metric.repo_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${metric.project_path ?? "repo"} on provider`}>
+                            {metric.project_path ?? "(unknown repo)"}
+                          </a>
+                        ) : (
+                          <span>{metric.project_path ?? "(unknown repo)"}</span>
+                        )}
                       </span>
                       <span className="repo-name-meta" title={`${metric.source_id}${activeLabel}`}>
                         {sourceDisplayName(metric.source_id)}
@@ -225,14 +256,14 @@ export function RepoAnalyticsPage({
                       </span>
                     </td>
                     <td><TrendBars metric={metric} /></td>
-                    <td>{displayScore(activityScore(metric.totals))}</td>
-                    <td>{metric.totals.commits}</td>
-                    <td>{issuesOpened(metric.totals)}</td>
-                    <td>{metric.totals.change_requests_opened}</td>
-                    <td>{metric.totals.items_opened}</td>
-                    <td>{metric.totals.items_closed}</td>
-                    <td>{metric.totals.change_requests_merged}</td>
-                    <td title={`${metric.totals.approvals} approved`}>{metric.totals.reviews}</td>
+                    <td><MetricValue value={displayScore(activityScore(metric.totals))} href={activityHref(metric, range)} label={`Open activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.commits} href={commitsHref(metric, range)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" })} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" })} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" })} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" })} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" })} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" })} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td><QualityBadge metric={metric} /></td>
                     <td><TopActors metric={metric} /></td>
                   </tr>

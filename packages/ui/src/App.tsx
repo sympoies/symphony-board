@@ -3,6 +3,7 @@ import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContract, fetchRangeContract, parseContract, majorOf, SUPPORTED_MAJOR } from "./contract.ts";
 import {
   emptyFilters,
+  activityRouteMatches,
   activityMatches,
   filterCommits,
   commitRepoOptions,
@@ -266,9 +267,14 @@ export function App() {
     [primaryItems, filters],
   );
 
+  const routeActivities = useMemo(
+    () => windowedActivities.filter((a) => activityRouteMatches(a, route)),
+    [windowedActivities, route.source, route.repo, route.kind, route.action],
+  );
+
   const filteredActivities = useMemo(
-    () => windowedActivities.filter((a) => activityMatches(a, filters)),
-    [windowedActivities, filters],
+    () => routeActivities.filter((a) => activityMatches(a, filters)),
+    [routeActivities, filters],
   );
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
@@ -277,8 +283,8 @@ export function App() {
   // the selected repo for branch options; commits applies the optional branch
   // filter when commit rows carry branch/ref details.
   const windowCommits = useMemo(() => filterCommits(windowedActivities, null), [windowedActivities]);
-  const repoCommits = useMemo(() => filterCommits(windowedActivities, route.repo), [windowedActivities, route.repo]);
-  const commits = useMemo(() => filterCommits(windowedActivities, route.repo, route.branch), [windowedActivities, route.repo, route.branch]);
+  const repoCommits = useMemo(() => filterCommits(windowedActivities, route.repo, null, route.source), [windowedActivities, route.repo, route.source]);
+  const commits = useMemo(() => filterCommits(windowedActivities, route.repo, route.branch, route.source), [windowedActivities, route.repo, route.branch, route.source]);
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
   const totalCommits = useMemo(
@@ -394,8 +400,11 @@ export function App() {
     const next = buildHashRoute({
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
-      repo: page === "commits" ? route.repo : null,
+      source: page === "activity" || page === "commits" ? route.source : null,
+      repo: page === "activity" || page === "commits" ? route.repo : null,
       branch: page === "commits" ? route.branch : null,
+      kind: page === "activity" ? route.kind : null,
+      action: page === "activity" ? route.action : null,
       q,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -406,11 +415,12 @@ export function App() {
 
   // The Commits page's SCM filters are URL-backed (like search/focus) so they
   // are shareable and survive reload. Clearing a value drops that query param.
-  function setRouteRepo(repo: string | null) {
+  function setRouteRepo(repo: { source_id: string; project_path: string } | null) {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
       page: "commits",
-      repo,
+      source: repo?.source_id ?? null,
+      repo: repo?.project_path ?? null,
       branch: route.branch,
       q: filters.search,
       from: explicitRange?.from,
@@ -424,6 +434,7 @@ export function App() {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
       page: "commits",
+      source: route.source,
       repo: route.repo,
       branch,
       q: filters.search,
@@ -439,8 +450,11 @@ export function App() {
     const next = buildHashRoute({
       page: page === "board" ? "" : page,
       focus: page === "graph" ? route.focus : null,
-      repo: page === "commits" ? route.repo : null,
+      source: page === "activity" || page === "commits" ? route.source : null,
+      repo: page === "activity" || page === "commits" ? route.repo : null,
       branch: page === "commits" ? route.branch : null,
+      kind: page === "activity" ? route.kind : null,
+      action: page === "activity" ? route.action : null,
       q: filters.search,
       from: range.from,
       to: range.to,
@@ -564,7 +578,7 @@ export function App() {
         <ActivityPage
           activities={filteredActivities}
           allActivities={env.activities ?? activeEnv.activities ?? []}
-          windowTotal={windowedActivities.length}
+          windowTotal={routeActivities.length}
           totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
           range={activeRange}
           timezone={tz}
@@ -578,6 +592,7 @@ export function App() {
           totalCommits={totalCommits}
           repoOptions={commitRepos}
           branchOptions={commitBranches}
+          selectedSource={route.source}
           selectedRepo={route.repo}
           selectedBranch={route.branch}
           onRepo={setRouteRepo}

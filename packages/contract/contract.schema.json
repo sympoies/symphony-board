@@ -65,7 +65,7 @@
     },
     "repo_metrics": {
       "type": "array",
-      "description": "Window-scoped per-repo analytics rows. Separate from `repo_stats[]`: repo_stats is full inventory, repo_metrics is a selected window with activity/lifecycle trends and data-quality metadata. Optional (added in 2.2.0).",
+      "description": "Window-scoped per-repo analytics rows. Separate from `repo_stats[]`: repo_stats is full inventory, repo_metrics is a selected window with activity/lifecycle trends, data-quality metadata, and optional provider repo links. Optional (added in 2.2.0; repo_url added in 3.2.0).",
       "items": { "$ref": "#/$defs/repoMetric" }
     },
     "range_query": {
@@ -480,6 +480,10 @@
       "properties": {
         "source_id": { "type": "string" },
         "project_path": { "type": ["string", "null"] },
+        "repo_url": {
+          "type": ["string", "null"],
+          "description": "Canonical provider repository page for this metric row. null when the provider kind/host or project_path cannot produce a reliable URL. Optional (added in 3.2.0)."
+        },
         "window": { "$ref": "#/$defs/repoMetricWindow" },
         "totals": { "$ref": "#/$defs/repoMetricStats" },
         "series": {

@@ -186,6 +186,10 @@ export interface RepoMetricDataQualityDTO {
 export interface RepoMetricDTO {
   source_id: string;
   project_path: string | null;
+  // Canonical provider repository page for this row, when the source kind/host
+  // and project_path make it deterministic. null/absent when unknown or
+  // malformed. Added in 3.2.0.
+  repo_url?: string | null;
   window: RepoMetricWindowDTO;
   totals: RepoMetricStatsDTO;
   series: RepoMetricSeriesPointDTO[];

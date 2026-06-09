@@ -416,6 +416,7 @@ export function CommitsPage({
   totalCommits,
   repoOptions,
   branchOptions,
+  selectedSource,
   selectedRepo,
   selectedBranch,
   onRepo,
@@ -430,9 +431,10 @@ export function CommitsPage({
   totalCommits: number;
   repoOptions: CommitRepoOption[];
   branchOptions: CommitBranchOption[];
+  selectedSource: string | null;
   selectedRepo: string | null;
   selectedBranch: string | null;
-  onRepo: (repo: string | null) => void;
+  onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   range: TimeRange;
   timezone: string;
@@ -444,7 +446,7 @@ export function CommitsPage({
   const emptyMessage =
     windowTotal === 0
       ? "No commits in this range."
-      : `No commits for ${selectedRepo ?? "this repo"} in this range.`;
+      : `No commits for ${selectedRepo ? `${selectedSource ? `${selectedSource} / ` : ""}${selectedRepo}` : "this repo"} in this range.`;
 
   return (
     <main className="commits-page">
@@ -457,7 +459,7 @@ export function CommitsPage({
       </div>
       <div className="commits-toolbar">
         <div className="commits-filter">
-          <RepoCombobox options={repoOptions} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
+          <RepoCombobox options={repoOptions} selectedSource={selectedSource} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
           <span className="muted commits-filter-hint">
             {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} with commits
             {branchOptions.length > 0 ? ` · ${branchOptions.length} branch${branchOptions.length === 1 ? "" : "es"}` : ""}

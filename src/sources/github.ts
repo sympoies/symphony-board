@@ -18,6 +18,7 @@ import type {
 import { toLabel } from "../model/labels.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
+import { providerPushUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 
@@ -90,7 +91,7 @@ const hash = (s: string): string => createHash("sha256").update(s).digest("hex")
 
 export class GitHubSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "github/1";
+  readonly normalizerVersion = "github/2";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -402,21 +403,22 @@ export class GitHubSource implements Source {
       const pushType = String(event.push_type ?? "push");
       const targetKind = ref.startsWith("refs/tags/") ? "tag" : ref.startsWith("refs/heads/") ? "branch" : "ref";
       const action = mapRepoActivityAction(pushType);
+      const projectPath = p.project ?? null;
       const activity: CanonicalActivity = {
         sourceId: this.descriptor.sourceId,
         externalId: raw.externalId,
         kind: targetKind === "ref" ? "repository" : targetKind,
         action,
-        projectPath: p.project ?? null,
+        projectPath,
         targetKind,
         target: null,
         targetIid: null,
         title: shortRef(ref) ?? ref,
-        url: null,
+        url: providerPushUrl(this.descriptor, projectPath, action, ref, event.before, event.after),
         actor: event.pusher?.login ?? null,
         actorKey: deriveActorKey({ sourceId: this.descriptor.sourceId, username: event.pusher?.login ?? null }),
         occurredAt,
-        summary: repoActivitySummary(action, ref, p.project ?? null),
+        summary: repoActivitySummary(action, ref, projectPath),
         details: {
           ref,
           before: event.before ?? null,

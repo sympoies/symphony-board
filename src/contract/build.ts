@@ -34,6 +34,7 @@ import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/acto
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 import { zonedDayStartIso, zonedDateOnly, shiftDateOnly } from "../lib/tz.ts";
+import { providerRepoUrl, type ProviderLinkSource } from "../provider-links.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
@@ -134,6 +135,10 @@ function toSourceDTO(row: SourceRow, sourceColors: Record<string, string>): Sour
     last_status: orNull<"ok" | "partial" | "error">(row.last_status),
     color: sourceColors[row.source_id] ?? null,
   };
+}
+
+function sourceLinkMap(sources: SourceRow[]): Map<string, ProviderLinkSource> {
+  return new Map(sources.map((source) => [source.source_id, { kind: source.kind, host: source.host }]));
 }
 
 function inc(counts: Record<string, number>, key: string): void {
@@ -724,6 +729,7 @@ function buildRepoMetrics(
   edges: EdgeDTO[],
   activities: ActivityDTO[],
   window: RepoMetricWindowDTO,
+  sourcesById: ReadonlyMap<string, ProviderLinkSource>,
   actorKeys: Map<string, string | null>,
   identityMatchers: IdentityMatcher[],
   actorExcludes: RegExp[],
@@ -789,6 +795,9 @@ function buildRepoMetrics(
       return {
         source_id: identity.source_id,
         project_path: identity.project_path,
+        repo_url: sourcesById.has(identity.source_id)
+          ? providerRepoUrl(sourcesById.get(identity.source_id)!, identity.project_path)
+          : null,
         window,
         totals,
         series,
@@ -976,6 +985,7 @@ function activityActorKeyMap(rows: ActivityRow[] | undefined): Map<string, strin
 
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
+  const sourcesById = sourceLinkMap(input.sources);
   const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
@@ -998,7 +1008,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
   };
 }
 
@@ -1033,6 +1043,7 @@ export interface BuildRangeInput extends BuildInput {
 
 export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const mapped = mapRows(input);
+  const sourcesById = sourceLinkMap(input.sources);
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
@@ -1052,7 +1063,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
     range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to },
   };
 }

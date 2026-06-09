@@ -172,6 +172,15 @@ test("aggregate counts must be non-negative", () => {
   assert.ok(errors.some((e) => e.path === "/aggregates/0/stats/by_state/open" && /minimum 0/.test(e.message)));
 });
 
+test("repo metric repo_url validates as an optional nullable provider link", () => {
+  const env: any = validEnvelope();
+  const metric = env.repo_metrics[0];
+  metric.repo_url = "https://github.com/graysurf/repo";
+  assert.deepEqual(validateContract(env), []);
+  metric.repo_url = null;
+  assert.deepEqual(validateContract(env), []);
+});
+
 test("window metadata and repo stats are required in contract v2", () => {
   const env: any = validEnvelope();
   delete env.item_window;
