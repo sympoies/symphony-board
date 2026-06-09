@@ -6,15 +6,17 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/release.sh [options]
+  scripts/release.sh [options] [VERSION]
 
 Options:
   --execute              Create the GitHub Release. Required for mutation.
   --dry-run              Print the release plan without creating anything.
                          This is the default.
   --verify-only          Only verify published GHCR image tags.
-  --version VERSION      SemVer, with or without leading v.
+  VERSION                SemVer, with or without leading v.
                          Defaults to package.json version.
+  --version VERSION      Same as VERSION. For release/dry-run, this must match
+                         package.json so the emitted generator cannot drift.
   --title TITLE          GitHub Release title. Defaults to the tag.
   --prerelease           Mark the GitHub Release as a prerelease and skip
                          latest verification.
@@ -27,7 +29,7 @@ Options:
 
 Examples:
   scripts/release.sh --dry-run
-  scripts/release.sh --execute --version 0.1.0
+  scripts/release.sh --execute v0.1.0
   scripts/release.sh --verify-only --version v0.1.0
 USAGE
 }
@@ -98,6 +100,12 @@ normalize_version() {
     die "version must be SemVer without build metadata, with optional leading v: $1"
   fi
   printf '%s\n' "$raw"
+}
+
+looks_like_version() {
+  local raw="$1"
+  raw="${raw#v}"
+  [[ "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
 }
 
 repo_slug_from_git() {
@@ -265,7 +273,12 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      die "unknown argument: $1"
+      if looks_like_version "$1" && [ -z "$version" ]; then
+        version="$(normalize_version "$1")"
+        shift
+      else
+        die "unknown argument: $1"
+      fi
       ;;
   esac
 done
@@ -281,8 +294,11 @@ need_command node
 need_command python3
 
 repo="$(repo_slug)" || die "could not resolve GitHub repository slug"
+app_version="$(normalize_version "$(package_version)")"
 if [ -z "$version" ]; then
-  version="$(normalize_version "$(package_version)")"
+  version="$app_version"
+elif [ "$mode" != "verify-only" ] && [ "$version" != "$app_version" ]; then
+  die "requested release version v$version does not match package.json version v$app_version; update package.json first or omit --version"
 fi
 tag="v$version"
 title="${title:-$tag}"
@@ -305,6 +321,7 @@ fi
 
 info "repo=$repo"
 info "tag=$tag"
+info "app_version=$app_version"
 info "image=ghcr.io/${repo}:${version}"
 info "web_image=ghcr.io/${web_repo}:${version}"
 if [ "$prerelease" -eq 0 ]; then
