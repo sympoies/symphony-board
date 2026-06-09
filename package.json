@@ -20,7 +20,9 @@
     "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts",
     "validate": "node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts",
     "desktop:dev": "pnpm --filter @symphony-board/desktop dev",
-    "desktop:build": "pnpm --filter @symphony-board/desktop build"
+    "desktop:build": "pnpm --filter @symphony-board/desktop build",
+    "desktop-standalone:dev": "pnpm --filter @symphony-board/desktop-standalone dev",
+    "desktop-standalone:build": "pnpm --filter @symphony-board/desktop-standalone build"
   },
   "dependencies": {
     "@symphony-board/contract": "workspace:*"

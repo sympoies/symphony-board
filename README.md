@@ -39,6 +39,11 @@ The basic product path is implemented:
 - `packages/desktop` builds a thin macOS app with Tauri. It bundles the same
   read-only UI and connects to the Docker/server HTTP surface; SQLite, provider
   tokens, sync, and the API sidecar stay server-side.
+- `packages/desktop-standalone` builds the fully self-contained macOS app: the
+  same UI plus the bundled Node runtime running the whole backend
+  (`src/cli/app-server.ts`) against a per-user data directory — an alternative
+  to the Docker stack for a single-machine install, not a replacement for the
+  thin client.
 - CI runs backend checks, UI build/tests/render-smoke, and a combined
   logic-tier coverage gate.
 
@@ -227,9 +232,11 @@ sources; Settings exposes full sweep, dry-run, and source-scoped runs.
 
 ## Build The macOS App
 
-The desktop app is the thin-client deployment: it bundles the React UI and
-connects to a running `symphony-board` server. It does not contain SQLite,
-provider tokens, or the sync daemon.
+Two desktop options share the same UI:
+
+**Thin client** (`packages/desktop`): bundles the React UI and connects to a
+running `symphony-board` server. It does not contain SQLite, provider tokens,
+or the sync daemon.
 
 ```sh
 fnm use
@@ -240,8 +247,23 @@ open "packages/desktop/src-tauri/target/release/bundle/macos/Symphony Board.app"
 
 In Tauri, the default server URL is `http://localhost:8080/`, matching the
 Docker stack. Change it from Settings -> Server for an always-on hosted server.
+
+**Standalone** (`packages/desktop-standalone`): the fully self-contained app —
+UI plus the bundled Node runtime, sync daemon, SQLite store, and contract
+server in one `.app`, no Docker or server required. Config, tokens, and data
+live under `~/Library/Application Support/com.sympoies.symphony-board.standalone/`;
+see [packages/desktop-standalone/README.md](packages/desktop-standalone/README.md)
+for setup.
+
+```sh
+fnm use
+pnpm install
+pnpm desktop-standalone:build
+open "packages/desktop-standalone/src-tauri/target/release/bundle/macos/Symphony Board Standalone.app"
+```
+
 For self-use on the same Mac, no paid Apple Developer Program membership is
-required; the local build is not notarized, so macOS may require right-click ->
+required; the local builds are not notarized, so macOS may require right-click ->
 Open the first time.
 
 Read-only inspection helpers:

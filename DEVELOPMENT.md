@@ -19,7 +19,9 @@ The repo is a pnpm workspace:
 - root package: backend CLI, sync engine, DB, sources, tests, CI helpers
 - `packages/contract`: versioned contract schema and DTOs
 - `packages/ui`: Vite + React web UI
-- `packages/desktop`: Tauri macOS desktop shell for the same UI
+- `packages/desktop`: Tauri macOS desktop shell for the same UI (thin client)
+- `packages/desktop-standalone`: Tauri macOS app bundling the UI plus the whole
+  backend (Node sidecar running `src/cli/app-server.ts`)
 
 Backend runtime imports from `@symphony-board/contract` are type-only. The
 Docker backend image copies source and schema files but does not run
@@ -44,12 +46,15 @@ src/sources/                  provider fetchers and pure normalizers
 src/db/                       SQLite open/migrate and repository queries
 src/sync-engine.ts            fetch -> raw -> normalize -> reconcile -> upsert
 src/contract/                 contract builder, validator, version constants
-src/cli/                      init-db, sync, emit-contract, validate-contract
+src/server/                   shared HTTP handling (range queries)
+src/cli/                      init-db, sync, emit-contract, validate-contract,
+                              sync-daemon, range-api, app-server
 test/                         backend node --test suite
 
 packages/contract/            LAYER 3 package: schema + mirrored DTO types
 packages/ui/                  Vite + React UI, UI tests, render-smoke
 packages/desktop/             Tauri macOS app shell; no DB, daemon, or tokens
+packages/desktop-standalone/  Tauri macOS app bundling Node + the full backend
 
 docker/                       backend daemon image, UI sidecar image, compose
 scripts/                      read-only helpers and CI support scripts
@@ -71,9 +76,16 @@ docs/devlog/                  append-only development log
 - Tokens are referenced by env-var name in config and read from the environment.
   Never commit tokens, `.env`, `config/sources.json`, SQLite DB files, or runtime
   emitted contracts.
-- The desktop app remains a thin client. Do not place SQLite, provider tokens,
-  or sync sidecars inside `packages/desktop`; connect it to the Docker/server
-  HTTP surface instead.
+- `packages/desktop` remains a thin client. Do not place SQLite, provider
+  tokens, or sync sidecars inside it; connect it to the Docker/server HTTP
+  surface instead. `packages/desktop-standalone` is the deliberate exception:
+  it bundles the backend as a Node sidecar, but all state (config, tokens, DB,
+  contract) lives in the per-user app data directory — never inside the app
+  bundle or the repo.
+- The sole-writer rule is per SQLite store: in Docker the `board` loop daemon
+  is the only writer; in the standalone app its `app-server` process is. The
+  standalone app refuses to spawn a second writer when its port is already
+  served, and `/api/range` opens the store read-only per request.
 
 ## Validation Commands
 
@@ -92,10 +104,12 @@ pnpm --filter @symphony-board/ui run test
 pnpm --filter @symphony-board/ui run smoke
 ```
 
-Desktop app gate:
+Desktop app gates (thin client, then standalone — the latter also copies the
+active Node 24 binary in as the bundled sidecar):
 
 ```sh
 pnpm desktop:build
+pnpm desktop-standalone:build
 ```
 
 Coverage gate:

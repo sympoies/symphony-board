@@ -253,13 +253,15 @@ function readBody(req: IncomingMessage): Promise<string> {
 // it on an ephemeral port with an injected controller.
 export function createControlServer(controller: SyncController, ctx: ControlContext): Server {
   return createServer((req, res) => {
-    void handleRequest(controller, ctx, req, res).catch((err: unknown) => {
+    void handleControlRequest(controller, ctx, req, res).catch((err: unknown) => {
       sendJson(res, 500, { error: "internal_error", message: (err as Error).message });
     });
   });
 }
 
-async function handleRequest(
+// One control-surface request. Exported so the standalone app server can mount
+// these routes on its unified HTTP surface beside /contract.json and /api/range.
+export async function handleControlRequest(
   controller: SyncController,
   ctx: ControlContext,
   req: IncomingMessage,
