@@ -863,7 +863,7 @@ try {
   const boardNarrowTotal = statTotal(boardNarrowStats, "items");
   const graphInitialTotal = statTotal(graphInitialStats, "nodes");
   const graphNarrowTotal = statTotal(graphNarrowStats, "nodes");
-  const expectedRangeButtons = ["today", "this week", "1w", "2w", "1mo", "3mo"];
+  const expectedRangeButtons = ["today", "this week", "1w", "2w", "1mo", "3mo", "6mo", "1y"];
   const sameRangeButtons = (labels) => JSON.stringify(labels) === JSON.stringify(expectedRangeButtons);
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
