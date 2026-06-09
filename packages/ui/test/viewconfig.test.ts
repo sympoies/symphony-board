@@ -5,6 +5,7 @@ import {
   loadHiddenSources, saveHiddenSources,
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
+  loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
@@ -71,14 +72,32 @@ test("default range preset falls back to this week and round-trips valid preset 
   assert.equal(loadDefaultRangePreset(), "this-week", "invalid value -> default");
 });
 
+test("server base URL normalizes http/https roots and rejects unsafe schemes", () => {
+  assert.equal(normalizeServerBaseUrl("http://localhost:8080"), "http://localhost:8080/");
+  assert.equal(normalizeServerBaseUrl("https://board.example.com/app"), "https://board.example.com/app/");
+  assert.equal(normalizeServerBaseUrl("https://board.example.com/app?x=1#top"), "https://board.example.com/app/");
+  assert.equal(normalizeServerBaseUrl("file:///tmp/contract.json"), null);
+  assert.equal(normalizeServerBaseUrl("not a url"), null);
+});
+
+test("server base URL persists as an optional setting", () => {
+  assert.equal(loadServerBaseUrl(), null);
+  saveServerBaseUrl("http://localhost:8080");
+  assert.equal(loadServerBaseUrl(), "http://localhost:8080/");
+  saveServerBaseUrl(null);
+  assert.equal(loadServerBaseUrl(), null);
+});
+
 test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () => {
   const boom = new Proxy({}, { get() { throw new Error("storage disabled"); } });
   (globalThis as { localStorage?: unknown }).localStorage = boom;
   assert.deepEqual([...loadHidden()], [], "load degrades to empty");
   assert.equal(loadColorOverrides().size, 0, "load degrades to no overrides");
   assert.equal(loadDefaultRangePreset(), "this-week", "load degrades to default range");
+  assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));
   assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
+  assert.doesNotThrow(() => saveServerBaseUrl("http://localhost:8080"));
 });

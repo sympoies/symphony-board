@@ -9,6 +9,7 @@
 // default as the data grows.
 
 import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, type TimeRangePresetId } from "./model.ts";
+import { isTauriRuntime } from "./runtime.ts";
 
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
@@ -18,6 +19,8 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 // JSON-string tuple, a valid object key); a repo absent here inherits from config.
 const COLORS_KEY = "symphony-board:repo-colors";
 const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
+const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
+export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
 
 function loadStringSet(key: string): Set<string> {
   try {
@@ -81,6 +84,46 @@ export function loadDefaultRangePreset(): TimeRangePresetId {
 export function saveDefaultRangePreset(preset: TimeRangePresetId): void {
   try {
     localStorage.setItem(DEFAULT_RANGE_PRESET_KEY, preset);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+export function normalizeServerBaseUrl(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.hash = "";
+    url.search = "";
+    if (!url.pathname.endsWith("/")) url.pathname += "/";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function configuredServerBaseUrl(): string | null {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  return normalizeServerBaseUrl(env?.VITE_SYMPHONY_BOARD_SERVER_URL);
+}
+
+export function loadServerBaseUrl(): string | null {
+  try {
+    const stored = normalizeServerBaseUrl(localStorage.getItem(SERVER_BASE_URL_KEY));
+    if (stored) return stored;
+  } catch {
+    /* storage unavailable — fall through to configured/default host */
+  }
+  return configuredServerBaseUrl() ?? (isTauriRuntime() ? DESKTOP_DEFAULT_SERVER_BASE_URL : null);
+}
+
+export function saveServerBaseUrl(baseUrl: string | null): void {
+  const normalized = normalizeServerBaseUrl(baseUrl);
+  try {
+    if (normalized) localStorage.setItem(SERVER_BASE_URL_KEY, normalized);
+    else localStorage.removeItem(SERVER_BASE_URL_KEY);
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

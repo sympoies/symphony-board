@@ -10,6 +10,7 @@ import {
 } from "../model.ts";
 import { Badge } from "./Badge.tsx";
 import { SyncControls } from "./SyncControls.tsx";
+import { ServerConnectionForm } from "./ServerConnectionForm.tsx";
 import type { SyncState } from "../useSync.ts";
 
 interface Props {
@@ -26,6 +27,8 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
+  serverBaseUrl: string | null;
+  onServerBaseUrl: (serverBaseUrl: string | null) => void;
   sync?: SyncState; // writer-owned manual sync, when the control surface is available
 }
 
@@ -65,6 +68,8 @@ export function SettingsPage({
   onClearColor,
   defaultRangePreset,
   onDefaultRangePreset,
+  serverBaseUrl,
+  onServerBaseUrl,
   sync,
 }: Props) {
   const allKeys = repos.map((r) => r.key);
@@ -120,6 +125,14 @@ export function SettingsPage({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="settings-pref settings-server">
+        <div>
+          <h3>Server</h3>
+          <p className="muted">Used by the desktop app and optional remote deployments.</p>
+        </div>
+        <ServerConnectionForm serverBaseUrl={serverBaseUrl} onServerBaseUrl={onServerBaseUrl} />
       </div>
 
       {sync?.available ? <SyncControls sync={sync} /> : null}

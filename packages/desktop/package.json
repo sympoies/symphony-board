@@ -1,0 +1,16 @@
+{
+  "name": "@symphony-board/desktop",
+  "version": "1.0.1",
+  "private": true,
+  "description": "macOS desktop shell for the symphony-board read-only UI.",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug",
+    "info": "tauri info"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2"
+  }
+}

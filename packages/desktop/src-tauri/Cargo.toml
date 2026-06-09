@@ -1,0 +1,14 @@
+[package]
+name = "symphony-board-desktop"
+version = "1.0.1"
+description = "macOS desktop shell for symphony-board"
+authors = ["sympoies"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+tauri-plugin-opener = "2"

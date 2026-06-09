@@ -28,7 +28,7 @@ export interface SyncState {
   start: (req: SyncRunRequest) => void;
 }
 
-export function useSync(onFreshData: () => void): SyncState {
+export function useSync(onFreshData: () => void, serverBaseUrl: string | null): SyncState {
   const [info, setInfo] = useState<SyncControlInfo | null>(null);
   const [current, setCurrent] = useState<SyncRunStatus | null>(null);
   const [last, setLast] = useState<SyncRunStatus | null>(null);
@@ -42,7 +42,7 @@ export function useSync(onFreshData: () => void): SyncState {
   // a static deploy without the daemon — so the affordance stays hidden.
   useEffect(() => {
     let cancelled = false;
-    void fetchSyncControl().then((next) => {
+    void fetchSyncControl(serverBaseUrl).then((next) => {
       if (cancelled || !next) return;
       setInfo(next);
       setCurrent(next.current);
@@ -51,7 +51,7 @@ export function useSync(onFreshData: () => void): SyncState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [serverBaseUrl]);
 
   // Poll only while a run is active. Re-subscribes when the active run id changes
   // (a new run) or clears (the run finished), never on every status tick.
@@ -61,14 +61,14 @@ export function useSync(onFreshData: () => void): SyncState {
     let cancelled = false;
     const tick = async () => {
       try {
-        const next = await fetchCurrentSyncRun();
+        const next = await fetchCurrentSyncRun(serverBaseUrl);
         if (cancelled) return;
         if (next && next.status === "running") {
           setCurrent(next);
           return;
         }
         // The slot cleared: the run finished. /last carries the terminal status.
-        const finished = next ?? (await fetchLastSyncRun());
+        const finished = next ?? (await fetchLastSyncRun(serverBaseUrl));
         if (cancelled) return;
         setCurrent(null);
         if (finished) {
@@ -84,12 +84,12 @@ export function useSync(onFreshData: () => void): SyncState {
       cancelled = true;
       clearInterval(id);
     };
-  }, [activeRunId]);
+  }, [activeRunId, serverBaseUrl]);
 
   const start = useCallback((req: SyncRunRequest) => {
     setBusy(true);
     setError(null);
-    startSyncRun(req)
+    startSyncRun(req, serverBaseUrl)
       .then((res) => {
         // 202 carries the started run; 409 carries the already-active run — adopt
         // either so the poll picks it up instead of starting a second writer.
@@ -99,7 +99,7 @@ export function useSync(onFreshData: () => void): SyncState {
       })
       .catch((err: unknown) => setError((err as Error).message))
       .finally(() => setBusy(false));
-  }, []);
+  }, [serverBaseUrl]);
 
   return {
     available: info !== null,

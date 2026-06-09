@@ -36,6 +36,9 @@ The basic product path is implemented:
 - Docker Compose runs the sync/emit loop as the sole writer, a read-only range
   API sidecar over SQLite, and a read-only web sidecar over the latest emitted
   contract.
+- `packages/desktop` builds a thin macOS app with Tauri. It bundles the same
+  read-only UI and connects to the Docker/server HTTP surface; SQLite, provider
+  tokens, sync, and the API sidecar stay server-side.
 - CI runs backend checks, UI build/tests/render-smoke, and a combined
   logic-tier coverage gate.
 
@@ -90,6 +93,7 @@ This is a pnpm workspace:
 - repo root: backend CLI, sync engine, SQLite schema, sources, tests, CI helpers
 - `packages/contract`: contract JSON Schema and TypeScript DTOs
 - `packages/ui`: Vite + React read-only board
+- `packages/desktop`: Tauri macOS shell for the UI
 
 The backend runs TypeScript directly under Node 24 type stripping. It has no
 third-party runtime dependency requirement in the Docker image; the UI is the
@@ -220,6 +224,25 @@ and is never published to the host. Mutating requests require a same-origin
 `SYNC_CONTROL_ENABLED` to keep the daemon timer-only and refuse manual runs (the
 UI then hides the Sync action). The Header action runs an incremental sync of all
 sources; Settings exposes full sweep, dry-run, and source-scoped runs.
+
+## Build The macOS App
+
+The desktop app is the thin-client deployment: it bundles the React UI and
+connects to a running `symphony-board` server. It does not contain SQLite,
+provider tokens, or the sync daemon.
+
+```sh
+fnm use
+pnpm install
+pnpm desktop:build
+open "packages/desktop/src-tauri/target/release/bundle/macos/Symphony Board.app"
+```
+
+In Tauri, the default server URL is `http://localhost:8080/`, matching the
+Docker stack. Change it from Settings -> Server for an always-on hosted server.
+For self-use on the same Mac, no paid Apple Developer Program membership is
+required; the local build is not notarized, so macOS may require right-click ->
+Open the first time.
 
 Read-only inspection helpers:
 
