@@ -1,8 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
-import { isTauriRuntime, openExternalUrl } from "./runtime.ts";
+import { isTauriRuntime, normalizeDesktopStartupRoute, openExternalUrl } from "./runtime.ts";
 import "./styles.css";
+
+normalizeDesktopStartupRoute();
 
 document.addEventListener(
   "click",
