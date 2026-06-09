@@ -5,6 +5,14 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+function cleanGitEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...extra };
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) {
+    delete env[key];
+  }
+  return env;
+}
+
 function fixtureRepo(version = "1.2.3"): string {
   const dir = mkdtempSync(join(tmpdir(), "symphony-release-"));
   mkdirSync(join(dir, "scripts"), { recursive: true });
@@ -14,11 +22,12 @@ function fixtureRepo(version = "1.2.3"): string {
   writeFileSync(join(dir, "bin/gh"), "#!/usr/bin/env sh\nexit 1\n");
   chmodSync(join(dir, "bin/gh"), 0o755);
 
-  const init = spawnSync("git", ["init", "--quiet"], { cwd: dir, encoding: "utf8" });
+  const init = spawnSync("git", ["init", "--quiet"], { cwd: dir, encoding: "utf8", env: cleanGitEnv() });
   assert.equal(init.status, 0, init.stderr);
   const remote = spawnSync("git", ["remote", "add", "origin", "git@github.com:sympoies/symphony-board.git"], {
     cwd: dir,
     encoding: "utf8",
+    env: cleanGitEnv(),
   });
   assert.equal(remote.status, 0, remote.stderr);
 
@@ -29,7 +38,7 @@ function runRelease(cwd: string, args: string[]) {
   const path = `${join(cwd, "bin")}:${process.env.PATH ?? ""}`;
   return spawnSync("bash", ["scripts/release.sh", ...args], {
     cwd,
-    env: { ...process.env, PATH: path },
+    env: cleanGitEnv({ PATH: path }),
     encoding: "utf8",
   });
 }
