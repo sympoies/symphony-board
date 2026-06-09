@@ -910,14 +910,15 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .repo-table tbody tr:last-child td { border-bottom: none; }
 /* Wide screens should not route spare pixels into the repo name. Keep the fixed
    fields readable and let the variable actor list fill the remaining width. */
+.repo-table-col-repo { width: clamp(300px, 18vw, 380px); }
+.repo-table-col-trend { width: clamp(140px, 9vw, 220px); }
+.repo-table-col-metric { width: clamp(88px, 5.2vw, 108px); }
+.repo-table-col-quality { width: clamp(96px, 6vw, 116px); }
+.repo-table-col-actors { width: auto; }
 .repo-table th:first-child,
-.repo-table td:first-child { width: clamp(340px, 24vw, 460px); text-align: left; }
-.repo-table th:nth-child(2),
-.repo-table td:nth-child(2) { width: clamp(140px, 10vw, 220px); }
-.repo-table th:nth-child(n+3):nth-child(-n+10),
-.repo-table td:nth-child(n+3):nth-child(-n+10) { width: clamp(88px, 5.2vw, 108px); }
+.repo-table td:first-child { text-align: left; }
 .repo-table th:nth-child(11),
-.repo-table td:nth-child(11) { width: clamp(96px, 6vw, 116px); text-align: center; }
+.repo-table td:nth-child(11) { text-align: center; }
 /* Quality coverage pills: fixed to active + one character of breathing room on
    each side; longer rare states still fit, just with less padding. */
 .repo-table td:nth-child(11) .badge {
