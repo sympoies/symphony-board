@@ -119,8 +119,9 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 
 // --- hash route -----------------------------------------------------------
 //
-// The app routes purely on the URL hash (zero-dep): "#/" board, "#/graph"
-// relationship graph, "#/activity" feed, "#/settings". A board card can
+// The app routes purely on the URL hash (zero-dep): no hash / "#/" is the
+// default Activity entry, "#/board" is the full board, "#/graph" relationship
+// graph, "#/activity" feed, "#/settings". A board card can
 // deep-link INTO the graph with a focus target — the item ref encoded as a
 // query on the hash, e.g.
 // "#/graph?focus=<encodeURIComponent(item.id)>". The Graph page seeds its focus
@@ -128,7 +129,7 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 // round-trip is unit-tested; refs contain '|' / ':' / '/' so they MUST be
 // percent-encoded to survive the query.
 export interface HashRoute {
-  page: string; // "" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" (the part before any '?')
+  page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings"
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   q: string | null; // a search token to seed the search bar (narrows the graph)
   source: string | null; // source_id for source-aware Activity / Commits drill-downs

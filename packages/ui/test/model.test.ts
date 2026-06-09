@@ -1012,8 +1012,9 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
   const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, from: null, to: null, preset: null };
-  assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> board, no params");
+  assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
+  assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/graph"), { page: "graph", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/settings"), { page: "settings", ...emptyRoute });
   // focus + q are pulled off the hash and percent-decoded
@@ -1053,6 +1054,7 @@ test("parseHashRoute splits page from optional deep-link and range params", () =
 
 test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.equal(buildHashRoute({ page: "" }), "#/");
+  assert.equal(buildHashRoute({ page: "board" }), "#/board");
   assert.equal(buildHashRoute({ page: "graph", q: "owner/repo #13" }), "#/graph?q=owner%2Frepo%20%2313");
   assert.equal(buildHashRoute({ page: "activity", from: "2026-06-01", to: "2026-06-07", preset: "this-week" }), "#/activity?from=2026-06-01&to=2026-06-07&preset=this-week");
   assert.equal(
@@ -1071,6 +1073,19 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.equal(buildHashRoute({ page: "settings", q: "  " }), "#/settings");
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "", q: "owner/repo #13" })), {
     page: "",
+    source: null,
+    focus: null,
+    q: "owner/repo #13",
+    repo: null,
+    branch: null,
+    kind: null,
+    action: null,
+    from: null,
+    to: null,
+    preset: null,
+  });
+  assert.deepEqual(parseHashRoute(buildHashRoute({ page: "board", q: "owner/repo #13" })), {
+    page: "board",
     source: null,
     focus: null,
     q: "owner/repo #13",

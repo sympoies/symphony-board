@@ -437,6 +437,12 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   gap: 20px;
 }
 .activity-layout > .activity-list { min-width: 0; }
+@media (min-width: 1641px) {
+  .activity-layout { align-items: stretch; }
+  .activity-layout > .activity-list {
+    min-height: var(--activity-rhythm-height, 0px);
+  }
+}
 @media (max-width: 1640px) {
   .activity-layout { grid-template-columns: minmax(0, 960px); }
 }
@@ -452,6 +458,25 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   display: flex; flex-direction: column; gap: 12px;
   padding: 14px 16px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.hm-overview-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.hm-overview-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.2;
+}
+.hm-overview-head small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 .hm-summary {
   display: grid;
@@ -597,20 +622,19 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 .hm-range-head {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  gap: 3px;
   margin-bottom: 10px;
 }
 .hm-range-head h4 {
   margin: 0;
-  color: var(--muted);
+  color: var(--text);
   font-size: 12px;
   font-weight: 700;
 }
 .hm-range-head span {
-  color: var(--text);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .hm-range-summary {
@@ -620,33 +644,37 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .hm-range-repos {
   margin-top: 12px;
 }
-.hm-range-repos-head,
 .hm-range-repos li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 12px;
 }
-.hm-range-repos-head {
-  margin-bottom: 5px;
+.hm-range-repos h5 {
+  margin: 0 0 8px;
   color: var(--muted);
-  font-size: 10px;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 700;
 }
 .hm-range-repos ol {
   list-style: none;
   display: grid;
-  gap: 5px;
+  gap: 8px;
   margin: 0;
   padding: 0;
 }
 .hm-range-repos li {
+  position: relative;
   min-width: 0;
   color: var(--text);
   font-size: 12px;
+  padding-bottom: 2px;
 }
 .hm-range-repos b {
+  align-self: start;
+  color: var(--text);
   font-variant-numeric: tabular-nums;
+  font-size: 13px;
 }
 .hm-range-repo {
   display: flex;
@@ -666,6 +694,23 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.hm-range-repo-bar {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+}
+.hm-range-repo-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--repo-share);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 52%, var(--open));
+  opacity: .72;
 }
 /* Custom cell tooltip: tracks the cursor (fixed, viewport coords), centered just
    above it, and never intercepts the pointer. Replaces the flaky native title. */
