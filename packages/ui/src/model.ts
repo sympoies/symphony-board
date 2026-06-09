@@ -405,6 +405,18 @@ export interface ActivityTrendPoint {
 
 export type ActivityTrendBucket = "hour" | "day" | "week" | "month";
 
+export interface ActivityTrendBusiest {
+  date: string;
+  label: string;
+  count: number;
+}
+
+export interface ActivityTrendRepoCount {
+  source_id: string;
+  project_path: string | null;
+  count: number;
+}
+
 export interface ActivityTrend {
   from: string;
   to: string;
@@ -413,6 +425,9 @@ export interface ActivityTrend {
   total: number;
   maxCount: number;
   maxAverage: number;
+  busiest: ActivityTrendBusiest | null;
+  byKind: ActivityKindCount[];
+  byRepo: ActivityTrendRepoCount[];
 }
 
 // Map a per-nonzero-day count onto a 1..4 intensity using quartile thresholds of
@@ -581,13 +596,26 @@ export function buildActivityTrend(
 ): ActivityTrend {
   const normalized = normalizeTimeRange(range);
   if (!normalized) {
-    return { from: range.from, to: range.to, bucket: "day", points: [], total: 0, maxCount: 0, maxAverage: 0 };
+    return {
+      from: range.from,
+      to: range.to,
+      bucket: "day",
+      points: [],
+      total: 0,
+      maxCount: 0,
+      maxAverage: 0,
+      busiest: null,
+      byKind: [],
+      byRepo: [],
+    };
   }
 
   const days = daysBetween(normalized.from, normalized.to) + 1;
   const bucket: ActivityTrendBucket = days <= 1 ? "hour" : days <= 31 ? "day" : days <= 120 ? "week" : "month";
   const buckets = activityTrendBuckets(normalized, bucket);
   const countByKey = new Map<string, number>();
+  const kindCounts = new Map<string, number>();
+  const repoCounts = new Map<string, ActivityTrendRepoCount>();
   let total = 0;
   for (const a of activities) {
     const ms = timestampMs(a.occurred_at);
@@ -596,6 +624,15 @@ export function buildActivityTrend(
     if (day < normalized.from || day > normalized.to) continue;
     const key = activityTrendBucketKey(day, ms, normalized, bucket, tz);
     countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    kindCounts.set(a.kind, (kindCounts.get(a.kind) ?? 0) + 1);
+    const repoCountKey = repoKey(a.source_id, a.project_path);
+    const repoCount = repoCounts.get(repoCountKey) ?? {
+      source_id: a.source_id,
+      project_path: a.project_path,
+      count: 0,
+    };
+    repoCount.count += 1;
+    repoCounts.set(repoCountKey, repoCount);
     total += 1;
   }
 
@@ -603,8 +640,12 @@ export function buildActivityTrend(
 
   let maxCount = 0;
   let maxAverage = 0;
+  let busiest: ActivityTrendBusiest | null = null;
   const points = raw.map((point, index) => {
     maxCount = Math.max(maxCount, point.count);
+    if (point.count > (busiest?.count ?? 0)) {
+      busiest = { date: point.date, label: point.label, count: point.count };
+    }
     const radius = bucket === "day" ? 2 : 1;
     const start = Math.max(0, index - radius);
     const end = Math.min(raw.length, index + radius + 1);
@@ -614,7 +655,18 @@ export function buildActivityTrend(
     return { date: point.date, label: point.label, count: point.count, average };
   });
 
-  return { from: normalized.from, to: normalized.to, bucket, points, total, maxCount, maxAverage };
+  const byKind = [...kindCounts.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
+
+  const byRepo = [...repoCounts.values()].sort(
+    (a, b) =>
+      b.count - a.count ||
+      (a.project_path ?? "").localeCompare(b.project_path ?? "") ||
+      a.source_id.localeCompare(b.source_id),
+  );
+
+  return { from: normalized.from, to: normalized.to, bucket, points, total, maxCount, maxAverage, busiest, byKind, byRepo };
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;

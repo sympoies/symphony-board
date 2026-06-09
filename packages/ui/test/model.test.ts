@@ -1249,10 +1249,10 @@ test("buildActivityHeatmap buckets days in the configured timezone", () => {
 test("buildActivityTrend returns daily points and a smoothed activity average", () => {
   const trend = buildActivityTrend(
     [
-      activity({ id: "d1", occurred_at: "2026-06-01T12:00:00Z" }),
-      activity({ id: "d2a", occurred_at: "2026-06-02T12:00:00Z" }),
-      activity({ id: "d2b", occurred_at: "2026-06-02T13:00:00Z" }),
-      activity({ id: "out", occurred_at: "2026-06-05T12:00:00Z" }),
+      activity({ id: "d1", occurred_at: "2026-06-01T12:00:00Z", project_path: "owner/quiet" }),
+      activity({ id: "d2a", occurred_at: "2026-06-02T12:00:00Z", kind: "commit", project_path: "owner/busy" }),
+      activity({ id: "d2b", occurred_at: "2026-06-02T13:00:00Z", kind: "commit", project_path: "owner/busy" }),
+      activity({ id: "out", occurred_at: "2026-06-05T12:00:00Z", project_path: "owner/out" }),
     ],
     { from: "2026-06-01", to: "2026-06-04" },
   );
@@ -1272,6 +1272,15 @@ test("buildActivityTrend returns daily points and a smoothed activity average", 
   );
   assert.equal(trend.points[1]?.average, 0.75);
   assert.equal(trend.maxAverage, 1);
+  assert.deepEqual(trend.busiest, { date: "2026-06-02", label: "2026-06-02", count: 2 });
+  assert.deepEqual(trend.byKind, [
+    { kind: "commit", count: 2 },
+    { kind: "issue", count: 1 },
+  ]);
+  assert.deepEqual(trend.byRepo, [
+    { source_id: "github:github.com", project_path: "owner/busy", count: 2 },
+    { source_id: "github:github.com", project_path: "owner/quiet", count: 1 },
+  ]);
 });
 
 test("buildActivityTrend uses hourly buckets for a single selected day", () => {
@@ -1291,6 +1300,7 @@ test("buildActivityTrend uses hourly buckets for a single selected day", () => {
   assert.equal(trend.points[0]?.count, 1);
   assert.equal(trend.points[13]?.count, 2);
   assert.equal(trend.total, 3);
+  assert.deepEqual(trend.busiest, { date: "2026-06-10T13", label: "13:00", count: 2 });
 });
 
 test("buildActivityTrend rolls longer ranges up to weekly buckets", () => {

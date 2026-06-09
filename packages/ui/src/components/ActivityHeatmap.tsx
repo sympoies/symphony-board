@@ -3,8 +3,9 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import {
   buildActivityHeatmap,
   buildActivityTrend,
+  sourceDisplayName,
+  type ActivityTrend,
   type ActivityTrendBucket,
-  type ActivityTrendPoint,
   type HeatmapCell,
   type TimeRange,
 } from "../model.ts";
@@ -58,36 +59,33 @@ function bucketLabel(bucket: ActivityTrendBucket): string {
   return bucket === "hour" ? "hour" : bucket === "day" ? "day" : bucket === "week" ? "week" : "month";
 }
 
+function rangeLabel(from: string, to: string): string {
+  return from === to ? from : `${from} to ${to}`;
+}
+
 function ActivityTrendChart({
-  points,
-  bucket,
-  total,
-  maxCount,
-  maxAverage,
-  from,
-  to,
+  trend,
 }: {
-  points: ActivityTrendPoint[];
-  bucket: ActivityTrendBucket;
-  total: number;
-  maxCount: number;
-  maxAverage: number;
-  from: string;
-  to: string;
+  trend: ActivityTrend;
 }) {
+  const { points, bucket, total, maxCount, maxAverage, from, to } = trend;
   const maxY = Math.max(1, maxCount, maxAverage);
   const linePoints = points.map((point, index) => trendCoord(index, points.length, maxY, point.average));
   const rawPoints = points.map((point, index) => trendCoord(index, points.length, maxY, point.count));
   const path = smoothPath(linePoints);
   const dotStep = Math.max(1, Math.ceil(points.length / 120));
   const byLabel = bucketLabel(bucket);
+  const selectedRange = rangeLabel(from, to);
   const axisStart = points[0]?.label ?? from;
   const axisEnd = points.at(-1)?.label ?? to;
 
   return (
     <section className="hm-trend" aria-label="Selected range activity trend" data-bucket={bucket}>
       <div className="hm-trend-head">
-        <span>Selected range activity by {byLabel}</span>
+        <span>
+          Selected range activity by {byLabel}
+          <small>{selectedRange}</small>
+        </span>
         <b>{total.toLocaleString()} events</b>
       </div>
       <svg className="hm-trend-chart" viewBox={`0 0 ${TREND_W} ${TREND_H}`} role="img">
@@ -119,6 +117,62 @@ function ActivityTrendChart({
   );
 }
 
+function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
+  const selectedRange = rangeLabel(trend.from, trend.to);
+  const byLabel = bucketLabel(trend.bucket);
+  const topRepos = trend.byRepo.slice(0, 5);
+  const items = [
+    { label: "events", value: trend.total.toLocaleString(), detail: selectedRange },
+    ...(trend.busiest
+      ? [{ label: `busiest ${byLabel}`, value: trend.busiest.count.toLocaleString(), detail: trend.busiest.label }]
+      : []),
+    ...trend.byKind.slice(0, 4).map((k) => ({
+      label: formatKind(k.kind),
+      value: k.count.toLocaleString(),
+      detail: "events",
+    })),
+  ];
+
+  return (
+    <section className="hm-range" aria-label="Selected range activity summary">
+      <div className="hm-range-head">
+        <h4>Selected range summary</h4>
+        <span>{selectedRange}</span>
+      </div>
+      <dl className="hm-summary hm-range-summary">
+        {items.map((item) => (
+          <div key={`${item.label}-${item.detail}`}>
+            <dt>{item.label}</dt>
+            <dd>
+              {item.value}
+              <small>{item.detail}</small>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {topRepos.length > 0 ? (
+        <div className="hm-range-repos">
+          <div className="hm-range-repos-head">
+            <span>Repos</span>
+            <span>events</span>
+          </div>
+          <ol>
+            {topRepos.map((repo) => (
+              <li key={`${repo.source_id}-${repo.project_path ?? ""}`}>
+                <span className="hm-range-repo">
+                  <span className="hm-range-repo-name">{repo.project_path ?? "(no project)"}</span>
+                  <small>{sourceDisplayName(repo.source_id) || repo.source_id}</small>
+                </span>
+                <b>{repo.count.toLocaleString()}</b>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function ActivityHeatmap({
   activities,
   trendActivities,
@@ -139,6 +193,7 @@ export function ActivityHeatmap({
 
   if (hm.total === 0) return null;
 
+  const heatmapRange = rangeLabel(hm.from, hm.to);
   const hasRange = Boolean(range.from) && Boolean(range.to) && range.from <= range.to;
   const inSelectedRange = (date: string) => hasRange && date >= range.from && date <= range.to;
   const summary = [
@@ -169,7 +224,7 @@ export function ActivityHeatmap({
 
       <div className="hm-head">
         <h3>Activity rhythm</h3>
-        <span className="muted">last 12 months</span>
+        <span className="muted">last 12 months · {heatmapRange}</span>
       </div>
 
       <div className="hm-calendar-scroll">
@@ -223,15 +278,8 @@ export function ActivityHeatmap({
         </div>
       </div>
 
-      <ActivityTrendChart
-        points={trend.points}
-        bucket={trend.bucket}
-        total={trend.total}
-        maxCount={trend.maxCount}
-        maxAverage={trend.maxAverage}
-        from={trend.from}
-        to={trend.to}
-      />
+      <ActivityTrendChart trend={trend} />
+      <ActivityRangeSummary trend={trend} />
 
       {tip ? (
         <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>
