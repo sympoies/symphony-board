@@ -211,6 +211,15 @@ export function RepoAnalyticsPage({
       ) : (
         <div className="repo-table-wrap">
           <table className="repo-table">
+            <colgroup>
+              <col className="repo-table-col-repo" />
+              <col className="repo-table-col-trend" />
+              {Array.from({ length: 8 }, (_, index) => (
+                <col key={index} className="repo-table-col-metric" />
+              ))}
+              <col className="repo-table-col-quality" />
+              <col className="repo-table-col-actors" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Repo</th>
