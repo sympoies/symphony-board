@@ -108,6 +108,12 @@ export function zonedWeekday(ms: number, tz: string): number {
   return new Date(Date.UTC(wc.year, wc.month - 1, wc.day)).getUTCDay();
 }
 
+// Hour of day (0-23) of the instant as seen in `tz`.
+export function zonedHour(ms: number, tz: string): number {
+  if (tz === "UTC") return new Date(ms).getUTCHours();
+  return wallClockOf(ms, tz).hour;
+}
+
 // UTC ISO instant for the START of local day `dateStr` (00:00:00.000) in `tz`.
 export function zonedDayStartIso(dateStr: string, tz: string): string {
   if (tz === "UTC") return `${dateStr}T00:00:00.000Z`;

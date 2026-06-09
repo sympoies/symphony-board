@@ -12,7 +12,7 @@ import type {
   RepoMetricDTO,
 } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
-import { zonedDateOnly, zonedWeekday, zonedDayStartIso, zonedDayEndIso, shiftDateOnly } from "./tz.ts";
+import { zonedDateOnly, zonedWeekday, zonedHour, zonedDayStartIso, zonedDayEndIso, shiftDateOnly } from "./tz.ts";
 
 // The board buckets calendar days in this IANA zone (from the contract's
 // `timezone`, defaulting to UTC). Threaded through the time-range presets,
@@ -396,6 +396,25 @@ export interface ActivityHeatmap {
   byKind: ActivityKindCount[]; // descending, ties broken by kind name
 }
 
+export interface ActivityTrendPoint {
+  date: string;
+  label: string;
+  count: number;
+  average: number;
+}
+
+export type ActivityTrendBucket = "hour" | "day" | "week" | "month";
+
+export interface ActivityTrend {
+  from: string;
+  to: string;
+  bucket: ActivityTrendBucket;
+  points: ActivityTrendPoint[];
+  total: number;
+  maxCount: number;
+  maxAverage: number;
+}
+
 // Map a per-nonzero-day count onto a 1..4 intensity using quartile thresholds of
 // the observed nonzero counts. Empty days are level 0. Thresholds derive from the
 // data (not fixed) so a quiet repo and a busy one each get a usable spread.
@@ -479,6 +498,123 @@ export function buildActivityHeatmap(
     .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
 
   return { weeks, monthLabels, from: startKey, to: today, total, maxCount, busiest, byKind };
+}
+
+function dateOnlyUtcMs(date: string): number {
+  const parts = date.split("-");
+  return Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.max(0, Math.round((dateOnlyUtcMs(to) - dateOnlyUtcMs(from)) / DAY_MS));
+}
+
+function padHour(hour: number): string {
+  return String(hour).padStart(2, "0");
+}
+
+function firstOfNextMonth(date: string): string {
+  const parts = date.split("-");
+  return new Date(Date.UTC(Number(parts[0]), Number(parts[1]), 1)).toISOString().slice(0, 10);
+}
+
+function monthBucketStart(date: string, rangeFrom: string): string {
+  if (date <= rangeFrom) return rangeFrom;
+  const first = `${date.slice(0, 7)}-01`;
+  return first < rangeFrom ? rangeFrom : first;
+}
+
+function activityTrendBuckets(
+  range: TimeRange,
+  bucket: ActivityTrendBucket,
+): Array<{ key: string; date: string; label: string }> {
+  if (bucket === "hour") {
+    return Array.from({ length: 24 }, (_, hour) => {
+      const label = `${padHour(hour)}:00`;
+      return { key: `${range.from}T${padHour(hour)}`, date: `${range.from}T${padHour(hour)}`, label };
+    });
+  }
+
+  if (bucket === "day") {
+    const out: Array<{ key: string; date: string; label: string }> = [];
+    for (let date = range.from; date <= range.to; date = shiftDateOnly(date, 1)) {
+      out.push({ key: date, date, label: date });
+    }
+    return out;
+  }
+
+  if (bucket === "week") {
+    const out: Array<{ key: string; date: string; label: string }> = [];
+    for (let date = range.from; date <= range.to; date = shiftDateOnly(date, 7)) {
+      out.push({ key: date, date, label: date });
+    }
+    return out;
+  }
+
+  const out: Array<{ key: string; date: string; label: string }> = [];
+  for (let date = range.from; date <= range.to; date = firstOfNextMonth(date)) {
+    out.push({ key: date, date, label: date.slice(0, 7) });
+  }
+  return out;
+}
+
+function activityTrendBucketKey(
+  day: string,
+  ms: number,
+  range: TimeRange,
+  bucket: ActivityTrendBucket,
+  tz: string,
+): string {
+  if (bucket === "hour") return `${day}T${padHour(zonedHour(ms, tz))}`;
+  if (bucket === "day") return day;
+  if (bucket === "week") {
+    const bucketOffset = Math.floor(daysBetween(range.from, day) / 7) * 7;
+    return shiftDateOnly(range.from, bucketOffset);
+  }
+  return monthBucketStart(day, range.from);
+}
+
+export function buildActivityTrend(
+  activities: readonly ActivityDTO[],
+  range: TimeRange,
+  tz: string = DEFAULT_TIMEZONE,
+): ActivityTrend {
+  const normalized = normalizeTimeRange(range);
+  if (!normalized) {
+    return { from: range.from, to: range.to, bucket: "day", points: [], total: 0, maxCount: 0, maxAverage: 0 };
+  }
+
+  const days = daysBetween(normalized.from, normalized.to) + 1;
+  const bucket: ActivityTrendBucket = days <= 1 ? "hour" : days <= 31 ? "day" : days <= 120 ? "week" : "month";
+  const buckets = activityTrendBuckets(normalized, bucket);
+  const countByKey = new Map<string, number>();
+  let total = 0;
+  for (const a of activities) {
+    const ms = timestampMs(a.occurred_at);
+    if (ms === null) continue;
+    const day = zonedDateOnly(ms, tz);
+    if (day < normalized.from || day > normalized.to) continue;
+    const key = activityTrendBucketKey(day, ms, normalized, bucket, tz);
+    countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    total += 1;
+  }
+
+  const raw = buckets.map((point) => ({ ...point, count: countByKey.get(point.key) ?? 0 }));
+
+  let maxCount = 0;
+  let maxAverage = 0;
+  const points = raw.map((point, index) => {
+    maxCount = Math.max(maxCount, point.count);
+    const radius = bucket === "day" ? 2 : 1;
+    const start = Math.max(0, index - radius);
+    const end = Math.min(raw.length, index + radius + 1);
+    const sum = raw.slice(start, end).reduce((acc, next) => acc + next.count, 0);
+    const average = raw.length > 1 ? sum / (end - start) : point.count;
+    maxAverage = Math.max(maxAverage, average);
+    return { date: point.date, label: point.label, count: point.count, average };
+  });
+
+  return { from: normalized.from, to: normalized.to, bucket, points, total, maxCount, maxAverage };
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;
