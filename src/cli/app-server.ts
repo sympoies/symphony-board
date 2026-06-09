@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+// Standalone app server: everything the Docker stack runs, in ONE process. It is
+// the writer-owned loop daemon (sync + emit cadence, manual-run control surface)
+// AND the read-only HTTP surface the UI consumes (/contract.json + /api/range).
+// The desktop-standalone app spawns this as its bundled sidecar; it also works
+// for any single-process, no-Docker deployment.
+//
+// The sole-writer rule survives the merge: the SyncController still owns the
+// single writer slot, and every /api/range request opens the SQLite store
+// read-only and closes it before returning (src/server/range.ts). What nginx
+// proxies apart in the Docker stack is here just routes on one server.
+//
+// The config is re-read on every scheduled run, manual run, and request, so the
+// user can edit sources.json (or drop it in on first run) without restarting
+// the app; a broken config fails that run/request with its message instead of
+// crashing the daemon.
+//
+// Env: HOST (default 127.0.0.1 — loopback only; the desktop shell is the
+// intended client), PORT (default 8787), INTERVAL (seconds, default 120),
+// FULL_EVERY (full sweep every Nth iteration, default 30), SYMPHONY_CONFIG
+// (default config/sources.json, resolved from the working directory — the
+// desktop app sets cwd to its data dir), CONTRACT_OUT (default
+// data/contract.json), SYNC_CONTROL_ENABLED (default ON here, unlike the Docker
+// daemon: the standalone app is a same-user local deployment; set 0 to disable).
+
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import type { AppConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
+import { runConfiguredSync } from "../sync-runner.ts";
+import {
+  SyncController,
+  handleControlRequest,
+  runLoop,
+  sourceOptions,
+  type ControlContext,
+} from "./sync-daemon.ts";
+import { handleRangeRequest } from "../server/range.ts";
+import { log } from "../log.ts";
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.end(JSON.stringify(body) + "\n");
+}
+
+// Serve the daemon-emitted contract file (the nginx `location = /contract.json`
+// role). 404 until the first emit — the UI shows its load error and the user can
+// trigger or await a sync.
+function serveContract(res: ServerResponse, contractPath: string): void {
+  let body: Buffer;
+  try {
+    body = readFileSync(contractPath);
+  } catch {
+    sendJson(res, 404, { error: "no_contract", message: "no contract emitted yet" });
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.end(body);
+}
+
+export interface AppServerOptions {
+  configPath: string | null;
+  contractOut: string;
+  controlEnabled: boolean;
+  intervalSeconds: number;
+  fullEvery: number;
+}
+
+// Build the unified HTTP server (not yet listening). Exported so tests can
+// drive it on an ephemeral port with an injected controller.
+export function createAppServer(controller: SyncController, opts: AppServerOptions): Server {
+  // Fresh config per use, so edits apply without a restart. Throws with the
+  // config error; each route maps that to its own failure surface.
+  const freshConfig = (): AppConfig => loadConfig(opts.configPath).cfg;
+
+  const controlCtx = (): ControlContext => {
+    let sources: ControlContext["sources"] = [];
+    try {
+      sources = sourceOptions(freshConfig());
+    } catch {
+      // Missing/broken config: the control surface stays up with no source
+      // scopes; runs started against it report the config error as their result.
+    }
+    return {
+      controlEnabled: opts.controlEnabled,
+      sources,
+      intervalSeconds: opts.intervalSeconds,
+      fullEvery: opts.fullEvery,
+    };
+  };
+
+  const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    const method = req.method ?? "GET";
+    const path = url.pathname;
+
+    if (method === "GET" && path === "/contract.json") {
+      serveContract(res, opts.contractOut);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/range") {
+      let cfg: AppConfig;
+      try {
+        cfg = freshConfig();
+      } catch (err) {
+        sendJson(res, 500, { error: "config_error", message: (err as Error).message });
+        return;
+      }
+      handleRangeRequest(cfg, url, res);
+      return;
+    }
+
+    // /healthz, /api/sync-control, /api/sync-runs* and the 404 fallback all
+    // live in the shared control handler.
+    await handleControlRequest(controller, controlCtx(), req, res);
+  };
+
+  return createServer((req, res) => {
+    void handle(req, res).catch((err: unknown) => {
+      sendJson(res, 500, { error: "internal_error", message: (err as Error).message });
+    });
+  });
+}
+
+function envFlag(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) return defaultValue;
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+function main(): void {
+  const configPath = process.env.SYMPHONY_CONFIG ?? null;
+  const opts: AppServerOptions = {
+    configPath,
+    contractOut: process.env.CONTRACT_OUT ?? "data/contract.json",
+    controlEnabled: envFlag("SYNC_CONTROL_ENABLED", true),
+    intervalSeconds: Math.max(1, Number(process.env.INTERVAL ?? "120") || 120),
+    fullEvery: Math.max(1, Number(process.env.FULL_EVERY ?? "30") || 30),
+  };
+  const port = Number(process.env.PORT ?? "8787") || 8787;
+  const host = process.env.HOST ?? "127.0.0.1";
+
+  const controller = new SyncController({
+    run: (req) => {
+      const { cfg } = loadConfig(configPath);
+      return runConfiguredSync(cfg, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, opts.contractOut);
+    },
+  });
+
+  const server = createAppServer(controller, opts);
+  server.listen(port, host, () => {
+    log.info(
+      `[app] standalone server on ${host}:${port} (manual sync ${opts.controlEnabled ? "ENABLED" : "disabled"}), config ${configPath ?? "config/sources.json"} -> ${opts.contractOut}`,
+    );
+  });
+
+  const aborter = new AbortController();
+  const shutdown = (sig: string) => {
+    log.info(`[app] ${sig} received; shutting down`);
+    aborter.abort();
+    server.close();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  void runLoop(controller, { intervalMs: opts.intervalSeconds * 1000, fullEvery: opts.fullEvery, signal: aborter.signal }).then(() => {
+    server.close();
+    process.exit(0);
+  });
+}
+
+// Only run when invoked directly (node src/cli/app-server.ts), so tests can
+// import createAppServer without side effects.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main();
+}

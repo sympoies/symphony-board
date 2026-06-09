@@ -1,0 +1,16 @@
+{
+  "name": "@symphony-board/desktop-standalone",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Fully self-contained macOS app: the symphony-board UI plus the bundled Node sync daemon, SQLite store, and contract server. No Docker, no external server.",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug",
+    "info": "tauri info"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2"
+  }
+}

@@ -78,7 +78,10 @@ UI from that contract.
   `--with-tests` only when the skill owns code.
 - Existing skills: `project-devlog` (append a development-log entry);
   `project-actor-identities` (scan canonical actors and update
-  `config/sources.json` `identities` / `exclude_actors`).
+  `config/sources.json` `identities` / `exclude_actors`);
+  `project-rebuild-open-app` (rebuild/install/open the thin macOS app);
+  `project-rebuild-open-standalone-app` (rebuild/install/open the standalone
+  macOS app with the bundled sync daemon).
 
 ## Agent helper scripts
 
@@ -95,4 +98,7 @@ Quick, read-only lookups in `scripts/` (no build — just run); see
 ## Target
 
 - Contract + read-only UI are the product surface.
-- The Docker loop daemon is the sole writer (no external cron, no second writer).
+- One writer per SQLite store (no external cron, no second writer): the Docker
+  loop daemon for the compose deployment, or the standalone app's bundled
+  `app-server` sidecar for its own per-user store
+  (`packages/desktop-standalone`).

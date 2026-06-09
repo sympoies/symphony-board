@@ -17,8 +17,13 @@ out/
 
 # Build output.
 dist/
+dist-standalone/
 target/
 packages/desktop/src-tauri/gen/
+packages/desktop-standalone/src-tauri/gen/
+
+# Node runtime copied in as the standalone app's bundled sidecar.
+packages/desktop-standalone/src-tauri/binaries/
 
 # Local coverage output (regenerate with `pnpm coverage`). The published badge
 # lives on the `coverage-badge` orphan branch, not in the working tree.
