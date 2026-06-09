@@ -426,7 +426,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
 /* --- Activity heatmap (trailing 12 months) --- */
 .activity-heatmap {
-  --hm-cell: 13px;
+  --hm-cell: 12px;
   --hm-gap: 3px;
   --hm-step: calc(var(--hm-cell) + var(--hm-gap));
   --hm-weekday-w: 28px;
@@ -462,6 +462,16 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .hm-cell[data-level="2"] { background: color-mix(in srgb, var(--open) 52%, var(--panel)); }
 .hm-cell[data-level="3"] { background: color-mix(in srgb, var(--open) 76%, var(--panel)); }
 .hm-cell[data-level="4"] { background: var(--open); }
+/* Selected-range overlay: the feed's range picker tints its matching cells blue
+   (--accent) over the green ramp, so the two views read as linked. Mirrors the
+   same 5-level density mix (deeper = busier) one hue over; level 0 keeps a faint
+   tint so an empty selected day still reads as part of the highlighted block. The
+   two-attribute selector outranks the single-attribute green rules above. */
+.hm-cell[data-in-range][data-level="0"] { background: color-mix(in srgb, var(--accent) 16%, var(--panel-2)); }
+.hm-cell[data-in-range][data-level="1"] { background: color-mix(in srgb, var(--accent) 28%, var(--panel)); }
+.hm-cell[data-in-range][data-level="2"] { background: color-mix(in srgb, var(--accent) 52%, var(--panel)); }
+.hm-cell[data-in-range][data-level="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--panel)); }
+.hm-cell[data-in-range][data-level="4"] { background: var(--accent); }
 .hm-cell-empty { background: transparent; }
 .hm-legend {
   display: flex; align-items: center; gap: 4px; margin-left: var(--hm-weekday-w);

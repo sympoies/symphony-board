@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { buildActivityHeatmap } from "../model.ts";
+import { buildActivityHeatmap, type TimeRange } from "../model.ts";
 
 // The 12-month strip is split into BLOCKS stacked horizontal sub-grids (weeks as
 // columns left→right, days as rows). Splitting the year keeps the calendar wider
@@ -12,18 +12,37 @@ const LEVELS = [0, 1, 2, 3, 4] as const;
 
 // One cell's hover label. A custom tooltip renders this instead of the native
 // `title` attribute — `title` only appears after a dwell, dismisses on its own,
-// and is easy to miss on 13px cells, so it felt all-or-nothing.
+// and is easy to miss on 12px cells, so it felt all-or-nothing.
 const cellTip = (cell: { date: string; count: number }) =>
   `${cell.date} · ${cell.count.toLocaleString()} ${cell.count === 1 ? "event" : "events"}`;
 
 // A trailing-12-month activity calendar that fills the empty rail beside the
-// Activity feed. Read-only: density comes purely from `occurred_at`, decoupled
-// from the feed's range picker so the long-term rhythm stays put while filtering.
-export function ActivityHeatmap({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
+// Activity feed. Read-only: density comes purely from `occurred_at` over a fixed
+// window, so the long-term rhythm stays put while filtering. The feed's selected
+// range only tints the matching cells (a visual overlay) — it never reshapes the
+// underlying data, so the rhythm stays comparable across different ranges.
+export function ActivityHeatmap({
+  activities,
+  timezone,
+  range,
+}: {
+  activities: ActivityDTO[];
+  timezone: string;
+  range: TimeRange;
+}) {
   const hm = useMemo(() => buildActivityHeatmap(activities, Date.now(), timezone), [activities, timezone]);
   const [tip, setTip] = useState<{ label: string; x: number; y: number } | null>(null);
 
   if (hm.total === 0) return null;
+
+  // Tint the cells inside the feed's selected range a distinct blue, layered over
+  // the green density ramp, so the range picker and this overview read as linked.
+  // `range.from`/`range.to` and `cell.date` are all fixed-width YYYY-MM-DD in the
+  // contract timezone, so a plain string compare is a calendar-date compare. Only
+  // the overlap with the rendered window lights up; a range fully outside it tints
+  // nothing (its cells were never rendered) — no error, no out-of-range invention.
+  const hasRange = Boolean(range.from) && Boolean(range.to) && range.from <= range.to;
+  const inSelectedRange = (date: string) => hasRange && date >= range.from && date <= range.to;
 
   // Split the weeks into BLOCKS equal stacked sub-grids; re-base each block's
   // month labels to its own first column.
@@ -76,6 +95,7 @@ export function ActivityHeatmap({ activities, timezone }: { activities: Activity
                           key={cell.date}
                           className="hm-cell"
                           data-level={cell.level}
+                          data-in-range={inSelectedRange(cell.date) || undefined}
                           onMouseEnter={(e) => setTip({ label: cellTip(cell), x: e.clientX, y: e.clientY })}
                           onMouseMove={(e) => setTip({ label: cellTip(cell), x: e.clientX, y: e.clientY })}
                         />

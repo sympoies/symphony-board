@@ -444,6 +444,23 @@ try {
     expression: "document.querySelectorAll('.activity-row').length",
     returnByValue: true,
   })).result.value || 0;
+  // The rhythm heatmap tints the cells inside the feed's selected range (default
+  // "this week") a distinct blue over the green density ramp. Count grid cells
+  // (excluding the legend) vs the in-range subset to prove the overlay renders and
+  // stays scoped to the range — not the whole grid. Guarded by `present` so this
+  // no-ops if the sample contract ever ages past the trailing-12-month window.
+  const activityHeatmap = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const heatmap = document.querySelector('.activity-heatmap');
+      if (!heatmap) return { present: false, total: 0, inRange: 0 };
+      return {
+        present: true,
+        total: heatmap.querySelectorAll('.hm-grid .hm-cell:not(.hm-cell-empty)').length,
+        inRange: heatmap.querySelectorAll('.hm-grid .hm-cell[data-in-range]').length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { present: false, total: 0, inRange: 0 };
   // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
@@ -821,6 +838,7 @@ try {
     [has(activityHtml, "change request #13") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
     [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
+    [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],
