@@ -658,6 +658,19 @@ try {
   const repoHtml = await waitHtml("document.querySelector('.repo-table tbody tr')");
   const repoRangeButtons = await rangeButtonLabels();
   const repoCountText = await textOf(".repo-analytics-head .count");
+  const repoQualityBadgeLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const badges = Array.from(document.querySelectorAll('.repo-table td:nth-child(11) .badge'));
+      const widths = badges.map((el) => Math.round(el.getBoundingClientRect().width));
+      return {
+        count: badges.length,
+        maxWidth: widths.length ? Math.max(...widths) : 0,
+        sameWidth: widths.every((width) => Math.abs(width - widths[0]) <= 1),
+        texts: badges.map((el) => el.textContent?.trim() || ''),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // Page 5 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -878,6 +891,7 @@ try {
     [has(repoHtml, "Activity") && has(repoHtml, "Commits"), "repo analytics: activity and commits columns rendered"],
     [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
+    [repoQualityBadgeLayout.count >= 1 && repoQualityBadgeLayout.sameWidth === true && repoQualityBadgeLayout.maxWidth <= 56, `repo analytics: quality badges use one compact active-sized width (${repoQualityBadgeLayout.maxWidth || 0}px, ${repoQualityBadgeLayout.texts?.join(", ") || "none"})`],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],
     // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
     // (2.5.0) rather than the old earliest-observed "since" timestamp.
