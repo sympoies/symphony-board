@@ -894,17 +894,16 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   z-index: 1;
 }
 .repo-table tbody tr:last-child td { border-bottom: none; }
-/* Repo is the one flexible column: it has no fixed width, so under fixed table
-   layout it absorbs all the space left after the other fixed columns. That keeps
-   repo paths from truncating and routes surplus on a wide screen to the name. */
+/* Wide screens should not route spare pixels into the repo name. Keep the fixed
+   fields readable and let the variable actor list fill the remaining width. */
 .repo-table th:first-child,
-.repo-table td:first-child { text-align: left; }
+.repo-table td:first-child { width: clamp(340px, 24vw, 460px); text-align: left; }
 .repo-table th:nth-child(2),
-.repo-table td:nth-child(2) { width: 150px; }
+.repo-table td:nth-child(2) { width: clamp(140px, 10vw, 220px); }
 .repo-table th:nth-child(n+3):nth-child(-n+10),
-.repo-table td:nth-child(n+3):nth-child(-n+10) { width: 92px; }
+.repo-table td:nth-child(n+3):nth-child(-n+10) { width: clamp(88px, 5.2vw, 108px); }
 .repo-table th:nth-child(11),
-.repo-table td:nth-child(11) { width: 104px; text-align: center; }
+.repo-table td:nth-child(11) { width: clamp(96px, 6vw, 116px); text-align: center; }
 /* Quality coverage pills: fixed to active + one character of breathing room on
    each side; longer rare states still fit, just with less padding. */
 .repo-table td:nth-child(11) .badge {
@@ -914,7 +913,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   text-align: center;
 }
 .repo-table th:nth-child(12),
-.repo-table td:nth-child(12) { width: 260px; text-align: left; }
+.repo-table td:nth-child(12) { min-width: 240px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
 .repo-name-cell { overflow: hidden; }
 .repo-name-main {
