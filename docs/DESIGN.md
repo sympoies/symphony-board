@@ -2,7 +2,7 @@
 
 This is the current design record for `symphony-board`. It records the stable
 architecture and operating decisions after the baseline product path shipped:
-GitHub/GitLab sources, canonical SQLite store, contract major v2, read-only UI,
+GitHub/GitLab sources, canonical SQLite store, contract major v3, read-only UI,
 and Docker writer/reader deployment.
 
 Historical validation runs, PR numbers, and one-off investigation details live
@@ -280,6 +280,16 @@ label, and activity rows. Provider-specific fields that are not already
 normalized remain represented as nullable signals, open count maps, or
 data-quality notes rather than new stable raw-payload dependencies.
 
+Version `2.2.1` clarified review activity ingestion without changing the
+contract shape. Review rows use the existing open `activities[].kind` vocabulary
+(`review`), and `repo_metrics[].totals.reviews` / `approvals` are event counts,
+not current item-state counts.
+
+Version `2.3.0` added canonical actor identity to
+`repo_metrics[].top_actors[]`. Actor rows group by stable non-PII `actor_key`
+and render `display_name` / `aliases`, while the original `actor` field remains
+a backward-compatible display value.
+
 Version `2.4.0` added optional `activity_score` to the repo metric stats shape.
 It is a weighted, range-scoped activity signal over commits, opened issues,
 opened and merged change requests, comments, reviews, and approvals. It
@@ -299,6 +309,11 @@ derives the Repo Analytics coverage badge from the surviving
 `activity_available` / `observed_since` / `last_activity_at` fields against the
 metric window — see `repoCoverage` in `packages/ui/src/model.ts`. Removing a
 field is breaking, hence the major bump.
+
+Version `3.1.0` added envelope-level `timezone` metadata for calendar-day
+bucketing and relaxed `range_query.timezone` to the configured IANA timezone
+instead of the old `"UTC"` literal. Version `3.1.1` then aligned repo metric day
+/ week / month series buckets to that same timezone.
 
 Version `3.2.0` adds optional nullable `repo_metrics[].repo_url`. Provider link
 construction stays in the producer layer so Repo Analytics can link row labels

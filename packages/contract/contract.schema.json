@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sympoies.dev/symphony-board/contract/v2.json",
+  "$id": "https://sympoies.dev/symphony-board/contract/v3.json",
   "title": "symphony-board contract envelope",
   "description": "LAYER 3: the versioned projection of the canonical store, serialized for consumers (UI, external tools). Derived from the DB; never the DB schema itself. Versioning rules: additive-by-default within a major (new fields optional/nullable, never repurpose/remove); breaking changes bump `contract_version` major. Producers validate strictly against this schema; CONSUMERS MUST ignore unknown fields (be liberal in what you accept) so a minor addition never breaks an old reader.",
   "type": "object",

@@ -124,8 +124,9 @@ The backend test suite covers deterministic logic and SQLite behavior:
 
 The UI test suite covers view-model and localStorage behavior. The UI
 render-smoke builds the app, opens it in headless Chrome, and asserts that the
-Board, Graph, Settings, deep-link search, configured colors, and graph focus
-path render without console errors.
+Board, Graph, Activity, Commits, Repo Analytics, Settings, deep-link search,
+configured colors, graph focus, range controls, and manual-sync affordances
+render without console errors.
 
 `pnpm coverage` measures backend `.ts` files plus UI `.ts` logic. It
 intentionally excludes React `.tsx` from the percentage because bundled browser

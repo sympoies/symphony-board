@@ -95,7 +95,8 @@ Version `2.1.0` added optional range-query metadata:
 - `RangeQueryDTO`
 
 Static emits usually omit `range_query`. Read-only `/api/range` responses set it
-and return a windowed envelope for the requested UTC date range.
+and return a windowed envelope for the requested date range, expanded at the
+contract's configured timezone.
 
 Version `2.2.0` added optional repo analytics rows:
 
@@ -107,6 +108,13 @@ Version `2.2.0` added optional repo analytics rows:
 `repo_metrics[]` is range-scoped and powers the Repo Analytics UI. It is
 separate from `repo_stats[]`, which remains the full repo inventory/count
 surface.
+
+Version `2.2.1` clarified and enabled review activity ingestion without changing
+shape:
+
+- `ActivityDTO.kind` can be `review`.
+- `RepoMetricStatsDTO.reviews` and `RepoMetricStatsDTO.approvals` are activity
+  event counts, not current item-state counts.
 
 Version `2.3.0` added a canonical actor identity to `RepoMetricActorDTO`:
 `actor_key` (a stable, non-PII key — provider username, hashed commit email, or
@@ -120,6 +128,20 @@ decimal activity signal used for Repo Analytics sorting and rounded UI display.
 Version `2.5.0` added `RepoMetricDataQualityDTO.last_activity_at`, the most recent
 observed activity instant per repo (counterpart to the earliest `observed_since`),
 rendered as "last active" in Repo Analytics.
+
+Version `3.0.0` removed `RepoMetricDataQualityDTO.truncated`. Repo metrics are
+derived from the full canonical store, so per-repo metric rows are not truncated;
+the truncation signal remains top-level `item_window.truncated`. Consumers should
+derive coverage from `activity_available`, `observed_since`, and
+`last_activity_at`.
+
+Version `3.1.0` added optional envelope-level `ContractEnvelope.timezone` and
+relaxed `RangeQueryDTO.timezone` from the `"UTC"` literal to the configured IANA
+timezone. Consumers reading older contracts should treat a missing timezone as
+`"UTC"`.
+
+Version `3.1.1` aligned `RepoMetricSeriesPointDTO` day / week / month buckets to
+the configured timezone. The shape did not change.
 
 Version `3.2.0` added optional nullable `RepoMetricDTO.repo_url` for provider repo
 navigation. Activity provider destinations continue to use `ActivityDTO.url`;

@@ -78,7 +78,8 @@ where a provider exposes enough information.
 
 Activity rows are separate from items and edges. Items are current state;
 activity records are timestamped developer-significant events such as commit
-pushes, branch/tag events, and issue or PR/MR open/close/merge transitions.
+pushes, branch/tag events, reviews, and issue or PR/MR open/close/merge
+transitions.
 Commit activity details may include the full commit body and the provider
 default branch/ref when the REST source exposes that metadata.
 
@@ -271,6 +272,10 @@ analytics totals, bucketed series, top bounded actors, and data-quality
 metadata. `repo_stats[]` remains the full inventory count surface for Settings
 and external consumers; `repo_metrics[]` is range-scoped and powers the Repo
 Analytics page.
+
+Version `2.2.1` clarifies review activity ingestion and metrics without changing
+shape: `activities[].kind` can be `review`, and repo metric `reviews` /
+`approvals` are activity-event counts.
 
 Version `2.3.0` adds a canonical actor identity to `repo_metrics[].top_actors[]`:
 each row gains `actor_key` (a stable, non-PII identity — provider username,

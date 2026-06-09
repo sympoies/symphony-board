@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { validateContract, loadContractSchema } from "../src/contract/validate.ts";
 import { buildContract } from "../src/contract/build.ts";
+import { CONTRACT_VERSION } from "../src/contract/version.ts";
 import type { ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
 
 // A representative, schema-valid envelope built the same way emit does, so the
@@ -41,7 +42,8 @@ test("a freshly built envelope passes the schema clean", () => {
 
 test("loadContractSchema reads the normative schema with the expected $id", () => {
   const schema = loadContractSchema();
-  assert.equal(schema.$id, "https://sympoies.dev/symphony-board/contract/v2.json");
+  const major = CONTRACT_VERSION.split(".")[0];
+  assert.equal(schema.$id, `https://sympoies.dev/symphony-board/contract/v${major}.json`);
 });
 
 test("a missing required envelope field is rejected", () => {
