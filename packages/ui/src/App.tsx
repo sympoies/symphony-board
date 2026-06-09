@@ -47,6 +47,7 @@ import {
   normalizeServerBaseUrl,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
+import { isRefreshShortcut } from "./shortcuts.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
@@ -150,6 +151,16 @@ export function App() {
     }
   }, [needsRangeEnv, activeRange, serverBaseUrl]);
   const sync = useSync(reloadData, serverBaseUrl);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isRefreshShortcut(event)) return;
+      event.preventDefault();
+      reloadData();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [reloadData]);
 
   useEffect(() => {
     saveHidden(hidden);
