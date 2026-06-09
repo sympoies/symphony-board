@@ -247,6 +247,8 @@ export const TIME_RANGE_PRESETS = [
   { id: "2w", label: "2w", kind: "rolling", days: 14 },
   { id: "1mo", label: "1mo", kind: "rolling", days: 30 },
   { id: "3mo", label: "3mo", kind: "rolling", days: 90 },
+  { id: "6mo", label: "6mo", kind: "rolling", days: 180 },
+  { id: "1y", label: "1y", kind: "rolling", days: 365 },
 ] as const;
 export type TimeRangePresetId = (typeof TIME_RANGE_PRESETS)[number]["id"];
 export const DEFAULT_TIME_RANGE_PRESET_ID: TimeRangePresetId = "this-week";
