@@ -64,8 +64,9 @@ const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 
-// Pages via a zero-dep hash route: "" (#/) is the full-width board, "graph"
-// (#/graph) the relationship graph, "activity" (#/activity) the event feed,
+// Pages via a zero-dep hash route: "" (first open) defaults to Activity,
+// "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
+// graph, "activity" (#/activity) the event feed,
 // "commits" (#/commits) the cross-repo commit log, "repo-analytics"
 // (#/repo-analytics) the per-repo metrics view, and "settings" (#/settings) the
 // persistent repo display filter. The route may carry "?q=<search>" so the
@@ -111,17 +112,17 @@ export function App() {
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
   const page =
-    route.page === "graph"
-      ? "graph"
-      : route.page === "activity"
-        ? "activity"
+    route.page === "board"
+      ? "board"
+      : route.page === "graph"
+        ? "graph"
         : route.page === "commits"
           ? "commits"
           : route.page === "repo-analytics" || route.page === "repos"
             ? "repo-analytics"
             : route.page === "settings"
               ? "settings"
-              : "board";
+              : "activity";
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
@@ -422,7 +423,7 @@ export function App() {
 
   function routeHref(nextPage: "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings"): string {
     return buildHashRoute({
-      page: nextPage === "board" ? "" : nextPage,
+      page: nextPage,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -434,7 +435,7 @@ export function App() {
     setFilters((f) => ({ ...f, search: q }));
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
-      page: page === "board" ? "" : page,
+      page,
       focus: page === "graph" ? route.focus : null,
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,
@@ -484,7 +485,7 @@ export function App() {
   function setRouteRange(range: TimeRange, presetId: TimeRangePresetId | null = null) {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
-      page: page === "board" ? "" : page,
+      page,
       focus: page === "graph" ? route.focus : null,
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,

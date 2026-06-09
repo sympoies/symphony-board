@@ -370,7 +370,8 @@ try {
     await sleep(300);
   };
 
-  // Page 1 — the default full-bleed 7-column board.
+  // First open defaults to Activity; Board remains available at the explicit
+  // #/board route.
   const initialRangePending = await waitValue(`(() => {
     if (!document.body.innerText.includes('Loading range')) return null;
     return {
@@ -381,6 +382,10 @@ try {
     };
   })()`);
   rangeResponseDelayMs = 0;
+  const defaultActivityHtml = await waitHtml("document.querySelector('.activity-page')");
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+  await sleep(300);
+  // Page 1 — the full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
   const boardRangeButtons = await rangeButtonLabels();
   const boardInitialStats = await textOf(".stats");
@@ -435,6 +440,8 @@ try {
   const backHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   // Page 3 — the Activity feed: developer-significant events from item state
   // transitions plus provider REST activity surfaces.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   const activityHtml = await waitHtml("document.querySelector('.activity-row')");
@@ -452,29 +459,38 @@ try {
   const activityHeatmap = (await send("Runtime.evaluate", {
     expression: `(() => {
       const heatmap = document.querySelector('.activity-heatmap');
-      if (!heatmap) return { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false };
+      if (!heatmap) return { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
       const repoCounts = Array.from(heatmap.querySelectorAll('.hm-range-repos li b')).map((node) => Number((node.textContent || '').replace(/,/g, '')));
+      const overviewScope = heatmap.querySelector(':scope > .hm-overview-head small')?.textContent || '';
+      const listHeight = Math.round(document.querySelector('.activity-list')?.getBoundingClientRect().height || 0);
+      const panelHeight = Math.round(heatmap.getBoundingClientRect().height || 0);
+      const wideLayout = window.matchMedia('(min-width: 1641px)').matches;
       return {
         present: true,
         total: heatmap.querySelectorAll('.hm-grid .hm-cell:not(.hm-cell-empty)').length,
         inRange: heatmap.querySelectorAll('.hm-grid .hm-cell[data-in-range]').length,
         columns: heatmap.querySelectorAll('.hm-grid .hm-col').length,
         summary: !!heatmap.querySelector('.hm-summary dd'),
-        scope: (heatmap.querySelector('.hm-head .muted')?.textContent || '').includes(' to '),
+        scope: overviewScope.includes('last 12 months') && overviewScope.includes(' to '),
         trend: !!heatmap.querySelector('.hm-trend-line[d]'),
         trendBucket: heatmap.querySelector('.hm-trend')?.getAttribute('data-bucket') || null,
         trendScope: (heatmap.querySelector('.hm-trend-head small')?.textContent || '').includes(' to '),
         rangeSummary: !!heatmap.querySelector('.hm-range-summary dd'),
         rangeRepos: repoCounts.length,
         rangeReposSorted: repoCounts.length > 0 && repoCounts.every((count, index) => index === 0 || repoCounts[index - 1] >= count),
+        balancedHeight: !wideLayout || listHeight + 1 >= panelHeight,
+        listHeight,
+        panelHeight,
       };
     })()`,
     returnByValue: true,
-  })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false };
+  })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
   // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
   // without changing the tracked sample contract.
+  await send("Emulation.clearDeviceMetricsOverride");
+  await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
@@ -729,7 +745,7 @@ try {
   // search bar with the item's "repo #iid" token so the canvas narrows to it. Back
   // on the board, confirm the affordance renders, click it, then confirm the focus
   // view (back button) + canvas mounted and the search box got the seed token.
-  await send("Runtime.evaluate", { expression: "location.hash = '#/'" });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
   await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
@@ -850,6 +866,8 @@ try {
   const expectedRangeButtons = ["today", "this week", "1w", "2w", "1mo", "3mo"];
   const sameRangeButtons = (labels) => JSON.stringify(labels) === JSON.stringify(expectedRangeButtons);
   const checks = [
+    // default entry: opening the app with no hash lands on Activity.
+    [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
     [has(boardHtml, "board-7"), "board: 7-column board rendered"],
@@ -908,6 +926,7 @@ try {
     [!activityHeatmap.present || activityHeatmap.rangeSummary === true, "activity: selected-range summary rendered below the trend"],
     [!activityHeatmap.present || activityHeatmap.rangeRepos >= 1, `activity: selected-range repo summary rendered (${activityHeatmap.rangeRepos || 0} rows)`],
     [!activityHeatmap.present || activityHeatmap.rangeReposSorted === true, "activity: selected-range repo summary sorted by events desc"],
+    [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
