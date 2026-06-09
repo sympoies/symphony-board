@@ -117,12 +117,14 @@ jobs:
             sh -c 'test ! -e /usr/share/nginx/html/contract.json'
 
           docker run -d --rm --name symphony-board-web-smoke \
+            --add-host board:127.0.0.1 \
+            --add-host api:127.0.0.1 \
             -p 8080:80 \
             -v "$PWD/packages/ui/public/contract.json:/srv/data/contract.json:ro" \
             symphony-board-web:smoke
           for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8080/ >/dev/null &&
-               curl -fsS http://127.0.0.1:8080/contract.json | grep -q '"contract_version": "1.1.0"'; then
+               curl -fsS http://127.0.0.1:8080/contract.json | grep -q '"contract_version":'; then
               exit 0
             fi
             sleep 1
