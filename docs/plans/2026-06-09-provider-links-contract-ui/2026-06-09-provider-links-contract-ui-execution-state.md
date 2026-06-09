@@ -14,7 +14,7 @@
 - Branch/commit/PR: none.
 - Source document: docs/plans/2026-06-09-provider-links-contract-ui/2026-06-09-provider-links-contract-ui-plan.md
 - Direct source-doc execution waiver: not applicable.
-- Tracking issue: pending.
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/130>
 
 ## Validation Plan
 
