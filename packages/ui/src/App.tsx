@@ -48,6 +48,8 @@ import {
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
 import { useConfig } from "./useConfig.ts";
+import { SourcesEditor } from "./components/SourcesEditor.tsx";
+import { SyncControls } from "./components/SyncControls.tsx";
 import { isRefreshShortcut } from "./shortcuts.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
@@ -505,6 +507,25 @@ export function App() {
   if (loading) return <div className="state-msg">Loading contract…</div>;
 
   if (error && !env) {
+    // First-run onboarding: the server is reachable and editable (the config
+    // capability answered) but no contract exists yet — typically a fresh
+    // standalone install. Guide the user through source -> token -> first
+    // sync right here; the board loads as soon as the first emit lands.
+    if (configState.available) {
+      return (
+        <div className="onboarding">
+          <div className="onboarding-intro">
+            <h2>Welcome to Symphony Board</h2>
+            <p className="muted">
+              No board data yet. Add a source and its repos below, paste the provider token, save, then run the first
+              sync — the board appears as soon as the first contract is emitted.
+            </p>
+          </div>
+          <SourcesEditor config={configState} sync={sync} />
+          {sync.available ? <SyncControls sync={sync} /> : null}
+        </div>
+      );
+    }
     return (
       <div className="state-msg error">
         <p>

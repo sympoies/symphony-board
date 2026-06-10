@@ -1281,3 +1281,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .config-error { color: var(--warn); font-size: 12px; }
 .config-error-list { color: var(--warn); font-size: 12px; margin: 8px 0 0; padding-left: 18px; }
 .config-sync-offer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* First-run onboarding (no contract yet, config capability present) */
+.onboarding { margin: 24px auto; max-width: 720px; padding: 0 16px; }
+.onboarding-intro h2 { margin: 0 0 6px; border: none; padding: 0; }
+.onboarding-intro p { margin: 0 0 8px; }
+.onboarding .settings-pref { margin-top: 14px; }

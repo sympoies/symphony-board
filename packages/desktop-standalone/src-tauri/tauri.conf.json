@@ -32,8 +32,7 @@
       "../../../tsconfig.json": "backend/tsconfig.json",
       "../../../src": "backend/src",
       "../../../schema": "backend/schema",
-      "../../../packages/contract": "backend/packages/contract",
-      "../../../config/sources.example.json": "backend/config-template/sources.json"
+      "../../../packages/contract": "backend/packages/contract"
     },
     "shortDescription": "Self-contained desktop app for Symphony Board.",
     "longDescription": "A fully standalone Symphony Board: the read-only UI plus the bundled Node sync daemon, SQLite store, and contract server in one app. Config, tokens, and data live in the user's Application Support directory; no Docker or external server is required."

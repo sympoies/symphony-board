@@ -486,6 +486,71 @@ for a custom range) while preserving the current route, search, filters, time
 range, and display preferences. A dry-run or failed run is shown distinctly and
 never reloads the data view as if it were fresh.
 
+## Writer-Owned Config Control Plane
+
+The standalone desktop app made hand-editing `config/sources.json` and
+`secrets.env` under Application Support the weakest part of the product
+surface. The fix follows the sync-control precedent: one UI, one protocol,
+**capability-split enablement** — a writer-owned config control plane that the
+standalone sidecar enables by default and the Docker stack keeps off.
+
+**Config API** (same shared control handler as sync control):
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/config` | GET | capability probe + the current validated config document |
+| `/api/config` | PUT | replace the document (validated, atomic temp+rename write) |
+| `/api/secrets` | GET | which token env names are set — booleans only, never values |
+| `/api/secrets` | PUT | set/replace a token for an env name, or remove it with `value: null` |
+
+**Capability split.** Mutations are gated by `CONFIG_CONTROL_ENABLED` plus the
+same same-origin custom header as sync control (`X-Symphony-Sync-Control`).
+`app-server.ts` (standalone) defaults the flag ON — a same-user, loopback-only
+deployment; `sync-daemon.ts` (Docker) defaults it OFF: Compose bind-mounts
+`config/` read-only into every service, a web deployment may have many viewers
+with no auth layer, and config-as-file is the right ops interface there. The
+UI probes `GET /api/config` and renders the Settings -> Sources editor only
+when the capability answers enabled; a disabled deployment never serves its
+config document over HTTP. Nothing prevents a trusted single-user Docker
+deployment from opting in later — the split is configuration, not code.
+
+**Server-side validation is authoritative.** `PUT /api/config` runs the same
+rules as `loadConfig` (`src/config.ts`), collects every problem via
+`configErrors`, and returns them all in one round trip; an invalid document
+never reaches disk. The UI renders the messages verbatim and re-validates
+nothing. Fields the editor does not own — `identities`, `exclude_actors`,
+unknown future keys — round-trip through GET -> PUT untouched.
+
+**Secrets are write-only.** Token values never appear in `config/sources.json`
+(unchanged rule) and never cross the read surface: `GET /api/secrets` reports
+set/unset booleans per env name only. Writes land in the `SYMPHONY_SECRETS_FILE`
+KEY=VALUE file (created owner-only, comments preserved), and `tokenFor`
+overlays a **fresh read of that file over `process.env` at sync time** — the
+standalone shell passes `secrets.env` as spawn env, so the fresh overlay is
+what makes a token set in-app apply without restarting the app.
+
+**Edits apply on the next run.** Both daemons re-read config per run (the
+Docker daemon was aligned to app-server's existing behavior), so a control
+plane PUT — or a hand edit on the Docker host — needs no restart. The active
+run keeps the config it started with; the next run picks up the new one.
+
+**Removal semantics.** Removing a source or project stops syncing it but keeps
+already-synced history: the disappearance rule only tombstones via a full +
+complete sweep of a configured source, and an unconfigured source is never
+swept. An explicit purge is deliberately out of scope.
+
+**First-run onboarding.** The standalone app no longer seeds a config template;
+a missing config plus an enabled capability is the onboarding state: the UI
+guides add-source -> set-token -> first sync entirely in-app, and the board
+appears when the first contract is emitted.
+
+**Config stays JSON, not TOML.** Evaluated and rejected: TOML's human benefits
+are comments and hand-formatting, but the UI write path would clobber both (no
+mature comment-preserving TOML writer exists for JS), a parser/serializer
+would be the backend's first third-party runtime dependency, and after this
+control plane the remaining hand-editors are the Docker path only. JSON is
+also exactly what a machine-written, machine-validated document wants.
+
 ## Runtime Decisions
 
 - **Node 24 with type stripping**: backend has no build step.
