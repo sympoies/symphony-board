@@ -115,6 +115,37 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
   assert.equal(push.url, "https://github.com/o/r/compare/1111111...2222222");
 });
 
+test("a full sweep backfills a year of repo activity and pages deep enough for it", async () => {
+  // An active repo can exceed 1000 commits / push events per year, so a fresh-DB
+  // rebuild needs time_period=year and >10 pages per surface (issue context:
+  // nils-cli at ~1006 commits and ~1600 pushes per 365d).
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const fullPage = (path: string, page: number): unknown[] =>
+    Array.from({ length: 100 }, (_, i) =>
+      path === "repos/o/r/commits"
+        ? {
+            sha: `sha-${page}-${i}`,
+            html_url: `https://github.com/o/r/commit/sha-${page}-${i}`,
+            commit: { message: "m", author: { name: "A", date: "2026-06-09T10:00:00Z" }, committer: { name: "A", date: "2026-06-09T10:00:00Z" } },
+          }
+        : { push_type: "normal", ref: "refs/heads/main", before: `b${page}${i}`, after: `a${page}${i}`, pushed_at: "2026-06-09T11:00:00Z" },
+    );
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    return fullPage(path, Number(params?.page ?? 0)) as T;
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  await src.fetch({ since: null, full: true });
+  assert.ok(
+    calls.some((c) => c.path === "repos/o/r/activity" && c.params?.time_period === "year"),
+    "a full sweep asks the activity surface for the full year window",
+  );
+  assert.equal(calls.filter((c) => c.path === "repos/o/r/commits").length, 20, "commits page to 2000 per project");
+  assert.equal(calls.filter((c) => c.path === "repos/o/r/activity").length, 20, "push activity pages to 2000 per project");
+});
+
 test("GitHub commit with no linked account keys the actor by hashed email", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {

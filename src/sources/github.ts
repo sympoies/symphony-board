@@ -26,7 +26,11 @@ import { log } from "../log.ts";
 const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40; // safety cap (~2000 items/connection)
-const MAX_REST_PAGES = 10; // safety cap for paginated REST activity surfaces
+// Safety cap for paginated REST activity surfaces (per_page=100 -> 2000 records
+// per surface per project). Sized so a fresh-DB full sweep can cover a year of
+// an active repo: nils-cli runs ~1006 commits / ~1600 push events per 365d,
+// which a 10-page (1000) cap truncated to ~7-8 months.
+const MAX_REST_PAGES = 20;
 
 function mapState(s: string | null | undefined): ItemState {
   if (s === "OPEN") return "open";
@@ -334,10 +338,14 @@ export class GitHubSource implements Source {
     }
 
     for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      // `year` is the widest window the activity API offers (time_period has no
+      // larger value), so a full sweep — the fresh-DB rebuild path — backfills
+      // as much push/branch history as the provider will give. Incremental
+      // sweeps stay narrow: the watermark already bounds what is new.
       const repoActivity = await this.rest<any[]>(`repos/${owner}/${name}/activity`, {
         per_page: 100,
         page,
-        time_period: since ? "month" : "quarter",
+        time_period: since ? "month" : "year",
       });
       for (const event of repoActivity ?? []) {
         const occurred = event?.pushed_at ?? null;
