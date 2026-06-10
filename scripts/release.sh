@@ -12,7 +12,8 @@ Options:
   --execute              Create the GitHub Release. Required for mutation.
   --dry-run              Print the release plan without creating anything.
                          This is the default.
-  --verify-only          Only verify published GHCR image tags.
+  --verify-only          Only verify published GHCR image tags and desktop
+                         release assets.
   VERSION                SemVer, with or without leading v.
                          Defaults to package.json version.
   --version VERSION      Same as VERSION. For release/dry-run, this must match
@@ -25,6 +26,7 @@ Options:
   --skip-main-check      Skip branch and origin/main ancestry checks.
   --skip-clean-check     Skip the clean-worktree check.
   --skip-public-verify   Skip anonymous GHCR manifest verification.
+  --skip-desktop-verify  Skip GitHub Release desktop asset verification.
   -h, --help             Show this help.
 
 Examples:
@@ -203,6 +205,32 @@ wait_for_publish_run() {
   done
 }
 
+verify_release_asset() {
+  local repo="$1"
+  local tag="$2"
+  local asset="$3"
+
+  if gh release view "$tag" --repo "$repo" --json assets \
+    --jq '.assets[].name' | grep -Fx -- "$asset" >/dev/null; then
+    info "verified release asset: $asset"
+  else
+    die "GitHub Release $tag is missing expected asset: $asset"
+  fi
+}
+
+verify_desktop_assets() {
+  local repo="$1"
+  local tag="$2"
+  local version="$3"
+  local arch
+
+  for arch in macos-arm64 macos-x64; do
+    verify_release_asset "$repo" "$tag" "Symphony-Board-v${version}-${arch}-unsigned.zip"
+    verify_release_asset "$repo" "$tag" "Symphony-Board-Standalone-v${version}-${arch}-unsigned.zip"
+    verify_release_asset "$repo" "$tag" "SHA256SUMS-v${version}-${arch}.txt"
+  done
+}
+
 mode="dry-run"
 version=""
 title=""
@@ -212,6 +240,7 @@ timeout=120
 skip_main_check=0
 skip_clean_check=0
 skip_public_verify=0
+skip_desktop_verify=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -266,6 +295,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-public-verify)
       skip_public_verify=1
+      shift
+      ;;
+    --skip-desktop-verify)
+      skip_desktop_verify=1
       shift
       ;;
     -h | --help)
@@ -324,6 +357,7 @@ info "tag=$tag"
 info "app_version=$app_version"
 info "image=ghcr.io/${repo}:${version}"
 info "web_image=ghcr.io/${web_repo}:${version}"
+info "desktop_assets=unsigned macOS app zips for macos-arm64 and macos-x64"
 if [ "$prerelease" -eq 0 ]; then
   info "latest=ghcr.io/${repo}:latest"
   info "web_latest=ghcr.io/${web_repo}:latest"
@@ -331,7 +365,7 @@ fi
 
 if [ "$mode" = "dry-run" ]; then
   info "dry-run: would create GitHub Release $tag titled '$title'"
-  info "dry-run: would wait for publish-image.yml and verify public GHCR manifests"
+  info "dry-run: would wait for publish-image.yml, verify public GHCR manifests, and verify desktop release assets"
   exit 0
 fi
 
@@ -360,6 +394,10 @@ if [ "$mode" = "execute" ]; then
       info "skipped public GHCR verification because --no-wait was set; run --verify-only after publish-image completes"
       skip_public_verify=1
     fi
+    if [ "$skip_desktop_verify" -eq 0 ]; then
+      info "skipped desktop asset verification because --no-wait was set; run without --no-wait or inspect the release assets after the workflow completes"
+      skip_desktop_verify=1
+    fi
   fi
 fi
 
@@ -372,6 +410,12 @@ if [ "$skip_public_verify" -eq 0 ]; then
   fi
 else
   info "skipped public GHCR verification"
+fi
+
+if [ "$skip_desktop_verify" -eq 0 ]; then
+  verify_desktop_assets "$repo" "$tag" "$version"
+elif [ "$skip_desktop_verify" -eq 1 ]; then
+  info "skipped desktop release asset verification"
 fi
 
 info "complete"
