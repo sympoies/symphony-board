@@ -65,6 +65,7 @@ function sandbox(): { dir: string; opts: AppServerOptions } {
       contractOut: join(dir, "data", "contract.json"),
       controlEnabled: true,
       configControlEnabled: true,
+      logsEnabled: true,
       secretsPath: join(dir, "secrets.env"),
       intervalSeconds: 120,
       fullEvery: 30,
@@ -104,6 +105,20 @@ test("app-server serves health, contract, range, and the sync control surface", 
     // range validation errors surface as 400
     const bad = await fetch(`${base}/api/range?from=nope&to=2026-01-02`);
     assert.equal(bad.status, 400);
+
+    // store stats: the migrated empty store summarizes to zero rows
+    const statsRes = await fetch(`${base}/api/stats`);
+    assert.equal(statsRes.status, 200);
+    const stats = await json(statsRes);
+    assert.equal(stats.items.live, 0);
+    assert.equal(stats.tables.item, 0);
+    assert.ok(stats.db.schema_version >= 3);
+
+    // recent-log tail: enabled here; "?after=latest" means caught up
+    const logs = await json(await fetch(`${base}/api/logs`));
+    assert.equal(logs.enabled, true);
+    const caughtUp = await json(await fetch(`${base}/api/logs?after=${logs.latest_seq}`));
+    assert.deepEqual(caughtUp.entries, []);
 
     // control surface: probe reflects config sources; manual run starts
     const control = await fetch(`${base}/api/sync-control`);
@@ -164,6 +179,7 @@ test("app-server degrades cleanly when the config is missing", async () => {
     contractOut: join(dir, "data", "contract.json"),
     controlEnabled: true,
     configControlEnabled: true,
+    logsEnabled: false,
     secretsPath: null,
     intervalSeconds: 120,
     fullEvery: 30,
@@ -177,10 +193,17 @@ test("app-server degrades cleanly when the config is missing", async () => {
     assert.equal(control.status, 200);
     assert.deepEqual((await json(control)).sources, []);
 
-    // range reports the config failure instead of crashing the process
+    // range and stats report the config failure instead of crashing the process
     const range = await fetch(`${base}/api/range?from=2026-01-01&to=2026-01-02`);
     assert.equal(range.status, 500);
     assert.equal((await json(range)).error, "config_error");
+    const stats = await fetch(`${base}/api/stats`);
+    assert.equal(stats.status, 500);
+    assert.equal((await json(stats)).error, "config_error");
+
+    // the log tail is disabled on this deployment: probe answers, leaks nothing
+    const logs = await json(await fetch(`${base}/api/logs`));
+    assert.deepEqual(logs, { enabled: false, entries: [], latest_seq: 0, capacity: 0 });
 
     // the config capability is still advertised with no document — the
     // first-run onboarding state the Settings editor starts from

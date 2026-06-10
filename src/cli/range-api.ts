@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
 import { loadConfig } from "../config.ts";
 import { handleRangeRequest } from "../server/range.ts";
+import { handleStatsRequest } from "../server/stats.ts";
 
 interface Args {
   config: string | null;
@@ -49,6 +50,10 @@ const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   if (req.method === "GET" && url.pathname === "/healthz") {
     json(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/stats") {
+    handleStatsRequest(cfg, url, res);
     return;
   }
   if (req.method !== "GET" || url.pathname !== "/api/range") {

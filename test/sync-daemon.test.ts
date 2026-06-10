@@ -16,6 +16,7 @@ import {
   type SyncRequest,
 } from "../src/cli/sync-daemon.ts";
 import type { SyncRunResult } from "../src/sync-runner.ts";
+import { log } from "../src/log.ts";
 
 const NO_TOTALS = { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
 function okResult(): SyncRunResult {
@@ -32,8 +33,8 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 const SOURCES: SourceOption[] = [{ source_id: "fake:a", display_name: "A", kind: "fake" }];
 const NO_CONFIG_CONTROL: ConfigControl = { enabled: false, path: "/nonexistent/sources.json", secretsPath: null };
-function ctx(controlEnabled: boolean, configControl: ConfigControl = NO_CONFIG_CONTROL): ControlContext {
-  return { controlEnabled, configControl, sources: SOURCES, intervalSeconds: 120, fullEvery: 30 };
+function ctx(controlEnabled: boolean, configControl: ConfigControl = NO_CONFIG_CONTROL, logsEnabled = false): ControlContext {
+  return { controlEnabled, configControl, logsEnabled, sources: SOURCES, intervalSeconds: 120, fullEvery: 30 };
 }
 
 function listen(server: Server): Promise<string> {
@@ -495,5 +496,47 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- the recent-log tail (GET /api/logs, the UI Diagnostics page) ---
+
+test("GET /api/logs hides the tail when disabled and serves seq-windowed deltas when enabled", async () => {
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+
+  // Disabled: the capability probe answers enabled:false and leaks nothing.
+  const off = createControlServer(controller, ctx(false));
+  const offBase = await listen(off);
+  try {
+    const probe = await json(await fetch(`${offBase}/api/logs`));
+    assert.deepEqual(probe, { enabled: false, entries: [], latest_seq: 0, capacity: 0 });
+  } finally {
+    await close(off);
+  }
+
+  // Enabled: lines logged through src/log.ts appear; "?after=" ships deltas.
+  const on = createControlServer(controller, ctx(false, NO_CONFIG_CONTROL, true));
+  const onBase = await listen(on);
+  try {
+    log.info("logs-test marker one");
+    const full = await json(await fetch(`${onBase}/api/logs`));
+    assert.equal(full.enabled, true);
+    assert.ok(full.capacity > 0);
+    assert.ok(full.entries.some((e: { message: string }) => e.message === "logs-test marker one"));
+    assert.equal(full.latest_seq, full.entries[full.entries.length - 1].seq, "latest_seq matches the newest entry");
+
+    log.warn("logs-test marker two");
+    const delta = await json(await fetch(`${onBase}/api/logs?after=${full.latest_seq}`));
+    assert.equal(delta.entries.length, 1, "only entries newer than ?after=");
+    assert.equal(delta.entries[0].level, "warn");
+    assert.equal(delta.entries[0].message, "logs-test marker two");
+
+    // Caught up: nothing newer, latest_seq unchanged (the restart signal the
+    // UI poller watches is latest_seq dropping BELOW its last-seen seq).
+    const none = await json(await fetch(`${onBase}/api/logs?after=${delta.latest_seq}`));
+    assert.deepEqual(none.entries, []);
+    assert.equal(none.latest_seq, delta.latest_seq);
+  } finally {
+    await close(on);
   }
 });

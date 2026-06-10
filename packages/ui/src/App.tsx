@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContract, fetchRangeContract, parseContract, majorOf, resolveEndpoint, SUPPORTED_MAJOR } from "./contract.ts";
 import {
@@ -50,7 +50,7 @@ import { useSync } from "./useSync.ts";
 import { useConfig } from "./useConfig.ts";
 import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
-import { isRefreshShortcut } from "./shortcuts.ts";
+import { isRefreshShortcut, isDebugShortcut } from "./shortcuts.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
@@ -58,6 +58,7 @@ import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
+import { DebugPage } from "./components/DebugPage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
 import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
 
@@ -72,7 +73,9 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 // graph, "activity" (#/activity) the event feed,
 // "commits" (#/commits) the cross-repo commit log, "repo-analytics"
 // (#/repo-analytics) the per-repo metrics view, and "settings" (#/settings) the
-// persistent repo display filter. The route may carry "?q=<search>" so the
+// persistent repo display filter. "debug" (#/debug) is the hidden Diagnostics
+// page — not in the nav, toggled with Cmd+/ (Ctrl+/) or by typing the hash.
+// The route may carry "?q=<search>" so the
 // visible search box is URL-backed; graph routes may also carry "?focus=<ref>"
 // from a board card, and commits routes carry "?repo=<project_path>" and
 // "?branch=<branch>" for the page-local SCM filters.
@@ -165,15 +168,32 @@ export function App() {
     if (readHash() !== next) window.location.hash = next;
   }, []);
 
+  // Where Cmd+/ returns to when leaving the Diagnostics page: the last
+  // non-debug hash seen (covers entering #/debug by URL too; "#/" otherwise).
+  const lastNonDebugHash = useRef<string>("#/");
+  useEffect(() => {
+    if (route.page !== "debug") lastNonDebugHash.current = hash || "#/";
+  }, [route.page, hash]);
+
+  const toggleDebug = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.location.hash = parseHashRoute(readHash()).page === "debug" ? lastNonDebugHash.current : "#/debug";
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isDebugShortcut(event)) {
+        event.preventDefault();
+        toggleDebug();
+        return;
+      }
       if (!isRefreshShortcut(event)) return;
       event.preventDefault();
       reloadData();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reloadData]);
+  }, [reloadData, toggleDebug]);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -510,6 +530,17 @@ export function App() {
       preset: presetId,
     });
     if (readHash() !== next) window.location.hash = next;
+  }
+
+  // The hidden Diagnostics page renders BEFORE the contract-loading gates on
+  // purpose: it must stay reachable when the contract fails to load — that is
+  // exactly when it is needed. It does its own data fetching (useDebug.ts).
+  if (route.page === "debug") {
+    return (
+      <div className="app app-wide">
+        <DebugPage serverBaseUrl={serverBaseUrl} env={env} onClose={toggleDebug} />
+      </div>
+    );
   }
 
   if (loading) return <div className="state-msg">Loading contract…</div>;

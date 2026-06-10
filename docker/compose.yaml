@@ -51,6 +51,11 @@ services:
       # daemon timer-only with the endpoint refusing manual runs.
       SYNC_CONTROL_ENABLED: "1"
       SYNC_CONTROL_PORT: "8080"
+      # Recent-log tail for the UI Diagnostics page (#/debug): the daemon keeps
+      # an in-memory ring buffer of its own log lines and serves it on
+      # GET /api/logs (proxied by the web sidecar). Read-only; remove to keep
+      # the tail off this deployment.
+      LOG_CONTROL_ENABLED: "1"
     env_file:
       - path: ../.env
         required: false
