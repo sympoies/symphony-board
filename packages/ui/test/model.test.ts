@@ -1025,7 +1025,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, from: null, to: null, preset: null };
+  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, from: null, to: null, preset: null, tab: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -1097,6 +1097,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     from: null,
     to: null,
     preset: null,
+    tab: null,
   });
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "board", q: "owner/repo #13" })), {
     page: "board",
@@ -1110,6 +1111,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     from: null,
     to: null,
     preset: null,
+    tab: null,
   });
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", source: "github:github.com", repo: "owner/repo", branch: "main" })), {
     page: "commits",
@@ -1123,6 +1125,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     from: null,
     to: null,
     preset: null,
+    tab: null,
   });
 });
 
@@ -1448,4 +1451,17 @@ test("sourcesNeedingSync flags new sources and grown project sets only", () => {
   assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", ["p/q"]), src("b", ["r/s"]), src("c", ["t/u"])] }), ["c"]);
   assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", [])] }), [], "removals alone need no sync");
   assert.deepEqual(sourcesNeedingSync(prev, null), []);
+});
+
+test("hash route carries the settings sub-tab and drops it when default", () => {
+  const parsed = parseHashRoute("#/settings?tab=sources");
+  assert.equal(parsed.page, "settings");
+  assert.equal(parsed.tab, "sources");
+  assert.equal(parseHashRoute("#/settings").tab, null);
+  assert.equal(parseHashRoute("#/settings?tab=  ").tab, null, "blank param reads as absent");
+
+  assert.equal(buildHashRoute({ page: "settings", tab: "sources" }), "#/settings?tab=sources");
+  assert.equal(buildHashRoute({ page: "settings", tab: null }), "#/settings");
+  const roundTrip = buildHashRoute({ ...parseHashRoute("#/settings?tab=sources&preset=this-week"), page: "settings" });
+  assert.ok(roundTrip.includes("tab=sources") && roundTrip.includes("preset=this-week"), "tab coexists with other params");
 });

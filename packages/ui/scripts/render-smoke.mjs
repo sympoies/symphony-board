@@ -887,9 +887,16 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsSyncHtml = await waitHtml("document.querySelector('.settings-sync')");
-  // Sources editor: the mocked config capability must render the producer
-  // config section with sources, token status, and the add-source form.
+  // With the config capability mocked, Settings renders the sub-tab bar; the
+  // Sources editor lives behind the URL-backed "sources" tab.
+  const settingsTabsHtml = await waitHtml("document.querySelector('.settings-tabs')");
+  await send("Runtime.evaluate", { expression: "location.hash = '#/settings?tab=sources'" });
+  await sleep(300);
   const settingsConfigHtml = await waitHtml("document.querySelector('.settings-config')");
+  const sourcesTabDisplayGone = (await send("Runtime.evaluate", {
+    expression: "document.querySelector('.settings-repo') === null && document.querySelector('.settings-sync') === null",
+    returnByValue: true,
+  })).result.value === true;
   ws.close();
 
   // --- assertions ---
@@ -1056,7 +1063,9 @@ try {
     [has(settingsSyncHtml, "settings-sync"), "sync: Settings exposes the advanced manual-sync section"],
     [has(settingsSyncHtml, "sync-mode") && has(settingsSyncHtml, "sync-source") && has(settingsSyncHtml, "sync-dry-run") && has(settingsSyncHtml, "sync-run-button"), "sync: Settings advanced controls render mode, source, dry-run, and run button"],
     // Settings -> Sources editor (writer-owned producer config, mocked capability)
-    [has(settingsConfigHtml, "Sources (producer config)"), "config: Settings exposes the Sources editor when the capability probe succeeds"],
+    [has(settingsTabsHtml, "settings-tab") && has(settingsTabsHtml, "Display") && has(settingsTabsHtml, "Sources"), "config: Settings renders the Display/Sources sub-tab bar when the capability answers"],
+    [sourcesTabDisplayGone, "config: the Sources tab replaces the display preferences instead of stacking under them"],
+    [has(settingsConfigHtml, "Sources (producer config)"), "config: Settings exposes the Sources editor on the sources tab"],
     [m(settingsConfigHtml, /class="config-source"/g) >= 1, "config: the editor lists the configured sources"],
     [has(settingsConfigHtml, "token set") && has(settingsConfigHtml, "token missing"), "config: token status renders as set/missing badges, never values"],
     [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],

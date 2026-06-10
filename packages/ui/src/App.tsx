@@ -156,6 +156,14 @@ export function App() {
   }, [needsRangeEnv, activeRange, serverBaseUrl]);
   const sync = useSync(reloadData, serverBaseUrl);
   const configState = useConfig(serverBaseUrl);
+  // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
+  // "sources" value is meaningful; anything else renders the Display tab.
+  const settingsTab = route.tab === "sources" ? ("sources" as const) : ("display" as const);
+  const setSettingsTab = useCallback((tab: "display" | "sources") => {
+    const current = parseHashRoute(readHash());
+    const next = buildHashRoute({ ...current, page: "settings", tab: tab === "sources" ? "sources" : null });
+    if (readHash() !== next) window.location.hash = next;
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -638,6 +646,8 @@ export function App() {
           onServerBaseUrl={applyServerBaseUrl}
           sync={sync}
           config={configState}
+          tab={settingsTab}
+          onTab={setSettingsTab}
         />
       ) : page === "activity" ? (
         <ActivityPage
