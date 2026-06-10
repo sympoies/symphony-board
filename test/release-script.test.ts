@@ -62,9 +62,47 @@ test("release rejects requested versions that do not match package.json", () => 
 
 test("verify-only may inspect an older published version", () => {
   const cwd = fixtureRepo();
-  const result = runRelease(cwd, ["--verify-only", "--version", "v9.9.9", "--skip-public-verify"]);
+  const result = runRelease(cwd, [
+    "--verify-only",
+    "--version",
+    "v9.9.9",
+    "--skip-public-verify",
+    "--skip-desktop-verify",
+  ]);
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /release: tag=v9\.9\.9/);
   assert.match(result.stdout, /release: skipped public GHCR verification/);
+  assert.match(result.stdout, /release: skipped desktop release asset verification/);
+});
+
+test("verify-only checks desktop release assets", () => {
+  const cwd = fixtureRepo();
+  writeFileSync(
+    join(cwd, "bin/gh"),
+    `#!/usr/bin/env sh
+if [ "$1" = "release" ] && [ "$2" = "view" ]; then
+  cat <<'ASSETS'
+Symphony-Board-v9.9.9-macos-arm64-unsigned.zip
+Symphony-Board-Standalone-v9.9.9-macos-arm64-unsigned.zip
+SHA256SUMS-v9.9.9-macos-arm64.txt
+Symphony-Board-v9.9.9-macos-x64-unsigned.zip
+Symphony-Board-Standalone-v9.9.9-macos-x64-unsigned.zip
+SHA256SUMS-v9.9.9-macos-x64.txt
+ASSETS
+  exit 0
+fi
+exit 1
+`,
+  );
+  chmodSync(join(cwd, "bin/gh"), 0o755);
+
+  const result = runRelease(cwd, ["--verify-only", "--version", "v9.9.9", "--skip-public-verify"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /release: verified release asset: Symphony-Board-v9\.9\.9-macos-arm64-unsigned\.zip/);
+  assert.match(
+    result.stdout,
+    /release: verified release asset: Symphony-Board-Standalone-v9\.9\.9-macos-x64-unsigned\.zip/,
+  );
 });

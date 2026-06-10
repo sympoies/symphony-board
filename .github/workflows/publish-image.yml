@@ -1,15 +1,12 @@
 name: publish-image
 
-# Publish the public backend daemon and read-only UI sidecar images to GHCR on
-# a GitHub Release. The workflow smoke-tests local amd64 images before pushing
-# multi-arch linux/amd64 + linux/arm64 manifests.
+# Publish release artifacts on a GitHub Release: public backend daemon and
+# read-only UI sidecar images to GHCR, plus unsigned macOS desktop app bundles.
+# The Docker workflow smoke-tests local amd64 images before pushing multi-arch
+# linux/amd64 + linux/arm64 manifests.
 on:
   release:
     types: [published]
-
-permissions:
-  contents: read
-  packages: write
 
 concurrency:
   group: publish-image-${{ github.ref }}
@@ -20,6 +17,9 @@ jobs:
     name: build, smoke-test, push to GHCR
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout
@@ -221,3 +221,55 @@ jobs:
             test -n "$image_ref" || continue
             verify_ref "$image_ref"
           done
+
+  desktop:
+    name: build unsigned macOS apps (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-26
+            target: aarch64-apple-darwin
+          - arch: x64
+            runner: macos-26-intel
+            target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package unsigned desktop apps
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          scripts/package-desktop-release.sh \
+            --version "$version" \
+            --target "${{ matrix.target }}" \
+            --out-dir dist/release
+
+      - name: Upload desktop release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber

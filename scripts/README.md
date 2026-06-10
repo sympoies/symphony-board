@@ -26,6 +26,7 @@ scripts/db-summary.sh
 | `ci/coverage.sh` | Runs backend and UI logic coverage with `c8`, merges LCOV, and enforces the line floor. |
 | `ci/coverage-summary.sh [lcov]` | Emits a Markdown coverage summary with worst-covered files. Used by CI job summary and PR comment. |
 | `ci/coverage-badge.sh [lcov] [out.svg]` | Renders the self-hosted coverage badge SVG published from CI to the `coverage-badge` branch. |
+| `package-desktop-release.sh [options]` | Builds the thin and standalone macOS `.app` bundles, zips them as unsigned release assets, and writes SHA256 sums. |
 
 Coverage covers backend `.ts` files and UI `.ts` view-model logic. The React
 `.tsx` layer is gated by the UI render-smoke, not by a percentage.

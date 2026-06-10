@@ -266,6 +266,18 @@ For self-use on the same Mac, no paid Apple Developer Program membership is
 required; the local builds are not notarized, so macOS may require right-click ->
 Open the first time.
 
+GitHub Releases include unsigned CI-built desktop zips for both Apple Silicon
+and Intel Macs:
+
+- `Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip`
+- `Symphony-Board-vX.Y.Z-macos-x64-unsigned.zip`
+- `Symphony-Board-Standalone-vX.Y.Z-macos-arm64-unsigned.zip`
+- `Symphony-Board-Standalone-vX.Y.Z-macos-x64-unsigned.zip`
+
+Use the matching architecture for each Mac. These release builds are still
+unsigned and not notarized; macOS may require Privacy & Security -> Open Anyway
+after the first launch attempt.
+
 Read-only inspection helpers:
 
 ```sh

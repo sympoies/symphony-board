@@ -112,6 +112,17 @@ pnpm desktop:build
 pnpm desktop-standalone:build
 ```
 
+Desktop release packaging (host architecture unless `--target` is provided):
+
+```sh
+scripts/package-desktop-release.sh --out-dir dist/release
+```
+
+The GitHub Release workflow runs the same packager on native macOS arm64 and
+Intel runners so the standalone app bundles the matching Node sidecar for each
+architecture. The generated zips are unsigned app bundles, not notarized
+installers.
+
 Coverage gate:
 
 ```sh
