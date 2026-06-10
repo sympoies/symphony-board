@@ -15,7 +15,7 @@
 - Branch/commit/PR: not started
 - Source document: docs/plans/2026-06-10-in-app-config-settings/2026-06-10-in-app-config-settings-plan.md
 - Direct source-doc execution waiver: not applicable.
-- Tracking issue: pending
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/151>
 
 ## Validation Plan
 
