@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db/open.ts";
-import { executeSyncRun, type PreparedSource } from "../src/sync-runner.ts";
+import { executeSyncRun, type PreparedSource, type SyncRunProgress } from "../src/sync-runner.ts";
 import type { SourceConfig } from "../src/config.ts";
 import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
 import type { CanonicalItem, NormalizedBundle } from "../src/model/types.ts";
@@ -188,5 +188,31 @@ test("an emit failure fails the run instead of silently shipping nothing", async
   assert.equal(result.status, "error");
   assert.equal(result.emitted, false);
   assert.match(result.error ?? "", /contract emit failed: contract invalid/);
+  db.close();
+});
+
+test("onProgress reports the in-flight source and accumulating per-source results", async () => {
+  const db = openDb(":memory:");
+  const snapshots: SyncRunProgress[] = [];
+  await executeSyncRun(
+    db,
+    [prepared("fake:a", [item("A1")]), prepared("fake:b", [item("B1")])],
+    ["fake:skip"],
+    { mode: "full", dryRun: false, sourceId: null },
+    () => {},
+    (p) => snapshots.push(p),
+  );
+  // One report before each source (naming it active) and one after it finishes.
+  const [beforeA, afterA, beforeB, afterB] = snapshots;
+  assert.ok(beforeA && afterA && beforeB && afterB, "exactly four progress reports");
+  assert.equal(snapshots.length, 4);
+  assert.equal(beforeA.active_source_id, "fake:a");
+  assert.deepEqual(beforeA.sources.map((s) => s.source_id), ["fake:skip"], "skipped sources are visible from the first report");
+  assert.equal(afterA.active_source_id, null);
+  assert.deepEqual(afterA.sources.map((s) => s.source_id), ["fake:skip", "fake:a"]);
+  assert.equal(beforeB.active_source_id, "fake:b");
+  assert.equal(afterB.active_source_id, null);
+  assert.equal(afterB.sources.length, 3);
+  assert.notEqual(beforeA.sources, afterA.sources, "each report is a snapshot, not an alias of the runner's mutable array");
   db.close();
 });

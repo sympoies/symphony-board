@@ -1558,6 +1558,10 @@ export interface SyncRunStatus {
   emitted: boolean;
   totals: { items: number; edges: number; activities: number; soft_deleted: number; soft_deleted_edges: number } | null;
   sources: SyncSourceResult[];
+  // While running: finished sources land in `sources` incrementally and this
+  // names the source currently being fetched. Optional — an older daemon
+  // without mid-run progress simply never sets it.
+  active_source_id?: string | null;
   error: string | null;
 }
 
@@ -1593,6 +1597,18 @@ export function syncProducedFreshData(run: SyncRunStatus | null | undefined): bo
   return !!run && run.status !== "running" && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial");
 }
 
+// Per-source progress for the running summary line: finished sources with a
+// verdict mark, then the in-flight one. A skipped source is config noise, not
+// progress worth narrating.
+const SOURCE_MARKS: Record<string, string> = { ok: "✓", partial: "⚠", error: "✗" };
+function syncSourceProgress(run: SyncRunStatus): string {
+  const parts = run.sources
+    .filter((s) => s.status in SOURCE_MARKS)
+    .map((s) => `${s.source_id} ${SOURCE_MARKS[s.status]}`);
+  if (run.active_source_id) parts.push(`${run.active_source_id}…`);
+  return parts.join(" · ");
+}
+
 // A short, human status line for the Sync control. now is injectable for tests.
 // Running copy names the trigger (a daemon-scheduled run is not the user's
 // click) and ticks elapsed time, so a long full sweep visibly makes progress.
@@ -1601,7 +1617,8 @@ export function syncRunSummary(run: SyncRunStatus | null | undefined, now: numbe
   const scope = run.source_scope ? ` · ${run.source_scope}` : "";
   if (run.status === "running") {
     const verb = run.trigger === "scheduled" ? "Background sync running…" : "Syncing…";
-    return `${verb} ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}${elapsedSince(run.started_at, now)}`;
+    const progress = syncSourceProgress(run);
+    return `${verb} ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}${progress ? ` · ${progress}` : ""}${elapsedSince(run.started_at, now)}`;
   }
   const when = relativeTime(run.finished_at ?? run.started_at, now);
   if (run.dry_run) {

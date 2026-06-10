@@ -28,7 +28,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { pathToFileURL } from "node:url";
 import type { AppConfig, SourceConfig } from "../config.ts";
 import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret } from "../config.ts";
-import { runConfiguredSync, type SyncMode, type SourceRunResult, type SyncRunResult, type SyncRunTotals } from "../sync-runner.ts";
+import {
+  runConfiguredSync,
+  type SyncMode,
+  type SyncProgressReporter,
+  type SourceRunResult,
+  type SyncRunResult,
+  type SyncRunTotals,
+} from "../sync-runner.ts";
 import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
@@ -48,7 +55,10 @@ export interface SyncRequest {
 }
 
 // The JSON status the UI consumes for a run. `status` is "running" until the run
-// finishes, then the worst-of per-source outcome (ok | partial | error).
+// finishes, then the worst-of per-source outcome (ok | partial | error). While
+// running, `sources` fills incrementally as each source finishes and
+// `active_source_id` names the source currently being fetched (null between
+// sources and on a finished run), so the UI can narrate per-source progress.
 export interface RunStatus {
   run_id: string;
   trigger: "manual" | "scheduled";
@@ -61,10 +71,11 @@ export interface RunStatus {
   emitted: boolean;
   totals: SyncRunTotals | null;
   sources: SourceRunResult[];
+  active_source_id: string | null;
   error: string | null;
 }
 
-export type RunExecutor = (req: SyncRequest) => Promise<SyncRunResult>;
+export type RunExecutor = (req: SyncRequest, onProgress: SyncProgressReporter) => Promise<SyncRunResult>;
 
 export interface SyncControllerDeps {
   run: RunExecutor;
@@ -133,6 +144,7 @@ export class SyncController {
       emitted: false,
       totals: null,
       sources: [],
+      active_source_id: null,
       error: null,
     };
     this.active = status;
@@ -142,7 +154,14 @@ export class SyncController {
 
   private async execute(status: RunStatus, req: SyncRequest): Promise<void> {
     try {
-      const result = await this.run(req);
+      // Live per-source progress straight onto the active status. The guard
+      // drops a stray report after the slot cleared, so a late callback can
+      // never resurrect "running" details on a finished run.
+      const result = await this.run(req, (p) => {
+        if (this.active !== status) return;
+        status.sources = p.sources;
+        status.active_source_id = p.active_source_id;
+      });
       status.status = result.status;
       status.totals = result.totals;
       status.sources = result.sources;
@@ -152,6 +171,7 @@ export class SyncController {
       status.status = "error";
       status.error = (err as Error).message;
     } finally {
+      status.active_source_id = null;
       status.finished_at = this.nowFn();
       this.last = status;
       this.active = null;
@@ -574,9 +594,9 @@ function main(): void {
     // Fresh config per run (matching app-server), so an edit to the mounted
     // config file — by hand or through the control plane — applies on the next
     // run without a restart. The active run keeps the config it started with.
-    run: (req) => {
+    run: (req, onProgress) => {
       const { cfg: fresh } = loadConfig(process.env.SYMPHONY_CONFIG ?? null);
-      return runConfiguredSync(fresh, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, out);
+      return runConfiguredSync(fresh, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, out, { onProgress });
     },
   });
   const ctx: ControlContext = {

@@ -1235,6 +1235,39 @@ test("syncRunSummary labels background runs and ticks elapsed time while running
   assert.match(syncRunSummary(syncRun({ trigger: "scheduled" }), now), /^Synced /);
 });
 
+test("syncRunSummary shows per-source progress while running", () => {
+  const now = Date.parse("2026-06-08T19:00:10Z");
+  const done = { items: 1, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0, error: null };
+  const running = syncRun({
+    status: "running",
+    finished_at: null,
+    totals: null,
+    sources: [
+      { source_id: "github:main", status: "ok", ...done },
+      { source_id: "gitlab:old", status: "skipped", ...done },
+    ],
+    active_source_id: "gitlab:main",
+  });
+  const summary = syncRunSummary(running, now);
+  assert.match(summary, /Syncing… incremental · github:main ✓ · gitlab:main…/);
+  assert.ok(!summary.includes("gitlab:old"), "a skipped source is not progress worth narrating");
+  // No reports yet (or a deployment predating active_source_id): no progress
+  // segment, just the elapsed tick.
+  assert.equal(syncRunSummary(syncRun({ status: "running", finished_at: null, totals: null }), now), "Syncing… incremental · 10s");
+  // A failed source is visible while later sources still run.
+  const failing = syncRunSummary(
+    syncRun({
+      status: "running",
+      finished_at: null,
+      totals: null,
+      sources: [{ source_id: "github:main", status: "error", ...done, error: "boom" }],
+      active_source_id: "gitlab:main",
+    }),
+    now,
+  );
+  assert.match(failing, /github:main ✗ · gitlab:main…/);
+});
+
 test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid", () => {
   const now = Date.parse("2026-06-08T12:00:00Z");
   const activities = [
