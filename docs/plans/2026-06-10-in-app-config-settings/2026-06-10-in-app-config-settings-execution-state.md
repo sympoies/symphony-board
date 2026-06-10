@@ -56,9 +56,14 @@
   semantics, JSON-not-TOML); README and the standalone README describe the
   in-app flow with hand-editing demoted to a fallback. Final validation: root
   150/150, UI 79/79, build + smoke green, git diff --check clean, coverage
-  gate 88.31% >= 85%, cargo check pass. The full standalone
-  rebuild/install/open smoke is waived for this checkpoint (cargo check + UI
-  smoke substitute) and should run at PR delivery.
+  gate 88.31% >= 85%, cargo check pass.
+- 2026-06-10: Ran the previously waived end-to-end smoke via
+  project-rebuild-open-standalone-app: rebuilt the app from the branch,
+  replaced /Applications, opened it against the existing populated install.
+  The new control plane answered on 127.0.0.1:8787 — /api/config enabled with
+  the live 3-source config served intact, /api/secrets booleans-only and
+  writable, headerless mutations rejected 403, existing contract (3.2.0, 1236
+  items) still serving. Existing-install compatibility confirmed.
 - 2026-06-10: Implemented Sprint 2. New useConfig hook + config/secrets client
   in packages/ui (probe-driven: any probe failure hides the editor), and the
   SourcesEditor section on Settings: local draft with one explicit Save,
@@ -103,4 +108,4 @@
 | `git diff --check` | pass | No whitespace errors after Sprint 3. | local |
 | `fnm exec --using 24 pnpm coverage` | pass | Combined line coverage 88.31% (7207/8161), floor 85%. | local |
 | `cargo check` (desktop-standalone/src-tauri) | pass | Standalone shell compiles after secrets/seeding changes (node sidecar prepared first). | local |
-| `project-rebuild-open-standalone-app` smoke | waived | Full rebuild/install/open deferred to PR delivery; cargo check + UI render smoke stand in for this checkpoint. | local |
+| `project-rebuild-open-standalone-app` smoke | pass | Rebuilt from the branch, installed, opened; against the existing 3-source install: /api/config enabled and serves the live config (identities/exclude_actors intact), /api/secrets reports booleans only (writable, 3 names set), headerless PUTs to config/secrets both 403, sync-control enabled, contract 3.2.0 with 1236 items intact. | local |
