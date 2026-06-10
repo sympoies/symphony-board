@@ -160,7 +160,7 @@ is reachable (`./api/sync-control` answers `enabled: true`), the Header shows a
 adds a **Manual sync** section for full sweeps, dry-runs, and source-scoped runs.
 
 - The Header action runs an incremental sync of every source.
-- While a run is active the button is disabled and shows `Syncing…`; the UI polls
+- While a run is active the button is disabled and shows `Syncing`; the UI polls
   the run and, on a successful non-dry run, reloads `./contract.json` (and the
   active `/api/range` response) in place — the route, search, filters, time range,
   and display preferences are preserved.

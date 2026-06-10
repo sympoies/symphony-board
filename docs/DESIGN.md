@@ -486,7 +486,7 @@ never published to the host; `web` proxies the sync-control routes to it while
 unavailable or disabled it hides the affordance. While a run is active it polls
 the run status fast; while idle it re-probes at a slow cadence (and on tab
 focus) so daemon-scheduled background runs disable the button, are reported as
-`Background sync running…`, and refresh the board when they finish. Any newly
+`Background sync running`, and refresh the board when they finish. Any newly
 observed successful, non-dry, emitted run triggers exactly one reload of
 `./contract.json` (and the active `/api/range` response for a custom range)
 while preserving the current route, search, filters, time range, and display
@@ -495,7 +495,7 @@ data view as if it were fresh. A `409 run_active` reply to a manual start is
 adopted, not surfaced as an error: the UI tracks the in-flight run it lost the
 race to. Per-source progress is shown on the header source chips, not in the
 status text: while a run executes, each chip's badge overlays that run's live
-state for its source — `syncing…` for the in-flight source, the fresh outcome
+state for its source — `syncing` for the in-flight source, the fresh outcome
 for an already-finished one — and reverts to the contract's `last_status` when
 the run ends (the reloaded contract then carries the freshness). The status
 line itself stays one short line (trigger, mode, scope, elapsed).

@@ -56,7 +56,7 @@ export function SyncControls({ sync }: { sync: SyncState }) {
           disabled={disabled}
           onClick={() => sync.start({ mode, dry_run: dryRun, source_id: sourceId === "" ? null : sourceId })}
         >
-          {running ? "Syncing…" : "Run sync"}
+          {running ? "Syncing" : "Run sync"}
         </button>
       </div>
       {summary ? (

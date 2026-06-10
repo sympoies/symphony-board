@@ -260,7 +260,7 @@ export function SourcesEditor({ config, sync }: Props) {
                   onClick={() => sync?.start({ mode: "full", dry_run: false, source_id: id })}
                   title="full sweep of the source you just added or extended"
                 >
-                  {syncRunning ? "Syncing…" : `Run first sync · ${id}`}
+                  {syncRunning ? "Syncing" : `Run first sync · ${id}`}
                 </button>
               ))}
             </div>
