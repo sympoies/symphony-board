@@ -33,7 +33,16 @@ interface Props {
   onServerBaseUrl: (serverBaseUrl: string | null) => void;
   sync?: SyncState; // writer-owned manual sync, when the control surface is available
   config?: ConfigState; // writer-owned producer config, when the capability is enabled
+  tab?: SettingsTab; // URL-backed sub-tab; only meaningful when config is available
+  onTab?: (tab: SettingsTab) => void;
 }
+
+// "display" is the shared, browser-local view-preferences page every
+// deployment gets; "sources" is the writer-owned producer-config editor and
+// exists only where the config capability answers. The tab bar itself renders
+// only in that case, so deployments without the capability see the classic
+// single-page Settings unchanged.
+export type SettingsTab = "display" | "sources";
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
 // the picker with a neutral grey when there's nothing to inherit from.
@@ -75,6 +84,8 @@ export function SettingsPage({
   onServerBaseUrl,
   sync,
   config,
+  tab = "display",
+  onTab,
 }: Props) {
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
@@ -88,8 +99,21 @@ export function SettingsPage({
     else bySource.set(r.source_id, [r]);
   }
 
+  const showTabs = config?.available === true;
+  const activeTab: SettingsTab = showTabs && tab === "sources" ? "sources" : "display";
+
+  if (showTabs && activeTab === "sources" && config) {
+    return (
+      <section className="settings-page">
+        <SettingsTabs active={activeTab} onTab={onTab} />
+        <SourcesEditor config={config} sync={sync} />
+      </section>
+    );
+  }
+
   return (
     <section className="settings-page">
+      {showTabs ? <SettingsTabs active={activeTab} onTab={onTab} /> : null}
       <div className="settings-head">
         <div>
           <h2>Display</h2>
@@ -140,8 +164,6 @@ export function SettingsPage({
       </div>
 
       {sync?.available ? <SyncControls sync={sync} /> : null}
-
-      {config?.available ? <SourcesEditor config={config} sync={sync} /> : null}
 
       {[...bySource.entries()].map(([sourceId, list]) => {
         const meta = sourceMeta.get(sourceId);
@@ -218,5 +240,18 @@ export function SettingsPage({
 
       {repos.length === 0 && <p className="empty">No repos in the contract yet.</p>}
     </section>
+  );
+}
+
+function SettingsTabs({ active, onTab }: { active: SettingsTab; onTab?: (tab: SettingsTab) => void }) {
+  return (
+    <nav className="settings-tabs" role="tablist" aria-label="Settings sections">
+      <button type="button" role="tab" aria-selected={active === "display"} className={`settings-tab${active === "display" ? " settings-tab-active" : ""}`} onClick={() => onTab?.("display")}>
+        Display
+      </button>
+      <button type="button" role="tab" aria-selected={active === "sources"} className={`settings-tab${active === "sources" ? " settings-tab-active" : ""}`} onClick={() => onTab?.("sources")}>
+        Sources
+      </button>
+    </nav>
   );
 }

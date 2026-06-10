@@ -140,6 +140,7 @@ export interface HashRoute {
   from: string | null; // YYYY-MM-DD explicit time-range start
   to: string | null; // YYYY-MM-DD explicit time-range end
   preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
+  tab: string | null; // a sub-tab within a page (Settings: "sources" | default display)
 }
 
 const routeParam = (value: string | null | undefined): string | null => {
@@ -165,10 +166,11 @@ export function parseHashRoute(hash: string): HashRoute {
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
     preset: isTimeRangePresetId(preset) ? preset : null,
+    tab: routeParam(params?.get("tab")),
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -180,6 +182,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const from = routeParam(route.from);
   const to = routeParam(route.to);
   const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
+  const tab = routeParam(route.tab);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (source) params.push(`source=${encodeURIComponent(source)}`);
@@ -190,6 +193,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
   if (preset) params.push(`preset=${encodeURIComponent(preset)}`);
+  if (tab) params.push(`tab=${encodeURIComponent(tab)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 
