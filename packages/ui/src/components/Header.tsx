@@ -1,6 +1,6 @@
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { relativeTime, isSyncRunActive, syncRunSummary } from "../model.ts";
+import { relativeTime, isSyncRunActive, liveSourceStatus, syncRunSummary } from "../model.ts";
 import type { SyncState } from "../useSync.ts";
 
 // Title + contract provenance + per-source health, so a viewer can immediately
@@ -23,13 +23,21 @@ export function Header({ env, sync }: { env: ContractEnvelope; sync?: SyncState 
       <div className="header-aside">
         <div className="header-aside-row">
           <div className="sources">
-            {env.sources.map((s) => (
-              <span key={s.source_id} className="source-chip" title={`${s.kind} @ ${s.host}`}>
-                <Badge text={s.last_status ?? "unknown"} kind={`status-${s.last_status ?? "unknown"}`} />
-                <span className="source-name">{s.display_name ?? s.source_id}</span>
-                <span className="muted" title="last successful sync">{relativeTime(s.last_success_at)}</span>
-              </span>
-            ))}
+            {env.sources.map((s) => {
+              // While a run is in flight the chip badge shows that run's live
+              // state for this source (syncing… / fresh outcome); otherwise the
+              // contract's last status. The reloaded contract takes over after
+              // the run, so the overlay never outlives the run it narrates.
+              const live = showSync ? liveSourceStatus(sync!.current, s.source_id) : null;
+              const status = live ?? s.last_status ?? "unknown";
+              return (
+                <span key={s.source_id} className="source-chip" title={`${s.kind} @ ${s.host}`}>
+                  <Badge text={status === "syncing" ? "syncing…" : status} kind={`status-${status}`} />
+                  <span className="source-name">{s.display_name ?? s.source_id}</span>
+                  <span className="muted" title="last successful sync">{relativeTime(s.last_success_at)}</span>
+                </span>
+              );
+            })}
           </div>
           {showSync ? (
             <button

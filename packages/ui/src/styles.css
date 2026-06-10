@@ -236,12 +236,20 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
    kind lands on (status-unknown / lifecycle-other); all share the outlined
    shape below so an unrecognized state still reads as an intentional pill
    rather than a flat, washed-out box. */
-.badge-status-idle, .badge-status-unknown, .badge-lifecycle-other { --h: var(--muted); }
+.badge-status-idle, .badge-status-unknown, .badge-status-skipped, .badge-lifecycle-other { --h: var(--muted); }
+/* the live in-flight overlay a header chip shows while a sync run fetches that
+   source (see liveSourceStatus); pulses gently, stills under reduced motion. */
+.badge-status-syncing { --h: var(--accent); animation: badge-syncing-pulse 1.4s ease-in-out infinite; }
+@keyframes badge-syncing-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) {
+  .badge-status-syncing { animation: none; }
+}
 .badge-open, .badge-closed, .badge-merged,
 .badge-lifecycle-declared, .badge-status-partial,
 .badge-lifecycle-fulfilled, .badge-status-ok,
 .badge-lifecycle-broken, .badge-status-error,
-.badge-status-idle, .badge-status-unknown, .badge-lifecycle-other {
+.badge-status-syncing,
+.badge-status-idle, .badge-status-unknown, .badge-status-skipped, .badge-lifecycle-other {
   color: color-mix(in srgb, var(--h) 82%, var(--text));
   border-color: var(--h);
   background: color-mix(in srgb, var(--h) 16%, transparent);

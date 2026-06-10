@@ -1597,16 +1597,16 @@ export function syncProducedFreshData(run: SyncRunStatus | null | undefined): bo
   return !!run && run.status !== "running" && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial");
 }
 
-// Per-source progress for the running summary line: finished sources with a
-// verdict mark, then the in-flight one. A skipped source is config noise, not
-// progress worth narrating.
-const SOURCE_MARKS: Record<string, string> = { ok: "✓", partial: "⚠", error: "✗" };
-function syncSourceProgress(run: SyncRunStatus): string {
-  const parts = run.sources
-    .filter((s) => s.status in SOURCE_MARKS)
-    .map((s) => `${s.source_id} ${SOURCE_MARKS[s.status]}`);
-  if (run.active_source_id) parts.push(`${run.active_source_id}…`);
-  return parts.join(" · ");
+// Live per-source state for a header source chip while a run is in flight:
+// "syncing" for the source currently being fetched, the fresh per-source
+// outcome (ok | partial | error | skipped) for a source this run already
+// finished, and null when the run says nothing about the source — the chip
+// then keeps the contract's last status. Per-source progress lives here, on
+// the chips, so the status text line stays short.
+export function liveSourceStatus(run: SyncRunStatus | null | undefined, sourceId: string): string | null {
+  if (!isSyncRunActive(run)) return null;
+  if (run!.active_source_id === sourceId) return "syncing";
+  return run!.sources.find((s) => s.source_id === sourceId)?.status ?? null;
 }
 
 // A short, human status line for the Sync control. now is injectable for tests.
@@ -1617,8 +1617,7 @@ export function syncRunSummary(run: SyncRunStatus | null | undefined, now: numbe
   const scope = run.source_scope ? ` · ${run.source_scope}` : "";
   if (run.status === "running") {
     const verb = run.trigger === "scheduled" ? "Background sync running…" : "Syncing…";
-    const progress = syncSourceProgress(run);
-    return `${verb} ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}${progress ? ` · ${progress}` : ""}${elapsedSince(run.started_at, now)}`;
+    return `${verb} ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}${elapsedSince(run.started_at, now)}`;
   }
   const when = relativeTime(run.finished_at ?? run.started_at, now);
   if (run.dry_run) {
