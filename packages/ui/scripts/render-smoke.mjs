@@ -83,6 +83,26 @@ function readBody(req) {
   });
 }
 
+// A minimal mock of the writer-owned config control plane, so the headless
+// render exercises the Settings -> Sources editor (capability present, one
+// token set and one missing). PUTs adopt the submitted document like the real
+// daemon (validation is not mocked — the editor only sees success here).
+const configMock = { doc: null, secrets: {} };
+async function configMockDoc() {
+  if (configMock.doc) return configMock.doc;
+  const sources = (await syncSources()).map((s) => ({
+    source_id: s.source_id,
+    kind: s.kind,
+    host: `${s.kind}.example.com`,
+    display_name: s.display_name ?? undefined,
+    token_env: `${s.kind.toUpperCase()}_TOKEN`,
+    graphql_url: `https://${s.kind}.example.com/api/graphql`,
+    projects: ["example/repo"],
+  }));
+  configMock.doc = { db_path: "data/board.db", sources };
+  return configMock.doc;
+}
+
 function chromeBinary() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
   if (platform() === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -242,6 +262,40 @@ const server = createServer(async (req, res) => {
       }
       startSyncMock(body);
       res.writeHead(202, JSON_HEADERS).end(JSON.stringify({ current: syncMock.current }));
+      return;
+    }
+    if (p === "/api/config") {
+      if (req.method === "PUT") {
+        const raw = await readBody(req);
+        try {
+          configMock.doc = JSON.parse(raw);
+        } catch {
+          res.writeHead(400, JSON_HEADERS).end(JSON.stringify({ error: "bad_request", message: "request body is not valid JSON" }));
+          return;
+        }
+        res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ ok: true, config: configMock.doc }));
+        return;
+      }
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, config: await configMockDoc(), error: null }));
+      return;
+    }
+    if (p === "/api/secrets") {
+      if (req.method === "PUT") {
+        const raw = await readBody(req);
+        let body = {};
+        try {
+          body = JSON.parse(raw || "{}");
+        } catch {
+          body = {};
+        }
+        if (body.env) configMock.secrets[body.env] = body.value !== null;
+        res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ ok: true, env: body.env ?? "", set: body.value !== null }));
+        return;
+      }
+      const doc = await configMockDoc();
+      const secrets = {};
+      for (const s of doc.sources) secrets[s.token_env] = configMock.secrets[s.token_env] ?? s.token_env === "GITHUB_TOKEN";
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, writable: true, secrets }));
       return;
     }
     if (p === "/") p = "/index.html";
@@ -833,6 +887,9 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsSyncHtml = await waitHtml("document.querySelector('.settings-sync')");
+  // Sources editor: the mocked config capability must render the producer
+  // config section with sources, token status, and the add-source form.
+  const settingsConfigHtml = await waitHtml("document.querySelector('.settings-config')");
   ws.close();
 
   // --- assertions ---
@@ -998,6 +1055,11 @@ try {
     [syncDone.enabled === true, "sync: the Sync action re-enables after the run completes"],
     [has(settingsSyncHtml, "settings-sync"), "sync: Settings exposes the advanced manual-sync section"],
     [has(settingsSyncHtml, "sync-mode") && has(settingsSyncHtml, "sync-source") && has(settingsSyncHtml, "sync-dry-run") && has(settingsSyncHtml, "sync-run-button"), "sync: Settings advanced controls render mode, source, dry-run, and run button"],
+    // Settings -> Sources editor (writer-owned producer config, mocked capability)
+    [has(settingsConfigHtml, "Sources (producer config)"), "config: Settings exposes the Sources editor when the capability probe succeeds"],
+    [m(settingsConfigHtml, /class="config-source"/g) >= 1, "config: the editor lists the configured sources"],
+    [has(settingsConfigHtml, "token set") && has(settingsConfigHtml, "token missing"), "config: token status renders as set/missing badges, never values"],
+    [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],
     // page 5: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],
     [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],

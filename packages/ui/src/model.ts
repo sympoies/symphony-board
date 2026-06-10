@@ -1624,3 +1624,143 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   if (mo < 12) return `${mo}mo ago`;
   return `${Math.round(mo / 12)}y ago`;
 }
+
+// --- writer-owned config control plane (Settings -> Sources editor) ---
+// The UI edits a typed subset of the producer config and round-trips every
+// other field untouched (identities, exclude_actors, $comment_*, …). Server
+// validation is authoritative; these types stay liberal mirrors of the
+// daemon's /api/config JSON, like the sync types above.
+
+export type ConfigProjectEntry = string | { path: string; color?: string };
+
+export interface ConfigSourceDoc {
+  source_id: string;
+  kind: string;
+  host: string;
+  display_name?: string;
+  color?: string;
+  token_env: string;
+  graphql_url: string;
+  rest_url?: string;
+  projects: ConfigProjectEntry[];
+  [extra: string]: unknown;
+}
+
+export interface ConfigDocument {
+  db_path: string;
+  timezone?: string;
+  sources: ConfigSourceDoc[];
+  [extra: string]: unknown;
+}
+
+export interface ConfigControlInfo {
+  enabled: boolean;
+  config: ConfigDocument | null;
+  error: string | null;
+}
+
+export interface SecretsInfo {
+  enabled: boolean;
+  writable: boolean;
+  secrets: Record<string, boolean>;
+}
+
+export function configProjectPath(entry: ConfigProjectEntry): string {
+  return typeof entry === "string" ? entry : entry.path;
+}
+
+// db_path seeded into a config created in-app. Relative to the daemon's
+// working directory — the standalone data dir — matching the shipped template.
+export const NEW_CONFIG_DB_PATH = "data/symphony.db";
+
+export type ConfigSourceKind = "github" | "gitlab";
+
+// Field defaults when adding a source in the editor: canonical hosts get the
+// conventional token env names and API endpoints; self-hosted instances get
+// the provider's standard URL shapes and a host-derived env name.
+export function suggestSourceDefaults(
+  kind: ConfigSourceKind,
+  hostRaw: string,
+): Pick<ConfigSourceDoc, "source_id" | "kind" | "host" | "token_env" | "graphql_url" | "rest_url"> {
+  const host = hostRaw
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "");
+  const hostSlug = host.replace(/[^a-z0-9]+/g, "_").toUpperCase();
+  if (kind === "github") {
+    const canonical = host === "github.com";
+    return {
+      source_id: `github:${host}`,
+      kind,
+      host,
+      token_env: canonical ? "GITHUB_TOKEN" : `GITHUB_TOKEN_${hostSlug}`,
+      graphql_url: canonical ? "https://api.github.com/graphql" : `https://${host}/api/graphql`,
+      rest_url: canonical ? "https://api.github.com" : `https://${host}/api/v3`,
+    };
+  }
+  const canonical = host === "gitlab.com";
+  return {
+    source_id: `gitlab:${host}`,
+    kind,
+    host,
+    token_env: canonical ? "GITLAB_TOKEN" : `GITLAB_TOKEN_${hostSlug}`,
+    graphql_url: `https://${host}/api/graphql`,
+    rest_url: `https://${host}/api/v4`,
+  };
+}
+
+// Immutable draft mutations for the Sources editor. Each returns a new
+// document and leaves fields the editor does not own untouched.
+
+export function configWithSource(doc: ConfigDocument | null, source: ConfigSourceDoc): ConfigDocument {
+  const base = doc ?? { db_path: NEW_CONFIG_DB_PATH, sources: [] };
+  if (base.sources.some((s) => s.source_id === source.source_id)) return base;
+  return { ...base, sources: [...base.sources, source] };
+}
+
+export function configWithoutSource(doc: ConfigDocument, sourceId: string): ConfigDocument {
+  return { ...doc, sources: doc.sources.filter((s) => s.source_id !== sourceId) };
+}
+
+export function configWithSourcePatch(doc: ConfigDocument, sourceId: string, patch: Partial<ConfigSourceDoc>): ConfigDocument {
+  return { ...doc, sources: doc.sources.map((s) => (s.source_id === sourceId ? { ...s, ...patch } : s)) };
+}
+
+export function configWithProject(doc: ConfigDocument, sourceId: string, pathRaw: string): ConfigDocument {
+  const path = pathRaw.trim();
+  if (!path) return doc;
+  return {
+    ...doc,
+    sources: doc.sources.map((s) => {
+      if (s.source_id !== sourceId) return s;
+      if (s.projects.some((p) => configProjectPath(p) === path)) return s;
+      return { ...s, projects: [...s.projects, path] };
+    }),
+  };
+}
+
+export function configWithoutProject(doc: ConfigDocument, sourceId: string, path: string): ConfigDocument {
+  return {
+    ...doc,
+    sources: doc.sources.map((s) => (s.source_id === sourceId ? { ...s, projects: s.projects.filter((p) => configProjectPath(p) !== path) } : s)),
+  };
+}
+
+// Sources whose project set grew between two documents (or are entirely new):
+// after a save these need a first (full) sync before their data shows up, so
+// the editor offers a source-scoped run for each.
+export function sourcesNeedingSync(prev: ConfigDocument | null, next: ConfigDocument | null): string[] {
+  if (!next) return [];
+  const prevProjects = new Map((prev?.sources ?? []).map((s) => [s.source_id, new Set(s.projects.map(configProjectPath))]));
+  const out: string[] = [];
+  for (const s of next.sources) {
+    const before = prevProjects.get(s.source_id);
+    if (!before) {
+      out.push(s.source_id);
+      continue;
+    }
+    if (s.projects.some((p) => !before.has(configProjectPath(p)))) out.push(s.source_id);
+  }
+  return out;
+}

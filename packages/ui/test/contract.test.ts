@@ -9,6 +9,10 @@ import {
   fetchSyncControl,
   fetchCurrentSyncRun,
   startSyncRun,
+  fetchConfigControl,
+  saveConfigDocument,
+  fetchSecrets,
+  saveSecretValue,
   SYNC_CONTROL_HEADER,
 } from "../src/contract.ts";
 
@@ -130,6 +134,99 @@ test("startSyncRun sends the same-origin header and adopts the 409 active run", 
     assert.equal(busy.ok, false);
     assert.equal(busy.status, 409);
     assert.equal(busy.run?.run_id, "r3", "the 409 response adopts the active run for polling");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchConfigControl returns the probe on 2xx and null on any failure", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ enabled: true, config: { db_path: "x", sources: [] }, error: null }) })) as unknown as typeof fetch;
+    const info = await fetchConfigControl(null);
+    assert.equal(info?.enabled, true);
+    assert.equal(info?.config?.db_path, "x");
+
+    // disabled deployments still answer the probe; the editor hides on enabled:false
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ enabled: false, config: null, error: null }) })) as unknown as typeof fetch;
+    assert.equal((await fetchConfigControl(null))?.enabled, false);
+
+    globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    assert.equal(await fetchConfigControl(null), null);
+
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    assert.equal(await fetchConfigControl(null), null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("saveConfigDocument sends the guard header and decodes field-level validation errors", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let seenHeader: string | undefined;
+    let seenMethod: string | undefined;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      seenHeader = (init.headers as Record<string, string>)[SYNC_CONTROL_HEADER];
+      seenMethod = init.method;
+      return { ok: true, status: 200, json: async () => ({ ok: true, config: { db_path: "x", sources: [] } }) };
+    }) as unknown as typeof fetch;
+    const ok = await saveConfigDocument({ db_path: "x", sources: [] }, null);
+    assert.equal(ok.ok, true);
+    assert.equal(seenMethod, "PUT");
+    assert.equal(seenHeader, "1", "the mutating PUT carries the same-origin guard header");
+
+    // 400 invalid_config: the daemon's messages ride back verbatim
+    globalThis.fetch = (async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "invalid_config", errors: ["config is missing db_path", 'config: source missing "source_id"'] }),
+    })) as unknown as typeof fetch;
+    const invalid = await saveConfigDocument({ db_path: "", sources: [] }, null);
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.errors.length, 2);
+    assert.equal(invalid.error, null, "validation failures are not a transport error");
+
+    // any other failure surfaces as a single error message
+    globalThis.fetch = (async () => ({ ok: false, status: 403, json: async () => ({ error: "control_disabled" }) })) as unknown as typeof fetch;
+    const refused = await saveConfigDocument({ db_path: "x", sources: [] }, null);
+    assert.equal(refused.ok, false);
+    assert.deepEqual(refused.errors, []);
+    assert.equal(refused.error, "control_disabled");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchSecrets probes booleans-only and saveSecretValue never echoes the value", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ enabled: true, writable: true, secrets: { GITHUB_TOKEN: true } }) })) as unknown as typeof fetch;
+    const info = await fetchSecrets(null);
+    assert.equal(info?.writable, true);
+    assert.equal(info?.secrets.GITHUB_TOKEN, true);
+
+    globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    assert.equal(await fetchSecrets(null), null);
+
+    let seenBody: string | undefined;
+    let seenHeader: string | undefined;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      seenBody = init.body as string;
+      seenHeader = (init.headers as Record<string, string>)[SYNC_CONTROL_HEADER];
+      return { ok: true, status: 200, json: async () => ({ ok: true, env: "GITHUB_TOKEN", set: true }) };
+    }) as unknown as typeof fetch;
+    const set = await saveSecretValue("GITHUB_TOKEN", "ghp_x", null);
+    assert.equal(set.ok, true);
+    assert.equal(seenHeader, "1");
+    assert.deepEqual(JSON.parse(seenBody!), { env: "GITHUB_TOKEN", value: "ghp_x" });
+
+    globalThis.fetch = (async () => ({ ok: false, status: 403, json: async () => ({ error: "secrets_unavailable", message: "no writable secrets file" }) })) as unknown as typeof fetch;
+    const refused = await saveSecretValue("GITHUB_TOKEN", "x", null);
+    assert.equal(refused.ok, false);
+    assert.equal(refused.error, "no writable secrets file");
   } finally {
     globalThis.fetch = realFetch;
   }

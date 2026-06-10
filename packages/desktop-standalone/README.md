@@ -18,11 +18,12 @@ This is the second desktop option, beside the thin client:
 On launch the app:
 
 1. prepares `~/Library/Application Support/com.sympoies.symphony-board.standalone/`
-   (`config/sources.json` seeded from the bundled template on first run,
-   `secrets.env` token template, `data/`, `logs/`);
+   (`secrets.env` token file, `data/`, `logs/`; `config/sources.json` is
+   created by the in-app Settings -> Sources editor, not seeded);
 2. spawns the bundled Node runtime running `src/cli/app-server.ts` — one
-   process that owns the sync + emit loop, the manual-sync control surface,
-   `/contract.json`, and `/api/range` on `127.0.0.1:8787` (loopback only);
+   process that owns the sync + emit loop, the manual-sync and config control
+   surfaces, `/contract.json`, and `/api/range` on `127.0.0.1:8787` (loopback
+   only);
 3. opens the UI pointed at that local server. Quitting the app stops the
    daemon. If port 8787 is already serving (an earlier instance's daemon), the
    app adopts it instead of starting a second SQLite writer.
@@ -33,15 +34,23 @@ environment).
 
 ## Setup
 
-1. Build and open the app (below), then quit it once — the first launch seeds
-   the data directory.
-2. Edit `~/Library/Application Support/com.sympoies.symphony-board.standalone/config/sources.json`
-   with your sources (same format as `config/sources.example.json`).
-3. Put tokens in `.../secrets.env` (`GITHUB_TOKEN=...`, one per line; names
-   must match each source's `token_env`).
-4. Relaunch the app. The first full sync runs immediately; the board renders
-   once the first contract is emitted. `.../logs/app-server.log` carries the
-   daemon log.
+Everything happens in-app:
+
+1. Build and open the app (below). With no config yet, it opens straight into
+   onboarding.
+2. Add a source (provider + host; sensible defaults are suggested), add its
+   repos, and paste the provider token — tokens land in `secrets.env` through
+   a write-only surface and are never displayed back.
+3. Save, then run the first sync from the same screen. The board renders once
+   the first contract is emitted. `.../logs/app-server.log` carries the daemon
+   log.
+
+Sources, repos, display names, and tokens remain editable later under
+Settings -> Sources; changes apply on the next sync run without restarting
+the app. Hand-editing
+`~/Library/Application Support/com.sympoies.symphony-board.standalone/config/sources.json`
+(same format as `config/sources.example.json`) and `.../secrets.env` still
+works as a fallback — the daemon re-reads both per run.
 
 ## Develop
 

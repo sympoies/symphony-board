@@ -9,8 +9,13 @@
 // second SQLite writer.
 //
 // Data layout (macOS: ~/Library/Application Support/com.sympoies.symphony-board.standalone/):
-//   config/sources.json   seeded from the bundled template on first run; edit it
-//   secrets.env           KEY=VALUE provider tokens (names match token_env)
+//   config/sources.json   created and edited in-app (Settings -> Sources) via
+//                         the sidecar's config control plane; absent until the
+//                         first-run onboarding saves one. Hand-editing remains
+//                         a fallback — the daemon re-reads it per run.
+//   secrets.env           KEY=VALUE provider tokens (names match token_env);
+//                         written in-app through the write-only secrets surface
+//                         (SYMPHONY_SECRETS_FILE), hand-editable as a fallback
 //   data/board state      SQLite store + emitted contract.json
 //   logs/app-server.log   sidecar stdout/stderr
 
@@ -70,8 +75,8 @@ fn read_env_file(path: &Path) -> Vec<(String, String)> {
 
 const SECRETS_TEMPLATE: &str = "# Provider tokens for Symphony Board Standalone.\n\
 # Lines are KEY=VALUE; '#' starts a comment. Names must match each source's\n\
-# token_env in config/sources.json. The app passes these to the bundled sync\n\
-# daemon's environment on launch (restart the app after editing).\n\
+# token_env in config/sources.json. Settings -> Sources writes entries here\n\
+# for you; hand edits also work and apply on the next sync run.\n\
 # GITHUB_TOKEN=ghp_xxx\n\
 # GITLAB_TOKEN=glpat-xxx\n";
 
@@ -81,13 +86,9 @@ fn ensure_data_layout(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
     fs::create_dir_all(data_dir.join("data"))?;
     fs::create_dir_all(data_dir.join("logs"))?;
 
-    let config = data_dir.join("config").join("sources.json");
-    if !config.exists() {
-        let template = app
-            .path()
-            .resolve("backend/config-template/sources.json", BaseDirectory::Resource)?;
-        fs::copy(&template, &config)?;
-    }
+    // config/sources.json is deliberately NOT seeded: a missing config is the
+    // state the in-app onboarding starts from (Settings -> Sources creates it
+    // through the sidecar's config control plane).
 
     let secrets = data_dir.join("secrets.env");
     if !secrets.exists() {
@@ -120,6 +121,7 @@ fn spawn_backend(app: &AppHandle, data_dir: &Path) -> Result<Child, Box<dyn std:
         // CONTRACT_OUT land under Application Support, never inside the app.
         .current_dir(data_dir)
         .env("SYMPHONY_CONFIG", data_dir.join("config").join("sources.json"))
+        .env("SYMPHONY_SECRETS_FILE", data_dir.join("secrets.env"))
         .env("CONTRACT_OUT", data_dir.join("data").join("contract.json"))
         .env("HOST", "127.0.0.1")
         .env("PORT", PORT.to_string())

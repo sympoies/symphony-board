@@ -64,6 +64,8 @@ function sandbox(): { dir: string; opts: AppServerOptions } {
       configPath,
       contractOut: join(dir, "data", "contract.json"),
       controlEnabled: true,
+      configControlEnabled: true,
+      secretsPath: join(dir, "secrets.env"),
       intervalSeconds: 120,
       fullEvery: 30,
     },
@@ -117,6 +119,35 @@ test("app-server serves health, contract, range, and the sync control surface", 
     });
     assert.equal(started.status, 202);
 
+    // config control plane: GET serves the live document
+    const cfgRes = await fetch(`${base}/api/config`);
+    assert.equal(cfgRes.status, 200);
+    const cfgBody = await json(cfgRes);
+    assert.equal(cfgBody.enabled, true);
+    assert.equal(cfgBody.config.sources[0].source_id, "github:github.com");
+
+    // PUT applies without a restart: the next control probe sees the new source
+    const next = cfgBody.config;
+    next.sources.push({
+      source_id: "gitlab:gitlab.com",
+      kind: "gitlab",
+      host: "gitlab.com",
+      token_env: "APP_SERVER_TEST_TOKEN_UNSET_2",
+      graphql_url: "https://gitlab.com/api/graphql",
+      projects: ["group/project"],
+    });
+    const put = await fetch(`${base}/api/config`, {
+      method: "PUT",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: JSON.stringify(next),
+    });
+    assert.equal(put.status, 200);
+    const probeAfter = await json(await fetch(`${base}/api/sync-control`));
+    assert.deepEqual(
+      probeAfter.sources.map((s: { source_id: string }) => s.source_id),
+      ["github:github.com", "gitlab:gitlab.com"],
+    );
+
     // unknown routes 404
     const nope = await fetch(`${base}/api/nope`);
     assert.equal(nope.status, 404);
@@ -132,6 +163,8 @@ test("app-server degrades cleanly when the config is missing", async () => {
     configPath: join(dir, "config", "sources.json"), // never written
     contractOut: join(dir, "data", "contract.json"),
     controlEnabled: true,
+    configControlEnabled: true,
+    secretsPath: null,
     intervalSeconds: 120,
     fullEvery: 30,
   };
@@ -148,6 +181,13 @@ test("app-server degrades cleanly when the config is missing", async () => {
     const range = await fetch(`${base}/api/range?from=2026-01-01&to=2026-01-02`);
     assert.equal(range.status, 500);
     assert.equal((await json(range)).error, "config_error");
+
+    // the config capability is still advertised with no document — the
+    // first-run onboarding state the Settings editor starts from
+    const probe = await json(await fetch(`${base}/api/config`));
+    assert.equal(probe.enabled, true);
+    assert.equal(probe.config, null);
+    assert.equal(typeof probe.error, "string");
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

@@ -1,11 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import {
   SyncController,
   createControlServer,
   parseSyncRequest,
+  SYNC_CONTROL_HEADER,
+  type ConfigControl,
   type ControlContext,
   type SourceOption,
   type SyncRequest,
@@ -26,8 +31,9 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 const SOURCES: SourceOption[] = [{ source_id: "fake:a", display_name: "A", kind: "fake" }];
-function ctx(controlEnabled: boolean): ControlContext {
-  return { controlEnabled, sources: SOURCES, intervalSeconds: 120, fullEvery: 30 };
+const NO_CONFIG_CONTROL: ConfigControl = { enabled: false, path: "/nonexistent/sources.json", secretsPath: null };
+function ctx(controlEnabled: boolean, configControl: ConfigControl = NO_CONFIG_CONTROL): ControlContext {
+  return { controlEnabled, configControl, sources: SOURCES, intervalSeconds: 120, fullEvery: 30 };
 }
 
 function listen(server: Server): Promise<string> {
@@ -194,5 +200,300 @@ test("control server refuses manual runs when control is disabled", async () => 
     assert.equal(controller.isRunning(), false, "a disabled control plane never starts a run");
   } finally {
     await close(server);
+  }
+});
+
+// --- HTTP config control plane ---
+
+test("config surface hides the document and refuses writes when disabled", async () => {
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createControlServer(controller, ctx(true)); // sync on, config control off
+  const base = await listen(server);
+  try {
+    // the probe answers, but no config document leaks
+    const probe = await json(await fetch(`${base}/api/config`));
+    assert.deepEqual(probe, { enabled: false, config: null, error: null });
+
+    // even a same-origin PUT is refused while disabled
+    const res = await fetch(`${base}/api/config`, {
+      method: "PUT",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: JSON.stringify({ db_path: "x", sources: [] }),
+    });
+    assert.equal(res.status, 403);
+    assert.equal((await json(res)).error, "control_disabled");
+  } finally {
+    await close(server);
+  }
+});
+
+test("config GET/PUT round-trip: probe, guards, validation, atomic write", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "config-control-test-"));
+  const configPath = join(dir, "config", "sources.json");
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createControlServer(controller, ctx(true, { enabled: true, path: configPath, secretsPath: null }));
+  const base = await listen(server);
+  const PUT = (body: string, headers: Record<string, string> = {}) =>
+    fetch(`${base}/api/config`, { method: "PUT", headers, body });
+  try {
+    // missing config: capability still advertised (first-run onboarding state)
+    const empty = await json(await fetch(`${base}/api/config`));
+    assert.equal(empty.enabled, true);
+    assert.equal(empty.config, null);
+    assert.equal(typeof empty.error, "string");
+
+    // missing same-origin header
+    let res = await PUT("{}");
+    assert.equal(res.status, 403);
+    assert.equal((await json(res)).error, "forbidden");
+
+    // malformed JSON
+    res = await PUT("{nope", { [SYNC_CONTROL_HEADER]: "1" });
+    assert.equal(res.status, 400);
+    assert.equal((await json(res)).error, "bad_request");
+
+    // invalid config: every problem reported in one round trip, nothing written
+    res = await PUT(JSON.stringify({ sources: [{ kind: "github" }], timezone: "Nope/Zone" }), {
+      [SYNC_CONTROL_HEADER]: "1",
+    });
+    assert.equal(res.status, 400);
+    const invalid = await json(res);
+    assert.equal(invalid.error, "invalid_config");
+    assert.ok(invalid.errors.some((e: string) => e.includes("missing db_path")));
+    assert.ok(invalid.errors.some((e: string) => e.includes('source missing "source_id"')));
+    assert.ok(invalid.errors.some((e: string) => e.includes("not a valid IANA timezone")));
+    assert.equal(existsSync(configPath), false, "an invalid document never reaches disk");
+
+    // valid config writes; fields the editor does not own round-trip unchanged
+    const valid = {
+      db_path: join(dir, "data", "board.db"),
+      timezone: "UTC",
+      sources: [
+        {
+          source_id: "github:github.com",
+          kind: "github",
+          host: "github.com",
+          display_name: "GitHub",
+          token_env: "CONFIG_CONTROL_TEST_TOKEN",
+          graphql_url: "https://api.github.com/graphql",
+          projects: ["a/b", { path: "c/d", color: "#abc" }],
+        },
+      ],
+      identities: [{ name: "Terry", usernames: ["graysurf"] }],
+      exclude_actors: ["renovate*"],
+      x_unknown_field: { keep: true },
+    };
+    res = await PUT(JSON.stringify(valid), { [SYNC_CONTROL_HEADER]: "1" });
+    assert.equal(res.status, 200);
+    assert.equal((await json(res)).ok, true);
+
+    const readBack = await json(await fetch(`${base}/api/config`));
+    assert.equal(readBack.enabled, true);
+    assert.equal(readBack.error, null);
+    assert.deepEqual(readBack.config, valid);
+
+    // atomic write leaves no temp file behind
+    const leftovers = readdirSync(dirname(configPath)).filter((f) => f.includes(".tmp-"));
+    assert.deepEqual(leftovers, []);
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("config control hardening: oversized bodies, independent gates, concurrent PUTs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "config-hardening-test-"));
+  const configPath = join(dir, "config", "sources.json");
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  // sync control OFF, config control ON: the two gates are independent
+  const server = createControlServer(controller, ctx(false, { enabled: true, path: configPath, secretsPath: null }));
+  const base = await listen(server);
+  const validConfig = (displayName: string) => ({
+    db_path: join(dir, "board.db"),
+    sources: [
+      {
+        source_id: "github:github.com",
+        kind: "github",
+        host: "github.com",
+        display_name: displayName,
+        token_env: "HARDENING_TEST_TOKEN",
+        graphql_url: "https://api.github.com/graphql",
+        projects: ["a/b"],
+      },
+    ],
+  });
+  const PUT = (body: string) =>
+    fetch(`${base}/api/config`, { method: "PUT", headers: { [SYNC_CONTROL_HEADER]: "1" }, body });
+  try {
+    // sync mutations stay refused while config mutations work
+    const syncRes = await fetch(`${base}/api/sync-runs`, {
+      method: "POST",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: "{}",
+    });
+    assert.equal(syncRes.status, 403);
+    assert.equal((await json(syncRes)).error, "control_disabled");
+    assert.equal((await PUT(JSON.stringify(validConfig("solo")))).status, 200);
+
+    // a body over the config limit is a clean 413, not a crash or partial write
+    const huge = JSON.stringify({ ...validConfig("huge"), pad: "a".repeat(300 * 1024) });
+    const big = await PUT(huge);
+    assert.equal(big.status, 413);
+    assert.equal((await json(big)).error, "payload_too_large");
+
+    // concurrent PUTs: last write wins and the file is never torn
+    const labels = Array.from({ length: 8 }, (_, i) => `writer-${i}`);
+    const results = await Promise.all(labels.map((l) => PUT(JSON.stringify(validConfig(l)))));
+    assert.ok(results.every((r) => r.status === 200));
+    const after = await json(await fetch(`${base}/api/config`));
+    assert.equal(after.error, null, "the stored config still validates");
+    assert.ok(labels.includes(after.config.sources[0].display_name), "the survivor is one submitted document");
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a config edit during an active sync run leaves the run undisturbed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "config-midrun-test-"));
+  const configPath = join(dir, "config", "sources.json");
+  const gate = deferred<SyncRunResult>();
+  const controller = new SyncController({ run: () => gate.promise });
+  const server = createControlServer(controller, ctx(true, { enabled: true, path: configPath, secretsPath: null }));
+  const base = await listen(server);
+  try {
+    const started = await fetch(`${base}/api/sync-runs`, {
+      method: "POST",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: "{}",
+    });
+    assert.equal(started.status, 202);
+    const runId = (await json(started)).current.run_id;
+
+    // edit config while the run is active
+    const put = await fetch(`${base}/api/config`, {
+      method: "PUT",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: JSON.stringify({
+        db_path: join(dir, "board.db"),
+        sources: [
+          {
+            source_id: "github:github.com",
+            kind: "github",
+            host: "github.com",
+            token_env: "MIDRUN_TEST_TOKEN",
+            graphql_url: "https://api.github.com/graphql",
+            projects: ["a/b"],
+          },
+        ],
+      }),
+    });
+    assert.equal(put.status, 200);
+
+    // the active run is still the same run, still running
+    const current = (await json(await fetch(`${base}/api/sync-runs/current`))).current;
+    assert.equal(current.run_id, runId);
+    assert.equal(current.status, "running");
+
+    // and it finishes normally after the edit
+    gate.resolve(okResult());
+    await until(async () => (await json(await fetch(`${base}/api/sync-runs/current`))).current === null);
+    const last = (await json(await fetch(`${base}/api/sync-runs/last`))).last;
+    assert.equal(last.run_id, runId);
+    assert.equal(last.status, "ok");
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("secrets surface is write-only: set/remove tokens, report booleans, never values", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "secrets-control-test-"));
+  const configPath = join(dir, "config", "sources.json");
+  const secretsPath = join(dir, "secrets.env");
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createControlServer(controller, ctx(true, { enabled: true, path: configPath, secretsPath }));
+  const base = await listen(server);
+  const PUT = (body: unknown) =>
+    fetch(`${base}/api/secrets`, { method: "PUT", headers: { [SYNC_CONTROL_HEADER]: "1" }, body: JSON.stringify(body) });
+  try {
+    // write a config that references two token env names
+    const source = (id: string, tokenEnv: string) => ({
+      source_id: id,
+      kind: "github",
+      host: "github.com",
+      token_env: tokenEnv,
+      graphql_url: "https://api.github.com/graphql",
+      projects: ["a/b"],
+    });
+    const cfgPut = await fetch(`${base}/api/config`, {
+      method: "PUT",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: JSON.stringify({
+        db_path: join(dir, "board.db"),
+        sources: [source("github:github.com", "SECRETS_TEST_TOKEN_A"), source("github:ghe.example.com", "SECRETS_TEST_TOKEN_B")],
+      }),
+    });
+    assert.equal(cfgPut.status, 200);
+
+    // both names report unset; the surface is writable
+    let listed = await json(await fetch(`${base}/api/secrets`));
+    assert.deepEqual(listed, {
+      enabled: true,
+      writable: true,
+      secrets: { SECRETS_TEST_TOKEN_A: false, SECRETS_TEST_TOKEN_B: false },
+    });
+
+    // guards: header required, env name and value validated
+    let res = await fetch(`${base}/api/secrets`, { method: "PUT", body: "{}" });
+    assert.equal(res.status, 403);
+    res = await PUT({ env: "not a name", value: "x" });
+    assert.equal(res.status, 400);
+    res = await PUT({ env: "SECRETS_TEST_TOKEN_A", value: "   " });
+    assert.equal(res.status, 400);
+
+    // set a token: the response and the listing carry booleans, never the value
+    res = await PUT({ env: "SECRETS_TEST_TOKEN_A", value: "ghp_secret_value" });
+    assert.equal(res.status, 200);
+    const setBody = await json(res);
+    assert.deepEqual(setBody, { ok: true, env: "SECRETS_TEST_TOKEN_A", set: true });
+    listed = await json(await fetch(`${base}/api/secrets`));
+    assert.equal(listed.secrets.SECRETS_TEST_TOKEN_A, true);
+    assert.equal(listed.secrets.SECRETS_TEST_TOKEN_B, false);
+    assert.ok(!JSON.stringify(listed).includes("ghp_secret_value"));
+
+    // the file is owner-only and preserves unrelated lines on update
+    const mode = statSync(secretsPath).mode & 0o777;
+    assert.equal(mode, 0o600);
+    res = await PUT({ env: "SECRETS_TEST_TOKEN_B", value: "glpat-other" });
+    assert.equal(res.status, 200);
+    const text = readFileSync(secretsPath, "utf8");
+    assert.ok(text.includes("SECRETS_TEST_TOKEN_A=ghp_secret_value"));
+    assert.ok(text.includes("SECRETS_TEST_TOKEN_B=glpat-other"));
+
+    // remove: null drops the entry
+    res = await PUT({ env: "SECRETS_TEST_TOKEN_A", value: null });
+    assert.deepEqual(await json(res), { ok: true, env: "SECRETS_TEST_TOKEN_A", set: false });
+    assert.ok(!readFileSync(secretsPath, "utf8").includes("SECRETS_TEST_TOKEN_A"));
+
+    // with no writable secrets file, PUT refuses but GET still reports
+    const noFile = createControlServer(controller, ctx(true, { enabled: true, path: configPath, secretsPath: null }));
+    const noFileBase = await listen(noFile);
+    try {
+      const probe = await json(await fetch(`${noFileBase}/api/secrets`));
+      assert.equal(probe.writable, false);
+      const refused = await fetch(`${noFileBase}/api/secrets`, {
+        method: "PUT",
+        headers: { [SYNC_CONTROL_HEADER]: "1" },
+        body: JSON.stringify({ env: "X", value: "y" }),
+      });
+      assert.equal(refused.status, 403);
+      assert.equal((await json(refused)).error, "secrets_unavailable");
+    } finally {
+      await close(noFile);
+    }
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
   }
 });

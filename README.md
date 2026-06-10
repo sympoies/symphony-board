@@ -44,6 +44,12 @@ The basic product path is implemented:
   (`src/cli/app-server.ts`) against a per-user data directory — an alternative
   to the Docker stack for a single-machine install, not a replacement for the
   thin client.
+- A writer-owned config control plane lets the UI edit producer config
+  (sources, repos, display names) and set provider tokens write-only, gated by
+  `CONFIG_CONTROL_ENABLED` + the same-origin header — on by default in the
+  standalone app (which onboards entirely in-app), off in the Docker stack
+  (file-based config stays the interface there). See
+  [docs/DESIGN.md](docs/DESIGN.md).
 - CI runs backend checks, UI build/tests/render-smoke, and a combined
   logic-tier coverage gate.
 
@@ -230,6 +236,23 @@ and is never published to the host. Mutating requests require a same-origin
 UI then hides the Sync action). The Header action runs an incremental sync of all
 sources; Settings exposes full sweep, dry-run, and source-scoped runs.
 
+### Editing sources from the UI
+
+A second writer-owned capability lets Settings -> Sources edit the producer
+config itself: add/remove sources and repos, edit display names, and set
+provider tokens through a write-only secrets surface (values are never read
+back). The daemon validates with the same rules as `loadConfig` and writes
+atomically; edits apply on the next sync run without a restart. Removing a
+source or repo stops syncing it but keeps already-synced history.
+
+It is gated by `CONFIG_CONTROL_ENABLED` plus the same same-origin header as
+sync control, and it is **off by default in the Docker stack** — Compose mounts
+`config/` read-only, so keep editing `config/sources.json` on the host there
+(the daemon picks the edit up on the next run). The standalone desktop app
+enables it by default and onboards new installs entirely in-app. See
+[docs/DESIGN.md](docs/DESIGN.md) for the full decision record, including why
+the config file stays JSON.
+
 ## Build The macOS App
 
 Two desktop options share the same UI:
@@ -250,9 +273,11 @@ Docker stack. Change it from Settings -> Server for an always-on hosted server.
 
 **Standalone** (`packages/desktop-standalone`): the fully self-contained app —
 UI plus the bundled Node runtime, sync daemon, SQLite store, and contract
-server in one `.app`, no Docker or server required. Config, tokens, and data
-live under `~/Library/Application Support/com.sympoies.symphony-board.standalone/`;
-see [packages/desktop-standalone/README.md](packages/desktop-standalone/README.md)
+server in one `.app`, no Docker or server required. First run onboards
+entirely in-app (add a source, paste a token, run the first sync); config,
+tokens, and data live under
+`~/Library/Application Support/com.sympoies.symphony-board.standalone/`; see
+[packages/desktop-standalone/README.md](packages/desktop-standalone/README.md)
 for setup.
 
 ```sh
