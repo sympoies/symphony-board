@@ -3,7 +3,7 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: all sprints complete; implementation validated on the branch, PR delivery pending
+- Status: complete; tracking issue closed
 - Target scope: writer-owned config control plane, write-only secrets surface,
   capability-gated Settings -> Sources editor, standalone onboarding, and the
   DESIGN.md decision record.
@@ -12,7 +12,7 @@
 - Current task: implementation complete on the branch; final checkpoint posted.
 - Next task: PR delivery via deliver-plan-tracking-issue, then closeout.
 - Last updated: 2026-06-10
-- Branch/commit/PR: feat/in-app-config-settings (no PR yet)
+- Branch/commit/PR: sympoies/symphony-board#153 merged (https://github.com/sympoies/symphony-board/pull/153)
 - Source document: docs/plans/2026-06-10-in-app-config-settings/2026-06-10-in-app-config-settings-plan.md
 - Direct source-doc execution waiver: not applicable.
 - Tracking issue: <https://github.com/sympoies/symphony-board/issues/151>
