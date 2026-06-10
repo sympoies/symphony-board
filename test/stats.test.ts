@@ -9,9 +9,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
-import { openDb, openDbReadOnly } from "../src/db/open.ts";
+import { openSqliteStore, openSqliteStoreReadOnly } from "../src/db/sqlite.ts";
 import { buildStoreStats, handleStatsRequest } from "../src/server/stats.ts";
-import { ensureSource, upsertItem, upsertEdge, upsertActivity, startRun, finishRun, softDeleteUnseenItems } from "../src/db/repo.ts";
 import type { AppConfig } from "../src/config.ts";
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
@@ -73,37 +72,37 @@ const FIXTURE_ACTIVITY: CanonicalActivity = {
   details: null,
 };
 
-test("buildStoreStats summarizes rows, breakdowns, tombstones, and sync runs", () => {
+test("buildStoreStats summarizes rows, breakdowns, tombstones, and sync runs", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stats-test-"));
   const path = join(dir, "stats.db");
-  const db = openDb(path);
+  const db = await openSqliteStore(path);
   try {
-    ensureSource(db, { sourceId: SOURCE, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
-    upsertItem(db, fixtureItem(), "github/1", "2026-06-01T00:00:00Z");
-    upsertItem(db, fixtureItem({ externalId: "PR_1", kind: "change_request", state: "merged", mergedAt: "2026-05-30T00:00:00Z" }), "github/1", "2026-06-01T00:00:00Z");
+    await db.ensureSource({ sourceId: SOURCE, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+    await db.upsertItem(fixtureItem(), "github/1", "2026-06-01T00:00:00Z");
+    await db.upsertItem(fixtureItem({ externalId: "PR_1", kind: "change_request", state: "merged", mergedAt: "2026-05-30T00:00:00Z" }), "github/1", "2026-06-01T00:00:00Z");
     // Seen long before the cutoff, so the full-sweep rule tombstones it.
-    upsertItem(db, fixtureItem({ externalId: "ISSUE_OLD" }), "github/1", "2026-05-01T00:00:00Z");
-    softDeleteUnseenItems(db, SOURCE, "2026-05-15T00:00:00Z", "2026-06-01T00:00:00Z");
-    upsertEdge(db, FIXTURE_EDGE, "2026-06-01T00:00:00Z");
-    upsertActivity(db, FIXTURE_ACTIVITY, "2026-06-01T00:00:00Z");
+    await db.upsertItem(fixtureItem({ externalId: "ISSUE_OLD" }), "github/1", "2026-05-01T00:00:00Z");
+    await db.softDeleteUnseenItems(SOURCE, "2026-05-15T00:00:00Z", "2026-06-01T00:00:00Z");
+    await db.upsertEdge(FIXTURE_EDGE, "2026-06-01T00:00:00Z");
+    await db.upsertActivity(FIXTURE_ACTIVITY, "2026-06-01T00:00:00Z");
 
-    const ok = startRun(db, SOURCE, "full", "2026-06-01T00:00:00Z");
-    finishRun(db, ok, "ok", "2026-06-01T00:00:30Z", 2, 1, 1, null);
-    const failed = startRun(db, SOURCE, "incremental", "2026-06-01T00:02:00Z");
-    finishRun(db, failed, "error", "2026-06-01T00:02:05Z", 0, 0, 0, "boom");
+    const ok = await db.startRun(SOURCE, "full", "2026-06-01T00:00:00Z");
+    await db.finishRun(ok, "ok", "2026-06-01T00:00:30Z", 2, 1, 1, null);
+    const failed = await db.startRun(SOURCE, "incremental", "2026-06-01T00:02:00Z");
+    await db.finishRun(failed, "error", "2026-06-01T00:02:05Z", 0, 0, 0, "boom");
   } finally {
-    db.close();
+    await db.close();
   }
 
-  const ro = openDbReadOnly(path);
-  const stats = buildStoreStats(ro, path, 10);
-  const newestOnly = buildStoreStats(ro, path, 1);
-  ro.close();
+  const ro = await openSqliteStoreReadOnly(path);
+  const stats = await buildStoreStats(ro, 10);
+  const newestOnly = await buildStoreStats(ro, 1);
+  await ro.close();
   rmSync(dir, { recursive: true, force: true });
 
-  assert.ok(stats.db.size_bytes > 0, "store file size is reported");
-  assert.ok(stats.db.page_size > 0 && stats.db.page_count > 0);
-  assert.ok(stats.db.schema_version >= 3, "PRAGMA user_version rides along");
+  assert.ok(Number(stats.db.size_bytes) > 0, "store file size is reported");
+  assert.ok(Number(stats.db.page_size) > 0 && Number(stats.db.page_count) > 0);
+  assert.ok(Number(stats.db.schema_version) >= 3, "PRAGMA user_version rides along");
 
   assert.equal(stats.tables.item, 3, "table rows include tombstoned");
   assert.equal(stats.tables.sync_run, 2);
@@ -148,10 +147,10 @@ function fakeRes(): { res: ServerResponse; out: { status: number; body: string }
   return { res, out };
 }
 
-test("handleStatsRequest maps a store that does not exist yet to 404 no_database", () => {
+test("handleStatsRequest maps a store that does not exist yet to 404 no_database", async () => {
   const { res, out } = fakeRes();
   const cfg = { db_path: join(tmpdir(), "stats-test-definitely-missing.db"), sources: [] } as unknown as AppConfig;
-  handleStatsRequest(cfg, new URL("http://localhost/api/stats"), res);
+  await handleStatsRequest(cfg, new URL("http://localhost/api/stats"), res);
   assert.equal(out.status, 404);
   assert.equal((JSON.parse(out.body) as { error: string }).error, "no_database");
 });

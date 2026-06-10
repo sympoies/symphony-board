@@ -121,8 +121,8 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
         sendJson(res, 500, { error: "config_error", message: (err as Error).message });
         return;
       }
-      if (path === "/api/stats") handleStatsRequest(cfg, url, res);
-      else handleRangeRequest(cfg, url, res);
+      if (path === "/api/stats") await handleStatsRequest(cfg, url, res);
+      else await handleRangeRequest(cfg, url, res);
       return;
     }
 

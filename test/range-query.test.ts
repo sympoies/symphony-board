@@ -3,11 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { openDb, openDbReadOnly } from "../src/db/open.ts";
-import { ensureSource, listActivities, listLabels, listLiveEdges, listLiveItems, listSources, replaceLabels, upsertActivity, upsertEdge, upsertItem } from "../src/db/repo.ts";
+import { openSqliteStore, openSqliteStoreReadOnly } from "../src/db/sqlite.ts";
 import { buildRangeContract } from "../src/contract/build.ts";
 import { validateContract } from "../src/contract/validate.ts";
-import type { ActivityRow, EdgeRow, ItemRow, SourceRow } from "../src/db/repo.ts";
+import type { ActivityRow, EdgeRow, ItemRow, SourceRow } from "../src/db/store.ts";
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
@@ -130,7 +129,7 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
   const items: ItemRow[] = [
     itemRow({ item_id: 1, external_id: "ISSUE_recent", updated_at: "2026-05-31T23:59:59Z" }),
-    itemRow({ item_id: 2, external_id: "PR_old", kind: "change_request", iid: 2, title: "Old PR", state: "merged", state_raw: "MERGED", is_draft: 0, created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z", merged_at: "2025-01-02T00:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "PR_old", kind: "change_request", iid: 2, title: "Old PR", state: "merged", state_raw: "MERGED", is_draft: false, created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z", merged_at: "2025-01-02T00:00:00Z" }),
     itemRow({ item_id: 3, external_id: "ISSUE_older", iid: 3, title: "Older issue", state: "closed", state_raw: "CLOSED", created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z", closed_at: "2025-01-02T00:00:00Z" }),
   ];
   const edges: EdgeRow[] = [
@@ -216,27 +215,30 @@ test("repo-metric series buckets align to the configured timezone", () => {
   assert.equal(utc.repo_metrics?.[0]?.series.length, 2, "the same instants straddle two UTC days");
 });
 
-test("openDbReadOnly can read but cannot write or migrate", () => {
+test("openSqliteStoreReadOnly can read but cannot write or migrate", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sb-range-"));
   const dbPath = join(dir, "store.db");
   try {
-    const db = openDb(dbPath);
-    ensureSource(db, { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
-    const itemId = upsertItem(db, item(), "test", "2026-06-01T00:00:00Z");
-    replaceLabels(db, itemId, [toLabel("state::ready")]);
-    upsertItem(db, item({ externalId: "PR_old", kind: "change_request", state: "merged", updatedAt: "2025-01-01T00:00:00Z" }), "test", "2026-06-01T00:00:00Z");
-    upsertEdge(db, edge(), "2026-06-01T00:00:00Z");
-    upsertActivity(db, activity(), "2026-06-01T00:00:00Z");
-    db.close();
+    const db = await openSqliteStore(dbPath);
+    await db.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+    const itemId = await db.upsertItem(item(), "test", "2026-06-01T00:00:00Z");
+    await db.replaceLabels(itemId, [toLabel("state::ready")]);
+    await db.upsertItem(item({ externalId: "PR_old", kind: "change_request", state: "merged", updatedAt: "2025-01-01T00:00:00Z" }), "test", "2026-06-01T00:00:00Z");
+    await db.upsertEdge(edge(), "2026-06-01T00:00:00Z");
+    await db.upsertActivity(activity(), "2026-06-01T00:00:00Z");
+    await db.close();
 
-    const ro = openDbReadOnly(dbPath);
-    assert.equal(listSources(ro).length, 1);
-    assert.equal(listLiveItems(ro).length, 2);
-    assert.equal(listLabels(ro).length, 1);
-    assert.equal(listLiveEdges(ro).length, 1);
-    assert.equal(listActivities(ro).length, 1);
-    assert.throws(() => ensureSource(ro, { sourceId: "x", kind: "github", host: "x", displayName: null }, "2026-06-01T00:00:00Z"), /readonly|read-only|attempt/i);
-    ro.close();
+    const ro = await openSqliteStoreReadOnly(dbPath);
+    assert.equal((await ro.listSources()).length, 1);
+    assert.equal((await ro.listLiveItems()).length, 2);
+    assert.equal((await ro.listLabels()).length, 1);
+    assert.equal((await ro.listLiveEdges()).length, 1);
+    assert.equal((await ro.listActivities()).length, 1);
+    await assert.rejects(
+      ro.ensureSource({ sourceId: "x", kind: "github", host: "x", displayName: null }, "2026-06-01T00:00:00Z"),
+      /readonly|read-only|attempt/i,
+    );
+    await ro.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -2,7 +2,7 @@
 // given rows + a `generatedAt` instant, produce the versioned envelope. No DB
 // access here, so it is unit-testable with fabricated rows.
 
-import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../db/repo.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../db/store.ts";
 import type {
   ActivityDTO,
   ContractEnvelope,
@@ -59,7 +59,7 @@ function toItemDTO(row: ItemRow, labels: LabelRow[], windowReasons?: ItemWindowR
     state: asState(row.state),
     state_raw: row.state_raw,
     state_reason: row.state_reason,
-    is_draft: row.is_draft === null ? null : row.is_draft !== 0,
+    is_draft: row.is_draft,
     author: row.author,
     created_at: row.created_at,
     updated_at: row.updated_at,

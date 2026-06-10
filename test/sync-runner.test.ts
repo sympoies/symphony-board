@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDb } from "../src/db/open.ts";
+import { openSqliteStore } from "../src/db/sqlite.ts";
 import { executeSyncRun, type PreparedSource, type SyncRunProgress } from "../src/sync-runner.ts";
 import type { SourceConfig } from "../src/config.ts";
 import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
@@ -70,7 +70,7 @@ function prepared(sourceId: string, items: CanonicalItem[], opts: { complete?: b
 }
 
 test("a successful run emits and reports aggregated totals", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
   const result = await executeSyncRun(
     db,
@@ -84,11 +84,11 @@ test("a successful run emits and reports aggregated totals", async () => {
   assert.equal(emitCalls, 1, "emit runs exactly once on a successful non-dry run");
   assert.equal(result.totals.items, 3);
   assert.equal(result.sources.length, 2);
-  db.close();
+  await db.close();
 });
 
 test("a dry-run never emits and writes nothing", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
   const result = await executeSyncRun(
     db,
@@ -99,11 +99,11 @@ test("a dry-run never emits and writes nothing", async () => {
   );
   assert.equal(result.emitted, false);
   assert.equal(emitCalls, 0, "a dry-run never invokes the emit callback");
-  db.close();
+  await db.close();
 });
 
 test("a failed source fails the run and skips the emit", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
   const result = await executeSyncRun(
     db,
@@ -116,11 +116,11 @@ test("a failed source fails the run and skips the emit", async () => {
   assert.equal(result.emitted, false);
   assert.equal(emitCalls, 0, "a failed run must not present stale derived data as fresh");
   assert.equal(result.sources.find((s) => s.source_id === "fake:b")?.error, "network down");
-  db.close();
+  await db.close();
 });
 
 test("a partial (incomplete) sweep still emits — partial is not a failure", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
   const result = await executeSyncRun(
     db,
@@ -132,11 +132,11 @@ test("a partial (incomplete) sweep still emits — partial is not a failure", as
   assert.equal(result.status, "partial");
   assert.equal(result.emitted, true);
   assert.equal(emitCalls, 1);
-  db.close();
+  await db.close();
 });
 
 test("skipped sources are reported without counting as a failure", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const result = await executeSyncRun(
     db,
     [prepared("fake:a", [item("A1")])],
@@ -147,11 +147,11 @@ test("skipped sources are reported without counting as a failure", async () => {
   assert.equal(result.status, "ok");
   const skipped = result.sources.find((s) => s.source_id === "fake:b");
   assert.equal(skipped?.status, "skipped");
-  db.close();
+  await db.close();
 });
 
 test("each source logs a 'syncing' progress line before its result line", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const lines: string[] = [];
   const origLog = console.log;
   console.log = (msg?: unknown): void => {
@@ -168,7 +168,7 @@ test("each source logs a 'syncing' progress line before its result line", async 
   } finally {
     console.log = origLog;
   }
-  db.close();
+  await db.close();
   const syncingA = lines.findIndex((l) => l.includes("[fake:a] syncing"));
   const statusA = lines.findIndex((l) => l.includes("[fake:a] status="));
   assert.ok(syncingA >= 0, "logs a syncing line for fake:a");
@@ -177,7 +177,7 @@ test("each source logs a 'syncing' progress line before its result line", async 
 });
 
 test("an emit failure fails the run instead of silently shipping nothing", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const result = await executeSyncRun(
     db,
     [prepared("fake:a", [item("A1")])],
@@ -188,11 +188,11 @@ test("an emit failure fails the run instead of silently shipping nothing", async
   assert.equal(result.status, "error");
   assert.equal(result.emitted, false);
   assert.match(result.error ?? "", /contract emit failed: contract invalid/);
-  db.close();
+  await db.close();
 });
 
 test("onProgress reports the in-flight source and accumulating per-source results", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const snapshots: SyncRunProgress[] = [];
   await executeSyncRun(
     db,
@@ -214,5 +214,5 @@ test("onProgress reports the in-flight source and accumulating per-source result
   assert.equal(afterB.active_source_id, null);
   assert.equal(afterB.sources.length, 3);
   assert.notEqual(beforeA.sources, afterA.sources, "each report is a snapshot, not an alias of the runner's mutable array");
-  db.close();
+  await db.close();
 });

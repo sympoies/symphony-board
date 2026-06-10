@@ -53,14 +53,16 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/stats") {
-    handleStatsRequest(cfg, url, res);
+    // The handlers respond on every path (success and failure), so the returned
+    // promise never rejects and is safe to detach.
+    void handleStatsRequest(cfg, url, res);
     return;
   }
   if (req.method !== "GET" || url.pathname !== "/api/range") {
     json(res, 404, { error: "not_found" });
     return;
   }
-  handleRangeRequest(cfg, url, res);
+  void handleRangeRequest(cfg, url, res);
 });
 
 server.listen(args.port, args.host, () => {

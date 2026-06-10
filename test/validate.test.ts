@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { validateContract, loadContractSchema } from "../src/contract/validate.ts";
 import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
-import type { ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
+import type { ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/store.ts";
 
 // A representative, schema-valid envelope built the same way emit does, so the
 // validator is exercised against the real schema + the real builder output.
@@ -23,7 +23,7 @@ function validEnvelope() {
     {
       item_id: 2, source_id: "github:github.com", external_id: "PR_xyz", kind: "change_request",
       project_path: "graysurf/repo", iid: 8, url: "https://github.com/graysurf/repo/pull/8",
-      title: "A PR", state: "merged", state_raw: "MERGED", state_reason: null, is_draft: 0,
+      title: "A PR", state: "merged", state_raw: "MERGED", state_reason: null, is_draft: false,
       author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: "2026-01-03T00:00:00Z", merged_at: "2026-01-03T00:00:00Z", review_state: "approved",
       ci_state: "passing", merge_state: "mergeable", milestone: null, demand: 1, last_seen_at: "2026-06-01T00:00:00Z",

@@ -2,26 +2,11 @@
 // edges -> upsert -> (full+complete only) soft-delete unseen. All writes run in
 // one transaction. dry-run computes everything but writes nothing.
 
-import type { DatabaseSync } from "node:sqlite";
 import type { FetchResult, RawRecord, RefreshCandidate, Source } from "./sources/types.ts";
 import type { ItemState, CanonicalEdge, NormalizedBundle } from "./model/types.ts";
 import { reconcileEdges, deriveLifecycle, type ReconciledEdge } from "./model/edges.ts";
 import { refOf } from "./model/ref.ts";
-import {
-  ensureSource,
-  upsertRaw,
-  upsertItem,
-  replaceLabels,
-  upsertEdge,
-  upsertActivity,
-  startRun,
-  finishRun,
-  updateSyncState,
-  softDeleteUnseenItems,
-  softDeleteUnseenEdges,
-  listCiRefreshCandidates,
-  type CiRefreshCandidateRow,
-} from "./db/repo.ts";
+import type { CiRefreshCandidateRow, Store } from "./db/store.ts";
 
 const DEFAULT_CI_REFRESH_GRACE_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_CI_REFRESH_LIMIT = 50;
@@ -71,7 +56,7 @@ function dedupeRecords(records: RawRecord[]): RawRecord[] {
 }
 
 async function fetchWithRefresh(
-  db: DatabaseSync,
+  store: Store,
   source: Source,
   sourceId: string,
   prevWatermark: string | null,
@@ -83,7 +68,7 @@ async function fetchWithRefresh(
 
   const graceMs = opts.ciRefreshGraceMs ?? DEFAULT_CI_REFRESH_GRACE_MS;
   const limit = opts.ciRefreshLimit ?? DEFAULT_CI_REFRESH_LIMIT;
-  const candidates = listCiRefreshCandidates(db, sourceId, refreshCutoffIso(startedAt, graceMs), limit).map(toRefreshCandidate);
+  const candidates = (await store.listCiRefreshCandidates(sourceId, refreshCutoffIso(startedAt, graceMs), limit)).map(toRefreshCandidate);
   if (candidates.length === 0) return result;
 
   try {
@@ -104,7 +89,7 @@ async function fetchWithRefresh(
 }
 
 export async function syncSource(
-  db: DatabaseSync,
+  store: Store,
   source: Source,
   prevWatermark: string | null,
   opts: SyncOptions,
@@ -115,14 +100,14 @@ export async function syncSource(
   // --- fetch (impure) ---
   let result: FetchResult;
   try {
-    result = await fetchWithRefresh(db, source, sourceId, prevWatermark, opts, startedAt);
+    result = await fetchWithRefresh(store, source, sourceId, prevWatermark, opts, startedAt);
   } catch (err) {
     const msg = (err as Error).message;
     if (!opts.dryRun) {
-      ensureSource(db, source.descriptor, startedAt);
-      const runId = startRun(db, sourceId, opts.full ? "full" : "incremental", startedAt);
-      finishRun(db, runId, "error", new Date().toISOString(), 0, 0, 0, msg);
-      updateSyncState(db, sourceId, null, "error", msg, startedAt);
+      await store.ensureSource(source.descriptor, startedAt);
+      const runId = await store.startRun(sourceId, opts.full ? "full" : "incremental", startedAt);
+      await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, msg);
+      await store.updateSyncState(sourceId, null, "error", msg, startedAt);
     }
     return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, activitiesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
   }
@@ -175,46 +160,44 @@ export async function syncSource(
   if (opts.dryRun) return report;
 
   // --- write (one transaction) ---
-  db.exec("BEGIN");
   try {
-    ensureSource(db, source.descriptor, startedAt);
-    const runId = startRun(db, sourceId, opts.full ? "full" : "incremental", startedAt);
-    for (const raw of result.records) {
-      upsertRaw(
-        db,
-        sourceId,
-        raw.entityKind,
-        raw.externalId,
-        raw.apiVersion ?? null,
-        raw.contentHash ?? null,
-        raw.fetchedAt,
-        JSON.stringify(raw.payload ?? null),
-      );
-    }
-    for (const b of bundles) {
-      if (b.item === null) continue;
-      const item = b.item;
-      const itemId = upsertItem(db, item, source.normalizerVersion, startedAt);
-      replaceLabels(db, itemId, b.labels);
-    }
-    for (const e of edges) upsertEdge(db, e, startedAt);
-    for (const a of activities) upsertActivity(db, a, startedAt);
+    await store.transaction(async (tx) => {
+      await tx.ensureSource(source.descriptor, startedAt);
+      const runId = await tx.startRun(sourceId, opts.full ? "full" : "incremental", startedAt);
+      for (const raw of result.records) {
+        await tx.upsertRaw(
+          sourceId,
+          raw.entityKind,
+          raw.externalId,
+          raw.apiVersion ?? null,
+          raw.contentHash ?? null,
+          raw.fetchedAt,
+          JSON.stringify(raw.payload ?? null),
+        );
+      }
+      for (const b of bundles) {
+        if (b.item === null) continue;
+        const item = b.item;
+        const itemId = await tx.upsertItem(item, source.normalizerVersion, startedAt);
+        await tx.replaceLabels(itemId, b.labels);
+      }
+      for (const e of edges) await tx.upsertEdge(e, startedAt);
+      for (const a of activities) await tx.upsertActivity(a, startedAt);
 
-    // Disappearance handling: only a FULL + COMPLETE sweep may tombstone unseen
-    // items AND edges (a partial fetch must never look like a mass deletion).
-    // Both are gated identically; an incremental run (opts.full=false) never
-    // deletes, and a re-seen item/edge revives on its next upsert.
-    if (opts.full && result.complete) {
-      const sweepAt = new Date().toISOString();
-      report.softDeleted = softDeleteUnseenItems(db, sourceId, startedAt, sweepAt);
-      report.softDeletedEdges = softDeleteUnseenEdges(db, sourceId, startedAt, sweepAt);
-    }
+      // Disappearance handling: only a FULL + COMPLETE sweep may tombstone unseen
+      // items AND edges (a partial fetch must never look like a mass deletion).
+      // Both are gated identically; an incremental run (opts.full=false) never
+      // deletes, and a re-seen item/edge revives on its next upsert.
+      if (opts.full && result.complete) {
+        const sweepAt = new Date().toISOString();
+        report.softDeleted = await tx.softDeleteUnseenItems(sourceId, startedAt, sweepAt);
+        report.softDeletedEdges = await tx.softDeleteUnseenEdges(sourceId, startedAt, sweepAt);
+      }
 
-    finishRun(db, runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, result.error);
-    updateSyncState(db, sourceId, result.watermark, status, result.error, startedAt);
-    db.exec("COMMIT");
+      await tx.finishRun(runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, result.error);
+      await tx.updateSyncState(sourceId, result.watermark, status, result.error, startedAt);
+    });
   } catch (err) {
-    db.exec("ROLLBACK");
     report.status = "error";
     report.error = (err as Error).message;
   }

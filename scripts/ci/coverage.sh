@@ -29,10 +29,11 @@ rm -rf coverage
 mkdir -p coverage
 
 echo "==> backend coverage (src/**/*.ts, incl. CLI/glue)"
-# `*/types.ts` are pure type-declaration modules (no executable code) — c8 --all
-# would otherwise count their lines as 0%, an artifact rather than a real gap.
+# `*/types.ts` and `src/db/store.ts` are pure type-declaration modules (no
+# executable code) — c8 --all would otherwise count their lines as 0%, an
+# artifact rather than a real gap.
 "${C8[@]}" --all --src src -n 'src/**/*.ts' -x 'src/**/*.d.ts' \
-  -x 'src/model/types.ts' -x 'src/sources/types.ts' \
+  -x 'src/model/types.ts' -x 'src/sources/types.ts' -x 'src/db/store.ts' \
   --reporter=lcovonly --report-dir=coverage/backend \
   "${NODE_TEST[@]}" test/*.test.ts
 

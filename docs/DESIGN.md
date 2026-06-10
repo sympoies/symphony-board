@@ -44,7 +44,7 @@ These are deliberately separate:
 | Layer | Purpose | Location | Versioning |
 | --- | --- | --- | --- |
 | Raw store | Latest opaque provider payload per entity | `raw` table | tagged by `api_version` and `fetched_at` |
-| Canonical DB | Provider-agnostic items, labels, edges, activity, sync state | `schema/*.sql`, `src/db/*` | SQLite migrations and `PRAGMA user_version` |
+| Canonical DB | Provider-agnostic items, labels, edges, activity, sync state | `schema/sqlite/*.sql`, `src/db/*` | driver-owned migrations (SQLite: `PRAGMA user_version`) |
 | Contract | Consumer-facing serialized projection | `packages/contract`, `src/contract/*` | semver `contract_version` |
 
 `normalize` maps raw provider records into canonical items and edges. It must be
@@ -603,6 +603,16 @@ questions without log access.
 - **Node 24 with type stripping**: backend has no build step.
 - **`node:sqlite`**: accepted despite its experimental warning in Node 24.
 - **SQLite WAL**: lets readers inspect while the single writer runs.
+- **Persistence behind an async `Store` interface** (`src/db/store.ts`): call
+  sites never touch a database handle; the SQLite driver (`src/db/sqlite.ts`)
+  owns its dialect SQL, DDL (`schema/sqlite/*.sql`), and migrations. Every
+  method is async so a future driver (Postgres) drops in without changing the
+  interface; `test/store-conformance.test.ts` — run against every registered
+  driver — is the swap guarantee. Hand-rolled by design: the query surface is
+  ~16 statements and the repo is zero-runtime-dependency, so an ORM or query
+  builder would abstract the wrong layer. Activity ordering is by instant
+  (occurred_at keeps provider-local UTC offsets), which each driver implements
+  in its own SQL (SQLite: `julianday`).
 - **pnpm workspace**: isolates the contract package and UI package while keeping
   the backend buildless.
 - **Contract package remains type-first**: producer constants and validator stay

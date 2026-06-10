@@ -39,11 +39,11 @@ Toolchain:
 ## Layout
 
 ```text
-schema/0001_init.sql          canonical DB DDL, applied by src/db/open.ts
+schema/sqlite/0001_init.sql   canonical DB DDL, applied by src/db/sqlite.ts
 src/config.ts                 config loading and token env-var resolution
 src/model/                    pure canonical helpers: refs, labels, edges, types
 src/sources/                  provider fetchers and pure normalizers
-src/db/                       SQLite open/migrate and repository queries
+src/db/                       Store interface (store.ts) + SQLite driver (sqlite.ts)
 src/sync-engine.ts            fetch -> raw -> normalize -> reconcile -> upsert
 src/contract/                 contract builder, validator, version constants
 src/server/                   shared HTTP handling (range queries)
@@ -190,13 +190,18 @@ edge `type`, labels, and project paths are open vocabularies.
 
 ### Changing The DB Schema
 
-1. Add a new `schema/NNNN_*.sql` migration; never edit an applied migration.
-2. Append the migration to `MIGRATIONS` in `src/db/open.ts`.
+1. Add a new `schema/sqlite/NNNN_*.sql` migration; never edit an applied
+   migration.
+2. Append the migration to `MIGRATIONS` in `src/db/sqlite.ts`.
 3. Keep changes additive when possible. SQLite column rewrites require the
    create-new/copy/drop-old/rename pattern.
-4. Add DB tests and run the backend gate.
+4. Add store-conformance tests for new behavior and run the backend gate.
 
-Schema version is tracked with `PRAGMA user_version`.
+Schema version is tracked with `PRAGMA user_version`. DDL, dialect SQL, and the
+migration mechanism are driver-owned (`src/db/sqlite.ts`); the `Store`
+interface in `src/db/store.ts` is the seam call sites depend on, and
+`test/store-conformance.test.ts` is the behavior contract any future driver
+(e.g. Postgres under `schema/postgres/`) must pass.
 
 ### Changing The Contract
 
