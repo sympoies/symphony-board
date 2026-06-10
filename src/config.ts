@@ -2,8 +2,8 @@
 // the DB path are declared in config/sources.json (gitignored; see
 // config/sources.example.json). JSON keeps runtime dependencies at zero.
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { isValidTimezone } from "./lib/tz.ts";
 
 // A project entry is either a bare "owner/name" path or an object that also
@@ -72,71 +72,108 @@ const DEFAULT_PATH = "config/sources.json";
 // emits and keeps the contract's repo/source color a plain hex string.
 const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
-export function loadConfig(explicitPath?: string | null): { cfg: AppConfig; path: string } {
-  const path = resolve(explicitPath ?? process.env.SYMPHONY_CONFIG ?? DEFAULT_PATH);
-  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error(`Config ${path} is not an object`);
+// The path loadConfig would read and the config control plane writes: explicit
+// argument, then SYMPHONY_CONFIG, then the repo-relative default.
+export function resolveConfigPath(explicitPath?: string | null): string {
+  return resolve(explicitPath ?? process.env.SYMPHONY_CONFIG ?? DEFAULT_PATH);
+}
+
+// Validate a parsed config document and return every problem found (empty =
+// valid). `label` names the document in messages — a file path for loadConfig,
+// "config" for a control-plane PUT body. Collecting instead of throwing lets
+// the config control plane report all field errors in one round trip; only
+// guards that would cascade into noise (a non-array `sources`) stop early.
+export function configErrors(raw: unknown, label: string): string[] {
+  const errors: string[] = [];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return [`${label} is not an object`];
   }
   const cfg = raw as Partial<AppConfig>;
-  if (!cfg.db_path) throw new Error(`Config ${path} is missing db_path`);
+  if (!cfg.db_path) errors.push(`${label} is missing db_path`);
   if (!Array.isArray(cfg.sources) || cfg.sources.length === 0) {
-    throw new Error(`Config ${path} has no sources`);
-  }
-  for (const s of cfg.sources) {
-    for (const field of ["source_id", "kind", "host", "token_env", "graphql_url"] as const) {
-      if (!s[field]) throw new Error(`Config ${path}: source missing "${field}"`);
-    }
-    if (s.source_id.includes("|")) {
-      throw new Error(`Config ${path}: source_id "${s.source_id}" must not contain '|'`);
-    }
-    if (s.color !== undefined && !HEX_COLOR.test(s.color)) {
-      throw new Error(`Config ${path}: source "${s.source_id}" color "${s.color}" is not a hex color (#rgb or #rrggbb)`);
-    }
-    if (s.rest_url !== undefined && typeof s.rest_url !== "string") {
-      throw new Error(`Config ${path}: source "${s.source_id}" rest_url must be a string when set`);
-    }
-    if (!Array.isArray(s.projects) || s.projects.length === 0) {
-      throw new Error(`Config ${path}: source "${s.source_id}" has no projects`);
-    }
-    for (const entry of s.projects) {
-      const projPath = typeof entry === "string" ? entry : entry?.path;
-      if (typeof projPath !== "string" || projPath.length === 0) {
-        throw new Error(`Config ${path}: source "${s.source_id}" has a project entry with no "path"`);
+    errors.push(`${label} has no sources`);
+  } else {
+    for (const s of cfg.sources) {
+      if (typeof s !== "object" || s === null) {
+        errors.push(`${label}: every source must be an object`);
+        continue;
       }
-      if (typeof entry !== "string" && entry.color !== undefined && !HEX_COLOR.test(entry.color)) {
-        throw new Error(`Config ${path}: project "${projPath}" color "${entry.color}" is not a hex color (#rgb or #rrggbb)`);
+      for (const field of ["source_id", "kind", "host", "token_env", "graphql_url"] as const) {
+        if (!s[field]) errors.push(`${label}: source missing "${field}"`);
+      }
+      if (typeof s.source_id === "string" && s.source_id.includes("|")) {
+        errors.push(`${label}: source_id "${s.source_id}" must not contain '|'`);
+      }
+      if (s.color !== undefined && !HEX_COLOR.test(s.color)) {
+        errors.push(`${label}: source "${s.source_id}" color "${s.color}" is not a hex color (#rgb or #rrggbb)`);
+      }
+      if (s.rest_url !== undefined && typeof s.rest_url !== "string") {
+        errors.push(`${label}: source "${s.source_id}" rest_url must be a string when set`);
+      }
+      if (!Array.isArray(s.projects) || s.projects.length === 0) {
+        errors.push(`${label}: source "${s.source_id}" has no projects`);
+        continue;
+      }
+      for (const entry of s.projects) {
+        const projPath = typeof entry === "string" ? entry : entry?.path;
+        if (typeof projPath !== "string" || projPath.length === 0) {
+          errors.push(`${label}: source "${s.source_id}" has a project entry with no "path"`);
+          continue;
+        }
+        if (typeof entry !== "string" && entry.color !== undefined && !HEX_COLOR.test(entry.color)) {
+          errors.push(`${label}: project "${projPath}" color "${entry.color}" is not a hex color (#rgb or #rrggbb)`);
+        }
       }
     }
   }
   if (cfg.identities !== undefined) {
     if (!Array.isArray(cfg.identities)) {
-      throw new Error(`Config ${path}: "identities" must be an array when set`);
-    }
-    for (const id of cfg.identities) {
-      if (typeof id !== "object" || id === null || typeof id.name !== "string" || id.name.trim().length === 0) {
-        throw new Error(`Config ${path}: every identity needs a non-empty "name"`);
-      }
-      for (const field of ["usernames", "emails", "names"] as const) {
-        const v = id[field];
-        if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
-          throw new Error(`Config ${path}: identity "${id.name}" ${field} must be an array of strings when set`);
+      errors.push(`${label}: "identities" must be an array when set`);
+    } else {
+      for (const id of cfg.identities) {
+        if (typeof id !== "object" || id === null || typeof id.name !== "string" || id.name.trim().length === 0) {
+          errors.push(`${label}: every identity needs a non-empty "name"`);
+          continue;
+        }
+        for (const field of ["usernames", "emails", "names"] as const) {
+          const v = id[field];
+          if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+            errors.push(`${label}: identity "${id.name}" ${field} must be an array of strings when set`);
+          }
         }
       }
     }
   }
   if (cfg.exclude_actors !== undefined && (!Array.isArray(cfg.exclude_actors) || cfg.exclude_actors.some((x) => typeof x !== "string"))) {
-    throw new Error(`Config ${path}: "exclude_actors" must be an array of strings when set`);
+    errors.push(`${label}: "exclude_actors" must be an array of strings when set`);
   }
   if (cfg.timezone !== undefined) {
     if (typeof cfg.timezone !== "string" || cfg.timezone.trim().length === 0) {
-      throw new Error(`Config ${path}: "timezone" must be a non-empty string when set (omit it for UTC)`);
-    }
-    if (!isValidTimezone(cfg.timezone)) {
-      throw new Error(`Config ${path}: "timezone" "${cfg.timezone}" is not a valid IANA timezone (e.g. "UTC", "Asia/Taipei")`);
+      errors.push(`${label}: "timezone" must be a non-empty string when set (omit it for UTC)`);
+    } else if (!isValidTimezone(cfg.timezone)) {
+      errors.push(`${label}: "timezone" "${cfg.timezone}" is not a valid IANA timezone (e.g. "UTC", "Asia/Taipei")`);
     }
   }
-  return { cfg: cfg as AppConfig, path };
+  return errors;
+}
+
+export function loadConfig(explicitPath?: string | null): { cfg: AppConfig; path: string } {
+  const path = resolveConfigPath(explicitPath);
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  const errors = configErrors(raw, `Config ${path}`);
+  if (errors.length > 0) throw new Error(errors[0]);
+  return { cfg: raw as AppConfig, path };
+}
+
+// Persist a validated config. Write-to-temp + rename so a concurrent reader
+// (the daemon re-reads config per run) never sees a torn file; pretty-printed
+// because the file stays hand-editable on deployments without the control
+// plane. Callers validate first — this only persists.
+export function saveConfig(cfg: AppConfig, path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2) + "\n", { encoding: "utf8" });
+  renameSync(tmp, path);
 }
 
 // The bare project paths for a source, dropping any per-repo color metadata.
@@ -145,9 +182,92 @@ export function projectPaths(s: SourceConfig): string[] {
   return s.projects.map((p) => (typeof p === "string" ? p : p.path));
 }
 
-// Resolve a source's token from its declared env var. Returns null when unset,
-// so a caller can skip that source with a warning instead of crashing the run.
+// --- secrets file (token overlay) ---
+
+// Parse a KEY=VALUE env file (the standalone app's secrets.env). Mirrors the
+// Tauri shell's parser exactly: trimmed lines, '#' comments, the first '='
+// splits, both sides trimmed, no quoting or escaping.
+export function parseEnvFile(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    if (key.length === 0) continue;
+    out.set(key, line.slice(eq + 1).trim());
+  }
+  return out;
+}
+
+// The secrets file the control plane writes and tokenFor overlays; unset when
+// the deployment has no writable secrets file (the Docker stack, where tokens
+// arrive as container env).
+export function resolveSecretsPath(): string | null {
+  const p = (process.env.SYMPHONY_SECRETS_FILE ?? "").trim();
+  return p.length ? resolve(p) : null;
+}
+
+// Fresh read of the secrets file; a missing or unreadable file is an empty
+// overlay, never an error — tokens then resolve from the process env alone.
+export function readSecretsOverlay(path: string | null): Map<string, string> {
+  if (!path) return new Map();
+  try {
+    return parseEnvFile(readFileSync(path, "utf8"));
+  } catch {
+    return new Map();
+  }
+}
+
+// Set or remove one KEY in env-file text, preserving comments and unrelated
+// lines. A set replaces the first existing KEY= line (dropping duplicates); a
+// remove drops every KEY= line.
+export function upsertEnvText(text: string, name: string, value: string | null): string {
+  const lines = text.length > 0 ? text.split("\n") : [];
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  const out: string[] = [];
+  let replaced = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const eq = line.indexOf("=");
+    const key = !line.startsWith("#") && eq > 0 ? line.slice(0, eq).trim() : null;
+    if (key === name) {
+      if (value !== null && !replaced) {
+        out.push(`${name}=${value}`);
+        replaced = true;
+      }
+      continue;
+    }
+    out.push(rawLine);
+  }
+  if (value !== null && !replaced) out.push(`${name}=${value}`);
+  return out.length > 0 ? out.join("\n") + "\n" : "";
+}
+
+// Atomically persist one secret change. The file is created owner-only when
+// missing and rewritten owner-only on update; comments and unrelated entries
+// survive. Token values pass through this function and are never logged.
+export function saveSecret(path: string, name: string, value: string | null): void {
+  mkdirSync(dirname(path), { recursive: true });
+  let current = "";
+  try {
+    current = readFileSync(path, "utf8");
+  } catch {
+    // first write creates the file
+  }
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, upsertEnvText(current, name, value), { encoding: "utf8", mode: 0o600 });
+  renameSync(tmp, path);
+}
+
+// Resolve a source's token: a fresh secrets-file read wins over the process
+// env, because the standalone shell passes secrets.env as spawn env — a token
+// edited at runtime is newer truth than the copy this process started with.
+// Returns null when unset, so a caller can skip that source with a warning
+// instead of crashing the run.
 export function tokenFor(s: SourceConfig): string | null {
-  const v = (process.env[s.token_env] ?? "").trim();
+  const fromFile = readSecretsOverlay(resolveSecretsPath()).get(s.token_env) ?? "";
+  const v = (fromFile.length > 0 ? fromFile : (process.env[s.token_env] ?? "")).trim();
   return v.length ? v : null;
 }

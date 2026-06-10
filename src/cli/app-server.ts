@@ -21,13 +21,18 @@
 // (default config/sources.json, resolved from the working directory — the
 // desktop app sets cwd to its data dir), CONTRACT_OUT (default
 // data/contract.json), SYNC_CONTROL_ENABLED (default ON here, unlike the Docker
-// daemon: the standalone app is a same-user local deployment; set 0 to disable).
+// daemon: the standalone app is a same-user local deployment; set 0 to disable),
+// CONFIG_CONTROL_ENABLED (default ON here for the same reason — the Settings UI
+// edits config/sources.json through the writer; set 0 to disable),
+// SYMPHONY_SECRETS_FILE (the KEY=VALUE token file the write-only secrets
+// surface edits and token resolution reads fresh; the desktop shell points it
+// at the data dir's secrets.env).
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { AppConfig } from "../config.ts";
-import { loadConfig } from "../config.ts";
+import { loadConfig, resolveConfigPath, resolveSecretsPath } from "../config.ts";
 import { runConfiguredSync } from "../sync-runner.ts";
 import {
   SyncController,
@@ -63,6 +68,8 @@ export interface AppServerOptions {
   configPath: string | null;
   contractOut: string;
   controlEnabled: boolean;
+  configControlEnabled: boolean;
+  secretsPath: string | null;
   intervalSeconds: number;
   fullEvery: number;
 }
@@ -84,6 +91,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
     }
     return {
       controlEnabled: opts.controlEnabled,
+      configControl: { enabled: opts.configControlEnabled, path: resolveConfigPath(opts.configPath), secretsPath: opts.secretsPath },
       sources,
       intervalSeconds: opts.intervalSeconds,
       fullEvery: opts.fullEvery,
@@ -112,8 +120,8 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       return;
     }
 
-    // /healthz, /api/sync-control, /api/sync-runs* and the 404 fallback all
-    // live in the shared control handler.
+    // /healthz, /api/sync-control, /api/sync-runs*, /api/config and the 404
+    // fallback all live in the shared control handler.
     await handleControlRequest(controller, controlCtx(), req, res);
   };
 
@@ -137,6 +145,8 @@ function main(): void {
     configPath,
     contractOut: process.env.CONTRACT_OUT ?? "data/contract.json",
     controlEnabled: envFlag("SYNC_CONTROL_ENABLED", true),
+    configControlEnabled: envFlag("CONFIG_CONTROL_ENABLED", true),
+    secretsPath: resolveSecretsPath(),
     intervalSeconds: Math.max(1, Number(process.env.INTERVAL ?? "120") || 120),
     fullEvery: Math.max(1, Number(process.env.FULL_EVERY ?? "30") || 30),
   };

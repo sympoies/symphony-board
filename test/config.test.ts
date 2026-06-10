@@ -1,9 +1,20 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { loadConfig, projectPaths, tokenFor } from "../src/config.ts";
+import { join, resolve } from "node:path";
+import {
+  configErrors,
+  loadConfig,
+  parseEnvFile,
+  projectPaths,
+  resolveConfigPath,
+  saveConfig,
+  saveSecret,
+  tokenFor,
+  upsertEnvText,
+  type AppConfig,
+} from "../src/config.ts";
 
 // loadConfig reads a file, so each case writes a throwaway fixture. The OS would
 // reap tmp anyway; we clean up explicitly to keep the dir tidy between runs.
@@ -132,4 +143,92 @@ test("accepts a valid exclude_actors list and rejects a malformed one", () => {
   assert.deepEqual(loadConfig(ok).cfg.exclude_actors, ["dependabot", "github-code-quality", "*-bot"]);
   assert.throws(() => loadConfig(writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], exclude_actors: "dependabot" })), /"exclude_actors" must be an array of strings/);
   assert.throws(() => loadConfig(writeRaw({ db_path: "data/symphony.db", sources: [baseSource()], exclude_actors: [1, 2] })), /"exclude_actors" must be an array of strings/);
+});
+
+test("configErrors collects every problem in one pass instead of stopping at the first", () => {
+  const errors = configErrors({ sources: [{ kind: "github", color: "blue" }], timezone: "Nope/Zone" }, "config");
+  assert.ok(errors.includes("config is missing db_path"));
+  assert.ok(errors.some((e) => e === 'config: source missing "source_id"'));
+  assert.ok(errors.some((e) => e === 'config: source missing "token_env"'));
+  assert.ok(errors.some((e) => e.includes("is not a hex color")));
+  assert.ok(errors.some((e) => e.includes("is not a valid IANA timezone")));
+  assert.ok(errors.length >= 5);
+});
+
+test("configErrors returns empty for a valid document and flags non-object sources cleanly", () => {
+  assert.deepEqual(configErrors({ db_path: "data/x.db", sources: [baseSource()] }, "config"), []);
+  assert.deepEqual(configErrors("nope", "config"), ["config is not an object"]);
+  assert.deepEqual(configErrors([], "config"), ["config is not an object"]);
+  const errors = configErrors({ db_path: "x", sources: [null, "str"] }, "config");
+  assert.ok(errors.every((e) => e.startsWith("config")), "no thrown TypeError, only collected messages");
+});
+
+test("saveConfig writes atomically, creates parent dirs, and round-trips through loadConfig", () => {
+  const target = join(tmp, "saved", "sources.json"); // parent dir does not exist yet
+  const cfg = {
+    db_path: "data/board.db",
+    timezone: "Asia/Taipei",
+    sources: [baseSource()],
+    identities: [{ name: "Terry", usernames: ["graysurf"] }],
+    exclude_actors: ["renovate*"],
+  } as unknown as AppConfig;
+  saveConfig(cfg, target);
+  const { cfg: readBack } = loadConfig(target);
+  assert.deepEqual(readBack, cfg);
+  const leftovers = readdirSync(join(tmp, "saved")).filter((f) => f.includes(".tmp-"));
+  assert.deepEqual(leftovers, [], "the temp file is renamed away");
+});
+
+test("parseEnvFile mirrors the desktop shell: comments, blanks, first '=', trimmed", () => {
+  const parsed = parseEnvFile("# comment\n\n  GITHUB_TOKEN = ghp_x \nBAD LINE\n=novalue\nGITLAB_TOKEN=glpat=with=equals\n");
+  assert.deepEqual([...parsed], [["GITHUB_TOKEN", "ghp_x"], ["GITLAB_TOKEN", "glpat=with=equals"]]);
+});
+
+test("upsertEnvText sets, replaces, and removes while preserving comments and order", () => {
+  const start = "# tokens\nA=1\nB=2\n";
+  assert.equal(upsertEnvText(start, "C", "3"), "# tokens\nA=1\nB=2\nC=3\n");
+  assert.equal(upsertEnvText(start, "A", "9"), "# tokens\nA=9\nB=2\n");
+  assert.equal(upsertEnvText(start, "A", null), "# tokens\nB=2\n");
+  assert.equal(upsertEnvText("", "A", "1"), "A=1\n");
+  assert.equal(upsertEnvText("A=1\nA=2\n", "A", "3"), "A=3\n", "duplicates collapse on set");
+});
+
+test("saveSecret creates the file owner-only and tokenFor prefers the fresh file over the env", () => {
+  const secretsPath = join(tmp, "secrets", "secrets.env");
+  const prev = process.env.SYMPHONY_SECRETS_FILE;
+  process.env.CONFIG_TEST_OVERLAY_TOKEN = "from-env";
+  try {
+    process.env.SYMPHONY_SECRETS_FILE = secretsPath;
+    const source = { ...baseSource(), token_env: "CONFIG_TEST_OVERLAY_TOKEN" } as unknown as Parameters<typeof tokenFor>[0];
+
+    // no file yet: falls back to the process env
+    assert.equal(tokenFor(source), "from-env");
+
+    // a written secret wins over the spawn-time env copy, with no restart
+    saveSecret(secretsPath, "CONFIG_TEST_OVERLAY_TOKEN", "from-file");
+    assert.equal(tokenFor(source), "from-file");
+    assert.equal(statSync(secretsPath).mode & 0o777, 0o600);
+
+    // removing the entry falls back to the env again
+    saveSecret(secretsPath, "CONFIG_TEST_OVERLAY_TOKEN", null);
+    assert.equal(tokenFor(source), "from-env");
+  } finally {
+    if (prev === undefined) delete process.env.SYMPHONY_SECRETS_FILE;
+    else process.env.SYMPHONY_SECRETS_FILE = prev;
+    delete process.env.CONFIG_TEST_OVERLAY_TOKEN;
+  }
+});
+
+test("resolveConfigPath prefers the explicit path, then SYMPHONY_CONFIG, then the default", () => {
+  const prev = process.env.SYMPHONY_CONFIG;
+  try {
+    process.env.SYMPHONY_CONFIG = "/env/sources.json";
+    assert.equal(resolveConfigPath("/explicit/sources.json"), resolve("/explicit/sources.json"));
+    assert.equal(resolveConfigPath(null), resolve("/env/sources.json"));
+    delete process.env.SYMPHONY_CONFIG;
+    assert.equal(resolveConfigPath(null), resolve("config/sources.json"));
+  } finally {
+    if (prev === undefined) delete process.env.SYMPHONY_CONFIG;
+    else process.env.SYMPHONY_CONFIG = prev;
+  }
 });

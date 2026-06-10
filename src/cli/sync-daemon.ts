@@ -18,20 +18,26 @@
 // iteration, default 30; 1 = always full), SYMPHONY_CONFIG (default
 // config/sources.json), CONTRACT_OUT (default data/contract.json),
 // SYNC_CONTROL_ENABLED (enable manual runs; default off), SYNC_CONTROL_PORT
-// (default 8080), SYNC_CONTROL_HOST (default 0.0.0.0).
+// (default 8080), SYNC_CONTROL_HOST (default 0.0.0.0),
+// CONFIG_CONTROL_ENABLED (enable config edits over HTTP; default off here —
+// the Docker stack mounts config read-only and stays file-managed).
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { AppConfig, SourceConfig } from "../config.ts";
-import { loadConfig } from "../config.ts";
+import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret } from "../config.ts";
 import { runConfiguredSync, type SyncMode, type SourceRunResult, type SyncRunResult, type SyncRunTotals } from "../sync-runner.ts";
 import { log } from "../log.ts";
 
-// The same-origin guard for the mutating endpoint. A custom request header cannot
-// be set by a cross-site simple form POST and forces a CORS preflight we never
-// answer, so requiring it blocks blind cross-site POSTs without a shared secret.
+// The same-origin guard for every mutating control-plane endpoint (manual sync
+// AND config writes). A custom request header cannot be set by a cross-site
+// simple form POST and forces a CORS preflight we never answer, so requiring it
+// blocks blind cross-site mutations without a shared secret.
 export const SYNC_CONTROL_HEADER = "x-symphony-sync-control";
 const MAX_BODY_BYTES = 16 * 1024;
+// Config documents carry identities/exclude_actors lists and grow with the
+// deployment; give PUT /api/config more headroom than a sync-run POST.
+const MAX_CONFIG_BODY_BYTES = 256 * 1024;
 
 export interface SyncRequest {
   mode: SyncMode;
@@ -174,8 +180,24 @@ export function sourceOptions(cfg: AppConfig): SourceOption[] {
   }));
 }
 
+// The writer-owned config control plane. `enabled` gates mutations (and config
+// reads — a disabled deployment never serves its config document over HTTP);
+// `path` is where GET reads and PUT atomically writes. The file may not exist
+// yet: a missing config is "not configured", which is exactly the state the
+// standalone first-run onboarding starts from. `secretsPath` is the KEY=VALUE
+// token file the write-only secrets surface edits; null when the deployment
+// has no writable secrets file (tokens then come from the process env only).
+export interface ConfigControl {
+  enabled: boolean;
+  path: string;
+  secretsPath: string | null;
+}
+
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 export interface ControlContext {
   controlEnabled: boolean;
+  configControl: ConfigControl;
   sources: SourceOption[];
   intervalSeconds: number;
   fullEvery: number;
@@ -231,20 +253,30 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body) + "\n");
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let tooLarge = false;
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error("request body too large"));
-        req.destroy();
+      if (tooLarge) {
+        // Keep draining (discarded) so the 413 reaches a live socket instead of
+        // an ECONNRESET; a runaway stream still gets cut at 4x the limit.
+        if (size > maxBytes * 4) req.destroy();
+        return;
+      }
+      if (size > maxBytes) {
+        tooLarge = true;
+        chunks.length = 0;
         return;
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => {
+      if (tooLarge) reject(new Error("request body too large"));
+      else resolve(Buffer.concat(chunks).toString("utf8"));
+    });
     req.on("error", reject);
   });
 }
@@ -295,6 +327,134 @@ export async function handleControlRequest(
 
   if (method === "GET" && path === "/api/sync-runs/last") {
     sendJson(res, 200, { last: controller.lastRun() });
+    return;
+  }
+
+  // Config control plane. GET doubles as the UI capability probe: a disabled
+  // deployment answers { enabled: false } with no config document, so the
+  // Settings editor stays hidden and nothing about the deployment leaks.
+  if (method === "GET" && path === "/api/config") {
+    const cc = ctx.configControl;
+    if (!cc.enabled) {
+      sendJson(res, 200, { enabled: false, config: null, error: null });
+      return;
+    }
+    try {
+      const { cfg } = loadConfig(cc.path);
+      sendJson(res, 200, { enabled: true, config: cfg, error: null });
+    } catch (err) {
+      // Missing or broken config: still advertise the capability so the UI can
+      // offer creating one — the standalone first-run onboarding path.
+      sendJson(res, 200, { enabled: true, config: null, error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (method === "PUT" && path === "/api/config") {
+    const cc = ctx.configControl;
+    if (!cc.enabled) {
+      sendJson(res, 403, { error: "control_disabled", message: "config control is not enabled on this deployment" });
+      return;
+    }
+    if (!req.headers[SYNC_CONTROL_HEADER]) {
+      sendJson(res, 403, { error: "forbidden", message: `missing ${SYNC_CONTROL_HEADER} header` });
+      return;
+    }
+    let raw: string;
+    try {
+      raw = await readBody(req, MAX_CONFIG_BODY_BYTES);
+    } catch (err) {
+      sendJson(res, 413, { error: "payload_too_large", message: (err as Error).message });
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      sendJson(res, 400, { error: "bad_request", message: "request body is not valid JSON" });
+      return;
+    }
+    // Server-side validation is authoritative; every problem comes back in one
+    // round trip. An invalid document never reaches disk.
+    const errors = configErrors(parsed, "config");
+    if (errors.length > 0) {
+      sendJson(res, 400, { error: "invalid_config", errors });
+      return;
+    }
+    saveConfig(parsed as AppConfig, cc.path);
+    sendJson(res, 200, { ok: true, config: parsed });
+    return;
+  }
+
+  // Write-only secrets surface. GET reports which env-var names resolve to a
+  // token — booleans only, a value never crosses this surface in either
+  // direction beyond the user's own PUT.
+  if (method === "GET" && path === "/api/secrets") {
+    const cc = ctx.configControl;
+    if (!cc.enabled) {
+      sendJson(res, 200, { enabled: false, writable: false, secrets: {} });
+      return;
+    }
+    const secrets: Record<string, boolean> = {};
+    try {
+      const { cfg } = loadConfig(cc.path);
+      for (const s of cfg.sources) secrets[s.token_env] = false;
+    } catch {
+      // no config yet: report only the names present in the secrets file
+    }
+    for (const [name, value] of readSecretsOverlay(cc.secretsPath)) {
+      if (value.length > 0) secrets[name] = true;
+    }
+    for (const name of Object.keys(secrets)) {
+      if (!secrets[name] && (process.env[name] ?? "").trim().length > 0) secrets[name] = true;
+    }
+    sendJson(res, 200, { enabled: true, writable: cc.secretsPath !== null, secrets });
+    return;
+  }
+
+  if (method === "PUT" && path === "/api/secrets") {
+    const cc = ctx.configControl;
+    if (!cc.enabled) {
+      sendJson(res, 403, { error: "control_disabled", message: "config control is not enabled on this deployment" });
+      return;
+    }
+    if (!req.headers[SYNC_CONTROL_HEADER]) {
+      sendJson(res, 403, { error: "forbidden", message: `missing ${SYNC_CONTROL_HEADER} header` });
+      return;
+    }
+    if (!cc.secretsPath) {
+      sendJson(res, 403, { error: "secrets_unavailable", message: "no writable secrets file on this deployment (set SYMPHONY_SECRETS_FILE)" });
+      return;
+    }
+    let raw: string;
+    try {
+      raw = await readBody(req);
+    } catch (err) {
+      sendJson(res, 413, { error: "payload_too_large", message: (err as Error).message });
+      return;
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      sendJson(res, 400, { error: "bad_request", message: "request body is not valid JSON" });
+      return;
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      sendJson(res, 400, { error: "bad_request", message: "request body must be a JSON object" });
+      return;
+    }
+    const { env, value } = body as Record<string, unknown>;
+    if (typeof env !== "string" || !ENV_NAME.test(env)) {
+      sendJson(res, 400, { error: "bad_request", message: "env must be a valid env-var name" });
+      return;
+    }
+    if (value !== null && (typeof value !== "string" || value.trim().length === 0)) {
+      sendJson(res, 400, { error: "bad_request", message: "value must be a non-empty string, or null to remove the entry" });
+      return;
+    }
+    saveSecret(cc.secretsPath, env, value === null ? null : (value as string).trim());
+    sendJson(res, 200, { ok: true, env, set: value !== null });
     return;
   }
 
@@ -390,10 +550,17 @@ function main(): void {
   const controlHost = process.env.SYNC_CONTROL_HOST ?? "0.0.0.0";
 
   const controller = new SyncController({
-    run: (req) => runConfiguredSync(cfg, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, out),
+    // Fresh config per run (matching app-server), so an edit to the mounted
+    // config file — by hand or through the control plane — applies on the next
+    // run without a restart. The active run keeps the config it started with.
+    run: (req) => {
+      const { cfg: fresh } = loadConfig(process.env.SYMPHONY_CONFIG ?? null);
+      return runConfiguredSync(fresh, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, out);
+    },
   });
   const ctx: ControlContext = {
     controlEnabled,
+    configControl: { enabled: envFlag("CONFIG_CONTROL_ENABLED"), path: configPath, secretsPath: resolveSecretsPath() },
     sources: sourceOptions(cfg),
     intervalSeconds,
     fullEvery,
