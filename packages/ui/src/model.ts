@@ -618,7 +618,9 @@ export function buildActivityTrend(
   }
 
   const days = daysBetween(normalized.from, normalized.to) + 1;
-  const bucket: ActivityTrendBucket = days <= 1 ? "hour" : days <= 31 ? "day" : days <= 120 ? "week" : "month";
+  // Weekly buckets stretch through the 1y preset (366 covers a leap-year span);
+  // month is only for custom multi-year ranges.
+  const bucket: ActivityTrendBucket = days <= 1 ? "hour" : days <= 31 ? "day" : days <= 366 ? "week" : "month";
   const buckets = activityTrendBuckets(normalized, bucket);
   const countByKey = new Map<string, number>();
   const kindCounts = new Map<string, number>();
