@@ -52,7 +52,7 @@ export function SyncControls({ sync }: { sync: SyncState }) {
         </label>
         <button
           type="button"
-          className="toggle sync-run-button"
+          className={`toggle sync-run-button${running ? " sync-running" : ""}`}
           disabled={disabled}
           onClick={() => sync.start({ mode, dry_run: dryRun, source_id: sourceId === "" ? null : sourceId })}
         >

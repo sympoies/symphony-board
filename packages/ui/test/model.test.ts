@@ -1216,6 +1216,25 @@ test("syncRunSummary distinguishes running, reloaded, dry-run, and error states"
   assert.equal(syncRunSummary(null, now), "");
 });
 
+test("syncRunSummary labels background runs and ticks elapsed time while running", () => {
+  const now = Date.parse("2026-06-08T19:00:12Z"); // 12s after the fixture's started_at
+  assert.equal(
+    syncRunSummary(syncRun({ status: "running", trigger: "scheduled", finished_at: null }), now),
+    "Background sync running… incremental · 12s",
+  );
+  assert.equal(syncRunSummary(syncRun({ status: "running", finished_at: null }), now), "Syncing… incremental · 12s");
+  // A long full sweep reads minutes + seconds, with the scope kept in place.
+  const later = Date.parse("2026-06-08T19:02:05Z");
+  assert.equal(
+    syncRunSummary(syncRun({ status: "running", mode: "full", source_scope: "gh", finished_at: null }), later),
+    "Syncing… full · gh · 2m 5s",
+  );
+  // An unparsable start timestamp omits the elapsed segment rather than NaN.
+  assert.equal(syncRunSummary(syncRun({ status: "running", started_at: "bogus", finished_at: null }), now), "Syncing… incremental");
+  // Finished scheduled runs read the same as manual ones — only running copy differs.
+  assert.match(syncRunSummary(syncRun({ trigger: "scheduled" }), now), /^Synced /);
+});
+
 test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid", () => {
   const now = Date.parse("2026-06-08T12:00:00Z");
   const activities = [

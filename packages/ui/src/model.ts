@@ -1594,11 +1594,14 @@ export function syncProducedFreshData(run: SyncRunStatus | null | undefined): bo
 }
 
 // A short, human status line for the Sync control. now is injectable for tests.
+// Running copy names the trigger (a daemon-scheduled run is not the user's
+// click) and ticks elapsed time, so a long full sweep visibly makes progress.
 export function syncRunSummary(run: SyncRunStatus | null | undefined, now: number = Date.now()): string {
   if (!run) return "";
   const scope = run.source_scope ? ` · ${run.source_scope}` : "";
   if (run.status === "running") {
-    return `Syncing… ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}`;
+    const verb = run.trigger === "scheduled" ? "Background sync running…" : "Syncing…";
+    return `${verb} ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}${elapsedSince(run.started_at, now)}`;
   }
   const when = relativeTime(run.finished_at ?? run.started_at, now);
   if (run.dry_run) {
@@ -1609,6 +1612,15 @@ export function syncRunSummary(run: SyncRunStatus | null | undefined, now: numbe
   const reloaded = run.emitted ? " · contract reloaded" : "";
   const partial = run.status === "partial" ? " (partial)" : "";
   return `Synced ${when}${scope} · ${items} item${items === 1 ? "" : "s"}${partial}${reloaded}`;
+}
+
+// " · 12s" / " · 2m 5s" since an ISO start; empty on a bad timestamp so the
+// running line degrades to no elapsed segment instead of reading NaN.
+function elapsedSince(iso: string, now: number): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const sec = Math.max(0, Math.round((now - t) / 1000));
+  return sec < 60 ? ` · ${sec}s` : ` · ${Math.floor(sec / 60)}m ${sec % 60}s`;
 }
 
 // "3d ago" / "just now" from an ISO timestamp. now is injectable for testing.
