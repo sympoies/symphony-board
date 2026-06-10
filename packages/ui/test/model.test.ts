@@ -1210,7 +1210,7 @@ test("syncProducedFreshData only when a non-dry run emitted without failing", ()
 
 test("syncRunSummary distinguishes running, reloaded, dry-run, and error states", () => {
   const now = Date.parse("2026-06-08T19:00:10Z");
-  assert.match(syncRunSummary(syncRun({ status: "running" }), now), /Syncing… incremental/);
+  assert.match(syncRunSummary(syncRun({ status: "running" }), now), /Syncing incremental/);
   assert.match(syncRunSummary(syncRun({ status: "ok", emitted: true }), now), /Synced .* · 7 items · contract reloaded/);
   assert.match(syncRunSummary(syncRun({ dry_run: true, emitted: false }), now), /Dry-run completed/);
   assert.match(syncRunSummary(syncRun({ status: "error", emitted: false, error: "boom" }), now), /Sync failed .*: boom/);
@@ -1221,17 +1221,17 @@ test("syncRunSummary labels background runs and ticks elapsed time while running
   const now = Date.parse("2026-06-08T19:00:12Z"); // 12s after the fixture's started_at
   assert.equal(
     syncRunSummary(syncRun({ status: "running", trigger: "scheduled", finished_at: null }), now),
-    "Background sync running… incremental · 12s",
+    "Background sync running incremental · 12s",
   );
-  assert.equal(syncRunSummary(syncRun({ status: "running", finished_at: null }), now), "Syncing… incremental · 12s");
+  assert.equal(syncRunSummary(syncRun({ status: "running", finished_at: null }), now), "Syncing incremental · 12s");
   // A long full sweep reads minutes + seconds, with the scope kept in place.
   const later = Date.parse("2026-06-08T19:02:05Z");
   assert.equal(
     syncRunSummary(syncRun({ status: "running", mode: "full", source_scope: "gh", finished_at: null }), later),
-    "Syncing… full · gh · 2m 5s",
+    "Syncing full · gh · 2m 5s",
   );
   // An unparsable start timestamp omits the elapsed segment rather than NaN.
-  assert.equal(syncRunSummary(syncRun({ status: "running", started_at: "bogus", finished_at: null }), now), "Syncing… incremental");
+  assert.equal(syncRunSummary(syncRun({ status: "running", started_at: "bogus", finished_at: null }), now), "Syncing incremental");
   // Finished scheduled runs read the same as manual ones — only running copy differs.
   assert.match(syncRunSummary(syncRun({ trigger: "scheduled" }), now), /^Synced /);
 });
@@ -1248,7 +1248,7 @@ test("syncRunSummary stays one short line while running — chips carry per-sour
   });
   // Per-source progress lives on the source chips (liveSourceStatus), not in
   // the status text — a three-source run must not wrap the header line.
-  assert.equal(syncRunSummary(running, now), "Syncing… incremental · 10s");
+  assert.equal(syncRunSummary(running, now), "Syncing incremental · 10s");
 });
 
 test("liveSourceStatus overlays the active run's per-source state onto a chip", () => {

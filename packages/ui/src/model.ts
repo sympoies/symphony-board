@@ -1616,7 +1616,7 @@ export function syncRunSummary(run: SyncRunStatus | null | undefined, now: numbe
   if (!run) return "";
   const scope = run.source_scope ? ` · ${run.source_scope}` : "";
   if (run.status === "running") {
-    const verb = run.trigger === "scheduled" ? "Background sync running…" : "Syncing…";
+    const verb = run.trigger === "scheduled" ? "Background sync running" : "Syncing";
     return `${verb} ${run.mode}${run.dry_run ? " dry-run" : ""}${scope}${elapsedSince(run.started_at, now)}`;
   }
   const when = relativeTime(run.finished_at ?? run.started_at, now);
