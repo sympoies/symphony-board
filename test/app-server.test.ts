@@ -7,7 +7,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { SyncController, SYNC_CONTROL_HEADER } from "../src/cli/sync-daemon.ts";
 import { createAppServer, type AppServerOptions } from "../src/cli/app-server.ts";
-import { openDb } from "../src/db/open.ts";
+import { openSqliteStore } from "../src/db/sqlite.ts";
 import type { SyncRunResult } from "../src/sync-runner.ts";
 
 const NO_TOTALS = { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
@@ -35,12 +35,12 @@ async function json(res: Response): Promise<any> {
 
 // A sandbox dir holding a valid config, a migrated empty DB, and room for a
 // contract file — the standalone app's data-dir layout in miniature.
-function sandbox(): { dir: string; opts: AppServerOptions } {
+async function sandbox(): Promise<{ dir: string; opts: AppServerOptions }> {
   const dir = mkdtempSync(join(tmpdir(), "app-server-test-"));
   const dbPath = join(dir, "data", "board.db");
   const configPath = join(dir, "config", "sources.json");
-  const db = openDb(dbPath); // creates data/ and migrates the empty store
-  db.close();
+  const db = await openSqliteStore(dbPath); // creates data/ and migrates the empty store
+  await db.close();
   mkdirSync(join(dir, "config"), { recursive: true });
   const config = {
     db_path: dbPath,
@@ -74,7 +74,7 @@ function sandbox(): { dir: string; opts: AppServerOptions } {
 }
 
 test("app-server serves health, contract, range, and the sync control surface", async () => {
-  const { dir, opts } = sandbox();
+  const { dir, opts } = await sandbox();
   const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
   const server = createAppServer(controller, opts);
   const base = await listen(server);

@@ -7,8 +7,7 @@
 import type { ServerResponse } from "node:http";
 import type { RepoDTO, TimeRangeDTO, ContractEnvelope } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
-import { openDbReadOnly } from "../db/open.ts";
-import { listSources, listLiveItems, listLabels, listLiveEdges, listActivities } from "../db/repo.ts";
+import { openSqliteStoreReadOnly } from "../db/sqlite.ts";
 import { buildRangeContract } from "../contract/build.ts";
 import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
 
@@ -51,17 +50,17 @@ export function parseRange(url: URL, tz: string): TimeRangeDTO {
 }
 
 // Build the range-scoped contract envelope for one GET /api/range request.
-export function rangeEnvelope(cfg: AppConfig, url: URL): ContractEnvelope {
+export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractEnvelope> {
   const range = parseRange(url, cfg.timezone ?? "UTC");
   const { sourceColors, repoColors } = configColors(cfg);
-  const db = openDbReadOnly(cfg.db_path);
+  const store = await openSqliteStoreReadOnly(cfg.db_path);
   try {
     return buildRangeContract({
-      sources: listSources(db),
-      items: listLiveItems(db),
-      labels: listLabels(db),
-      edges: listLiveEdges(db),
-      activities: listActivities(db),
+      sources: await store.listSources(),
+      items: await store.listLiveItems(),
+      labels: await store.listLabels(),
+      edges: await store.listLiveEdges(),
+      activities: await store.listActivities(),
       generatedAt: new Date().toISOString(),
       sourceColors,
       repoColors,
@@ -71,7 +70,7 @@ export function rangeEnvelope(cfg: AppConfig, url: URL): ContractEnvelope {
       range,
     });
   } finally {
-    db.close();
+    await store.close();
   }
 }
 
@@ -85,9 +84,9 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 // Serve one GET /api/range request, mapping validation failures to 400 and
 // everything else to 500 — the same surface the Docker api sidecar exposes.
-export function handleRangeRequest(cfg: AppConfig, url: URL, res: ServerResponse): void {
+export async function handleRangeRequest(cfg: AppConfig, url: URL, res: ServerResponse): Promise<void> {
   try {
-    json(res, 200, rangeEnvelope(cfg, url));
+    json(res, 200, await rangeEnvelope(cfg, url));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.includes("must be") || message.includes("valid date") ? 400 : 500;

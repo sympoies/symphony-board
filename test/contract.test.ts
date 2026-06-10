@@ -4,7 +4,7 @@ import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
 import { validateContract } from "../src/contract/validate.ts";
 import { deriveActorKey } from "../src/model/actor.ts";
-import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/repo.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/store.ts";
 
 function itemRow(over: Partial<ItemRow>): ItemRow {
   return {
@@ -70,7 +70,7 @@ test("buildContract emits a versioned envelope with composite-ref ids", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: "2026-06-01T00:00:00Z", last_status: "ok" },
   ];
-  const items: ItemRow[] = [itemRow({ item_id: 1 }), itemRow({ item_id: 2, external_id: "PR_xyz", kind: "change_request", state: "merged", is_draft: 0 })];
+  const items: ItemRow[] = [itemRow({ item_id: 1 }), itemRow({ item_id: 2, external_id: "PR_xyz", kind: "change_request", state: "merged", is_draft: false })];
   const labels: LabelRow[] = [{ item_id: 1, name: "bug", scope: null, color: "red" }];
   const edges: EdgeRow[] = [
     { type: "closes", from_source_id: "github:github.com", from_external_id: "PR_xyz", to_source_id: "github:github.com", to_external_id: "ISSUE_abc", from_state: "merged", to_state: "open", lifecycle: "declared" },
@@ -82,7 +82,7 @@ test("buildContract emits a versioned envelope with composite-ref ids", () => {
   assert.equal(env.items.length, 2);
   assert.equal(env.items[0]!.id, "github:github.com|ISSUE_abc");
   assert.equal(env.items[0]!.labels.length, 1);
-  assert.equal(env.items[1]!.is_draft, false); // 0 -> false
+  assert.equal(env.items[1]!.is_draft, false);
   assert.equal(env.edges.length, 1);
   assert.equal(env.edges[0]!.from, "github:github.com|PR_xyz");
   assert.equal(env.edges[0]!.to, "github:github.com|ISSUE_abc");

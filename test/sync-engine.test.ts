@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDb } from "../src/db/open.ts";
+import { openSqliteStore } from "../src/db/sqlite.ts";
 import { syncSource } from "../src/sync-engine.ts";
-import { listActivities, listLiveItems, listLiveEdges, getWatermark } from "../src/db/repo.ts";
 import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
 import type { NormalizedBundle, CanonicalActivity, CanonicalItem, CanonicalEdge } from "../src/model/types.ts";
 
@@ -115,7 +114,7 @@ test("the engine forwards full + the prior watermark to the source's fetch", asy
   // The engine is a forwarder: it hands the source { full, since: prevWatermark }
   // and lets the source decide what to do (the source nulls `since` on a full
   // sweep — see sources.test.ts; the CLI passes a null prev on full).
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const incr = build([item("A")]);
   await syncSource(db, incr, "PRIOR", { full: false, dryRun: false });
   assert.equal(incr.lastFetch?.full, false);
@@ -124,30 +123,30 @@ test("the engine forwards full + the prior watermark to the source's fetch", asy
   const full = build([item("A")]);
   await syncSource(db, full, null, { full: true, dryRun: false });
   assert.equal(full.lastFetch?.full, true, "full sweep is marked full");
-  db.close();
+  await db.close();
 });
 
 test("the new watermark is persisted to sync_state for the next incremental run", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   await syncSource(db, build([item("A")], {}, { watermark: "2026-06-05T00:00:00Z" }), null, { full: true, dryRun: false });
-  assert.equal(getWatermark(db, "fake:test"), "2026-06-05T00:00:00Z");
-  db.close();
+  assert.equal(await db.getWatermark("fake:test"), "2026-06-05T00:00:00Z");
+  await db.close();
 });
 
 test("the engine persists activity-only records without counting them as items", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const rep = await syncSource(db, activitySource([activity("A1")]), null, { full: false, dryRun: false });
   assert.equal(rep.itemsSeen, 0);
   assert.equal(rep.activitiesSeen, 1);
-  const rows = listActivities(db);
+  const rows = (await db.listActivities());
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.external_id, "A1");
   assert.deepEqual(JSON.parse(rows[0]!.details ?? "{}"), { sha: "abc1234" });
-  db.close();
+  await db.close();
 });
 
 test("incremental sync refreshes recent pending CI candidates missed by the updatedAt watermark", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   await syncSource(
     db,
     build([item("PR_1", {
@@ -201,12 +200,12 @@ test("incremental sync refreshes recent pending CI candidates missed by the upda
 
   assert.equal(source.refreshCalls.length, 1, "incremental sync asks the source to refresh stale CI candidates");
   assert.equal(rep.itemsSeen, 1, "refreshed PR is counted as seen");
-  assert.equal(listLiveItems(db).find((row) => row.external_id === "PR_1")?.ci_state, "passing");
-  db.close();
+  assert.equal((await db.listLiveItems()).find((row) => row.external_id === "PR_1")?.ci_state, "passing");
+  await db.close();
 });
 
 test("only a full+complete sweep deletes; incremental and partial sweeps never do", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const edgeAB: CanonicalEdge = {
     type: "closes",
     from: { sourceId: "fake:test", externalId: "A" },
@@ -220,8 +219,8 @@ test("only a full+complete sweep deletes; incremental and partial sweeps never d
     null,
     { full: true, dryRun: false },
   );
-  assert.equal(listLiveItems(db).length, 2);
-  assert.equal(listLiveEdges(db).length, 1);
+  assert.equal((await db.listLiveItems()).length, 2);
+  assert.equal((await db.listLiveEdges()).length, 1);
 
   await tick(); // ensure later sweeps start strictly after the seed's last_seen_at
 
@@ -229,22 +228,22 @@ test("only a full+complete sweep deletes; incremental and partial sweeps never d
   const incr = await syncSource(db, build([]), "wm", { full: false, dryRun: false });
   assert.equal(incr.softDeleted, 0);
   assert.equal(incr.softDeletedEdges, 0);
-  assert.equal(listLiveItems(db).length, 2, "incremental never tombstones");
+  assert.equal((await db.listLiveItems()).length, 2, "incremental never tombstones");
 
   // A partial (incomplete) full sweep must NOT delete either.
   const partial = await syncSource(db, build([], {}, { complete: false }), null, { full: true, dryRun: false });
   assert.equal(partial.status, "partial");
   assert.equal(partial.softDeleted, 0);
-  assert.equal(listLiveItems(db).length, 2, "a partial sweep never tombstones");
+  assert.equal((await db.listLiveItems()).length, 2, "a partial sweep never tombstones");
 
   // A full + complete sweep that sees nothing tombstones both items and the edge.
   const full = await syncSource(db, build([]), null, { full: true, dryRun: false });
   assert.equal(full.status, "ok");
   assert.equal(full.softDeleted, 2);
   assert.equal(full.softDeletedEdges, 1);
-  assert.equal(listLiveItems(db).length, 0);
-  assert.equal(listLiveEdges(db).length, 0);
-  db.close();
+  assert.equal((await db.listLiveItems()).length, 0);
+  assert.equal((await db.listLiveEdges()).length, 0);
+  await db.close();
 });
 
 // A source whose fetch throws: it reports error and tombstones NOTHING, even on a
@@ -262,9 +261,9 @@ class BoomSource implements Source {
 }
 
 test("a failed fetch reports error, persists the error, and deletes nothing (even full)", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   await syncSource(db, build([item("A")]), null, { full: true, dryRun: false }); // seed one live item
-  assert.equal(listLiveItems(db).length, 1);
+  assert.equal((await db.listLiveItems()).length, 1);
   await tick();
 
   const rep = await syncSource(db, new BoomSource(), "wm", { full: true, dryRun: false });
@@ -272,17 +271,17 @@ test("a failed fetch reports error, persists the error, and deletes nothing (eve
   assert.equal(rep.error, "network down");
   assert.equal(rep.watermark, null, "a failed fetch advances no watermark");
   assert.equal(rep.softDeleted, 0);
-  assert.equal(listLiveItems(db).length, 1, "a failed fetch never tombstones");
+  assert.equal((await db.listLiveItems()).length, 1, "a failed fetch never tombstones");
   // The error is persisted, but the prior good watermark is NOT clobbered.
-  assert.equal(getWatermark(db, "fake:test"), "2026-06-01T00:00:00Z");
-  db.close();
+  assert.equal(await db.getWatermark("fake:test"), "2026-06-01T00:00:00Z");
+  await db.close();
 });
 
 test("a dry-run fetch error reports error but writes nothing", async () => {
-  const db = openDb(":memory:");
+  const db = await openSqliteStore(":memory:");
   const rep = await syncSource(db, new BoomSource(), null, { full: true, dryRun: true });
   assert.equal(rep.status, "error");
   assert.equal(rep.error, "network down");
-  assert.equal(getWatermark(db, "fake:test"), null, "dry-run never touches sync_state");
-  db.close();
+  assert.equal(await db.getWatermark("fake:test"), null, "dry-run never touches sync_state");
+  await db.close();
 });

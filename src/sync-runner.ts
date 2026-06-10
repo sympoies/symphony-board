@@ -8,11 +8,10 @@
 // only after a non-dry run that did not fail — a dry-run must never write a
 // contract, and a failed run must never present stale derived data as fresh.
 
-import type { DatabaseSync } from "node:sqlite";
 import type { AppConfig, SourceConfig } from "./config.ts";
 import { tokenFor } from "./config.ts";
-import { openDb as defaultOpenDb } from "./db/open.ts";
-import { getWatermark } from "./db/repo.ts";
+import type { Store, StoreOpener } from "./db/store.ts";
+import { openSqliteStore } from "./db/sqlite.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
 import { syncSource } from "./sync-engine.ts";
 import type { Source } from "./sources/types.ts";
@@ -85,18 +84,18 @@ function emptyTotals(): SyncRunTotals {
   return { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
 }
 
-// Core run over already-built sources and an open DB — no network setup, no
+// Core run over already-built sources and an open store — no network setup, no
 // config/token resolution — so it is unit-testable with fake sources and an
-// in-memory DB. The optional `emit` callback is invoked only on a non-dry,
+// in-memory store. The optional `emit` callback is invoked only on a non-dry,
 // non-failed run; that gating is the single definition of "emit unless dry-run or
-// failed". `emit` throwing (e.g. a contract that fails producer validation)
+// failed". `emit` rejecting (e.g. a contract that fails producer validation)
 // fails the whole run rather than silently shipping nothing.
 export async function executeSyncRun(
-  db: DatabaseSync,
+  store: Store,
   prepared: PreparedSource[],
   skipped: string[],
   opts: SyncRunOptions,
-  emit?: () => void,
+  emit?: () => Promise<void> | void,
   onProgress?: SyncProgressReporter,
 ): Promise<SyncRunResult> {
   const full = opts.mode === "full";
@@ -112,13 +111,13 @@ export async function executeSyncRun(
   }));
 
   for (const { config, source } of prepared) {
-    const prev = full ? null : getWatermark(db, config.source_id);
+    const prev = full ? null : await store.getWatermark(config.source_id);
     // Announce the in-flight source before the (possibly slow) fetch so a tail of
     // the logs shows which source is currently syncing — the prior line, if it has
     // no matching result, is where a stall is happening.
     log.info(`[${config.source_id}] syncing…`);
     onProgress?.({ sources: [...results], active_source_id: config.source_id });
-    const rep = await syncSource(db, source, prev, { full, dryRun: opts.dryRun });
+    const rep = await syncSource(store, source, prev, { full, dryRun: opts.dryRun });
     log.info(
       `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
         `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
@@ -150,7 +149,7 @@ export async function executeSyncRun(
   let error: string | null = status === "error" ? "one or more sources failed to sync" : null;
   if (emit && !opts.dryRun && status !== "error") {
     try {
-      emit();
+      await emit();
       emitted = true;
     } catch (err) {
       return {
@@ -166,25 +165,25 @@ export async function executeSyncRun(
 }
 
 export interface RunConfiguredSyncDeps {
-  openDb?: typeof defaultOpenDb;
+  openStore?: StoreOpener;
   buildSource?: typeof defaultBuildSource;
   now?: () => string;
   // Mid-run progress hook for a live run status; see SyncRunProgress.
   onProgress?: SyncProgressReporter;
 }
 
-// CLI/daemon entry: resolve tokens, build the configured sources, open the DB,
-// run the engine, and (when `out` is a path) emit the contract there. A source
-// whose token env is unset is skipped with a warning, exactly like the standalone
-// sync CLI did. When `out` is null the run is sync-only (no emit), preserving the
-// `pnpm run sync` contract.
+// CLI/daemon entry: resolve tokens, build the configured sources, open the
+// store, run the engine, and (when `out` is a path) emit the contract there. A
+// source whose token env is unset is skipped with a warning, exactly like the
+// standalone sync CLI did. When `out` is null the run is sync-only (no emit),
+// preserving the `pnpm run sync` contract.
 export async function runConfiguredSync(
   cfg: AppConfig,
   opts: SyncRunOptions,
   out: string | null,
   deps: RunConfiguredSyncDeps = {},
 ): Promise<SyncRunResult> {
-  const openDb = deps.openDb ?? defaultOpenDb;
+  const openStore = deps.openStore ?? openSqliteStore;
   const buildSource = deps.buildSource ?? defaultBuildSource;
   const now = deps.now ?? (() => new Date().toISOString());
 
@@ -201,18 +200,18 @@ export async function runConfiguredSync(
     prepared.push({ config: sc, source: buildSource(sc, token) });
   }
 
-  const db = openDb(cfg.db_path);
+  const store = await openStore(cfg.db_path);
   try {
     const emit = out
-      ? () => {
-          const counts = emitContractToFile(db, cfg, out, now());
+      ? async () => {
+          const counts = await emitContractToFile(store, cfg, out, now());
           log.info(
             `emit wrote ${counts.items}/${counts.totalItems} items / ${counts.edges} edges / ${counts.activities} activities -> ${out}`,
           );
         }
       : undefined;
-    return await executeSyncRun(db, prepared, skipped, opts, emit, deps.onProgress);
+    return await executeSyncRun(store, prepared, skipped, opts, emit, deps.onProgress);
   } finally {
-    db.close();
+    await store.close();
   }
 }

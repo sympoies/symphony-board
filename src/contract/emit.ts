@@ -8,10 +8,9 @@
 // never stored in the DB.
 
 import { writeFileSync } from "node:fs";
-import type { DatabaseSync } from "node:sqlite";
 import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
-import { listSources, listLiveItems, listLabels, listLiveEdges, listActivities } from "../db/repo.ts";
+import type { Store } from "../db/store.ts";
 import { buildContract } from "./build.ts";
 import { validateContract, type ValidationError } from "./validate.ts";
 
@@ -34,14 +33,14 @@ export function displayColors(cfg: AppConfig): { sourceColors: Record<string, st
 
 // Build the contract envelope from the current store state: a pure mapping over
 // the canonical rows plus the config-derived display colors / identities.
-export function buildContractEnvelope(db: DatabaseSync, cfg: AppConfig, generatedAt: string): ContractEnvelope {
+export async function buildContractEnvelope(store: Store, cfg: AppConfig, generatedAt: string): Promise<ContractEnvelope> {
   const { sourceColors, repoColors } = displayColors(cfg);
   return buildContract({
-    sources: listSources(db),
-    items: listLiveItems(db),
-    labels: listLabels(db),
-    edges: listLiveEdges(db),
-    activities: listActivities(db),
+    sources: await store.listSources(),
+    items: await store.listLiveItems(),
+    labels: await store.listLabels(),
+    edges: await store.listLiveEdges(),
+    activities: await store.listActivities(),
     generatedAt,
     sourceColors,
     repoColors,
@@ -72,14 +71,14 @@ export interface EmitCounts {
 // Build, validate (unless explicitly disabled), and write the contract to a file.
 // Throws ContractValidationError when validation fails, so a malformed contract
 // never lands on disk. Returns the counts useful for an operator log line.
-export function emitContractToFile(
-  db: DatabaseSync,
+export async function emitContractToFile(
+  store: Store,
   cfg: AppConfig,
   outPath: string,
   generatedAt: string,
   validate = true,
-): EmitCounts {
-  const envelope = buildContractEnvelope(db, cfg, generatedAt);
+): Promise<EmitCounts> {
+  const envelope = await buildContractEnvelope(store, cfg, generatedAt);
   if (validate) {
     const errors = validateContract(envelope);
     if (errors.length > 0) throw new ContractValidationError(errors);
