@@ -19,6 +19,17 @@ scripts/contract-summary.sh
 scripts/db-summary.sh
 ```
 
+## Local Install Helper
+
+| Script | What it does |
+| --- | --- |
+| `install-release-app.sh [PATH] [options]` | Installs a downloaded, unsigned macOS release. Extracts a release `.zip` (or takes an extracted `.app`), strips the `com.apple.quarantine` flag recursively, copies the bundle into `/Applications`, and opens it. Handles both the thin client and the standalone variants. With no `PATH`, picks the newest `Symphony-Board-*.zip` / `Symphony Board*.app` in `~/Downloads`. Options: `--no-install`, `--no-open`, `--resign`, `--downloads-dir DIR`. macOS only. |
+
+```sh
+scripts/install-release-app.sh
+scripts/install-release-app.sh ~/Downloads/Symphony-Board-v1.1.0-macos-arm64-unsigned.zip
+```
+
 ## CI Helpers
 
 | Script | What it does |

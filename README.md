@@ -291,8 +291,9 @@ open "packages/desktop-standalone/src-tauri/target/release/bundle/macos/Symphony
 ```
 
 For self-use on the same Mac, no paid Apple Developer Program membership is
-required; the local builds are not notarized, so macOS may require right-click ->
-Open the first time.
+required. Local builds are not notarized; they usually open directly, but if
+macOS blocks a launch, unblock the bundle with `scripts/install-release-app.sh`
+(below).
 
 GitHub Releases include unsigned CI-built desktop zips for both Apple Silicon
 and Intel Macs:
@@ -302,9 +303,21 @@ and Intel Macs:
 - `Symphony-Board-Standalone-vX.Y.Z-macos-arm64-unsigned.zip`
 - `Symphony-Board-Standalone-vX.Y.Z-macos-x64-unsigned.zip`
 
-Use the matching architecture for each Mac. These release builds are still
-unsigned and not notarized; macOS may require Privacy & Security -> Open Anyway
-after the first launch attempt.
+Use the matching architecture for each Mac. These release builds are unsigned
+and not notarized, so macOS quarantines the download and Gatekeeper blocks the
+first launch. Install with the helper — it extracts (for a `.zip`), strips the
+quarantine flag, copies the bundle into `/Applications`, and opens it:
+
+```sh
+scripts/install-release-app.sh ~/Downloads/Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip
+# or, with no argument, pick the newest Symphony-Board-*.zip in ~/Downloads:
+scripts/install-release-app.sh
+```
+
+To do it by hand instead: clear the flag with
+`xattr -dr com.apple.quarantine "<app>"`, or, on macOS Sequoia and later, use
+System Settings -> Privacy & Security -> Open Anyway after the first blocked
+launch.
 
 Read-only inspection helpers:
 

@@ -33,4 +33,6 @@ packages/desktop/src-tauri/target/release/bundle/macos/Symphony Board.app
 ```
 
 For self-use, no paid Apple Developer Program membership is required. The app is
-not notarized, so macOS may require right-click -> Open the first time.
+not notarized; a local build usually opens directly, while a downloaded release
+zip can be unblocked and installed with `scripts/install-release-app.sh` (see
+the root README's "Build The macOS App" section).
