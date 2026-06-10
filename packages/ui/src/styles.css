@@ -1296,3 +1296,63 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 .settings-tab:hover { color: var(--text); }
 .settings-tab-active { color: var(--text); border-bottom-color: var(--accent, #58a6ff); font-weight: 600; }
+
+/* Diagnostics (the hidden #/debug page, toggled with Cmd+/ or Ctrl+/). The
+   visual language deliberately mirrors Repo Analytics: stat tiles for the
+   headline numbers, panel cards for the breakdown tables, and the same
+   panel-2 uppercase table headers — so the operator page reads as this app. */
+.debug-page { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.debug-head { display: flex; align-items: baseline; gap: 12px; }
+.debug-head h2 { margin: 0; }
+.debug-close { margin-left: auto; }
+.debug-section { margin-top: 12px; }
+.debug-section h3 { margin: 0 0 8px; }
+.debug-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.debug-stat-tile {
+  min-height: 56px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.debug-stat-tile b { font-size: 18px; color: var(--accent); line-height: 1.1; }
+.debug-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; }
+.debug-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px 10px;
+}
+.debug-table { border-collapse: collapse; font-size: 13px; }
+.debug-table th, .debug-table td { text-align: left; padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line); }
+.debug-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.debug-table th.num, .debug-table td.num { text-align: right; }
+.debug-table tbody tr:last-child td { border-bottom: none; }
+.debug-runs-wrap {
+  overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.debug-runs-wrap .debug-table { width: 100%; }
+.debug-runs-wrap .debug-table th, .debug-runs-wrap .debug-table td { padding: 6px 10px; white-space: nowrap; }
+.debug-runs-wrap .debug-table th { background: var(--panel-2); }
+.debug-run-error { color: var(--broken); max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
+.debug-foot { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; }
+.debug-log-controls { display: flex; align-items: center; gap: 12px; font-size: 12px; margin-bottom: 8px; }
+.debug-log-controls label { display: inline-flex; align-items: center; gap: 6px; }
+.debug-log {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  margin: 0; padding: 8px 10px; max-height: 420px; overflow: auto;
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.debug-log .log-warn { color: var(--warn); }
+.debug-log .log-error { color: var(--broken); }

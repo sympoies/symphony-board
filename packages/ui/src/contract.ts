@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { loadServerBaseUrl } from "./viewconfig.ts";
 
@@ -201,6 +201,36 @@ export async function saveSecretValue(env: string, value: string | null, serverB
     status: res.status,
     error: res.ok ? null : (body?.message ?? body?.error ?? `HTTP ${res.status}`),
   };
+}
+
+// --- diagnostics client (the hidden #/debug page) ---
+// Probe-pattern GETs like the control planes above: null on ANY failure (route
+// missing, no store yet, network error) so the page renders "unavailable"
+// instead of erroring — the common case for a static deploy.
+
+export async function fetchStoreStats(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<StoreStats | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/stats", serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as StoreStats | null;
+    return body && typeof body === "object" && typeof (body as { db?: unknown }).db === "object" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+// The writer daemon's recent-log tail. `after` is the caller's last-seen seq
+// (0 = full buffer), so the poll loop ships deltas, not the whole buffer.
+export async function fetchDaemonLogs(after: number, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<DaemonLogsInfo | null> {
+  try {
+    const path = after > 0 ? `./api/logs?after=${after}` : "./api/logs";
+    const res = await appFetch(resolveEndpoint(path, serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as DaemonLogsInfo | null;
+    return body && typeof body.enabled === "boolean" ? body : null;
+  } catch {
+    return null;
+  }
 }
 
 // Parse a contract the user dropped in via the file picker.

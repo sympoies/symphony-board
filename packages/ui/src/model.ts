@@ -129,7 +129,7 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 // round-trip is unit-tested; refs contain '|' / ':' / '/' so they MUST be
 // percent-encoded to survive the query.
 export interface HashRoute {
-  page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings"
+  page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" | "debug" (hidden; Cmd+/)
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   q: string | null; // a search token to seed the search bar (narrows the graph)
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
@@ -1671,6 +1671,94 @@ export interface SecretsInfo {
 
 export function configProjectPath(entry: ConfigProjectEntry): string {
   return typeof entry === "string" ? entry : entry.path;
+}
+
+// --- diagnostics (the hidden #/debug page) ---
+// Liberal mirrors of the read-only operational surfaces: GET /api/stats (store
+// statistics from the api sidecar / app server) and GET /api/logs (the writer
+// daemon's in-memory recent-log tail). Neither is part of the versioned
+// contract; both follow the probe pattern — any failure reads as "unavailable".
+
+export interface StoreStatsSyncRun {
+  run_id: number;
+  source_id: string;
+  mode: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  items_seen: number;
+  edges_seen: number;
+  activities_seen: number;
+  error: string | null;
+}
+
+export interface StoreStats {
+  generated_at: string;
+  db: {
+    path: string;
+    size_bytes: number;
+    wal_size_bytes: number;
+    page_size: number;
+    page_count: number;
+    schema_version: number;
+  };
+  tables: Record<string, number>;
+  items: {
+    live: number;
+    tombstoned: number;
+    by_kind: Record<string, number>;
+    by_state: Record<string, number>;
+    by_source: Record<string, number>;
+  };
+  edges: {
+    live: number;
+    tombstoned: number;
+    by_type: Record<string, number>;
+    by_lifecycle: Record<string, number>;
+  };
+  activities: {
+    total: number;
+    by_kind: Record<string, number>;
+    earliest: string | null;
+    latest: string | null;
+  };
+  sync_runs: StoreStatsSyncRun[];
+}
+
+export interface DaemonLogEntry {
+  seq: number;
+  ts: string;
+  level: string; // "info" | "warn" | "error" (liberal: render unknown levels as-is)
+  message: string;
+}
+
+export interface DaemonLogsInfo {
+  enabled: boolean;
+  entries: DaemonLogEntry[];
+  latest_seq: number;
+  capacity: number;
+}
+
+// "53.2 MiB" from a byte count, for the Diagnostics store-size pills.
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return `${n} B`;
+  let v = n;
+  for (const unit of ["KiB", "MiB", "GiB", "TiB"]) {
+    v /= 1024;
+    if (v < 1024) return `${v >= 100 ? Math.round(v).toString() : v.toFixed(1)} ${unit}`;
+  }
+  return `${Math.round(v)} PiB`;
+}
+
+// "12s" / "3m 20s" between a sync run's start and finish ("—" while running).
+export function runDuration(startedAt: string, finishedAt: string | null): string {
+  if (!finishedAt) return "—";
+  const ms = Date.parse(finishedAt) - Date.parse(startedAt);
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  return `${Math.floor(sec / 60)}m ${sec % 60}s`;
 }
 
 // db_path seeded into a config created in-app. Relative to the daemon's

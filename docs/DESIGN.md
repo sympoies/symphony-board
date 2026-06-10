@@ -551,6 +551,39 @@ would be the backend's first third-party runtime dependency, and after this
 control plane the remaining hand-editors are the Docker path only. JSON is
 also exactly what a machine-written, machine-validated document wants.
 
+## Read-Only Diagnostics Surface
+
+Troubleshooting a deployment used to require a terminal: `scripts/db-summary.sh`
+for store state and `docker compose logs` / `logs/app-server.log` for the
+daemon. The hidden Diagnostics page (`#/debug`, toggled with Cmd+/ or Ctrl+/,
+deliberately absent from the nav) moves the common 90% in-app. It renders
+before the contract-loading gates, so it stays reachable when the contract
+fails to load — exactly when it is needed.
+
+| Route | Method | Served by | Purpose |
+| --- | --- | --- | --- |
+| `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
+| `/api/logs` | GET | writer (`board` daemon / app server) | the writer process's in-memory recent-log tail; `?after=<seq>` returns only newer entries |
+
+**Stats are an operational surface, not contract.** `/api/stats` describes the
+store (sizes, row counts, run history), never the work-item data model, so it
+carries no `contract_version` and needs no bump. It follows the `/api/range`
+access discipline — every request opens SQLite read-only and closes it — and
+lives on the read-only `api` sidecar in the Docker stack (the generic `/api/`
+proxy covers it; nginx is untouched for stats).
+
+**Logs are a per-process ring buffer.** `src/log.ts` tees every line into a
+1000-entry in-memory buffer with a monotonic `seq`; `GET /api/logs` is gated by
+`LOG_CONTROL_ENABLED` (default ON for the standalone app server, OFF for the
+Docker daemon — Compose opts in) and must be served by the **writer**, so nginx
+adds one exact-match proxy for it. The buffer is lost on restart by design: it
+answers "what is the daemon doing / failing on right now", not forensics —
+container logs and `logs/app-server.log` remain the durable record. A poller
+detects a daemon restart when `latest_seq` drops below its last-seen `seq` and
+re-reads from the top. The `sync_run` table (surfaced by `/api/stats`) already
+carries per-run `status` / `error`, which covers most "why did sync fail"
+questions without log access.
+
 ## Runtime Decisions
 
 - **Node 24 with type stripping**: backend has no build step.

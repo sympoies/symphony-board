@@ -66,6 +66,8 @@ import {
   compareGraphNodes,
   parseHashRoute,
   buildHashRoute,
+  formatBytes,
+  runDuration,
   graphFocusHref,
   applyRouteSearch,
   edgeEndpointIds,
@@ -1464,4 +1466,22 @@ test("hash route carries the settings sub-tab and drops it when default", () => 
   assert.equal(buildHashRoute({ page: "settings", tab: null }), "#/settings");
   const roundTrip = buildHashRoute({ ...parseHashRoute("#/settings?tab=sources&preset=this-week"), page: "settings" });
   assert.ok(roundTrip.includes("tab=sources") && roundTrip.includes("preset=this-week"), "tab coexists with other params");
+});
+
+test("formatBytes scales through binary units and rejects nonsense", () => {
+  assert.equal(formatBytes(0), "0 B");
+  assert.equal(formatBytes(512), "512 B");
+  assert.equal(formatBytes(2048), "2.0 KiB");
+  assert.equal(formatBytes(53_000_000), "50.5 MiB");
+  assert.equal(formatBytes(150 * 1024 * 1024), "150 MiB", "3-digit values drop the decimal");
+  assert.equal(formatBytes(3 * 1024 ** 3), "3.0 GiB");
+  assert.equal(formatBytes(-1), "—");
+  assert.equal(formatBytes(Number.NaN), "—");
+});
+
+test("runDuration formats finished sync runs and dashes a running one", () => {
+  assert.equal(runDuration("2026-06-01T00:00:00Z", "2026-06-01T00:00:12Z"), "12s");
+  assert.equal(runDuration("2026-06-01T00:00:00Z", "2026-06-01T00:03:20Z"), "3m 20s");
+  assert.equal(runDuration("2026-06-01T00:00:00Z", null), "—", "still running");
+  assert.equal(runDuration("2026-06-01T00:00:00Z", "not-a-date"), "—");
 });

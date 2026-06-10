@@ -24,6 +24,8 @@
 // daemon: the standalone app is a same-user local deployment; set 0 to disable),
 // CONFIG_CONTROL_ENABLED (default ON here for the same reason — the Settings UI
 // edits config/sources.json through the writer; set 0 to disable),
+// LOG_CONTROL_ENABLED (default ON here — serve this process's recent-log tail
+// on GET /api/logs for the UI Diagnostics page; set 0 to disable),
 // SYMPHONY_SECRETS_FILE (the KEY=VALUE token file the write-only secrets
 // surface edits and token resolution reads fresh; the desktop shell points it
 // at the data dir's secrets.env).
@@ -42,6 +44,7 @@ import {
   type ControlContext,
 } from "./sync-daemon.ts";
 import { handleRangeRequest } from "../server/range.ts";
+import { handleStatsRequest } from "../server/stats.ts";
 import { log } from "../log.ts";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -69,6 +72,7 @@ export interface AppServerOptions {
   contractOut: string;
   controlEnabled: boolean;
   configControlEnabled: boolean;
+  logsEnabled: boolean;
   secretsPath: string | null;
   intervalSeconds: number;
   fullEvery: number;
@@ -92,6 +96,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
     return {
       controlEnabled: opts.controlEnabled,
       configControl: { enabled: opts.configControlEnabled, path: resolveConfigPath(opts.configPath), secretsPath: opts.secretsPath },
+      logsEnabled: opts.logsEnabled,
       sources,
       intervalSeconds: opts.intervalSeconds,
       fullEvery: opts.fullEvery,
@@ -108,7 +113,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       return;
     }
 
-    if (method === "GET" && path === "/api/range") {
+    if (method === "GET" && (path === "/api/range" || path === "/api/stats")) {
       let cfg: AppConfig;
       try {
         cfg = freshConfig();
@@ -116,7 +121,8 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
         sendJson(res, 500, { error: "config_error", message: (err as Error).message });
         return;
       }
-      handleRangeRequest(cfg, url, res);
+      if (path === "/api/stats") handleStatsRequest(cfg, url, res);
+      else handleRangeRequest(cfg, url, res);
       return;
     }
 
@@ -146,6 +152,7 @@ function main(): void {
     contractOut: process.env.CONTRACT_OUT ?? "data/contract.json",
     controlEnabled: envFlag("SYNC_CONTROL_ENABLED", true),
     configControlEnabled: envFlag("CONFIG_CONTROL_ENABLED", true),
+    logsEnabled: envFlag("LOG_CONTROL_ENABLED", true),
     secretsPath: resolveSecretsPath(),
     intervalSeconds: Math.max(1, Number(process.env.INTERVAL ?? "120") || 120),
     fullEvery: Math.max(1, Number(process.env.FULL_EVERY ?? "30") || 30),

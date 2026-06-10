@@ -191,12 +191,15 @@ Docker Compose runs three services:
 
 - `board`: the sole writer. A Node daemon loops `sync` + `emit` on a timer and
   also serves a writer-owned control surface for UI-triggered manual syncs (see
-  below).
+  below) plus its recent-log tail on `GET /api/logs` for the hidden Diagnostics
+  page (`#/debug`, toggled with Cmd+/ or Ctrl+/).
 - `api`: a read-only Node sidecar. It opens SQLite with `query_only` and serves
-  `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`.
+  `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus store statistics on
+  `GET /api/stats`.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
-  latest `data/contract.json` as `/contract.json`, proxies `/api/range` to the
-  read-only `api`, and proxies the sync-control routes to `board`.
+  latest `data/contract.json` as `/contract.json`, proxies `/api/range` and
+  `/api/stats` to the read-only `api`, and proxies the sync-control and log-tail
+  routes to `board`.
 
 ```sh
 echo "GITHUB_TOKEN=ghp_xxx" > .env

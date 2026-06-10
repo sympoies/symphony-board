@@ -20,14 +20,16 @@
 // SYNC_CONTROL_ENABLED (enable manual runs; default off), SYNC_CONTROL_PORT
 // (default 8080), SYNC_CONTROL_HOST (default 0.0.0.0),
 // CONFIG_CONTROL_ENABLED (enable config edits over HTTP; default off here —
-// the Docker stack mounts config read-only and stays file-managed).
+// the Docker stack mounts config read-only and stays file-managed),
+// LOG_CONTROL_ENABLED (serve this process's recent-log tail on GET /api/logs
+// for the UI Diagnostics page; default off here, the compose stack opts in).
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { AppConfig, SourceConfig } from "../config.ts";
 import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret } from "../config.ts";
 import { runConfiguredSync, type SyncMode, type SourceRunResult, type SyncRunResult, type SyncRunTotals } from "../sync-runner.ts";
-import { log } from "../log.ts";
+import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -198,6 +200,10 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export interface ControlContext {
   controlEnabled: boolean;
   configControl: ConfigControl;
+  // Serve this process's in-memory recent-log tail on GET /api/logs. Read-only
+  // and same-process by construction (the buffer lives in src/log.ts), so the
+  // Docker stack must route the path to the writer daemon, not the api sidecar.
+  logsEnabled: boolean;
   sources: SourceOption[];
   intervalSeconds: number;
   fullEvery: number;
@@ -327,6 +333,21 @@ export async function handleControlRequest(
 
   if (method === "GET" && path === "/api/sync-runs/last") {
     sendJson(res, 200, { last: controller.lastRun() });
+    return;
+  }
+
+  // Recent-log tail for the UI Diagnostics page. GET doubles as the capability
+  // probe (a disabled deployment answers { enabled: false } and leaks nothing).
+  // "?after=<seq>" returns only entries newer than the caller's last-seen seq,
+  // so the poll loop ships deltas instead of the whole buffer every tick.
+  if (method === "GET" && path === "/api/logs") {
+    if (!ctx.logsEnabled) {
+      sendJson(res, 200, { enabled: false, entries: [], latest_seq: 0, capacity: 0 });
+      return;
+    }
+    const afterRaw = Number(url.searchParams.get("after") ?? "0");
+    const after = Number.isFinite(afterRaw) && afterRaw > 0 ? Math.trunc(afterRaw) : 0;
+    sendJson(res, 200, { enabled: true, entries: recentLogs(after), latest_seq: latestLogSeq(), capacity: LOG_BUFFER_CAPACITY });
     return;
   }
 
@@ -561,6 +582,7 @@ function main(): void {
   const ctx: ControlContext = {
     controlEnabled,
     configControl: { enabled: envFlag("CONFIG_CONTROL_ENABLED"), path: configPath, secretsPath: resolveSecretsPath() },
+    logsEnabled: envFlag("LOG_CONTROL_ENABLED"),
     sources: sourceOptions(cfg),
     intervalSeconds,
     fullEvery,
