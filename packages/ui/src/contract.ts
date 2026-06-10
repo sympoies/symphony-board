@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { loadServerBaseUrl } from "./viewconfig.ts";
 
@@ -113,6 +113,93 @@ export async function startSyncRun(req: SyncRunRequest, serverBaseUrl: string | 
     status: res.status,
     run: body?.current ?? null,
     error: res.ok ? null : (body?.error ?? `HTTP ${res.status}`),
+  };
+}
+
+// --- writer-owned config control plane client (Settings -> Sources editor) ---
+// Same shape as the sync control client above: GET probes return null on any
+// failure so the editor simply stays hidden, and mutations carry the shared
+// same-origin guard header. Server-side validation is authoritative.
+
+// Capability probe + current document. `enabled: false` (or null) hides the
+// editor; `enabled: true` with `config: null` is the not-configured-yet state
+// the first-run onboarding starts from.
+export async function fetchConfigControl(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ConfigControlInfo | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/config", serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as ConfigControlInfo | null;
+    return body && typeof body.enabled === "boolean" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface SaveConfigResult {
+  ok: boolean;
+  status: number;
+  errors: string[]; // the daemon's per-field validation messages on a 400 invalid_config
+  error: string | null; // any other failure
+}
+
+export async function saveConfigDocument(config: ConfigDocument, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SaveConfigResult> {
+  const res = await appFetch(resolveEndpoint("./api/config", serverBaseUrl), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
+    body: JSON.stringify(config),
+  });
+  let body: { error?: string; errors?: string[] } | null = null;
+  try {
+    body = (await readJson(res)) as { error?: string; errors?: string[] };
+  } catch {
+    body = null;
+  }
+  const errors = body?.errors ?? [];
+  return {
+    ok: res.ok,
+    status: res.status,
+    errors,
+    error: res.ok || errors.length > 0 ? null : (body?.error ?? `HTTP ${res.status}`),
+  };
+}
+
+// Which token env names are set (booleans only — values never cross this
+// surface). Null on any failure, mirroring the capability probes.
+export async function fetchSecrets(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SecretsInfo | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/secrets", serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as SecretsInfo | null;
+    return body && typeof body.enabled === "boolean" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface SaveSecretResult {
+  ok: boolean;
+  status: number;
+  error: string | null;
+}
+
+// Write-only: set/replace a token for an env name, or remove it with null.
+// The value rides in the request body once and is never echoed or stored.
+export async function saveSecretValue(env: string, value: string | null, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SaveSecretResult> {
+  const res = await appFetch(resolveEndpoint("./api/secrets", serverBaseUrl), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
+    body: JSON.stringify({ env, value }),
+  });
+  let body: { error?: string; message?: string } | null = null;
+  try {
+    body = (await readJson(res)) as { error?: string; message?: string };
+  } catch {
+    body = null;
+  }
+  return {
+    ok: res.ok,
+    status: res.status,
+    error: res.ok ? null : (body?.message ?? body?.error ?? `HTTP ${res.status}`),
   };
 }
 

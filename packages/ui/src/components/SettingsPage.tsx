@@ -10,8 +10,10 @@ import {
 } from "../model.ts";
 import { Badge } from "./Badge.tsx";
 import { SyncControls } from "./SyncControls.tsx";
+import { SourcesEditor } from "./SourcesEditor.tsx";
 import { ServerConnectionForm } from "./ServerConnectionForm.tsx";
 import type { SyncState } from "../useSync.ts";
+import type { ConfigState } from "../useConfig.ts";
 
 interface Props {
   sources: SourceDTO[]; // per-source health + configured color, read-only (from the contract)
@@ -30,6 +32,7 @@ interface Props {
   serverBaseUrl: string | null;
   onServerBaseUrl: (serverBaseUrl: string | null) => void;
   sync?: SyncState; // writer-owned manual sync, when the control surface is available
+  config?: ConfigState; // writer-owned producer config, when the capability is enabled
 }
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
@@ -71,6 +74,7 @@ export function SettingsPage({
   serverBaseUrl,
   onServerBaseUrl,
   sync,
+  config,
 }: Props) {
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
@@ -136,6 +140,8 @@ export function SettingsPage({
       </div>
 
       {sync?.available ? <SyncControls sync={sync} /> : null}
+
+      {config?.available ? <SourcesEditor config={config} sync={sync} /> : null}
 
       {[...bySource.entries()].map(([sourceId, list]) => {
         const meta = sourceMeta.get(sourceId);

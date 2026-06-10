@@ -77,6 +77,18 @@ import {
   type ResolvedEdge,
   type GraphNode,
   type SyncRunStatus,
+  configProjectPath,
+  configWithProject,
+  configWithSource,
+  configWithSourcePatch,
+  configWithoutProject,
+  configWithoutSource,
+  sourcesNeedingSync,
+  suggestSourceDefaults,
+  NEW_CONFIG_DB_PATH,
+  type ConfigDocument,
+  type ConfigProjectEntry,
+  type ConfigSourceDoc,
 } from "../src/model.ts";
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
@@ -1350,4 +1362,90 @@ test("buildActivityTrend buckets days in the configured timezone", () => {
 
   assert.deepEqual(utc.points.map((point) => point.count), [1, 0]);
   assert.deepEqual(tpe.points.map((point) => point.count), [0, 1]);
+});
+
+// --- config control plane helpers (Settings -> Sources editor) ---
+
+test("suggestSourceDefaults: canonical hosts get conventional names, self-hosted get derived ones", () => {
+  assert.deepEqual(suggestSourceDefaults("github", "github.com"), {
+    source_id: "github:github.com",
+    kind: "github",
+    host: "github.com",
+    token_env: "GITHUB_TOKEN",
+    graphql_url: "https://api.github.com/graphql",
+    rest_url: "https://api.github.com",
+  });
+  assert.deepEqual(suggestSourceDefaults("gitlab", "https://gitlab.example.com/group"), {
+    source_id: "gitlab:gitlab.example.com",
+    kind: "gitlab",
+    host: "gitlab.example.com",
+    token_env: "GITLAB_TOKEN_GITLAB_EXAMPLE_COM",
+    graphql_url: "https://gitlab.example.com/api/graphql",
+    rest_url: "https://gitlab.example.com/api/v4",
+  });
+  assert.equal(suggestSourceDefaults("github", "GHE.Corp.example").token_env, "GITHUB_TOKEN_GHE_CORP_EXAMPLE");
+  assert.equal(suggestSourceDefaults("gitlab", "gitlab.com").token_env, "GITLAB_TOKEN");
+});
+
+test("config draft mutations are immutable and leave unknown fields untouched", () => {
+  const src = (id: string, projects: ConfigProjectEntry[] = ["a/b"]): ConfigSourceDoc => ({
+    source_id: id,
+    kind: "github",
+    host: "github.com",
+    token_env: "T",
+    graphql_url: "https://api.github.com/graphql",
+    projects,
+  });
+  const doc: ConfigDocument = {
+    db_path: "data/x.db",
+    sources: [src("github:github.com")],
+    identities: [{ name: "Terry" }],
+    exclude_actors: ["renovate*"],
+  };
+
+  // add a source; duplicates are a no-op
+  const added = configWithSource(doc, src("gitlab:gitlab.com"));
+  assert.equal(added.sources.length, 2);
+  assert.equal(configWithSource(added, src("gitlab:gitlab.com")).sources.length, 2);
+  assert.deepEqual(added.identities, [{ name: "Terry" }], "fields the editor does not own ride along");
+  assert.equal(doc.sources.length, 1, "the input document is untouched");
+
+  // creating from null seeds the standalone db_path
+  const created = configWithSource(null, src("github:github.com"));
+  assert.equal(created.db_path, NEW_CONFIG_DB_PATH);
+
+  // remove a source
+  assert.deepEqual(configWithoutSource(added, "gitlab:gitlab.com").sources.map((s) => s.source_id), ["github:github.com"]);
+
+  // patch display fields
+  const patched = configWithSourcePatch(doc, "github:github.com", { display_name: "GH" });
+  assert.equal(patched.sources[0]!.display_name, "GH");
+  assert.equal(doc.sources[0]!.display_name, undefined);
+
+  // projects: add trims and dedups (against both string and object entries), remove matches by path
+  const withObj = { ...doc, sources: [src("github:github.com", ["a/b", { path: "c/d", color: "#abc" }])] };
+  assert.equal(configWithProject(withObj, "github:github.com", "  c/d  ").sources[0]!.projects.length, 2, "dedup against object form");
+  const grown = configWithProject(withObj, "github:github.com", "e/f");
+  assert.deepEqual(grown.sources[0]!.projects.map(configProjectPath), ["a/b", "c/d", "e/f"]);
+  assert.equal(configWithProject(withObj, "github:github.com", "   ").sources[0]!.projects.length, 2, "blank input is a no-op");
+  assert.deepEqual(configWithoutProject(grown, "github:github.com", "c/d").sources[0]!.projects.map(configProjectPath), ["a/b", "e/f"]);
+});
+
+test("sourcesNeedingSync flags new sources and grown project sets only", () => {
+  const src = (id: string, projects: string[]): ConfigSourceDoc => ({
+    source_id: id,
+    kind: "github",
+    host: "github.com",
+    token_env: "T",
+    graphql_url: "https://api.github.com/graphql",
+    projects,
+  });
+  const prev: ConfigDocument = { db_path: "x", sources: [src("a", ["p/q"]), src("b", ["r/s"])] };
+
+  assert.deepEqual(sourcesNeedingSync(prev, prev), [], "unchanged config needs nothing");
+  assert.deepEqual(sourcesNeedingSync(null, prev), ["a", "b"], "everything is new against no config");
+  assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", ["p/q", "new/repo"]), src("b", ["r/s"])] }), ["a"]);
+  assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", ["p/q"]), src("b", ["r/s"]), src("c", ["t/u"])] }), ["c"]);
+  assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", [])] }), [], "removals alone need no sync");
+  assert.deepEqual(sourcesNeedingSync(prev, null), []);
 });

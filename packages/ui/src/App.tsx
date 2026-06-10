@@ -47,6 +47,7 @@ import {
   normalizeServerBaseUrl,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
+import { useConfig } from "./useConfig.ts";
 import { isRefreshShortcut } from "./shortcuts.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls } from "./components/Controls.tsx";
@@ -152,6 +153,7 @@ export function App() {
     }
   }, [needsRangeEnv, activeRange, serverBaseUrl]);
   const sync = useSync(reloadData, serverBaseUrl);
+  const configState = useConfig(serverBaseUrl);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -614,6 +616,7 @@ export function App() {
           serverBaseUrl={serverBaseUrl}
           onServerBaseUrl={applyServerBaseUrl}
           sync={sync}
+          config={configState}
         />
       ) : page === "activity" ? (
         <ActivityPage

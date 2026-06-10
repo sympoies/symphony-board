@@ -1255,3 +1255,29 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* a hidden source: dim its head + repo list (the rows stay interactive) */
 .settings-source-off .settings-source-head { opacity: .55; }
 .settings-source-off .settings-repos { opacity: .5; }
+
+/* Settings -> Sources editor (writer-owned producer config) */
+.settings-config { flex-direction: column; align-items: stretch; }
+.settings-config > div:first-child p { max-width: none; }
+.config-empty { display: flex; align-items: center; gap: 12px; }
+.config-source { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.config-source + .config-source { margin-top: 8px; }
+.config-source-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.config-source-head .config-display-name { margin-left: auto; max-width: 180px; }
+.config-input {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 12px;
+}
+.config-token { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.config-token-input { flex: 1 1 180px; max-width: 280px; }
+.config-projects { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.config-projects li { display: flex; align-items: center; gap: 8px; }
+.config-add-project { margin-top: 4px; }
+.config-add-project .config-input { flex: 1 1 220px; max-width: 320px; }
+.config-add-source { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.config-add-source .config-input { flex: 0 1 200px; }
+.config-save { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.config-save-button { font-weight: 600; }
+.config-error { color: var(--warn); font-size: 12px; }
+.config-error-list { color: var(--warn); font-size: 12px; margin: 8px 0 0; padding-left: 18px; }
+.config-sync-offer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
