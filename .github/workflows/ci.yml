@@ -49,6 +49,18 @@ jobs:
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
 
+  # Shell-lint every helper under scripts/. They run unbuilt (no Node, no build
+  # step), so shellcheck is the only static gate they get; ubuntu-latest ships
+  # it preinstalled.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          find scripts -name '*.sh' -type f -print0 | xargs -0 shellcheck
+
   # Coverage gate (mirrors nils-cli's `--fail-under-lines`). Combined LINE
   # coverage across the backend (`src/**/*.ts`, incl. the untested CLI/glue,
   # counted honestly) and the UI `.ts` view-model. The `.tsx` component layer is
