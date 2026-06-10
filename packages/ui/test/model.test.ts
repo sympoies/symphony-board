@@ -75,6 +75,7 @@ import {
   graphWindowEdgesInRange,
   isSyncRunActive,
   syncProducedFreshData,
+  liveSourceStatus,
   syncRunSummary,
   type ResolvedEdge,
   type GraphNode,
@@ -1235,8 +1236,22 @@ test("syncRunSummary labels background runs and ticks elapsed time while running
   assert.match(syncRunSummary(syncRun({ trigger: "scheduled" }), now), /^Synced /);
 });
 
-test("syncRunSummary shows per-source progress while running", () => {
+test("syncRunSummary stays one short line while running — chips carry per-source state", () => {
   const now = Date.parse("2026-06-08T19:00:10Z");
+  const done = { items: 1, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0, error: null };
+  const running = syncRun({
+    status: "running",
+    finished_at: null,
+    totals: null,
+    sources: [{ source_id: "github:main", status: "ok", ...done }],
+    active_source_id: "gitlab:main",
+  });
+  // Per-source progress lives on the source chips (liveSourceStatus), not in
+  // the status text — a three-source run must not wrap the header line.
+  assert.equal(syncRunSummary(running, now), "Syncing… incremental · 10s");
+});
+
+test("liveSourceStatus overlays the active run's per-source state onto a chip", () => {
   const done = { items: 1, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0, error: null };
   const running = syncRun({
     status: "running",
@@ -1245,27 +1260,19 @@ test("syncRunSummary shows per-source progress while running", () => {
     sources: [
       { source_id: "github:main", status: "ok", ...done },
       { source_id: "gitlab:old", status: "skipped", ...done },
+      { source_id: "gitlab:broken", status: "error", ...done, error: "boom" },
     ],
     active_source_id: "gitlab:main",
   });
-  const summary = syncRunSummary(running, now);
-  assert.match(summary, /Syncing… incremental · github:main ✓ · gitlab:main…/);
-  assert.ok(!summary.includes("gitlab:old"), "a skipped source is not progress worth narrating");
-  // No reports yet (or a deployment predating active_source_id): no progress
-  // segment, just the elapsed tick.
-  assert.equal(syncRunSummary(syncRun({ status: "running", finished_at: null, totals: null }), now), "Syncing… incremental · 10s");
-  // A failed source is visible while later sources still run.
-  const failing = syncRunSummary(
-    syncRun({
-      status: "running",
-      finished_at: null,
-      totals: null,
-      sources: [{ source_id: "github:main", status: "error", ...done, error: "boom" }],
-      active_source_id: "gitlab:main",
-    }),
-    now,
-  );
-  assert.match(failing, /github:main ✗ · gitlab:main…/);
+  assert.equal(liveSourceStatus(running, "gitlab:main"), "syncing", "the in-flight source reads syncing");
+  assert.equal(liveSourceStatus(running, "github:main"), "ok", "a source this run finished shows its fresh outcome");
+  assert.equal(liveSourceStatus(running, "gitlab:broken"), "error", "a mid-run failure is visible immediately");
+  assert.equal(liveSourceStatus(running, "gitlab:old"), "skipped");
+  assert.equal(liveSourceStatus(running, "gitlab:pending"), null, "a source the run has not reached keeps its contract status");
+  // No active run: the overlay never applies (a finished run's freshness comes
+  // from the reloaded contract instead).
+  assert.equal(liveSourceStatus(syncRun({ status: "ok" }), "github:main"), null);
+  assert.equal(liveSourceStatus(null, "github:main"), null);
 });
 
 test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid", () => {

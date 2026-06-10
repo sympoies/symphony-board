@@ -461,7 +461,7 @@ sources. A run status carries `run_id`, `trigger` (`manual`/`scheduled`),
 (items/edges/activities/soft-deleted). While the run is in flight the per-source
 rows fill incrementally as each source finishes and `active_source_id` names the
 source currently being fetched (null once the run ends), so a polling UI can
-narrate per-source progress instead of a static "running". The default UI action
+show per-source progress instead of a static "running". The default UI action
 is an incremental sync of all sources; full sweep, dry-run, and source-scoped
 runs are advanced options.
 
@@ -493,7 +493,12 @@ while preserving the current route, search, filters, time range, and display
 preferences. A dry-run or failed run is shown distinctly and never reloads the
 data view as if it were fresh. A `409 run_active` reply to a manual start is
 adopted, not surfaced as an error: the UI tracks the in-flight run it lost the
-race to.
+race to. Per-source progress is shown on the header source chips, not in the
+status text: while a run executes, each chip's badge overlays that run's live
+state for its source — `syncing…` for the in-flight source, the fresh outcome
+for an already-finished one — and reverts to the contract's `last_status` when
+the run ends (the reloaded contract then carries the freshness). The status
+line itself stays one short line (trigger, mode, scope, elapsed).
 
 ## Writer-Owned Config Control Plane
 
