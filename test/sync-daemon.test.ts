@@ -15,7 +15,7 @@ import {
   type SourceOption,
   type SyncRequest,
 } from "../src/cli/sync-daemon.ts";
-import type { SyncRunResult } from "../src/sync-runner.ts";
+import type { SourceRunResult, SyncProgressReporter, SyncRunResult } from "../src/sync-runner.ts";
 import { log } from "../src/log.ts";
 
 const NO_TOTALS = { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
@@ -89,6 +89,34 @@ test("the controller rejects a second run while one is active and serializes the
   assert.equal(third.status.run_id, "run-2");
   gate.resolve(okResult());
   await third.done;
+});
+
+test("mid-run progress fills the active run's sources and active source", async () => {
+  const gate = deferred<SyncRunResult>();
+  let report!: SyncProgressReporter;
+  const controller = new SyncController({
+    run: (_req, onProgress) => {
+      report = onProgress;
+      return gate.promise;
+    },
+  });
+  const outcome = controller.start({ mode: "incremental", dryRun: false, sourceId: null }, "manual");
+  assert.equal(outcome.accepted, true);
+  assert.equal(outcome.status.active_source_id, null, "no source is active before the runner reports one");
+
+  report({ sources: [], active_source_id: "fake:a" });
+  assert.equal(controller.current()?.active_source_id, "fake:a");
+
+  const aDone: SourceRunResult = {
+    source_id: "fake:a", status: "ok", items: 1, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0, error: null,
+  };
+  report({ sources: [aDone], active_source_id: "fake:b" });
+  assert.deepEqual(controller.current()?.sources.map((s) => s.source_id), ["fake:a"]);
+  assert.equal(controller.current()?.active_source_id, "fake:b");
+
+  gate.resolve(okResult());
+  await outcome.done;
+  assert.equal(controller.lastRun()?.active_source_id, null, "a finished run claims no active source");
 });
 
 test("a scheduled tick skips (does not queue) while a manual run is active", async () => {

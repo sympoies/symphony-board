@@ -458,9 +458,12 @@ source_id?: string|null}`. Defaults are incremental, write, all configured
 sources. A run status carries `run_id`, `trigger` (`manual`/`scheduled`),
 `mode`, `dry_run`, `source_scope`, `status` (`running`/`ok`/`partial`/`error`),
 `started_at`, `finished_at`, `emitted`, per-source rows, and totals
-(items/edges/activities/soft-deleted). The default UI action is an incremental
-sync of all sources; full sweep, dry-run, and source-scoped runs are advanced
-options.
+(items/edges/activities/soft-deleted). While the run is in flight the per-source
+rows fill incrementally as each source finishes and `active_source_id` names the
+source currently being fetched (null once the run ends), so a polling UI can
+narrate per-source progress instead of a static "running". The default UI action
+is an incremental sync of all sources; full sweep, dry-run, and source-scoped
+runs are advanced options.
 
 **Re-entrancy.** A second manual request while a run is active is rejected with
 the active run (HTTP 409); the daemon never queues unbounded runs.

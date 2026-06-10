@@ -62,6 +62,17 @@ export interface PreparedSource {
   source: Source;
 }
 
+// Mid-run progress for a live run status (the daemon's RunStatus): the
+// per-source results so far (skipped + finished, in run order) and the source
+// currently being fetched. Reported before each source starts and after it
+// finishes; `sources` is a snapshot, safe to hold across later reports.
+export interface SyncRunProgress {
+  sources: SourceRunResult[];
+  active_source_id: string | null;
+}
+
+export type SyncProgressReporter = (progress: SyncRunProgress) => void;
+
 // Worst-of reduction over the per-source statuses (a skipped source does not
 // count as a failure): error > partial > ok.
 function overallStatus(sources: SourceRunResult[]): "ok" | "partial" | "error" {
@@ -86,6 +97,7 @@ export async function executeSyncRun(
   skipped: string[],
   opts: SyncRunOptions,
   emit?: () => void,
+  onProgress?: SyncProgressReporter,
 ): Promise<SyncRunResult> {
   const full = opts.mode === "full";
   const results: SourceRunResult[] = skipped.map((id) => ({
@@ -105,6 +117,7 @@ export async function executeSyncRun(
     // the logs shows which source is currently syncing — the prior line, if it has
     // no matching result, is where a stall is happening.
     log.info(`[${config.source_id}] syncing…`);
+    onProgress?.({ sources: [...results], active_source_id: config.source_id });
     const rep = await syncSource(db, source, prev, { full, dryRun: opts.dryRun });
     log.info(
       `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
@@ -120,6 +133,7 @@ export async function executeSyncRun(
       soft_deleted_edges: rep.softDeletedEdges,
       error: rep.error,
     });
+    onProgress?.({ sources: [...results], active_source_id: null });
   }
 
   const status = overallStatus(results);
@@ -155,6 +169,8 @@ export interface RunConfiguredSyncDeps {
   openDb?: typeof defaultOpenDb;
   buildSource?: typeof defaultBuildSource;
   now?: () => string;
+  // Mid-run progress hook for a live run status; see SyncRunProgress.
+  onProgress?: SyncProgressReporter;
 }
 
 // CLI/daemon entry: resolve tokens, build the configured sources, open the DB,
@@ -195,7 +211,7 @@ export async function runConfiguredSync(
           );
         }
       : undefined;
-    return await executeSyncRun(db, prepared, skipped, opts, emit);
+    return await executeSyncRun(db, prepared, skipped, opts, emit, deps.onProgress);
   } finally {
     db.close();
   }

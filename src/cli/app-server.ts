@@ -161,9 +161,9 @@ function main(): void {
   const host = process.env.HOST ?? "127.0.0.1";
 
   const controller = new SyncController({
-    run: (req) => {
+    run: (req, onProgress) => {
       const { cfg } = loadConfig(configPath);
-      return runConfiguredSync(cfg, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, opts.contractOut);
+      return runConfiguredSync(cfg, { mode: req.mode, dryRun: req.dryRun, sourceId: req.sourceId }, opts.contractOut, { onProgress });
     },
   });
 
