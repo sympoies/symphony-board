@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type Ref } from "react";
+import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import {
   buildActivityHeatmap,
@@ -6,6 +6,7 @@ import {
   sourceDisplayName,
   type ActivityTrend,
   type ActivityTrendBucket,
+  type ActivityTrendPoint,
   type HeatmapCell,
   type TimeRange,
 } from "../model.ts";
@@ -19,6 +20,16 @@ const TREND_PAD_Y = 16;
 
 const cellTip = (cell: HeatmapCell) =>
   `${cell.date} · ${cell.count.toLocaleString()} ${cell.count === 1 ? "event" : "events"}`;
+
+// The trend line plots the smoothed average while dots plot raw counts, so the
+// tooltip carries both — otherwise a hovered value looks "off the line".
+const formatAverage = (value: number) => {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? rounded.toLocaleString() : rounded.toFixed(1);
+};
+
+const pointTip = (point: ActivityTrendPoint) =>
+  `${point.label} · ${point.count.toLocaleString()} ${point.count === 1 ? "event" : "events"} · avg ${formatAverage(point.average)}`;
 
 function formatKind(kind: string): string {
   return kind.replace(/_/g, " ");
@@ -65,10 +76,13 @@ function rangeLabel(from: string, to: string): string {
 
 function ActivityTrendChart({
   trend,
+  onTip,
 }: {
   trend: ActivityTrend;
+  onTip: (tip: { label: string; x: number; y: number } | null) => void;
 }) {
   const { points, bucket, total, maxCount, maxAverage, from, to } = trend;
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
   const maxY = Math.max(1, maxCount, maxAverage);
   const linePoints = points.map((point, index) => trendCoord(index, points.length, maxY, point.average));
   const rawPoints = points.map((point, index) => trendCoord(index, points.length, maxY, point.count));
@@ -78,6 +92,25 @@ function ActivityTrendChart({
   const selectedRange = rangeLabel(from, to);
   const axisStart = points[0]?.label ?? from;
   const axisEnd = points.at(-1)?.label ?? to;
+  // Full-height invisible hit bands, one per bucket with boundaries at the
+  // midpoints between neighbors: every bucket is hoverable — including
+  // zero-count and dot-decimated ones — without aiming at a 2px dot.
+  const hitBands = rawPoints.map((point, index) => {
+    const left = index === 0 ? 0 : (rawPoints[index - 1]!.x + point.x) / 2;
+    const right = index === rawPoints.length - 1 ? TREND_W : (point.x + rawPoints[index + 1]!.x) / 2;
+    return { x: left, width: right - left };
+  });
+  const focusPoint = focusIndex !== null ? (rawPoints[focusIndex] ?? null) : null;
+
+  const focusAt = (index: number, event: ReactMouseEvent) => {
+    setFocusIndex(index);
+    const point = points[index];
+    if (point) onTip({ label: pointTip(point), x: event.clientX, y: event.clientY });
+  };
+  const clearFocus = () => {
+    setFocusIndex(null);
+    onTip(null);
+  };
 
   return (
     <section className="hm-trend" aria-label="Selected range activity trend" data-bucket={bucket}>
@@ -88,10 +121,15 @@ function ActivityTrendChart({
         </span>
         <b>{total.toLocaleString()} events</b>
       </div>
-      <svg className="hm-trend-chart" viewBox={`0 0 ${TREND_W} ${TREND_H}`} role="img">
-        <title>
-          Activity trend by {byLabel} from {from} to {to}
-        </title>
+      {/* aria-label, not <title>: a <title> child doubles as a native hover
+          tooltip and fights the custom hm-tip. */}
+      <svg
+        className="hm-trend-chart"
+        viewBox={`0 0 ${TREND_W} ${TREND_H}`}
+        role="img"
+        aria-label={`Activity trend by ${byLabel} from ${from} to ${to}`}
+        onMouseLeave={clearFocus}
+      >
         {[0.25, 0.5, 0.75].map((n) => (
           <line
             key={n}
@@ -108,6 +146,31 @@ function ActivityTrendChart({
           ) : null,
         )}
         <path className="hm-trend-line" d={path} />
+        {focusPoint ? (
+          <g className="hm-trend-focus" aria-hidden="true">
+            <line
+              className="hm-trend-cursor"
+              x1={focusPoint.x}
+              x2={focusPoint.x}
+              y1={TREND_PAD_Y}
+              y2={TREND_H - TREND_PAD_Y}
+            />
+            <circle className="hm-trend-halo" cx={focusPoint.x} cy={focusPoint.y} r="9" />
+            <circle className="hm-trend-dot-focus" cx={focusPoint.x} cy={focusPoint.y} r="4.4" />
+          </g>
+        ) : null}
+        {hitBands.map((band, index) => (
+          <rect
+            key={points[index]!.date}
+            className="hm-trend-hit"
+            x={band.x}
+            y={0}
+            width={band.width}
+            height={TREND_H}
+            onMouseEnter={(event) => focusAt(index, event)}
+            onMouseMove={(event) => focusAt(index, event)}
+          />
+        ))}
       </svg>
       <div className="hm-trend-axis" aria-hidden="true">
         <span>{axisStart}</span>
@@ -290,7 +353,7 @@ export function ActivityHeatmap({
         </div>
       </div>
 
-      <ActivityTrendChart trend={trend} />
+      <ActivityTrendChart trend={trend} onTip={setTip} />
       <ActivityRangeSummary trend={trend} />
 
       {tip ? (

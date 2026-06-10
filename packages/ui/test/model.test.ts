@@ -1418,6 +1418,24 @@ test("buildActivityTrend rolls longer ranges up to weekly buckets", () => {
   );
 });
 
+test("buildActivityTrend keeps weekly buckets for the 6mo and 1y presets", () => {
+  // 180-day and 365-day inclusive spans, exactly what the rolling presets
+  // produce: one point per week, not per month.
+  const sixMonths = buildActivityTrend(
+    [activity({ id: "p1", occurred_at: "2026-03-02T12:00:00Z" })],
+    { from: "2025-12-14", to: "2026-06-11" },
+  );
+  assert.equal(sixMonths.bucket, "week");
+  assert.equal(sixMonths.points.length, 26);
+
+  const oneYear = buildActivityTrend(
+    [activity({ id: "p2", occurred_at: "2026-03-02T12:00:00Z" })],
+    { from: "2025-06-12", to: "2026-06-11" },
+  );
+  assert.equal(oneYear.bucket, "week");
+  assert.equal(oneYear.points.length, 53);
+});
+
 test("buildActivityTrend buckets days in the configured timezone", () => {
   const activities = [activity({ id: "late", occurred_at: "2026-06-08T18:00:00Z" })];
 

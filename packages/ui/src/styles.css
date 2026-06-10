@@ -451,28 +451,29 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* activity page */
 .activity-page { margin: 12px 0; }
 .commits-page { margin: 12px 0; max-width: 1180px; }
-.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 960px; }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 880px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 
-/* The feed keeps a ≤960px reading column while the rhythm panel uses the spare
-   right rail for a full-width heatmap plus range trend. Below ~1640px the panel
-   wraps so the feed remains readable instead of crushing the chart. */
+/* The feed keeps a ≤880px reading column while the rhythm panel uses the spare
+   right rail for a full-width heatmap plus range trend. Below ~1530px the panel
+   wraps so the feed remains readable instead of crushing the chart; above it the
+   feed column flexes first, so the panel keeps its full chart width. */
 .activity-layout {
   display: grid;
-  grid-template-columns: minmax(0, 960px) minmax(560px, 680px);
+  grid-template-columns: minmax(0, 880px) minmax(560px, 680px);
   justify-content: start;
   align-items: start;
   gap: 20px;
 }
 .activity-layout > .activity-list { min-width: 0; }
-@media (min-width: 1641px) {
+@media (min-width: 1531px) {
   .activity-layout { align-items: stretch; }
   .activity-layout > .activity-list {
     min-height: var(--activity-rhythm-height, 0px);
   }
 }
-@media (max-width: 1640px) {
-  .activity-layout { grid-template-columns: minmax(0, 960px); }
+@media (max-width: 1530px) {
+  .activity-layout { grid-template-columns: minmax(0, 880px); }
 }
 
 /* --- Activity heatmap (trailing 12 months) --- */
@@ -636,6 +637,33 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+/* Hover affordances: invisible full-height hit bands drive a crosshair plus an
+   enlarged focus dot, so tiny (or decimated / zero-count) dots stay reachable. */
+.hm-trend-hit {
+  fill: transparent;
+}
+.hm-trend-cursor {
+  stroke: color-mix(in srgb, var(--line) 55%, var(--muted));
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.hm-trend-halo {
+  fill: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.hm-trend-dot-focus {
+  fill: color-mix(in srgb, var(--open) 55%, var(--accent));
+  stroke: var(--panel-2);
+  stroke-width: 1.5;
+}
+.hm-trend-halo,
+.hm-trend-dot-focus {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hm-trend-focus-pop .16s ease-out;
+}
+@keyframes hm-trend-focus-pop {
+  from { transform: scale(.45); }
 }
 .hm-trend-axis {
   display: flex;
