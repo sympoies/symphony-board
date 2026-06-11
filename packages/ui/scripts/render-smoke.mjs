@@ -1040,6 +1040,11 @@ try {
     // canvas nodes carry the chain-link count too — the FULL relation count
     // (what focusing reveals), not the windowed drawn-edge degree.
     [graphNodeRelationCounts >= 1, `graph: canvas nodes render the relation count (${graphNodeRelationCounts} >= 1)`],
+    // focusing suspends the time-range controls (the range is not a condition in
+    // focus view); leaving focus re-enables them. The selection itself is kept —
+    // only the styling/interactivity flips.
+    [has(deepLinkHtml, "range-suspended"), "graph: focus suspends the time-range controls (range-suspended)"],
+    [!has(backHtml, "range-suspended"), "graph: leaving focus re-enables the time-range controls"],
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [sameRangeButtons(activityRangeButtons), `activity: shared range quick presets rendered without all (${activityRangeButtons.join(", ")})`],

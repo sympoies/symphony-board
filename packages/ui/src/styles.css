@@ -210,6 +210,17 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .range-error {
   color: var(--broken);
 }
+/* Range controls while the graph focus view is active: the selection is KEPT
+   (the active preset stays visibly chosen) but the whole group dims and the
+   active pill loses its accent fill — the "remembered but not in effect"
+   state. Buttons/inputs are disabled in the markup; this is the visual half. */
+.time-range-controls.range-suspended { opacity: 0.55; }
+.time-range-controls.range-suspended .toggle { cursor: not-allowed; }
+.time-range-controls.range-suspended .toggle:hover { border-color: var(--line); }
+.time-range-controls.range-suspended .toggle-on {
+  background: var(--panel-2); color: var(--muted); border-color: var(--muted);
+}
+.time-range-controls.range-suspended .date-filter input { cursor: not-allowed; }
 
 /* stats */
 .stats { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 0; }
