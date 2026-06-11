@@ -181,6 +181,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .toggle-group { display: inline-flex; gap: 4px; align-items: center; }
 .toggle-label { color: var(--muted); margin-right: 2px; }
+.toggle-separator { width: 1px; height: 16px; background: var(--line); margin: 0 3px; flex: none; }
 .toggle {
   background: var(--panel); border: 1px solid var(--line); color: var(--muted);
   border-radius: 999px; padding: 3px 10px; cursor: pointer; font: inherit;
