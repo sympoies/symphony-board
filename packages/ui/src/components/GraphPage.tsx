@@ -111,6 +111,39 @@ function DemandIcon() {
   );
 }
 
+// Chain-link relation-count marker — the same glyph as the board / side-list
+// cards, sized in `em` like DemandIcon so it scales with the node font.
+function LinkIcon() {
+  return (
+    <svg
+      className="icon-related"
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+// Tooltip for a node's relation count: the per-type breakdown, plus an explicit
+// callout when the CURRENT view draws fewer neighbours than the item has (the
+// overview is time-windowed and mention-filtered; the count is not) — the cue
+// that focusing the node reveals more than the visible lines suggest.
+function relatedTitle(d: GraphNode): string {
+  const rel = d.related!;
+  const parts = rel.byType.map((t) => `${t.type} ${t.count}`).join(" · ");
+  const drawn = d.relatedDrawn ?? 0;
+  return drawn < rel.total ? `${parts} — ${drawn} of ${rel.total} drawn in this view (time window / mention filters); focus the node to see all` : parts;
+}
+
 function ItemNode({ data }: NodeProps) {
   const d = data as unknown as GraphNode;
   const { scale } = dims(d.demand);
@@ -149,13 +182,18 @@ function ItemNode({ data }: NodeProps) {
         {d.repo ?? "untracked"}
         {d.iid != null ? ` #${d.iid}` : ""}
       </div>
-      {!d.untracked && (d.created_at || d.updated_at || d.demand != null) && (
+      {!d.untracked && (d.created_at || d.updated_at || d.demand != null || (d.related && d.related.total > 0)) && (
         <div className="rf-node-meta muted">
           {d.updated_at ? <span title={d.updated_at}>updated {relativeTime(d.updated_at)}</span> : null}
           {d.created_at ? <span title={d.created_at}>created {relativeTime(d.created_at)}</span> : null}
           {d.demand != null ? (
             <span className="rf-demand" title="comments + reactions">
               <DemandIcon /> {d.demand}
+            </span>
+          ) : null}
+          {d.related && d.related.total > 0 ? (
+            <span className="rf-related" title={relatedTitle(d)}>
+              <LinkIcon /> {d.related.total}
             </span>
           ) : null}
         </div>
@@ -707,21 +745,41 @@ export function GraphPage({
     return layoutForce(view.nodes, view.links, dimOf, inFocus ? "focus" : "overview");
   }, [view, layout, dimOf, inFocus]);
 
+  // Distinct neighbours per node IN THE CURRENT VIEW's links — compared against
+  // the full relation count to tell the tooltip when the windowed/mention-filtered
+  // overview draws fewer lines than the item actually has.
+  const drawnNeighbours = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => {
+      const s = m.get(a);
+      if (s) s.add(b);
+      else m.set(a, new Set([b]));
+    };
+    for (const l of view.links) {
+      add(l.source, l.target);
+      add(l.target, l.source);
+    }
+    return m;
+  }, [view]);
+
   const rfNodes: Node[] = useMemo(
     () =>
       view.nodes.map((n) => {
         const { w, h } = dimOf(n.id);
         const it = itemsByRef.get(n.id);
         const accentColor = it ? colorOf(it.source_id, it.project_path) : null;
+        // The chain-link count comes from the FULL adjacency (same number as the
+        // board / side-list chip — what focusing reveals), not the drawn degree.
+        const related = relationCountOf(adjacency.get(n.id) ?? []);
         return {
           id: n.id,
           type: "item",
           position: positions.get(n.id) ?? { x: 0, y: 0 },
           style: { width: w, height: h },
-          data: { ...n, accentColor } as unknown as Record<string, unknown>,
+          data: { ...n, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0 } as unknown as Record<string, unknown>,
         };
       }),
-    [view, positions, dimOf, itemsByRef, colorOf],
+    [view, positions, dimOf, itemsByRef, colorOf, adjacency, drawnNeighbours],
   );
 
   const rfEdges: Edge[] = useMemo(

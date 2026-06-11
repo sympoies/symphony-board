@@ -979,6 +979,7 @@ try {
   const boardRelationCounts = m(board2Html, /class="muted related"/g);
   const graphListRelationCounts = m(graphListHtml, /class="muted related"/g);
   const graphListGraphLinks = m(graphListHtml, /class="card-graph"/g);
+  const graphNodeRelationCounts = m(graphHtml, /class="rf-related"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
   const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
@@ -1036,6 +1037,9 @@ try {
     // (the card body IS the focus target on this page).
     [graphListRelationCounts >= 1, `graph: side-list cards render the relation count (${graphListRelationCounts} >= 1)`],
     [graphListGraphLinks === 0, `graph: side-list cards do not render the focus-in-graph link (${graphListGraphLinks} === 0)`],
+    // canvas nodes carry the chain-link count too — the FULL relation count
+    // (what focusing reveals), not the windowed drawn-edge degree.
+    [graphNodeRelationCounts >= 1, `graph: canvas nodes render the relation count (${graphNodeRelationCounts} >= 1)`],
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [sameRangeButtons(activityRangeButtons), `activity: shared range quick presets rendered without all (${activityRangeButtons.join(", ")})`],
