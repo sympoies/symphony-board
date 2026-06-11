@@ -57,6 +57,7 @@ function Column({
             sourceKind={sourceKind.get(it.source_id)}
             accentColor={colorOf(it.source_id, it.project_path)}
             related={relationCounts.get(it.id) ?? null}
+            graphLink
           />
         ))}
         {hidden > 0 && <div className="col-more muted">+{hidden} more</div>}

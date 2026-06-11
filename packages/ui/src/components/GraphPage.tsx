@@ -27,7 +27,7 @@ import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contr
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdgesInRange, relatedItems, compareGraphNodes, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type ColorOf, type TimeRange } from "../model.ts";
+import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdgesInRange, relatedItems, relationCountOf, compareGraphNodes, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -384,6 +384,7 @@ function GraphListCard({
   sourceKind,
   accentColor,
   relation,
+  related,
   active,
   onActivate,
 }: {
@@ -392,6 +393,10 @@ function GraphListCard({
   sourceKind?: string;
   accentColor?: string | null;
   relation?: { type: string; direction: "out" | "in" | "both"; offWindow: boolean };
+  // The item's OWN relation count (chain-link chip in the card meta row), same
+  // chip as the board. Distinct from `relation`, which describes this card's
+  // relationship TO THE FOCUSED item in the focus view.
+  related?: RelationCount | null;
   active?: boolean;
   // Generic click/keyboard activation handler (this card is a role="button").
   // The parent decides what activation means per card: a normal card focuses ITS
@@ -429,7 +434,9 @@ function GraphListCard({
         </div>
       )}
       {item ? (
-        <ItemCard item={item} sourceKind={sourceKind} accentColor={accentColor} />
+        // No graphLink: this card already lives on the graph, and its body click
+        // IS the focus action. The relation-count chip still renders.
+        <ItemCard item={item} sourceKind={sourceKind} accentColor={accentColor} related={related} />
       ) : (
         <article className="card card-untracked">
           <div className="card-head">
@@ -495,6 +502,9 @@ function GraphSideList({
     const it = itemsByRef.get(ref);
     return it ? colorOf(it.source_id, it.project_path) : null;
   };
+  // The card's own chain-link relation count, from the SAME adjacency the focus
+  // view lists — so the chip always matches what focusing the card would show.
+  const countOf = (ref: string): RelationCount | null => relationCountOf(adjacency.get(ref) ?? []);
 
   if (focusId !== null) {
     // Collapse the per-direction adjacency entries to one card per (ref, type)
@@ -511,7 +521,7 @@ function GraphSideList({
         <div className="graph-list-scroll">
           {/* Re-clicking the focused item clears focus (toggle off) — same exit as
               "← all items", so the card the user just clicked is also the way back. */}
-          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} active onActivate={onBack} />
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} related={countOf(focusId)} active onActivate={onBack} />
           {!windowedIds.has(focusId) && (
             <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
           )}
@@ -529,6 +539,7 @@ function GraphSideList({
                 sourceKind={kindOf(r.ref)}
                 accentColor={colorFor(r.ref)}
                 relation={{ type: r.type, direction: r.direction, offWindow: !windowedIds.has(r.ref) }}
+                related={countOf(r.ref)}
                 onActivate={() => onFocus(r.ref)}
               />
             ))
@@ -572,7 +583,7 @@ function GraphSideList({
           <p className="muted empty-list">no items match</p>
         ) : (
           filtered.map((n) => (
-            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} onActivate={() => onFocus(n.id)} />
+            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} related={countOf(n.id)} onActivate={() => onFocus(n.id)} />
           ))
         )}
       </div>

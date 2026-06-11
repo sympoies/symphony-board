@@ -977,6 +977,8 @@ try {
   const repoRows = m(repoHtml, /class="repo-name-main/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
   const boardRelationCounts = m(board2Html, /class="muted related"/g);
+  const graphListRelationCounts = m(graphListHtml, /class="muted related"/g);
+  const graphListGraphLinks = m(graphListHtml, /class="card-graph"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
   const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
@@ -1030,6 +1032,10 @@ try {
     [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
+    // ...and the chain-link relation count, but NOT the focus-in-graph head link
+    // (the card body IS the focus target on this page).
+    [graphListRelationCounts >= 1, `graph: side-list cards render the relation count (${graphListRelationCounts} >= 1)`],
+    [graphListGraphLinks === 0, `graph: side-list cards do not render the focus-in-graph link (${graphListGraphLinks} === 0)`],
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [sameRangeButtons(activityRangeButtons), `activity: shared range quick presets rendered without all (${activityRangeButtons.join(", ")})`],
