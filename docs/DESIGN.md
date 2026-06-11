@@ -351,7 +351,11 @@ Pages:
   shared date range, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>` (the `focus` ref alone drives
   the side-list focus view and the focus subgraph; the global search bar is a
-  cross-tab filter and is never seeded by navigation). Graph overview
+  cross-tab filter and is never seeded by navigation). Focus is URL-backed both
+  ways: side-list clicks, canvas node-body clicks (which focus the node — the
+  node title is the anchor to the provider page), and focus exits all write
+  `?focus=` back to the hash, so a focused view is shareable and the browser
+  back button steps through focus changes. Graph overview
   summary stats are scoped to the rendered overview graph after the range,
   mention controls, search, and facets. Focus view uses a separate `focus`
   summary for the focused subgraph instead of reusing overview totals. Contract
