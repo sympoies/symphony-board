@@ -76,8 +76,9 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
 // persistent repo display filter. "debug" (#/debug) is the hidden Diagnostics
 // page — not in the nav, toggled with Cmd+/ (Ctrl+/) or by typing the hash.
 // The route may carry "?q=<search>" so the
-// visible search box is URL-backed; graph routes may also carry "?focus=<ref>"
-// from a board card, and commits routes carry "?repo=<project_path>" and
+// visible search box is URL-backed; graph routes may also carry "?focus=<ref>",
+// written by a board-card deep-link AND by every in-graph focus change
+// (setRouteFocus), and commits routes carry "?repo=<project_path>" and
 // "?branch=<branch>" for the page-local SCM filters.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 
@@ -482,6 +483,24 @@ export function App() {
     if (readHash() !== next) window.location.hash = next;
   }
 
+  // The Graph page's focus is URL-backed BOTH ways: deep-links seed "?focus="
+  // and every in-graph focus change (side-list click, canvas node click,
+  // "← all items") writes it back here — so a focused view is shareable and the
+  // browser back button steps through focus history. Only called while the
+  // Graph page is mounted, hence the hard-coded page.
+  function setRouteFocus(focus: string | null) {
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({
+      page: "graph",
+      focus,
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
   // The Commits page's SCM filters are URL-backed (like search/focus) so they
   // are shareable and survive reload. Clearing a value drops that query param.
   function setRouteRepo(repo: { source_id: string; project_path: string } | null) {
@@ -718,15 +737,16 @@ export function App() {
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
-          {/* Keyed on the focus target so each distinct deep-link entry remounts
-              the graph with a fresh window + focus seed (the seed is mount-time);
-              a new "?focus=" — or clearing it — never leaves a stale focus. */}
+          {/* Focus is CONTROLLED by the route: focusRef comes from "?focus="
+              and every in-graph focus change goes back out through
+              setRouteFocus, so no focus-keyed remount is needed (a stale seed
+              cannot exist) and layout/mention toggles survive focus hops. */}
           <GraphPage
-            key={route.focus ?? "graph"}
             edges={filteredEdges}
             sourceKind={sourceKind}
             colorOf={colorOf}
             focusRef={route.focus}
+            onFocusChange={setRouteFocus}
             aggregates={compatibleAggregates}
             itemWindow={contentEnv.item_window}
             range={activeRange}

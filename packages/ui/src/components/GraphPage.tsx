@@ -134,12 +134,10 @@ function ItemNode({ data }: NodeProps) {
         <Badge text={d.state} kind={d.state} />
       </div>
       {/* The title is a real anchor to the provider page when the item has a
-          URL — visible link affordance, cmd/middle-click, hover URL preview —
-          unlike the whole-node onNodeClick, whose click is swallowed by a few
-          px of mouse drift (React Flow's drag threshold). `nodrag` keeps the
-          anchor from starting a node drag; stopPropagation keeps onNodeClick
-          (also an open) from double-firing. Untracked nodes have no URL and
-          keep the plain text title. */}
+          URL — visible link affordance, cmd/middle-click, hover URL preview.
+          `nodrag` keeps the anchor from starting a node drag; stopPropagation
+          keeps the node-body click (which FOCUSES the node) from also firing.
+          Untracked nodes have no URL and keep the plain text title. */}
       {d.url ? (
         <a className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
           {d.label}
@@ -234,16 +232,6 @@ function FloatingEdge({ id, source, target, markerEnd, style, label }: EdgeProps
 
 const edgeTypes = { floating: FloatingEdge };
 
-// Open an issue/PR in a new tab (a real anchor click — guaranteed a tab, never a
-// same-page navigation or a popup window, and carries noopener/noreferrer).
-function openExternal(url: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  a.click();
-}
-
 type Dim = { w: number; h: number; scale: number };
 
 function layoutDagre(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim): Map<string, { x: number; y: number }> {
@@ -317,7 +305,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, showEdgeLabels }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean }) {
+function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean; onNodeActivate: (id: string) => void }) {
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -365,10 +353,11 @@ function Flow({ rfNodes, rfEdges, showEdgeLabels }: { rfNodes: Node[]; rfEdges: 
       edgeTypes={edgeTypes}
       onNodeMouseEnter={(_, node) => setHoverId(node.id)}
       onNodeMouseLeave={() => setHoverId(null)}
-      onNodeClick={(_, node) => {
-        const url = (node.data as unknown as GraphNode).url;
-        if (url) openExternal(url);
-      }}
+      // Clicking a node's BODY focuses it (the parent maps that to the focus
+      // route, mirroring a side-list card click); the title anchor inside the
+      // node owns opening the provider page and stops propagation, so the two
+      // never both fire.
+      onNodeClick={(_, node) => onNodeActivate(node.id)}
       colorMode="dark"
       fitView
       minZoom={0.05}
@@ -481,9 +470,10 @@ function GraphSideList({
   windowedIds: Set<string>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
-  // Focus is lifted to GraphPage so the canvas can narrow to the focused item's
-  // subgraph (not just pan the full graph). null = the flat list; a ref = the
-  // focus view of that item. onFocus enters/chains focus; onBack returns.
+  // Focus is lifted to the route (GraphPage's onFocusChange writes "?focus=")
+  // so the canvas can narrow to the focused item's subgraph AND the URL stays
+  // shareable. null = the flat list; a ref = the focus view of that item.
+  // onFocus enters/chains focus; onBack returns.
   focusId: string | null;
   onFocus: (id: string) => void;
   onBack: () => void;
@@ -595,6 +585,7 @@ export function GraphPage({
   sourceKind,
   colorOf,
   focusRef,
+  onFocusChange,
   aggregates = [],
   itemWindow,
   range,
@@ -603,7 +594,14 @@ export function GraphPage({
   edges: ResolvedEdge[];
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
+  // The focused item ref, owned by the ROUTE ("?focus="): a deep-link sets it,
+  // and every in-page focus mutation (side-list click, canvas node click,
+  // "← all items", the windowed-membership drop below) goes through
+  // onFocusChange, which writes the hash back. That makes a focused view
+  // shareable/reloadable and lets the browser back button step through focus
+  // changes — the page holds no hidden focus state.
   focusRef?: string | null;
+  onFocusChange: (ref: string | null) => void;
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
@@ -612,10 +610,9 @@ export function GraphPage({
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
-  // Focused item ref (seeded from a "?focus=" deep-link). Drives BOTH the side
-  // list's focus view and the canvas subgraph below; null = the flat list +
-  // full graph.
-  const [focusId, setFocusId] = useState<string | null>(focusRef ?? null);
+  // Drives BOTH the side list's focus view and the canvas subgraph below;
+  // null = the flat list + full graph.
+  const focusId = focusRef ?? null;
 
   const graphInputEdges = useMemo(() => {
     let visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
@@ -659,8 +656,8 @@ export function GraphPage({
     const prev = prevWindowed.current;
     prevWindowed.current = windowedIds;
     const sameMembers = prev.size === windowedIds.size && [...windowedIds].every((id) => prev.has(id));
-    if (!sameMembers) setFocusId(null);
-  }, [windowedIds]);
+    if (!sameMembers) onFocusChange(null);
+  }, [windowedIds, onFocusChange]);
 
   // When an item is focused, the canvas shows that item's FULL relationship
   // neighbourhood (focusSubgraph, built from the raw edges — all edge types, no
@@ -799,7 +796,7 @@ export function GraphPage({
               {x.t}
             </span>
           ))}
-          <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to focus · list → jump</span>
+          <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to highlight · click to focus · title → provider</span>
         </div>
       </div>
       <StatsBar scoped={scopedStats} totalLabel="nodes" edgeLabel="links" />
@@ -818,11 +815,13 @@ export function GraphPage({
               sourceKind={sourceKind}
               colorOf={colorOf}
               focusId={focusId}
-              onFocus={setFocusId}
-              onBack={() => setFocusId(null)}
+              onFocus={onFocusChange}
+              onBack={() => onFocusChange(null)}
             />
             <div className="graph-canvas">
-              <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} />
+              {/* Re-clicking the focused node clears focus — the same toggle
+                  exit as the side list's active card. */}
+              <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} />
             </div>
           </div>
         </ReactFlowProvider>

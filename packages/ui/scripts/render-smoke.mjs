@@ -888,6 +888,25 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // URL-backed focus: the deep-link arrival carries "?focus="; "← all items"
+  // clears it from the hash; clicking a canvas NODE focuses that node and
+  // writes "?focus=" back (the title anchor owns the external link, so the
+  // node-body click is free to mean focus); history.back() steps back to the
+  // unfocused state. Each step asserts the hash AND the visible view together.
+  const urlFocus = { arrival: "", afterBack: "", afterBackFlatList: false, afterNode: "", afterNodeFocusView: false, afterHistory: "", afterHistoryFlatList: false };
+  urlFocus.arrival = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
+  await sleep(400);
+  urlFocus.afterBack = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  urlFocus.afterBackFlatList = !!(await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-search') ? 1 : 0", returnByValue: true })).result.value;
+  await send("Runtime.evaluate", { expression: "document.querySelector('.react-flow__node')?.click()" });
+  await sleep(400);
+  urlFocus.afterNode = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  urlFocus.afterNodeFocusView = !!(await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back') ? 1 : 0", returnByValue: true })).result.value;
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await sleep(400);
+  urlFocus.afterHistory = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  urlFocus.afterHistoryFlatList = !!(await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-search') ? 1 : 0", returnByValue: true })).result.value;
   // Manual sync control: the Header exposes the writer-owned Sync action when the
   // daemon control surface is available (mocked above). Confirm it renders
   // enabled, enters the running (disabled) state on click, then completes and
@@ -1102,6 +1121,11 @@ try {
     [nodeTitleLink.isAnchor === true && /^https?:\/\//.test(nodeTitleLink.href), `graph node: title is a real link to the provider page (${nodeTitleLink.href || "none"})`],
     [nodeTitleLink.newTab === true, "graph node: title link opens a new tab with noopener"],
     [nodeTitleLink.noDrag === true, "graph node: title link opts out of node drag (nodrag)"],
+    // focus is two-way URL-backed (deep-link in, side-list/canvas/back out)
+    [urlFocus.arrival.includes("focus="), `url focus: deep-link arrival carries ?focus= (${urlFocus.arrival})`],
+    [!urlFocus.afterBack.includes("focus=") && urlFocus.afterBackFlatList === true, `url focus: "all items" clears ?focus= and returns the flat list (${urlFocus.afterBack})`],
+    [urlFocus.afterNode.includes("focus=") && urlFocus.afterNodeFocusView === true, `url focus: clicking a canvas node focuses it and writes ?focus= (${urlFocus.afterNode})`],
+    [!urlFocus.afterHistory.includes("focus=") && urlFocus.afterHistoryFlatList === true, `url focus: history.back() steps back to the unfocused list (${urlFocus.afterHistory})`],
     // manual sync control plane: Header affordance + running/done states
     [syncInitial.rendered === true, "sync: Header Sync action rendered when control is available"],
     [syncInitial.enabled === true, "sync: Sync action is enabled before a run"],
