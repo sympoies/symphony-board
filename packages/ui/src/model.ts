@@ -1547,7 +1547,9 @@ export function computeGraphStats(graph: GraphData, scope: Extract<ViewScope, "g
 // stays liberal in what it accepts (it never re-validates the shapes).
 
 export type SyncMode = "incremental" | "full";
-export type SyncRunStatusValue = "running" | "ok" | "partial" | "error";
+// "skipped": the daemon refused the run because another live writer held the
+// store's writer lease — benign; the next scheduled tick tries again.
+export type SyncRunStatusValue = "running" | "ok" | "partial" | "error" | "skipped";
 
 export interface SyncSourceResult {
   source_id: string;
@@ -1638,6 +1640,7 @@ export function syncRunSummary(run: SyncRunStatus | null | undefined, now: numbe
     return run.status === "error" ? `Dry-run failed ${when}` : `Dry-run completed ${when}${scope}`;
   }
   if (run.status === "error") return `Sync failed ${when}${run.error ? `: ${run.error}` : ""}`;
+  if (run.status === "skipped") return `Sync skipped ${when} — another writer holds the store`;
   const items = run.totals?.items ?? 0;
   const reloaded = run.emitted ? " · contract reloaded" : "";
   const partial = run.status === "partial" ? " (partial)" : "";

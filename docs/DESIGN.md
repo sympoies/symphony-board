@@ -613,6 +613,17 @@ questions without log access.
   builder would abstract the wrong layer. Activity ordering is by instant
   (occurred_at keeps provider-local UTC offsets), which each driver implements
   in its own SQL (SQLite: `julianday`).
+- **Writer lease on the Store (#164)**: "exactly one sync writer per store" is
+  a database-enforced invariant, not a deployment convention. The runner
+  try-acquires `Store.acquireWriterLease()` before every non-dry run and skips
+  the run (`status: "skipped"`, benign) when another live writer holds it; a
+  dry-run runs leaseless. Each driver implements the lease with its engine's
+  session-scoped locking so a dead holder auto-releases without TTL machinery —
+  SQLite holds `BEGIN EXCLUSIVE` on a sibling `<db>-lease` lock database over a
+  dedicated connection (cross-process via file locks, incl. container/host on a
+  bind mount); a Postgres driver uses `pg_try_advisory_lock` on its own
+  connection. The conformance suite makes lease exclusivity a per-driver
+  obligation.
 - **pnpm workspace**: isolates the contract package and UI package while keeping
   the backend buildless.
 - **Contract package remains type-first**: producer constants and validator stay

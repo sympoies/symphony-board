@@ -49,7 +49,10 @@ export interface SyncRunTotals {
 }
 
 export interface SyncRunResult {
-  status: "ok" | "partial" | "error";
+  // "skipped": another live writer held the store's writer lease (#164) — the
+  // whole run was skipped before touching any source; benign, not a failure
+  // (the loop daemon's next tick simply tries again).
+  status: "ok" | "partial" | "error" | "skipped";
   sources: SourceRunResult[];
   totals: SyncRunTotals;
   emitted: boolean;
@@ -99,69 +102,82 @@ export async function executeSyncRun(
   onProgress?: SyncProgressReporter,
 ): Promise<SyncRunResult> {
   const full = opts.mode === "full";
-  const results: SourceRunResult[] = skipped.map((id) => ({
-    source_id: id,
-    status: "skipped",
-    items: 0,
-    edges: 0,
-    activities: 0,
-    soft_deleted: 0,
-    soft_deleted_edges: 0,
-    error: null,
-  }));
-
-  for (const { config, source } of prepared) {
-    const prev = full ? null : await store.getWatermark(config.source_id);
-    // Announce the in-flight source before the (possibly slow) fetch so a tail of
-    // the logs shows which source is currently syncing — the prior line, if it has
-    // no matching result, is where a stall is happening.
-    log.info(`[${config.source_id}] syncing…`);
-    onProgress?.({ sources: [...results], active_source_id: config.source_id });
-    const rep = await syncSource(store, source, prev, { full, dryRun: opts.dryRun });
-    log.info(
-      `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
-        `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
-    );
-    results.push({
-      source_id: rep.sourceId,
-      status: rep.status,
-      items: rep.itemsSeen,
-      edges: rep.edgesSeen,
-      activities: rep.activitiesSeen,
-      soft_deleted: rep.softDeleted,
-      soft_deleted_edges: rep.softDeletedEdges,
-      error: rep.error,
-    });
-    onProgress?.({ sources: [...results], active_source_id: null });
+  // The writer lease (#164) guards the whole non-dry run: when another live
+  // writer holds it, skip everything before touching any source — non-blocking,
+  // like a scheduled tick skipping while a manual run is active. A dry-run
+  // writes nothing and runs leaseless, so inspecting a live deployment whose
+  // daemon is mid-run stays possible.
+  if (!opts.dryRun && !(await store.acquireWriterLease())) {
+    log.warn("another sync writer holds the lease; skipping this run");
+    return { status: "skipped", sources: [], totals: emptyTotals(), emitted: false, error: null };
   }
+  try {
+    const results: SourceRunResult[] = skipped.map((id) => ({
+      source_id: id,
+      status: "skipped",
+      items: 0,
+      edges: 0,
+      activities: 0,
+      soft_deleted: 0,
+      soft_deleted_edges: 0,
+      error: null,
+    }));
 
-  const status = overallStatus(results);
-  const totals = results.reduce<SyncRunTotals>((acc, r) => {
-    acc.items += r.items;
-    acc.edges += r.edges;
-    acc.activities += r.activities;
-    acc.soft_deleted += r.soft_deleted;
-    acc.soft_deleted_edges += r.soft_deleted_edges;
-    return acc;
-  }, emptyTotals());
-
-  let emitted = false;
-  let error: string | null = status === "error" ? "one or more sources failed to sync" : null;
-  if (emit && !opts.dryRun && status !== "error") {
-    try {
-      await emit();
-      emitted = true;
-    } catch (err) {
-      return {
-        status: "error",
-        sources: results,
-        totals,
-        emitted: false,
-        error: `contract emit failed: ${(err as Error).message}`,
-      };
+    for (const { config, source } of prepared) {
+      const prev = full ? null : await store.getWatermark(config.source_id);
+      // Announce the in-flight source before the (possibly slow) fetch so a tail of
+      // the logs shows which source is currently syncing — the prior line, if it has
+      // no matching result, is where a stall is happening.
+      log.info(`[${config.source_id}] syncing…`);
+      onProgress?.({ sources: [...results], active_source_id: config.source_id });
+      const rep = await syncSource(store, source, prev, { full, dryRun: opts.dryRun });
+      log.info(
+        `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
+          `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
+      );
+      results.push({
+        source_id: rep.sourceId,
+        status: rep.status,
+        items: rep.itemsSeen,
+        edges: rep.edgesSeen,
+        activities: rep.activitiesSeen,
+        soft_deleted: rep.softDeleted,
+        soft_deleted_edges: rep.softDeletedEdges,
+        error: rep.error,
+      });
+      onProgress?.({ sources: [...results], active_source_id: null });
     }
+
+    const status = overallStatus(results);
+    const totals = results.reduce<SyncRunTotals>((acc, r) => {
+      acc.items += r.items;
+      acc.edges += r.edges;
+      acc.activities += r.activities;
+      acc.soft_deleted += r.soft_deleted;
+      acc.soft_deleted_edges += r.soft_deleted_edges;
+      return acc;
+    }, emptyTotals());
+
+    let emitted = false;
+    let error: string | null = status === "error" ? "one or more sources failed to sync" : null;
+    if (emit && !opts.dryRun && status !== "error") {
+      try {
+        await emit();
+        emitted = true;
+      } catch (err) {
+        return {
+          status: "error",
+          sources: results,
+          totals,
+          emitted: false,
+          error: `contract emit failed: ${(err as Error).message}`,
+        };
+      }
+    }
+    return { status, sources: results, totals, emitted, error };
+  } finally {
+    if (!opts.dryRun) await store.releaseWriterLease();
   }
-  return { status, sources: results, totals, emitted, error };
 }
 
 export interface RunConfiguredSyncDeps {

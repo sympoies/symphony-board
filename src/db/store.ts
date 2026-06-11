@@ -220,6 +220,18 @@ export interface Store {
   listLiveEdges(): Promise<EdgeRow[]>;
   listSources(): Promise<SourceRow[]>;
 
+  // -- writer lease --
+  // Try-acquire the store's single-sync-writer lease (#164): "exactly one sync
+  // writer per store" enforced by the database, not by deployment topology.
+  // Non-blocking: resolves false when another live handle (any process) holds
+  // it — the caller skips its run rather than waiting. Idempotent on the
+  // holding handle. Released by releaseWriterLease() or close(); a holder that
+  // dies without either is freed by the engine/OS (session/file locking) —
+  // there is deliberately no TTL or heartbeat.
+  acquireWriterLease(): Promise<boolean>;
+  // Release a held lease; a no-op when this handle does not hold it.
+  releaseWriterLease(): Promise<void>;
+
   // -- operational surface --
   overview(runsLimit: number): Promise<StoreOverview>;
   diagnostics(): Promise<StoreDiagnostics>;

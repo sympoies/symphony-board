@@ -1,10 +1,11 @@
 node_modules/
 *.log
 
-# Local DB and its WAL/SHM sidecars (never commit the store).
+# Local DB and its WAL/SHM/lease sidecars (never commit the store).
 *.db
 *.db-wal
 *.db-shm
+*.db-lease
 data/
 
 # Secrets and local config overrides.
