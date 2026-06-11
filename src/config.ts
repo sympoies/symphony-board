@@ -25,6 +25,12 @@ export interface SourceConfig {
   // Optional REST base URL. Defaults by provider/host when omitted; used for
   // activity surfaces such as commits and project/repository events.
   rest_url?: string;
+  // Optional commit branch expansion mode. "all" (the default when omitted)
+  // also labels commits on live side branches — discovered from push events and
+  // fetched as branch-unique compare sets; "default" restricts the commit feed
+  // to the default branch only (the pre-expansion behavior, an escape hatch for
+  // a repo whose branch churn is too noisy or rate-limit-expensive to expand).
+  commit_branches?: "all" | "default";
   projects: ProjectConfig[]; // owner/name (GitHub) or group/.../project (GitLab)
 }
 
@@ -118,6 +124,9 @@ export function configErrors(raw: unknown, label: string): string[] {
       }
       if (s.rest_url !== undefined && typeof s.rest_url !== "string") {
         errors.push(`${label}: source "${s.source_id}" rest_url must be a string when set`);
+      }
+      if (s.commit_branches !== undefined && s.commit_branches !== "all" && s.commit_branches !== "default") {
+        errors.push(`${label}: source "${s.source_id}" commit_branches must be "all" or "default" when set`);
       }
       if (!Array.isArray(s.projects) || s.projects.length === 0) {
         errors.push(`${label}: source "${s.source_id}" has no projects`);

@@ -18,6 +18,15 @@ export interface SourceDescriptor {
   displayName: string | null;
 }
 
+// Per-source fetch tuning shared by the provider implementations (mapped from
+// the snake_case SourceConfig fields by the registry).
+export interface SourceOptions {
+  // "all" (default) also labels commits on live side branches, discovered from
+  // push events and fetched as branch-unique compare sets; "default" keeps the
+  // commit feed restricted to the default branch (the pre-expansion behavior).
+  commitBranches?: "all" | "default";
+}
+
 export interface FetchOptions {
   // Incremental watermark: only fetch records updated at/after this ISO instant.
   // null => no lower bound (used on the first run or a forced full sync).

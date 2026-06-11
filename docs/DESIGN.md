@@ -115,8 +115,9 @@ while still exposing developer-significant actions for a feed UI.
 Current sources populate activity from two places:
 
 - canonical item timestamps: opened, closed, and merged transitions
-- provider REST activity surfaces: commits plus repository/project events such
-  as pushes, branch/tag creation, and branch/tag deletion
+- provider REST activity surfaces: commits (default branch plus live
+  side-branch compare sets) and repository/project events such as pushes,
+  branch/tag creation, and branch/tag deletion
 
 Provider activity APIs are not identical. `kind`, `action`, and `details` are
 open vocabulary; the stable contract is the row shape, not a closed event enum.
@@ -125,10 +126,17 @@ tracked item. Human fields such as `project_path`, `target_iid`, and `title`
 are display metadata.
 
 Commit activities keep the title/subject as the first message line and may carry
-the remaining message text in `details.body`. REST commit feeds are annotated
-with the provider default branch as `details.branch` / `details.ref` when the
-repository/project metadata call succeeds; this is the low-cost branch selector
-signal, not a complete multi-branch membership graph.
+the remaining message text in `details.body`. The commit feed covers the default
+branch plus live side branches without enumerating the provider's branch list:
+the push/project events fetched in the same sweep double as branch discovery,
+and each discovered live branch contributes only its branch-unique commits via a
+compare against the default branch (one or two extra calls per pushed branch per
+sweep — affordable at the incremental cadence). Feeds merge per sha into one
+activity row whose `details.branch` / `details.ref` carry the primary branch and
+`details.branches` / `details.refs` the full membership (default branch first).
+A deleted branch stops being discovered; rows it produced keep the labels they
+earned. Per-source `commit_branches: "default"` restores the default-branch-only
+feed as an escape hatch.
 
 ## Actor identity
 
@@ -226,7 +234,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v3. Current emitted version: `3.2.0`.
+Current major: v3. Current emitted version: `3.2.1`.
 
 Version `1.1.0` added display metadata:
 
@@ -320,6 +328,12 @@ construction stays in the producer layer so Repo Analytics can link row labels
 without duplicating GitHub/GitLab URL rules in the UI. Activity rows continue to
 use the existing `activities[].url` field as the primary provider destination;
 no separate `target_url` field is introduced.
+
+Version `3.2.1` clarifies commit activity branch details: producers fill the
+previously reserved `details.branches` / `details.refs` membership lists when a
+commit is reachable from more than one branch, and `details.branch` /
+`details.ref` become the commit's primary branch instead of always the default
+branch. No shape change.
 
 Contract rules:
 

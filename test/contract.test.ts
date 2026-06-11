@@ -294,7 +294,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "3.2.0");
+  assert.equal(env.contract_version, "3.2.1");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
