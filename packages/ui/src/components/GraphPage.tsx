@@ -63,9 +63,11 @@ const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄",
 // colours are JS hexes, not CSS vars — the canvas can't read custom properties.)
 const MENTION_STROKE = "#8aa0b6";
 const NODE_W = 200;
-// Tall enough for head + two-line title + repo + the updated/created/demand
-// meta row; demand then scales the whole box (and its font) up from here.
-const NODE_H = 96;
+// Tall enough for head + two-line title + repo + the counts row (@author 💬 🔗)
+// + the updated/created times row — the two meta rows mirror the board card and
+// keep the line count deterministic; demand then scales the whole box (and its
+// font) up from here.
+const NODE_H = 124;
 const OVERVIEW_EDGE_GAP = 56;
 const FOCUS_EDGE_GAP = 132;
 const OVERVIEW_COLLISION_GAP = 18;
@@ -182,10 +184,13 @@ function ItemNode({ data }: NodeProps) {
         {d.repo ?? "untracked"}
         {d.iid != null ? ` #${d.iid}` : ""}
       </div>
-      {!d.untracked && (d.created_at || d.updated_at || d.demand != null || (d.related && d.related.total > 0)) && (
+      {/* Two fixed rows mirroring the board/side-list card: the counts row
+          (@author 💬 🔗) then the times row (updated · created). Deterministic
+          line count — the old single mixed row wrapped unpredictably and could
+          overflow the fixed-height node box. */}
+      {!d.untracked && (d.author || d.demand != null || (d.related && d.related.total > 0)) && (
         <div className="rf-node-meta muted">
-          {d.updated_at ? <span title={d.updated_at}>updated {relativeTime(d.updated_at)}</span> : null}
-          {d.created_at ? <span title={d.created_at}>created {relativeTime(d.created_at)}</span> : null}
+          {d.author ? <span>@{d.author}</span> : null}
           {d.demand != null ? (
             <span className="rf-demand" title="comments + reactions">
               <DemandIcon /> {d.demand}
@@ -196,6 +201,13 @@ function ItemNode({ data }: NodeProps) {
               <LinkIcon /> {d.related.total}
             </span>
           ) : null}
+        </div>
+      )}
+      {!d.untracked && (d.created_at || d.updated_at) && (
+        <div className="rf-node-times muted">
+          {d.updated_at ? <span title={d.updated_at}>updated {relativeTime(d.updated_at)}</span> : null}
+          {d.created_at && d.updated_at ? <span className="sep">·</span> : null}
+          {d.created_at ? <span title={d.created_at}>created {relativeTime(d.created_at)}</span> : null}
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className="rf-handle" />

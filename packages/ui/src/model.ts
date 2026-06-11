@@ -1283,6 +1283,7 @@ export interface GraphNode {
   kind: string; // issue | change_request | unknown (untracked)
   state: string; // open | closed | merged | unknown
   url: string | null;
+  author: string | null; // item author, for the list-card-style counts row (@author)
   color: string; // node accent (state colour)
   demand: number | null; // comments + reactions; drives node size on the graph
   created_at: string | null; // ISO; rendered (relative) on the node card
@@ -1338,8 +1339,8 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, color: "#637777", demand: null, created_at: null, updated_at: null, untracked: true },
+          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "#637777", demand: null, created_at: null, updated_at: null, untracked: true },
       );
     };
     ensure(re.from, re.edge.from);

@@ -465,6 +465,14 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  // Real layout measurement: no node's content may vertically overflow its
+  // fixed-size box (the regression mode when a meta row gains a chip and wraps).
+  const graphNodeOverflow = (await send("Runtime.evaluate", {
+    expression:
+      "JSON.stringify([...document.querySelectorAll('.rf-node')].filter((n) => n.scrollHeight > n.clientHeight + 1).map((n) => ({ sh: n.scrollHeight, ch: n.clientHeight, t: (n.querySelector('.rf-node-title')?.textContent || '').slice(0, 30) })))",
+    returnByValue: true,
+  })).result.value ?? "null";
+  const graphNodeOverflows = JSON.parse(graphNodeOverflow) ?? [];
   const graphRangeButtons = await rangeButtonLabels();
   const graphInitialStats = await textOf(".stats");
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-07");
@@ -981,7 +989,7 @@ try {
   const graphListGraphLinks = m(graphListHtml, /class="card-graph"/g);
   const graphNodeRelationCounts = m(graphHtml, /class="rf-related"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
-  const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
+  const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-times muted");
   const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
   const normalizedStats = (text) => text.replace(/\s+/g, " ").trim();
   const hasStatText = (text, phrase) => normalizedStats(text).toLowerCase().includes(phrase);
@@ -1040,6 +1048,7 @@ try {
     // canvas nodes carry the chain-link count too — the FULL relation count
     // (what focusing reveals), not the windowed drawn-edge degree.
     [graphNodeRelationCounts >= 1, `graph: canvas nodes render the relation count (${graphNodeRelationCounts} >= 1)`],
+    [graphNodeOverflows.length === 0, `graph: node content fits inside the node box (${graphNodeOverflows.length} overflowing: ${graphNodeOverflow})`],
     // focusing suspends the time-range controls (the range is not a condition in
     // focus view); leaving focus re-enables them. The selection itself is kept —
     // only the styling/interactivity flips.
