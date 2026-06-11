@@ -297,6 +297,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* engagement count: speech-bubble glyph + number */
 .demand { display: inline-flex; align-items: center; gap: 4px; }
 .icon-demand { flex: none; }
+/* relation count: chain-link glyph + number of distinct related items */
+.related { display: inline-flex; align-items: center; gap: 4px; }
+.icon-related { flex: none; }
 /* provider source mark (github / gitlab), leading the meta row */
 .icon-source { flex: none; color: var(--muted); }
 

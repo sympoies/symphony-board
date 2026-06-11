@@ -3,7 +3,7 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
-import { relativeTime, graphFocusHref } from "../model.ts";
+import { relativeTime, graphFocusHref, type RelationCount } from "../model.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
 
@@ -29,6 +29,29 @@ function GraphIcon() {
       <circle cx="18" cy="19" r="3" />
       <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
       <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  );
+}
+
+// Relation-count marker: how many items this one is related to. A chain link —
+// the universal "linked items" glyph — in the same stroked-SVG idiom as
+// DemandIcon. (Feather "link".)
+function LinkIcon() {
+  return (
+    <svg
+      className="icon-related"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </svg>
   );
 }
@@ -60,7 +83,7 @@ export function ItemCard({
   anchorId,
   sourceKind,
   accentColor,
-  linked,
+  related,
 }: {
   item: ItemDTO;
   anchorId?: string;
@@ -69,10 +92,11 @@ export function ItemCard({
   // gets a colored left bar (a ::before, so it survives hover/active/:target,
   // which take the border-color channel). null/undefined -> no bar.
   accentColor?: string | null;
-  // True when this item is an endpoint of at least one edge, so it has a node on
-  // the graph to focus. The "focus in graph" link renders only then (App derives
-  // it from the visible edge set).
-  linked?: boolean;
+  // Present when this item is an endpoint of at least one edge (App derives it
+  // from the visible edge set via relationCounts). Drives BOTH relation
+  // affordances: the meta row's link-icon count (with a per-type tooltip) and
+  // the "focus in graph" link — an item with no edge has no node to focus.
+  related?: RelationCount | null;
 }) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
@@ -87,12 +111,12 @@ export function ItemCard({
         </span>
         <Badge text={item.state} kind={item.state} />
         {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        {/* Focus-in-graph link. Only rendered when `linked` is passed — the
+        {/* Focus-in-graph link. Only rendered when `related` is passed — the
             board sets it for edge-endpoint items; the graph side list renders
             ItemCard WITHOUT it (you are already on the graph). stopPropagation so
             that if the card is ever wrapped in a click target it opens the graph
             without also triggering the wrapper, matching the card title below. */}
-        {linked ? (
+        {related ? (
           <a
             className="card-graph"
             href={graphFocusHref(item)}
@@ -126,6 +150,14 @@ export function ItemCard({
         {item.demand != null ? (
           <span className="muted demand" title="comments + reactions">
             <DemandIcon /> {item.demand}
+          </span>
+        ) : null}
+        {/* Distinct related items, tooltip broken down by strongest edge type
+            ("closes 2 · mentions 3"). Same data that gates the graph link above,
+            so the count and the focus affordance can never disagree. */}
+        {related && related.total > 0 ? (
+          <span className="muted related" title={related.byType.map((t) => `${t.type} ${t.count}`).join(" · ")}>
+            <LinkIcon /> {related.total}
           </span>
         ) : null}
       </div>

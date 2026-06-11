@@ -26,7 +26,7 @@ import {
   parseHashRoute,
   buildHashRoute,
   applyRouteSearch,
-  edgeEndpointIds,
+  relationCounts,
   routeTimeRange,
   sameTimeRange,
   type TimeRangePresetId,
@@ -386,11 +386,12 @@ export function App() {
     [visibleEnv, primaryItems],
   );
 
-  // Ids of items that take part in at least one relationship (an edge endpoint),
-  // over the FULL visible edge set — NOT the time-windowed / facet-filtered graph.
-  // The board card's "focus in graph" link shows ONLY for these: an item with no
-  // relationships has no graph node to focus, so the affordance would dead-end.
-  const linkedIds = useMemo(() => edgeEndpointIds(visibleEnv?.edges ?? []), [visibleEnv]);
+  // Per-item relation summary (distinct related items + per-type breakdown),
+  // over the FULL visible edge set — NOT the time-windowed / facet-filtered graph
+  // — so the card's count matches what graph focus would show. Map membership
+  // doubles as the old linkedIds set: the card's "focus in graph" link shows ONLY
+  // for entries here, since an item with no relationships has no node to focus.
+  const boardRelationCounts = useMemo(() => relationCounts(visibleEnv?.edges ?? []), [visibleEnv]);
 
   function toggle(dim: "sources" | "states" | "kinds", value: string) {
     setFilters((f) => {
@@ -760,7 +761,7 @@ export function App() {
           statuses={statuses}
           sourceKind={sourceKind}
           colorOf={colorOf}
-          linkedIds={linkedIds}
+          relationCounts={boardRelationCounts}
           aggregates={compatibleAggregates}
           itemWindow={contentEnv.item_window}
           range={activeRange}

@@ -976,6 +976,7 @@ try {
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
+  const boardRelationCounts = m(board2Html, /class="muted related"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-meta muted");
   const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
@@ -1104,6 +1105,9 @@ try {
     [/active \d/.test(repoHtml), "repo analytics: repo row renders the 'last active' timestamp label"],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
+    // every linked card also shows its relation count in the meta row — the two
+    // affordances come from the same relationCounts map, so they must agree.
+    [boardRelationCounts === boardGraphLinks, `board: relation counts rendered on every linked card (${boardRelationCounts} === ${boardGraphLinks})`],
     [has(deepLinkHtml, "graph-list-back"), "deep link: board card opens the graph in the focus view"],
     [/react-flow__node/.test(deepLinkHtml), "deep link: focused graph canvas mounted"],
     // the focused item has >=1 edge (the "focus in graph" link only shows for
