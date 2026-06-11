@@ -11,7 +11,7 @@
 
 import { writeFileSync } from "node:fs";
 import { loadConfig } from "../config.ts";
-import { openSqliteStore } from "../db/sqlite.ts";
+import { openConfiguredStore } from "../db/factory.ts";
 import { buildContractEnvelope } from "../contract/emit.ts";
 import { validateContract } from "../contract/validate.ts";
 
@@ -36,7 +36,7 @@ function parseArgs(argv: string[]): Args {
 const args = parseArgs(process.argv.slice(2));
 const { cfg } = loadConfig(args.config);
 
-const store = await openSqliteStore(cfg.db_path);
+const store = await openConfiguredStore(cfg);
 const envelope = await buildContractEnvelope(store, cfg, new Date().toISOString());
 await store.close();
 

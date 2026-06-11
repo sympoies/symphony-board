@@ -49,6 +49,23 @@ jobs:
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
 
+  # PgStore gate: the store conformance suite with the Postgres driver
+  # registered, plus the live e2e (from zero through migrate, full sync,
+  # incremental, disappearance sweep, contract emit, and the #164 writer-lease
+  # guarantees) against a real Postgres composed up by scripts/ci/pg-e2e.sh.
+  # Separate job: `check` stays Docker-free, exactly like local `pnpm test`.
+  pg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:pg-e2e
+
   # Shell-lint every helper under scripts/. They run unbuilt (no Node, no build
   # step), so shellcheck is the only static gate they get; ubuntu-latest ships
   # it preinstalled.

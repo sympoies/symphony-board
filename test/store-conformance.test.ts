@@ -57,6 +57,42 @@ const DRIVERS: Array<{
   },
 ];
 
+// Set SYMPHONY_PG_TEST_URL (postgres://user:pass@host:port/db) to also run the
+// suite against the Postgres driver — scripts/ci/pg-e2e.sh and the CI `pg` job
+// do. Every open() gets a fresh schema in that database, so cases stay
+// isolated; the target database is throwaway (schemas are not dropped).
+const PG_TEST_URL = (process.env.SYMPHONY_PG_TEST_URL ?? "").trim();
+if (PG_TEST_URL) {
+  const { openPostgresStore } = await import("../src/db/postgres.ts");
+  const stamp = Date.now().toString(36);
+  let seq = 0;
+  const freshSchema = () => `conformance_${stamp}_${seq++}`;
+  const close = async (s: Store) => {
+    try {
+      await s.close();
+    } catch {
+      // already closed by the test
+    }
+  };
+  DRIVERS.push({
+    name: "postgres",
+    open: () => openPostgresStore(PG_TEST_URL, { schema: freshSchema() }),
+    openShared: async () => {
+      const schema = freshSchema();
+      const a = await openPostgresStore(PG_TEST_URL, { schema });
+      const b = await openPostgresStore(PG_TEST_URL, { schema });
+      return {
+        a,
+        b,
+        cleanup: async () => {
+          await close(a);
+          await close(b);
+        },
+      };
+    },
+  });
+}
+
 const SOURCE = "github:github.com";
 
 function fixtureEdge(over: Partial<ReconciledEdge> = {}): ReconciledEdge {

@@ -31,9 +31,14 @@ mkdir -p coverage
 echo "==> backend coverage (src/**/*.ts, incl. CLI/glue)"
 # `*/types.ts` and `src/db/store.ts` are pure type-declaration modules (no
 # executable code) — c8 --all would otherwise count their lines as 0%, an
-# artifact rather than a real gap.
+# artifact rather than a real gap. `src/db/postgres.ts` IS executable, but its
+# gate is the live-Postgres run (scripts/ci/pg-e2e.sh: the conformance suite
+# with the pg driver registered + test/e2e/pg-live.test.ts, the CI `pg` job) —
+# this Docker-free default run would count it 0% as an artifact of the
+# environment, the same reasoning that keeps `.tsx` with render-smoke.
 "${C8[@]}" --all --src src -n 'src/**/*.ts' -x 'src/**/*.d.ts' \
   -x 'src/model/types.ts' -x 'src/sources/types.ts' -x 'src/db/store.ts' \
+  -x 'src/db/postgres.ts' \
   --reporter=lcovonly --report-dir=coverage/backend \
   "${NODE_TEST[@]}" test/*.test.ts
 

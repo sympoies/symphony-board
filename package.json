@@ -13,6 +13,7 @@
     "prepare": "lefthook install",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "test:pg-e2e": "bash scripts/ci/pg-e2e.sh",
     "coverage": "bash scripts/ci/coverage.sh",
     "coverage:badge": "bash scripts/ci/coverage-badge.sh coverage/lcov.info badges/coverage.svg",
     "init-db": "node --disable-warning=ExperimentalWarning src/cli/init-db.ts",
@@ -25,7 +26,8 @@
     "desktop-standalone:build": "pnpm --filter @symphony-board/desktop-standalone build"
   },
   "dependencies": {
-    "@symphony-board/contract": "workspace:*"
+    "@symphony-board/contract": "workspace:*",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -10,8 +10,8 @@
 
 import type { AppConfig, SourceConfig } from "./config.ts";
 import { tokenFor } from "./config.ts";
-import type { Store, StoreOpener } from "./db/store.ts";
-import { openSqliteStore } from "./db/sqlite.ts";
+import type { Store } from "./db/store.ts";
+import { openConfiguredStore } from "./db/factory.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
 import { syncSource } from "./sync-engine.ts";
 import type { Source } from "./sources/types.ts";
@@ -181,7 +181,9 @@ export async function executeSyncRun(
 }
 
 export interface RunConfiguredSyncDeps {
-  openStore?: StoreOpener;
+  // Store opener taking the whole config: the default (src/db/factory.ts)
+  // selects the driver from it (db_url_env -> Postgres, else SQLite db_path).
+  openStore?: (cfg: AppConfig) => Promise<Store>;
   buildSource?: typeof defaultBuildSource;
   now?: () => string;
   // Mid-run progress hook for a live run status; see SyncRunProgress.
@@ -199,7 +201,7 @@ export async function runConfiguredSync(
   out: string | null,
   deps: RunConfiguredSyncDeps = {},
 ): Promise<SyncRunResult> {
-  const openStore = deps.openStore ?? openSqliteStore;
+  const openStore = deps.openStore ?? openConfiguredStore;
   const buildSource = deps.buildSource ?? defaultBuildSource;
   const now = deps.now ?? (() => new Date().toISOString());
 
@@ -216,7 +218,7 @@ export async function runConfiguredSync(
     prepared.push({ config: sc, source: buildSource(sc, token) });
   }
 
-  const store = await openStore(cfg.db_path);
+  const store = await openStore(cfg);
   try {
     const emit = out
       ? async () => {

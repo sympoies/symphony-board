@@ -46,6 +46,12 @@ export interface IdentityConfig {
 
 export interface AppConfig {
   db_path: string;
+  // Optional NAME of an env var holding a postgres:// connection URL (the URL
+  // itself never lives in config, matching the token_env convention). When
+  // set, the store is Postgres and db_path is unused; when the named env var
+  // is empty the run fails rather than silently falling back to SQLite. The
+  // production deployments stay on SQLite — this is the PgStore selector.
+  db_url_env?: string;
   // IANA timezone the board buckets calendar days in (e.g. "Asia/Taipei").
   // Optional; unset/empty means "UTC". It is emitted onto the contract envelope
   // so the UI aligns its `today` / `this week` presets and the activity-heatmap
@@ -90,6 +96,9 @@ export function configErrors(raw: unknown, label: string): string[] {
   }
   const cfg = raw as Partial<AppConfig>;
   if (!cfg.db_path) errors.push(`${label} is missing db_path`);
+  if (cfg.db_url_env !== undefined && (typeof cfg.db_url_env !== "string" || cfg.db_url_env.trim().length === 0)) {
+    errors.push(`${label}: "db_url_env" must be a non-empty env-var name when set (omit it for SQLite)`);
+  }
   if (!Array.isArray(cfg.sources) || cfg.sources.length === 0) {
     errors.push(`${label} has no sources`);
   } else {
