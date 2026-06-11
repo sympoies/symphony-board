@@ -1232,6 +1232,9 @@ test("syncRunSummary distinguishes running, reloaded, dry-run, and error states"
   assert.match(syncRunSummary(syncRun({ status: "ok", emitted: true }), now), /Synced .* · 7 items · contract reloaded/);
   assert.match(syncRunSummary(syncRun({ dry_run: true, emitted: false }), now), /Dry-run completed/);
   assert.match(syncRunSummary(syncRun({ status: "error", emitted: false, error: "boom" }), now), /Sync failed .*: boom/);
+  // A lease-denied run (#164): another writer held the store, the run was
+  // skipped — benign, never "Synced", never "failed".
+  assert.match(syncRunSummary(syncRun({ status: "skipped", emitted: false, totals: null }), now), /Sync skipped .*another writer/);
   assert.equal(syncRunSummary(null, now), "");
 });
 

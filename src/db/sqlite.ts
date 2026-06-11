@@ -14,6 +14,12 @@
 //   binding and is_draft is mapped back to boolean on read.
 // - julianday() orders activities by instant: occurred_at preserves the
 //   provider's original UTC offset, so string order is not instant order.
+// - The writer lease is a sibling lock database (`<path>-lease`) held under
+//   BEGIN EXCLUSIVE on a dedicated connection. SQLite's file locking makes the
+//   lease cross-process (and container/host across a bind mount), and the OS
+//   frees it when the holder dies — the same auto-release-on-death semantics a
+//   Postgres session advisory lock provides. A `:memory:` store is private to
+//   its handle (no second handle can exist), so the lease is trivially granted.
 
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
@@ -54,6 +60,13 @@ const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
 const nz = <T>(v: T | null | undefined): T | null => (v === undefined ? null : v);
 const bint = (v: boolean | null | undefined): number | null => (v == null ? null : v ? 1 : 0);
+
+// SQLITE_BUSY (5) / SQLITE_LOCKED (6): another connection holds the lock. The
+// message check covers node:sqlite versions that don't expose errcode.
+function isBusy(err: unknown): boolean {
+  const e = err as { errcode?: number; message?: string };
+  return e.errcode === 5 || e.errcode === 6 || /database is locked/i.test(e.message ?? "");
+}
 
 // Open the store read-write, creating and migrating it as needed.
 export async function openSqliteStore(path: string): Promise<Store> {
@@ -121,6 +134,9 @@ export class SqliteStore implements Store {
   // Serializes transaction() calls: the engine architecture is single-writer,
   // but an async transaction body must never interleave with another BEGIN.
   #txQueue: Promise<unknown> = Promise.resolve();
+  // The dedicated lock-database connection while this handle holds the writer
+  // lease; null when not held.
+  #lease: DatabaseSync | null = null;
 
   constructor(db: DatabaseSync, path: string) {
     this.#db = db;
@@ -420,6 +436,44 @@ export class SqliteStore implements Store {
       .all() as unknown as SourceRow[];
   }
 
+  // ---- writer lease ----------------------------------------------------------
+
+  async acquireWriterLease(): Promise<boolean> {
+    if (this.#path === ":memory:") return true;
+    if (this.#lease) return true; // already held by this handle
+    const lock = new DatabaseSync(`${this.#path}-lease`);
+    try {
+      // Fail fast instead of waiting: a refused lease means "skip this run".
+      lock.exec("PRAGMA busy_timeout = 0;");
+      lock.exec("BEGIN EXCLUSIVE");
+    } catch (err) {
+      lock.close();
+      if (isBusy(err)) return false;
+      throw err;
+    }
+    this.#lease = lock;
+    return true;
+  }
+
+  async releaseWriterLease(): Promise<void> {
+    if (!this.#lease) return;
+    const lock = this.#lease;
+    // Clear first and tolerate ROLLBACK/close failures: release runs in the
+    // runner's finally, and a throwing release must neither mask the run's
+    // real error nor leave a handle that believes it still holds the lease.
+    this.#lease = null;
+    try {
+      lock.exec("ROLLBACK");
+    } catch {
+      // closing the connection releases the lock regardless
+    }
+    try {
+      lock.close();
+    } catch {
+      // already closed or torn down — the OS lock died with the connection
+    }
+  }
+
   // ---- operational surface -------------------------------------------------
 
   async overview(runsLimit: number): Promise<StoreOverview> {
@@ -513,6 +567,7 @@ export class SqliteStore implements Store {
   }
 
   async close(): Promise<void> {
+    await this.releaseWriterLease();
     this.#db.close();
   }
 }

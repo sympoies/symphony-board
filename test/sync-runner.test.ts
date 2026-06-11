@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Store } from "../src/db/store.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
 import { executeSyncRun, type PreparedSource, type SyncRunProgress } from "../src/sync-runner.ts";
 import type { SourceConfig } from "../src/config.ts";
@@ -189,6 +193,77 @@ test("an emit failure fails the run instead of silently shipping nothing", async
   assert.equal(result.emitted, false);
   assert.match(result.error ?? "", /contract emit failed: contract invalid/);
   await db.close();
+});
+
+// A file-backed store pair for writer-lease runner tests: `holder` simulates
+// another live writer process (the daemon), `db` is the store the runner under
+// test was handed. Same pattern as the conformance suite's openShared.
+async function sharedStores(): Promise<{ holder: Store; db: Store; cleanup: () => Promise<void> }> {
+  const dir = mkdtempSync(join(tmpdir(), "symphony-runner-"));
+  const holder = await openSqliteStore(join(dir, "store.db"));
+  const db = await openSqliteStore(join(dir, "store.db"));
+  return {
+    holder,
+    db,
+    cleanup: async () => {
+      await holder.close();
+      await db.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+test("a lease-denied run is skipped entirely: nothing written, nothing emitted", async () => {
+  const { holder, db, cleanup } = await sharedStores();
+  try {
+    assert.equal(await holder.acquireWriterLease(), true, "the other writer holds the lease");
+    let emitCalls = 0;
+    const result = await executeSyncRun(
+      db,
+      [prepared("fake:a", [item("A1")])],
+      [],
+      { mode: "full", dryRun: false, sourceId: null },
+      () => { emitCalls++; },
+    );
+    assert.equal(result.status, "skipped");
+    assert.equal(result.emitted, false);
+    assert.equal(emitCalls, 0, "a skipped run never emits");
+    assert.deepEqual(result.sources, [], "no source was attempted");
+    assert.equal((await holder.listLiveItems()).length, 0, "a skipped run writes nothing");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a dry-run needs no writer lease", async () => {
+  // A dry-run writes nothing, so it must work while the daemon holds the
+  // lease — that is exactly the "inspect a live deployment" use case.
+  const { holder, db, cleanup } = await sharedStores();
+  try {
+    assert.equal(await holder.acquireWriterLease(), true);
+    const result = await executeSyncRun(
+      db,
+      [prepared("fake:a", [item("A1")])],
+      [],
+      { mode: "full", dryRun: true, sourceId: null },
+      () => {},
+    );
+    assert.equal(result.status, "ok", "the dry-run ran despite the held lease");
+    assert.equal(result.totals.items, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the writer lease is released when the run finishes", async () => {
+  const { holder, db, cleanup } = await sharedStores();
+  try {
+    await executeSyncRun(db, [prepared("fake:a", [item("A1")])], [], { mode: "full", dryRun: false, sourceId: null }, () => {});
+    assert.equal(await holder.acquireWriterLease(), true, "the lease is free again after the run");
+    await holder.releaseWriterLease();
+  } finally {
+    await cleanup();
+  }
 });
 
 test("onProgress reports the in-flight source and accumulating per-source results", async () => {

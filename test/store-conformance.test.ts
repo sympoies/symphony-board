@@ -6,14 +6,55 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Store } from "../src/db/store.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
 
-const DRIVERS: Array<{ name: string; open: () => Promise<Store> }> = [
-  { name: "sqlite", open: () => openSqliteStore(":memory:") },
+// Two handles on the SAME logical store (a temp file for SQLite; the shared
+// test database for a server driver), for behavior that only exists across
+// handles — the writer lease. cleanup() tolerates handles the test already
+// closed.
+interface SharedHandles {
+  a: Store;
+  b: Store;
+  cleanup: () => Promise<void>;
+}
+
+const DRIVERS: Array<{
+  name: string;
+  open: () => Promise<Store>;
+  openShared: () => Promise<SharedHandles>;
+}> = [
+  {
+    name: "sqlite",
+    open: () => openSqliteStore(":memory:"),
+    openShared: async () => {
+      const dir = mkdtempSync(join(tmpdir(), "symphony-store-"));
+      const a = await openSqliteStore(join(dir, "store.db"));
+      const b = await openSqliteStore(join(dir, "store.db"));
+      const close = async (s: Store) => {
+        try {
+          await s.close();
+        } catch {
+          // already closed by the test
+        }
+      };
+      return {
+        a,
+        b,
+        cleanup: async () => {
+          await close(a);
+          await close(b);
+          rmSync(dir, { recursive: true, force: true });
+        },
+      };
+    },
+  },
 ];
 
 const SOURCE = "github:github.com";
@@ -310,6 +351,38 @@ for (const driver of DRIVERS) {
     const ids = (await store.listLiveItems()).map((r) => r.external_id);
     assert.deepEqual(ids, ["COMMITTED"], "a rejected transaction persists nothing");
     await store.close();
+  });
+
+  t("the writer lease is exclusive across handles to the same store", async () => {
+    // #164: "exactly one sync writer" as a per-driver obligation, not a
+    // deployment convention. Try-lock semantics: a refused acquire returns
+    // false immediately (the caller skips its run), never blocks.
+    const { a, b, cleanup } = await driver.openShared();
+    try {
+      assert.equal(await a.acquireWriterLease(), true, "the first handle takes the lease");
+      assert.equal(await a.acquireWriterLease(), true, "re-acquiring on the holder is idempotent");
+      assert.equal(await b.acquireWriterLease(), false, "a second handle is refused while the lease is held");
+      await a.releaseWriterLease();
+      assert.equal(await b.acquireWriterLease(), true, "an explicit release frees the lease");
+      await b.releaseWriterLease();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  t("close() releases a held writer lease", async () => {
+    // A holder that goes away cleanly must free the lease; a crashed holder is
+    // freed by the engine/OS (session/file locks die with their owner), which
+    // the pg live e2e exercises — this case covers the clean path portably.
+    const { a, b, cleanup } = await driver.openShared();
+    try {
+      assert.equal(await a.acquireWriterLease(), true);
+      await a.close();
+      assert.equal(await b.acquireWriterLease(), true, "closing the holder frees the lease");
+      await b.releaseWriterLease();
+    } finally {
+      await cleanup();
+    }
   });
 
   t("concurrent transactions serialize instead of interleaving", async () => {

@@ -55,7 +55,9 @@ export interface SyncRequest {
 }
 
 // The JSON status the UI consumes for a run. `status` is "running" until the run
-// finishes, then the worst-of per-source outcome (ok | partial | error). While
+// finishes, then the worst-of per-source outcome (ok | partial | error), or
+// "skipped" when the run was refused the store's writer lease (#164) — another
+// live writer (e.g. a host-side sync against the daemon's store) held it. While
 // running, `sources` fills incrementally as each source finishes and
 // `active_source_id` names the source currently being fetched (null between
 // sources and on a finished run), so the UI can narrate per-source progress.
@@ -65,7 +67,7 @@ export interface RunStatus {
   mode: SyncMode;
   dry_run: boolean;
   source_scope: string | null;
-  status: "running" | "ok" | "partial" | "error";
+  status: "running" | "ok" | "partial" | "error" | "skipped";
   started_at: string;
   finished_at: string | null;
   emitted: boolean;
