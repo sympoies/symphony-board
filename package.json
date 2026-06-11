@@ -1,6 +1,6 @@
 {
   "name": "symphony-board",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Provider-agnostic work-item board: aggregate GitHub/GitLab issues & PR/MRs into SQLite and emit a versioned JSON contract.",
   "type": "module",
