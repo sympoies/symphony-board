@@ -1289,6 +1289,8 @@ export interface GraphNode {
   updated_at: string | null; // ISO; rendered (relative) on the node card
   untracked: boolean;
   accentColor?: string | null; // repo/source highlight, resolved + attached by the page (not buildGraph)
+  related?: RelationCount | null; // FULL relation count (chain-link chip) from the page's adjacency, attached by the page (not buildGraph)
+  relatedDrawn?: number; // distinct neighbours drawn in the CURRENT canvas view — the windowed overview may draw fewer than `related.total`
 }
 export interface GraphLink {
   id: string;
