@@ -834,6 +834,23 @@ try {
   await sleep(500);
   const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
   const deepLinkSearch = (await send("Runtime.evaluate", { expression: "document.querySelector('.search')?.value || ''", returnByValue: true })).result.value || "";
+  // A canvas node's title is a real anchor to the provider issue/PR page (not
+  // just the whole-node click handler): new tab + noopener, and `nodrag` so
+  // grabbing the title never starts a React Flow node drag.
+  const nodeTitleLink = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const t = document.querySelector('.react-flow__node .rf-node-title');
+      if (!t) return { found: false };
+      return {
+        found: true,
+        isAnchor: t.tagName === 'A',
+        href: t.getAttribute('href') || '',
+        newTab: t.getAttribute('target') === '_blank' && (t.getAttribute('rel') || '').includes('noopener'),
+        noDrag: t.classList.contains('nodrag'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
   const deepLinkGeometry = (await send("Runtime.evaluate", {
     expression: `(() => {
       const rects = (selector) => Array.from(document.querySelectorAll(selector)).map((el) => {
@@ -1080,6 +1097,11 @@ try {
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [deepLinkSearch === "", `deep link: the global search bar stays empty ("${deepLinkSearch}")`],
     [deepLinkRange.from !== "" && deepLinkRange.to !== "" && JSON.stringify(deepLinkRange.active) === JSON.stringify(["this week"]), `deep link: arrival keeps the default this week range (${deepLinkRange.from || "empty"} to ${deepLinkRange.to || "empty"})`],
+    // canvas node title = a real provider link (anchor, new tab, drag-safe)
+    [nodeTitleLink.found === true, "graph node: title element present on the focused canvas"],
+    [nodeTitleLink.isAnchor === true && /^https?:\/\//.test(nodeTitleLink.href), `graph node: title is a real link to the provider page (${nodeTitleLink.href || "none"})`],
+    [nodeTitleLink.newTab === true, "graph node: title link opens a new tab with noopener"],
+    [nodeTitleLink.noDrag === true, "graph node: title link opts out of node drag (nodrag)"],
     // manual sync control plane: Header affordance + running/done states
     [syncInitial.rendered === true, "sync: Header Sync action rendered when control is available"],
     [syncInitial.enabled === true, "sync: Sync action is enabled before a run"],
