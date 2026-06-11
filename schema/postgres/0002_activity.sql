@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS activity (
   target_kind        TEXT,
   target_source_id   TEXT,
   target_external_id TEXT,
-  target_iid         INTEGER,
+  -- BIGINT: gitlab.com target/event identifiers exceed 2^31 in the wild.
+  target_iid         BIGINT,
   title              TEXT,
   url                TEXT,
   actor              TEXT,

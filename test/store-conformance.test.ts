@@ -389,6 +389,20 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("provider numbers past 2^31 round-trip exactly (iid, target_iid)", async () => {
+    // Live-validation finding: gitlab.com emits event/iid values past int4
+    // (e.g. 3430406968). SQLite's INTEGER is 64-bit so it never noticed; a
+    // driver with 32-bit numeric columns corrupts or rejects real provider
+    // data, so 64-bit round-tripping is a conformance obligation.
+    const big = 3430406968;
+    const store = await fresh();
+    await store.upsertItem(fixtureItem({ externalId: "BIG_IID", iid: big }), "github/1", "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "BIG_TARGET", targetIid: big }), "2026-06-01T00:00:00Z");
+    assert.equal((await store.listLiveItems()).find((r) => r.external_id === "BIG_IID")?.iid, big);
+    assert.equal((await store.listActivities()).find((r) => r.external_id === "BIG_TARGET")?.target_iid, big);
+    await store.close();
+  });
+
   t("the writer lease is exclusive across handles to the same store", async () => {
     // #164: "exactly one sync writer" as a per-driver obligation, not a
     // deployment convention. Try-lock semantics: a refused acquire returns

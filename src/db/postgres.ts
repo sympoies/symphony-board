@@ -25,8 +25,12 @@
 //   the pool can never silently replace the session (and its lock) mid-run.
 //   The key is namespaced by current_schema() so independent stores in one
 //   database (the conformance suite) do not contend.
-// - COUNT(*)/sum results arrive as strings (int8); they are Number()ed at the
-//   edge. int4 columns (item_id, run_id, iid, demand) arrive as numbers.
+// - int8 is parsed to JS numbers globally (exact below 2^53 — provider ids and
+//   board-scale counts sit far under it): provider-derived columns (iid,
+//   demand, target_iid) are BIGINT because SQLite's INTEGER is 64-bit and
+//   gitlab.com already emits values past 2^31; COUNT(*) aggregates are int8
+//   too. The defensive Number() wraps at read sites stay (harmless either
+//   way).
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -79,6 +83,11 @@ export async function openPostgresStore(url: string, opts: PgOpenOptions = {}): 
   const schema = opts.schema?.trim();
   const common = {
     onnotice: () => {},
+    // Parse int8 (oid 20) to JS numbers: BIGINT columns and COUNT(*) results
+    // come back as numbers, like every other driver value. Exact below 2^53.
+    types: {
+      bigint: { to: 20, from: [20], serialize: (v: unknown) => String(v), parse: (v: string) => Number(v) },
+    },
     ...(schema ? { connection: { search_path: schema } } : {}),
   };
   // The store is a single-writer surface; a handful of connections covers the

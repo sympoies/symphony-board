@@ -4,8 +4,11 @@
 -- the Store interface (src/db/store.ts) is the contract, the DDL is driver-
 -- owned. Dialect differences, deliberately:
 --   * INTEGER PRIMARY KEY AUTOINCREMENT -> INTEGER GENERATED ALWAYS AS IDENTITY
---     (int4 — postgres.js returns int8 as strings, and board-scale row counts
---     never approach 2^31).
+--     (int4 — internal row ids at board scale never approach 2^31).
+--   * Provider-derived numbers (iid, demand, target_iid) are BIGINT: SQLite's
+--     INTEGER is 64-bit, and gitlab.com already emits event/iid values past
+--     2^31 (live-validation finding) — int4 here is a faithful-mirroring bug.
+--     The driver parses int8 to JS numbers (exact below 2^53).
 --   * Booleans are real BOOLEAN (SQLite stores INTEGER 0/1); the driver maps.
 --   * Timestamps stay ISO-8601 strings in TEXT columns, exactly like SQLite —
 --     occurred_at preserves the provider's original UTC offset, and the driver
@@ -65,7 +68,7 @@ CREATE TABLE IF NOT EXISTS item (
   external_id     TEXT NOT NULL,
   kind            TEXT NOT NULL,
   project_path    TEXT,
-  iid             INTEGER,
+  iid             BIGINT,
   url             TEXT,
   title           TEXT,
   state           TEXT NOT NULL,
@@ -81,7 +84,7 @@ CREATE TABLE IF NOT EXISTS item (
   ci_state        TEXT,
   merge_state     TEXT,
   milestone       TEXT,
-  demand          INTEGER,
+  demand          BIGINT,
   normalized_with TEXT,
   last_seen_at    TEXT NOT NULL,
   deleted_at      TEXT,
