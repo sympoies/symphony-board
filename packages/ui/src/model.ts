@@ -241,18 +241,20 @@ export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
   return ids;
 }
 
-// Shared quick-set presets for Board, Graph, Activity, and Repo Analytics.
-// `today` and `this-week` are calendar presets; the rest are rolling windows of
+// Shared quick-set presets for Board, Graph, Activity, and Repo Analytics, in
+// two groups the picker renders separately: `calendar` presets snap to local
+// day/week boundaries (Monday weeks), while `rolling` presets are windows of
 // exactly `days` calendar days ending today (inclusive) — e.g. `1w` = 7 days.
 export const TIME_RANGE_PRESETS = [
-  { id: "today", label: "today", kind: "today" },
-  { id: "this-week", label: "this week", kind: "this-week" },
-  { id: "1w", label: "1w", kind: "rolling", days: 7 },
-  { id: "2w", label: "2w", kind: "rolling", days: 14 },
-  { id: "1mo", label: "1mo", kind: "rolling", days: 30 },
-  { id: "3mo", label: "3mo", kind: "rolling", days: 90 },
-  { id: "6mo", label: "6mo", kind: "rolling", days: 180 },
-  { id: "1y", label: "1y", kind: "rolling", days: 365 },
+  { id: "today", label: "today", kind: "today", group: "calendar" },
+  { id: "yesterday", label: "yesterday", kind: "yesterday", group: "calendar" },
+  { id: "this-week", label: "this week", kind: "this-week", group: "calendar" },
+  { id: "last-week", label: "last week", kind: "last-week", group: "calendar" },
+  { id: "1w", label: "1w", kind: "rolling", days: 7, group: "rolling" },
+  { id: "1mo", label: "1mo", kind: "rolling", days: 30, group: "rolling" },
+  { id: "3mo", label: "3mo", kind: "rolling", days: 90, group: "rolling" },
+  { id: "6mo", label: "6mo", kind: "rolling", days: 180, group: "rolling" },
+  { id: "1y", label: "1y", kind: "rolling", days: 365, group: "rolling" },
 ] as const;
 export type TimeRangePresetId = (typeof TIME_RANGE_PRESETS)[number]["id"];
 export const DEFAULT_TIME_RANGE_PRESET_ID: TimeRangePresetId = "this-week";
@@ -277,10 +279,20 @@ export function timeRangeForPreset(presetId: TimeRangePresetId, now: number, tz:
   const preset = TIME_RANGE_PRESETS.find((candidate) => candidate.id === presetId);
   if (!preset) return timeRangeForPreset(DEFAULT_TIME_RANGE_PRESET_ID, now, tz);
   if (preset.kind === "today") return { from: to, to };
+  if (preset.kind === "yesterday") {
+    // The most recent complete local day.
+    const yesterday = shiftDateOnly(to, -1);
+    return { from: yesterday, to: yesterday };
+  }
   if (preset.kind === "this-week") {
     // Monday of the local week: walk back from today's local weekday.
     const daysSinceMonday = (zonedWeekday(now, tz) + 6) % 7;
     return { from: shiftDateOnly(to, -daysSinceMonday), to };
+  }
+  if (preset.kind === "last-week") {
+    // The most recent complete Monday..Sunday local week.
+    const daysSinceMonday = (zonedWeekday(now, tz) + 6) % 7;
+    return { from: shiftDateOnly(to, -(daysSinceMonday + 7)), to: shiftDateOnly(to, -(daysSinceMonday + 1)) };
   }
   // Rolling window: exactly `days` calendar days ending today (inclusive), so
   // `1w` spans 7 local days (today and the 6 before it), not 8.

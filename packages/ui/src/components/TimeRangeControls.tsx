@@ -22,6 +22,17 @@ export function TimeRangeControls({
   const activePresetId = activeTimeRangePresetId(range, generatedAtMs, preferredPresetId, timezone);
   const setFrom = (from: string) => onRange({ ...range, from }, null);
   const setTo = (to: string) => onRange({ ...range, to }, null);
+  const presetButtons = (group: "calendar" | "rolling") =>
+    presetOptions
+      .filter(({ option }) => option.group === group)
+      .map(({ option, range: preset }) => {
+        const active = option.id === activePresetId;
+        return (
+          <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset, option.id)}>
+            {option.label}
+          </button>
+        );
+      });
   return (
     <div className="time-range-controls">
       <span className="muted">range</span>
@@ -33,14 +44,9 @@ export function TimeRangeControls({
       </label>
       <div className="toggle-group">
         <span className="toggle-label">quick</span>
-        {presetOptions.map(({ option, range: preset }) => {
-          const active = option.id === activePresetId;
-          return (
-            <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset, option.id)}>
-              {option.label}
-            </button>
-          );
-        })}
+        {presetButtons("calendar")}
+        <span className="toggle-separator" aria-hidden="true" />
+        {presetButtons("rolling")}
       </div>
       {loading ? <span className="muted">loading range...</span> : null}
       {error ? <span className="range-error">{error}</span> : null}
