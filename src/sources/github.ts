@@ -320,34 +320,35 @@ export class GitHubSource implements Source {
 
     // Push/branch events come first: besides being activity records themselves,
     // they are the discovery surface for the side-branch commit expansion below.
+    //
+    // The repository-activity endpoint is cursor-paginated through the Link
+    // header and silently ignores `page` (and an id passed as `before`), so
+    // without header access one sweep can only read the newest 100 events. The
+    // incremental cadence keeps steady-state coverage complete; a fresh-DB full
+    // sweep backfills at most this one page of push history. `year` is still
+    // the widest window the API offers, so the full sweep asks for it.
     const pushEvents: any[] = [];
-    for (let page = 1; page <= MAX_REST_PAGES; page++) {
-      // `year` is the widest window the activity API offers (time_period has no
-      // larger value), so a full sweep — the fresh-DB rebuild path — backfills
-      // as much push/branch history as the provider will give. Incremental
-      // sweeps stay narrow: the watermark already bounds what is new.
-      const repoActivity = await this.rest<any[]>(`repos/${owner}/${name}/activity`, {
-        per_page: 100,
-        page,
-        time_period: since ? "month" : "year",
+    const repoActivity = await this.rest<any[]>(`repos/${owner}/${name}/activity`, {
+      per_page: 100,
+      time_period: since ? "month" : "year",
+    });
+    for (const event of repoActivity ?? []) {
+      // Real events carry `timestamp` / `activity_type` / `actor`; the
+      // `pushed_at` / `push_type` fallbacks keep legacy fixtures replayable.
+      const occurred = event?.timestamp ?? event?.pushed_at ?? null;
+      if (!occurred) continue;
+      pushEvents.push(event);
+      if (!latest || occurred > latest) latest = occurred;
+      const payload = { __activityKind: "github_repo_activity", project, event };
+      const payloadJson = JSON.stringify(payload);
+      records.push({
+        entityKind: "activity",
+        externalId: stableActivityId(["repo-activity", project, event.activity_type ?? event.push_type, event.ref, event.before, event.after, occurred]),
+        apiVersion: `${API_VERSION}.rest`,
+        fetchedAt: now,
+        payload,
+        contentHash: hash(payloadJson),
       });
-      for (const event of repoActivity ?? []) {
-        const occurred = event?.pushed_at ?? null;
-        if (!occurred) continue;
-        pushEvents.push(event);
-        if (!latest || occurred > latest) latest = occurred;
-        const payload = { __activityKind: "github_repo_activity", project, event };
-        const payloadJson = JSON.stringify(payload);
-        records.push({
-          entityKind: "activity",
-          externalId: stableActivityId(["repo-activity", project, event.push_type, event.ref, event.before, event.after, occurred]),
-          apiVersion: `${API_VERSION}.rest`,
-          fetchedAt: now,
-          payload,
-          contentHash: hash(payloadJson),
-        });
-      }
-      if ((repoActivity ?? []).length < 100) break;
     }
 
     // One entry per sha; a commit seen on several branch feeds unions its
@@ -429,9 +430,9 @@ export class GitHubSource implements Source {
       if (!ref.startsWith("refs/heads/")) continue;
       const branch = ref.slice("refs/heads/".length);
       if (!branch || branch === defaultBranch) continue;
-      const at = String(event?.pushed_at ?? "");
+      const at = String(event?.timestamp ?? event?.pushed_at ?? "");
       const prev = latestPush.get(branch);
-      if (!prev || at > prev.at) latestPush.set(branch, { at, deleted: String(event?.push_type ?? "") === "branch_deletion" });
+      if (!prev || at > prev.at) latestPush.set(branch, { at, deleted: String(event?.activity_type ?? event?.push_type ?? "") === "branch_deletion" });
     }
     return [...latestPush.entries()]
       .filter(([, v]) => !v.deleted && (!since || v.at >= since))
@@ -489,10 +490,14 @@ export class GitHubSource implements Source {
     }
     if (kind === "github_repo_activity") {
       const event = p.event ?? {};
-      const occurredAt = event.pushed_at;
+      // Real repository-activity events carry `timestamp` / `activity_type` /
+      // `actor`; the `pushed_at` / `push_type` / `pusher` fallbacks keep legacy
+      // fixtures and any payload stored in that shape replayable.
+      const occurredAt = event.timestamp ?? event.pushed_at;
       if (!occurredAt) return null;
       const ref = String(event.ref ?? "");
-      const pushType = String(event.push_type ?? "push");
+      const pushType = String(event.activity_type ?? event.push_type ?? "push");
+      const actorLogin = event.actor?.login ?? event.pusher?.login ?? null;
       const targetKind = ref.startsWith("refs/tags/") ? "tag" : ref.startsWith("refs/heads/") ? "branch" : "ref";
       const action = mapRepoActivityAction(pushType);
       const projectPath = p.project ?? null;
@@ -507,8 +512,8 @@ export class GitHubSource implements Source {
         targetIid: null,
         title: shortRef(ref) ?? ref,
         url: providerPushUrl(this.descriptor, projectPath, action, ref, event.before, event.after),
-        actor: event.pusher?.login ?? null,
-        actorKey: deriveActorKey({ sourceId: this.descriptor.sourceId, username: event.pusher?.login ?? null }),
+        actor: actorLogin,
+        actorKey: deriveActorKey({ sourceId: this.descriptor.sourceId, username: actorLogin }),
         occurredAt,
         summary: repoActivitySummary(action, ref, projectPath),
         details: {
