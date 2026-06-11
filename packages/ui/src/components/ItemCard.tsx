@@ -84,6 +84,7 @@ export function ItemCard({
   sourceKind,
   accentColor,
   related,
+  graphLink,
 }: {
   item: ItemDTO;
   anchorId?: string;
@@ -92,11 +93,15 @@ export function ItemCard({
   // gets a colored left bar (a ::before, so it survives hover/active/:target,
   // which take the border-color channel). null/undefined -> no bar.
   accentColor?: string | null;
-  // Present when this item is an endpoint of at least one edge (App derives it
-  // from the visible edge set via relationCounts). Drives BOTH relation
-  // affordances: the meta row's link-icon count (with a per-type tooltip) and
-  // the "focus in graph" link — an item with no edge has no node to focus.
+  // Present when this item is an endpoint of at least one edge (derived from
+  // the caller's edge set via relationCounts / relationCountOf). Renders the
+  // meta row's link-icon count with a per-type tooltip; the board AND the graph
+  // side list both pass it, so the two surfaces always show the same number.
   related?: RelationCount | null;
+  // True to ALSO render the "focus in graph" head link for related items — the
+  // board sets it; the graph side list doesn't (you are already on the graph,
+  // and the card body itself is the focus target there).
+  graphLink?: boolean;
 }) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
@@ -111,12 +116,11 @@ export function ItemCard({
         </span>
         <Badge text={item.state} kind={item.state} />
         {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        {/* Focus-in-graph link. Only rendered when `related` is passed — the
-            board sets it for edge-endpoint items; the graph side list renders
-            ItemCard WITHOUT it (you are already on the graph). stopPropagation so
-            that if the card is ever wrapped in a click target it opens the graph
-            without also triggering the wrapper, matching the card title below. */}
-        {related ? (
+        {/* Focus-in-graph link: edge-endpoint items on surfaces that opted in
+            via `graphLink` (the board). stopPropagation so that if the card is
+            ever wrapped in a click target it opens the graph without also
+            triggering the wrapper, matching the card title below. */}
+        {related && graphLink ? (
           <a
             className="card-graph"
             href={graphFocusHref(item)}

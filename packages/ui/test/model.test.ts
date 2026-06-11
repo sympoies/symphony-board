@@ -71,6 +71,7 @@ import {
   graphFocusHref,
   applyRouteSearch,
   relationCounts,
+  relationCountOf,
   graphWindowEdgesInRange,
   isSyncRunActive,
   syncProducedFreshData,
@@ -1192,6 +1193,26 @@ test("relationCounts: one count per distinct neighbour, strongest type wins (boa
   // keys are exactly the edge-endpoint set ("any edge -> a node"), so map
   // membership also gates the card's focus-in-graph link.
   assert.deepEqual([...counts.keys()].sort(), ["s|A", "s|B", "s|C", "s|UNTRACKED"]);
+});
+
+test("relationCountOf summarises one item's adjacency refs (graph side-list count)", () => {
+  assert.equal(relationCountOf([]), null, "no refs -> null (no chip)");
+  // the same collapse as relationCounts, but fed from buildAdjacency's
+  // per-direction RelatedRef list: B via closes+mentions is ONE neighbour
+  // (closes wins), C's reciprocal mentions are ONE neighbour.
+  const count = relationCountOf([
+    { ref: "s|B", type: "closes", direction: "out" },
+    { ref: "s|B", type: "mentions", direction: "out" },
+    { ref: "s|C", type: "mentions", direction: "out" },
+    { ref: "s|C", type: "mentions", direction: "in" },
+  ]);
+  assert.deepEqual(count, {
+    total: 2,
+    byType: [
+      { type: "closes", count: 1 },
+      { type: "mentions", count: 1 },
+    ],
+  });
 });
 
 // --- manual sync control plane helpers ---

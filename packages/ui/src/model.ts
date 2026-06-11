@@ -235,16 +235,26 @@ export interface RelationCount {
 export function relationCounts(edges: EdgeDTO[]): Map<string, RelationCount> {
   const out = new Map<string, RelationCount>();
   for (const [id, refs] of dtoAdjacency(edges)) {
-    const byType = new Map<string, number>();
-    for (const r of relatedItems(refs)) byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
-    out.set(id, {
-      total: [...byType.values()].reduce((n, c) => n + c, 0),
-      byType: [...byType.entries()]
-        .map(([type, count]) => ({ type, count }))
-        .sort((a, b) => relationRank(a.type) - relationRank(b.type) || a.type.localeCompare(b.type)),
-    });
+    const count = relationCountOf(refs);
+    if (count) out.set(id, count);
   }
   return out;
+}
+
+// The same summary for ONE item, fed from an already-built adjacency list — the
+// graph side list reuses its page-level buildAdjacency() result instead of
+// re-walking the edge set per card. null for an empty list (no chip); ids that
+// came out of dtoAdjacency always have at least one ref.
+export function relationCountOf(refs: RelatedRef[]): RelationCount | null {
+  if (refs.length === 0) return null;
+  const byType = new Map<string, number>();
+  for (const r of relatedItems(refs)) byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
+  return {
+    total: [...byType.values()].reduce((n, c) => n + c, 0),
+    byType: [...byType.entries()]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => relationRank(a.type) - relationRank(b.type) || a.type.localeCompare(b.type)),
+  };
 }
 
 // Shared quick-set presets for Board, Graph, Activity, and Repo Analytics, in
