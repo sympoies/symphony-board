@@ -369,6 +369,19 @@ export function App() {
   }, [visibleEnv, filters]);
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
+
+  // Graph FOCUS edges: like filteredEdges (visibility + facets), but always from
+  // the FULL contract payload. With a custom range active, the content pipeline
+  // runs off the range-projected contract whose edges are windowed server-side
+  // ("edges touch the primary item window") — fine for the overview, but a focus
+  // view exists to show ONE item's complete neighbourhood, so it must not lose
+  // relations to the range projection. Same reference as filteredEdges when no
+  // range payload is active (no duplicated work).
+  const graphFocusEdges = useMemo(() => {
+    if (!needsRangeEnv || !env) return filteredEdges;
+    const fullVisible = applyVisibility(env, hidden, hiddenSources);
+    return resolveEdges(fullVisible, indexItems(fullVisible)).filter((re) => edgeMatches(re, filters));
+  }, [needsRangeEnv, env, hidden, hiddenSources, filters, filteredEdges]);
   const canUseContractAggregates =
     hidden.size === 0 &&
     hiddenSources.size === 0 &&
@@ -666,6 +679,10 @@ export function App() {
             preferredPresetId={explicitRange ? route.preset : defaultRangePreset}
             loading={rangeLoading}
             error={rangeError}
+            // A focused graph item shows its FULL neighbourhood (no time window),
+            // so the range is visibly suspended there — selection kept, dimmed,
+            // interaction off. Route-backed (?focus=), so reload/back agree.
+            suspended={page === "graph" && route.focus != null}
             onRange={setRouteRange}
           />
         </>
@@ -744,6 +761,7 @@ export function App() {
               cannot exist) and layout/mention toggles survive focus hops. */}
           <GraphPage
             edges={filteredEdges}
+            focusEdges={graphFocusEdges}
             sourceKind={sourceKind}
             colorOf={colorOf}
             focusRef={route.focus}

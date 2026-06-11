@@ -631,6 +631,7 @@ function GraphSideList({
 
 export function GraphPage({
   edges,
+  focusEdges,
   sourceKind,
   colorOf,
   focusRef,
@@ -641,6 +642,13 @@ export function GraphPage({
   timezone,
 }: {
   edges: ResolvedEdge[];
+  // The FOCUS-path edge set: same visibility + facet filters as `edges`, but
+  // always from the full contract payload — with a custom range active, `edges`
+  // comes from the range-projected contract whose edge set is windowed
+  // server-side, and a focus view must show an item's COMPLETE neighbourhood
+  // regardless of the selected range (the range controls render suspended in
+  // focus). Same reference as `edges` when no range payload is active.
+  focusEdges: ResolvedEdge[];
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   // The focused item ref, owned by the ROUTE ("?focus="): a deep-link sets it,
@@ -677,18 +685,19 @@ export function GraphPage({
   const graphEdges = useMemo(() => graphWindowEdgesInRange(graphInputEdges, range, timezone), [graphInputEdges, range, timezone]);
   const graph = useMemo(() => buildGraph(graphEdges), [graphEdges]);
 
-  // Side-list derivations over the FULL edge set (not the time-windowed graph):
-  // every resolvable item (so the focus view can surface relations the window
-  // hides), the adjacency map, and the set of refs currently on the graph.
+  // Side-list derivations over the FOCUS edge set — full payload, no time
+  // window: every resolvable item (so the focus view can surface relations the
+  // window OR the range projection hides), the adjacency map, and the set of
+  // refs currently on the graph.
   const itemsByRef = useMemo(() => {
     const m = new Map<string, ItemDTO>();
-    for (const re of edges) {
+    for (const re of focusEdges) {
       if (re.from) m.set(re.edge.from, re.from);
       if (re.to) m.set(re.edge.to, re.to);
     }
     return m;
-  }, [edges]);
-  const adjacency = useMemo(() => buildAdjacency(edges), [edges]);
+  }, [focusEdges]);
+  const adjacency = useMemo(() => buildAdjacency(focusEdges), [focusEdges]);
   const windowedIds = useMemo(() => new Set(graph.nodes.map((n) => n.id)), [graph]);
 
   // Drop focus when the windowed graph's MEMBERSHIP changes (the "active since" /
@@ -709,15 +718,16 @@ export function GraphPage({
   }, [windowedIds, onFocusChange]);
 
   // When an item is focused, the canvas shows that item's FULL relationship
-  // neighbourhood (focusSubgraph, built from the raw edges — all edge types, no
-  // overview range filter) instead of the windowed overview graph, so every relationship
-  // the side list lists is drawn (incl. mentions, regardless of the toggle).
+  // neighbourhood (focusSubgraph over focusEdges — all edge types, no overview
+  // range filter, full payload) instead of the windowed overview graph, so every
+  // relationship the side list lists is drawn (incl. mentions, regardless of the
+  // toggle). The time-range controls render suspended while this view is active.
   // Falls back to the full graph if the focus has no edges (nothing to render).
   const view = useMemo<GraphData>(() => {
     if (!focusId) return graph;
-    const sub = focusSubgraph(edges, focusId);
+    const sub = focusSubgraph(focusEdges, focusId);
     return sub.nodes.length ? sub : graph;
-  }, [edges, focusId, graph]);
+  }, [focusEdges, focusId, graph]);
   // True when the canvas is showing a focus subgraph (not the full overview). In
   // focus there is no clutter to fight, so edges — mentions especially — are
   // drawn at full strength rather than the overview's de-emphasised styling.

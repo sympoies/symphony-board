@@ -7,6 +7,7 @@ export function TimeRangeControls({
   preferredPresetId,
   loading,
   error,
+  suspended,
   onRange,
 }: {
   range: TimeRange;
@@ -15,6 +16,12 @@ export function TimeRangeControls({
   preferredPresetId?: TimeRangePresetId | null;
   loading?: boolean;
   error?: string | null;
+  // True while the current view ignores the time range (the graph's focus view
+  // shows an item's FULL neighbourhood). The selection is KEPT — the active
+  // preset stays highlighted — but the whole control dims and interaction is
+  // disabled, so the user sees their range is remembered yet not in effect.
+  // Clearing focus flips this back without losing the selection.
+  suspended?: boolean;
   onRange: (range: TimeRange, presetId?: TimeRangePresetId | null) => void;
 }) {
   const generatedAtMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
@@ -28,19 +35,22 @@ export function TimeRangeControls({
       .map(({ option, range: preset }) => {
         const active = option.id === activePresetId;
         return (
-          <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} onClick={() => onRange(preset, option.id)}>
+          <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} disabled={suspended} onClick={() => onRange(preset, option.id)}>
             {option.label}
           </button>
         );
       });
   return (
-    <div className="time-range-controls">
+    <div
+      className={`time-range-controls${suspended ? " range-suspended" : ""}`}
+      title={suspended ? "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable." : undefined}
+    >
       <span className="muted">range</span>
       <label className="date-filter">
-        from <input type="date" value={range.from} max={range.to} onChange={(e) => setFrom(e.target.value)} />
+        from <input type="date" value={range.from} max={range.to} disabled={suspended} onChange={(e) => setFrom(e.target.value)} />
       </label>
       <label className="date-filter">
-        to <input type="date" value={range.to} min={range.from} onChange={(e) => setTo(e.target.value)} />
+        to <input type="date" value={range.to} min={range.from} disabled={suspended} onChange={(e) => setTo(e.target.value)} />
       </label>
       <div className="toggle-group">
         <span className="toggle-label">quick</span>
@@ -48,6 +58,7 @@ export function TimeRangeControls({
         <span className="toggle-separator" aria-hidden="true" />
         {presetButtons("rolling")}
       </div>
+      {suspended ? <span className="muted">not applied in focus</span> : null}
       {loading ? <span className="muted">loading range...</span> : null}
       {error ? <span className="range-error">{error}</span> : null}
     </div>
