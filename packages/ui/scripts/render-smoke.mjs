@@ -822,10 +822,11 @@ try {
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
   // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
-  // the graph ALREADY in that item's focus view (not the plain list) AND seeds the
-  // search bar with the item's "repo #iid" token so the canvas narrows to it. Back
-  // on the board, confirm the affordance renders, click it, then confirm the focus
-  // view (back button) + canvas mounted and the search box got the seed token.
+  // the graph ALREADY in that item's focus view (not the plain list); the canvas
+  // shows the focus subgraph, so the global search bar stays EMPTY (it is a
+  // cross-tab filter, not a navigation channel). Back on the board, confirm the
+  // affordance renders, click it, then confirm the focus view (back button) +
+  // canvas mounted, the search box untouched, and the default range kept.
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
@@ -860,18 +861,13 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  const clearedDeepLink = (await send("Runtime.evaluate", {
+  const deepLinkRange = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const search = document.querySelector('.search');
-      if (!search) return { search: null, from: null, to: null, active: null };
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, '');
-      search.dispatchEvent(new Event('input', { bubbles: true }));
-      search.dispatchEvent(new Event('change', { bubbles: true }));
       const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls input[type="date"]'));
       const active = Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
         .map((el) => el.textContent?.trim())
         .filter(Boolean);
-      return { search: search.value, from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', active };
+      return { from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', active };
     })()`,
     returnByValue: true,
   })).result.value || {};
@@ -1082,8 +1078,8 @@ try {
     [deepLinkGeometry.labelCount >= 1, `deep link: relationship labels measured (${deepLinkGeometry.labelCount || 0} >= 1)`],
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
-    [/ #\d+$/.test(deepLinkSearch), `deep link: search bar seeded with the "repo #iid" token ("${deepLinkSearch}")`],
-    [clearedDeepLink.search === "" && clearedDeepLink.from !== "" && clearedDeepLink.to !== "" && JSON.stringify(clearedDeepLink.active) === JSON.stringify(["this week"]), `deep link: clearing search keeps the default this week range (${clearedDeepLink.from || "empty"} to ${clearedDeepLink.to || "empty"})`],
+    [deepLinkSearch === "", `deep link: the global search bar stays empty ("${deepLinkSearch}")`],
+    [deepLinkRange.from !== "" && deepLinkRange.to !== "" && JSON.stringify(deepLinkRange.active) === JSON.stringify(["this week"]), `deep link: arrival keeps the default this week range (${deepLinkRange.from || "empty"} to ${deepLinkRange.to || "empty"})`],
     // manual sync control plane: Header affordance + running/done states
     [syncInitial.rendered === true, "sync: Header Sync action rendered when control is available"],
     [syncInitial.enabled === true, "sync: Sync action is enabled before a run"],

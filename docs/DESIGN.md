@@ -349,7 +349,9 @@ Pages:
   returned window.
 - **Graph**: relationship view built from edge-connected items. It supports an
   shared date range, mention toggles, side-list search, focus subgraphs, and
-  board-card deep-links like `#/graph?focus=<ref>&q=<repo #iid>`. Graph overview
+  board-card deep-links like `#/graph?focus=<ref>` (the `focus` ref alone drives
+  the side-list focus view and the focus subgraph; the global search bar is a
+  cross-tab filter and is never seeded by navigation). Graph overview
   summary stats are scoped to the rendered overview graph after the range,
   mention controls, search, and facets. Focus view uses a separate `focus`
   summary for the focused subgraph instead of reusing overview totals. Contract

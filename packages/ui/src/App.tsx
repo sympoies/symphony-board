@@ -727,7 +727,6 @@ export function App() {
             sourceKind={sourceKind}
             colorOf={colorOf}
             focusRef={route.focus}
-            narrowed={filters.search.trim() !== ""}
             aggregates={compatibleAggregates}
             itemWindow={contentEnv.item_window}
             range={activeRange}
