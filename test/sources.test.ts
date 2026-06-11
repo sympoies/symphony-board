@@ -283,6 +283,37 @@ test("a side branch deleted before its compare is skipped without failing the sw
   assert.deepEqual(commits.map((a) => (a.details as any).sha), ["aaa111"], "the default feed still lands");
 });
 
+test("a pre-expansion GitHub commit payload (defaultBranch, no branches) replays unchanged", () => {
+  // Stored raw is immutable history: payloads written before the multi-branch
+  // expansion only carry `defaultBranch`, and normalize must keep emitting the
+  // exact pre-expansion details shape for them.
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "activity",
+    externalId: "commit:o%2Fr:0ddba11",
+    apiVersion: "github.graphql.v4.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "github_commit",
+      project: "o/r",
+      defaultBranch: "main",
+      commit: {
+        sha: "0ddba11",
+        html_url: "https://github.com/o/r/commit/0ddba11",
+        commit: { message: "Old shape", author: { name: "A", date: "2026-06-09T10:00:00Z" }, committer: { name: "A", date: "2026-06-09T10:00:00Z" } },
+        author: { login: "octocat" },
+      },
+    },
+  };
+  assert.deepEqual(src.normalize(raw)!.activities[0]!.details, {
+    sha: "0ddba11",
+    message: "Old shape",
+    branch: "main",
+    ref: "refs/heads/main",
+  });
+});
+
 test("commit_branches=default keeps the commit feed on the default branch only", async () => {
   const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
@@ -757,6 +788,37 @@ test("GitLab fetch expands live side branches via compare and labels their commi
   assert.deepEqual(main.details, {
     sha: "cafebabefeed",
     message: "On main",
+    branch: "main",
+    ref: "refs/heads/main",
+  });
+});
+
+test("a pre-expansion GitLab commit payload (defaultBranch, no branches) replays unchanged", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "activity",
+    externalId: "commit:g%2Fp:0ddba11",
+    apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_commit",
+      project: "g/p",
+      defaultBranch: "main",
+      commit: {
+        id: "0ddba11",
+        title: "Old shape",
+        message: "Old shape",
+        web_url: "https://gitlab.com/g/p/-/commit/0ddba11",
+        committed_date: "2026-06-09T10:00:00Z",
+        author_name: "GitLab Dev",
+        author_email: "gitlab@example.com",
+      },
+    },
+  };
+  assert.deepEqual(src.normalize(raw)!.activities[0]!.details, {
+    sha: "0ddba11",
+    message: "Old shape",
     branch: "main",
     ref: "refs/heads/main",
   });
