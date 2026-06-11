@@ -133,7 +133,20 @@ function ItemNode({ data }: NodeProps) {
         <span className="kind">{KIND_ICON[d.kind] ?? "•"}</span>
         <Badge text={d.state} kind={d.state} />
       </div>
-      <div className="rf-node-title">{d.label}</div>
+      {/* The title is a real anchor to the provider page when the item has a
+          URL — visible link affordance, cmd/middle-click, hover URL preview —
+          unlike the whole-node onNodeClick, whose click is swallowed by a few
+          px of mouse drift (React Flow's drag threshold). `nodrag` keeps the
+          anchor from starting a node drag; stopPropagation keeps onNodeClick
+          (also an open) from double-firing. Untracked nodes have no URL and
+          keep the plain text title. */}
+      {d.url ? (
+        <a className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+          {d.label}
+        </a>
+      ) : (
+        <div className="rf-node-title">{d.label}</div>
+      )}
       <div className="rf-node-repo muted">
         {d.repo ?? "untracked"}
         {d.iid != null ? ` #${d.iid}` : ""}
