@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.2.0`.
+Current emitted version: `3.2.1`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "3.2.0",
+  "contract_version": "3.2.1",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/1.0.1",
   "sources": [
@@ -309,13 +309,24 @@ Important fields:
   fallback commit destinations.
 - `details`: provider-specific JSON object for debugging and later consumers.
   Commit rows may include `details.sha`, subject `details.message`, optional
-  `details.body`, and optional `details.branch` / `details.ref` when the source
-  can associate the commit feed with a branch. `refs` / `branches` remain
-  optional richer multi-ref details for future producers or fixtures.
+  `details.body`, and optional `details.branch` / `details.ref` carrying the
+  commit's primary branch (the default branch whenever the commit is on it). A
+  commit reachable from more than one branch also carries the full membership
+  as `details.branches` / `details.refs` (default branch first, side branches
+  alphabetical).
 
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for commits and repository/project
-events.
+events. The commit feed covers the default branch plus live side branches: push
+events discover branches with new activity, each contributes its branch-unique
+commits (a compare against the default branch), and the feeds merge per sha into
+a single activity row.
+
+Version `3.2.1` is a clarification release for the above: producers now fill
+the previously reserved `details.branches` / `details.refs` membership lists,
+and `details.branch` / `details.ref` are documented as the commit's primary
+branch rather than always the default branch. `details` was already an open
+object and the keys were already optional, so the row shape is unchanged.
 
 There is no separate `target_url` field. Consumers should use `activities[].url`
 as the row's provider destination and treat `null` as intentionally unlinked.

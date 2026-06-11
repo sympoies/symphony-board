@@ -20,11 +20,11 @@ export function buildSource(cfg: SourceConfig, token: string): Source {
   switch (cfg.kind) {
     case "github": {
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), token, "github");
-      return new GitHubSource(descriptor, gql, paths, rest);
+      return new GitHubSource(descriptor, gql, paths, rest, { commitBranches: cfg.commit_branches });
     }
     case "gitlab": {
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), token, "gitlab");
-      return new GitLabSource(descriptor, gql, paths, rest);
+      return new GitLabSource(descriptor, gql, paths, rest, { commitBranches: cfg.commit_branches });
     }
     default:
       throw new Error(`unknown source kind "${cfg.kind}" for ${cfg.source_id}`);

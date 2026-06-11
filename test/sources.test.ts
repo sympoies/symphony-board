@@ -146,6 +146,161 @@ test("a full sweep backfills a year of repo activity and pages deep enough for i
   assert.equal(calls.filter((c) => c.path === "repos/o/r/activity").length, 20, "push activity pages to 2000 per project");
 });
 
+// --- multi-branch commit expansion (side branches via push events + compare) --
+
+// Shared fixtures for the GitHub expansion tests: one commit that lives on the
+// default feed and one that only exists on side branches.
+const ghMainCommit = {
+  sha: "aaa111",
+  html_url: "https://github.com/o/r/commit/aaa111",
+  commit: {
+    message: "On main",
+    author: { name: "A", email: "octo@example.com", date: "2026-06-09T10:00:00Z" },
+    committer: { name: "A", date: "2026-06-09T10:00:00Z" },
+  },
+  author: { login: "octocat" },
+};
+const ghSideCommit = {
+  sha: "bbb222",
+  html_url: "https://github.com/o/r/commit/bbb222",
+  commit: {
+    message: "On branches",
+    author: { name: "A", email: "octo@example.com", date: "2026-06-09T11:30:00Z" },
+    committer: { name: "A", date: "2026-06-09T11:30:00Z" },
+  },
+  author: { login: "octocat" },
+};
+const ghPush = (ref: string, pushedAt: string, pushType = "normal") => ({
+  push_type: pushType,
+  ref,
+  before: "1111111",
+  after: "2222222",
+  pushed_at: pushedAt,
+  pusher: { login: "octocat" },
+});
+
+test("GitHub fetch expands live side branches via compare and merges branch membership by sha", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [ghMainCommit] : []) as T;
+    if (path === "repos/o/r/activity") {
+      return (params?.page === 1
+        ? [
+            ghPush("refs/heads/main", "2026-06-09T10:00:01Z"), // default branch: never compared
+            ghPush("refs/heads/feature-x", "2026-06-09T11:31:00Z"), // live side branch
+            ghPush("refs/heads/feature/y", "2026-06-09T11:32:00Z"), // slash in the branch name
+            ghPush("refs/heads/stale", "2026-05-01T00:00:00Z"), // pushed before the watermark
+            ghPush("refs/heads/gone", "2026-06-09T11:33:00Z", "branch_deletion"), // deleted: skipped
+            ghPush("refs/tags/v1", "2026-06-09T11:34:00Z"), // tag: skipped
+          ]
+        : []) as T;
+    }
+    if (path === "repos/o/r/compare/main...feature-x") return { commits: [ghSideCommit] } as T;
+    // A side branch can also carry a commit the default feed already saw (e.g.
+    // a merge that landed mid-sweep) — membership must union, not duplicate.
+    if (path === "repos/o/r/compare/main...feature%2Fy") return { commits: [ghSideCommit, ghMainCommit] } as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+
+  const comparePaths = calls.filter((c) => c.path.startsWith("repos/o/r/compare/")).map((c) => c.path).sort();
+  assert.deepEqual(
+    comparePaths,
+    ["repos/o/r/compare/main...feature%2Fy", "repos/o/r/compare/main...feature-x"],
+    "only live side branches pushed since the watermark are compared",
+  );
+
+  const commits = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit");
+  assert.equal(commits.length, 2, "branch feeds merge by sha into one record per commit");
+
+  const main = commits.find((a) => (a.details as any).sha === "aaa111")!;
+  assert.deepEqual(main.details, {
+    sha: "aaa111",
+    message: "On main",
+    branch: "main",
+    ref: "refs/heads/main",
+    branches: ["main", "feature/y"],
+    refs: ["refs/heads/main", "refs/heads/feature/y"],
+  });
+
+  const side = commits.find((a) => (a.details as any).sha === "bbb222")!;
+  assert.deepEqual(side.details, {
+    sha: "bbb222",
+    message: "On branches",
+    branch: "feature-x",
+    ref: "refs/heads/feature-x",
+    branches: ["feature-x", "feature/y"],
+    refs: ["refs/heads/feature-x", "refs/heads/feature/y"],
+  });
+});
+
+test("a GitHub full sweep compares side branches from the whole activity window", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return [] as T;
+    if (path === "repos/o/r/activity") {
+      return (params?.page === 1 ? [ghPush("refs/heads/feature-x", "2025-09-01T00:00:00Z")] : []) as T;
+    }
+    if (path === "repos/o/r/compare/main...feature-x") return { commits: [ghSideCommit] } as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: true });
+  assert.ok(
+    calls.some((c) => c.path === "repos/o/r/compare/main...feature-x"),
+    "with no watermark, any branch pushed inside the activity window is compared",
+  );
+  const commit = res.records.filter((r) => r.entityKind === "activity").map((r) => src.normalize(r)!.activities[0]!).find((a) => a.kind === "commit")!;
+  assert.equal((commit.details as any).branch, "feature-x");
+});
+
+test("a side branch deleted before its compare is skipped without failing the sweep", async () => {
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [ghMainCommit] : []) as T;
+    if (path === "repos/o/r/activity") {
+      return (params?.page === 1 ? [ghPush("refs/heads/feature-x", "2026-06-09T11:31:00Z")] : []) as T;
+    }
+    if (path === "repos/o/r/compare/main...feature-x") throw new Error("REST HTTP 404: Not Found");
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true, "a vanished side branch is branch lifecycle, not an incomplete sweep");
+  const commits = res.records.filter((r) => r.entityKind === "activity").map((r) => src.normalize(r)!.activities[0]!).filter((a) => a.kind === "commit");
+  assert.deepEqual(commits.map((a) => (a.details as any).sha), ["aaa111"], "the default feed still lands");
+});
+
+test("commit_branches=default keeps the commit feed on the default branch only", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [ghMainCommit] : []) as T;
+    if (path === "repos/o/r/activity") {
+      return (params?.page === 1 ? [ghPush("refs/heads/feature-x", "2026-06-09T11:31:00Z")] : []) as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest, { commitBranches: "default" });
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+  assert.ok(!calls.some((c) => c.path.startsWith("repos/o/r/compare/")), "no compare calls in default-only mode");
+});
+
 test("GitHub commit with no linked account keys the actor by hashed email", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {
@@ -518,6 +673,86 @@ test("GitLab fetch and normalize includes commit body and default branch refs fr
     sha: "cafebabefeed",
     message: "Wire commit body",
     body: "Detailed body",
+    branch: "main",
+    ref: "refs/heads/main",
+  });
+});
+
+test("GitLab fetch expands live side branches via compare and labels their commits", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const glMainCommit = {
+    id: "cafebabefeed",
+    short_id: "cafebabe",
+    title: "On main",
+    message: "On main",
+    web_url: "https://gitlab.com/g/p/-/commit/cafebabefeed",
+    committed_date: "2026-06-09T10:00:00Z",
+    author_name: "GitLab Dev",
+    author_email: "gitlab@example.com",
+  };
+  const glSideCommit = {
+    id: "feedfacecafe",
+    short_id: "feedface",
+    title: "On a side branch",
+    message: "On a side branch",
+    web_url: "https://gitlab.com/g/p/-/commit/feedfacecafe",
+    committed_date: "2026-06-09T11:30:00Z",
+    author_name: "GitLab Dev",
+    author_email: "gitlab@example.com",
+  };
+  const glPushEvent = (id: number, createdAt: string, ref: string, refType: string, action: string) => ({
+    id,
+    action_name: action === "removed" ? "deleted" : "pushed to",
+    created_at: createdAt,
+    author_username: "gitlab-user",
+    push_data: { ref, ref_type: refType, action, commit_from: "aaaaaaaa", commit_to: "bbbbbbbb" },
+  });
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/repository/commits") return (params?.page === 1 ? [glMainCommit] : []) as T;
+    if (path === "projects/g%2Fp/events") {
+      return (params?.page === 1
+        ? [
+            glPushEvent(10, "2026-06-09T11:31:00Z", "feature-x", "branch", "pushed"), // live side branch
+            glPushEvent(11, "2026-06-09T11:32:00Z", "main", "branch", "pushed"), // default: never compared
+            glPushEvent(12, "2026-06-09T11:33:00Z", "gone", "branch", "removed"), // deleted: skipped
+            glPushEvent(13, "2026-06-09T11:34:00Z", "v1", "tag", "created"), // tag: skipped
+            glPushEvent(14, "2026-05-01T00:00:00Z", "stale", "branch", "pushed"), // before the watermark
+          ]
+        : []) as T;
+    }
+    if (path === "projects/g%2Fp/repository/compare") return { commits: [glSideCommit] } as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+
+  const compares = calls.filter((c) => c.path === "projects/g%2Fp/repository/compare");
+  assert.deepEqual(
+    compares.map((c) => ({ from: c.params?.from, to: c.params?.to })),
+    [{ from: "main", to: "feature-x" }],
+    "only the live side branch pushed since the watermark is compared",
+  );
+
+  const commits = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit");
+  assert.equal(commits.length, 2);
+  const side = commits.find((a) => (a.details as any).sha === "feedfacecafe")!;
+  assert.deepEqual(side.details, {
+    sha: "feedfacecafe",
+    message: "On a side branch",
+    branch: "feature-x",
+    ref: "refs/heads/feature-x",
+  });
+  const main = commits.find((a) => (a.details as any).sha === "cafebabefeed")!;
+  assert.deepEqual(main.details, {
+    sha: "cafebabefeed",
+    message: "On main",
     branch: "main",
     ref: "refs/heads/main",
   });

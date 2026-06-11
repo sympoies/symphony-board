@@ -4,7 +4,7 @@
 // and pr.closingIssuesReferences) so reconcileEdges converges them.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
+import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -31,6 +31,9 @@ const MAX_PAGES = 40; // safety cap (~2000 items/connection)
 // an active repo: nils-cli runs ~1006 commits / ~1600 push events per 365d,
 // which a 10-page (1000) cap truncated to ~7-8 months.
 const MAX_REST_PAGES = 20;
+// GitHub's compare API serves at most 250 commits for a base...head range, so
+// three 100-commit pages always cover everything the provider will return.
+const MAX_COMPARE_PAGES = 3;
 
 function mapState(s: string | null | undefined): ItemState {
   if (s === "OPEN") return "open";
@@ -100,12 +103,14 @@ export class GitHubSource implements Source {
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
+  private commitBranches: "all" | "default";
 
-  constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[], rest: RestClient | null = null) {
+  constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[], rest: RestClient | null = null, opts: SourceOptions = {}) {
     this.descriptor = descriptor;
     this.gql = gql;
     this.projects = projects;
     this.rest = rest;
+    this.commitBranches = opts.commitBranches ?? "all";
   }
 
   async fetch(opts: FetchOptions): Promise<FetchResult> {
@@ -313,30 +318,9 @@ export class GitHubSource implements Source {
     const records: RawRecord[] = [];
     let latest: string | null = null;
 
-    for (let page = 1; page <= MAX_REST_PAGES; page++) {
-      const commits = await this.rest<any[]>(`repos/${owner}/${name}/commits`, {
-        per_page: 100,
-        page,
-        ...(since ? { since } : {}),
-      });
-      for (const commit of commits ?? []) {
-        const occurred = commit?.commit?.committer?.date ?? commit?.commit?.author?.date ?? null;
-        if (!occurred) continue;
-        if (!latest || occurred > latest) latest = occurred;
-        const payload = { __activityKind: "github_commit", project, defaultBranch, commit };
-        const payloadJson = JSON.stringify(payload);
-        records.push({
-          entityKind: "activity",
-          externalId: stableActivityId(["commit", project, commit.sha]),
-          apiVersion: `${API_VERSION}.rest`,
-          fetchedAt: now,
-          payload,
-          contentHash: hash(payloadJson),
-        });
-      }
-      if ((commits ?? []).length < 100) break;
-    }
-
+    // Push/branch events come first: besides being activity records themselves,
+    // they are the discovery surface for the side-branch commit expansion below.
+    const pushEvents: any[] = [];
     for (let page = 1; page <= MAX_REST_PAGES; page++) {
       // `year` is the widest window the activity API offers (time_period has no
       // larger value), so a full sweep — the fresh-DB rebuild path — backfills
@@ -350,6 +334,7 @@ export class GitHubSource implements Source {
       for (const event of repoActivity ?? []) {
         const occurred = event?.pushed_at ?? null;
         if (!occurred) continue;
+        pushEvents.push(event);
         if (!latest || occurred > latest) latest = occurred;
         const payload = { __activityKind: "github_repo_activity", project, event };
         const payloadJson = JSON.stringify(payload);
@@ -364,7 +349,94 @@ export class GitHubSource implements Source {
       }
       if ((repoActivity ?? []).length < 100) break;
     }
+
+    // One entry per sha; a commit seen on several branch feeds unions its
+    // membership instead of emitting duplicate records.
+    const bySha = new Map<string, { commit: any; branches: string[] }>();
+    const addCommit = (commit: any, branch: string | null): void => {
+      const sha = String(commit?.sha ?? "");
+      const occurred = commit?.commit?.committer?.date ?? commit?.commit?.author?.date ?? null;
+      if (!sha || !occurred) return;
+      if (!latest || occurred > latest) latest = occurred;
+      const entry = bySha.get(sha) ?? { commit, branches: [] };
+      if (branch && !entry.branches.includes(branch)) entry.branches.push(branch);
+      bySha.set(sha, entry);
+    };
+
+    for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      const commits = await this.rest<any[]>(`repos/${owner}/${name}/commits`, {
+        per_page: 100,
+        page,
+        ...(since ? { since } : {}),
+      });
+      for (const commit of commits ?? []) addCommit(commit, defaultBranch);
+      if ((commits ?? []).length < 100) break;
+    }
+
+    // Side branches carry only their branch-unique commits (`base...head`),
+    // never the shared default history a plain per-branch feed would re-serve —
+    // that keeps both the labels meaningful and the cost at one or two calls
+    // per live branch per sweep.
+    for (const branch of this.sideBranches(pushEvents, defaultBranch, since)) {
+      try {
+        for (let page = 1; page <= MAX_COMPARE_PAGES; page++) {
+          const cmp = await this.rest<any>(
+            `repos/${owner}/${name}/compare/${encodeURIComponent(defaultBranch!)}...${encodeURIComponent(branch)}`,
+            { per_page: 100, page },
+          );
+          const commits: any[] = cmp?.commits ?? [];
+          for (const commit of commits) addCommit(commit, branch);
+          if (commits.length < 100) break;
+        }
+      } catch (err) {
+        // A 404 means the branch vanished between its push event and the
+        // compare — branch lifecycle, not an incomplete sweep.
+        if (!/^REST HTTP 404\b/.test((err as Error).message)) throw err;
+        log.info(`[${this.descriptor.sourceId}] project ${project}: side branch ${branch} gone before compare; skipped`);
+      }
+    }
+
+    for (const { commit, branches } of bySha.values()) {
+      const payload = {
+        __activityKind: "github_commit",
+        project,
+        defaultBranch,
+        branches: orderedBranches(branches, defaultBranch),
+        commit,
+      };
+      const payloadJson = JSON.stringify(payload);
+      records.push({
+        entityKind: "activity",
+        externalId: stableActivityId(["commit", project, commit.sha]),
+        apiVersion: `${API_VERSION}.rest`,
+        fetchedAt: now,
+        payload,
+        contentHash: hash(payloadJson),
+      });
+    }
     return { records, latest };
+  }
+
+  // Live side branches worth a compare. The latest push event per branch decides
+  // liveness (a deletion wins), the default branch and tags never qualify, and an
+  // incremental sweep only revisits branches pushed at/after the watermark —
+  // older pushes were already expanded by the sweep that saw them.
+  private sideBranches(pushEvents: any[], defaultBranch: string | null, since: string | null): string[] {
+    if (this.commitBranches === "default" || !defaultBranch) return [];
+    const latestPush = new Map<string, { at: string; deleted: boolean }>();
+    for (const event of pushEvents) {
+      const ref = String(event?.ref ?? "");
+      if (!ref.startsWith("refs/heads/")) continue;
+      const branch = ref.slice("refs/heads/".length);
+      if (!branch || branch === defaultBranch) continue;
+      const at = String(event?.pushed_at ?? "");
+      const prev = latestPush.get(branch);
+      if (!prev || at > prev.at) latestPush.set(branch, { at, deleted: String(event?.push_type ?? "") === "branch_deletion" });
+    }
+    return [...latestPush.entries()]
+      .filter(([, v]) => !v.deleted && (!since || v.at >= since))
+      .map(([branch]) => branch)
+      .sort();
   }
 
   private async fetchDefaultBranch(owner: string | undefined, name: string | undefined): Promise<string | null> {
@@ -411,7 +483,7 @@ export class GitHubSource implements Source {
         actorKey,
         occurredAt,
         summary: `Committed ${sha.slice(0, 7)}${p.project ? ` in ${p.project}` : ""}`,
-        details: commitDetails(sha, title, body, p.defaultBranch),
+        details: commitDetails(sha, title, body, payloadBranches(p)),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -510,15 +582,40 @@ function messageBody(value: unknown): string | null {
   return cleanText(value.split(/\r?\n/).slice(1).join("\n"));
 }
 
-function commitDetails(sha: string, message: string | null, body: string | null, branch: unknown): Record<string, unknown> {
+// Branch detail for a commit row: `branch`/`ref` carry the primary branch (the
+// default branch whenever the commit is on it), and multi-branch membership
+// adds the full `branches`/`refs` lists (see docs/CONTRACT.md activity details).
+function commitDetails(sha: string, message: string | null, body: string | null, branches: string[]): Record<string, unknown> {
   const details: Record<string, unknown> = { sha, message };
   if (body) details.body = body;
-  const branchName = cleanText(branch);
-  if (branchName) {
-    details.branch = branchName;
-    details.ref = `refs/heads/${branchName}`;
+  const primary = branches[0];
+  if (primary) {
+    details.branch = primary;
+    details.ref = `refs/heads/${primary}`;
+  }
+  if (branches.length > 1) {
+    details.branches = branches;
+    details.refs = branches.map((b) => `refs/heads/${b}`);
   }
   return details;
+}
+
+// Branch membership stored on a commit payload. Payloads written before the
+// multi-branch expansion only carry `defaultBranch`; replay keeps honoring them.
+function payloadBranches(p: any): string[] {
+  const fromPayload = Array.isArray(p?.branches)
+    ? (p.branches as unknown[]).map(cleanText).filter((b): b is string => b !== null)
+    : [];
+  if (fromPayload.length > 0) return fromPayload;
+  const fallback = cleanText(p?.defaultBranch);
+  return fallback ? [fallback] : [];
+}
+
+// Default branch first, side branches alphabetical — a stable order so a
+// commit's payload content hash does not churn between sweeps.
+function orderedBranches(branches: string[], defaultBranch: string | null): string[] {
+  const sides = branches.filter((b) => b !== defaultBranch).sort();
+  return defaultBranch && branches.includes(defaultBranch) ? [defaultBranch, ...sides] : sides;
 }
 
 function shortRef(ref: string): string | null {

@@ -78,6 +78,15 @@ test("rejects a non-string rest_url", () => {
   assert.throws(() => loadConfig(path), /rest_url must be a string/);
 });
 
+test("accepts commit_branches all/default and rejects any other value", () => {
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "all" })] }, "config"), []);
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "default" })] }, "config"), []);
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource()] }, "config"), [], "unset stays valid");
+  const errors = configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "branches" })] }, "config");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!, /commit_branches must be "all" or "default"/);
+});
+
 test("rejects document-shape violations: non-object, missing db_path, no sources", () => {
   assert.throws(() => loadConfig(writeRaw(42)), /is not an object/);
   assert.throws(() => loadConfig(writeRaw(null)), /is not an object/);
