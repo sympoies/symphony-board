@@ -218,18 +218,33 @@ export function applyRouteSearch(filters: Filters, route: HashRoute): Filters {
   return { ...filters, search };
 }
 
-// The set of item ids that are an endpoint of at least one edge — i.e. items
-// that have a node on the relationship graph. Gates the board card's "focus in
-// graph" link: an item with no edge has nothing to focus. Both ends are
-// collected (an untracked cross-repo ref is harmless — it never matches a board
-// item id).
-export function edgeEndpointIds(edges: EdgeDTO[]): Set<string> {
-  const ids = new Set<string>();
-  for (const e of edges) {
-    ids.add(e.from);
-    ids.add(e.to);
+// Per-item relation summary for the board card's meta row: how many DISTINCT
+// items this one is related to, plus a strongest-type-first breakdown for the
+// tooltip ("closes 2 · mentions 3"). Counts collapse exactly like the graph
+// focus list's relatedItems(): a neighbour reached by several edge types is one
+// related item under its strongest type, and reciprocal edges don't double-count.
+// Keys are every edge endpoint ("any edge -> a graph node"), so map membership
+// ALSO gates the card's "focus in graph" link — an item missing from the map has
+// no node to focus. An untracked cross-repo ref getting an entry is harmless: it
+// never matches a board item id.
+export interface RelationCount {
+  total: number;
+  byType: Array<{ type: string; count: number }>;
+}
+
+export function relationCounts(edges: EdgeDTO[]): Map<string, RelationCount> {
+  const out = new Map<string, RelationCount>();
+  for (const [id, refs] of dtoAdjacency(edges)) {
+    const byType = new Map<string, number>();
+    for (const r of relatedItems(refs)) byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
+    out.set(id, {
+      total: [...byType.values()].reduce((n, c) => n + c, 0),
+      byType: [...byType.entries()]
+        .map(([type, count]) => ({ type, count }))
+        .sort((a, b) => relationRank(a.type) - relationRank(b.type) || a.type.localeCompare(b.type)),
+    });
   }
-  return ids;
+  return out;
 }
 
 // Shared quick-set presets for Board, Graph, Activity, and Repo Analytics, in
@@ -1357,6 +1372,12 @@ export interface RelatedRef {
 }
 
 export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]> {
+  return dtoAdjacency(edges.map((re) => re.edge));
+}
+
+// The adjacency loop over bare DTOs — shared by buildAdjacency (graph focus,
+// resolved edges) and relationCounts (board cards, which never need resolution).
+function dtoAdjacency(edges: EdgeDTO[]): Map<string, RelatedRef[]> {
   const adj = new Map<string, RelatedRef[]>();
   const add = (self: string, other: string, type: string, direction: "out" | "in") => {
     const list = adj.get(self);
@@ -1366,9 +1387,9 @@ export function buildAdjacency(edges: ResolvedEdge[]): Map<string, RelatedRef[]>
       list.push({ ref: other, type, direction });
     }
   };
-  for (const re of edges) {
-    add(re.edge.from, re.edge.to, re.edge.type, "out");
-    add(re.edge.to, re.edge.from, re.edge.type, "in");
+  for (const e of edges) {
+    add(e.from, e.to, e.type, "out");
+    add(e.to, e.from, e.type, "in");
   }
   return adj;
 }

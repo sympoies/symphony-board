@@ -12,6 +12,7 @@ import {
   spotlight,
   type ItemStatus,
   type ColorOf,
+  type RelationCount,
   type TimeRange,
 } from "../model.ts";
 
@@ -27,7 +28,7 @@ function Column({
   cap,
   sourceKind,
   colorOf,
-  linkedIds,
+  relationCounts,
 }: {
   kind: string;
   label: string;
@@ -36,7 +37,7 @@ function Column({
   cap?: number;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
-  linkedIds: Set<string>;
+  relationCounts: Map<string, RelationCount>;
 }) {
   const shown = cap != null ? items.slice(0, cap) : items;
   const hidden = items.length - shown.length;
@@ -55,7 +56,7 @@ function Column({
             anchorId={anchorId(it.id)}
             sourceKind={sourceKind.get(it.source_id)}
             accentColor={colorOf(it.source_id, it.project_path)}
-            linked={linkedIds.has(it.id)}
+            related={relationCounts.get(it.id) ?? null}
           />
         ))}
         {hidden > 0 && <div className="col-more muted">+{hidden} more</div>}
@@ -85,7 +86,7 @@ export function FullBoard({
   statuses,
   sourceKind,
   colorOf,
-  linkedIds,
+  relationCounts,
   aggregates = [],
   itemWindow,
   range,
@@ -95,7 +96,7 @@ export function FullBoard({
   statuses: Map<string, ItemStatus>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
-  linkedIds: Set<string>;
+  relationCounts: Map<string, RelationCount>;
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
@@ -123,10 +124,10 @@ export function FullBoard({
       <StatsBar scoped={boardStats} />
       <section className="board-7">
         {STATUS_ORDER.map((s) => (
-          <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
+          <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined} sourceKind={sourceKind} colorOf={colorOf} relationCounts={relationCounts} />
         ))}
         {lanes.map(({ lane, items: laneItems }) => (
-          <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} cap={COLUMN_CAP} sourceKind={sourceKind} colorOf={colorOf} linkedIds={linkedIds} />
+          <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} cap={COLUMN_CAP} sourceKind={sourceKind} colorOf={colorOf} relationCounts={relationCounts} />
         ))}
       </section>
     </>

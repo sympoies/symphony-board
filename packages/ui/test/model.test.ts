@@ -70,7 +70,7 @@ import {
   runDuration,
   graphFocusHref,
   applyRouteSearch,
-  edgeEndpointIds,
+  relationCounts,
   graphWindowEdgesInRange,
   isSyncRunActive,
   syncProducedFreshData,
@@ -1167,16 +1167,31 @@ test("applyRouteSearch mirrors the route q so search never hides outside the URL
   assert.equal(applyRouteSearch(empty, route(null)), empty, "already-empty search -> same reference");
 });
 
-test("edgeEndpointIds collects both ends of every edge (board-card graph membership)", () => {
-  assert.equal(edgeEndpointIds([]).size, 0, "no edges -> empty set");
-  const ids = edgeEndpointIds([
-    { type: "closes", from: "s|A", to: "s|B", from_state: null, to_state: null, lifecycle: null },
-    { type: "mentions", from: "s|B", to: "s|UNTRACKED", from_state: null, to_state: null, lifecycle: null },
+test("relationCounts: one count per distinct neighbour, strongest type wins (board-card relation count)", () => {
+  assert.equal(relationCounts([]).size, 0, "no edges -> empty map");
+  const counts = relationCounts([
+    // A both closes AND mentions B -> B is ONE related item for A, shown as closes
+    { type: "closes", from: "s|A", to: "s|B", from_state: "open", to_state: "open", lifecycle: "declared" },
+    { type: "mentions", from: "s|A", to: "s|B", from_state: null, to_state: null, lifecycle: null },
+    // reciprocal mentions (A <-> C) collapse to ONE related item on each side
+    { type: "mentions", from: "s|A", to: "s|C", from_state: null, to_state: null, lifecycle: null },
+    { type: "mentions", from: "s|C", to: "s|A", from_state: null, to_state: null, lifecycle: null },
+    // an untracked ref still counts (harmless — it never matches a board item id)
+    { type: "relates", from: "s|A", to: "s|UNTRACKED", from_state: null, to_state: null, lifecycle: null },
   ]);
-  // both ends of both edges, deduped; an untracked ref is kept (harmless — it
-  // never matches a board item id). A `mentions`-only endpoint still counts as
-  // linked, matching the graph's "any edge -> a node" membership rule.
-  assert.deepEqual([...ids].sort(), ["s|A", "s|B", "s|UNTRACKED"]);
+  const a = counts.get("s|A");
+  assert.equal(a?.total, 3, "A's neighbours are B, C, UNTRACKED — edges don't double-count");
+  // tooltip breakdown is ordered strongest-first (closes > mentions > relates)
+  assert.deepEqual(a?.byType, [
+    { type: "closes", count: 1 },
+    { type: "mentions", count: 1 },
+    { type: "relates", count: 1 },
+  ]);
+  assert.deepEqual(counts.get("s|B"), { total: 1, byType: [{ type: "closes", count: 1 }] }, "B sees A once, as closes");
+  assert.deepEqual(counts.get("s|C"), { total: 1, byType: [{ type: "mentions", count: 1 }] });
+  // keys are exactly the edge-endpoint set ("any edge -> a node"), so map
+  // membership also gates the card's focus-in-graph link.
+  assert.deepEqual([...counts.keys()].sort(), ["s|A", "s|B", "s|C", "s|UNTRACKED"]);
 });
 
 // --- manual sync control plane helpers ---
