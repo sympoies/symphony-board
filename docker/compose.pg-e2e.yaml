@@ -1,0 +1,25 @@
+# Throwaway Postgres for the live e2e (scripts/ci/pg-e2e.sh) — NOT a
+# deployment. The production compose (docker/compose.yaml) is untouched and
+# SQLite remains the production store; this exists so the conformance suite
+# and test/e2e/pg-live.test.ts can run against a real Postgres, from zero,
+# and be torn down completely (tmpfs data — nothing survives `down`).
+name: symphony-board-pg-e2e
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: symphony_e2e
+    # High loopback-only host port: never clashes with a local Postgres and is
+    # never reachable off-machine.
+    ports:
+      - "127.0.0.1:54329:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d symphony_e2e"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

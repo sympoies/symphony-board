@@ -624,6 +624,22 @@ questions without log access.
   bind mount); a Postgres driver uses `pg_try_advisory_lock` on its own
   connection. The conformance suite makes lease exclusivity a per-driver
   obligation.
+- **PgStore (#167)**: the Postgres driver (`src/db/postgres.ts`, postgres.js —
+  zero transitive dependencies; DDL under `schema/postgres/`) implements the
+  same `Store`, selected by config: `db_path` keeps meaning SQLite, an optional
+  `db_url_env` (the NAME of an env var carrying a `postgres://` URL, matching
+  the token-by-env-var-name rule) selects Postgres via `src/db/factory.ts`,
+  which loads the driver lazily so SQLite deployments never resolve the
+  dependency. Driver-owned dialect: schema version in the `meta` table,
+  order-by-instant via `::timestamptz`, real BOOLEANs, a GREATEST-monotonic
+  watermark (an interleaved older run can never regress it), and the writer
+  lease as `pg_try_advisory_lock` on a reserved connection keyed by
+  `current_schema()`. Gate: the conformance suite with the pg driver
+  registered plus a live e2e (`pnpm run test:pg-e2e` — Docker Postgres from
+  zero through migrate → full sync → incremental → disappearance sweep →
+  contract emit → lease refusal → crash auto-release; the CI `pg` job).
+  SQLite remains the production store; the read-only API sidecars stay
+  SQLite-only for now.
 - **pnpm workspace**: isolates the contract package and UI package while keeping
   the backend buildless.
 - **Contract package remains type-first**: producer constants and validator stay

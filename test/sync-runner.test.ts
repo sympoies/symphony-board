@@ -5,73 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Store } from "../src/db/store.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
-import { executeSyncRun, type PreparedSource, type SyncRunProgress } from "../src/sync-runner.ts";
-import type { SourceConfig } from "../src/config.ts";
-import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
-import type { CanonicalItem, NormalizedBundle } from "../src/model/types.ts";
-
-// A network-free Source, like test/sync-engine.test.ts: it returns a prebuilt
-// FetchResult and normalizes from a map, so the runner's per-source orchestration
-// and emit gating are exercised offline.
-function item(externalId: string, over: Partial<CanonicalItem> = {}): CanonicalItem {
-  return {
-    sourceId: "fake:test", externalId, kind: "issue", projectPath: "x/y", iid: 1,
-    url: "http://x", title: "t", state: "open", stateRaw: "open", stateReason: null,
-    isDraft: null, author: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
-    closedAt: null, mergedAt: null, reviewState: null, ciState: null, mergeState: null,
-    milestone: null, demand: 0, ...over,
-  };
-}
-
-class FakeSource implements Source {
-  readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "fake/1";
-  private readonly result: FetchResult;
-  private readonly bundles: Map<string, NormalizedBundle>;
-  constructor(sourceId: string, result: FetchResult, bundles: Map<string, NormalizedBundle>) {
-    this.descriptor = { sourceId, kind: "fake", host: "test", displayName: null };
-    this.result = result;
-    this.bundles = bundles;
-  }
-  async fetch(_opts: FetchOptions): Promise<FetchResult> {
-    return this.result;
-  }
-  normalize(raw: RawRecord): NormalizedBundle | null {
-    return this.bundles.get(raw.externalId) ?? null;
-  }
-}
-
-class BoomSource implements Source {
-  readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "fake/1";
-  constructor(sourceId: string) {
-    this.descriptor = { sourceId, kind: "fake", host: "test", displayName: null };
-  }
-  async fetch(): Promise<FetchResult> {
-    throw new Error("network down");
-  }
-  normalize(): NormalizedBundle | null {
-    return null;
-  }
-}
-
-function sc(sourceId: string): SourceConfig {
-  return { source_id: sourceId, kind: "fake", host: "test", token_env: "FAKE_TOKEN", graphql_url: "http://x", projects: ["x/y"] };
-}
-
-function prepared(sourceId: string, items: CanonicalItem[], opts: { complete?: boolean } = {}): PreparedSource {
-  // Scope each item to this source so its FK to the sources row resolves (the
-  // engine ensures the source from the descriptor's sourceId).
-  const scoped = items.map((it) => ({ ...it, sourceId }));
-  const records: RawRecord[] = scoped.map((it) => ({
-    entityKind: it.kind, externalId: it.externalId, apiVersion: "fake",
-    fetchedAt: "2026-06-01T00:00:00Z", payload: it, contentHash: it.externalId,
-  }));
-  const bundles = new Map<string, NormalizedBundle>();
-  for (const it of scoped) bundles.set(it.externalId, { item: it, labels: [], edges: [], activities: [] });
-  const result: FetchResult = { records, watermark: "2026-06-01T00:00:00Z", complete: opts.complete ?? true, error: null };
-  return { config: sc(sourceId), source: new FakeSource(sourceId, result, bundles) };
-}
+import { executeSyncRun, type SyncRunProgress } from "../src/sync-runner.ts";
+// Network-free Source fakes (FakeSource/BoomSource/prepared) shared with the
+// Postgres live e2e; see test/helpers/fake-source.ts.
+import { BoomSource, item, prepared, sc } from "./helpers/fake-source.ts";
 
 test("a successful run emits and reports aggregated totals", async () => {
   const db = await openSqliteStore(":memory:");

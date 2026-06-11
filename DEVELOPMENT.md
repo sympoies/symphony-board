@@ -96,6 +96,14 @@ pnpm run typecheck
 pnpm test
 ```
 
+Postgres driver gate (needs Docker; composes up a throwaway Postgres, runs the
+store conformance suite with the pg driver registered plus the live e2e, tears
+down — `pnpm test` itself stays Docker-free):
+
+```sh
+pnpm run test:pg-e2e
+```
+
 UI gate:
 
 ```sh
@@ -190,18 +198,25 @@ edge `type`, labels, and project paths are open vocabularies.
 
 ### Changing The DB Schema
 
-1. Add a new `schema/sqlite/NNNN_*.sql` migration; never edit an applied
-   migration.
-2. Append the migration to `MIGRATIONS` in `src/db/sqlite.ts`.
+1. Add a new migration under EVERY driver's DDL tree — `schema/sqlite/NNNN_*.sql`
+   AND `schema/postgres/NNNN_*.sql`; never edit an applied migration.
+2. Append the migration to `MIGRATIONS` in `src/db/sqlite.ts` AND
+   `src/db/postgres.ts` (same version numbers).
 3. Keep changes additive when possible. SQLite column rewrites require the
    create-new/copy/drop-old/rename pattern.
-4. Add store-conformance tests for new behavior and run the backend gate.
+4. Add store-conformance tests for new behavior; run the backend gate and
+   `pnpm run test:pg-e2e`.
 
-Schema version is tracked with `PRAGMA user_version`. DDL, dialect SQL, and the
-migration mechanism are driver-owned (`src/db/sqlite.ts`); the `Store`
-interface in `src/db/store.ts` is the seam call sites depend on, and
-`test/store-conformance.test.ts` is the behavior contract any future driver
-(e.g. Postgres under `schema/postgres/`) must pass.
+Schema version is tracked per driver (SQLite: `PRAGMA user_version`; Postgres:
+the `meta` table's `schema_version` key). DDL, dialect SQL, and the migration
+mechanism are driver-owned; the `Store` interface in `src/db/store.ts` is the
+seam call sites depend on, and `test/store-conformance.test.ts` — run against
+every registered driver — is the behavior contract.
+
+The store a deployment uses is config-selected (`src/db/factory.ts`): SQLite at
+`db_path` by default; a config carrying `db_url_env` (the NAME of an env var
+holding a `postgres://` URL) selects the Postgres driver. Production stays on
+SQLite; the API sidecars' read-only open is SQLite-only for now.
 
 ### Changing The Contract
 
