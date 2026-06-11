@@ -71,7 +71,6 @@ import {
   graphFocusHref,
   applyRouteSearch,
   edgeEndpointIds,
-  itemSearchToken,
   graphWindowEdgesInRange,
   isSyncRunActive,
   syncProducedFreshData,
@@ -196,7 +195,7 @@ test("itemMatches applies source/state/kind/search filters (AND)", () => {
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "nope" }), false);
 });
 
-test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' deep-link pins one item)", () => {
+test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one item)", () => {
   const it13 = item({ id: "g|13", project_path: "owner/repo", iid: 13, title: "Add thing" });
   const it130 = item({ id: "g|130", project_path: "owner/repo", iid: 130, title: "Other" });
   const otherRepo = item({ id: "g|x", project_path: "owner/other", iid: 13, title: "Elsewhere" });
@@ -517,17 +516,6 @@ test("activityVirtualRange clamps empty and invalid inputs", () => {
     visibleCount: 2,
     totalHeightPx: 2 * (ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX) - ACTIVITY_ROW_GAP_PX,
   });
-});
-
-test("itemSearchToken builds a 'repo #iid' token that itemMatches pins to its own item", () => {
-  const it = item({ project_path: "owner/repo", iid: 13 });
-  assert.equal(itemSearchToken(it), "owner/repo #13");
-  const f = (search: string) => ({ ...emptyFilters(), search });
-  assert.equal(itemMatches(it, f(itemSearchToken(it))), true, "token matches its source item");
-  assert.equal(itemMatches(item({ project_path: "owner/repo", iid: 130 }), f(itemSearchToken(it))), false, "not a sibling iid");
-  // fallbacks when repo / iid are absent (token still narrows via title / external_id)
-  assert.equal(itemSearchToken(item({ project_path: null, iid: null, title: "Just a title" })), "Just a title");
-  assert.equal(itemSearchToken(item({ project_path: "o/r", iid: null, title: null, external_id: "EXT" })), "EXT");
 });
 
 test("resolveEdges + edgeMatches handle tracked and cross-repo endpoints", () => {
@@ -1150,7 +1138,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   });
 });
 
-test("graphFocusHref round-trips an item's id + search token through parseHashRoute", () => {
+test("graphFocusHref round-trips an item's id through parseHashRoute without touching q", () => {
   const it = (over: Partial<ItemDTO>) => item(over);
   for (const over of [
     { id: "github:github.com|42", project_path: "owner/repo", iid: 42 },
@@ -1160,7 +1148,7 @@ test("graphFocusHref round-trips an item's id + search token through parseHashRo
     const r = parseHashRoute(graphFocusHref(it(over)));
     assert.equal(r.page, "graph");
     assert.equal(r.focus, over.id, `focus round-trips for ${over.id}`);
-    assert.equal(r.q, itemSearchToken(it(over)), `q carries the search token for ${over.id}`);
+    assert.equal(r.q, null, `the deep-link leaves the search bar alone for ${over.id}`);
   }
 });
 

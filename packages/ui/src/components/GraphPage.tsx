@@ -582,7 +582,6 @@ export function GraphPage({
   sourceKind,
   colorOf,
   focusRef,
-  narrowed,
   aggregates = [],
   itemWindow,
   range,
@@ -592,7 +591,6 @@ export function GraphPage({
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   focusRef?: string | null;
-  narrowed?: boolean;
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
@@ -634,18 +632,21 @@ export function GraphPage({
   const adjacency = useMemo(() => buildAdjacency(edges), [edges]);
   const windowedIds = useMemo(() => new Set(graph.nodes.map((n) => n.id)), [graph]);
 
-  // Drop focus whenever the windowed graph itself rebuilds (the "active since" /
+  // Drop focus when the windowed graph's MEMBERSHIP changes (the "active since" /
   // mention filters changed). The focus view is tied to the current graph, so a
   // stale focus on an item that just left the window would be confusing. Compared
-  // by VALUE against the previous windowedIds (a stable memo ref until the graph
-  // rebuilds) rather than a first-run flag, so it is idempotent under React 18
-  // StrictMode's double-invoked effects and never wipes the deep-link seed on mount.
+  // by CONTENT, not identity: a background contract reload rebuilds every memo
+  // (new arrays, same ids), and an identity check would kick the user out of the
+  // focus view on every sync tick. Content comparison is also idempotent under
+  // React 18 StrictMode's double-invoked effects and never wipes the deep-link
+  // seed on mount.
   const prevWindowed = useRef(windowedIds);
   useEffect(() => {
-    if (prevWindowed.current !== windowedIds) {
-      prevWindowed.current = windowedIds;
-      setFocusId(null);
-    }
+    if (prevWindowed.current === windowedIds) return;
+    const prev = prevWindowed.current;
+    prevWindowed.current = windowedIds;
+    const sameMembers = prev.size === windowedIds.size && [...windowedIds].every((id) => prev.has(id));
+    if (!sameMembers) setFocusId(null);
   }, [windowedIds]);
 
   // When an item is focused, the canvas shows that item's FULL relationship

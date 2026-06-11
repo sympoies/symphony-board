@@ -197,24 +197,15 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 
-// The search-bar token a board card seeds when it deep-links into the graph: the
-// repo + issue/PR number ("owner/repo #13"), which itemMatches pins to exactly
-// this one item — so the graph narrows to it + its neighbours instead of loading
-// the whole window (the slow path). Falls back to the title / external_id when an
-// item has no repo+iid, so the token still narrows. Pairs with itemMatches'
-// "#<n>" exact-iid rule; clearing the search returns to the unfiltered view.
-export function itemSearchToken(it: ItemDTO): string {
-  if (it.project_path && it.iid != null) return `${it.project_path} #${it.iid}`;
-  return it.title ?? it.external_id ?? it.id;
-}
-
-// The hash a board card links to, to open the graph on `it`: `focus` drives the
-// side-list focus view + camera, and `q` seeds the search bar with the item's
-// token so the canvas narrows to it + its neighbours. Both live in the URL so the
-// search applies synchronously on arrival (no full-graph flash, deep-link
-// shareable). Pairs with parseHashRoute (encode here, decode there).
+// The hash a board card links to, to open the graph on `it`: `focus` alone
+// drives the side-list focus view AND the canvas — GraphPage renders the focused
+// item's focusSubgraph (small by construction), so no `q` token is needed to
+// keep the canvas tiny. Leaving `q` out keeps the global search bar — a
+// cross-tab filter since #63 — free of navigation state: hopping back to the
+// Board after a deep-link no longer narrows it to one card. Pairs with
+// parseHashRoute (encode here, decode there).
 export const graphFocusHref = (it: ItemDTO): string =>
-  buildHashRoute({ page: "graph", focus: it.id, q: itemSearchToken(it) });
+  buildHashRoute({ page: "graph", focus: it.id });
 
 // Apply a route's "?q=" token to the filters. The URL is the source of truth for
 // the visible search box: present q sets the search, absent q clears it. That
@@ -863,8 +854,8 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
     // AND across whitespace-separated terms. A `#<n>` term is an explicit
     // issue/PR number — matched EXACTLY against iid (so "#13" never matches
     // "#130"); every other term is a case-insensitive substring of the hay. This
-    // lets a "repo #iid" search (the board → graph deep-link) pin exactly one
-    // item, while staying backward compatible for a plain single-word search.
+    // lets a hand-typed "repo #iid" search pin exactly one item, while staying
+    // backward compatible for a plain single-word search.
     for (const term of q.split(/\s+/)) {
       const num = /^#(\d+)$/.exec(term);
       if (num) {
