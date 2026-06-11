@@ -709,6 +709,9 @@ test("buildGraph keeps only edge-connected nodes and flags untracked ends", () =
   const tracked = g.nodes.find((n) => n.id === "I");
   assert.equal(tracked?.created_at, "2026-05-20T00:00:00Z", "tracked node carries created_at");
   assert.equal(tracked?.updated_at, "2026-06-01T00:00:00Z", "tracked node carries updated_at");
+  // ...and the author, for the list-card-style counts row (@author 💬 🔗)
+  assert.equal(tracked?.author, "a", "tracked node carries the author");
+  assert.equal(untracked?.author, null, "untracked node has no author");
   assert.equal(buildGraph(edges).links.length, 3, "the graph renderer keeps every supplied edge");
 });
 

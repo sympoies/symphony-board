@@ -452,10 +452,13 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .rf-node-repo { font-size: 0.85em; margin-top: 3px; }
-/* created / updated / demand — small, wraps; legible once focused/zoomed */
+/* counts row (@author / demand / relations) then the times row — the same
+   two-row order as the board card; small, legible once focused/zoomed */
 .rf-node-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 3px; font-size: 0.8em; }
 .rf-node-meta .rf-demand { display: inline-flex; align-items: center; gap: 3px; }
 .rf-node-meta .rf-related { display: inline-flex; align-items: center; gap: 3px; }
+.rf-node-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: 2px; font-size: 0.8em; }
+.rf-node-times .sep { opacity: .6; }
 .rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }
 /* floating-edge hover label (rendered via EdgeLabelRenderer, an HTML overlay) */
 .rf-edge-label {
