@@ -55,6 +55,16 @@ function dedupeRecords(records: RawRecord[]): RawRecord[] {
   return [...byKey.values()];
 }
 
+// A provider can return a max-updated watermark later than this run's start
+// after fetching a subset first; keep mid-run updates eligible next time.
+function capWatermarkAtRunStart(watermark: string | null, startedAt: string): string | null {
+  if (watermark === null) return null;
+  const watermarkMs = Date.parse(watermark);
+  const startedAtMs = Date.parse(startedAt);
+  if (Number.isNaN(watermarkMs) || Number.isNaN(startedAtMs)) return watermark;
+  return watermarkMs > startedAtMs ? startedAt : watermark;
+}
+
 async function fetchWithRefresh(
   store: Store,
   source: Source,
@@ -168,6 +178,7 @@ export async function syncSource(
   const status: "ok" | "partial" = result.complete ? "ok" : "partial";
   const itemBundles = bundles.filter((b) => b.item !== null);
   const activities = bundles.flatMap((b) => b.activities);
+  const watermark = capWatermarkAtRunStart(result.watermark, startedAt);
   const report: SyncReport = {
     sourceId,
     status,
@@ -176,7 +187,7 @@ export async function syncSource(
     activitiesSeen: activities.length,
     softDeleted: 0,
     softDeletedEdges: 0,
-    watermark: result.watermark,
+    watermark,
     error: result.error,
   };
 
@@ -218,7 +229,7 @@ export async function syncSource(
       }
 
       await tx.finishRun(runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, result.error);
-      await tx.updateSyncState(sourceId, result.watermark, status, result.error, startedAt);
+      await tx.updateSyncState(sourceId, watermark, status, result.error, startedAt);
     });
   } catch (err) {
     report.status = "error";
