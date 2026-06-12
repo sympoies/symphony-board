@@ -16,7 +16,15 @@ Options:
   --all-actors      Report candidates from every actor.
   --limit N         Maximum contract candidates (default: 20).
   --no-live         Skip provider live verification.
-  --apply           Resolve safe stale allowlisted bot threads.
+  --apply           Resolve safe allowlisted bot review threads.
+  --disposition-file PATH
+                    JSON file of agent-inspected thread dispositions. In
+                    --apply mode, only listed safe threads are resolved.
+  --resolution-note TEXT
+                    Provider-visible note to reply before resolving threads.
+                    Defaults to a stale-thread disposition note in --apply mode.
+  --no-resolution-note
+                    Resolve without posting a provider-visible note.
   --json            Emit JSON.
   -h, --help        Show this help.
 USAGE
