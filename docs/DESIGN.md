@@ -602,7 +602,8 @@ fails to load — exactly when it is needed.
 **Stats are an operational surface, not contract.** `/api/stats` describes the
 store (sizes, row counts, run history), never the work-item data model, so it
 carries no `contract_version` and needs no bump. It follows the `/api/range`
-access discipline — every request opens SQLite read-only and closes it — and
+access discipline — every request opens the configured store read-only and
+closes it — and
 lives on the read-only `api` sidecar in the Docker stack (the generic `/api/`
 proxy covers it; nginx is untouched for stats).
 
@@ -658,8 +659,12 @@ questions without log access.
   registered plus a live e2e (`pnpm run test:pg-e2e` — Docker Postgres from
   zero through migrate → full sync → incremental → disappearance sweep →
   contract emit → lease refusal → crash auto-release; the CI `pg` job).
-  SQLite remains the production store; the read-only API sidecars stay
-  SQLite-only for now.
+  SQLite remains the production store. The read-only surfaces (#170) select
+  the driver through `openConfiguredStoreReadOnly`: `range.ts` / `stats.ts`
+  open whichever store the config means, and `openPostgresStoreReadOnly` pins
+  the session read-only (`default_transaction_read_only = on`), never
+  migrates, and refuses an older-than-expected schema — mirroring the SQLite
+  read-only open.
 - **pnpm workspace**: isolates the contract package and UI package while keeping
   the backend buildless.
 - **Contract package remains type-first**: producer constants and validator stay

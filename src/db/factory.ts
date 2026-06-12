@@ -7,19 +7,36 @@
 
 import type { AppConfig } from "../config.ts";
 import type { Store } from "./store.ts";
-import { openSqliteStore } from "./sqlite.ts";
+import { openSqliteStore, openSqliteStoreReadOnly } from "./sqlite.ts";
 
-export async function openConfiguredStore(cfg: AppConfig): Promise<Store> {
+// The Postgres URL the config names, or null when the config means SQLite.
+function configuredPgUrl(cfg: AppConfig): string | null {
   const urlEnv = cfg.db_url_env?.trim();
-  if (!urlEnv) return openSqliteStore(cfg.db_path);
+  if (!urlEnv) return null;
   const url = (process.env[urlEnv] ?? "").trim();
   if (!url) {
     // A config that names a Postgres URL env must resolve it: silently falling
     // back to SQLite would split the canonical store across two databases.
     throw new Error(`config selects Postgres via db_url_env, but env ${urlEnv} is not set`);
   }
+  return url;
+}
+
+export async function openConfiguredStore(cfg: AppConfig): Promise<Store> {
+  const url = configuredPgUrl(cfg);
+  if (!url) return openSqliteStore(cfg.db_path);
   const { openPostgresStore } = await import("./postgres.ts");
   return openPostgresStore(url);
+}
+
+// Read-only counterpart for the API sidecars and inspection surfaces: the same
+// selection rules, but the store opens read-only — never migrates, and writes
+// through the handle fail (#170).
+export async function openConfiguredStoreReadOnly(cfg: AppConfig): Promise<Store> {
+  const url = configuredPgUrl(cfg);
+  if (!url) return openSqliteStoreReadOnly(cfg.db_path);
+  const { openPostgresStoreReadOnly } = await import("./postgres.ts");
+  return openPostgresStoreReadOnly(url);
 }
 
 // Human-readable description of the configured store for log lines (never the

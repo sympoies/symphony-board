@@ -15,7 +15,7 @@ import { statSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import type { AppConfig } from "../config.ts";
 import type { Store, StoreDiagnostics, StoreOverview } from "../db/store.ts";
-import { openSqliteStoreReadOnly } from "../db/sqlite.ts";
+import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 
 export type { StoreSyncRunRow as StatsSyncRunRow } from "../db/store.ts";
 
@@ -45,7 +45,7 @@ export async function buildStoreStats(store: Store, runsLimit = DEFAULT_RUNS): P
 }
 
 export async function storeStats(cfg: AppConfig, runsLimit = DEFAULT_RUNS): Promise<StoreStats> {
-  const store = await openSqliteStoreReadOnly(cfg.db_path);
+  const store = await openConfiguredStoreReadOnly(cfg);
   try {
     return await buildStoreStats(store, runsLimit);
   } finally {
@@ -62,12 +62,15 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 }
 
 // Serve one GET /api/stats request. "?runs=<n>" bounds the sync-run history
-// (default 20, capped). A store that does not exist yet — a fresh deployment
-// before the first sync — is a 404 the UI maps to "no data yet", not an error.
+// (default 20, capped). A SQLite store that does not exist yet — a fresh
+// deployment before the first sync — is a 404 the UI maps to "no data yet",
+// not an error. The file precheck is meaningless under Postgres (db_path is
+// unused there); a pg store the writer has not migrated yet fails loudly at
+// open instead.
 export async function handleStatsRequest(cfg: AppConfig, url: URL, res: ServerResponse): Promise<void> {
   const runsRaw = Number(url.searchParams.get("runs") ?? String(DEFAULT_RUNS));
   const runs = Number.isFinite(runsRaw) && runsRaw > 0 ? Math.min(Math.trunc(runsRaw), MAX_RUNS) : DEFAULT_RUNS;
-  if (cfg.db_path !== ":memory:" && fileSize(cfg.db_path) === 0) {
+  if (!cfg.db_url_env?.trim() && cfg.db_path !== ":memory:" && fileSize(cfg.db_path) === 0) {
     json(res, 404, { error: "no_database", message: `no store at ${cfg.db_path} (run a sync first)` });
     return;
   }
