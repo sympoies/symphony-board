@@ -783,6 +783,12 @@ function shortSha(value: string | null): string | null {
   return trimmed.length > 8 ? trimmed.slice(0, 8) : trimmed;
 }
 
+function shortNonZeroSha(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^0+$/.test(trimmed) ? null : shortSha(trimmed);
+}
+
 function shortRef(value: string | null): string | null {
   const ref = cleanText(value);
   return ref?.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") ?? null;
@@ -841,8 +847,8 @@ export function activityDisplay(activity: ActivityDTO): ActivityDisplay {
   const ref = shortRef(rawRef);
   if (ref) chips.push(`ref ${ref}`);
 
-  const from = shortSha(detailText(activity.details, "commit_from") ?? detailText(activity.details, "before"));
-  const to = shortSha(detailText(activity.details, "commit_to") ?? detailText(activity.details, "after"));
+  const from = shortNonZeroSha(detailText(activity.details, "commit_from") ?? detailText(activity.details, "before"));
+  const to = shortNonZeroSha(detailText(activity.details, "commit_to") ?? detailText(activity.details, "after"));
   if (from) chips.push(`from ${from}`);
   if (to) chips.push(`to ${to}`);
 
