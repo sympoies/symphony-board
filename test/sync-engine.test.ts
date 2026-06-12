@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { openSqliteStore } from "../src/db/sqlite.ts";
 import { syncSource } from "../src/sync-engine.ts";
@@ -131,6 +131,43 @@ test("the new watermark is persisted to sync_state for the next incremental run"
   await syncSource(db, build([item("A")], {}, { watermark: "2026-06-05T00:00:00Z" }), null, { full: true, dryRun: false });
   assert.equal(await db.getWatermark("fake:test"), "2026-06-05T00:00:00Z");
   await db.close();
+});
+
+test("a source watermark newer than the run start is capped for the next incremental run", async () => {
+  const db = await openSqliteStore(":memory:");
+  const before = new Date().toISOString();
+
+  await syncSource(
+    db,
+    build([item("A")], {}, { watermark: "9999-01-01T00:00:00Z" }),
+    null,
+    { full: true, dryRun: false },
+  );
+
+  const after = new Date().toISOString();
+  const watermark = await db.getWatermark("fake:test");
+  assert.ok(watermark, "watermark was persisted");
+  assert.ok(watermark >= before, `watermark ${watermark} should be at or after test start ${before}`);
+  assert.ok(watermark <= after, `watermark ${watermark} should be capped before test end ${after}`);
+  await db.close();
+});
+
+test("a whole-second source watermark before the run start is not capped forward", async () => {
+  mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-12T12:00:00.500Z") });
+  const db = await openSqliteStore(":memory:");
+  try {
+    await syncSource(
+      db,
+      build([item("A")], {}, { watermark: "2026-06-12T12:00:00Z" }),
+      null,
+      { full: true, dryRun: false },
+    );
+
+    assert.equal(await db.getWatermark("fake:test"), "2026-06-12T12:00:00Z");
+  } finally {
+    await db.close();
+    mock.timers.reset();
+  }
 });
 
 test("the engine persists activity-only records without counting them as items", async () => {
