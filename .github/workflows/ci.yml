@@ -66,6 +66,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:pg-e2e
 
+  # Deployment gate for the opt-in Postgres compose stack: builds the backend
+  # and UI images, starts an isolated postgres/board/api/web project, then
+  # verifies /contract.json, /api/stats, and the writer control surface.
+  pg_compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:pg-compose
+
   # Shell-lint every helper under scripts/. They run unbuilt (no Node, no build
   # step), so shellcheck is the only static gate they get; ubuntu-latest ships
   # it preinstalled.

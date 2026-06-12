@@ -1771,11 +1771,14 @@ export interface StoreStatsSyncRun {
 export interface StoreStats {
   generated_at: string;
   db: {
-    path: string;
-    size_bytes: number;
-    wal_size_bytes: number;
-    page_size: number;
-    page_count: number;
+    driver?: string;
+    path?: string;
+    database?: string;
+    schema?: string;
+    size_bytes?: number;
+    wal_size_bytes?: number;
+    page_size?: number;
+    page_count?: number;
     schema_version: number;
   };
   tables: Record<string, number>;

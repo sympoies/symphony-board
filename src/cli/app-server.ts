@@ -6,7 +6,7 @@
 // for any single-process, no-Docker deployment.
 //
 // The sole-writer rule survives the merge: the SyncController still owns the
-// single writer slot, and every /api/range request opens the SQLite store
+// single writer slot, and every /api/range request opens the configured store
 // read-only and closes it before returning (src/server/range.ts). What nginx
 // proxies apart in the Docker stack is here just routes on one server.
 //

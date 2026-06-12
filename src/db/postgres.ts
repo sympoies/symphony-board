@@ -1,7 +1,7 @@
 // Postgres driver for the Store interface, on postgres.js (the `postgres`
 // package — zero transitive dependencies, fitting the repo's minimal-dependency
-// stance). Loaded lazily by src/db/factory.ts, so SQLite-only deployments
-// (including the Docker image, which ships no node_modules) never resolve it.
+// stance). Loaded lazily by src/db/factory.ts, so SQLite-only deployments never
+// resolve it.
 //
 // Driver-owned facts (see src/db/store.ts for the interface contract):
 // - DDL lives in schema/postgres/*.sql; the schema version is tracked in the

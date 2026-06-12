@@ -1,6 +1,7 @@
 # Portable runner. Node 24 strips TypeScript at runtime and ships node:sqlite
-# built in, so there is NO build step and ZERO runtime dependencies — the image
-# only needs the source, schema, and Node itself.
+# built in, so there is NO backend build step. The image installs the root
+# production runtime dependencies so opt-in Postgres deployments can resolve the
+# lazy-loaded postgres.js driver; SQLite deployments still never import it.
 #
 # Build context is the REPO ROOT (compose sets context: ..), so the COPY paths
 # below are relative to the repo root, not to this docker/ directory.
@@ -13,13 +14,19 @@ LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-boar
 
 WORKDIR /app
 
-# Source + the normative SQL schema (read at runtime by the migrator) + the
+# Production deps first for Docker layer caching. `--ignore-scripts` deliberately
+# skips the root prepare hook (lefthook is dev-only) and dependency postinstalls;
+# postgres.js has no build step or transitive deps.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY packages/contract/package.json ./packages/contract/package.json
+RUN corepack enable \
+  && corepack prepare pnpm@11.4.0 --activate \
+  && pnpm install --prod --frozen-lockfile --ignore-scripts
+
+# Source + the normative SQL schema (read at runtime by each migrator) + the
 # contract package (its JSON Schema is read by the emit-time validator) + the
-# entrypoint. Config and the DB are provided at runtime as mounted volumes.
-# No `pnpm install`: the backend has no third-party runtime deps, and it never
-# resolves @symphony-board/contract at runtime (the type imports erase under
-# stripping; the schema is read as a file from packages/contract).
-COPY package.json tsconfig.json ./
+# entrypoint. Config, SQLite files, and/or Postgres credentials are provided at
+# runtime by compose/env.
 COPY schema ./schema
 COPY packages/contract ./packages/contract
 COPY src ./src

@@ -54,11 +54,18 @@ function StatTile({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function storeLabel(db: { driver?: string; path?: string; database?: string; schema?: string }): string {
+  if (db.driver === "postgres") return db.schema ? `${db.database ?? "postgres"} / ${db.schema}` : (db.database ?? "postgres");
+  return db.path ?? db.driver ?? "store";
+}
+
 export function DebugPage({ serverBaseUrl, env, onClose }: Props) {
   const { stats, loading, refresh } = useStoreStats(serverBaseUrl);
   const logs = useDaemonLogs(serverBaseUrl);
   const [follow, setFollow] = useState(true);
   const logRef = useRef<HTMLPreElement | null>(null);
+  const dbSize = stats?.db.size_bytes;
+  const walSize = stats?.db.wal_size_bytes;
 
   // Tail behavior: keep the newest line in view while "follow" is on; turning
   // it off freezes the scroll position for reading while lines keep arriving.
@@ -86,7 +93,7 @@ export function DebugPage({ serverBaseUrl, env, onClose }: Props) {
 
       <section className="debug-section">
         <h3>
-          Store {stats ? <span className="count">— {stats.db.path}</span> : null}
+          Store {stats ? <span className="count">— {storeLabel(stats.db)}</span> : null}
         </h3>
         {loading ? (
           <p className="muted">Loading store stats…</p>
@@ -95,9 +102,13 @@ export function DebugPage({ serverBaseUrl, env, onClose }: Props) {
         ) : (
           <>
             <div className="debug-stat-grid">
+              <StatTile label="Store">
+                {(stats.db.driver ?? "sqlite").toUpperCase()}
+                {stats.db.driver === "postgres" && stats.db.schema ? <span className="muted"> · {stats.db.schema}</span> : null}
+              </StatTile>
               <StatTile label="DB size">
-                {formatBytes(stats.db.size_bytes)}
-                {stats.db.wal_size_bytes > 0 ? <span className="muted"> +{formatBytes(stats.db.wal_size_bytes)} WAL</span> : null}
+                {typeof dbSize === "number" ? formatBytes(dbSize) : "n/a"}
+                {typeof walSize === "number" && walSize > 0 ? <span className="muted"> +{formatBytes(walSize)} WAL</span> : null}
               </StatTile>
               <StatTile label="Live items">{stats.items.live.toLocaleString()}</StatTile>
               <StatTile label="Live edges">{stats.edges.live.toLocaleString()}</StatTile>

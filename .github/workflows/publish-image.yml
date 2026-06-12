@@ -90,6 +90,9 @@ jobs:
             --disable-warning=ExperimentalWarning src/cli/validate-contract.ts \
             --in /tmp/sample-contract.json
 
+          docker run --rm --entrypoint node symphony-board:smoke \
+            -e "import('postgres').then(()=>console.log('postgres runtime import ok'))"
+
           smoke_dir="$(mktemp -d)"
           cleanup() {
             docker rm -f symphony-board-web-smoke >/dev/null 2>&1 || true

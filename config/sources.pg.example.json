@@ -1,0 +1,49 @@
+{
+  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database.",
+  "db_path": "data/symphony.db",
+  "db_url_env": "SYMPHONY_DB_URL",
+  "$comment_db_path": "db_path is still required by the shared config schema but is unused when db_url_env selects Postgres.",
+  "$comment_timezone": "Optional IANA timezone the board buckets calendar days in (e.g. \"Asia/Taipei\"). Omit or leave empty for UTC.",
+  "timezone": "Asia/Taipei",
+  "sources": [
+    {
+      "source_id": "github:github.com",
+      "kind": "github",
+      "host": "github.com",
+      "display_name": "GitHub",
+      "color": "#1f6feb",
+      "token_env": "GITHUB_TOKEN",
+      "graphql_url": "https://api.github.com/graphql",
+      "rest_url": "https://api.github.com",
+      "projects": [
+        "example-org/public-roadmap",
+        "example-org/service-api",
+        "sympoies/nils-cli",
+        "sympoies/nils-alfredworkflow",
+        { "path": "sympoies/symphony-board", "color": "#e0af68" }
+      ]
+    },
+    {
+      "source_id": "gitlab:gitlab.com",
+      "kind": "gitlab",
+      "host": "gitlab.com",
+      "display_name": "GitLab",
+      "token_env": "GITLAB_TOKEN",
+      "graphql_url": "https://gitlab.com/api/graphql",
+      "rest_url": "https://gitlab.com/api/v4",
+      "projects": [
+        "your-group/your-project",
+        "your-group/your-subgroup/another-project"
+      ]
+    }
+  ],
+  "identities": [
+    {
+      "name": "Your Name",
+      "usernames": ["your-gitlab-username"],
+      "emails": ["you@example.com"],
+      "names": ["Your Name", "Y. Name"]
+    }
+  ],
+  "exclude_actors": ["dependabot", "github-code-quality", "renovate*"]
+}

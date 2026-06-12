@@ -2,8 +2,8 @@
 
 This is the current design record for `symphony-board`. It records the stable
 architecture and operating decisions after the baseline product path shipped:
-GitHub/GitLab sources, canonical SQLite store, contract major v3, read-only UI,
-and Docker writer/reader deployment.
+GitHub/GitLab sources, canonical SQLite/Postgres store drivers, contract major
+v3, read-only UI, and Docker writer/reader deployment.
 
 Historical validation runs, PR numbers, and one-off investigation details live
 in [docs/devlog](devlog). This file is the normative design summary.
@@ -44,7 +44,7 @@ These are deliberately separate:
 | Layer | Purpose | Location | Versioning |
 | --- | --- | --- | --- |
 | Raw store | Latest opaque provider payload per entity | `raw` table | tagged by `api_version` and `fetched_at` |
-| Canonical DB | Provider-agnostic items, labels, edges, activity, sync state | `schema/sqlite/*.sql`, `src/db/*` | driver-owned migrations (SQLite: `PRAGMA user_version`) |
+| Canonical DB | Provider-agnostic items, labels, edges, activity, sync state | `schema/sqlite/*.sql`, `schema/postgres/*.sql`, `src/db/*` | driver-owned migrations |
 | Contract | Consumer-facing serialized projection | `packages/contract`, `src/contract/*` | semver `contract_version` |
 
 `normalize` maps raw provider records into canonical items and edges. It must be
@@ -242,8 +242,8 @@ Version `1.1.0` added display metadata:
 - sparse top-level `repos[]`
 
 These fields are display-only. They are read from config at emit time and never
-stored in SQLite. The producer validates colors as `#rgb` or `#rrggbb`; the UI
-also validates before using colors in CSS sinks.
+stored in the canonical store. The producer validates colors as `#rgb` or
+`#rrggbb`; the UI also validates before using colors in CSS sinks.
 
 Version `1.2.0` added optional top-level `activities[]`.
 
@@ -348,7 +348,7 @@ within a major.
 
 The UI is a read-only consumer in `packages/ui`. It imports contract types,
 fetches `./contract.json`, and never reaches into `src/db`, `src/sources`, the
-provider APIs, or SQLite.
+provider APIs, or the configured store.
 
 Pages:
 
@@ -410,21 +410,35 @@ The UI supports contract major v3. It warns when a different major is loaded.
 
 ## Docker Operation
 
-`docker/compose.yaml` has three services:
+The Docker deployment keeps the same process split in both store modes:
 
 - `board`: backend loop daemon and sole writer; also serves the writer-owned
   sync control surface (see below)
-- `api`: read-only range query sidecar over the SQLite store
+- `api`: read-only range query sidecar over the configured store
 - `web`: read-only nginx sidecar serving the built UI and `/contract.json`
 
-The daemon writes `data/contract.json`. The API sidecar mounts config and data
-read-only, opens SQLite with `query_only`, and serves
-`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`. The web sidecar mounts `data/`
-read-only, serves `/contract.json` with `Cache-Control: no-store`, proxies
-`/api/range` to the read-only API sidecar, and proxies the sync-control routes
-(`/api/sync-control`, `/api/sync-runs`) to the `board` daemon's internal control
-port. `web` depends on both `board` and `api` healthchecks so it does not serve
-before the first contract and read-only API are ready.
+`docker/compose.yaml` is the default SQLite stack. It bind-mounts `config/` and
+`data/`, so the SQLite file and emitted `data/contract.json` survive container
+rebuilds and can be inspected from the host.
+
+`docker/compose.pg.yaml` is the opt-in Postgres stack. It uses an independent
+Compose project name, a `postgres:16-alpine` service with its own named data
+volume, and a separate named volume for the emitted contract shared by `board`
+and `web`. Its config template carries `db_url_env: "SYMPHONY_DB_URL"`; compose
+sets that URL to the internal Postgres service by default. The web and Postgres
+ports are loopback-only and separate from the default stack, so both deployments
+can run on the same host for validation.
+
+The daemon writes `data/contract.json` inside its deployment's data volume. The
+API sidecar mounts config read-only, opens the configured store read-only
+(SQLite `query_only` or Postgres `default_transaction_read_only`), and serves
+`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`. The web sidecar mounts the
+emitted contract read-only, serves `/contract.json` with `Cache-Control:
+no-store`, proxies `/api/range` to the read-only API sidecar, and proxies the
+sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the `board`
+daemon's internal control port. `web` depends on both `board` and `api`
+healthchecks so it does not serve before the first contract and read-only API
+are ready.
 
 There is intentionally no external cron and no second writer.
 
@@ -449,7 +463,8 @@ read-only sidecars).
 (`src/cli/sync-daemon.ts`) rather than a shell `while` loop. The daemon owns the
 background cadence, a single in-process run lock, in-memory run status, and a
 small HTTP control surface. There is still exactly one writer process and one
-sync lock, so a manual run and a scheduled run can never overlap on SQLite.
+sync lock, so a manual run and a scheduled run can never overlap on the
+configured store.
 
 **Shared runner.** Both the standalone `sync` CLI and the daemon go through
 `src/sync-runner.ts`, which defines a run as "sync the selected sources, then
@@ -580,10 +595,10 @@ appears when the first contract is emitted.
 
 **Config stays JSON, not TOML.** Evaluated and rejected: TOML's human benefits
 are comments and hand-formatting, but the UI write path would clobber both (no
-mature comment-preserving TOML writer exists for JS), a parser/serializer
-would be the backend's first third-party runtime dependency, and after this
-control plane the remaining hand-editors are the Docker path only. JSON is
-also exactly what a machine-written, machine-validated document wants.
+mature comment-preserving TOML writer exists for JS), a parser/serializer would
+add a runtime dependency solely for config, and after this control plane the
+remaining hand-editors are the Docker path only. JSON is also exactly what a
+machine-written, machine-validated document wants.
 
 ## Read-Only Diagnostics Surface
 
@@ -630,8 +645,8 @@ questions without log access.
   method is async so a future driver (Postgres) drops in without changing the
   interface; `test/store-conformance.test.ts` — run against every registered
   driver — is the swap guarantee. Hand-rolled by design: the query surface is
-  ~16 statements and the repo is zero-runtime-dependency, so an ORM or query
-  builder would abstract the wrong layer. Activity ordering is by instant
+  ~16 statements and postgres.js has zero transitive dependencies, so an ORM or
+  query builder would abstract the wrong layer. Activity ordering is by instant
   (occurred_at keeps provider-local UTC offsets), which each driver implements
   in its own SQL (SQLite: `julianday`).
 - **Writer lease on the Store (#164)**: "exactly one sync writer per store" is
@@ -651,7 +666,9 @@ questions without log access.
   `db_url_env` (the NAME of an env var carrying a `postgres://` URL, matching
   the token-by-env-var-name rule) selects Postgres via `src/db/factory.ts`,
   which loads the driver lazily so SQLite deployments never resolve the
-  dependency. Driver-owned dialect: schema version in the `meta` table,
+  dependency. The backend Docker image installs the root production dependency
+  set so an opt-in pg compose deployment can resolve postgres.js at runtime.
+  Driver-owned dialect: schema version in the `meta` table,
   order-by-instant via `::timestamptz`, real BOOLEANs, a GREATEST-monotonic
   watermark (an interleaved older run can never regress it), and the writer
   lease as `pg_try_advisory_lock` on a reserved connection keyed by
@@ -659,12 +676,14 @@ questions without log access.
   registered plus a live e2e (`pnpm run test:pg-e2e` — Docker Postgres from
   zero through migrate → full sync → incremental → disappearance sweep →
   contract emit → lease refusal → crash auto-release; the CI `pg` job).
-  SQLite remains the production store. The read-only surfaces (#170) select
-  the driver through `openConfiguredStoreReadOnly`: `range.ts` / `stats.ts`
-  open whichever store the config means, and `openPostgresStoreReadOnly` pins
-  the session read-only (`default_transaction_read_only = on`), never
-  migrates, and refuses an older-than-expected schema — mirroring the SQLite
-  read-only open.
+  `docker/compose.pg.yaml` is the deployment smoke surface for the same driver:
+  it starts a real postgres/board/api/web stack and verifies the served contract
+  plus `/api/stats` reporting `driver: "postgres"`. The read-only surfaces
+  (#170) select the driver through `openConfiguredStoreReadOnly`: `range.ts` /
+  `stats.ts` open whichever store the config means, and
+  `openPostgresStoreReadOnly` pins the session read-only
+  (`default_transaction_read_only = on`), never migrates, and refuses an
+  older-than-expected schema — mirroring the SQLite read-only open.
 - **pnpm workspace**: isolates the contract package and UI package while keeping
   the backend buildless.
 - **Contract package remains type-first**: producer constants and validator stay
