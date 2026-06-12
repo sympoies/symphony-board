@@ -88,6 +88,26 @@ async function fetchWithRefresh(
   }
 }
 
+// Persist a failed run + sync_state error (no-op on dry-run) and build the error
+// report. Shared by the failed-fetch and crashed-normalize paths so both record
+// the failure identically — and, by the disappearance rule, tombstone nothing.
+async function recordFailedRun(
+  store: Store,
+  source: Source,
+  opts: SyncOptions,
+  startedAt: string,
+  msg: string,
+): Promise<SyncReport> {
+  const sourceId = source.descriptor.sourceId;
+  if (!opts.dryRun) {
+    await store.ensureSource(source.descriptor, startedAt);
+    const runId = await store.startRun(sourceId, opts.full ? "full" : "incremental", startedAt);
+    await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, msg);
+    await store.updateSyncState(sourceId, null, "error", msg, startedAt);
+  }
+  return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, activitiesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
+}
+
 export async function syncSource(
   store: Store,
   source: Source,
@@ -102,45 +122,48 @@ export async function syncSource(
   try {
     result = await fetchWithRefresh(store, source, sourceId, prevWatermark, opts, startedAt);
   } catch (err) {
-    const msg = (err as Error).message;
-    if (!opts.dryRun) {
-      await store.ensureSource(source.descriptor, startedAt);
-      const runId = await store.startRun(sourceId, opts.full ? "full" : "incremental", startedAt);
-      await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, msg);
-      await store.updateSyncState(sourceId, null, "error", msg, startedAt);
-    }
-    return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, activitiesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
+    return recordFailedRun(store, source, opts, startedAt, (err as Error).message);
   }
 
-  // --- normalize (pure) ---
-  const bundles: NormalizedBundle[] = [];
-  for (const r of result.records) {
-    const b = source.normalize(r);
-    if (b !== null) bundles.push(b);
-  }
-  const stateByRef = new Map<string, ItemState>();
-  for (const b of bundles) {
-    if (b.item === null) continue;
-    stateByRef.set(refOf(b.item.sourceId, b.item.externalId), b.item.state);
-  }
-
-  // collect edges with the side that reported them (the bundle's own item)
-  const discovered: Array<{ edge: CanonicalEdge; side: "from" | "to" }> = [];
-  for (const b of bundles) {
-    if (b.item === null) continue;
-    const self = refOf(b.item.sourceId, b.item.externalId);
-    for (const edge of b.edges) {
-      const side = refOf(edge.from.sourceId, edge.from.externalId) === self ? "from" : "to";
-      discovered.push({ edge, side });
+  // --- normalize + reconcile (pure) ---
+  // A normalizer crash (a malformed payload tripping a normalizer bug) is a
+  // SOURCE failure, not a process crash: record it exactly like a failed fetch
+  // so one bad payload cannot take down a multi-source run — and, by the same
+  // invariant, never tombstone.
+  let bundles: NormalizedBundle[];
+  let edges: ReconciledEdge[];
+  try {
+    bundles = [];
+    for (const r of result.records) {
+      const b = source.normalize(r);
+      if (b !== null) bundles.push(b);
     }
+    const stateByRef = new Map<string, ItemState>();
+    for (const b of bundles) {
+      if (b.item === null) continue;
+      stateByRef.set(refOf(b.item.sourceId, b.item.externalId), b.item.state);
+    }
+
+    // collect edges with the side that reported them (the bundle's own item)
+    const discovered: Array<{ edge: CanonicalEdge; side: "from" | "to" }> = [];
+    for (const b of bundles) {
+      if (b.item === null) continue;
+      const self = refOf(b.item.sourceId, b.item.externalId);
+      for (const edge of b.edges) {
+        const side = refOf(edge.from.sourceId, edge.from.externalId) === self ? "from" : "to";
+        discovered.push({ edge, side });
+      }
+    }
+    edges = reconcileEdges(discovered);
+    // Refine endpoint states from items we actually saw this run, then re-derive.
+    edges = edges.map((e) => {
+      const fromState = stateByRef.get(refOf(e.from.sourceId, e.from.externalId)) ?? e.fromState;
+      const toState = stateByRef.get(refOf(e.to.sourceId, e.to.externalId)) ?? e.toState;
+      return { ...e, fromState, toState, lifecycle: deriveLifecycle(e.type, fromState, toState) };
+    });
+  } catch (err) {
+    return recordFailedRun(store, source, opts, startedAt, `normalize: ${(err as Error).message}`);
   }
-  let edges: ReconciledEdge[] = reconcileEdges(discovered);
-  // Refine endpoint states from items we actually saw this run, then re-derive.
-  edges = edges.map((e) => {
-    const fromState = stateByRef.get(refOf(e.from.sourceId, e.from.externalId)) ?? e.fromState;
-    const toState = stateByRef.get(refOf(e.to.sourceId, e.to.externalId)) ?? e.toState;
-    return { ...e, fromState, toState, lifecycle: deriveLifecycle(e.type, fromState, toState) };
-  });
 
   const status: "ok" | "partial" = result.complete ? "ok" : "partial";
   const itemBundles = bundles.filter((b) => b.item !== null);

@@ -7,7 +7,7 @@
 // the only emit-time, config-derived metadata, so they are resolved here and
 // never stored in the DB.
 
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
 import type { Store } from "../db/store.ts";
@@ -83,7 +83,11 @@ export async function emitContractToFile(
     const errors = validateContract(envelope);
     if (errors.length > 0) throw new ContractValidationError(errors);
   }
-  writeFileSync(outPath, JSON.stringify(envelope, null, 2) + "\n");
+  // Write-then-rename: readers of outPath (the web sidecar serves the emitted
+  // file directly) must never observe a torn, half-written contract.
+  const tmpPath = `${outPath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(envelope, null, 2) + "\n");
+  renameSync(tmpPath, outPath);
   return {
     items: envelope.items.length,
     totalItems: envelope.item_window?.total_items ?? envelope.items.length,

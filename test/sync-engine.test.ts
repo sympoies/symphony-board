@@ -285,3 +285,46 @@ test("a dry-run fetch error reports error but writes nothing", async () => {
   assert.equal(await db.getWatermark("fake:test"), null, "dry-run never touches sync_state");
   await db.close();
 });
+
+// A source whose normalize throws (a malformed payload tripping a normalizer
+// bug): a SOURCE failure like a failed fetch — reported and persisted as an
+// error run, never a process crash, and never a tombstone.
+class NormalizeBoomSource implements Source {
+  readonly descriptor = DESC;
+  readonly normalizerVersion = "fake/1";
+  async fetch(): Promise<FetchResult> {
+    const records: RawRecord[] = [{
+      entityKind: "issue", externalId: "A", apiVersion: "fake",
+      fetchedAt: "2026-06-09T00:00:00Z", payload: { junk: true }, contentHash: "junk",
+    }];
+    return { records, watermark: "2026-06-09T00:00:00Z", complete: true, error: null };
+  }
+  normalize(): NormalizedBundle | null {
+    throw new Error("bad payload shape");
+  }
+}
+
+test("a normalize() throw is a source error: reported, persisted, and deletes nothing (even full)", async () => {
+  const db = await openSqliteStore(":memory:");
+  await syncSource(db, build([item("A")]), null, { full: true, dryRun: false }); // seed one live item
+  await tick();
+
+  const rep = await syncSource(db, new NormalizeBoomSource(), null, { full: true, dryRun: false });
+  assert.equal(rep.status, "error");
+  assert.match(rep.error ?? "", /normalize: bad payload shape/);
+  assert.equal(rep.watermark, null, "a crashed normalize advances no watermark");
+  assert.equal(rep.softDeleted, 0);
+  assert.equal((await db.listLiveItems()).length, 1, "a normalizer crash never tombstones");
+  // Persisted like a failed fetch; the prior good watermark survives.
+  assert.equal(await db.getWatermark("fake:test"), "2026-06-01T00:00:00Z");
+  await db.close();
+});
+
+test("a dry-run normalize() throw reports error but writes nothing", async () => {
+  const db = await openSqliteStore(":memory:");
+  const rep = await syncSource(db, new NormalizeBoomSource(), null, { full: true, dryRun: true });
+  assert.equal(rep.status, "error");
+  assert.match(rep.error ?? "", /normalize: bad payload shape/);
+  assert.equal(await db.getWatermark("fake:test"), null, "dry-run never touches sync_state");
+  await db.close();
+});
