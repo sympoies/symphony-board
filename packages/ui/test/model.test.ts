@@ -346,6 +346,21 @@ test("activityDisplay exposes commit and ref details without fake #iid labels", 
   assert.equal(activityDisplay(commit).title, "commit 4eae5cc5 · chore(deploy): update test full-flow agent id");
   assert.deepEqual(activityDisplay(commit).chips, ["sha 4eae5cc5"]);
 
+  const createdBranch = activity({
+    kind: "branch",
+    action: "created",
+    target_kind: "branch",
+    target_iid: null,
+    title: "feature/link-ui",
+    summary: "created branch feature/link-ui in owner/repo",
+    details: {
+      ref: "refs/heads/feature/link-ui",
+      before: "0000000000000000000000000000000000000000",
+      after: "abc1234def5678",
+    },
+  });
+  assert.deepEqual(activityDisplay(createdBranch).chips, ["ref feature/link-ui", "to abc1234d"]);
+
   const deletedPush = activity({
     kind: "push",
     action: "deleted",
@@ -356,7 +371,7 @@ test("activityDisplay exposes commit and ref details without fake #iid labels", 
     details: {
       ref: "chore/deploy-test-full-flow-agent-9001",
       commit_from: "4eae5cc5e61eee22e269035e5c5055d47c34dd98",
-      commit_to: null,
+      commit_to: "0000000000000000000000000000000000000000",
     },
   });
   const pushDisplay = activityDisplay(deletedPush);
