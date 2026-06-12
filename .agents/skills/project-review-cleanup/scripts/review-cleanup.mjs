@@ -27,7 +27,8 @@ query($owner: String!, $name: String!, $number: Int!, $threadCursor: String) {
           path
           line
           originalLine
-          comments(first: 20) {
+          comments(first: 100) {
+            totalCount
             nodes {
               id
               author { login }
@@ -312,18 +313,21 @@ function classifyLive(prData, allowActors) {
   const threadSummaries = unresolved.map((thread) => {
     const comments = thread.comments?.nodes ?? [];
     const authors = unique(comments.map((comment) => comment.author?.login).filter(Boolean));
+    const allCommentsInspected = comments.length === (thread.comments?.totalCount ?? comments.length);
     const allowlistedAuthorsOnly = authors.length > 0 && authors.every((actor) => allowSet.has(actor));
-    const safeToResolve = prData.state !== "OPEN" && allowlistedAuthorsOnly;
+    const safeToResolve = prData.state !== "OPEN" && allCommentsInspected && allowlistedAuthorsOnly;
     return {
       id: thread.id,
       path: thread.path ?? null,
       line: thread.line ?? thread.originalLine ?? null,
       isOutdated: Boolean(thread.isOutdated),
       authors,
+      commentsInspected: comments.length,
+      commentsTotal: thread.comments?.totalCount ?? comments.length,
       firstUrl: comments[0]?.url ?? null,
       lastUrl: comments.at(-1)?.url ?? null,
       safeToResolve,
-      reason: safeToResolve ? "closed_pr_allowlisted_bot_thread" : unsafeReason(prData, authors, allowSet),
+      reason: safeToResolve ? "closed_pr_allowlisted_bot_thread" : unsafeReason(prData, authors, allowSet, allCommentsInspected),
     };
   });
 
@@ -348,8 +352,9 @@ function classifyLive(prData, allowActors) {
   };
 }
 
-function unsafeReason(prData, authors, allowSet) {
+function unsafeReason(prData, authors, allowSet, allCommentsInspected) {
   if (prData.state === "OPEN") return "pr_open";
+  if (!allCommentsInspected) return "thread_comments_not_fully_inspected";
   if (authors.length === 0) return "thread_has_no_comment_authors";
   if (authors.some((actor) => !allowSet.has(actor))) return "human_or_unallowlisted_author";
   return "not_safe";
@@ -474,6 +479,9 @@ async function main() {
     printText(result);
   }
 
+  if (options.apply && result.live.some((entry) => entry.unresolvedThreads?.some((thread) => !thread.safeToResolve))) {
+    process.exitCode = 1;
+  }
   if (result.live.some((entry) => entry.error)) {
     process.exitCode = 1;
   }
