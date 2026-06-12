@@ -1,8 +1,8 @@
 # Throwaway Postgres for the live e2e (scripts/ci/pg-e2e.sh) — NOT a
-# deployment. The production compose (docker/compose.yaml) is untouched and
-# SQLite remains the production store; this exists so the conformance suite
-# and test/e2e/pg-live.test.ts can run against a real Postgres, from zero,
-# and be torn down completely (tmpfs data — nothing survives `down`).
+# deployment. The default compose (docker/compose.yaml) is untouched; this exists
+# so the conformance suite and test/e2e/pg-live.test.ts can run against a real
+# Postgres, from zero, and be torn down completely (tmpfs data — nothing survives
+# `down`).
 name: symphony-board-pg-e2e
 
 services:

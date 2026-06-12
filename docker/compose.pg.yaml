@@ -1,0 +1,128 @@
+# Independent Postgres deployment stack. It keeps the same writer/read-only/UI
+# split as docker/compose.yaml, but the canonical store lives in the postgres
+# service and the emitted contract lives in a stack-private Docker volume.
+#
+# Run from anywhere with:
+#
+#   cp config/sources.pg.example.json config/sources.pg.json
+#   docker compose -f docker/compose.pg.yaml up -d --build
+#   open http://localhost:18080
+#
+# Tear down only containers/network:
+#
+#   docker compose -f docker/compose.pg.yaml down
+#
+# Tear down containers AND the independent Postgres/contract volumes:
+#
+#   docker compose -f docker/compose.pg.yaml down -v
+
+name: symphony-board-pg
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SYMPHONY_PG_USER:-symphony}
+      POSTGRES_PASSWORD: ${SYMPHONY_PG_PASSWORD:-symphony}
+      POSTGRES_DB: ${SYMPHONY_PG_DATABASE:-symphony_board}
+    ports:
+      # Loopback-only inspection port; override or set empty via compose override
+      # for shared hosts. The app services use the internal postgres:5432 DNS name.
+      - "127.0.0.1:${SYMPHONY_PG_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  board:
+    image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SYNC_MODE: loop
+      INTERVAL: "120"
+      FULL_EVERY: "30"
+      SYNC_FETCH_TIMEOUT_MS: "30000"
+      SYMPHONY_CONFIG: config/${SYMPHONY_CONFIG_BASENAME:-sources.pg.json}
+      CONTRACT_OUT: data/contract.json
+      # The config names this env var via db_url_env; the URL itself stays in
+      # container env. If you override credentials, either keep this URL in sync
+      # or provide SYMPHONY_DB_URL explicitly.
+      SYMPHONY_DB_URL: ${SYMPHONY_DB_URL:-postgres://symphony:symphony@postgres:5432/symphony_board}
+      SYNC_CONTROL_ENABLED: "1"
+      SYNC_CONTROL_PORT: "8080"
+      LOG_CONTROL_ENABLED: "1"
+    env_file:
+      - path: ${SYMPHONY_ENV_FILE:-../.env}
+        required: false
+    volumes:
+      - ${SYMPHONY_CONFIG_DIR:-../config}:/app/config:ro
+      - contract-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "try{const s=require('fs').statSync('/app/data/contract.json');process.exit(Date.now()-s.mtimeMs<1800000?0:1)}catch{process.exit(1)}"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+  api:
+    image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SYNC_MODE: api
+      SYMPHONY_CONFIG: config/${SYMPHONY_CONFIG_BASENAME:-sources.pg.json}
+      SYMPHONY_DB_URL: ${SYMPHONY_DB_URL:-postgres://symphony:symphony@postgres:5432/symphony_board}
+      PORT: "8081"
+    env_file:
+      - path: ${SYMPHONY_ENV_FILE:-../.env}
+        required: false
+    volumes:
+      - ${SYMPHONY_CONFIG_DIR:-../config}:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      board:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  web:
+    image: ghcr.io/sympoies/symphony-board-web:${SYMPHONY_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/ui.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${SYMPHONY_PG_WEB_PORT:-18080}:80"
+    volumes:
+      - contract-data:/srv/data:ro
+    depends_on:
+      board:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  contract-data:

@@ -6,7 +6,7 @@
 //      FULL_EVERY-th iteration, incremental in between (a full+complete sweep is
 //      what tombstones disappeared items/edges; see docs/DESIGN.md);
 //   2. a single run lock, so a manual run and a scheduled run can never overlap
-//      and SQLite never has two sync writers;
+//      and the configured store never has two sync writers;
 //   3. a small HTTP control surface for starting and observing manual sync runs.
 //
 // This is the SOLE writer by design. The read-only `api` sidecar never runs this

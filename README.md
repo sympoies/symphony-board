@@ -4,9 +4,10 @@
 [![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 
 Provider-agnostic work-item board for GitHub and GitLab. It syncs issues and
-pull/merge requests from configured projects into a local SQLite store, derives
-typed relationships between them, emits a versioned JSON contract, and serves a
-read-only web UI from that contract.
+pull/merge requests from configured projects into a canonical store (SQLite by
+default, Postgres by opt-in compose), derives typed relationships between them,
+emits a versioned JSON contract, and serves a read-only web UI from that
+contract.
 
 The product surface is the contract plus UI. The database is an implementation
 store, not the consumer API.
@@ -24,7 +25,7 @@ The basic product path is implemented:
 - GitHub and GitLab GraphQL sources fetch issues and change requests; REST
   activity surfaces add commit and repository/project event records.
 - Raw provider payloads, canonical rows, labels, sync state, relationship
-  edges, and activity rows are stored in SQLite.
+  edges, and activity rows are stored in the configured canonical store.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
 - `emit` produces contract major v3, currently `3.2.1`, and validates the JSON
@@ -34,8 +35,10 @@ The basic product path is implemented:
   and persistent Settings. Board, Graph, Activity, Commits, and Repo Analytics
   share one URL-backed date-range control with a browser-local default preset.
 - Docker Compose runs the sync/emit loop as the sole writer, a read-only range
-  API sidecar over SQLite, and a read-only web sidecar over the latest emitted
-  contract.
+  API sidecar over the configured store, and a read-only web sidecar over the
+  latest emitted contract. `docker/compose.yaml` is the default SQLite stack;
+  `docker/compose.pg.yaml` is a fully independent Postgres stack for deployment
+  validation and opt-in use.
 - `packages/desktop` builds a thin macOS app with Tauri. It bundles the same
   read-only UI and connects to the Docker/server HTTP surface; SQLite, provider
   tokens, sync, and the API sidecar stay server-side.
@@ -64,7 +67,7 @@ providers --fetch--> [1] raw store
                        | normalize (pure)
                        v
                     [2] canonical DB
-                       item / edge / activity / label / sync_* in SQLite
+                       item / edge / activity / label / sync_*
                        |
                        | buildContract (pure)
                        v
@@ -101,14 +104,17 @@ default branch/ref when the REST source exposes that metadata.
 
 This is a pnpm workspace:
 
-- repo root: backend CLI, sync engine, SQLite schema, sources, tests, CI helpers
+- repo root: backend CLI, sync engine, SQLite/Postgres schema, sources, tests,
+  CI helpers
 - `packages/contract`: contract JSON Schema and TypeScript DTOs
 - `packages/ui`: Vite + React read-only board
 - `packages/desktop`: Tauri macOS shell for the UI
 
-The backend runs TypeScript directly under Node 24 type stripping. It has no
-third-party runtime dependency requirement in the Docker image; the UI is the
-deliberate home for browser dependencies and a build step.
+The backend runs TypeScript directly under Node 24 type stripping. There is no
+backend build step; the Docker image installs root production runtime
+dependencies so the lazy-loaded Postgres driver can resolve when a deployment
+selects it. The UI is the deliberate home for browser dependencies and a build
+step.
 
 ## Quick Start
 
@@ -187,14 +193,14 @@ Runtime output under `data/` remains gitignored.
 
 ## Run Continuously
 
-Docker Compose runs three services:
+Docker Compose runs three services in both store modes:
 
 - `board`: the sole writer. A Node daemon loops `sync` + `emit` on a timer and
   also serves a writer-owned control surface for UI-triggered manual syncs (see
   below) plus its recent-log tail on `GET /api/logs` for the hidden Diagnostics
   page (`#/debug`, toggled with Cmd+/ or Ctrl+/).
-- `api`: a read-only Node sidecar. It opens SQLite with `query_only` and serves
-  `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus store statistics on
+- `api`: a read-only Node sidecar. It opens the configured store read-only and
+  serves `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus store statistics on
   `GET /api/stats`.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
   latest `data/contract.json` as `/contract.json`, proxies `/api/range` and
@@ -210,6 +216,35 @@ $EDITOR config/sources.json
 docker compose -f docker/compose.yaml up -d --build
 docker compose -f docker/compose.yaml ps
 open http://localhost:8080
+```
+
+The default stack uses SQLite at `db_path`. To validate or run the independent
+Postgres stack, copy the pg config template and use the pg compose file:
+
+```sh
+cp config/sources.pg.example.json config/sources.pg.json
+$EDITOR config/sources.pg.json
+
+docker compose -f docker/compose.pg.yaml up -d --build
+docker compose -f docker/compose.pg.yaml ps
+open http://localhost:18080
+curl -fsS http://localhost:18080/api/stats
+```
+
+`docker/compose.pg.yaml` uses a separate Compose project name
+(`symphony-board-pg`), loopback ports (`18080` for web, `15432` for Postgres),
+a stack-private Postgres data volume, and a stack-private contract volume. The
+config carries `"db_url_env": "SYMPHONY_DB_URL"`; compose supplies
+`SYMPHONY_DB_URL` for its internal `postgres` service by default. If you
+override `SYMPHONY_PG_USER`, `SYMPHONY_PG_PASSWORD`, or `SYMPHONY_PG_DATABASE`,
+set `SYMPHONY_DB_URL` to the matching URL as well. Use `docker compose -f
+docker/compose.pg.yaml down -v` to delete the independent pg database and
+generated contract volume.
+
+The deployment smoke gate for this path is:
+
+```sh
+pnpm run test:pg-compose
 ```
 
 The daemon defaults to `INTERVAL=120` seconds and `FULL_EVERY=30`, which means a
@@ -353,7 +388,7 @@ Current consumer-facing semantics:
   destinations when the source can prove a stable target.
 
 Display colors are contract metadata, read from config at emit time and never
-stored in SQLite. The UI resolves highlight color in this order:
+stored in the canonical store. The UI resolves highlight color in this order:
 
 ```text
 browser repo override -> repos[] color -> sources[].color -> no highlight

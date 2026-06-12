@@ -10,9 +10,10 @@ The backend runs TypeScript directly under Node 24's built-in type stripping:
 there is no backend build step and no `dist/`. Node strips types but does not
 check them, so `pnpm run typecheck` is the type gate.
 
-The backend uses `node:sqlite` (`DatabaseSync`) as the SQLite driver. It is
-built into Node 24 and currently emits an experimental warning; project commands
-run with `--disable-warning=ExperimentalWarning`.
+The backend uses `node:sqlite` (`DatabaseSync`) as the default SQLite driver.
+It is built into Node 24 and currently emits an experimental warning; project
+commands run with `--disable-warning=ExperimentalWarning`. The optional
+Postgres driver is selected by `db_url_env` and uses postgres.js.
 
 The repo is a pnpm workspace:
 
@@ -24,9 +25,10 @@ The repo is a pnpm workspace:
   backend (Node sidecar running `src/cli/app-server.ts`)
 
 Backend runtime imports from `@symphony-board/contract` are type-only. The
-Docker backend image copies source and schema files but does not run
-`pnpm install`; the contract package is not resolved as runtime code by the
-backend. The UI is the package that owns browser dependencies and the Vite build.
+Docker backend image still runs TypeScript source directly, but it installs root
+production dependencies so the lazy-loaded Postgres driver resolves in
+`docker/compose.pg.yaml`. The UI is the package that owns browser dependencies
+and the Vite build.
 
 Toolchain:
 
@@ -39,11 +41,12 @@ Toolchain:
 ## Layout
 
 ```text
-schema/sqlite/0001_init.sql   canonical DB DDL, applied by src/db/sqlite.ts
+schema/sqlite/                SQLite canonical DB DDL
+schema/postgres/              Postgres canonical DB DDL
 src/config.ts                 config loading and token env-var resolution
 src/model/                    pure canonical helpers: refs, labels, edges, types
 src/sources/                  provider fetchers and pure normalizers
-src/db/                       Store interface (store.ts) + SQLite driver (sqlite.ts)
+src/db/                       Store interface + SQLite/Postgres drivers
 src/sync-engine.ts            fetch -> raw -> normalize -> reconcile -> upsert
 src/contract/                 contract builder, validator, version constants
 src/server/                   shared HTTP handling (range queries)
@@ -74,17 +77,17 @@ docs/devlog/                  append-only development log
 - Runtime contracts under `data/` are generated output and stay gitignored. The
   tracked `packages/ui/public/contract.json` is a small UI sample only.
 - Tokens are referenced by env-var name in config and read from the environment.
-  Never commit tokens, `.env`, `config/sources.json`, SQLite DB files, or runtime
-  emitted contracts.
+  Never commit tokens, `.env`, `config/sources.json`, `config/sources.pg.json`,
+  SQLite DB files, Postgres volume dumps, or runtime emitted contracts.
 - `packages/desktop` remains a thin client. Do not place SQLite, provider
   tokens, or sync sidecars inside it; connect it to the Docker/server HTTP
   surface instead. `packages/desktop-standalone` is the deliberate exception:
   it bundles the backend as a Node sidecar, but all state (config, tokens, DB,
   contract) lives in the per-user app data directory — never inside the app
   bundle or the repo.
-- The sole-writer rule is per SQLite store: in Docker the `board` loop daemon
-  is the only writer; in the standalone app its `app-server` process is. The
-  standalone app refuses to spawn a second writer when its port is already
+- The sole-writer rule is per configured store: in Docker the `board` loop
+  daemon is the only writer; in the standalone app its `app-server` process is.
+  The standalone app refuses to spawn a second writer when its port is already
   served, and `/api/range` opens the store read-only per request.
 
 ## Validation Commands
@@ -102,6 +105,14 @@ down — `pnpm test` itself stays Docker-free):
 
 ```sh
 pnpm run test:pg-e2e
+```
+
+Postgres compose deployment gate (needs Docker; builds the backend and UI
+images, starts an isolated postgres/board/api/web stack, validates the served
+contract, and checks `/api/stats` reports `driver: "postgres"`):
+
+```sh
+pnpm run test:pg-compose
 ```
 
 UI gate:
@@ -156,7 +167,7 @@ status, item count, edge count, and soft-delete counts.
 
 ## Testing Strategy
 
-The backend test suite covers deterministic logic and SQLite behavior:
+The backend test suite covers deterministic logic and default SQLite behavior:
 
 - ref and label helpers
 - edge lifecycle and reconciliation
@@ -215,8 +226,10 @@ every registered driver — is the behavior contract.
 
 The store a deployment uses is config-selected (`src/db/factory.ts`): SQLite at
 `db_path` by default; a config carrying `db_url_env` (the NAME of an env var
-holding a `postgres://` URL) selects the Postgres driver. Production stays on
-SQLite; the API sidecars' read-only open is SQLite-only for now.
+holding a `postgres://` URL) selects the Postgres driver. `docker/compose.yaml`
+is the default SQLite stack; `docker/compose.pg.yaml` is the independent
+Postgres stack. The API sidecars use `openConfiguredStoreReadOnly`, so
+`/api/range` and `/api/stats` read whichever store the config selects.
 
 ### Changing The Contract
 

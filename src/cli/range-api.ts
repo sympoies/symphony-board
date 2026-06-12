@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Read-only range query API. This process never syncs, migrates, emits, or
-// writes the SQLite store; Docker runs it beside the `board` sole-writer daemon.
+// writes the configured store; Docker runs it beside the `board` sole-writer daemon.
 // The request handling lives in src/server/range.ts, shared with the standalone
 // app server (src/cli/app-server.ts).
 

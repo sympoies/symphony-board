@@ -13,12 +13,13 @@
 #   api            - read-only HTTP range-query API. It never syncs or emits.
 #
 # This is the SOLE writer by design: no external cron/trigger. A single writer
-# also keeps SQLite happy while the UI sidecar and inspection helpers read.
+# also preserves the writer/read-only boundary while the UI sidecar and
+# inspection helpers read.
 #
 # Tokens come from env vars named by each source's token_env (e.g. GITHUB_TOKEN,
-# GITLAB_TOKEN). The DB and config are mounted volumes (see compose.yaml). A
-# GitLab source behind a VPN requires the host running this container to be on
-# that VPN.
+# GITLAB_TOKEN). Config, SQLite files, contract output, and/or Postgres
+# credentials are provided by compose/env. A GitLab source behind a VPN requires
+# the host running this container to be on that VPN.
 #
 # In `loop` mode the cadence is mostly incremental with a periodic full sweep:
 # every FULL_EVERY-th iteration (and the first) runs a full sweep, the rest run

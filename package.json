@@ -2,7 +2,7 @@
   "name": "symphony-board",
   "version": "1.1.3",
   "private": true,
-  "description": "Provider-agnostic work-item board: aggregate GitHub/GitLab issues & PR/MRs into SQLite and emit a versioned JSON contract.",
+  "description": "Provider-agnostic work-item board: aggregate GitHub/GitLab issues & PR/MRs into a canonical store and emit a versioned JSON contract.",
   "type": "module",
   "packageManager": "pnpm@11.4.0",
   "engines": {
@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts test/*.test.mjs",
     "test:pg-e2e": "bash scripts/ci/pg-e2e.sh",
+    "test:pg-compose": "bash scripts/ci/pg-compose-smoke.sh",
     "coverage": "bash scripts/ci/coverage.sh",
     "coverage:badge": "bash scripts/ci/coverage-badge.sh coverage/lcov.info badges/coverage.svg",
     "init-db": "node --disable-warning=ExperimentalWarning src/cli/init-db.ts",

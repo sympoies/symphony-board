@@ -1,9 +1,8 @@
-// Config-driven store selection. SQLite (db_path) is the default and the
-// production store; a config carrying `db_url_env` (the NAME of an env var
+// Config-driven store selection. SQLite (db_path) is the default store; a
+// config carrying `db_url_env` (the NAME of an env var
 // holding a postgres:// URL, matching the token-by-env-var-name convention)
 // selects the Postgres driver instead. The pg driver — and its `postgres`
-// dependency — loads lazily, so SQLite-only deployments (including the Docker
-// image, which ships no node_modules) never resolve it.
+// dependency — loads lazily, so SQLite-only deployments never resolve it.
 
 import type { AppConfig } from "../config.ts";
 import type { Store } from "./store.ts";

@@ -56,7 +56,8 @@ export interface AppConfig {
   // itself never lives in config, matching the token_env convention). When
   // set, the store is Postgres and db_path is unused; when the named env var
   // is empty the run fails rather than silently falling back to SQLite. The
-  // production deployments stay on SQLite — this is the PgStore selector.
+  // default deployment stays on SQLite; docker/compose.pg.yaml opts into
+  // Postgres through this selector.
   db_url_env?: string;
   // IANA timezone the board buckets calendar days in (e.g. "Asia/Taipei").
   // Optional; unset/empty means "UTC". It is emitted onto the contract envelope

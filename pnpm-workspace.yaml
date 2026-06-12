@@ -1,8 +1,8 @@
-# pnpm workspace. The root package is the backend (no build, zero third-party
-# runtime deps); LAYER 3 — the contract definition the backend produces and the
-# UI consumes — is extracted into packages/contract so the three-layer boundary
-# is structural (a consumer imports @symphony-board/contract and cannot reach
-# past it into src/db / src/sources).
+# pnpm workspace. The root package is the buildless backend; LAYER 3 — the
+# contract definition the backend produces and the UI consumes — is extracted
+# into packages/contract so the three-layer boundary is structural (a consumer
+# imports @symphony-board/contract and cannot reach past it into src/db /
+# src/sources).
 packages:
   - "packages/*"
 
