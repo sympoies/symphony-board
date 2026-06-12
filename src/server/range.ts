@@ -1,13 +1,13 @@
 // Read-only range-query handling shared by the Docker `api` sidecar
 // (src/cli/range-api.ts) and the standalone app server (src/cli/app-server.ts).
-// Every call opens the SQLite store read-only and closes it before returning,
-// so the hosting process — even the writer-owned standalone server — never
-// holds a second writable handle.
+// Every call opens the configured store read-only and closes it before
+// returning, so the hosting process — even the writer-owned standalone server —
+// never holds a second writable handle.
 
 import type { ServerResponse } from "node:http";
 import type { RepoDTO, TimeRangeDTO, ContractEnvelope } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
-import { openSqliteStoreReadOnly } from "../db/sqlite.ts";
+import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { buildRangeContract } from "../contract/build.ts";
 import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
 
@@ -53,7 +53,7 @@ export function parseRange(url: URL, tz: string): TimeRangeDTO {
 export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractEnvelope> {
   const range = parseRange(url, cfg.timezone ?? "UTC");
   const { sourceColors, repoColors } = configColors(cfg);
-  const store = await openSqliteStoreReadOnly(cfg.db_path);
+  const store = await openConfiguredStoreReadOnly(cfg);
   try {
     return buildRangeContract({
       sources: await store.listSources(),

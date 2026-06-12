@@ -154,3 +154,16 @@ test("handleStatsRequest maps a store that does not exist yet to 404 no_database
   assert.equal(out.status, 404);
   assert.equal((JSON.parse(out.body) as { error: string }).error, "no_database");
 });
+
+test("a Postgres-configured request never maps a missing db_path file to 404", async () => {
+  const { res, out } = fakeRes();
+  delete process.env.SYMPHONY_TEST_UNSET_DB_URL;
+  const cfg = {
+    db_path: join(tmpdir(), "stats-test-definitely-missing.db"),
+    db_url_env: "SYMPHONY_TEST_UNSET_DB_URL",
+    sources: [],
+  } as unknown as AppConfig;
+  await handleStatsRequest(cfg, new URL("http://localhost/api/stats"), res);
+  assert.equal(out.status, 500, "the file precheck is SQLite-only; the pg path fails loudly at open");
+  assert.match((JSON.parse(out.body) as { message: string }).message, /db_url_env/);
+});

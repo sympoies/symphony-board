@@ -78,16 +78,18 @@ export interface PgOpenOptions {
   schema?: string;
 }
 
+// Parse int8 (oid 20) to JS numbers: BIGINT columns and COUNT(*) results come
+// back as numbers, like every other driver value. Exact below 2^53.
+const PG_TYPES = {
+  bigint: { to: 20, from: [20], serialize: (v: unknown) => String(v), parse: (v: string) => Number(v) },
+};
+
 // Open the store read-write, creating and migrating its schema as needed.
 export async function openPostgresStore(url: string, opts: PgOpenOptions = {}): Promise<Store> {
   const schema = opts.schema?.trim();
   const common = {
     onnotice: () => {},
-    // Parse int8 (oid 20) to JS numbers: BIGINT columns and COUNT(*) results
-    // come back as numbers, like every other driver value. Exact below 2^53.
-    types: {
-      bigint: { to: 20, from: [20], serialize: (v: unknown) => String(v), parse: (v: string) => Number(v) },
-    },
+    types: PG_TYPES,
     ...(schema ? { connection: { search_path: schema } } : {}),
   };
   // The store is a single-writer surface; a handful of connections covers the
@@ -105,6 +107,38 @@ export async function openPostgresStore(url: string, opts: PgOpenOptions = {}): 
     throw err;
   }
   return new PgStore(sql, makeLeaseClient);
+}
+
+// Open the store read-only, mirroring openSqliteStoreReadOnly: the session is
+// pinned read-only at the server (default_transaction_read_only = on as a
+// startup parameter, so every statement — and any BEGIN, including
+// transaction() — runs in a read-only transaction and writes fail loudly).
+// Never migrates: an older-than-expected schema is an error (the writer owns
+// migrations). No writer lease is wired up — a read-only handle has no
+// business holding it.
+export async function openPostgresStoreReadOnly(url: string, opts: PgOpenOptions = {}): Promise<Store> {
+  const schema = opts.schema?.trim();
+  // Single read-only session semantics (no pooling/replica routing): the API
+  // sidecars open per request, read, and close.
+  const sql = postgres(url, {
+    onnotice: () => {},
+    types: PG_TYPES,
+    max: 4,
+    connection: {
+      default_transaction_read_only: true,
+      ...(schema ? { search_path: schema } : {}),
+    },
+  });
+  try {
+    const have = await currentVersion(sql);
+    if (have < CURRENT_SCHEMA_VERSION) {
+      throw new Error(`database schema version ${have} is older than expected ${CURRENT_SCHEMA_VERSION}`);
+    }
+  } catch (err) {
+    await sql.end({ timeout: 5 }).catch(() => {});
+    throw err;
+  }
+  return new PgStore(sql);
 }
 
 async function currentVersion(q: Sql | TransactionSql): Promise<number> {

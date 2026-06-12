@@ -267,3 +267,53 @@ test(
     }
   },
 );
+
+test(
+  "postgres read-only open: a pinned read-only session that never migrates (#170)",
+  { skip: PG_URL.length === 0 ? "SYMPHONY_PG_TEST_URL not set (use pnpm run test:pg-e2e)" : false },
+  async () => {
+    const { openPostgresStore, openPostgresStoreReadOnly } = await import("../../src/db/postgres.ts");
+    const schema = `ro_${Date.now().toString(36)}`;
+
+    // A store the writer has never migrated is an error at open — the
+    // read-only path must refuse, never migrate (the writer owns migrations).
+    await assert.rejects(
+      openPostgresStoreReadOnly(PG_URL, { schema }),
+      /schema version 0 is older than expected/,
+      "an unmigrated store is refused, mirroring the SQLite read-only open",
+    );
+
+    const writer = await openPostgresStore(PG_URL, { schema });
+    try {
+      await writer.ensureSource({ sourceId: GH, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+      await writer.upsertItem(item("GH_ISSUE_RO", { sourceId: GH }), "test", "2026-06-01T00:00:00Z");
+
+      const ro = await openPostgresStoreReadOnly(PG_URL, { schema });
+      try {
+        const diag = await ro.diagnostics();
+        assert.equal(diag.driver, "postgres");
+        assert.equal(diag.schema_version, 3, "the migrated store opens at the current schema");
+        assert.equal((await ro.listSources()).length, 1);
+        assert.equal((await ro.listLiveItems()).length, 1);
+
+        await assert.rejects(
+          ro.ensureSource({ sourceId: "x", kind: "github", host: "x", displayName: null }, "2026-06-01T00:00:00Z"),
+          /read-only/i,
+          "the session is pinned read-only at the server, so writes fail loudly",
+        );
+        await assert.rejects(
+          ro.transaction(async (tx) => {
+            await tx.upsertItem(item("INTRUDER_RO", { sourceId: GH }), "test", "2026-06-01T00:00:00Z");
+          }),
+          /read-only/i,
+          "transaction() on the read-only handle cannot write either",
+        );
+      } finally {
+        await ro.close();
+      }
+      assert.equal((await writer.listLiveItems()).length, 1, "nothing leaked through the read-only handle");
+    } finally {
+      await writer.close();
+    }
+  },
+);
