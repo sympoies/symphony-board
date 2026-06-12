@@ -513,6 +513,31 @@ try {
     expression: "document.querySelectorAll('.activity-row').length",
     returnByValue: true,
   })).result.value || 0;
+  const activityRangeInputs = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls .date-input'));
+      const pickerButtons = Array.from(document.querySelectorAll('.time-range-controls .date-picker-button'));
+      const wraps = Array.from(document.querySelectorAll('.time-range-controls .date-input-wrap'));
+      pickerButtons[0]?.click();
+      return {
+        from: rangeInputs[0]?.value || '',
+        to: rangeInputs[1]?.value || '',
+        types: rangeInputs.map((input) => input.type),
+        placeholders: rangeInputs.map((input) => input.getAttribute('placeholder') || ''),
+        pickerButtons: pickerButtons.length,
+        wrapWidths: wraps.map((el) => Math.round(el.getBoundingClientRect().width)),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(50);
+  const activityDatePicker = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      open: !!document.querySelector('.date-picker-popover'),
+      days: document.querySelectorAll('.date-picker-popover .date-picker-day').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // The rhythm heatmap tints the cells inside the feed's selected range (default
   // "this week") a distinct blue over the green density ramp. Count grid cells
   // (excluding the legend) vs the in-range subset to prove the overlay renders and
@@ -889,10 +914,18 @@ try {
   const deepLinkRange = (await send("Runtime.evaluate", {
     expression: `(() => {
       const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls .date-input'));
+      const pickerButtons = Array.from(document.querySelectorAll('.time-range-controls .date-picker-button'));
       const active = Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
         .map((el) => el.textContent?.trim())
         .filter(Boolean);
-      return { from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', types: rangeInputs.map((input) => input.type), active };
+      return {
+        from: rangeInputs[0]?.value || '',
+        to: rangeInputs[1]?.value || '',
+        types: rangeInputs.map((input) => input.type),
+        placeholders: rangeInputs.map((input) => input.getAttribute('placeholder') || ''),
+        pickerButtons: pickerButtons.length,
+        active,
+      };
     })()`,
     returnByValue: true,
   })).result.value || {};
@@ -1057,6 +1090,9 @@ try {
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [sameRangeButtons(activityRangeButtons), `activity: shared range quick presets rendered without all (${activityRangeButtons.join(", ")})`],
+    [JSON.stringify(activityRangeInputs.types) === JSON.stringify(["text", "text"]) && JSON.stringify(activityRangeInputs.placeholders) === JSON.stringify(["YYYY/MM/DD", "YYYY/MM/DD"]) && /^\d{4}\/\d{2}\/\d{2}$/.test(activityRangeInputs.from || "") && /^\d{4}\/\d{2}\/\d{2}$/.test(activityRangeInputs.to || ""), `activity: range dates render as fixed YYYY/MM/DD text (${activityRangeInputs.from || "empty"} to ${activityRangeInputs.to || "empty"})`],
+    [(activityRangeInputs.wrapWidths || []).length === 2 && activityRangeInputs.wrapWidths.every((width) => width >= 120 && width <= 150), `activity: range date fields stay compact (${(activityRangeInputs.wrapWidths || []).join(", ") || "none"}px)`],
+    [activityRangeInputs.pickerButtons === 2 && activityDatePicker.open === true && activityDatePicker.days >= 28, `activity: range dates keep an app-rendered calendar picker (${activityRangeInputs.pickerButtons || 0} buttons, ${activityDatePicker.days || 0} days)`],
     [activityRows >= 4, `activity: rows rendered (${activityRows} >= 4)`],
     [/1200 in range/.test(activityCountText), `activity: large smoke feed count rendered (${activityCountText})`],
     [activityRows < 80, `activity: virtualized rows stay bounded (${activityRows} < 80)`],
@@ -1143,7 +1179,8 @@ try {
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [deepLinkSearch === "", `deep link: the global search bar stays empty ("${deepLinkSearch}")`],
-    [JSON.stringify(deepLinkRange.types) === JSON.stringify(["text", "text"]), `deep link: range dates render as year-first text fields (${JSON.stringify(deepLinkRange.types || [])})`],
+    [JSON.stringify(deepLinkRange.types) === JSON.stringify(["text", "text"]) && JSON.stringify(deepLinkRange.placeholders) === JSON.stringify(["YYYY/MM/DD", "YYYY/MM/DD"]) && /^\d{4}\/\d{2}\/\d{2}$/.test(deepLinkRange.from || "") && /^\d{4}\/\d{2}\/\d{2}$/.test(deepLinkRange.to || ""), `deep link: range dates render as fixed YYYY/MM/DD text (${deepLinkRange.from || "empty"} to ${deepLinkRange.to || "empty"})`],
+    [deepLinkRange.pickerButtons === 2, `deep link: range date picker buttons stay rendered while focus suspends controls (${deepLinkRange.pickerButtons || 0})`],
     [deepLinkRange.from !== "" && deepLinkRange.to !== "" && JSON.stringify(deepLinkRange.active) === JSON.stringify(["this week"]), `deep link: arrival keeps the default this week range (${deepLinkRange.from || "empty"} to ${deepLinkRange.to || "empty"})`],
     // canvas node title = a real provider link (anchor, new tab, drag-safe)
     [nodeTitleLink.found === true, "graph node: title element present on the focused canvas"],
