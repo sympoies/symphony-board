@@ -379,10 +379,13 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* graph page (relationship graph, cytoscape) */
 .graph-page { margin: 8px 0; }
 .graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
-.date-filter input[type="date"] {
+.date-filter .date-input {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 3px 6px; margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
+.date-filter .date-input[aria-invalid="true"] { border-color: var(--broken); }
 .graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
 .graph-legend > span { display: inline-flex; align-items: center; }
 .graph-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
