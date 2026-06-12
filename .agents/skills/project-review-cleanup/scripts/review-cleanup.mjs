@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_ACTORS = ["chatgpt-codex-connector"];
+const DEFAULT_RESOLUTION_NOTE = "Resolved by project-review-cleanup: stale allowlisted bot review thread on a closed or merged PR after live verification.";
 
 const REVIEW_QUERY = `
 query($owner: String!, $name: String!, $number: Int!, $threadCursor: String) {
@@ -62,6 +64,19 @@ mutation($threadId: ID!) {
   }
 }`;
 
+const REPLY_MUTATION = `
+mutation($threadId: ID!, $body: String!) {
+  addPullRequestReviewThreadReply(input: {
+    pullRequestReviewThreadId: $threadId,
+    body: $body
+  }) {
+    comment {
+      id
+      url
+    }
+  }
+}`;
+
 function usage() {
   return `Usage:
   project-review-cleanup.sh [options]
@@ -76,6 +91,11 @@ Options:
   --limit N         Maximum contract candidates (default: 20).
   --no-live         Skip provider live verification.
   --apply           Resolve safe stale allowlisted bot threads.
+  --resolution-note TEXT
+                    Provider-visible note to reply before resolving threads.
+                    Defaults to a stale-thread disposition note in --apply mode.
+  --no-resolution-note
+                    Resolve without posting a provider-visible note.
   --json            Emit JSON.
   -h, --help        Show this help.`;
 }
@@ -91,6 +111,7 @@ function parseArgs(argv) {
     limit: 20,
     live: true,
     apply: false,
+    resolutionNote: null,
     json: false,
   };
 
@@ -122,6 +143,10 @@ function parseArgs(argv) {
       options.live = false;
     } else if (arg === "--apply") {
       options.apply = true;
+    } else if (arg === "--resolution-note") {
+      options.resolutionNote = next();
+    } else if (arg === "--no-resolution-note") {
+      options.resolutionNote = "";
     } else if (arg === "--json") {
       options.json = true;
     } else {
@@ -131,6 +156,12 @@ function parseArgs(argv) {
 
   if (options.apply && !options.live) {
     throw usageError("--apply requires live provider verification");
+  }
+  if (!options.apply && options.resolutionNote != null) {
+    throw usageError("--resolution-note and --no-resolution-note require --apply");
+  }
+  if (options.apply && options.resolutionNote == null) {
+    options.resolutionNote = DEFAULT_RESOLUTION_NOTE;
   }
 
   const envActors = (process.env.PROJECT_REVIEW_CLEANUP_ALLOW_ACTORS ?? "")
@@ -196,6 +227,10 @@ function splitRepo(repo) {
 function buildCandidates(contract, options, repo) {
   if (!contract) return [];
   const cutoffMs = Date.now() - options.days * 24 * 60 * 60 * 1000;
+  const sources = new Map();
+  for (const source of contract.sources ?? []) {
+    if (source.source_id) sources.set(source.source_id, source);
+  }
   const items = new Map();
   for (const item of contract.items ?? []) {
     if (item.kind !== "change_request") continue;
@@ -207,6 +242,7 @@ function buildCandidates(contract, options, repo) {
   const candidates = [];
   for (const activity of contract.activities ?? []) {
     if (activity.kind !== "review" || activity.target_kind !== "change_request") continue;
+    if (sources.get(activity.source_id)?.kind !== "github") continue;
     if (repo && activity.project_path !== repo) continue;
     if (options.pr && Number(activity.target_iid) !== options.pr) continue;
     if (!options.allActors && !allowSet.has(activity.actor)) continue;
@@ -307,14 +343,34 @@ function resolveThread(threadId) {
   return body?.data?.resolveReviewThread?.thread ?? null;
 }
 
+function replyThread(threadId, body) {
+  const result = spawnSync("gh", [
+    "api",
+    "graphql",
+    "-f", `query=${REPLY_MUTATION}`,
+    "-F", `threadId=${threadId}`,
+    "-F", `body=${body}`,
+  ], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+
+  if (result.status !== 0) {
+    throw new Error((result.stderr || result.stdout || `gh exited ${result.status}`).trim());
+  }
+  const response = JSON.parse(result.stdout);
+  return response?.data?.addPullRequestReviewThreadReply?.comment ?? null;
+}
+
 function classifyLive(prData, allowActors) {
   const allowSet = new Set(allowActors);
   const unresolved = (prData.reviewThreads?.nodes ?? []).filter((thread) => !thread.isResolved);
   const threadSummaries = unresolved.map((thread) => {
     const comments = thread.comments?.nodes ?? [];
-    const authors = unique(comments.map((comment) => comment.author?.login).filter(Boolean));
+    const authorLogins = comments.map((comment) => comment.author?.login ?? null);
+    const unknownAuthorCount = authorLogins.filter((actor) => !actor).length;
+    const authors = unique(authorLogins.filter(Boolean));
     const allCommentsInspected = comments.length === (thread.comments?.totalCount ?? comments.length);
-    const allowlistedAuthorsOnly = authors.length > 0 && authors.every((actor) => allowSet.has(actor));
+    const allowlistedAuthorsOnly = comments.length > 0
+      && unknownAuthorCount === 0
+      && authors.every((actor) => allowSet.has(actor));
     const safeToResolve = prData.state !== "OPEN" && allCommentsInspected && allowlistedAuthorsOnly;
     return {
       id: thread.id,
@@ -324,10 +380,11 @@ function classifyLive(prData, allowActors) {
       authors,
       commentsInspected: comments.length,
       commentsTotal: thread.comments?.totalCount ?? comments.length,
+      unknownAuthorCount,
       firstUrl: comments[0]?.url ?? null,
       lastUrl: comments.at(-1)?.url ?? null,
       safeToResolve,
-      reason: safeToResolve ? "closed_pr_allowlisted_bot_thread" : unsafeReason(prData, authors, allowSet, allCommentsInspected),
+      reason: safeToResolve ? "closed_pr_allowlisted_bot_thread" : unsafeReason(prData, authors, allowSet, allCommentsInspected, unknownAuthorCount),
     };
   });
 
@@ -352,12 +409,74 @@ function classifyLive(prData, allowActors) {
   };
 }
 
-function unsafeReason(prData, authors, allowSet, allCommentsInspected) {
+function unsafeReason(prData, authors, allowSet, allCommentsInspected, unknownAuthorCount) {
   if (prData.state === "OPEN") return "pr_open";
   if (!allCommentsInspected) return "thread_comments_not_fully_inspected";
+  if (unknownAuthorCount > 0) return "thread_has_unknown_author";
   if (authors.length === 0) return "thread_has_no_comment_authors";
   if (authors.some((actor) => !allowSet.has(actor))) return "human_or_unallowlisted_author";
   return "not_safe";
+}
+
+function runCleanup(options, repo, contract, deps = {}) {
+  const queryPrFn = deps.queryPr ?? queryPr;
+  const resolveThreadFn = deps.resolveThread ?? resolveThread;
+  const replyThreadFn = deps.replyThread ?? replyThread;
+  const candidates = buildCandidates(contract, options, repo);
+  const focusedPrs = unique([
+    ...candidates.map((candidate) => candidate.pr),
+    ...(options.pr ? [options.pr] : []),
+  ]);
+
+  const result = {
+    repo,
+    contractPath: options.contractPath,
+    contractLoaded: Boolean(contract),
+    apply: options.apply,
+    resolutionNote: options.apply && options.resolutionNote ? options.resolutionNote : null,
+    allowActors: options.allowActors,
+    candidates,
+    live: [],
+    actions: [],
+    warnings: [],
+  };
+
+  if (options.live) {
+    for (const pr of focusedPrs) {
+      try {
+        const live = classifyLive(queryPrFn(repo, pr), options.allowActors);
+        result.live.push(live);
+      } catch (error) {
+        result.live.push({ pr, error: error.message });
+        result.warnings.push(`live verification failed for #${pr}: ${error.message}`);
+      }
+    }
+
+    if (options.apply && result.live.some((entry) => entry.error)) {
+      result.warnings.push("apply aborted before mutation because one or more live verifications failed");
+    } else if (options.apply) {
+      for (const live of result.live) {
+        for (const thread of live.unresolvedThreads.filter((entry) => entry.safeToResolve)) {
+          const note = options.resolutionNote
+            ? replyThreadFn(thread.id, options.resolutionNote)
+            : null;
+          const resolved = resolveThreadFn(thread.id);
+          result.actions.push({
+            pr: live.pr,
+            threadId: thread.id,
+            reason: thread.reason,
+            threadUrl: thread.lastUrl ?? null,
+            noteUrl: note?.url ?? null,
+            status: resolved?.isResolved ? "resolved" : "mutation_returned_unresolved",
+          });
+        }
+      }
+    }
+  } else if (focusedPrs.length > 0) {
+    result.warnings.push("--no-live skipped provider verification");
+  }
+
+  return result;
 }
 
 function printText(result) {
@@ -395,7 +514,8 @@ function printText(result) {
     console.log("");
     console.log("Apply actions:");
     for (const action of result.actions) {
-      console.log(`- ${action.status}: #${action.pr} thread ${action.threadId}`);
+      console.log(`- ${action.status}: #${action.pr} thread ${action.threadId}; reason=${action.reason}`);
+      if (action.noteUrl) console.log(`  note=${action.noteUrl}`);
     }
   } else {
     console.log("");
@@ -429,49 +549,7 @@ async function main() {
   if (!contract && !options.pr) {
     throw new Error(`contract not found at ${options.contractPath}; pass --contract or --pr for live-only triage`);
   }
-
-  const candidates = buildCandidates(contract, options, repo);
-  const focusedPrs = unique([
-    ...candidates.map((candidate) => candidate.pr),
-    ...(options.pr ? [options.pr] : []),
-  ]);
-
-  const result = {
-    repo,
-    contractPath: options.contractPath,
-    contractLoaded: Boolean(contract),
-    apply: options.apply,
-    allowActors: options.allowActors,
-    candidates,
-    live: [],
-    actions: [],
-    warnings: [],
-  };
-
-  if (options.live) {
-    for (const pr of focusedPrs) {
-      try {
-        const live = classifyLive(queryPr(repo, pr), options.allowActors);
-        result.live.push(live);
-        if (options.apply) {
-          for (const thread of live.unresolvedThreads.filter((thread) => thread.safeToResolve)) {
-            const resolved = resolveThread(thread.id);
-            result.actions.push({
-              pr,
-              threadId: thread.id,
-              status: resolved?.isResolved ? "resolved" : "mutation_returned_unresolved",
-            });
-          }
-        }
-      } catch (error) {
-        result.live.push({ pr, error: error.message });
-        result.warnings.push(`live verification failed for #${pr}: ${error.message}`);
-        if (options.apply) throw error;
-      }
-    }
-  } else if (focusedPrs.length > 0) {
-    result.warnings.push("--no-live skipped provider verification");
-  }
+  const result = runCleanup(options, repo, contract);
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -487,12 +565,16 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  if (error.usage) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((error) => {
+    if (error.usage) {
+      console.error(`error: ${error.message}`);
+      console.error(usage());
+      process.exit(2);
+    }
     console.error(`error: ${error.message}`);
-    console.error(usage());
-    process.exit(2);
-  }
-  console.error(`error: ${error.message}`);
-  process.exit(1);
-});
+    process.exit(1);
+  });
+}
+
+export { buildCandidates, classifyLive, parseArgs, runCleanup };
