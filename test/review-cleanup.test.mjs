@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCandidates, classifyLive, runCleanup } from "../.agents/skills/project-review-cleanup/scripts/review-cleanup.mjs";
+import { buildCandidates, classifyLive, parseDispositionDocument, runCleanup } from "../.agents/skills/project-review-cleanup/scripts/review-cleanup.mjs";
 
 const allowActors = ["chatgpt-codex-connector"];
 
@@ -15,6 +15,8 @@ function options(overrides = {}) {
     limit: 20,
     live: true,
     apply: false,
+    dispositionPath: null,
+    dispositions: null,
     resolutionNote: null,
     json: true,
     allowActors,
@@ -171,6 +173,60 @@ test("threads with missing comment authors are not safe to resolve", () => {
   assert.equal(live.unresolvedThreads[0].unknownAuthorCount, 1);
 });
 
+test("live classification includes review comment text and diff context for agent disposition", () => {
+  const live = classifyLive(
+    pullRequest(183, [
+      reviewThread("thread-1", [
+        {
+          id: "comment-1",
+          author: { login: "chatgpt-codex-connector" },
+          url: "https://example.test/1",
+          bodyText: "This guard looks incomplete.",
+          diffHunk: "@@ -1 +1 @@\n-old\n+new",
+          pullRequestReview: {
+            id: "review-1",
+            state: "COMMENTED",
+            submittedAt: "2026-06-12T17:05:00Z",
+            url: "https://example.test/review",
+            author: { login: "chatgpt-codex-connector" },
+          },
+        },
+      ]),
+    ]),
+    allowActors,
+  );
+
+  const [thread] = live.unresolvedThreads;
+  assert.equal(thread.latestCommentText, "This guard looks incomplete.");
+  assert.equal(thread.comments[0].bodyText, "This guard looks incomplete.");
+  assert.equal(thread.comments[0].diffHunk, "@@ -1 +1 @@\n-old\n+new");
+  assert.equal(thread.comments[0].review.url, "https://example.test/review");
+});
+
+test("disposition documents normalize thread notes and follow-up links", () => {
+  const dispositions = parseDispositionDocument({
+    threads: [
+      {
+        thread_id: "thread-1",
+        disposition: "follow_up",
+        follow_up_url: "https://github.com/sympoies/symphony-board/issues/200",
+      },
+      {
+        threadId: "thread-2",
+        disposition: "stale",
+        note: "Resolved as stale after checking the merged diff.",
+      },
+    ],
+  });
+
+  assert.equal(dispositions.size, 2);
+  assert.equal(
+    dispositions.get("thread-1").note,
+    "Resolved by project-review-cleanup: tracked in follow-up issue https://github.com/sympoies/symphony-board/issues/200.",
+  );
+  assert.equal(dispositions.get("thread-2").disposition, "stale");
+});
+
 test("apply verifies every focused PR before resolving any safe thread", () => {
   const contract = candidateContract([
     { source_id: "github:github.com", iid: 181, occurred_at: "2026-06-12T17:10:00Z" },
@@ -244,4 +300,88 @@ test("apply posts a resolution note, resolves the thread, and records the dispos
   assert.equal(result.actions.length, 1);
   assert.equal(result.actions[0].reason, "closed_pr_allowlisted_bot_thread");
   assert.equal(result.actions[0].noteUrl, "https://example.test/note");
+});
+
+test("apply with dispositions resolves only agent-dispositioned safe threads", () => {
+  const contract = candidateContract([{ source_id: "github:github.com", iid: 183 }]);
+  const calls = [];
+  const dispositions = parseDispositionDocument({
+    threads: [
+      {
+        threadId: "thread-1",
+        disposition: "follow_up",
+        note: "Follow-up issue: https://github.com/sympoies/symphony-board/issues/200",
+      },
+    ],
+  });
+
+  const result = runCleanup(
+    options({ apply: true, dispositions, dispositionPath: "dispositions.json" }),
+    "sympoies/symphony-board",
+    contract,
+    {
+      queryPr() {
+        return pullRequest(183, [
+          reviewThread("thread-1", [
+            { author: { login: "chatgpt-codex-connector" }, url: "https://example.test/1" },
+          ]),
+          reviewThread("thread-2", [
+            { author: { login: "chatgpt-codex-connector" }, url: "https://example.test/2" },
+          ]),
+        ]);
+      },
+      replyThread(threadId, body) {
+        calls.push(["reply", threadId, body]);
+        return { url: `https://example.test/note/${threadId}` };
+      },
+      resolveThread(threadId) {
+        calls.push(["resolve", threadId]);
+        return { isResolved: true };
+      },
+    },
+  );
+
+  assert.deepEqual(calls, [
+    ["reply", "thread-1", "Follow-up issue: https://github.com/sympoies/symphony-board/issues/200"],
+    ["resolve", "thread-1"],
+  ]);
+  assert.equal(result.actions.length, 1);
+  assert.equal(result.actions[0].disposition, "follow_up");
+  assert.match(result.warnings.at(-1), /thread-2 lacks an agent disposition/);
+});
+
+test("apply with dispositions leaves unsafe listed threads unresolved", () => {
+  const contract = candidateContract([{ source_id: "github:github.com", iid: 183 }]);
+  const calls = [];
+  const dispositions = parseDispositionDocument({
+    "thread-unsafe": {
+      disposition: "accepted",
+      note: "Accepted as a tradeoff.",
+    },
+  });
+
+  const result = runCleanup(
+    options({ apply: true, dispositions, dispositionPath: "dispositions.json" }),
+    "sympoies/symphony-board",
+    contract,
+    {
+      queryPr() {
+        return pullRequest(183, [
+          reviewThread("thread-unsafe", [
+            { author: { login: "human-reviewer" }, url: "https://example.test/human" },
+          ]),
+        ]);
+      },
+      replyThread() {
+        calls.push(["reply"]);
+      },
+      resolveThread() {
+        calls.push(["resolve"]);
+      },
+    },
+  );
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.actions.length, 0);
+  assert.match(result.warnings[0], /human_or_unallowlisted_author/);
 });

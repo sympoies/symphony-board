@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_ACTORS = ["chatgpt-codex-connector"];
 const DEFAULT_RESOLUTION_NOTE = "Resolved by project-review-cleanup: stale allowlisted bot review thread on a closed or merged PR after live verification.";
+const DISPOSITIONS = new Set(["stale", "fixed", "follow_up", "accepted"]);
 
 const REVIEW_QUERY = `
 query($owner: String!, $name: String!, $number: Int!, $threadCursor: String) {
@@ -37,6 +38,18 @@ query($owner: String!, $name: String!, $number: Int!, $threadCursor: String) {
               url
               createdAt
               updatedAt
+              bodyText
+              diffHunk
+              path
+              line
+              originalLine
+              pullRequestReview {
+                id
+                state
+                submittedAt
+                url
+                author { login }
+              }
             }
           }
         }
@@ -91,7 +104,11 @@ Options:
   --all-actors      Report candidates from every actor.
   --limit N         Maximum contract candidates (default: 20).
   --no-live         Skip provider live verification.
-  --apply           Resolve safe stale allowlisted bot threads.
+  --apply           Resolve safe allowlisted bot review threads.
+  --disposition-file PATH
+                    JSON file of agent-inspected thread dispositions. In
+                    --apply mode, only listed safe threads are resolved and
+                    each uses its per-thread note.
   --resolution-note TEXT
                     Provider-visible note to reply before resolving threads.
                     Defaults to a stale-thread disposition note in --apply mode.
@@ -112,6 +129,8 @@ function parseArgs(argv) {
     limit: 20,
     live: true,
     apply: false,
+    dispositionPath: null,
+    dispositions: null,
     resolutionNote: null,
     json: false,
   };
@@ -144,6 +163,8 @@ function parseArgs(argv) {
       options.live = false;
     } else if (arg === "--apply") {
       options.apply = true;
+    } else if (arg === "--disposition-file") {
+      options.dispositionPath = next();
     } else if (arg === "--resolution-note") {
       options.resolutionNote = next();
     } else if (arg === "--no-resolution-note") {
@@ -157,6 +178,9 @@ function parseArgs(argv) {
 
   if (options.apply && !options.live) {
     throw usageError("--apply requires live provider verification");
+  }
+  if (options.dispositionPath && !options.live) {
+    throw usageError("--disposition-file requires live provider verification");
   }
   if (!options.apply && options.resolutionNote != null) {
     throw usageError("--resolution-note and --no-resolution-note require --apply");
@@ -206,6 +230,85 @@ function loadContract(path) {
     if (error?.code === "ENOENT") return null;
     throw new Error(`failed to read contract ${path}: ${error.message}`);
   }
+}
+
+function loadDispositionFile(path) {
+  try {
+    return parseDispositionDocument(JSON.parse(readFileSync(path, "utf8")));
+  } catch (error) {
+    if (error?.usage) throw error;
+    throw new Error(`failed to read disposition file ${path}: ${error.message}`);
+  }
+}
+
+function parseDispositionDocument(document) {
+  let entries;
+  if (Array.isArray(document)) {
+    entries = document;
+  } else if (Array.isArray(document?.threads)) {
+    entries = document.threads;
+  } else if (document && typeof document === "object") {
+    entries = Object.entries(document).map(([threadId, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return { threadId, ...value };
+      }
+      return { threadId, disposition: value };
+    });
+  } else {
+    throw usageError("disposition file must be an array, an object with threads[], or a thread-id map");
+  }
+
+  const dispositions = new Map();
+  for (const [index, entry] of entries.entries()) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw usageError(`disposition entry ${index + 1} must be an object`);
+    }
+    const threadId = stringValue(entry.threadId ?? entry.thread_id);
+    if (!threadId) throw usageError(`disposition entry ${index + 1} is missing threadId`);
+    if (dispositions.has(threadId)) throw usageError(`duplicate disposition for thread ${threadId}`);
+
+    const disposition = stringValue(entry.disposition);
+    if (!DISPOSITIONS.has(disposition)) {
+      throw usageError(`disposition for thread ${threadId} must be one of: ${[...DISPOSITIONS].join(", ")}`);
+    }
+
+    const note = stringValue(entry.note ?? entry.resolution_note) ?? defaultDispositionNote(entry);
+    if (!note) throw usageError(`disposition for thread ${threadId} needs a provider-visible note`);
+
+    dispositions.set(threadId, {
+      threadId,
+      disposition,
+      note,
+      followUpUrl: stringValue(entry.followUpUrl ?? entry.follow_up_url),
+      fixPrUrl: stringValue(entry.fixPrUrl ?? entry.fix_pr_url),
+      issueUrl: stringValue(entry.issueUrl ?? entry.issue_url),
+    });
+  }
+  return dispositions;
+}
+
+function defaultDispositionNote(entry) {
+  const disposition = stringValue(entry.disposition);
+  const url = stringValue(entry.fixPrUrl ?? entry.fix_pr_url ?? entry.followUpUrl ?? entry.follow_up_url ?? entry.issueUrl ?? entry.issue_url);
+  if (!url && (disposition === "fixed" || disposition === "follow_up")) return null;
+
+  if (disposition === "fixed") {
+    return `Resolved by project-review-cleanup: fixed in follow-up PR ${url}.`;
+  }
+  if (disposition === "follow_up") {
+    return `Resolved by project-review-cleanup: tracked in follow-up issue ${url}.`;
+  }
+  if (disposition === "accepted") {
+    return `Resolved by project-review-cleanup: accepted as a tradeoff after agent review${url ? ` (${url})` : ""}.`;
+  }
+  if (disposition === "stale") {
+    return `Resolved by project-review-cleanup: stale or no longer actionable after agent review${url ? ` (${url})` : ""}.`;
+  }
+  return null;
+}
+
+function stringValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function defaultRepo() {
@@ -382,7 +485,27 @@ function classifyLive(prData, allowActors) {
   const unresolved = (prData.reviewThreads?.nodes ?? []).filter((thread) => !thread.isResolved);
   const threadSummaries = unresolved.map((thread) => {
     const comments = thread.comments?.nodes ?? [];
-    const authorLogins = comments.map((comment) => comment.author?.login ?? null);
+    const commentSummaries = comments.map((comment) => ({
+      id: comment.id ?? null,
+      author: comment.author?.login ?? null,
+      url: comment.url ?? null,
+      createdAt: comment.createdAt ?? null,
+      updatedAt: comment.updatedAt ?? null,
+      bodyText: comment.bodyText ?? null,
+      diffHunk: comment.diffHunk ?? null,
+      path: comment.path ?? thread.path ?? null,
+      line: comment.line ?? comment.originalLine ?? thread.line ?? thread.originalLine ?? null,
+      review: comment.pullRequestReview
+        ? {
+            id: comment.pullRequestReview.id ?? null,
+            state: comment.pullRequestReview.state ?? null,
+            submittedAt: comment.pullRequestReview.submittedAt ?? null,
+            url: comment.pullRequestReview.url ?? null,
+            author: comment.pullRequestReview.author?.login ?? null,
+          }
+        : null,
+    }));
+    const authorLogins = commentSummaries.map((comment) => comment.author);
     const unknownAuthorCount = authorLogins.filter((actor) => !actor).length;
     const authors = unique(authorLogins.filter(Boolean));
     const allCommentsInspected = comments.length === (thread.comments?.totalCount ?? comments.length);
@@ -396,11 +519,13 @@ function classifyLive(prData, allowActors) {
       line: thread.line ?? thread.originalLine ?? null,
       isOutdated: Boolean(thread.isOutdated),
       authors,
+      comments: commentSummaries,
       commentsInspected: comments.length,
       commentsTotal: thread.comments?.totalCount ?? comments.length,
       unknownAuthorCount,
-      firstUrl: comments[0]?.url ?? null,
-      lastUrl: comments.at(-1)?.url ?? null,
+      firstUrl: commentSummaries[0]?.url ?? null,
+      lastUrl: commentSummaries.at(-1)?.url ?? null,
+      latestCommentText: summarizeComment(commentSummaries.at(-1)?.bodyText),
       safeToResolve,
       reason: safeToResolve ? "closed_pr_allowlisted_bot_thread" : unsafeReason(prData, authors, allowSet, allCommentsInspected, unknownAuthorCount),
     };
@@ -436,10 +561,26 @@ function unsafeReason(prData, authors, allowSet, allCommentsInspected, unknownAu
   return "not_safe";
 }
 
+function summarizeComment(bodyText) {
+  const normalized = stringValue(bodyText)?.replace(/\s+/g, " ") ?? null;
+  if (!normalized) return null;
+  return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized;
+}
+
+function annotateDispositions(live, dispositions) {
+  if (!dispositions) return live;
+  for (const thread of live.unresolvedThreads) {
+    thread.disposition = dispositions.get(thread.id) ?? null;
+  }
+  return live;
+}
+
 function runCleanup(options, repo, contract, deps = {}) {
   const queryPrFn = deps.queryPr ?? queryPr;
   const resolveThreadFn = deps.resolveThread ?? resolveThread;
   const replyThreadFn = deps.replyThread ?? replyThread;
+  const dispositions = options.dispositions ?? null;
+  const matchedDispositionIds = new Set();
   const candidates = buildCandidates(contract, options, repo);
   const focusedTargets = uniqueTargets([
     ...candidates.map((candidate) => ({ repo: candidate.repo, pr: candidate.pr })),
@@ -451,6 +592,8 @@ function runCleanup(options, repo, contract, deps = {}) {
     contractPath: options.contractPath,
     contractLoaded: Boolean(contract),
     apply: options.apply,
+    dispositionPath: options.dispositionPath,
+    dispositionCount: dispositions?.size ?? 0,
     resolutionNote: options.apply && options.resolutionNote ? options.resolutionNote : null,
     allowActors: options.allowActors,
     candidates,
@@ -466,7 +609,7 @@ function runCleanup(options, repo, contract, deps = {}) {
   if (options.live) {
     for (const target of focusedTargets) {
       try {
-        const live = classifyLive(queryPrFn(target.repo, target.pr), options.allowActors);
+        const live = annotateDispositions(classifyLive(queryPrFn(target.repo, target.pr), options.allowActors), dispositions);
         result.live.push({ repo: target.repo, ...live });
       } catch (error) {
         result.live.push({ repo: target.repo, pr: target.pr, error: error.message });
@@ -478,20 +621,43 @@ function runCleanup(options, repo, contract, deps = {}) {
       result.warnings.push("apply aborted before mutation because one or more live verifications failed");
     } else if (options.apply) {
       for (const live of result.live) {
-        for (const thread of live.unresolvedThreads.filter((entry) => entry.safeToResolve)) {
-          const note = options.resolutionNote
-            ? replyThreadFn(thread.id, options.resolutionNote)
+        for (const thread of live.unresolvedThreads) {
+          const disposition = dispositions?.get(thread.id) ?? null;
+          if (dispositions && !disposition) {
+            if (thread.safeToResolve) {
+              result.warnings.push(`safe thread ${live.repo ?? repo}#${live.pr} ${thread.id} lacks an agent disposition; left unresolved`);
+            }
+            continue;
+          }
+          if (!thread.safeToResolve) {
+            if (disposition) {
+              matchedDispositionIds.add(thread.id);
+              result.warnings.push(`disposition for ${live.repo ?? repo}#${live.pr} ${thread.id} was not applied: ${thread.reason}`);
+            }
+            continue;
+          }
+
+          matchedDispositionIds.add(thread.id);
+          const replyBody = disposition?.note ?? options.resolutionNote;
+          const note = replyBody
+            ? replyThreadFn(thread.id, replyBody)
             : null;
           const resolved = resolveThreadFn(thread.id);
           result.actions.push({
             repo: live.repo ?? repo,
             pr: live.pr,
             threadId: thread.id,
+            disposition: disposition?.disposition ?? "stale",
             reason: thread.reason,
             threadUrl: thread.lastUrl ?? null,
             noteUrl: note?.url ?? null,
             status: resolved?.isResolved ? "resolved" : "mutation_returned_unresolved",
           });
+        }
+      }
+      for (const threadId of dispositions?.keys() ?? []) {
+        if (!matchedDispositionIds.has(threadId)) {
+          result.warnings.push(`disposition for thread ${threadId} did not match any focused unresolved live thread`);
         }
       }
     }
@@ -507,6 +673,7 @@ function printText(result) {
   console.log(`Repo: ${result.repo ?? "all GitHub repos in contract"}`);
   console.log(`Contract: ${result.contractPath}${result.contractLoaded ? "" : " (not loaded)"}`);
   console.log(`Mode: ${result.apply ? "apply" : "dry-run"}`);
+  if (result.dispositionPath) console.log(`Disposition file: ${result.dispositionPath} (${result.dispositionCount} thread${result.dispositionCount === 1 ? "" : "s"})`);
   console.log(`Allowlisted actors: ${result.allowActors.join(", ") || "(none)"}`);
   console.log("");
   console.log(`Contract candidates: ${result.candidates.length}`);
@@ -528,6 +695,8 @@ function printText(result) {
       console.log(`- ${live.repo ?? result.repo}#${live.pr} ${live.state}: unresolved=${live.unresolvedCount}, safe_to_resolve=${live.safeToResolveCount}`);
       for (const thread of live.unresolvedThreads) {
         console.log(`  thread ${thread.id}: ${thread.reason}; authors=${thread.authors.join(", ") || "(none)"}; path=${thread.path ?? "(unknown)"}`);
+        if (thread.disposition) console.log(`  disposition=${thread.disposition.disposition}`);
+        if (thread.latestCommentText) console.log(`  comment=${thread.latestCommentText}`);
         if (thread.lastUrl) console.log(`  url=${thread.lastUrl}`);
       }
     }
@@ -537,7 +706,7 @@ function printText(result) {
     console.log("");
     console.log("Apply actions:");
     for (const action of result.actions) {
-      console.log(`- ${action.status}: ${action.repo ?? result.repo}#${action.pr} thread ${action.threadId}; reason=${action.reason}`);
+      console.log(`- ${action.status}: ${action.repo ?? result.repo}#${action.pr} thread ${action.threadId}; disposition=${action.disposition}; reason=${action.reason}`);
       if (action.noteUrl) console.log(`  note=${action.noteUrl}`);
     }
   } else {
@@ -572,6 +741,7 @@ async function main() {
 
   const repo = options.repo ?? (contract ? null : defaultRepo());
   if (!repo && !contract) throw usageError("could not infer GitHub repo from origin; pass --repo OWNER/REPO");
+  if (options.dispositionPath) options.dispositions = loadDispositionFile(options.dispositionPath);
   const result = runCleanup(options, repo, contract);
 
   if (options.json) {
@@ -581,6 +751,9 @@ async function main() {
   }
 
   if (options.apply && result.live.some((entry) => entry.unresolvedThreads?.some((thread) => !thread.safeToResolve))) {
+    process.exitCode = 1;
+  }
+  if (options.apply && options.dispositions && result.warnings.some((warning) => /disposition|lacks an agent disposition/.test(warning))) {
     process.exitCode = 1;
   }
   if (result.live.some((entry) => entry.error)) {
@@ -600,4 +773,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   });
 }
 
-export { buildCandidates, classifyLive, parseArgs, runCleanup };
+export { buildCandidates, classifyLive, parseArgs, parseDispositionDocument, runCleanup };

@@ -2,32 +2,36 @@
 name: project-review-cleanup
 description: >
   Find and disposition late or unresolved provider review threads for this board.
-argument-hint: "[--pr <number>] [--apply]"
-allowed-tools: Bash, Read
+argument-hint: "[--pr <number>] [--json] [--disposition-file <path>] [--apply]"
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Project Review Cleanup
 
-Find bot review activity that lands late in the board, verify the live provider
-review-thread state, and disposition safe stale threads. Invoke this when the
-Activity page shows a bot review after a PR has already merged, or before
-closing out delivery work where provider review threads may have arrived after
-checks and local review passed.
+Find bot review activity that lands late in the board, verify live provider
+review-thread state, and carry each thread to an explicit disposition. Invoke
+this when the Activity page shows a bot review after a PR has already merged, or
+before closing out delivery work where provider review threads may have arrived
+after checks and local review passed.
 
 The default mode is read-only. It reports GitHub review candidates across every
 GitHub repository in the board contract and verifies GitHub review threads live.
-Use `--repo <owner/repo>` to narrow the scan to one repository. Use `--apply`
-only after reviewing the report; apply mode first verifies every focused PR,
-then resolves only closed/merged PR threads whose inspected thread comments are
-all authored by allowlisted bot accounts. Missing/unknown authors are unsafe.
+The live JSON includes review comment body text, diff hunks, paths, review URLs,
+and author metadata so the agent can inspect the review directly.
 
-A provider-visible resolution note is posted before each resolved thread by
-default. Override it with `--resolution-note <text>` (for example, a follow-up
-PR/issue link) or suppress it with `--no-resolution-note`.
+The target workflow is agent-owned cleanup, not manual review. The agent should
+read every unresolved thread, decide whether it is stale, fixed, tracked as a
+follow-up, or accepted as a tradeoff, and do the necessary small repair or
+follow-up issue/PR work before resolving the thread. Stop and ask the user only
+for a major or high-risk finding, such as a security issue, possible data loss,
+contract/schema break, destructive migration, cross-repo architecture decision,
+or a finding the agent cannot verify safely.
 
-`safe_to_resolve` means the provider mutation is safe, not that the review is
-valueless. If a bot thread points at a real bug or hardening gap, open or link
-the follow-up PR/issue before resolving it.
+`safe_to_resolve` means the provider mutation is mechanically safe, not that the
+review is valueless. A safe thread still needs an agent disposition. Use
+`--disposition-file` in `--apply` mode when a thread was fixed, converted to a
+follow-up, accepted, or confirmed stale; the file supplies the provider-visible
+note for each resolved thread.
 
 ## Contract
 
@@ -58,6 +62,10 @@ Inputs:
   - `--limit <n>` - maximum contract candidates to report; default `20`.
   - `--no-live` - skip provider verification; incompatible with `--apply`.
   - `--apply` - resolve safe stale GitHub review threads.
+  - `--disposition-file <path>` - JSON file of agent-inspected thread
+    dispositions. In `--apply` mode, only listed safe threads are resolved and
+    each uses its per-thread note. Without `--apply`, the file is loaded for
+    dry-run verification and report annotation.
   - `--resolution-note <text>` - provider-visible reply posted before resolving
     each thread. Defaults to a stale-thread disposition note in `--apply` mode.
   - `--no-resolution-note` - resolve without posting a provider-visible reply.
@@ -68,9 +76,13 @@ Outputs:
 - A report of late or closed-PR GitHub review candidates from the board
   contract.
 - Live GitHub review-thread status for candidate PRs or the focused `--pr`.
+- In JSON mode, enriched unresolved-thread evidence:
+  `comments[].bodyText`, `comments[].diffHunk`, comment URLs, review URLs,
+  author logins, path/line, and the safety reason.
 - In `--apply` mode only, optional `addPullRequestReviewThreadReply` notes plus
-  safe `resolveReviewThread` mutations for stale allowlisted bot threads on
-  closed/merged PRs.
+  safe `resolveReviewThread` mutations for allowlisted bot threads on
+  closed/merged PRs. With `--disposition-file`, only dispositioned threads are
+  resolved.
 
 Exit codes:
 
@@ -84,8 +96,12 @@ Failure modes:
 - GitHub live verification fails; in dry-run this is reported as a failed live
   check, while `--apply` aborts before mutation.
 - `--apply` finds human-authored, mixed-author, unknown-author, incomplete, or
-  open-PR unresolved threads; those are reported for manual disposition and left
-  untouched.
+  open-PR unresolved threads; those are reported as unsafe for automatic
+  provider mutation and left untouched.
+- `--apply --disposition-file` leaves any safe thread without an agent
+  disposition unresolved and exits non-zero.
+- A disposition references a thread that is not unresolved in the focused live
+  PR set; apply reports the mismatch and exits non-zero.
 - `--apply` aborts before provider mutation when any focused PR fails live
   verification.
 - The repository is not a GitHub remote; the script currently verifies only
@@ -98,30 +114,68 @@ Failure modes:
 
 ## Workflow
 
-1. Run a read-only scan:
-   `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh`
-2. Inspect every candidate. The default report may include multiple GitHub
-   repositories from the board contract. A `late_review` means the submitted
-   review timestamp is after the PR's `merged_at` / `closed_at`; a closed/merged
-   PR with zero unresolved live threads usually needs no provider mutation. A
-   `safe_to_resolve` live thread still needs human disposition: if the review is
-   actionable, create or link a follow-up PR/issue first.
+1. Run a read-only enriched scan:
+   `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh --json`
+2. Inspect every unresolved thread in the JSON. The default report may include
+   multiple GitHub repositories from the board contract. A `late_review` means
+   the submitted review timestamp is after the PR's `merged_at` / `closed_at`;
+   a closed/merged PR with zero unresolved live threads needs no provider
+   mutation.
 3. For a specific PR, run:
-   `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh --pr 181`
-4. If the live report shows only stale allowlisted bot threads on a closed or
-   merged PR, re-run with `--apply` to resolve them. Use
-   `--resolution-note "Follow-up PR: <url>"` when the thread led to a follow-up;
-   otherwise the default note records the stale-thread disposition.
-5. If a thread is human-authored, mixed-author, or points at a real product bug,
-   do not auto-resolve it. Repair in a PR, reply and resolve as an accepted
-   tradeoff, or open/link a follow-up issue.
-6. Re-run the scan after apply; unresolved safe thread count should be `0`.
+   `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh --pr 181 --json`
+4. Classify each thread:
+   - `stale`: the comment no longer applies to the merged code, is outdated, or
+     is a false positive after inspecting the diff.
+   - `fixed`: a small concrete repair was made by the agent in a follow-up
+     commit/PR; include the PR URL in the disposition note.
+   - `follow_up`: the finding is real but should not be fixed in this cleanup
+     pass; open/link a provider issue and include the issue URL in the note.
+   - `accepted`: the finding is intentionally not changed after verification;
+     explain the tradeoff in the note.
+   - major/high-risk: stop and ask the user before resolving.
+5. For small repairs in this repo, edit and validate normally, then deliver via
+   `semantic-commit` / `deliver-pr`. For other repos, use that repo's active
+   workflow if available; otherwise open a follow-up issue and link it.
+6. Write a disposition file for every safe unresolved thread that should be
+   resolved:
+
+   ```json
+   {
+     "threads": [
+       {
+         "threadId": "PRRT_...",
+         "disposition": "follow_up",
+         "follow_up_url": "https://github.com/sympoies/symphony-board/issues/200"
+       },
+       {
+         "threadId": "PRRT_...",
+         "disposition": "stale",
+         "note": "Resolved as stale after checking the merged diff; current code already guards this path."
+       }
+     ]
+   }
+   ```
+
+   Valid dispositions are `stale`, `fixed`, `follow_up`, and `accepted`.
+   `fixed` and `follow_up` require either an explicit `note` or the matching
+   URL field so the helper can generate a provider-visible note.
+7. Apply only after the disposition file represents the agent's inspection:
+   `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh --apply --disposition-file <path>`
+8. Re-run the scan after apply. The focused PR set should have no unresolved
+   safe threads lacking disposition.
 
 ## Boundary
 
-This is a project-local skill. It reads `data/contract.json` and live GitHub PR
-review-thread state. It mutates the provider only in explicit `--apply` mode,
-and only by resolving safe stale allowlisted bot review threads. It must not
-write the SQLite store, emit or mutate the contract, edit source code, create
-provider issues, merge PRs, mutate runtime-kit manifests, rendered product
-output, global runtime homes, credentials, sessions, or cache state.
+This is a project-local skill. The helper script reads `data/contract.json` and
+live GitHub PR review-thread state. It mutates the provider only in explicit
+`--apply` mode, and only by replying to and resolving safe allowlisted bot
+review threads on closed/merged PRs. The helper script must not write the
+SQLite store, emit or mutate the contract, edit source code, create provider
+issues, merge PRs, mutate runtime-kit manifests, rendered product output,
+global runtime homes, credentials, sessions, or cache state.
+
+The agent workflow may leave the helper script to make small source fixes,
+deliver follow-up PRs, or create follow-up issues when a thread is actionable.
+Those actions must use the active repo delivery/issue skills and their normal
+validation gates, then return to this helper with a disposition file to resolve
+the original stale thread.
