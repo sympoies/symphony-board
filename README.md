@@ -3,6 +3,8 @@
 [![CI](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 
+[![activity](docs/assets/readme-activity.png)](docs/assets/readme-activity.png)
+
 Provider-agnostic work-item board for GitHub and GitLab. It syncs issues and
 pull/merge requests from configured projects into a canonical store (SQLite by
 default, Postgres by opt-in compose), derives typed relationships between them,
