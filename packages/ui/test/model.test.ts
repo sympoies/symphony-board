@@ -59,6 +59,8 @@ import {
   repoCoverage,
   sortRepoMetrics,
   sourceDisplayName,
+  deriveStatuses,
+  spotlight,
   itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
@@ -1609,4 +1611,85 @@ test("runDuration formats finished sync runs and dashes a running one", () => {
   assert.equal(runDuration("2026-06-01T00:00:00Z", "2026-06-01T00:03:20Z"), "3m 20s");
   assert.equal(runDuration("2026-06-01T00:00:00Z", null), "—", "still running");
   assert.equal(runDuration("2026-06-01T00:00:00Z", "not-a-date"), "—");
+});
+
+// deriveStatuses is the board's status engine (columns, stats, card badges all
+// derive from it) — executed indirectly everywhere, locked directly here.
+test("deriveStatuses: an item with no edges is open or closed by its own state alone", () => {
+  const st = deriveStatuses(
+    [item({ id: "i|a", state: "open" }), item({ id: "i|b", state: "closed" }), item({ id: "i|c", state: "merged", kind: "change_request" })],
+    [],
+  );
+  assert.equal(st.get("i|a"), "open");
+  assert.equal(st.get("i|b"), "closed");
+  assert.equal(st.get("i|c"), "closed", "merged counts as closed when nothing related is open");
+});
+
+test("deriveStatuses: a declared edge marks its OPEN endpoints in_progress, never the closed ones", () => {
+  const iss = item({ id: "i|iss", state: "open" });
+  const pr = item({ id: "i|pr", state: "open", kind: "change_request" });
+  const done = item({ id: "i|done", state: "closed" });
+  const edges: EdgeDTO[] = [
+    { type: "closes", from: "i|pr", to: "i|iss", from_state: "open", to_state: "open", lifecycle: "declared" },
+    { type: "closes", from: "i|done", to: "i|iss", from_state: "closed", to_state: "open", lifecycle: "fulfilled" },
+  ];
+  const st = deriveStatuses([iss, pr, done], edges);
+  assert.equal(st.get("i|iss"), "in_progress");
+  assert.equal(st.get("i|pr"), "in_progress");
+  assert.equal(st.get("i|done"), "trailing", "a closed item with an open related endpoint trails — declared never applies to closed items");
+});
+
+test("deriveStatuses: a non-declared lifecycle never moves an open item off open", () => {
+  const st = deriveStatuses(
+    [item({ id: "i|a", state: "open" }), item({ id: "i|b", state: "open" })],
+    [
+      { type: "relates", from: "i|a", to: "i|b", from_state: null, to_state: null, lifecycle: "fulfilled" },
+      { type: "relates", from: "i|a", to: "i|b", from_state: null, to_state: null, lifecycle: null },
+    ],
+  );
+  assert.equal(st.get("i|a"), "open");
+  assert.equal(st.get("i|b"), "open");
+});
+
+test("deriveStatuses: related-open reads the OTHER endpoint's state, in both edge directions", () => {
+  const st = deriveStatuses(
+    [item({ id: "i|ca", state: "closed" }), item({ id: "i|cb", state: "closed" }), item({ id: "i|cc", state: "closed" })],
+    [
+      // ca sits on the FROM side of an edge whose TO endpoint is open -> trailing.
+      { type: "relates", from: "i|ca", to: "i|x", from_state: "closed", to_state: "open", lifecycle: null },
+      // cb sits on the TO side of an edge whose FROM endpoint is open -> trailing.
+      { type: "relates", from: "i|y", to: "i|cb", from_state: "open", to_state: "closed", lifecycle: null },
+      // cc's related endpoint is closed -> stays closed.
+      { type: "relates", from: "i|z", to: "i|cc", from_state: "closed", to_state: "closed", lifecycle: null },
+    ],
+  );
+  assert.equal(st.get("i|ca"), "trailing");
+  assert.equal(st.get("i|cb"), "trailing");
+  assert.equal(st.get("i|cc"), "closed");
+});
+
+// The spotlight lanes are pure label/kind conventions compiled from
+// spotlight.config.ts — a typo there (or in compileLane) silently empties a
+// whole board column, so the pick/sort behavior is locked here.
+test("spotlight lanes pick by kind + label convention; closed items stay visible", () => {
+  const follow = item({ id: "i|f", state: "closed", labels: [{ name: "workflow::follow-up", scope: "workflow", color: null }] });
+  const plan = item({ id: "i|p", labels: [{ name: "workflow::plan", scope: "workflow", color: null }] });
+  const wrongKind = item({ id: "i|wk", kind: "change_request", labels: [{ name: "workflow::follow-up", scope: "workflow", color: null }] });
+  const pr = item({ id: "i|pr", kind: "change_request", state: "merged" });
+  const plain = item({ id: "i|plain" });
+  const lanes = spotlight([follow, plan, wrongKind, pr, plain]);
+  assert.deepEqual(lanes.map((l) => l.lane.key), ["follow-up", "plan", "pr"], "every configured lane is returned, in config order");
+  const byKey = new Map(lanes.map((l) => [l.lane.key, l.items.map((i) => i.id)]));
+  assert.deepEqual(byKey.get("follow-up"), ["i|f"], "issue kind + label only — and a closed item is still shown");
+  assert.deepEqual(byKey.get("plan"), ["i|p"]);
+  assert.deepEqual(byKey.get("pr")?.sort(), ["i|pr", "i|wk"], "the PR lane takes every change_request regardless of label or state");
+});
+
+test("spotlight lanes sort newest created_at first; missing created_at sinks to the tail", () => {
+  const old = item({ id: "i|old", kind: "change_request", created_at: "2026-01-01T00:00:00Z" });
+  const newer = item({ id: "i|new", kind: "change_request", created_at: "2026-06-01T00:00:00Z" });
+  const undated = item({ id: "i|und", kind: "change_request", created_at: null });
+  const lanes = spotlight([old, undated, newer]);
+  const prLane = lanes.find((l) => l.lane.key === "pr");
+  assert.deepEqual(prLane?.items.map((i) => i.id), ["i|new", "i|old", "i|und"]);
 });

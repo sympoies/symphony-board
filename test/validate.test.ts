@@ -191,3 +191,17 @@ test("window metadata and repo stats are required in contract v2", () => {
   assert.ok(errors.some((e) => e.path === "/item_window" && /required/.test(e.message)));
   assert.ok(errors.some((e) => e.path === "/repo_stats" && /required/.test(e.message)));
 });
+
+test("the validator collects every violation in one pass, not just the first", () => {
+  const env: any = validEnvelope();
+  env.items[0].state = "weird"; // enum violation
+  delete env.generated_at; // missing required field
+  env.bogus = true; // additionalProperties violation
+  const errors = validateContract(env);
+  // EXACTLY the three injected violations — fewer means collection stopped
+  // early, more means a violation cascades into noise.
+  assert.equal(errors.length, 3, JSON.stringify(errors, null, 2));
+  assert.ok(errors.some((e) => e.path === "/items/0/state" && /enum/.test(e.message)));
+  assert.ok(errors.some((e) => e.path === "/generated_at" && /required/.test(e.message)));
+  assert.ok(errors.some((e) => e.path === "/bogus" && /additional property/.test(e.message)));
+});

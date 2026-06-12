@@ -544,3 +544,86 @@ test("bot actors are filtered from top_actors but still count in totals", () => 
   assert.equal(metric?.totals.commits, 5, "bot commits still count in totals");
   assert.equal(metric?.totals.activities, 5, "bot activity still counts in totals");
 });
+
+test("repo metric series buckets tile the 90-day window deterministically (no fence-post drift)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", project_path: "o/repo", created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-07T00:00:00Z" }),
+  ];
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "o/repo", actor: "alice", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "push-1", kind: "push", action: "pushed", project_path: "o/repo", actor: "bob", occurred_at: "2026-06-07T11:00:00Z" }),
+  ];
+  const env = buildContract({ sources, items, labels: [], edges: [], activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+  const metric = env.repo_metrics?.[0];
+  assert.equal(metric?.window.bucket, "week");
+  const series = metric?.series ?? [];
+  assert.equal(series.length, 13, "a 90-day window tiles into 12 full weeks + 1 clipped bucket");
+  assert.equal(series[0]?.bucket_start, "2026-03-10T00:00:00.000Z");
+  assert.equal(series[0]?.bucket_end, "2026-03-16T23:59:59.999Z");
+  // Buckets are gap-free and overlap-free: each starts exactly 1ms after the
+  // previous one ends. A fence-post regression in bucketRanges breaks this.
+  for (let i = 1; i < series.length; i++) {
+    assert.equal(
+      Date.parse(series[i]!.bucket_start),
+      Date.parse(series[i - 1]!.bucket_end) + 1,
+      `bucket ${i} starts 1ms after bucket ${i - 1} ends`,
+    );
+  }
+  assert.equal(series[12]?.bucket_start, "2026-06-02T00:00:00.000Z");
+  assert.equal(series[12]?.bucket_end, "2026-06-08T00:00:00.000Z", "the last bucket is clipped to the window end, not a full week");
+  // The two activities land in EXACTLY the last bucket — every other bucket is zero.
+  series.forEach((p, i) => {
+    assert.equal(p.stats.commits, i === 12 ? 1 : 0, `commits in bucket ${i}`);
+    assert.equal(p.stats.pushes, i === 12 ? 1 : 0, `pushes in bucket ${i}`);
+  });
+});
+
+test("malformed or non-object activity details degrade to null (and the envelope still validates)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "a-bad", details: "{not json" }),
+    activityRow({ external_id: "a-array", details: "[1,2]" }),
+    activityRow({ external_id: "a-scalar", details: "42" }),
+    activityRow({ external_id: "a-null", details: null }),
+    activityRow({ external_id: "a-ok", details: "{\"sha\":\"abc1234\"}" }),
+  ];
+  const env = buildContract({ sources, items: [], labels: [], edges: [], activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+  const details = new Map(env.activities?.map((a) => [a.external_id, a.details]));
+  assert.equal(details.get("a-bad"), null, "unparseable JSON degrades to null");
+  assert.equal(details.get("a-array"), null, "a JSON array is not an object map");
+  assert.equal(details.get("a-scalar"), null, "a JSON scalar is not an object map");
+  assert.equal(details.get("a-null"), null);
+  assert.deepEqual(details.get("a-ok"), { sha: "abc1234" });
+  assert.deepEqual(validateContract(env), [], "the degraded envelope still passes the producer guard");
+});
+
+test("top_actors is capped at 5, ordered by activity volume, dropping the tail", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const activities: ActivityRow[] = [];
+  for (let u = 1; u <= 7; u++) {
+    for (let k = 0; k < 8 - u; k++) {
+      // user1 gets 7 commits … user7 gets 1.
+      activities.push(activityRow({
+        external_id: `c-${u}-${k}`,
+        kind: "commit",
+        action: "committed",
+        actor: `user${u}`,
+        occurred_at: "2026-06-07T10:00:00Z",
+      }));
+    }
+  }
+  const env = buildContract({ sources, items: [], labels: [], edges: [], activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+  const actors = env.repo_metrics?.[0]?.top_actors ?? [];
+  assert.deepEqual(
+    actors.map((a) => [a.actor, a.activities]),
+    [["user1", 7], ["user2", 6], ["user3", 5], ["user4", 4], ["user5", 3]],
+    "exactly the 5 highest-volume actors, in order; user6/user7 are trimmed",
+  );
+});

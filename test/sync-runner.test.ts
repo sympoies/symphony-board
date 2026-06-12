@@ -76,6 +76,39 @@ test("a partial (incomplete) sweep still emits — partial is not a failure", as
   await db.close();
 });
 
+test("disappearance is isolated per source: a sibling's full+complete sweep never deletes a partial source's unseen items", async () => {
+  const tick = () => new Promise((r) => setTimeout(r, 5)); // later sweeps must start strictly after the seed
+  const db = await openSqliteStore(":memory:");
+  // Seed both sources full+complete: 2 items each.
+  await executeSyncRun(
+    db,
+    [prepared("fake:a", [item("A1"), item("A2")]), prepared("fake:b", [item("B1"), item("B2")])],
+    [],
+    { mode: "full", dryRun: false, sourceId: null },
+  );
+  assert.equal((await db.listLiveItems()).length, 4);
+  await tick();
+
+  // Second full run: A completes seeing only A1; B reports an INCOMPLETE sweep
+  // seeing nothing. Deletion must apply to A's unseen item only.
+  const result = await executeSyncRun(
+    db,
+    [prepared("fake:a", [item("A1")]), prepared("fake:b", [], { complete: false })],
+    [],
+    { mode: "full", dryRun: false, sourceId: null },
+  );
+  assert.equal(result.status, "partial");
+  const a = result.sources.find((s) => s.source_id === "fake:a");
+  const b = result.sources.find((s) => s.source_id === "fake:b");
+  assert.equal(a?.status, "ok");
+  assert.equal(a?.soft_deleted, 1, "the complete source tombstones exactly its own unseen item");
+  assert.equal(b?.status, "partial");
+  assert.equal(b?.soft_deleted, 0, "the incomplete source must not tombstone");
+  const live = (await db.listLiveItems()).map((r) => r.external_id).sort();
+  assert.deepEqual(live, ["A1", "B1", "B2"], "B's unseen items survive A's full+complete sweep");
+  await db.close();
+});
+
 test("skipped sources are reported without counting as a failure", async () => {
   const db = await openSqliteStore(":memory:");
   const result = await executeSyncRun(
