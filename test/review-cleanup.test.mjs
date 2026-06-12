@@ -27,11 +27,17 @@ function candidateContract(entries) {
     { source_id: "github:github.com", kind: "github", host: "github.com" },
     { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com" },
   ];
-  const items = entries.map(({ source_id, iid, state = "merged", merged_at = "2026-06-12T17:00:00Z" }) => ({
+  const items = entries.map(({
+    source_id,
+    iid,
+    project_path = "sympoies/symphony-board",
+    state = "merged",
+    merged_at = "2026-06-12T17:00:00Z",
+  }) => ({
     source_id,
     external_id: `${source_id}:${iid}`,
     kind: "change_request",
-    project_path: "sympoies/symphony-board",
+    project_path,
     iid,
     title: `PR ${iid}`,
     state,
@@ -39,12 +45,17 @@ function candidateContract(entries) {
     closed_at: merged_at,
     url: `https://example.test/${iid}`,
   }));
-  const activities = entries.map(({ source_id, iid, occurred_at = "2026-06-12T17:05:00Z" }) => ({
+  const activities = entries.map(({
+    source_id,
+    iid,
+    project_path = "sympoies/symphony-board",
+    occurred_at = "2026-06-12T17:05:00Z",
+  }) => ({
     source_id,
     kind: "review",
     target_kind: "change_request",
     target_iid: iid,
-    project_path: "sympoies/symphony-board",
+    project_path,
     actor: "chatgpt-codex-connector",
     action: "reviewed",
     occurred_at,
@@ -92,6 +103,55 @@ test("contract scan ignores non-GitHub review candidates before focusing GitHub 
 
   assert.deepEqual(candidates.map((candidate) => candidate.pr), [184]);
   assert.equal(candidates[0].repo, "sympoies/symphony-board");
+});
+
+test("default contract scan verifies candidates from every GitHub repo", () => {
+  const contract = candidateContract([
+    {
+      source_id: "github:github.com",
+      project_path: "sympoies/symphony-board",
+      iid: 183,
+      occurred_at: "2026-06-12T17:10:00Z",
+    },
+    {
+      source_id: "github:github.com",
+      project_path: "graysurf/agent-runtime-kit",
+      iid: 323,
+      occurred_at: "2026-06-12T17:09:00Z",
+    },
+  ]);
+  const queried = [];
+
+  const result = runCleanup(options(), null, contract, {
+    queryPr(repo, pr) {
+      queried.push([repo, pr]);
+      return pullRequest(pr, []);
+    },
+  });
+
+  assert.deepEqual(result.candidates.map((candidate) => [candidate.repo, candidate.pr]), [
+    ["sympoies/symphony-board", 183],
+    ["graysurf/agent-runtime-kit", 323],
+  ]);
+  assert.deepEqual(queried, [
+    ["sympoies/symphony-board", 183],
+    ["graysurf/agent-runtime-kit", 323],
+  ]);
+});
+
+test("--pr without --repo warns when the contract has no matching candidate", () => {
+  const contract = candidateContract([
+    { source_id: "github:github.com", project_path: "sympoies/symphony-board", iid: 183 },
+  ]);
+
+  const result = runCleanup(options({ pr: 999 }), null, contract, {
+    queryPr() {
+      throw new Error("should not query without a target repo");
+    },
+  });
+
+  assert.equal(result.live.length, 0);
+  assert.match(result.warnings[0], /pass --repo OWNER\/REPO/);
 });
 
 test("threads with missing comment authors are not safe to resolve", () => {

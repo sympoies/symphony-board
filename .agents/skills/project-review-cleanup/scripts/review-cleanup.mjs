@@ -83,7 +83,8 @@ function usage() {
 
 Options:
   --contract PATH   Contract to scan (default: data/contract.json).
-  --repo OWNER/REPO GitHub repository to verify (default: origin remote).
+  --repo OWNER/REPO GitHub repository to verify (default: all GitHub repos in
+                    the contract; origin for live-only without a contract).
   --pr NUMBER       Focus one PR and allow live-only verification.
   --days N          Contract lookback window (default: 7).
   --actor LOGIN     Allowlisted bot actor; repeatable.
@@ -278,6 +279,23 @@ function buildCandidates(contract, options, repo) {
   return candidates.slice(0, options.limit);
 }
 
+function targetKey(target) {
+  return `${target.repo ?? ""}#${target.pr ?? ""}`;
+}
+
+function uniqueTargets(targets) {
+  const seen = new Set();
+  const uniqueTargets = [];
+  for (const target of targets) {
+    if (!target.repo || !target.pr) continue;
+    const key = targetKey(target);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueTargets.push(target);
+  }
+  return uniqueTargets;
+}
+
 function itemKey(sourceId, projectPath, iid) {
   return `${sourceId ?? ""}|${projectPath ?? ""}|${iid ?? ""}`;
 }
@@ -423,9 +441,9 @@ function runCleanup(options, repo, contract, deps = {}) {
   const resolveThreadFn = deps.resolveThread ?? resolveThread;
   const replyThreadFn = deps.replyThread ?? replyThread;
   const candidates = buildCandidates(contract, options, repo);
-  const focusedPrs = unique([
-    ...candidates.map((candidate) => candidate.pr),
-    ...(options.pr ? [options.pr] : []),
+  const focusedTargets = uniqueTargets([
+    ...candidates.map((candidate) => ({ repo: candidate.repo, pr: candidate.pr })),
+    ...(options.pr && repo ? [{ repo, pr: options.pr }] : []),
   ]);
 
   const result = {
@@ -441,14 +459,18 @@ function runCleanup(options, repo, contract, deps = {}) {
     warnings: [],
   };
 
+  if (options.pr && !repo && focusedTargets.length === 0) {
+    result.warnings.push("--pr without --repo found no matching contract candidates; pass --repo OWNER/REPO for live-only verification");
+  }
+
   if (options.live) {
-    for (const pr of focusedPrs) {
+    for (const target of focusedTargets) {
       try {
-        const live = classifyLive(queryPrFn(repo, pr), options.allowActors);
-        result.live.push(live);
+        const live = classifyLive(queryPrFn(target.repo, target.pr), options.allowActors);
+        result.live.push({ repo: target.repo, ...live });
       } catch (error) {
-        result.live.push({ pr, error: error.message });
-        result.warnings.push(`live verification failed for #${pr}: ${error.message}`);
+        result.live.push({ repo: target.repo, pr: target.pr, error: error.message });
+        result.warnings.push(`live verification failed for ${target.repo}#${target.pr}: ${error.message}`);
       }
     }
 
@@ -462,6 +484,7 @@ function runCleanup(options, repo, contract, deps = {}) {
             : null;
           const resolved = resolveThreadFn(thread.id);
           result.actions.push({
+            repo: live.repo ?? repo,
             pr: live.pr,
             threadId: thread.id,
             reason: thread.reason,
@@ -472,7 +495,7 @@ function runCleanup(options, repo, contract, deps = {}) {
         }
       }
     }
-  } else if (focusedPrs.length > 0) {
+  } else if (focusedTargets.length > 0) {
     result.warnings.push("--no-live skipped provider verification");
   }
 
@@ -481,14 +504,14 @@ function runCleanup(options, repo, contract, deps = {}) {
 
 function printText(result) {
   console.log("Project review cleanup");
-  console.log(`Repo: ${result.repo}`);
+  console.log(`Repo: ${result.repo ?? "all GitHub repos in contract"}`);
   console.log(`Contract: ${result.contractPath}${result.contractLoaded ? "" : " (not loaded)"}`);
   console.log(`Mode: ${result.apply ? "apply" : "dry-run"}`);
   console.log(`Allowlisted actors: ${result.allowActors.join(", ") || "(none)"}`);
   console.log("");
   console.log(`Contract candidates: ${result.candidates.length}`);
   for (const candidate of result.candidates) {
-    console.log(`- #${candidate.pr} ${candidate.reason}: ${candidate.action ?? "review"} by ${candidate.actor ?? "unknown"} at ${candidate.reviewOccurredAt ?? "unknown time"}`);
+    console.log(`- ${candidate.repo}#${candidate.pr} ${candidate.reason}: ${candidate.action ?? "review"} by ${candidate.actor ?? "unknown"} at ${candidate.reviewOccurredAt ?? "unknown time"}`);
     console.log(`  ${candidate.title ?? "(no title)"}`);
     console.log(`  state=${candidate.itemState ?? "unknown"} merged_at=${candidate.mergedAt ?? "null"} closed_at=${candidate.closedAt ?? "null"}`);
     if (candidate.reviewUrl) console.log(`  review=${candidate.reviewUrl}`);
@@ -499,10 +522,10 @@ function printText(result) {
     console.log("Live GitHub verification:");
     for (const live of result.live) {
       if (live.error) {
-        console.log(`- #${live.pr}: live check failed: ${live.error}`);
+        console.log(`- ${live.repo ?? result.repo}#${live.pr}: live check failed: ${live.error}`);
         continue;
       }
-      console.log(`- #${live.pr} ${live.state}: unresolved=${live.unresolvedCount}, safe_to_resolve=${live.safeToResolveCount}`);
+      console.log(`- ${live.repo ?? result.repo}#${live.pr} ${live.state}: unresolved=${live.unresolvedCount}, safe_to_resolve=${live.safeToResolveCount}`);
       for (const thread of live.unresolvedThreads) {
         console.log(`  thread ${thread.id}: ${thread.reason}; authors=${thread.authors.join(", ") || "(none)"}; path=${thread.path ?? "(unknown)"}`);
         if (thread.lastUrl) console.log(`  url=${thread.lastUrl}`);
@@ -514,7 +537,7 @@ function printText(result) {
     console.log("");
     console.log("Apply actions:");
     for (const action of result.actions) {
-      console.log(`- ${action.status}: #${action.pr} thread ${action.threadId}; reason=${action.reason}`);
+      console.log(`- ${action.status}: ${action.repo ?? result.repo}#${action.pr} thread ${action.threadId}; reason=${action.reason}`);
       if (action.noteUrl) console.log(`  note=${action.noteUrl}`);
     }
   } else {
@@ -542,13 +565,13 @@ async function main() {
     return;
   }
 
-  const repo = options.repo ?? defaultRepo();
-  if (!repo) throw usageError("could not infer GitHub repo from origin; pass --repo OWNER/REPO");
-
   const contract = loadContract(options.contractPath);
   if (!contract && !options.pr) {
     throw new Error(`contract not found at ${options.contractPath}; pass --contract or --pr for live-only triage`);
   }
+
+  const repo = options.repo ?? (contract ? null : defaultRepo());
+  if (!repo && !contract) throw usageError("could not infer GitHub repo from origin; pass --repo OWNER/REPO");
   const result = runCleanup(options, repo, contract);
 
   if (options.json) {

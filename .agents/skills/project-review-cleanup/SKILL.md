@@ -14,11 +14,12 @@ Activity page shows a bot review after a PR has already merged, or before
 closing out delivery work where provider review threads may have arrived after
 checks and local review passed.
 
-The default mode is read-only. It reports GitHub review candidates from the
-board contract and verifies GitHub review threads live. Use `--apply` only after
-reviewing the report; apply mode first verifies every focused PR, then resolves
-only closed/merged PR threads whose inspected thread comments are all authored
-by allowlisted bot accounts. Missing/unknown authors are unsafe.
+The default mode is read-only. It reports GitHub review candidates across every
+GitHub repository in the board contract and verifies GitHub review threads live.
+Use `--repo <owner/repo>` to narrow the scan to one repository. Use `--apply`
+only after reviewing the report; apply mode first verifies every focused PR,
+then resolves only closed/merged PR threads whose inspected thread comments are
+all authored by allowlisted bot accounts. Missing/unknown authors are unsafe.
 
 A provider-visible resolution note is posted before each resolved thread by
 default. Override it with `--resolution-note <text>` (for example, a follow-up
@@ -37,13 +38,17 @@ Prereqs:
 - `gh` is installed and authenticated for live GitHub verification.
 - For contract discovery, an emitted board contract exists at
   `data/contract.json`, or pass `--contract <path>`.
-- For live-only triage, pass `--pr <number>` and `--repo <owner/repo>`.
+- For live-only triage without a contract, pass `--pr <number>` and
+  `--repo <owner/repo>`; when a contract is available, `--pr` searches matching
+  GitHub repositories in that contract.
 
 Inputs:
 
 - Optional:
   - `--contract <path>` - contract to scan; default `data/contract.json`.
-  - `--repo <owner/repo>` - GitHub repository to verify; default from `origin`.
+  - `--repo <owner/repo>` - GitHub repository to verify; default is every
+    GitHub repository in the contract, falling back to `origin` for live-only
+    `--pr` runs without a contract.
   - `--pr <number>` - focus a single PR and allow live-only verification.
   - `--days <n>` - contract lookback window; default `7`.
   - `--actor <login>` - allowlisted bot review actor; repeatable. Defaults to
@@ -95,9 +100,10 @@ Failure modes:
 
 1. Run a read-only scan:
    `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh`
-2. Inspect every candidate. A `late_review` means the submitted review timestamp
-   is after the PR's `merged_at` / `closed_at`; a closed/merged PR with zero
-   unresolved live threads usually needs no provider mutation. A
+2. Inspect every candidate. The default report may include multiple GitHub
+   repositories from the board contract. A `late_review` means the submitted
+   review timestamp is after the PR's `merged_at` / `closed_at`; a closed/merged
+   PR with zero unresolved live threads usually needs no provider mutation. A
    `safe_to_resolve` live thread still needs human disposition: if the review is
    actionable, create or link a follow-up PR/issue first.
 3. For a specific PR, run:

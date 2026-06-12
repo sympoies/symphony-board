@@ -8,7 +8,8 @@ Usage:
 
 Options:
   --contract PATH   Contract to scan (default: data/contract.json).
-  --repo OWNER/REPO GitHub repository to verify (default: origin remote).
+  --repo OWNER/REPO GitHub repository to verify (default: all GitHub repos in
+                    the contract; origin for live-only without a contract).
   --pr NUMBER       Focus one PR and allow live-only verification.
   --days N          Contract lookback window (default: 7).
   --actor LOGIN     Allowlisted bot actor; repeatable.
