@@ -888,11 +888,11 @@ try {
   })).result.value || {};
   const deepLinkRange = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls input[type="date"]'));
+      const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls .date-input'));
       const active = Array.from(document.querySelectorAll('.time-range-controls .toggle-on'))
         .map((el) => el.textContent?.trim())
         .filter(Boolean);
-      return { from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', active };
+      return { from: rangeInputs[0]?.value || '', to: rangeInputs[1]?.value || '', types: rangeInputs.map((input) => input.type), active };
     })()`,
     returnByValue: true,
   })).result.value || {};
@@ -1143,6 +1143,7 @@ try {
     [deepLinkGeometry.labelsClearNodes === true, "deep link: relationship labels do not overlap node cards"],
     [deepLinkGeometry.nodeCount < 2 || deepLinkGeometry.minNodeGap >= 48, `deep link: focused node cards keep readable spacing (${deepLinkGeometry.minNodeGap}px >= 48px)`],
     [deepLinkSearch === "", `deep link: the global search bar stays empty ("${deepLinkSearch}")`],
+    [JSON.stringify(deepLinkRange.types) === JSON.stringify(["text", "text"]), `deep link: range dates render as year-first text fields (${JSON.stringify(deepLinkRange.types || [])})`],
     [deepLinkRange.from !== "" && deepLinkRange.to !== "" && JSON.stringify(deepLinkRange.active) === JSON.stringify(["this week"]), `deep link: arrival keeps the default this week range (${deepLinkRange.from || "empty"} to ${deepLinkRange.to || "empty"})`],
     // canvas node title = a real provider link (anchor, new tab, drag-safe)
     [nodeTitleLink.found === true, "graph node: title element present on the focused canvas"],

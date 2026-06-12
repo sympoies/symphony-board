@@ -340,7 +340,8 @@ export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
 
 export function isDateOnly(value: string | null | undefined): value is string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  return !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 export function normalizeTimeRange(range: Partial<TimeRange> | null | undefined): TimeRange | null {

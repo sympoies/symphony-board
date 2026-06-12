@@ -14,6 +14,7 @@ import {
   staticContractTimeRange,
   timeRangeForPreset,
   timeRangeToIso,
+  isDateOnly,
   normalizeTimeRange,
   routeTimeRange,
   emptyFilters,
@@ -426,6 +427,8 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
   assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-02", to: "2026-06-08" }, "1w is exactly 7 days ending today (today and the 6 before)");
   assert.deepEqual(timeRangeForPreset("6mo", Date.parse("2026-06-08T12:00:00Z")), { from: "2025-12-11", to: "2026-06-08" }, "6mo is exactly 180 days ending today");
   assert.deepEqual(timeRangeForPreset("1y", Date.parse("2026-06-08T12:00:00Z")), { from: "2025-06-09", to: "2026-06-08" }, "1y is exactly 365 days ending today");
+  assert.equal(isDateOnly("2026-06-07"), true);
+  assert.equal(isDateOnly("2026-02-31"), false);
   assert.deepEqual(normalizeTimeRange(range), range);
   assert.equal(normalizeTimeRange({ from: "2026-06-08", to: "2026-06-07" }), null);
   assert.deepEqual(routeTimeRange(parseHashRoute("#/activity?from=2026-06-01&to=2026-06-07")), range);
