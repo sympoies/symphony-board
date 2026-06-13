@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { CommitRepoOption } from "../model.ts";
+import { pluralize, type CommitRepoOption } from "../model.ts";
 
 // A small, dependency-free typeahead combobox for the Commits repo filter.
 //
@@ -127,7 +127,7 @@ export function RepoCombobox({
             >
               <span className="repo-combobox-name">{o.project_path}</span>
               <span className="repo-combobox-meta">
-                {o.count} commit{o.count === 1 ? "" : "s"} · {sourceKind.get(o.source_id) ?? o.source_id}
+                {o.count} {pluralize(o.count, "commit")} · {sourceKind.get(o.source_id) ?? o.source_id}
               </span>
             </li>
           ))}

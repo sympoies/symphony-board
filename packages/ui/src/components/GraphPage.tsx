@@ -27,7 +27,7 @@ import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contr
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdgesInRange, relatedItems, relationCountOf, compareGraphNodes, relativeTime, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
+import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdgesInRange, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -575,7 +575,7 @@ function GraphSideList({
             <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
           )}
           <div className="graph-related-head muted">
-            {related.length} related {related.length === 1 ? "item" : "items"}
+            {related.length} related {pluralize(related.length, "item")}
           </div>
           {related.length === 0 ? (
             <p className="muted empty-list">no related items</p>

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
-import { SourceIcon } from "./SourceIcon.tsx";
+import { SourceRepo } from "./SourceRepo.tsx";
+import { useListViewport } from "../useListViewport.ts";
 import {
   commitBranches,
   commitBody,
@@ -9,6 +10,7 @@ import {
   commitSha,
   commitShortSha,
   relativeTime,
+  pluralize,
   type ColorOf,
   type CommitBranchOption,
   type CommitRepoOption,
@@ -207,25 +209,28 @@ function CommitTimeline({
   emptyMessage: string;
   timezone: string;
 }) {
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(COMMIT_DEFAULT_VIEWPORT_PX);
   const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
   const expandedRowBodyRef = useRef<HTMLDivElement | null>(null);
   const [measuredExpandedBodyHeights, setMeasuredExpandedBodyHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [expandedBodyId, setExpandedBodyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const resetScroll = useCallback(() => {
-    setScrollTop(0);
-    if (listRef.current) listRef.current.scrollTop = 0;
-  }, []);
+  // Scroll position, viewport height, and the scroll-to-top reset are shared
+  // with the Activity feed. The commit list also derives its row-body height
+  // from the container width (narrow = stacked layout) on every measure.
+  const { listRef, scrollTop, viewportHeight, handleScroll } = useListViewport<HTMLDivElement>({
+    defaultViewportPx: COMMIT_DEFAULT_VIEWPORT_PX,
+    resetKey: commits,
+    onMeasure: (el) =>
+      setRowBodyHeight(el.clientWidth <= 760 ? COMMIT_ROW_BODY_HEIGHT_NARROW_PX : COMMIT_ROW_BODY_HEIGHT_PX),
+  });
 
+  // A new `commits` array collapses any expanded body and drops measured row
+  // heights (the hook above handles the scroll reset on the same trigger).
   useEffect(() => {
     setExpandedBodyId(null);
     setMeasuredExpandedBodyHeights(new Map());
-    resetScroll();
-  }, [commits, resetScroll]);
+  }, [commits]);
 
   useEffect(() => {
     setMeasuredExpandedBodyHeights(new Map());
@@ -236,27 +241,6 @@ function CommitTimeline({
     const timeout = window.setTimeout(() => setCopiedId(null), 1200);
     return () => window.clearTimeout(timeout);
   }, [copiedId]);
-
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-
-    const updateHeight = () => {
-      setViewportHeight(el.clientHeight || COMMIT_DEFAULT_VIEWPORT_PX);
-      const narrow = el.clientWidth <= 760;
-      setRowBodyHeight(narrow ? COMMIT_ROW_BODY_HEIGHT_NARROW_PX : COMMIT_ROW_BODY_HEIGHT_PX);
-    };
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateHeight);
-      return () => window.removeEventListener("resize", updateHeight);
-    }
-
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(el);
-    return () => resizeObserver.disconnect();
-  }, [commits.length]);
 
   useLayoutEffect(() => {
     const el = expandedRowBodyRef.current;
@@ -307,7 +291,7 @@ function CommitTimeline({
       className="commit-list"
       role="list"
       aria-label="Commits"
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={handleScroll}
       style={
         {
           "--commit-row-body-height": `${rowBodyHeight}px`,
@@ -366,8 +350,7 @@ function CommitTimeline({
                     ) : null}
                   </div>
                   <div className="commit-row-meta">
-                    <SourceIcon kind={sourceKind.get(commit.source_id)} />
-                    {commit.project_path ? <span className="card-repo">{commit.project_path}</span> : null}
+                    <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
                     <span>{actor} committed {relativeTime(commit.occurred_at)}</span>
                     {branches.slice(0, 2).map((branch) => (
                       <span key={branch} className="commit-ref-chip">{branch}</span>
@@ -461,8 +444,8 @@ export function CommitsPage({
         <div className="commits-filter">
           <RepoCombobox options={repoOptions} selectedSource={selectedSource} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
           <span className="muted commits-filter-hint">
-            {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} with commits
-            {branchOptions.length > 0 ? ` · ${branchOptions.length} branch${branchOptions.length === 1 ? "" : "es"}` : ""}
+            {repoOptions.length} {pluralize(repoOptions.length, "repo")} with commits
+            {branchOptions.length > 0 ? ` · ${branchOptions.length} ${pluralize(branchOptions.length, "branch", "branches")}` : ""}
           </span>
         </div>
         <label className="commit-branch-select">

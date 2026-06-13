@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
-import { SourceIcon } from "./SourceIcon.tsx";
+import { SourceRepo } from "./SourceRepo.tsx";
 import { relativeTime, reviewThreadsLabel, type RelationCount } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 
@@ -156,8 +156,7 @@ export function ItemCard({
           demand · related). The engagement row only renders when it has
           content, so a bare item doesn't leave an empty line. */}
       <div className="card-meta">
-        <SourceIcon kind={sourceKind} />
-        {item.project_path ? <span className="card-repo">{item.project_path}</span> : null}
+        <SourceRepo kind={sourceKind} repo={item.project_path} />
         {item.iid != null ? <span className="card-iid">#{item.iid}</span> : null}
       </div>
       {(item.author || item.demand != null || (related && related.total > 0)) && (
