@@ -101,17 +101,81 @@ export function toggleActivityFacet(facets: ActivityFacets, dim: ActivityFacetDi
   return next;
 }
 
+// --- Item facets (board / graph / repo-analytics) --------------------------
+//
+// The shared work-item lens — source / state / kind of items. Unlike the
+// Activity facets, ONE set of params is shared by all three item pages and rides
+// along across every tab hop (it is the board's sticky lens, route-backed so
+// reload and share links agree). Kept in distinct route fields
+// (isource/istate/ikind) so it never collides with the Activity drill-down
+// facets when both are present in a URL.
+export type ItemFacetDim = "sources" | "states" | "kinds";
+
+export interface ItemFacets {
+  sources: ReadonlySet<string>;
+  states: ReadonlySet<string>;
+  kinds: ReadonlySet<string>;
+}
+
+const ITEM_DIM_FIELD: Record<ItemFacetDim, "isource" | "istate" | "ikind"> = {
+  sources: "isource",
+  states: "istate",
+  kinds: "ikind",
+};
+
+export const ITEM_FACET_DIMS: ItemFacetDim[] = ["sources", "states", "kinds"];
+
+// The route fields the board/graph/repo-analytics lens reads and writes.
+type ItemRouteFields = Pick<HashRoute, "isource" | "istate" | "ikind">;
+
+// Route -> the active item-facet set the pages filter by AND the chips show as on.
+export function itemFacets(route: ItemRouteFields): ItemFacets {
+  return {
+    sources: routeList(route.isource),
+    states: routeList(route.istate),
+    kinds: routeList(route.ikind),
+  };
+}
+
+// Active item facets -> the three route fields, for re-encoding into a hash.
+export function itemFacetFields(facets: ItemFacets): ItemRouteFields {
+  return {
+    isource: listField(facets.sources),
+    istate: listField(facets.states),
+    ikind: listField(facets.kinds),
+  };
+}
+
+export function toggleItemFacet(facets: ItemFacets, dim: ItemFacetDim, value: string): ItemFacets {
+  const next = {
+    sources: new Set(facets.sources),
+    states: new Set(facets.states),
+    kinds: new Set(facets.kinds),
+  };
+  if (next[dim].has(value)) next[dim].delete(value);
+  else next[dim].add(value);
+  return next;
+}
+
+// Internal: exported only so a test can assert the dim<->field mapping.
+export const itemFacetField = (dim: ItemFacetDim): "isource" | "istate" | "ikind" => ITEM_DIM_FIELD[dim];
+
 // --- navigation intents ----------------------------------------------------
 
-// The top-nav tab links. ONE rule for what survives a tab hop: the search token
-// and the active time range/preset travel; page-local drill-down state (facets,
-// graph focus, commit repo/branch pins) does NOT — switching tabs is a fresh
-// facet context. Centralized and tested here so the rule cannot quietly drift
-// per call site.
-export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute }): string {
+// The top-nav tab links. The search token, the active time range/preset, AND the
+// shared item-facet lens (isource/istate/ikind) travel across a tab hop; the
+// page-local drill-down state — Activity `source`/`repo`/`kind`/`action`, graph
+// `focus`, commit `repo`/`branch` — does NOT. Switching tabs is a fresh
+// drill-down context but keeps the sticky board lens, matching the previous
+// React-state behaviour now that the lens is route-backed. Centralized and
+// tested here so the rule cannot quietly drift per call site.
+export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute; item?: ItemRouteFields }): string {
   return buildHashRoute({
     page,
     q: ctx.q ?? null,
+    isource: ctx.item?.isource ?? null,
+    istate: ctx.item?.istate ?? null,
+    ikind: ctx.item?.ikind ?? null,
     from: ctx.range?.from ?? null,
     to: ctx.range?.to ?? null,
     preset: ctx.range?.preset ?? null,

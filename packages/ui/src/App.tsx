@@ -34,7 +34,18 @@ import {
   type TimeRange,
   type Filters,
 } from "./model.ts";
-import { activityFacets, toggleActivityFacet, activityFacetFields, tabHref, type ActivityFacetDim, type Page } from "./nav.ts";
+import {
+  activityFacets,
+  toggleActivityFacet,
+  activityFacetFields,
+  itemFacets,
+  toggleItemFacet,
+  itemFacetFields,
+  tabHref,
+  type ActivityFacetDim,
+  type ItemFacetDim,
+  type Page,
+} from "./nav.ts";
 import {
   loadHidden,
   saveHidden,
@@ -132,6 +143,22 @@ export function App() {
             : route.page === "settings"
               ? "settings"
               : "activity";
+  // The shared item-facet lens (source/state/kind) for board / graph /
+  // repo-analytics, read STRICTLY from the URL route (isource/istate/ikind) — the
+  // single source of truth shared by the content filters AND the chips. One set
+  // is shared by all three pages and carried across tab hops (see nav.tabHref),
+  // kept distinct from the Activity feed's own source/repo/kind/action facets.
+  const itemFacetState = useMemo(
+    () => itemFacets(route),
+    [route.isource, route.istate, route.ikind],
+  );
+  // A Filters view the item matchers (itemMatches / edgeMatches /
+  // repoMetricMatches) consume: the route-backed item facets plus the URL-backed
+  // search term. The React `filters` state now only carries `search`.
+  const itemFilters = useMemo<Filters>(
+    () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds }),
+    [filters.search, itemFacetState],
+  );
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
@@ -287,8 +314,8 @@ export function App() {
     [visibleEnv, activeRange, tz],
   );
   const repoMetrics = useMemo(
-    () => sortRepoMetrics((visibleEnv?.repo_metrics ?? []).filter((metric) => repoMetricMatches(metric, filters))),
-    [visibleEnv, filters],
+    () => sortRepoMetrics((visibleEnv?.repo_metrics ?? []).filter((metric) => repoMetricMatches(metric, itemFilters))),
+    [visibleEnv, itemFilters],
   );
 
   // Highlight color: the config layers (per-repo + per-source) ride in on the
@@ -341,8 +368,8 @@ export function App() {
   );
 
   const filteredItems = useMemo(
-    () => primaryItems.filter((i) => itemMatches(i, filters)),
-    [primaryItems, filters],
+    () => primaryItems.filter((i) => itemMatches(i, itemFilters)),
+    [primaryItems, itemFilters],
   );
 
   // The Activity feed's facets (source/repo/kind/action) are route-backed — the
@@ -367,11 +394,11 @@ export function App() {
     [routeActivities, filters.search],
   );
 
-  // The chip groups the shared Controls renders, built per page. Activity drives
-  // them from the route (active = route facets, toggle rewrites the URL); board
-  // and graph drive them from the React `filters` state. The repo group is a
-  // "pinned" mode: it shows only the active repo pin from a drill-down (listing
-  // every repo would be a wall) but keeps it visible and removable.
+  // The chip groups the shared Controls renders, built per page — every page now
+  // drives its chips STRICTLY from the route. Activity uses its own
+  // source/repo/kind/action facets (the repo group is a "pinned" mode showing
+  // only the active drill-down repo); board / graph / repo-analytics share the
+  // item-facet lens (isource/istate/ikind). Toggling any chip rewrites the URL.
   const controlGroups = useMemo<ControlGroup[]>(() => {
     if (page === "activity") {
       return [
@@ -382,11 +409,11 @@ export function App() {
       ];
     }
     return [
-      { dim: "sources", label: "source", values: facets.sources, active: filters.sources, displayValue: sourceDisplayName },
-      { dim: "states", label: "state", values: facets.states, active: filters.states },
-      { dim: "kinds", label: "kind", values: facets.kinds, active: filters.kinds },
+      { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
+      { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
+      { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds },
     ];
-  }, [page, facets, filters.sources, filters.states, filters.kinds, activityFacetState]);
+  }, [page, facets, itemFacetState, activityFacetState]);
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
   // in the URL. windowCommits is every commit in the
@@ -406,8 +433,8 @@ export function App() {
   const filteredEdges = useMemo(() => {
     if (!visibleEnv) return [];
     const byId = indexItems(visibleEnv);
-    return resolveEdges(visibleEnv, byId).filter((re) => edgeMatches(re, filters));
-  }, [visibleEnv, filters]);
+    return resolveEdges(visibleEnv, byId).filter((re) => edgeMatches(re, itemFilters));
+  }, [visibleEnv, itemFilters]);
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
@@ -421,15 +448,15 @@ export function App() {
   const graphFocusEdges = useMemo(() => {
     if (!needsRangeEnv || !env) return filteredEdges;
     const fullVisible = applyVisibility(env, hidden, hiddenSources);
-    return resolveEdges(fullVisible, indexItems(fullVisible)).filter((re) => edgeMatches(re, filters));
-  }, [needsRangeEnv, env, hidden, hiddenSources, filters, filteredEdges]);
+    return resolveEdges(fullVisible, indexItems(fullVisible)).filter((re) => edgeMatches(re, itemFilters));
+  }, [needsRangeEnv, env, hidden, hiddenSources, itemFilters, filteredEdges]);
   const canUseContractAggregates =
     hidden.size === 0 &&
     hiddenSources.size === 0 &&
     filters.search.trim() === "" &&
-    filters.sources.size === 0 &&
-    filters.states.size === 0 &&
-    filters.kinds.size === 0;
+    itemFacetState.sources.size === 0 &&
+    itemFacetState.states.size === 0 &&
+    itemFacetState.kinds.size === 0;
   const compatibleAggregates = canUseContractAggregates && !customRange ? (env?.aggregates ?? []) : [];
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
@@ -447,18 +474,30 @@ export function App() {
   // for entries here, since an item with no relationships has no node to focus.
   const boardRelationCounts = useMemo(() => relationCounts(visibleEnv?.edges ?? []), [visibleEnv]);
 
-  function toggle(dim: "sources" | "states" | "kinds", value: string) {
-    setFilters((f) => {
-      const next = new Set(f[dim]);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
-      return { ...f, [dim]: next };
+  // Toggle one shared item-facet value (board / graph / repo-analytics) in the
+  // URL — the single source of truth, so the chips, the filtered views, reload,
+  // and a shared link never disagree. Preserves the graph focus and the time
+  // range of the current page.
+  function setItemFacet(dim: ItemFacetDim, value: string) {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    const nextFacets = toggleItemFacet(itemFacets(current), dim, value);
+    const next = buildHashRoute({
+      page,
+      focus: page === "graph" ? current.focus : null,
+      ...itemFacetFields(nextFacets),
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
     });
+    if (readHash() !== next) window.location.hash = next;
   }
 
   // Toggle one Activity facet value in the URL. Reads the live hash, flips the
   // value via nav.ts, and re-encodes — keeping the route the single source of
   // truth, so the chip state, the feed, and a shared link can never disagree.
+  // The shared item-facet lens (isource/istate/ikind) rides along untouched.
   function setActivityFacet(dim: ActivityFacetDim, value: string) {
     if (typeof window === "undefined") return;
     const current = parseHashRoute(readHash());
@@ -466,6 +505,9 @@ export function App() {
     const next = buildHashRoute({
       page: "activity",
       ...activityFacetFields(nextFacets),
+      isource: current.isource,
+      istate: current.istate,
+      ikind: current.ikind,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -528,12 +570,14 @@ export function App() {
   }
 
   // Tab links go through nav.tabHref, the one place that decides what carries
-  // across a tab hop (search + time range travel; page-local drill-down state
-  // does not).
+  // across a tab hop: search, time range, AND the shared item-facet lens travel;
+  // page-local drill-down state (Activity facets, graph focus, commit repo/branch)
+  // does not.
   function routeHref(nextPage: Page): string {
     return tabHref(nextPage, {
       q: filters.search,
       range: { from: explicitRange?.from, to: explicitRange?.to, preset: explicitRange ? route.preset : null },
+      item: itemFacetFields(itemFacetState),
     });
   }
 
@@ -548,6 +592,9 @@ export function App() {
       branch: page === "commits" ? route.branch : null,
       kind: page === "activity" ? route.kind : null,
       action: page === "activity" ? route.action : null,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
       q,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -566,6 +613,9 @@ export function App() {
     const next = buildHashRoute({
       page: "graph",
       focus,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -583,6 +633,9 @@ export function App() {
       source: repo?.source_id ?? null,
       repo: repo?.project_path ?? null,
       branch: route.branch,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -598,6 +651,9 @@ export function App() {
       source: route.source,
       repo: route.repo,
       branch,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -616,6 +672,9 @@ export function App() {
       branch: page === "commits" ? route.branch : null,
       kind: page === "activity" ? route.kind : null,
       action: page === "activity" ? route.action : null,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
       q: filters.search,
       from: range.from,
       to: range.to,
@@ -730,7 +789,7 @@ export function App() {
               onToggle={(dim, value) =>
                 page === "activity"
                   ? setActivityFacet(dim as ActivityFacetDim, value)
-                  : toggle(dim as "sources" | "states" | "kinds", value)
+                  : setItemFacet(dim as ItemFacetDim, value)
               }
               onLoadFile={loadFile}
             />
