@@ -74,6 +74,25 @@ export function spotlight(items: ItemDTO[]): Array<{ lane: SpotlightLane; items:
   return SPOTLIGHT_LANES.map((lane) => ({ lane, items: items.filter(lane.pick).sort(recent) }));
 }
 
+// A board column renders as a slim rail when:
+//   • non-empty: only if the viewer explicitly collapsed it (a persisted choice);
+//   • empty: by default (automatic) — UNLESS the viewer clicked the rail open to
+//     peek inside. `peeked` is transient (a peek reverts on reload), so an empty
+//     lane (e.g. In Progress with nothing in flight) keeps reclaiming its width by
+//     default while staying openable on demand.
+// Routing on isEmpty — rather than OR-ing the two sets — keeps the regimes
+// disjoint: a column collapsed while populated STAYS a rail even after it later
+// empties. Kept here so FullBoard only renders the result and the policy stays in
+// one tested place.
+export function columnCollapsed(
+  kind: string,
+  isEmpty: boolean,
+  collapsed: ReadonlySet<string>,
+  peeked: ReadonlySet<string>,
+): boolean {
+  return isEmpty ? !peeked.has(kind) : collapsed.has(kind);
+}
+
 // Derive each item's board status from the full item + edge set (status is an
 // intrinsic property — computed over ALL edges, then filtered items are placed
 // into columns by the caller).

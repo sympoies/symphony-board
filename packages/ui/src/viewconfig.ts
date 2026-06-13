@@ -4,6 +4,7 @@
 //   • hidden sources — set of HIDDEN source_ids (an independent layer)
 //   • color overrides — repoKey -> hex, this viewer's per-repo highlight override
 //   • default range preset — one of the shared quick preset ids
+//   • collapsed columns — board column kinds the viewer manually collapsed
 // We store what is HIDDEN (not what is visible) so a repo/source that first
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
@@ -20,6 +21,10 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 const COLORS_KEY = "symphony-board:repo-colors";
 const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
+// Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
+// auto-collapse without being persisted (they re-open when an item lands), so
+// this set holds only explicit collapses of non-empty columns.
+const COLLAPSED_COLUMNS_KEY = "symphony-board:collapsed-columns";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
 
 function loadStringSet(key: string): Set<string> {
@@ -46,6 +51,9 @@ export const saveHidden = (hidden: ReadonlySet<string>): void => saveStringSet(K
 
 export const loadHiddenSources = (): Set<string> => loadStringSet(SOURCES_KEY);
 export const saveHiddenSources = (hidden: ReadonlySet<string>): void => saveStringSet(SOURCES_KEY, hidden);
+
+export const loadCollapsedColumns = (): Set<string> => loadStringSet(COLLAPSED_COLUMNS_KEY);
+export const saveCollapsedColumns = (collapsed: ReadonlySet<string>): void => saveStringSet(COLLAPSED_COLUMNS_KEY, collapsed);
 
 export function loadColorOverrides(): Map<string, string> {
   try {
