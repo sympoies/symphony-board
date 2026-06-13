@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="symphony-board">
+  <title>symphony-board</title>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="72%">
+      <stop offset="0%" stop-color="#0b3056" />
+      <stop offset="50%" stop-color="#061c36" />
+      <stop offset="100%" stop-color="#030b22" />
+    </radialGradient>
+  </defs>
+  <rect x="18" y="18" width="989" height="989" rx="220" ry="220" fill="url(#bg)" />
+  <g fill="#24dae8">
+    <rect x="134" y="414" width="92"  height="196" rx="46" />
+    <rect x="280" y="299" width="116" height="426" rx="58" />
+    <rect x="450" y="212" width="124" height="600" rx="62" />
+    <rect x="628" y="299" width="116" height="426" rx="58" />
+    <rect x="798" y="414" width="92"  height="196" rx="46" />
+  </g>
+</svg>
