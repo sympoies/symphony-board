@@ -513,6 +513,37 @@ try {
     expression: "document.querySelectorAll('.activity-row').length",
     returnByValue: true,
   })).result.value || 0;
+  // Facet chips on the Activity feed are route-backed: clicking one must BOTH
+  // write the filter into the URL and light the chip up. The reported bug was a
+  // drill-down narrowing the feed while its chip stayed dark, so this is the
+  // end-to-end lock for that contract. Toggle a kind chip, assert hash + chip
+  // agree, then clear it so the feed returns to its unfiltered default for the
+  // assertions below.
+  const kindGroupExpr = `Array.from(document.querySelectorAll('.controls .toggle-group')).find((g) => g.querySelector('.toggle-label')?.textContent === 'kind')`;
+  const activityFacetInitial = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const group = ${kindGroupExpr};
+      const chip = group?.querySelector('.toggle');
+      return { hasGroup: !!group, value: chip?.textContent?.trim() || null, anyOn: !!group?.querySelector('.toggle.toggle-on'), hashHasKind: location.hash.includes('kind=') };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: `(() => { ${kindGroupExpr}?.querySelector('.toggle')?.click(); })()` });
+  await sleep(250);
+  const activityFacetOn = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const group = ${kindGroupExpr};
+      const on = group?.querySelector('.toggle.toggle-on');
+      return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null, onCount: group?.querySelectorAll('.toggle.toggle-on').length || 0 };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: `(() => { ${kindGroupExpr}?.querySelector('.toggle.toggle-on')?.click(); })()` });
+  await sleep(250);
+  const activityFacetCleared = (await send("Runtime.evaluate", {
+    expression: `(() => ({ hashHasKind: location.hash.includes('kind='), anyOn: !!${kindGroupExpr}?.querySelector('.toggle.toggle-on') }))()`,
+    returnByValue: true,
+  })).result.value || {};
   const activityRangeInputs = (await send("Runtime.evaluate", {
     expression: `(() => {
       const rangeInputs = Array.from(document.querySelectorAll('.time-range-controls .date-input'));
@@ -1089,6 +1120,11 @@ try {
     [!has(backHtml, "range-suspended"), "graph: leaving focus re-enables the time-range controls"],
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
+    [activityFacetInitial.hasGroup === true, "activity: route-backed facet Controls render a kind group"],
+    [activityFacetInitial.anyOn === false && activityFacetInitial.hashHasKind === false, "activity: no kind chip is active before any drill-down"],
+    [activityFacetOn.chipOn === true && activityFacetOn.chipText === activityFacetInitial.value && activityFacetOn.onCount === 1, `activity: clicking a kind chip lights up that chip (${activityFacetOn.chipText})`],
+    [/[?&]kind=/.test(activityFacetOn.hash || ""), `activity: the lit kind chip is written into the route (${activityFacetOn.hash})`],
+    [activityFacetCleared.hashHasKind === false && activityFacetCleared.anyOn === false, "activity: clicking the active kind chip clears it from both route and chips"],
     [sameRangeButtons(activityRangeButtons), `activity: shared range quick presets rendered without all (${activityRangeButtons.join(", ")})`],
     [JSON.stringify(activityRangeInputs.types) === JSON.stringify(["text", "text"]) && JSON.stringify(activityRangeInputs.placeholders) === JSON.stringify(["YYYY/MM/DD", "YYYY/MM/DD"]) && /^\d{4}\/\d{2}\/\d{2}$/.test(activityRangeInputs.from || "") && /^\d{4}\/\d{2}\/\d{2}$/.test(activityRangeInputs.to || ""), `activity: range dates render as fixed YYYY/MM/DD text (${activityRangeInputs.from || "empty"} to ${activityRangeInputs.to || "empty"})`],
     [(activityRangeInputs.wrapWidths || []).length === 2 && activityRangeInputs.wrapWidths.every((width) => width >= 120 && width <= 150), `activity: range date fields stay compact (${(activityRangeInputs.wrapWidths || []).join(", ") || "none"}px)`],

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
-import { buildHashRoute, relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
+import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
+import { activityDrilldownHref, commitsDrilldownHref } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 
@@ -73,19 +74,18 @@ function displayScore(value: number): number {
   return Math.round(value);
 }
 
-function repoDrilldownBase(metric: RepoMetricDTO, range: TimeRange): { source: string; repo: string; from: string; to: string } | null {
-  if (!metric.project_path) return null;
-  return { source: metric.source_id, repo: metric.project_path, from: range.from, to: range.to };
-}
-
+// Both drill-downs go through nav.ts so the link a metric cell points at and the
+// filters the destination renders stay in lockstep. The Activity feed reflects
+// kind/action/source/repo as active chips; the Commits page reads source/repo in
+// its own repo combobox.
 function activityHref(metric: RepoMetricDTO, range: TimeRange, filter: { kind?: string; action?: string } = {}): string | null {
-  const base = repoDrilldownBase(metric, range);
-  return base ? buildHashRoute({ page: "activity", ...base, ...filter }) : null;
+  if (!metric.project_path) return null;
+  return activityDrilldownHref({ source: metric.source_id, repo: metric.project_path, range, kind: filter.kind, action: filter.action });
 }
 
 function commitsHref(metric: RepoMetricDTO, range: TimeRange): string | null {
-  const base = repoDrilldownBase(metric, range);
-  return base ? buildHashRoute({ page: "commits", ...base }) : null;
+  if (!metric.project_path) return null;
+  return commitsDrilldownHref({ source: metric.source_id, repo: metric.project_path, range });
 }
 
 function MetricValue({ value, href, label }: { value: number; href: string | null; label: string }) {

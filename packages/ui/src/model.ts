@@ -922,13 +922,20 @@ export function activityMatches(a: ActivityDTO, f: Filters): boolean {
   return true;
 }
 
-function routeList(value: string | null): Set<string> {
+// Split a route field into a SET of trimmed values. A drill-down link may carry
+// one value ("review") or a comma list ("closed,merged"); the Activity content
+// filter AND its facet chips both read through here, so a single drill-down
+// value and a multi-select chip set parse identically. `nav.ts` owns the
+// dim<->route-field mapping that produces and consumes these fields.
+export function routeList(value: string | null): Set<string> {
   return new Set((value ?? "").split(",").map((part) => part.trim()).filter(Boolean));
 }
 
 export function activityRouteMatches(a: ActivityDTO, route: Pick<HashRoute, "source" | "repo" | "kind" | "action">): boolean {
-  if (route.source && a.source_id !== route.source) return false;
-  if (route.repo && a.project_path !== route.repo) return false;
+  const sources = routeList(route.source);
+  if (sources.size && !sources.has(a.source_id)) return false;
+  const repos = routeList(route.repo);
+  if (repos.size && !(a.project_path != null && repos.has(a.project_path))) return false;
   const kinds = routeList(route.kind);
   if (kinds.size && !kinds.has(a.kind)) return false;
   const actions = routeList(route.action);
