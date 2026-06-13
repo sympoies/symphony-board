@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
 import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
-import { activityDrilldownHref, commitsDrilldownHref } from "../nav.ts";
+import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 
@@ -21,6 +21,7 @@ function addMetricStats(target: RepoMetricStatsDTO, next: RepoMetricStatsDTO): R
     comments: target.comments + next.comments,
     reviews: target.reviews + next.reviews,
     approvals: target.approvals + next.approvals,
+    unresolved_review_threads: (target.unresolved_review_threads ?? 0) + (next.unresolved_review_threads ?? 0),
     edge_declared: target.edge_declared + next.edge_declared,
     edge_fulfilled: target.edge_fulfilled + next.edge_fulfilled,
     edge_broken: target.edge_broken + next.edge_broken,
@@ -42,6 +43,7 @@ function zeroStats(): RepoMetricStatsDTO {
     comments: 0,
     reviews: 0,
     approvals: 0,
+    unresolved_review_threads: 0,
     edge_declared: 0,
     edge_fulfilled: 0,
     edge_broken: 0,
@@ -86,6 +88,12 @@ function activityHref(metric: RepoMetricDTO, range: TimeRange, filter: { kind?: 
 function commitsHref(metric: RepoMetricDTO, range: TimeRange): string | null {
   if (!metric.project_path) return null;
   return commitsDrilldownHref({ source: metric.source_id, repo: metric.project_path, range });
+}
+
+// Open review threads drill straight to the Board, filtered to this repo's
+// unresolved change_requests — the actionable "what still needs a reply" view.
+function unresolvedThreadsHref(metric: RepoMetricDTO, range: TimeRange): string | null {
+  return boardReviewsHref({ source: metric.source_id, repo: metric.project_path, range, value: "unresolved" });
 }
 
 function MetricValue({ value, href, label }: { value: number; href: string | null; label: string }) {
@@ -205,6 +213,7 @@ export function RepoAnalyticsPage({
         <StatTile label="closed / merged" value={totals.items_closed} />
         <StatTile label="merged PR/MRs" value={totals.change_requests_merged} />
         <StatTile label="reviews" value={totals.reviews} />
+        <StatTile label="open threads" value={totals.unresolved_review_threads ?? 0} />
       </div>
       {metrics.length === 0 ? (
         <p className="empty">{windowTotal === 0 ? "No repo metrics in this range." : "No repo metrics match the current filters."}</p>
@@ -214,7 +223,7 @@ export function RepoAnalyticsPage({
             <colgroup>
               <col className="repo-table-col-repo" />
               <col className="repo-table-col-trend" />
-              {Array.from({ length: 8 }, (_, index) => (
+              {Array.from({ length: 9 }, (_, index) => (
                 <col key={index} className="repo-table-col-metric" />
               ))}
               <col className="repo-table-col-quality" />
@@ -232,6 +241,7 @@ export function RepoAnalyticsPage({
                 <th>Closed</th>
                 <th>Merged</th>
                 <th>Reviews</th>
+                <th>Threads</th>
                 <th>Quality</th>
                 <th>Actors</th>
               </tr>
@@ -273,6 +283,7 @@ export function RepoAnalyticsPage({
                     <td><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" })} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" })} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" })} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td title="open review threads (resolvable, still unresolved)"><MetricValue value={metric.totals.unresolved_review_threads ?? 0} href={unresolvedThreadsHref(metric, range)} label={`Open the board filtered to unresolved review threads for ${metric.project_path ?? "repo"}`} /></td>
                     <td><QualityBadge metric={metric} /></td>
                     <td><TopActors metric={metric} /></td>
                   </tr>

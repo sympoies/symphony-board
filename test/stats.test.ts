@@ -38,6 +38,8 @@ function fixtureItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
     reviewState: null,
     ciState: null,
     mergeState: null,
+    openReviewThreads: null,
+    totalReviewThreads: null,
     milestone: null,
     demand: 0,
     ...over,

@@ -28,6 +28,8 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
     review_state: null,
     ci_state: null,
     merge_state: null,
+    open_review_threads: null,
+    total_review_threads: null,
     milestone: null,
     demand: 3,
     last_seen_at: "2026-06-01T00:00:00Z",
@@ -265,6 +267,8 @@ test("buildContract emits repo metrics for the static default window", () => {
       review_state: "approved",
       ci_state: "passing",
       merge_state: "mergeable",
+      open_review_threads: 2,
+      total_review_threads: 3,
       project_path: "o/repo",
     }),
   ];
@@ -294,7 +298,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "3.2.1");
+  assert.equal(env.contract_version, "3.3.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -314,6 +318,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.totals.activity_score, 9.25);
   assert.equal(metric?.totals.commits, 1);
   assert.equal(metric?.totals.pushes, 1);
+  assert.equal(metric?.totals.unresolved_review_threads, 2);
   assert.equal(metric?.totals.edge_fulfilled, 1);
   assert.deepEqual(metric?.totals.by_label_scope, { type: 1 });
   assert.equal(metric?.data_quality.activity_available, true);
@@ -321,6 +326,34 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.data_quality.last_activity_at, "2026-06-07T11:00:00Z");
   assert.ok(metric?.series.some((bucket) => bucket.stats.commits === 1 && bucket.stats.pushes === 1));
   assert.deepEqual(metric?.top_actors?.map((actor) => actor.actor).sort(), ["alice", "bob"]);
+});
+
+test("review_threads folds the two columns into a nested DTO, null for issues and unreported rows", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const env = buildContract({
+    sources,
+    items: [
+      // issue: never has threads.
+      itemRow({ item_id: 1, external_id: "ISSUE_1", kind: "issue" }),
+      // change_request with open + resolved threads.
+      itemRow({ item_id: 2, external_id: "PR_open", kind: "change_request", open_review_threads: 2, total_review_threads: 3 }),
+      // change_request, all resolved (distinct from "unreported").
+      itemRow({ item_id: 3, external_id: "PR_resolved", kind: "change_request", open_review_threads: 0, total_review_threads: 4 }),
+      // change_request the provider never reported threads for -> null, not {0,0}.
+      itemRow({ item_id: 4, external_id: "PR_unknown", kind: "change_request", open_review_threads: null, total_review_threads: null }),
+    ],
+    labels: [],
+    edges: [],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+  });
+  assert.deepEqual(validateContract(env), []);
+  const byExt = new Map(env.items.map((it) => [it.external_id, it]));
+  assert.equal(byExt.get("ISSUE_1")?.review_threads, null);
+  assert.deepEqual(byExt.get("PR_open")?.review_threads, { open: 2, total: 3 });
+  assert.deepEqual(byExt.get("PR_resolved")?.review_threads, { open: 0, total: 4 });
+  assert.equal(byExt.get("PR_unknown")?.review_threads, null);
 });
 
 test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {

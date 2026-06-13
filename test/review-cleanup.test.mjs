@@ -385,3 +385,114 @@ test("apply with dispositions leaves unsafe listed threads unresolved", () => {
   assert.equal(result.actions.length, 0);
   assert.match(result.warnings[0], /human_or_unallowlisted_author/);
 });
+
+function threadItem({
+  source_id = "github:github.com",
+  iid,
+  project_path = "sympoies/symphony-board",
+  state = "merged",
+  merged_at = "2026-06-08T00:00:00Z",
+  open,
+  total,
+}) {
+  return {
+    source_id,
+    external_id: `${source_id}:${iid}`,
+    kind: "change_request",
+    project_path,
+    iid,
+    title: `PR ${iid}`,
+    state,
+    merged_at,
+    closed_at: merged_at,
+    url: `https://example.test/${iid}`,
+    review_threads: { open, total },
+  };
+}
+
+function reviewActivity({
+  source_id = "github:github.com",
+  iid,
+  project_path = "sympoies/symphony-board",
+  actor,
+  occurred_at,
+}) {
+  return {
+    source_id,
+    kind: "review",
+    target_kind: "change_request",
+    target_iid: iid,
+    project_path,
+    actor,
+    action: "reviewed",
+    occurred_at,
+    title: `PR ${iid}`,
+    url: `https://example.test/review/${iid}`,
+    details: { state: "COMMENTED" },
+  };
+}
+
+test("open review threads surface as candidates regardless of the review actor", () => {
+  // The contract reports open threads on a PR whose only review came from a
+  // non-allowlisted actor; default options must still surface it. A resolved PR
+  // with no open threads and no late/closed bot review must not appear.
+  const contract = {
+    sources: [{ source_id: "github:github.com", kind: "github", host: "github.com" }],
+    items: [
+      threadItem({ iid: 74, open: 2, total: 2 }),
+      threadItem({ iid: 99, open: 0, total: 3 }),
+    ],
+    activities: [reviewActivity({ iid: 74, actor: "github-code-quality", occurred_at: "2026-06-08T06:00:00Z" })],
+  };
+
+  const candidates = buildCandidates(contract, options(), "sympoies/symphony-board");
+  const pr74 = candidates.find((candidate) => candidate.pr === 74);
+  assert.ok(pr74, "open-thread PR is a candidate even though its reviewer is not allowlisted");
+  assert.equal(pr74.reason, "open_review_threads");
+  assert.equal(pr74.openThreads, 2);
+  assert.equal(pr74.actor, "github-code-quality", "display is enriched with the last reviewer");
+  assert.equal(candidates.find((candidate) => candidate.pr === 99), undefined);
+});
+
+test("open-thread discovery ignores the --days window and the actor allowlist", () => {
+  // A long-merged PR with a stale, non-allowlisted review outside the window:
+  // the activity path drops it, but the open-thread path still surfaces it.
+  const contract = {
+    sources: [{ source_id: "github:github.com", kind: "github", host: "github.com" }],
+    items: [threadItem({ iid: 58, open: 1, total: 2, merged_at: "2020-01-01T00:00:00Z" })],
+    activities: [reviewActivity({ iid: 58, actor: "github-code-quality", occurred_at: "2020-01-02T00:00:00Z" })],
+  };
+
+  const candidates = buildCandidates(contract, options({ days: 1 }), "sympoies/symphony-board");
+  assert.deepEqual(candidates.map((candidate) => candidate.pr), [58]);
+  assert.equal(candidates[0].reason, "open_review_threads");
+});
+
+test("open-thread candidates lead resolved late-review candidates in the report", () => {
+  const contract = {
+    sources: [{ source_id: "github:github.com", kind: "github", host: "github.com" }],
+    items: [
+      threadItem({ iid: 58, open: 1, total: 2 }),
+      threadItem({ iid: 181, open: 0, total: 1 }),
+    ],
+    // 181 has an allowlisted bot review that landed after merge → late_review,
+    // but its threads are already resolved (open: 0).
+    activities: [reviewActivity({ iid: 181, actor: "chatgpt-codex-connector", occurred_at: "2026-06-08T06:00:00Z" })],
+  };
+
+  const candidates = buildCandidates(contract, options(), "sympoies/symphony-board");
+  assert.deepEqual(candidates.map((candidate) => [candidate.pr, candidate.reason]), [
+    [58, "open_review_threads"],
+    [181, "late_review"],
+  ]);
+});
+
+test("GitLab open-thread MRs are not added (the live path is GitHub-only)", () => {
+  const contract = {
+    sources: [{ source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com" }],
+    items: [threadItem({ source_id: "gitlab:gitlab.com", iid: 5, project_path: "group/proj", open: 3, total: 4 })],
+    activities: [],
+  };
+
+  assert.deepEqual(buildCandidates(contract, options(), null), []);
+});

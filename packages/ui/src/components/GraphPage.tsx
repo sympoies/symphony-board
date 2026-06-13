@@ -245,7 +245,6 @@ function borderSide(node: InternalNode, p: { x: number; y: number }): Position {
   const nx = node.internals.positionAbsolute.x;
   const ny = node.internals.positionAbsolute.y;
   const w = node.measured.width ?? NODE_W;
-  const h = node.measured.height ?? NODE_H;
   if (Math.round(p.x) <= Math.round(nx) + 1) return Position.Left;
   if (Math.round(p.x) >= Math.round(nx + w) - 1) return Position.Right;
   if (Math.round(p.y) <= Math.round(ny) + 1) return Position.Top;

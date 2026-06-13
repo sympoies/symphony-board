@@ -3,7 +3,7 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
-import { relativeTime, type RelationCount } from "../model.ts";
+import { relativeTime, reviewThreadsLabel, type RelationCount } from "../model.ts";
 import { graphFocusHref } from "../nav.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
@@ -180,11 +180,19 @@ export function ItemCard({
         </div>
       )}
 
-      {(item.review_state || item.ci_state || item.merge_state) && (
+      {(item.review_state || item.ci_state || item.merge_state || reviewThreadsLabel(item.review_threads)) && (
         <div className="card-signals">
           {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
           {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
           {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
+          {/* Open review threads: red while any remain, neutral once resolved.
+              A point-in-time signal (last sync), like the others on this row. */}
+          {reviewThreadsLabel(item.review_threads) ? (
+            <Badge
+              text={`threads: ${item.review_threads!.open > 0 ? `${item.review_threads!.open} open` : "resolved"}`}
+              kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"}
+            />
+          ) : null}
         </div>
       )}
 

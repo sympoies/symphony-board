@@ -10,6 +10,7 @@ import type {
   ItemDTO,
   EdgeDTO,
   RepoMetricDTO,
+  ReviewThreadsDTO,
 } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 import { zonedDateOnly, zonedWeekday, zonedHour, zonedDayStartIso, zonedDayEndIso, shiftDateOnly } from "./tz.ts";
@@ -100,6 +101,9 @@ export interface Filters {
   sources: ReadonlySet<string>; // empty = all
   states: ReadonlySet<string>;
   kinds: ReadonlySet<string>;
+  // Review-thread lens: "threads" (review_threads.total > 0) and/or "unresolved"
+  // (review_threads.open > 0). Empty = no review filter. OR within the set.
+  reviews: ReadonlySet<string>;
 }
 
 export const emptyFilters = (): Filters => ({
@@ -107,6 +111,7 @@ export const emptyFilters = (): Filters => ({
   sources: new Set(),
   states: new Set(),
   kinds: new Set(),
+  reviews: new Set(),
 });
 
 export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
@@ -144,6 +149,13 @@ export interface HashRoute {
   isource: string | null;
   istate: string | null;
   ikind: string | null;
+  // Board/graph review-thread lens: comma list of "threads" (has resolvable
+  // review threads) and/or "unresolved" (open threads remain). Part of the
+  // shared item lens, so it rides tab hops like isource/istate/ikind.
+  ireview: string | null;
+  // Activity-local toggle: "1" shows only review rows whose target PR/MR still
+  // has open threads. Page-local (like source/kind/action), not part of the lens.
+  unresolved: string | null;
   from: string | null; // YYYY-MM-DD explicit time-range start
   to: string | null; // YYYY-MM-DD explicit time-range end
   preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
@@ -173,6 +185,8 @@ export function parseHashRoute(hash: string): HashRoute {
     isource: routeParam(params?.get("isource")),
     istate: routeParam(params?.get("istate")),
     ikind: routeParam(params?.get("ikind")),
+    ireview: routeParam(params?.get("ireview")),
+    unresolved: routeParam(params?.get("unresolved")),
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
     preset: isTimeRangePresetId(preset) ? preset : null,
@@ -180,7 +194,7 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -192,6 +206,8 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const isource = routeParam(route.isource);
   const istate = routeParam(route.istate);
   const ikind = routeParam(route.ikind);
+  const ireview = routeParam(route.ireview);
+  const unresolved = routeParam(route.unresolved);
   const from = routeParam(route.from);
   const to = routeParam(route.to);
   const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
@@ -206,6 +222,8 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (isource) params.push(`isource=${encodeURIComponent(isource)}`);
   if (istate) params.push(`istate=${encodeURIComponent(istate)}`);
   if (ikind) params.push(`ikind=${encodeURIComponent(ikind)}`);
+  if (ireview) params.push(`ireview=${encodeURIComponent(ireview)}`);
+  if (unresolved) params.push(`unresolved=${encodeURIComponent(unresolved)}`);
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
   if (preset) params.push(`preset=${encodeURIComponent(preset)}`);
@@ -847,7 +865,21 @@ function joinDistinct(parts: Array<string | null>): string {
   return out.join(" · ");
 }
 
-export function activityDisplay(activity: ActivityDTO): ActivityDisplay {
+// Short label for a change_request's review-thread state, or null when there is
+// nothing to show (no threads, or count unavailable). A glanceable summary, NOT
+// a per-event fact — it reflects the target item's state as of its last sync.
+export function reviewThreadsLabel(threads: ReviewThreadsDTO | null | undefined): string | null {
+  if (!threads || threads.total <= 0) return null;
+  return threads.open > 0 ? `${threads.open} open thread${threads.open === 1 ? "" : "s"}` : "threads resolved";
+}
+
+export function activityDisplay(
+  activity: ActivityDTO,
+  // The target change_request's review threads, when the caller resolved
+  // `target_ref` to an item carrying them. Drives the review-resolution chip;
+  // omitted by non-Activity callers, which then show no such chip.
+  opts: { reviewThreads?: ReviewThreadsDTO | null } = {},
+): ActivityDisplay {
   const title = cleanText(activity.title);
   const summary = cleanText(activity.summary);
   const meta = [
@@ -869,6 +901,11 @@ export function activityDisplay(activity: ActivityDTO): ActivityDisplay {
   if (from) chips.push(`from ${from}`);
   if (to) chips.push(`to ${to}`);
 
+  if (activity.kind === "review") {
+    const threadChip = reviewThreadsLabel(opts.reviewThreads);
+    if (threadChip) chips.push(threadChip);
+  }
+
   const target = workItemTargetLabel(activity);
   if (target) return { title: joinDistinct([target, title ?? summary]), meta, chips };
 
@@ -886,10 +923,34 @@ export function activityDisplay(activity: ActivityDTO): ActivityDisplay {
   return { title: joinDistinct([kind, title ?? summary]) || `${activity.action} ${activity.kind}`, meta, chips };
 }
 
+// Does an item satisfy the review-thread lens? "threads" = has any resolvable
+// review thread; "unresolved" = at least one still open. OR across the selected
+// values (empty set = no constraint). A point-in-time, change_request-level
+// signal — issues and unreported rows carry no review_threads, so never match.
+export function itemReviewMatches(it: ItemDTO, reviews: ReadonlySet<string>): boolean {
+  if (reviews.size === 0) return true;
+  const rt = it.review_threads;
+  if (!rt) return false;
+  if (reviews.has("threads") && rt.total > 0) return true;
+  if (reviews.has("unresolved") && rt.open > 0) return true;
+  return false;
+}
+
+// Is this a review activity whose TARGET change_request still has open review
+// threads? Resolved against the current item set, so it reflects the PR/MR's
+// state as of the last sync (not the moment of the review event). Backs the
+// Activity "unresolved only" toggle.
+export function reviewActivityIsUnresolved(a: ActivityDTO, itemsById: ReadonlyMap<string, ItemDTO>): boolean {
+  if (a.kind !== "review" || !a.target_ref) return false;
+  const rt = itemsById.get(a.target_ref)?.review_threads;
+  return !!rt && rt.open > 0;
+}
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;
   if (f.kinds.size && !f.kinds.has(it.kind)) return false;
+  if (!itemReviewMatches(it, f.reviews)) return false;
   const q = f.search.trim().toLowerCase();
   if (q) {
     // iid is intentionally NOT in the hay — it is matched ONLY via the exact

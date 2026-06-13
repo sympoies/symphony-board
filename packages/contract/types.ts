@@ -128,6 +128,10 @@ export interface RepoMetricStatsDTO {
   comments: number;
   reviews: number;
   approvals: number;
+  // Sum of open review threads across active change_requests in the window
+  // (item-level `review_threads.open`). Added in 3.3.0; optional so pre-3.3.0
+  // consumers stay valid.
+  unresolved_review_threads?: number;
   edge_declared: number;
   edge_fulfilled: number;
   edge_broken: number;
@@ -226,6 +230,15 @@ export interface LabelDTO {
   color: string | null;
 }
 
+// Unresolved/total review-discussion threads on a change_request. `open` is the
+// count still awaiting resolution; `total` is every resolvable thread. A
+// point-in-time snapshot as of the owning item's last sync (like `ci_state`),
+// NOT the state at any one review event's time.
+export interface ReviewThreadsDTO {
+  open: number;
+  total: number;
+}
+
 export interface ItemDTO {
   id: Ref;
   source_id: string;
@@ -248,6 +261,9 @@ export interface ItemDTO {
   review_state: ReviewState | null;
   ci_state: CiState | null;
   merge_state: MergeState | null;
+  // Open/total review threads for a change_request, or null for issues and when
+  // a provider did not report it. Added in 3.3.0; see ReviewThreadsDTO.
+  review_threads: ReviewThreadsDTO | null;
   milestone: string | null;
   demand: number | null;
   last_seen_at: string | null;

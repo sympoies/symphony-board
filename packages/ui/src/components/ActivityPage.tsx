@@ -1,4 +1,4 @@
-import type { ActivityDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { ActivityFeed } from "./ActivityFeed.tsx";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
@@ -13,6 +13,7 @@ export function ActivityPage({
   timezone,
   sourceKind,
   colorOf,
+  itemsById,
 }: {
   activities: ActivityDTO[];
   // The full, range-independent activity set powering the trailing-12-month
@@ -24,6 +25,9 @@ export function ActivityPage({
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
+  // Item index by ref; passed to the feed so review rows can show their target
+  // change_request's open-thread count.
+  itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
   const [heatmapPanel, setHeatmapPanel] = useState<HTMLElement | null>(null);
   const [heatmapHeight, setHeatmapHeight] = useState(0);
@@ -69,7 +73,7 @@ export function ActivityPage({
         </span>
       </div>
       <div className="activity-layout" style={layoutStyle}>
-        <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} />
+        <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} itemsById={itemsById} />
         <ActivityHeatmap
           activities={allActivities}
           trendActivities={activities}

@@ -172,6 +172,10 @@
         "review_state": { "type": ["string", "null"], "enum": ["approved", "changes_requested", "review_required", null] },
         "ci_state": { "type": ["string", "null"], "enum": ["passing", "failing", "pending", "none", null] },
         "merge_state": { "type": ["string", "null"], "enum": ["mergeable", "conflicting", "blocked", "unknown", null] },
+        "review_threads": {
+          "description": "Open/total review threads for a change_request (3.3.0+); null for issues or when unreported.",
+          "anyOf": [{ "$ref": "#/$defs/reviewThreads" }, { "type": "null" }]
+        },
         "milestone": { "type": ["string", "null"] },
         "demand": { "type": ["integer", "null"], "description": "comments + reactions." },
         "last_seen_at": { "type": ["string", "null"], "format": "date-time" },
@@ -190,6 +194,15 @@
         "name": { "type": "string", "description": "Raw label string, verbatim." },
         "scope": { "type": ["string", "null"], "description": "Parsed prefix of a \"scope::value\" label, or null." },
         "color": { "type": ["string", "null"] }
+      }
+    },
+    "reviewThreads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["open", "total"],
+      "properties": {
+        "open": { "type": "integer", "minimum": 0, "description": "Threads still awaiting resolution." },
+        "total": { "type": "integer", "minimum": 0, "description": "All resolvable review threads." }
       }
     },
     "edge": {
@@ -422,6 +435,7 @@
         "comments": { "type": "integer", "minimum": 0 },
         "reviews": { "type": "integer", "minimum": 0 },
         "approvals": { "type": "integer", "minimum": 0 },
+        "unresolved_review_threads": { "type": "integer", "minimum": 0 },
         "edge_declared": { "type": "integer", "minimum": 0 },
         "edge_fulfilled": { "type": "integer", "minimum": 0 },
         "edge_broken": { "type": "integer", "minimum": 0 },

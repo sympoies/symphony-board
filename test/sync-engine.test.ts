@@ -19,6 +19,7 @@ function item(externalId: string, over: Partial<CanonicalItem> = {}): CanonicalI
     url: "http://x", title: "t", state: "open", stateRaw: "open", stateReason: null,
     isDraft: null, author: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     closedAt: null, mergedAt: null, reviewState: null, ciState: null, mergeState: null,
+    openReviewThreads: null, totalReviewThreads: null,
     milestone: null, demand: 0, ...over,
   };
 }

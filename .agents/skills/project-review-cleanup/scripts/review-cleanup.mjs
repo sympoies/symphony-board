@@ -335,18 +335,86 @@ function buildCandidates(contract, options, repo) {
   for (const source of contract.sources ?? []) {
     if (source.source_id) sources.set(source.source_id, source);
   }
+  const isGithub = (sourceId) => sources.get(sourceId)?.kind === "github";
+
   const items = new Map();
   for (const item of contract.items ?? []) {
     if (item.kind !== "change_request") continue;
-    const key = itemKey(item.source_id, item.project_path, item.iid);
-    items.set(key, item);
+    items.set(itemKey(item.source_id, item.project_path, item.iid), item);
+  }
+
+  // Most recent GitHub review activity per change_request. Used only to enrich
+  // candidate display (who reviewed last, when) — never to gate discovery, so
+  // an open thread from a non-allowlisted actor still surfaces.
+  const latestReview = new Map();
+  for (const activity of contract.activities ?? []) {
+    if (activity.kind !== "review" || activity.target_kind !== "change_request") continue;
+    if (!isGithub(activity.source_id)) continue;
+    const key = itemKey(activity.source_id, activity.project_path, activity.target_iid);
+    const prev = latestReview.get(key);
+    if (!prev || (toMs(activity.occurred_at) ?? 0) > (toMs(prev.occurred_at) ?? 0)) {
+      latestReview.set(key, activity);
+    }
   }
 
   const allowSet = new Set(options.allowActors);
-  const candidates = [];
+  const candidates = new Map();
+  const candidateKey = (projectPath, iid) => `${projectPath ?? ""}#${Number(iid)}`;
+  const ensure = (sourceId, projectPath, iid, item) => {
+    const key = candidateKey(projectPath, iid);
+    let candidate = candidates.get(key);
+    if (!candidate) {
+      candidate = {
+        sourceId: sourceId ?? item?.source_id ?? null,
+        pr: Number(iid),
+        repo: projectPath,
+        title: item?.title ?? null,
+        actor: null,
+        action: null,
+        state: null,
+        reviewUrl: null,
+        reviewOccurredAt: null,
+        itemState: item?.state ?? null,
+        itemUrl: item?.url ?? null,
+        mergedAt: item?.merged_at ?? null,
+        closedAt: item?.closed_at ?? null,
+        openThreads: item?.review_threads?.open ?? null,
+        totalThreads: item?.review_threads?.total ?? null,
+        reasons: [],
+        reason: null,
+      };
+      candidates.set(key, candidate);
+    } else if (!candidate.sourceId && sourceId) {
+      candidate.sourceId = sourceId;
+    }
+    return candidate;
+  };
+  const addReason = (candidate, reason) => {
+    if (!candidate.reasons.includes(reason)) candidate.reasons.push(reason);
+  };
+
+  // Pass 1 — item-centric, actor-agnostic. Any GitHub change_request the
+  // contract reports with open review threads (review_threads.open > 0). This
+  // mirrors the board "unresolved" lens and is the primary, complete discovery
+  // source: it does not depend on a review activity existing in the window, on
+  // when the review landed, or on who authored it. The actor allowlist governs
+  // only what --apply may auto-resolve, not what gets reported.
+  for (const item of items.values()) {
+    if (!(item.review_threads && item.review_threads.open > 0)) continue;
+    if (!isGithub(item.source_id)) continue;
+    if (repo && item.project_path !== repo) continue;
+    if (options.pr && Number(item.iid) !== options.pr) continue;
+    addReason(ensure(item.source_id, item.project_path, item.iid, item), "open_review_threads");
+  }
+
+  // Pass 2 — activity-centric heuristic. An allowlisted bot review that landed
+  // after merge/close (late) or on an already-closed PR, even if its threads
+  // are now resolved. Still gated by the actor allowlist (widen with
+  // --all-actors) and the --days window; this flags review timing that the
+  // point-in-time open-thread count cannot.
   for (const activity of contract.activities ?? []) {
     if (activity.kind !== "review" || activity.target_kind !== "change_request") continue;
-    if (sources.get(activity.source_id)?.kind !== "github") continue;
+    if (!isGithub(activity.source_id)) continue;
     if (repo && activity.project_path !== repo) continue;
     if (options.pr && Number(activity.target_iid) !== options.pr) continue;
     if (!options.allActors && !allowSet.has(activity.actor)) continue;
@@ -361,25 +429,35 @@ function buildCandidates(contract, options, repo) {
     const closed = item?.state && item.state !== "open";
     if (!late && !closed && !options.pr) continue;
 
-    candidates.push({
-      pr: Number(activity.target_iid),
-      repo: activity.project_path,
-      title: activity.title ?? item?.title ?? null,
-      actor: activity.actor ?? null,
-      action: activity.action ?? null,
-      state: activity.details?.state ?? null,
-      reviewUrl: activity.url ?? null,
-      reviewOccurredAt: activity.occurred_at ?? null,
-      itemState: item?.state ?? null,
-      itemUrl: item?.url ?? null,
-      mergedAt: item?.merged_at ?? null,
-      closedAt: item?.closed_at ?? null,
-      reason: late ? "late_review" : "review_on_closed_pr",
-    });
+    addReason(ensure(activity.source_id, activity.project_path, activity.target_iid, item), late ? "late_review" : "review_on_closed_pr");
   }
 
-  candidates.sort((a, b) => (toMs(b.reviewOccurredAt) ?? 0) - (toMs(a.reviewOccurredAt) ?? 0));
-  return candidates.slice(0, options.limit);
+  const list = [...candidates.values()];
+  for (const candidate of list) {
+    const review = latestReview.get(itemKey(candidate.sourceId, candidate.repo, candidate.pr));
+    if (review) {
+      candidate.actor = review.actor ?? null;
+      candidate.action = review.action ?? null;
+      candidate.state = review.details?.state ?? null;
+      candidate.reviewUrl = review.url ?? null;
+      candidate.reviewOccurredAt = review.occurred_at ?? null;
+      if (!candidate.title) candidate.title = review.title ?? null;
+    }
+    // Lead with the actionable open-thread signal when present.
+    candidate.reason = candidate.reasons.includes("open_review_threads")
+      ? "open_review_threads"
+      : candidate.reasons[0] ?? null;
+  }
+
+  // Open-thread candidates first (most open threads first), then by review
+  // recency, so the actionable, complete signal leads the report.
+  list.sort((a, b) => {
+    const ao = a.openThreads ?? -1;
+    const bo = b.openThreads ?? -1;
+    if (ao !== bo) return bo - ao;
+    return (toMs(b.reviewOccurredAt) ?? 0) - (toMs(a.reviewOccurredAt) ?? 0);
+  });
+  return list.slice(0, options.limit);
 }
 
 function targetKey(target) {
@@ -678,7 +756,14 @@ function printText(result) {
   console.log("");
   console.log(`Contract candidates: ${result.candidates.length}`);
   for (const candidate of result.candidates) {
-    console.log(`- ${candidate.repo}#${candidate.pr} ${candidate.reason}: ${candidate.action ?? "review"} by ${candidate.actor ?? "unknown"} at ${candidate.reviewOccurredAt ?? "unknown time"}`);
+    const reasons = (candidate.reasons?.length ? candidate.reasons : [candidate.reason]).filter(Boolean).join("+");
+    const threads = candidate.openThreads != null
+      ? ` open_threads=${candidate.openThreads}/${candidate.totalThreads ?? "?"}`
+      : "";
+    const lastReview = candidate.actor
+      ? ` last review by ${candidate.actor}${candidate.reviewOccurredAt ? ` at ${candidate.reviewOccurredAt}` : ""}`
+      : "";
+    console.log(`- ${candidate.repo}#${candidate.pr} ${reasons}:${threads}${lastReview}`);
     console.log(`  ${candidate.title ?? "(no title)"}`);
     console.log(`  state=${candidate.itemState ?? "unknown"} merged_at=${candidate.mergedAt ?? "null"} closed_at=${candidate.closedAt ?? "null"}`);
     if (candidate.reviewUrl) console.log(`  review=${candidate.reviewUrl}`);

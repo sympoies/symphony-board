@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.2.1",
+  "contract_version": "3.3.0",
   "generated_at": "2026-06-07T09:00:00Z",
   "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
@@ -56,6 +56,7 @@
       "review_state": null,
       "ci_state": null,
       "merge_state": null,
+      "review_threads": null,
       "milestone": "v1.1",
       "demand": 9,
       "last_seen_at": "2026-06-07T08:58:00Z",
@@ -92,6 +93,10 @@
       "review_state": "approved",
       "ci_state": "passing",
       "merge_state": "mergeable",
+      "review_threads": {
+        "open": 0,
+        "total": 2
+      },
       "milestone": "v1.1",
       "demand": 2,
       "last_seen_at": "2026-06-07T08:58:00Z",
@@ -138,6 +143,7 @@
       "review_state": null,
       "ci_state": null,
       "merge_state": null,
+      "review_threads": null,
       "milestone": null,
       "demand": 5,
       "last_seen_at": "2026-06-07T08:58:00Z",
@@ -168,6 +174,10 @@
       "review_state": "review_required",
       "ci_state": "pending",
       "merge_state": "blocked",
+      "review_threads": {
+        "open": 3,
+        "total": 5
+      },
       "milestone": null,
       "demand": 0,
       "last_seen_at": "2026-06-07T08:58:00Z",
@@ -209,6 +219,7 @@
       "review_state": null,
       "ci_state": null,
       "merge_state": null,
+      "review_threads": null,
       "milestone": null,
       "demand": 1,
       "last_seen_at": "2026-06-07T08:58:00Z",
@@ -239,6 +250,10 @@
       "review_state": "changes_requested",
       "ci_state": "failing",
       "merge_state": "conflicting",
+      "review_threads": {
+        "open": 1,
+        "total": 1
+      },
       "milestone": null,
       "demand": 3,
       "last_seen_at": "2026-06-07T08:58:00Z",
@@ -275,6 +290,7 @@
       "review_state": null,
       "ci_state": null,
       "merge_state": null,
+      "review_threads": null,
       "milestone": null,
       "demand": 0,
       "last_seen_at": "2026-06-07T07:40:00Z",
@@ -305,6 +321,10 @@
       "review_state": null,
       "ci_state": "none",
       "merge_state": "unknown",
+      "review_threads": {
+        "open": 0,
+        "total": 0
+      },
       "milestone": null,
       "demand": 0,
       "last_seen_at": "2026-06-07T07:40:00Z",

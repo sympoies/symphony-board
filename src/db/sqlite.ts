@@ -55,6 +55,7 @@ const MIGRATIONS: Migration[] = [
   { version: 1, file: "0001_init.sql" },
   { version: 2, file: "0002_activity.sql" },
   { version: 3, file: "0003_actor_identity.sql" },
+  { version: 4, file: "0004_review_threads.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -186,16 +187,18 @@ export class SqliteStore implements Store {
         `INSERT INTO item (
            source_id, external_id, kind, project_path, iid, url, title, state, state_raw,
            state_reason, is_draft, author, created_at, updated_at, closed_at, merged_at,
-           review_state, ci_state, merge_state, milestone, demand, normalized_with,
+           review_state, ci_state, merge_state, open_review_threads, total_review_threads,
+           milestone, demand, normalized_with,
            last_seen_at, deleted_at
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
          ON CONFLICT(source_id, external_id) DO UPDATE SET
            kind=excluded.kind, project_path=excluded.project_path, iid=excluded.iid,
            url=excluded.url, title=excluded.title, state=excluded.state, state_raw=excluded.state_raw,
            state_reason=excluded.state_reason, is_draft=excluded.is_draft, author=excluded.author,
            created_at=excluded.created_at, updated_at=excluded.updated_at, closed_at=excluded.closed_at,
            merged_at=excluded.merged_at, review_state=excluded.review_state, ci_state=excluded.ci_state,
-           merge_state=excluded.merge_state, milestone=excluded.milestone, demand=excluded.demand,
+           merge_state=excluded.merge_state, open_review_threads=excluded.open_review_threads,
+           total_review_threads=excluded.total_review_threads, milestone=excluded.milestone, demand=excluded.demand,
            normalized_with=excluded.normalized_with, last_seen_at=excluded.last_seen_at, deleted_at=NULL
          RETURNING item_id`,
       )
@@ -203,7 +206,8 @@ export class SqliteStore implements Store {
         item.sourceId, item.externalId, item.kind, nz(item.projectPath), nz(item.iid), item.url,
         nz(item.title), item.state, nz(item.stateRaw), nz(item.stateReason), bint(item.isDraft),
         nz(item.author), nz(item.createdAt), nz(item.updatedAt), nz(item.closedAt), nz(item.mergedAt),
-        nz(item.reviewState), nz(item.ciState), nz(item.mergeState), nz(item.milestone), nz(item.demand),
+        nz(item.reviewState), nz(item.ciState), nz(item.mergeState), nz(item.openReviewThreads),
+        nz(item.totalReviewThreads), nz(item.milestone), nz(item.demand),
         normalizerVersion, seenAt,
       ) as { item_id: number };
     return row.item_id;
@@ -350,7 +354,8 @@ export class SqliteStore implements Store {
       .prepare(
         `SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, state,
                 state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
-                merged_at, review_state, ci_state, merge_state, milestone, demand, last_seen_at
+                merged_at, review_state, ci_state, merge_state, open_review_threads,
+                total_review_threads, milestone, demand, last_seen_at
          FROM item WHERE deleted_at IS NULL
          -- Order by a provider-agnostic "most recently resolved" key: a closed item
          -- by closed_at, a merged item by merged_at, an open item by updated_at

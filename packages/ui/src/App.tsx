@@ -13,6 +13,7 @@ import {
   filterActivitiesByRange,
   indexItems,
   itemMatches,
+  reviewActivityIsUnresolved,
   repoMetricMatches,
   sortRepoMetrics,
   resolveEdges,
@@ -42,6 +43,7 @@ import {
   toggleItemFacet,
   itemFacetFields,
   tabHref,
+  ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
   type ItemFacetDim,
   type Page,
@@ -80,6 +82,12 @@ import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
 const GraphPage = lazy(() => import("./components/GraphPage.tsx").then((m) => ({ default: m.GraphPage })));
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
+
+// Stable singletons for the review-lens chip groups (avoid new Set() per render).
+const EMPTY_SET: ReadonlySet<string> = new Set();
+const UNRESOLVED_ON: ReadonlySet<string> = new Set(["unresolved"]);
+// Chip labels for the review lens: "threads" -> "has threads", "unresolved" as-is.
+const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads" : v);
 
 // Pages via a zero-dep hash route: "" (first open) defaults to Activity,
 // "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
@@ -150,13 +158,13 @@ export function App() {
   // kept distinct from the Activity feed's own source/repo/kind/action facets.
   const itemFacetState = useMemo(
     () => itemFacets(route),
-    [route.isource, route.istate, route.ikind],
+    [route.isource, route.istate, route.ikind, route.ireview],
   );
   // A Filters view the item matchers (itemMatches / edgeMatches /
   // repoMetricMatches) consume: the route-backed item facets plus the URL-backed
   // search term. The React `filters` state now only carries `search`.
   const itemFilters = useMemo<Filters>(
-    () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds }),
+    () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds, reviews: itemFacetState.reviews }),
     [filters.search, itemFacetState],
   );
   // The zone the contract buckets calendar days in (default UTC). Threaded into
@@ -308,6 +316,9 @@ export function App() {
   // re-enable) hidden repos.
   const visibleEnv = useMemo(() => (chromeEnv ? applyVisibility(chromeEnv, hidden, hiddenSources) : null), [chromeEnv, hidden, hiddenSources]);
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
+  // Item index by ref, shared by the edge resolver and the Activity feed (where
+  // a review row resolves its target change_request to show open review threads).
+  const itemsById = useMemo(() => (visibleEnv ? indexItems(visibleEnv) : new Map()), [visibleEnv]);
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const windowedActivities = useMemo(
     () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange, tz) : []),
@@ -330,16 +341,19 @@ export function App() {
   );
 
   const facets = useMemo(() => {
-    if (!visibleEnv) return { sources: [], states: [], kinds: [], actions: [] };
+    if (!visibleEnv) return { sources: [], states: [], kinds: [], actions: [], reviews: [] };
     if (page === "activity") {
       // `actions` is an Activity-only facet (issue opened/closed, PR merged, …):
       // it is what the Repo Analytics drill-downs pin, so the feed must offer it
-      // as a visible chip. Other pages have no action dimension.
+      // as a visible chip. Other pages have no action dimension. `reviews` here
+      // is the single-value "unresolved only" toggle, shown only when the window
+      // actually has review rows to filter.
       return {
         sources: uniq(windowedActivities.map((a) => a.source_id)),
         states: [],
         kinds: uniq(windowedActivities.map((a) => a.kind)),
         actions: uniq(windowedActivities.map((a) => a.action)),
+        reviews: windowedActivities.some((a) => a.kind === "review") ? ["unresolved"] : [],
       };
     }
     if (page === "repo-analytics") {
@@ -349,14 +363,19 @@ export function App() {
         states: uniq(metrics.flatMap((m) => Object.keys(m.totals.by_item_state))),
         kinds: uniq(metrics.flatMap((m) => Object.keys(m.totals.by_item_kind))),
         actions: [],
+        reviews: [], // repo-analytics filters metrics, not items; no review lens
       };
     }
     const facetItems = page === "graph" ? visibleEnv.items : primaryItems;
+    // The review lens (board/graph): offer the chips only when some item carries
+    // review threads, so a board with no review data shows no empty toggle.
+    const hasReviewThreads = facetItems.some((i) => i.review_threads != null && i.review_threads.total > 0);
     return {
       sources: uniq(facetItems.map((i) => i.source_id)),
       states: uniq(facetItems.map((i) => i.state)),
       kinds: uniq(facetItems.map((i) => i.kind)),
       actions: [],
+      reviews: hasReviewThreads ? [...ITEM_REVIEW_VALUES] : [],
     };
   }, [visibleEnv, page, windowedActivities, primaryItems]);
 
@@ -389,10 +408,12 @@ export function App() {
   // URL-backed search term. The shared React `filters` (board/graph chips) is
   // deliberately not consulted, so a board kind filter no longer bleeds into the
   // feed.
-  const filteredActivities = useMemo(
-    () => routeActivities.filter((a) => activityMatches(a, { ...emptyFilters(), search: filters.search })),
-    [routeActivities, filters.search],
-  );
+  const filteredActivities = useMemo(() => {
+    const base = routeActivities.filter((a) => activityMatches(a, { ...emptyFilters(), search: filters.search }));
+    // "unresolved only" (?unresolved=1): keep just the review rows whose target
+    // PR/MR still has open threads. Resolves target_ref against the live items.
+    return route.unresolved === "1" ? base.filter((a) => reviewActivityIsUnresolved(a, itemsById)) : base;
+  }, [routeActivities, filters.search, route.unresolved, itemsById]);
 
   // The chip groups the shared Controls renders, built per page — every page now
   // drives its chips STRICTLY from the route. Activity uses its own
@@ -405,15 +426,21 @@ export function App() {
         { dim: "sources", label: "source", values: facets.sources, active: activityFacetState.sources, displayValue: sourceDisplayName },
         { dim: "kinds", label: "kind", values: facets.kinds, active: activityFacetState.kinds },
         { dim: "actions", label: "action", values: facets.actions, active: activityFacetState.actions },
+        // Boolean "unresolved only" switch (toggle mode shows the single value);
+        // dim "unresolved" is dispatched to its own route flag, not a facet.
+        { dim: "unresolved", label: "review", values: facets.reviews, active: route.unresolved === "1" ? UNRESOLVED_ON : EMPTY_SET, displayValue: reviewFacetLabel, mode: "toggle" },
         { dim: "repos", label: "repo", values: [...activityFacetState.repos], active: activityFacetState.repos, mode: "pinned" },
       ];
     }
+    // board / graph / repo-analytics share the item lens. The review facet is
+    // empty (hidden) on repo-analytics and on boards with no review data.
     return [
       { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
       { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
       { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds },
+      { dim: "reviews", label: "review", values: facets.reviews, active: itemFacetState.reviews, displayValue: reviewFacetLabel },
     ];
-  }, [page, facets, itemFacetState, activityFacetState]);
+  }, [page, facets, itemFacetState, activityFacetState, route.unresolved]);
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
   // in the URL. windowCommits is every commit in the
@@ -432,9 +459,8 @@ export function App() {
 
   const filteredEdges = useMemo(() => {
     if (!visibleEnv) return [];
-    const byId = indexItems(visibleEnv);
-    return resolveEdges(visibleEnv, byId).filter((re) => edgeMatches(re, itemFilters));
-  }, [visibleEnv, itemFilters]);
+    return resolveEdges(visibleEnv, itemsById).filter((re) => edgeMatches(re, itemFilters));
+  }, [visibleEnv, itemsById, itemFilters]);
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
@@ -456,7 +482,8 @@ export function App() {
     filters.search.trim() === "" &&
     itemFacetState.sources.size === 0 &&
     itemFacetState.states.size === 0 &&
-    itemFacetState.kinds.size === 0;
+    itemFacetState.kinds.size === 0 &&
+    itemFacetState.reviews.size === 0;
   const compatibleAggregates = canUseContractAggregates && !customRange ? (env?.aggregates ?? []) : [];
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
@@ -508,6 +535,29 @@ export function App() {
       isource: current.isource,
       istate: current.istate,
       ikind: current.ikind,
+      ireview: current.ireview,
+      unresolved: current.unresolved,
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  // Flip the Activity "unresolved only" toggle (?unresolved=1). Preserves every
+  // other Activity facet and the shared item lens, mirroring setActivityFacet.
+  function setUnresolvedReviews() {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    const next = buildHashRoute({
+      page: "activity",
+      ...activityFacetFields(activityFacets(current)),
+      isource: current.isource,
+      istate: current.istate,
+      ikind: current.ikind,
+      ireview: current.ireview,
+      unresolved: current.unresolved === "1" ? null : "1",
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -786,11 +836,11 @@ export function App() {
               search={filters.search}
               groups={controlGroups}
               onSearch={setRouteSearch}
-              onToggle={(dim, value) =>
-                page === "activity"
-                  ? setActivityFacet(dim as ActivityFacetDim, value)
-                  : setItemFacet(dim as ItemFacetDim, value)
-              }
+              onToggle={(dim, value) => {
+                if (dim === "unresolved") setUnresolvedReviews();
+                else if (page === "activity") setActivityFacet(dim as ActivityFacetDim, value);
+                else setItemFacet(dim as ItemFacetDim, value);
+              }}
               onLoadFile={loadFile}
             />
           )}
@@ -849,6 +899,7 @@ export function App() {
           timezone={tz}
           sourceKind={sourceKind}
           colorOf={colorOf}
+          itemsById={itemsById}
         />
       ) : page === "commits" ? (
         <CommitsPage

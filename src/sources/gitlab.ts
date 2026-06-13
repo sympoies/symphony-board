@@ -82,6 +82,7 @@ const MR_Q = `query($path:ID!, $cursor:String) {
       pageInfo { hasNextPage endCursor }
       nodes { ${COMMON} closedAt mergedAt draft
         approved approvalsRequired
+        resolvableDiscussionsCount resolvedDiscussionsCount
         headPipeline { status }
         detailedMergeStatus
       }
@@ -94,6 +95,7 @@ const MR_BY_IID_Q = `query($path:ID!, $iid:String!) {
     mergeRequest(iid:$iid) { ${COMMON} closedAt mergedAt draft
       approved approvalsRequired
       approvedBy { nodes { username } }
+      resolvableDiscussionsCount resolvedDiscussionsCount
       headPipeline { status }
       detailedMergeStatus
     }
@@ -380,6 +382,7 @@ export class GitLabSource implements Source {
     if (raw.entityKind === "change_request") {
       // No issue-link / closing field on the MR side; mentions come from notes.
       edges.push(...this.mentionEdges(p, self, selfState, new Set()));
+      const threads = reviewThreadCounts(p);
       const item: CanonicalItem = {
         ...this.commonItem(p, "change_request"),
         stateReason: null,
@@ -392,6 +395,8 @@ export class GitLabSource implements Source {
         // status falls through to "unknown"; both are noise beside the `merged`
         // lifecycle state. Drop it for non-open items, matching GitHub.
         mergeState: selfState === "open" ? mapMerge(p.detailedMergeStatus) : null,
+        openReviewThreads: threads.open,
+        totalReviewThreads: threads.total,
       };
       return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.approvalActivities(p, item)] };
     }
@@ -421,6 +426,8 @@ export class GitLabSource implements Source {
       reviewState: null,
       ciState: null,
       mergeState: null,
+      openReviewThreads: null,
+      totalReviewThreads: null,
     };
     return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
   }
@@ -706,7 +713,7 @@ export class GitLabSource implements Source {
     return out;
   }
 
-  private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState"> {
+  private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState" | "openReviewThreads" | "totalReviewThreads"> {
     const iidNum = Number(p.iid);
     const demand = (p.userNotesCount ?? 0) + (p.upvotes ?? 0);
     return {
@@ -834,6 +841,17 @@ function mapReview(p: any): ReviewState | null {
   if (p.approved === true) return "approved";
   if ((p.approvalsRequired ?? 0) > 0) return "review_required";
   return null;
+}
+
+// Open/total review threads from an MR payload. GitLab exposes exact scalar
+// aggregates (no node-walk): `total` is every resolvable discussion and `open`
+// is the unresolved remainder. Returns nulls when the field is absent so an old
+// replayed payload stays null rather than 0.
+function reviewThreadCounts(p: any): { open: number | null; total: number | null } {
+  const resolvable = p?.resolvableDiscussionsCount;
+  if (typeof resolvable !== "number") return { open: null, total: null };
+  const resolved = typeof p?.resolvedDiscussionsCount === "number" ? p.resolvedDiscussionsCount : 0;
+  return { open: Math.max(0, resolvable - resolved), total: resolvable };
 }
 
 // PipelineStatusEnum (gitlab.com): CREATED WAITING_FOR_RESOURCE PREPARING

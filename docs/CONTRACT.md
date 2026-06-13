@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.2.1`.
+Current emitted version: `3.3.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "3.2.1",
+  "contract_version": "3.3.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -59,6 +59,7 @@ package version, to decide compatibility.
       "review_state": null,
       "ci_state": null,
       "merge_state": null,
+      "review_threads": null,
       "milestone": null,
       "demand": 3,
       "last_seen_at": "2026-06-08T00:00:00.000Z",
@@ -252,6 +253,10 @@ Important fields:
 - `state_raw`: provider state string for debugging/escape hatch.
 - `labels`: verbatim provider labels plus parsed `scope` for `scope::value`.
 - `review_state`, `ci_state`, `merge_state`: nullable provider-derived signals.
+- `review_threads`: for a `change_request`, `{ open, total }` resolvable review
+  threads (3.3.0+); `null` for issues and when a provider did not report it. A
+  point-in-time snapshot as of the item's last sync — like `ci_state`, NOT the
+  state at any one review event. See the review derivation note below.
 - `demand`: comments plus reactions/upvotes.
 - `last_seen_at`: latest successful observation in the canonical store.
 - `window_reasons`: v2 inclusion reasons. `primary` means the item belongs to
@@ -329,6 +334,11 @@ and `details.branch` / `details.ref` are documented as the commit's primary
 branch rather than always the default branch. `details` was already an open
 object and the keys were already optional, so the row shape is unchanged.
 
+Version `3.3.0` is additive: a new optional `item.review_threads`
+(`{ open, total }` resolvable review threads for a `change_request`, else null)
+and an optional `unresolved_review_threads` repo metric. Both are new fields old
+consumers can ignore — no existing field changed — so the major stays `3`.
+
 There is no separate `target_url` field. Consumers should use `activities[].url`
 as the row's provider destination and treat `null` as intentionally unlinked.
 GitHub and GitLab comments currently stay unlinked because their stable
@@ -355,6 +365,22 @@ Review activity (`kind: "review"`) is derived per provider and feeds the
   than a vacuous approval. (The `approved` boolean still drives the per-item
   `review_state` / `by_review_state`, which is a current-state signal, not an
   event count.)
+
+Review threads (`item.review_threads`, `change_request` only) are the
+"is this review resolved?" signal — a per-item, point-in-time count refreshed
+each sync, distinct from the per-event `review` activity above:
+
+- GitHub: `PullRequest.reviewThreads.isResolved`. `total` is the connection's
+  `totalCount`; `open` counts unresolved threads in the fetched page (`first:50`,
+  which covers every real PR — `open` is a lower bound only for the unseen
+  >50-thread case).
+- GitLab: `MergeRequest.resolvableDiscussionsCount` (=`total`) minus
+  `resolvedDiscussionsCount` (=`open`), exact scalar aggregates with no
+  node-walk. GitLab's `review` activity is approval-based, so this is the only
+  thread-resolution signal on the GitLab side.
+
+The window-scoped `unresolved_review_threads` repo metric sums `review_threads.open`
+across active change_requests (see Repo Metrics).
 
 ## Aggregates
 
