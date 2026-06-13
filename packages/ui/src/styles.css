@@ -368,10 +368,15 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  /* grow to share spare width equally, but never below a readable card width;
-     mirrors the old grid track minmax(300px, 1fr). */
+  /* grow to share spare width equally, but stay within a readable card band:
+     never below 260px (shrinks here on small screens / when many columns are
+     open), never above 380px (caps here on wide screens — without the ceiling a
+     handful of open lanes would each stretch to 500px+ and the cards read as
+     awkwardly long). The board left-aligns, so any spare width past the cap
+     becomes trailing space (GitHub-Projects style). */
   flex: 1 1 300px;
   min-width: 260px;
+  max-width: 380px;
   /* fixed height so every column reads the same length regardless of how many
      cards it holds — a sparse lane would otherwise collapse to a short stub
      while a full one stood tall. .col-cards scrolls internally past this, and
@@ -576,10 +581,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
    width tracks ONE board column at any resolution so the detailed cards stay as
    roomy as the board: the board is 7 flex columns with a 300px basis inside
    .app-wide's 40px padding (20px each side) with 6 × 12px gaps, i.e. a column is
-   max(300px, (100vw - 112px) / 7). On wide screens the board columns stretch past
-   300px, so the list grows with them instead of staying a fixed 300px. */
+   clamp(300px, (100vw - 112px) / 7, 380px). On wide screens the board columns
+   stretch past 300px (up to the 380px cap), so the list grows with them instead
+   of staying a fixed 300px. */
 .graph-list {
-  flex: 0 0 auto; width: max(300px, calc((100vw - 112px) / 7));
+  flex: 0 0 auto; width: clamp(300px, calc((100vw - 112px) / 7), 380px);
   height: 74vh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
