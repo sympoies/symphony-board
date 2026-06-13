@@ -29,10 +29,12 @@ import {
   relationCounts,
   routeTimeRange,
   sameTimeRange,
+  sourceDisplayName,
   type TimeRangePresetId,
   type TimeRange,
   type Filters,
 } from "./model.ts";
+import { activityFacets, toggleActivityFacet, activityFacetFields, tabHref, type ActivityFacetDim, type Page } from "./nav.ts";
 import {
   loadHidden,
   saveHidden,
@@ -52,7 +54,7 @@ import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
 import { isRefreshShortcut, isDebugShortcut } from "./shortcuts.ts";
 import { Header } from "./components/Header.tsx";
-import { Controls } from "./components/Controls.tsx";
+import { Controls, type ControlGroup } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
@@ -301,12 +303,16 @@ export function App() {
   );
 
   const facets = useMemo(() => {
-    if (!visibleEnv) return { sources: [], states: [], kinds: [] };
+    if (!visibleEnv) return { sources: [], states: [], kinds: [], actions: [] };
     if (page === "activity") {
+      // `actions` is an Activity-only facet (issue opened/closed, PR merged, …):
+      // it is what the Repo Analytics drill-downs pin, so the feed must offer it
+      // as a visible chip. Other pages have no action dimension.
       return {
         sources: uniq(windowedActivities.map((a) => a.source_id)),
         states: [],
         kinds: uniq(windowedActivities.map((a) => a.kind)),
+        actions: uniq(windowedActivities.map((a) => a.action)),
       };
     }
     if (page === "repo-analytics") {
@@ -315,6 +321,7 @@ export function App() {
         sources: uniq(metrics.map((m) => m.source_id)),
         states: uniq(metrics.flatMap((m) => Object.keys(m.totals.by_item_state))),
         kinds: uniq(metrics.flatMap((m) => Object.keys(m.totals.by_item_kind))),
+        actions: [],
       };
     }
     const facetItems = page === "graph" ? visibleEnv.items : primaryItems;
@@ -322,6 +329,7 @@ export function App() {
       sources: uniq(facetItems.map((i) => i.source_id)),
       states: uniq(facetItems.map((i) => i.state)),
       kinds: uniq(facetItems.map((i) => i.kind)),
+      actions: [],
     };
   }, [visibleEnv, page, windowedActivities, primaryItems]);
 
@@ -337,15 +345,48 @@ export function App() {
     [primaryItems, filters],
   );
 
+  // The Activity feed's facets (source/repo/kind/action) are route-backed — the
+  // single source of truth shared by the content filter AND the visible chips,
+  // so a drill-down link always lands with its filters lit up and clearable.
+  const activityFacetState = useMemo(
+    () => activityFacets(route),
+    [route.source, route.repo, route.kind, route.action],
+  );
+
   const routeActivities = useMemo(
     () => windowedActivities.filter((a) => activityRouteMatches(a, route)),
     [windowedActivities, route.source, route.repo, route.kind, route.action],
   );
 
+  // routeActivities already applied the route facets; here we layer ONLY the
+  // URL-backed search term. The shared React `filters` (board/graph chips) is
+  // deliberately not consulted, so a board kind filter no longer bleeds into the
+  // feed.
   const filteredActivities = useMemo(
-    () => routeActivities.filter((a) => activityMatches(a, filters)),
-    [routeActivities, filters],
+    () => routeActivities.filter((a) => activityMatches(a, { ...emptyFilters(), search: filters.search })),
+    [routeActivities, filters.search],
   );
+
+  // The chip groups the shared Controls renders, built per page. Activity drives
+  // them from the route (active = route facets, toggle rewrites the URL); board
+  // and graph drive them from the React `filters` state. The repo group is a
+  // "pinned" mode: it shows only the active repo pin from a drill-down (listing
+  // every repo would be a wall) but keeps it visible and removable.
+  const controlGroups = useMemo<ControlGroup[]>(() => {
+    if (page === "activity") {
+      return [
+        { dim: "sources", label: "source", values: facets.sources, active: activityFacetState.sources, displayValue: sourceDisplayName },
+        { dim: "kinds", label: "kind", values: facets.kinds, active: activityFacetState.kinds },
+        { dim: "actions", label: "action", values: facets.actions, active: activityFacetState.actions },
+        { dim: "repos", label: "repo", values: [...activityFacetState.repos], active: activityFacetState.repos, mode: "pinned" },
+      ];
+    }
+    return [
+      { dim: "sources", label: "source", values: facets.sources, active: filters.sources, displayValue: sourceDisplayName },
+      { dim: "states", label: "state", values: facets.states, active: filters.states },
+      { dim: "kinds", label: "kind", values: facets.kinds, active: filters.kinds },
+    ];
+  }, [page, facets, filters.sources, filters.states, filters.kinds, activityFacetState]);
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
   // in the URL. windowCommits is every commit in the
@@ -415,6 +456,24 @@ export function App() {
     });
   }
 
+  // Toggle one Activity facet value in the URL. Reads the live hash, flips the
+  // value via nav.ts, and re-encodes — keeping the route the single source of
+  // truth, so the chip state, the feed, and a shared link can never disagree.
+  function setActivityFacet(dim: ActivityFacetDim, value: string) {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    const nextFacets = toggleActivityFacet(activityFacets(current), dim, value);
+    const next = buildHashRoute({
+      page: "activity",
+      ...activityFacetFields(nextFacets),
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
   function toggleRepo(key: string) {
     setHidden((h) => {
       const next = new Set(h);
@@ -468,13 +527,13 @@ export function App() {
       .catch((err: unknown) => setError((err as Error).message));
   }
 
-  function routeHref(nextPage: "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings"): string {
-    return buildHashRoute({
-      page: nextPage,
+  // Tab links go through nav.tabHref, the one place that decides what carries
+  // across a tab hop (search + time range travel; page-local drill-down state
+  // does not).
+  function routeHref(nextPage: Page): string {
+    return tabHref(nextPage, {
       q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
+      range: { from: explicitRange?.from, to: explicitRange?.to, preset: explicitRange ? route.preset : null },
     });
   }
 
@@ -665,10 +724,14 @@ export function App() {
         <>
           {page !== "commits" && (
             <Controls
-              filters={filters}
-              facets={facets}
+              search={filters.search}
+              groups={controlGroups}
               onSearch={setRouteSearch}
-              onToggle={toggle}
+              onToggle={(dim, value) =>
+                page === "activity"
+                  ? setActivityFacet(dim as ActivityFacetDim, value)
+                  : toggle(dim as "sources" | "states" | "kinds", value)
+              }
               onLoadFile={loadFile}
             />
           )}
@@ -721,7 +784,7 @@ export function App() {
         <ActivityPage
           activities={filteredActivities}
           allActivities={env.activities ?? activeEnv.activities ?? []}
-          windowTotal={routeActivities.length}
+          windowTotal={windowedActivities.length}
           totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
           range={activeRange}
           timezone={tz}

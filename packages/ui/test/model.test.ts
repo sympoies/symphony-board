@@ -252,6 +252,27 @@ test("activityRouteMatches applies source-aware repo, kind, and action filters",
   assert.equal(activityRouteMatches(row, { ...route, action: "opened,closed" }), false);
 });
 
+test("activityRouteMatches accepts comma-list source/repo/kind/action (multi-select chips)", () => {
+  const gl = activity({ source_id: "gitlab:gitlab.com", project_path: "group/project", kind: "change_request", action: "merged" });
+  const gh = activity({ source_id: "github:github.com", project_path: "owner/repo", kind: "issue", action: "opened" });
+  // A comma list is OR within a dimension — the same parse a multi-select chip
+  // set produces, so chips and the content filter never disagree.
+  const route = {
+    source: "github:github.com,gitlab:gitlab.com",
+    repo: "owner/repo,group/project",
+    kind: "issue,change_request",
+    action: "opened,merged",
+  };
+  assert.equal(activityRouteMatches(gl, route), true, "second value in each list matches");
+  assert.equal(activityRouteMatches(gh, route), true, "first value in each list matches");
+  assert.equal(activityRouteMatches(gl, { ...route, repo: "owner/repo" }), false, "repo dropped from the set excludes the row");
+  assert.equal(
+    activityRouteMatches(activity({ project_path: null }), { source: null, repo: "owner/repo", kind: null, action: null }),
+    false,
+    "a null project_path never matches a repo filter",
+  );
+});
+
 test("filterCommits keeps only commit records, optionally pinned to one repo", () => {
   const commitA = activity({
     id: "github:github.com|c1",

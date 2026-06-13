@@ -3,7 +3,8 @@ import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
-import { relativeTime, graphFocusHref, type RelationCount } from "../model.ts";
+import { relativeTime, type RelationCount } from "../model.ts";
+import { graphFocusHref } from "../nav.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
 
