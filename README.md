@@ -55,7 +55,8 @@ The basic product path is implemented:
   standalone app (which onboards entirely in-app), off in the Docker stack
   (file-based config stays the interface there). See
   [docs/DESIGN.md](docs/DESIGN.md).
-- CI runs backend checks, UI build/tests/render-smoke, and a combined
+- CI runs backend checks, UI build/tests/render-smoke, the Postgres driver e2e
+  and Postgres compose-deployment gates, a shellcheck pass, and a combined
   logic-tier coverage gate.
 
 Historical validation details and PR links live in [docs/devlog](docs/devlog).
@@ -398,12 +399,17 @@ browser repo override -> repos[] color -> sources[].color -> no highlight
 
 ## Testing Model
 
-CI has three separate checks:
+CI runs these jobs:
 
 - backend/root: `pnpm run typecheck` and `pnpm test`
 - UI: `pnpm --filter @symphony-board/ui run build`, UI tests, and render-smoke
+- Postgres driver e2e: `pnpm run test:pg-e2e` (store-conformance + live e2e
+  against a composed-up Postgres)
+- Postgres compose deployment: `pnpm run test:pg-compose` (the independent pg
+  stack, asserting the served contract and `driver: "postgres"`)
+- shell: `shellcheck` over `scripts/**/*.sh`
 - coverage: `pnpm coverage`, a combined line-coverage floor over backend `.ts`
-  and UI `.ts` logic
+  and UI `.ts` logic, plus a coverage-badge publish job
 
 The React `.tsx` component layer is not folded into the coverage percentage.
 Bundled browser coverage reports misleading near-100% loaded code, so the UI

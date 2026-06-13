@@ -645,8 +645,8 @@ questions without log access.
   method is async so a future driver (Postgres) drops in without changing the
   interface; `test/store-conformance.test.ts` — run against every registered
   driver — is the swap guarantee. Hand-rolled by design: the query surface is
-  ~16 statements and postgres.js has zero transitive dependencies, so an ORM or
-  query builder would abstract the wrong layer. Activity ordering is by instant
+  around two dozen statements and postgres.js has zero transitive dependencies,
+  so an ORM or query builder would abstract the wrong layer. Activity ordering is by instant
   (occurred_at keeps provider-local UTC offsets), which each driver implements
   in its own SQL (SQLite: `julianday`).
 - **Writer lease on the Store (#164)**: "exactly one sync writer per store" is
