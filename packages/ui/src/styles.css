@@ -21,6 +21,11 @@
   --link: #7fdbca;
   --iid: #ecc48d;        /* sandy tan (Night Owl string hue) — issue/PR number (#123), the item identity highlight */
 
+  /* chip chrome — translucent fill + hairline border, shared by the commit-row
+     SHA and branch chips so they read as one chip family */
+  --chip-bg: rgba(139, 164, 164, 0.08);
+  --chip-border: rgba(139, 164, 164, 0.24);
+
   /* semantic hues */
   --open: #addb67;       /* green  — open / success                       */
   --fulfilled: #addb67;  /* green  — landed                               */
@@ -1199,10 +1204,10 @@ a.rf-node-title:hover { color: var(--accent); }
 .commit-ref-chip {
   flex: none;
   max-width: 150px;
-  border: 1px solid rgba(139, 164, 164, 0.24);
+  border: 1px solid var(--chip-border);
   border-radius: 999px;
   padding: 1px 7px;
-  background: rgba(139, 164, 164, 0.08);
+  background: var(--chip-bg);
 }
 .commit-row-actions {
   flex: none;
@@ -1212,6 +1217,10 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: var(--chip-bg);
 }
 .commit-icon-button {
   position: relative;
