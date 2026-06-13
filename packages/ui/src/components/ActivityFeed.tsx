@@ -149,6 +149,7 @@ export function ActivityFeed({
                 </div>
                 <div className="activity-meta">
                   <SourceIcon kind={sourceKind.get(a.source_id)} />
+                  {display.repo ? <span className="card-repo">{display.repo}</span> : null}
                   {display.meta.map((part) => (
                     <span key={part}>{part}</span>
                   ))}
