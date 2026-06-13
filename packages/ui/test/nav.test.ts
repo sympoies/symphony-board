@@ -13,8 +13,10 @@ import {
   itemFacetField,
   itemFacetFields,
   toggleItemFacet,
+  ITEM_REVIEW_VALUES,
   activityDrilldownHref,
   commitsDrilldownHref,
+  boardReviewsHref,
   tabHref,
   graphFocusHref,
 } from "../src/nav.ts";
@@ -129,32 +131,51 @@ test("tabHref carries search, range, and the shared item lens but drops drill-do
 // The board / graph / repo-analytics shared lens. Distinct route fields from the
 // Activity facets so the two never collide when both ride a URL across a tab hop.
 test("itemFacetField maps every dim to a distinct route field; ITEM_FACET_DIMS is the full set", () => {
-  assert.deepEqual(ITEM_FACET_DIMS, ["sources", "states", "kinds"]);
+  assert.deepEqual(ITEM_FACET_DIMS, ["sources", "states", "kinds", "reviews"]);
   assert.equal(itemFacetField("sources"), "isource");
   assert.equal(itemFacetField("states"), "istate");
   assert.equal(itemFacetField("kinds"), "ikind");
+  assert.equal(itemFacetField("reviews"), "ireview");
 });
 
 test("item facets parse, toggle, and round-trip through the hash without colliding with Activity facets", () => {
-  const empty = itemFacets({ isource: null, istate: null, ikind: null });
-  assert.equal(empty.sources.size + empty.states.size + empty.kinds.size, 0);
+  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null });
+  assert.equal(empty.sources.size + empty.states.size + empty.kinds.size + empty.reviews.size, 0);
 
   const withKind = toggleItemFacet(empty, "kinds", "issue");
   assert.deepEqual([...withKind.kinds], ["issue"]);
   assert.equal(itemFacetFields(withKind).ikind, "issue");
   assert.equal(itemFacetFields(toggleItemFacet(withKind, "kinds", "issue")).ikind, null, "re-toggle clears the field");
 
-  const facets = itemFacets({ isource: "github:github.com,gitlab:gitlab.com", istate: "open", ikind: "issue,change_request" });
+  const facets = itemFacets({ isource: "github:github.com,gitlab:gitlab.com", istate: "open", ikind: "issue,change_request", ireview: "unresolved" });
   const hash = buildHashRoute({ page: "board", ...itemFacetFields(facets) });
   const route = parseHashRoute(hash);
   const parsed = itemFacets(route);
   assert.deepEqual([...parsed.sources].sort(), ["github:github.com", "gitlab:gitlab.com"]);
   assert.deepEqual([...parsed.states], ["open"]);
   assert.deepEqual([...parsed.kinds].sort(), ["change_request", "issue"]);
-  // the item lens uses isource/istate/ikind, leaving the Activity fields free
+  assert.deepEqual([...parsed.reviews], ["unresolved"], "the review lens round-trips through ?ireview=");
+  // the item lens uses isource/istate/ikind/ireview, leaving the Activity fields free
   assert.equal(route.source, null);
   assert.equal(route.kind, null);
   assert.deepEqual([...activityFacets(route).sources], [], "Activity facets are untouched by the item lens");
+});
+
+test("review lens: toggleItemFacet round-trips ireview; boardReviewsHref pins source + review + repo search", () => {
+  assert.deepEqual([...ITEM_REVIEW_VALUES], ["threads", "unresolved"]);
+  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null });
+  const withReview = toggleItemFacet(empty, "reviews", "unresolved");
+  assert.deepEqual([...withReview.reviews], ["unresolved"]);
+  assert.equal(itemFacetFields(withReview).ireview, "unresolved");
+  assert.equal(itemFacetFields(toggleItemFacet(withReview, "reviews", "unresolved")).ireview, null, "re-toggle clears it");
+
+  const href = boardReviewsHref({ source: "github:github.com", repo: "sympoies/symphony-board", range: { from: null, to: null, preset: null }, value: "unresolved" });
+  const route = parseHashRoute(href!);
+  assert.equal(route.page, "board");
+  assert.equal(route.isource, "github:github.com");
+  assert.equal(route.ireview, "unresolved");
+  assert.equal(route.q, "sympoies/symphony-board", "repo path seeds the board search (no repo facet on the board)");
+  assert.equal(boardReviewsHref({ source: "s", repo: null, range: { from: null, to: null, preset: null }, value: "unresolved" }), null, "null repo -> no link");
 });
 
 test("graphFocusHref is re-exported from nav and builds a graph focus link", () => {

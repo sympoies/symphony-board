@@ -40,6 +40,8 @@ function itemRow(over: Partial<ItemRow> = {}): ItemRow {
     review_state: null,
     ci_state: null,
     merge_state: null,
+    open_review_threads: null,
+    total_review_threads: null,
     milestone: null,
     demand: 3,
     last_seen_at: "2026-06-01T00:00:00Z",

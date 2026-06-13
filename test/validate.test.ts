@@ -18,6 +18,7 @@ function validEnvelope() {
       title: "An issue", state: "open", state_raw: "OPEN", state_reason: null, is_draft: null,
       author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: null, merged_at: null, review_state: null, ci_state: null, merge_state: null,
+      open_review_threads: null, total_review_threads: null,
       milestone: null, demand: 3, last_seen_at: "2026-06-01T00:00:00Z",
     },
     {
@@ -26,7 +27,8 @@ function validEnvelope() {
       title: "A PR", state: "merged", state_raw: "MERGED", state_reason: null, is_draft: false,
       author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: "2026-01-03T00:00:00Z", merged_at: "2026-01-03T00:00:00Z", review_state: "approved",
-      ci_state: "passing", merge_state: "mergeable", milestone: null, demand: 1, last_seen_at: "2026-06-01T00:00:00Z",
+      ci_state: "passing", merge_state: "mergeable", open_review_threads: 1, total_review_threads: 2,
+      milestone: null, demand: 1, last_seen_at: "2026-06-01T00:00:00Z",
     },
   ];
   const labels: LabelRow[] = [{ item_id: 1, name: "priority::high", scope: "priority", color: "red" }];
@@ -92,7 +94,26 @@ test("null is accepted where the type union and enum allow it", () => {
   const env: any = validEnvelope();
   env.sources[0].last_status = null; // enum includes null
   env.items[0].review_state = null; // enum includes null
+  env.items[1].review_threads = null; // object-or-null: null is allowed
   assert.deepEqual(validateContract(env), []);
+});
+
+test("a malformed review_threads object is rejected (count map is validated, not skipped)", () => {
+  const env: any = validEnvelope();
+  // PR_xyz carries review_threads {open:1,total:2}; break it: negative open,
+  // missing total, extra prop. The object-or-null shape must catch all three.
+  env.items[1].review_threads = { open: -1, surprise: true };
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => /\/review_threads\/open$/.test(e.path) && /minimum 0/.test(e.message)), JSON.stringify(errors));
+  assert.ok(errors.some((e) => /\/review_threads\/total$/.test(e.path) && /required/.test(e.message)), JSON.stringify(errors));
+  assert.ok(errors.some((e) => /\/review_threads\/surprise$/.test(e.path) && /additional property/.test(e.message)), JSON.stringify(errors));
+});
+
+test("a non-object, non-null review_threads is rejected", () => {
+  const env: any = validEnvelope();
+  env.items[1].review_threads = "lots";
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => /\/review_threads$/.test(e.path) && /expected type/.test(e.message)), JSON.stringify(errors));
 });
 
 test("an envelope carrying source + repo colors validates clean", () => {

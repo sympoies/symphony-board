@@ -72,6 +72,11 @@ export interface CanonicalItem {
   reviewState: ReviewState | null;
   ciState: CiState | null;
   mergeState: MergeState | null;
+  // Open/total review threads for a change_request; null for issues and when a
+  // provider did not report them. Flat here (one column each); the contract
+  // folds them into ReviewThreadsDTO. A point-in-time snapshot, like ciState.
+  openReviewThreads: number | null;
+  totalReviewThreads: number | null;
   milestone: string | null;
   demand: number | null;
 }

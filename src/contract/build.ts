@@ -69,6 +69,13 @@ function toItemDTO(row: ItemRow, labels: LabelRow[], windowReasons?: ItemWindowR
     review_state: orNull<ReviewState>(row.review_state),
     ci_state: orNull<CiState>(row.ci_state),
     merge_state: orNull<MergeState>(row.merge_state),
+    // Fold the two flat columns into the contract's nested shape. `total` is the
+    // null-guard: a row with no thread data (every issue, any unreported PR/MR)
+    // emits null, distinct from a change_request with zero threads ({0, 0}).
+    review_threads:
+      row.total_review_threads == null
+        ? null
+        : { open: row.open_review_threads ?? 0, total: row.total_review_threads },
     milestone: row.milestone,
     demand: row.demand,
     last_seen_at: row.last_seen_at,
@@ -294,6 +301,7 @@ function emptyRepoMetricStats(): RepoMetricStatsDTO {
     comments: 0,
     reviews: 0,
     approvals: 0,
+    unresolved_review_threads: 0,
     edge_declared: 0,
     edge_fulfilled: 0,
     edge_broken: 0,
@@ -668,6 +676,7 @@ function computeRepoMetricStats(
       if (item.review_state) inc(stats.by_review_state, item.review_state);
       if (item.ci_state) inc(stats.by_ci_state, item.ci_state);
       if (item.merge_state) inc(stats.by_merge_state, item.merge_state);
+      if (item.review_threads) stats.unresolved_review_threads = (stats.unresolved_review_threads ?? 0) + item.review_threads.open;
       for (const label of item.labels) inc(stats.by_label_scope, label.scope ?? "unscoped");
     }
 

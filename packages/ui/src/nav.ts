@@ -109,24 +109,30 @@ export function toggleActivityFacet(facets: ActivityFacets, dim: ActivityFacetDi
 // reload and share links agree). Kept in distinct route fields
 // (isource/istate/ikind) so it never collides with the Activity drill-down
 // facets when both are present in a URL.
-export type ItemFacetDim = "sources" | "states" | "kinds";
+export type ItemFacetDim = "sources" | "states" | "kinds" | "reviews";
+type ItemRouteField = "isource" | "istate" | "ikind" | "ireview";
 
 export interface ItemFacets {
   sources: ReadonlySet<string>;
   states: ReadonlySet<string>;
   kinds: ReadonlySet<string>;
+  reviews: ReadonlySet<string>;
 }
 
-const ITEM_DIM_FIELD: Record<ItemFacetDim, "isource" | "istate" | "ikind"> = {
+const ITEM_DIM_FIELD: Record<ItemFacetDim, ItemRouteField> = {
   sources: "isource",
   states: "istate",
   kinds: "ikind",
+  reviews: "ireview",
 };
 
-export const ITEM_FACET_DIMS: ItemFacetDim[] = ["sources", "states", "kinds"];
+export const ITEM_FACET_DIMS: ItemFacetDim[] = ["sources", "states", "kinds", "reviews"];
+
+// The closed vocabulary of the review-thread lens (fixed, not data-derived).
+export const ITEM_REVIEW_VALUES = ["threads", "unresolved"] as const;
 
 // The route fields the board/graph/repo-analytics lens reads and writes.
-type ItemRouteFields = Pick<HashRoute, "isource" | "istate" | "ikind">;
+type ItemRouteFields = Pick<HashRoute, "isource" | "istate" | "ikind" | "ireview">;
 
 // Route -> the active item-facet set the pages filter by AND the chips show as on.
 export function itemFacets(route: ItemRouteFields): ItemFacets {
@@ -134,15 +140,17 @@ export function itemFacets(route: ItemRouteFields): ItemFacets {
     sources: routeList(route.isource),
     states: routeList(route.istate),
     kinds: routeList(route.ikind),
+    reviews: routeList(route.ireview),
   };
 }
 
-// Active item facets -> the three route fields, for re-encoding into a hash.
+// Active item facets -> the route fields, for re-encoding into a hash.
 export function itemFacetFields(facets: ItemFacets): ItemRouteFields {
   return {
     isource: listField(facets.sources),
     istate: listField(facets.states),
     ikind: listField(facets.kinds),
+    ireview: listField(facets.reviews),
   };
 }
 
@@ -151,6 +159,7 @@ export function toggleItemFacet(facets: ItemFacets, dim: ItemFacetDim, value: st
     sources: new Set(facets.sources),
     states: new Set(facets.states),
     kinds: new Set(facets.kinds),
+    reviews: new Set(facets.reviews),
   };
   if (next[dim].has(value)) next[dim].delete(value);
   else next[dim].add(value);
@@ -158,7 +167,7 @@ export function toggleItemFacet(facets: ItemFacets, dim: ItemFacetDim, value: st
 }
 
 // Internal: exported only so a test can assert the dim<->field mapping.
-export const itemFacetField = (dim: ItemFacetDim): "isource" | "istate" | "ikind" => ITEM_DIM_FIELD[dim];
+export const itemFacetField = (dim: ItemFacetDim): ItemRouteField => ITEM_DIM_FIELD[dim];
 
 // --- navigation intents ----------------------------------------------------
 
@@ -176,6 +185,7 @@ export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute
     isource: ctx.item?.isource ?? null,
     istate: ctx.item?.istate ?? null,
     ikind: ctx.item?.ikind ?? null,
+    ireview: ctx.item?.ireview ?? null,
     from: ctx.range?.from ?? null,
     to: ctx.range?.to ?? null,
     preset: ctx.range?.preset ?? null,
@@ -198,6 +208,23 @@ export function activityDrilldownHref(opts: {
     repo: opts.repo,
     kind: opts.kind ?? null,
     action: opts.action ?? null,
+    from: opts.range.from ?? null,
+    to: opts.range.to ?? null,
+    preset: opts.range.preset ?? null,
+  });
+}
+
+// Repo Analytics -> Board drill-down for the review-thread lens. Pins the source
+// facet and the review facet ("unresolved" / "threads"), and seeds the search
+// with the repo path (the Board has no repo facet; project_path is in the search
+// hay) so the landing board shows just that repo's matching items.
+export function boardReviewsHref(opts: { source: string; repo: string | null; range: RangeRoute; value: "threads" | "unresolved" }): string | null {
+  if (!opts.repo) return null;
+  return buildHashRoute({
+    page: "board",
+    isource: opts.source,
+    ireview: opts.value,
+    q: opts.repo,
     from: opts.range.from ?? null,
     to: opts.range.to ?? null,
     preset: opts.range.preset ?? null,

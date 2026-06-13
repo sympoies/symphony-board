@@ -831,12 +831,19 @@ try {
   const repoCountText = await textOf(".repo-analytics-head .count");
   const repoQualityBadgeLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const badges = Array.from(document.querySelectorAll('.repo-table td:nth-child(11) .badge'));
+      const badges = Array.from(document.querySelectorAll('.repo-table td:nth-child(12) .badge'));
       const widths = badges.map((el) => Math.round(el.getBoundingClientRect().width));
+      // Tolerance, not pixel-identity: the quality verdicts (active / partial /
+      // idle / no data) are different proportional-font strings, so their compact
+      // badges differ by a few px. The real guard is "no badge sprawls to the
+      // column width", anchored by the maxWidth <= 56 check below; this only
+      // rejects a gross outlier (~8px covers the verdict-text spread; sprawl 30px+).
+      const min = widths.length ? Math.min(...widths) : 0;
+      const max = widths.length ? Math.max(...widths) : 0;
       return {
         count: badges.length,
-        maxWidth: widths.length ? Math.max(...widths) : 0,
-        sameWidth: widths.every((width) => Math.abs(width - widths[0]) <= 1),
+        maxWidth: max,
+        sameWidth: max - min <= 8,
         texts: badges.map((el) => el.textContent?.trim() || ''),
       };
     })()`,
@@ -860,11 +867,11 @@ try {
       const wrap = document.querySelector('.repo-table-wrap');
       const headers = Array.from(document.querySelectorAll('.repo-table thead th'));
       const widthOf = (idx) => Math.round(headers[idx]?.getBoundingClientRect().width || 0);
-      const numericWidths = headers.slice(2, 10).map((el) => Math.round(el.getBoundingClientRect().width));
+      const numericWidths = headers.slice(2, 11).map((el) => Math.round(el.getBoundingClientRect().width));
       const tableWidth = Math.round(table?.getBoundingClientRect().width || 0);
       const wrapWidth = Math.round(wrap?.getBoundingClientRect().width || 0);
       const repoWidth = widthOf(0);
-      const actorsWidth = widthOf(11);
+      const actorsWidth = widthOf(12);
       return {
         tableWidth,
         wrapWidth,
@@ -1055,6 +1062,24 @@ try {
     expression: `(() => { const g = ${itemKindGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null }; })()`,
     returnByValue: true,
   })).result.value || {};
+  // The review-thread lens is a route-backed item facet too: clicking the
+  // "unresolved" chip must write ?ireview=unresolved AND light the chip. This
+  // guards the chip<->route<->filter wiring (a missing useMemo dep on the route
+  // field silently breaks the toggle — chip never lights, data never filters).
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+  await sleep(350);
+  await waitHtml("document.querySelector('.board-7 .card') && document.querySelector('.controls .toggle-group')");
+  const reviewGroupExpr = `Array.from(document.querySelectorAll('.controls .toggle-group')).find((g) => g.querySelector('.toggle-label')?.textContent === 'review')`;
+  const boardReviewInitial = (await send("Runtime.evaluate", {
+    expression: `(() => { const g = ${reviewGroupExpr}; const chips = Array.from(g?.querySelectorAll('.toggle') || []).map((c) => c.textContent?.trim()); return { hasGroup: !!g, chips, anyOn: !!g?.querySelector('.toggle.toggle-on'), hashHasIreview: location.hash.includes('ireview=') }; })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: `(() => { Array.from(${reviewGroupExpr}?.querySelectorAll('.toggle') || []).find((c) => c.textContent?.trim() === 'unresolved')?.click(); })()` });
+  await sleep(300);
+  const boardReviewOn = (await send("Runtime.evaluate", {
+    expression: `(() => { const g = ${reviewGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null }; })()`,
+    returnByValue: true,
+  })).result.value || {};
   ws.close();
 
   // --- assertions ---
@@ -1117,6 +1142,8 @@ try {
     [boardFacetInitial.anyOn === false && boardFacetInitial.hashHasIkind === false, "board: no kind chip is active before selection"],
     [boardFacetOn.chipOn === true && boardFacetOn.chipText === boardFacetInitial.value && boardFacetOn.onCount === 1 && /[?&]ikind=/.test(boardFacetOn.hash || ""), `board: a kind chip lights up and writes ikind to the route (${boardFacetOn.hash})`],
     [graphFacetCarry.hash.startsWith("#/graph") && /[?&]ikind=/.test(graphFacetCarry.hash || "") && graphFacetCarry.chipOn === true && graphFacetCarry.chipText === boardFacetInitial.value, `board: the shared item lens carries across the tab hop to graph (${graphFacetCarry.hash})`],
+    [boardReviewInitial.hasGroup === true && (boardReviewInitial.chips || []).includes("unresolved") && (boardReviewInitial.chips || []).includes("has threads") && boardReviewInitial.anyOn === false && boardReviewInitial.hashHasIreview === false, `board: review-thread lens renders its chips, none active on a fresh board (${(boardReviewInitial.chips || []).join(", ")})`],
+    [boardReviewOn.chipOn === true && boardReviewOn.chipText === "unresolved" && /[?&]ireview=unresolved/.test(boardReviewOn.hash || ""), `board: the 'unresolved' review chip lights up and writes ireview to the route (${boardReviewOn.hash})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],

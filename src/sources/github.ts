@@ -46,6 +46,13 @@ const REF_NODE = `id number url state repository { nameWithOwner }`;
 // #93). `state` is PENDING|COMMENTED|APPROVED|CHANGES_REQUESTED|DISMISSED;
 // PENDING reviews have a null `submittedAt` and are skipped in normalize.
 const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedAt url } }`;
+// Review threads with their resolution state — the "is this review resolved?"
+// signal (a PR-level, point-in-time count, NOT per review event). GitHub has no
+// unresolved-count aggregate, so `open` is counted from the nodes. `first:100`
+// covers every real PR; if one somehow has more (`pageInfo.hasNextPage`), the
+// node-derived `open` would be a misleading floor, so the count is reported as
+// unknown (null) for that PR rather than wrong (see reviewThreadCounts).
+const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes { isResolved } }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
 // really a `closes` link, which we skip (closingIssuesReferences covers those).
@@ -79,6 +86,7 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
       nodes { ${COMMON} mergedAt isDraft reviewDecision mergeable
         commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
         ${REVIEWS}
+        ${REVIEW_THREADS}
         closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
       }
     }
@@ -90,6 +98,7 @@ const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
     pullRequest(number:$number) { ${COMMON} mergedAt isDraft reviewDecision mergeable
       commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
       ${REVIEWS}
+      ${REVIEW_THREADS}
       closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
     }
   }
@@ -99,7 +108,7 @@ const hash = (s: string): string => createHash("sha256").update(s).digest("hex")
 
 export class GitHubSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "github/2";
+  readonly normalizerVersion = "github/3";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -248,6 +257,8 @@ export class GitHubSource implements Source {
         reviewState: null,
         ciState: null,
         mergeState: null,
+        openReviewThreads: null,
+        totalReviewThreads: null,
       };
       return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
     }
@@ -264,6 +275,7 @@ export class GitHubSource implements Source {
       });
     }
     edges.push(...this.mentionEdges(p, self, selfState));
+    const threads = reviewThreadCounts(p);
     const item: CanonicalItem = {
       ...this.commonItem(p, "change_request"),
       stateReason: null,
@@ -276,6 +288,8 @@ export class GitHubSource implements Source {
       // otherwise surface as a misleading `merge: unknown` badge next to the
       // `merged` lifecycle state. Drop it for non-open items.
       mergeState: selfState === "open" ? mapMerge(p.mergeable) : null,
+      openReviewThreads: threads.open,
+      totalReviewThreads: threads.total,
     };
     return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.reviewActivities(p, item)] };
   }
@@ -547,7 +561,7 @@ export class GitHubSource implements Source {
     return out;
   }
 
-  private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState"> {
+  private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState" | "openReviewThreads" | "totalReviewThreads"> {
     const demand = (p.comments?.totalCount ?? 0) + (p.reactions?.totalCount ?? 0);
     return {
       sourceId: this.descriptor.sourceId,
@@ -661,6 +675,23 @@ function reviewSummary(action: string, iid: number | null): string {
   if (action === "changes_requested") return `Requested changes on change request${ref}`;
   if (action === "dismissed") return `Dismissed review on change request${ref}`;
   return `Reviewed change request${ref}`;
+}
+
+// Open/total review threads from a PR payload. `total` is the connection's
+// totalCount; `open` counts unresolved nodes in the fetched page. If the PR has
+// more threads than one page (`pageInfo.hasNextPage`), the node-derived `open`
+// would only be a lower bound, so both are reported as unknown (null) rather
+// than a misleading floor — the rare big-PR case the contract'd otherwise show
+// as 0 open. Returns nulls when the PR carried no reviewThreads field, so an old
+// replayed payload stays null rather than 0.
+function reviewThreadCounts(p: any): { open: number | null; total: number | null } {
+  const rt = p?.reviewThreads;
+  if (!rt) return { open: null, total: null };
+  if (rt.pageInfo?.hasNextPage) return { open: null, total: null };
+  const nodes: any[] = Array.isArray(rt.nodes) ? rt.nodes : [];
+  const open = nodes.reduce((n: number, t: any) => n + (t?.isResolved ? 0 : 1), 0);
+  const total = typeof rt.totalCount === "number" ? rt.totalCount : nodes.length;
+  return { open, total };
 }
 
 function mapReview(d: string | null | undefined): ReviewState | null {

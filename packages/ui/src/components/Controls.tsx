@@ -5,15 +5,17 @@ import type { ChangeEvent } from "react";
 // there is nothing to choose between); "pinned" shows ONLY the active values as
 // removable chips — used for a drill-down pin (e.g. a repo) where listing the
 // whole universe of values would be a wall, but the applied filter must still be
-// visible and clearable. The caller builds the groups, so the SAME presentational
-// bar serves the route-backed Activity feed and the state-backed board/graph.
+// visible and clearable; "toggle" shows every value even when there is only one
+// (a deliberate boolean switch, e.g. "unresolved only"), hidden only when empty.
+// The caller builds the groups, so the SAME presentational bar serves the
+// route-backed Activity feed and the state-backed board/graph.
 export interface ControlGroup {
   dim: string;
   label: string;
   values: string[];
   active: ReadonlySet<string>;
   displayValue?: (v: string) => string;
-  mode?: "facet" | "pinned";
+  mode?: "facet" | "pinned" | "toggle";
 }
 
 interface Props {
@@ -27,9 +29,11 @@ interface Props {
 function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (value: string) => void }) {
   const { label, values, active, displayValue, mode = "facet" } = group;
   const shown = mode === "pinned" ? values.filter((v) => active.has(v)) : values;
-  // facet: nothing to choose between when <= 1 value. pinned: hide when no
-  // active pin (the chip only exists to surface and clear an applied drill-down).
-  if (mode === "pinned" ? shown.length === 0 : shown.length <= 1) return null;
+  // facet: nothing to choose between when <= 1 value. pinned/toggle: hide only
+  // when empty — pinned has no active drill-down to surface; toggle has no
+  // applicable rows (e.g. no review activity in the window).
+  const hide = mode === "facet" ? shown.length <= 1 : shown.length === 0;
+  if (hide) return null;
   return (
     <div className="toggle-group">
       <span className="toggle-label">{label}</span>

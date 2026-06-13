@@ -21,6 +21,9 @@ import {
   activityRouteMatches,
   activityMatches,
   activityDisplay,
+  reviewThreadsLabel,
+  itemReviewMatches,
+  reviewActivityIsUnresolved,
   activityVirtualRange,
   filterActivitiesByRange,
   buildActivityHeatmap,
@@ -102,8 +105,8 @@ function item(over: Partial<ItemDTO> = {}): ItemDTO {
     id: "github:github.com|X", source_id: "github:github.com", external_id: "X", kind: "issue",
     project_path: "o/r", iid: 1, url: "https://x", title: "Title", state: "open", state_raw: "OPEN",
     state_reason: null, is_draft: null, author: "a", created_at: null, updated_at: null, closed_at: null,
-    merged_at: null, labels: [], review_state: null, ci_state: null, merge_state: null, milestone: null,
-    demand: 0, last_seen_at: null, ...over,
+    merged_at: null, labels: [], review_state: null, ci_state: null, merge_state: null, review_threads: null,
+    milestone: null, demand: 0, last_seen_at: null, ...over,
   };
 }
 
@@ -197,6 +200,47 @@ test("itemMatches applies source/state/kind/search filters (AND)", () => {
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "flaky" }), true, "search is case-insensitive");
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "bug" }), true, "search hits labels");
   assert.equal(itemMatches(it, { ...emptyFilters(), search: "nope" }), false);
+});
+
+test("itemReviewMatches / itemMatches honor the review-thread lens (threads, unresolved)", () => {
+  const open = item({ kind: "change_request", review_threads: { open: 2, total: 3 } });
+  const resolved = item({ kind: "change_request", review_threads: { open: 0, total: 4 } });
+  const noThreads = item({ kind: "change_request", review_threads: { open: 0, total: 0 } });
+  const issue = item({ kind: "issue", review_threads: null });
+
+  // "threads" = has any resolvable thread (total>0).
+  assert.equal(itemReviewMatches(open, new Set(["threads"])), true);
+  assert.equal(itemReviewMatches(resolved, new Set(["threads"])), true);
+  assert.equal(itemReviewMatches(noThreads, new Set(["threads"])), false);
+  assert.equal(itemReviewMatches(issue, new Set(["threads"])), false);
+
+  // "unresolved" = open>0.
+  assert.equal(itemReviewMatches(open, new Set(["unresolved"])), true);
+  assert.equal(itemReviewMatches(resolved, new Set(["unresolved"])), false);
+
+  // empty lens = no constraint; OR within the set (both selected = superset).
+  assert.equal(itemReviewMatches(resolved, new Set()), true);
+  assert.equal(itemReviewMatches(resolved, new Set(["threads", "unresolved"])), true);
+
+  // wired through itemMatches alongside the other dimensions.
+  assert.equal(itemMatches(open, { ...emptyFilters(), reviews: new Set(["unresolved"]) }), true);
+  assert.equal(itemMatches(resolved, { ...emptyFilters(), reviews: new Set(["unresolved"]) }), false);
+});
+
+test("reviewActivityIsUnresolved resolves the target PR's current open-thread count", () => {
+  const byId = new Map<string, ItemDTO>([
+    ["github:github.com|PR_open", item({ id: "github:github.com|PR_open", kind: "change_request", review_threads: { open: 1, total: 1 } })],
+    ["github:github.com|PR_done", item({ id: "github:github.com|PR_done", kind: "change_request", review_threads: { open: 0, total: 2 } })],
+  ]);
+  const reviewOpen = activity({ kind: "review", action: "reviewed", target_ref: "github:github.com|PR_open" });
+  const reviewDone = activity({ kind: "review", action: "approved", target_ref: "github:github.com|PR_done" });
+  const reviewMissing = activity({ kind: "review", action: "reviewed", target_ref: "github:github.com|gone" });
+  const nonReview = activity({ kind: "issue", action: "closed", target_ref: "github:github.com|PR_open" });
+
+  assert.equal(reviewActivityIsUnresolved(reviewOpen, byId), true);
+  assert.equal(reviewActivityIsUnresolved(reviewDone, byId), false);
+  assert.equal(reviewActivityIsUnresolved(reviewMissing, byId), false, "target not in window -> not unresolved");
+  assert.equal(reviewActivityIsUnresolved(nonReview, byId), false, "only review rows qualify");
 });
 
 test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one item)", () => {
@@ -350,6 +394,36 @@ test("activityDisplay promotes work-item titles instead of showing only #iid", (
     activityDisplay(display).title,
     "change request #297 · docs(heuristic): record session closeout findings",
   );
+});
+
+test("reviewThreadsLabel summarizes open/resolved threads and hides the empty case", () => {
+  assert.equal(reviewThreadsLabel({ open: 2, total: 3 }), "2 open threads");
+  assert.equal(reviewThreadsLabel({ open: 1, total: 1 }), "1 open thread");
+  assert.equal(reviewThreadsLabel({ open: 0, total: 4 }), "threads resolved");
+  assert.equal(reviewThreadsLabel({ open: 0, total: 0 }), null);
+  assert.equal(reviewThreadsLabel(null), null);
+});
+
+test("activityDisplay adds a review-resolution chip only for review rows with threads", () => {
+  const review = activity({
+    kind: "review",
+    action: "reviewed",
+    target_kind: "change_request",
+    target_iid: 191,
+    title: "fix(ui): reflect Activity drill-down filters",
+    summary: "Reviewed change request #191",
+    details: null,
+  });
+  // With unresolved threads on the target -> chip present.
+  assert.deepEqual(activityDisplay(review, { reviewThreads: { open: 1, total: 1 } }).chips, ["1 open thread"]);
+  // Resolved -> "threads resolved".
+  assert.deepEqual(activityDisplay(review, { reviewThreads: { open: 0, total: 2 } }).chips, ["threads resolved"]);
+  // No thread data -> no chip.
+  assert.deepEqual(activityDisplay(review, { reviewThreads: null }).chips, []);
+  assert.deepEqual(activityDisplay(review).chips, []);
+  // A non-review row with thread data passed in -> never shows the chip.
+  const nonReview = activity({ kind: "issue", action: "closed", details: null });
+  assert.deepEqual(activityDisplay(nonReview, { reviewThreads: { open: 3, total: 3 } }).chips, []);
 });
 
 test("activityDisplay exposes commit and ref details without fake #iid labels", () => {
@@ -667,8 +741,6 @@ test("view scopes are explicit and keep the old full-filter stats available as g
 
 test("computeBoardWindowStats counts windowed items and only relationships touching them", () => {
   const recent = item({ id: "recent", state: "open", kind: "issue", updated_at: "2026-06-07T00:00:00Z" });
-  const old = item({ id: "old", state: "closed", kind: "issue", updated_at: "2020-01-01T00:00:00Z" });
-  const other = item({ id: "other", state: "merged", kind: "change_request", updated_at: "2020-01-01T00:00:00Z" });
   const windowed = [recent];
   const edges = [
     edge("recent", "old", "declared", "closes"),
@@ -1079,7 +1151,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, from: null, to: null, preset: null, tab: null };
+  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, unresolved: null, from: null, to: null, preset: null, tab: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -1151,6 +1223,8 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     isource: null,
     istate: null,
     ikind: null,
+    ireview: null,
+    unresolved: null,
     from: null,
     to: null,
     preset: null,
@@ -1168,6 +1242,8 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     isource: null,
     istate: null,
     ikind: null,
+    ireview: null,
+    unresolved: null,
     from: null,
     to: null,
     preset: null,
@@ -1185,6 +1261,8 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     isource: null,
     istate: null,
     ikind: null,
+    ireview: null,
+    unresolved: null,
     from: null,
     to: null,
     preset: null,
@@ -1207,7 +1285,7 @@ test("graphFocusHref round-trips an item's id through parseHashRoute without tou
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, from: null, to: null, preset: null, tab: null });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, unresolved: null, from: null, to: null, preset: null, tab: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden

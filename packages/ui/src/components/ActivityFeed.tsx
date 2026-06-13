@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { ActivityDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 import {
@@ -46,11 +46,16 @@ export function ActivityFeed({
   sourceKind,
   colorOf,
   emptyMessage,
+  itemsById,
 }: {
   activities: ActivityDTO[];
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
   emptyMessage: string;
+  // Item index by ref, so a `review` row can resolve its `target_ref` to the
+  // change_request and show that PR/MR's current open-thread count. Optional:
+  // callers without it simply render no review-resolution chip.
+  itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -114,7 +119,9 @@ export function ActivityFeed({
         {visibleActivities.map((a, offset) => {
           const index = virtual.start + offset;
           const accentColor = colorOf(a.source_id, a.project_path);
-          const display = activityDisplay(a);
+          const reviewThreads =
+            a.kind === "review" && a.target_ref ? (itemsById?.get(a.target_ref)?.review_threads ?? null) : null;
+          const display = activityDisplay(a, { reviewThreads });
           return (
             <article
               key={a.id}
