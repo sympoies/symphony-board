@@ -472,6 +472,34 @@ test("GitHub: an open PR keeps its real merge_state", () => {
   assert.equal(unknown.mergeState, "unknown");
 });
 
+test("GitHub: review threads normalize to open/total, and a truncated page reports unknown", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const item = (reviewThreads: unknown) => {
+    const raw: RawRecord = {
+      entityKind: "change_request", externalId: "PR_rt", apiVersion: "github.graphql.v4",
+      fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+      payload: { ...prNode("PR_rt", "MERGED", "UNKNOWN"), reviewThreads },
+    };
+    return src.normalize(raw)!.item!;
+  };
+
+  // A fully-fetched page: open counts unresolved nodes, total is the connection count.
+  const counted = item({ totalCount: 3, pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }] });
+  assert.equal(counted.openReviewThreads, 2);
+  assert.equal(counted.totalReviewThreads, 3);
+
+  // More threads than one page: the node-derived open count would only be a
+  // floor, so both are reported as unknown rather than a misleading partial.
+  const truncated = item({ totalCount: 120, pageInfo: { hasNextPage: true }, nodes: Array.from({ length: 100 }, () => ({ isResolved: true })) });
+  assert.equal(truncated.openReviewThreads, null);
+  assert.equal(truncated.totalReviewThreads, null);
+
+  // No reviewThreads field (e.g. an old replayed payload) stays null, not 0.
+  const absent = ghPrBundle("MERGED", "UNKNOWN").item!;
+  assert.equal(absent.openReviewThreads, null);
+  assert.equal(absent.totalReviewThreads, null);
+});
+
 test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
   const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
   const refreshGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {

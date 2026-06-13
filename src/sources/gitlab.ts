@@ -168,7 +168,7 @@ const indexKey = (project: string | null, kind: string, iid: string): string =>
 
 export class GitLabSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "gitlab/3";
+  readonly normalizerVersion = "gitlab/4";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;

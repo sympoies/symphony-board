@@ -48,10 +48,11 @@ const REF_NODE = `id number url state repository { nameWithOwner }`;
 const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedAt url } }`;
 // Review threads with their resolution state — the "is this review resolved?"
 // signal (a PR-level, point-in-time count, NOT per review event). GitHub has no
-// unresolved-count aggregate, so `open` is counted from the nodes; `first:50`
-// covers every real PR and `totalCount` stays exact past the page (open is a
-// floor only for a >50-thread PR, none observed in practice).
-const REVIEW_THREADS = `reviewThreads(first:50){ totalCount nodes { isResolved } }`;
+// unresolved-count aggregate, so `open` is counted from the nodes. `first:100`
+// covers every real PR; if one somehow has more (`pageInfo.hasNextPage`), the
+// node-derived `open` would be a misleading floor, so the count is reported as
+// unknown (null) for that PR rather than wrong (see reviewThreadCounts).
+const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes { isResolved } }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
 // really a `closes` link, which we skip (closingIssuesReferences covers those).
@@ -107,7 +108,7 @@ const hash = (s: string): string => createHash("sha256").update(s).digest("hex")
 
 export class GitHubSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "github/2";
+  readonly normalizerVersion = "github/3";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -677,13 +678,16 @@ function reviewSummary(action: string, iid: number | null): string {
 }
 
 // Open/total review threads from a PR payload. `total` is the connection's
-// totalCount (exact past the fetched page); `open` counts unresolved nodes in
-// the page. For a PR with more than the fetched page of threads (not seen in
-// practice) `open` is a lower bound. Returns nulls when the PR carried no
-// reviewThreads field, so an old replayed payload stays null rather than 0.
+// totalCount; `open` counts unresolved nodes in the fetched page. If the PR has
+// more threads than one page (`pageInfo.hasNextPage`), the node-derived `open`
+// would only be a lower bound, so both are reported as unknown (null) rather
+// than a misleading floor — the rare big-PR case the contract'd otherwise show
+// as 0 open. Returns nulls when the PR carried no reviewThreads field, so an old
+// replayed payload stays null rather than 0.
 function reviewThreadCounts(p: any): { open: number | null; total: number | null } {
   const rt = p?.reviewThreads;
   if (!rt) return { open: null, total: null };
+  if (rt.pageInfo?.hasNextPage) return { open: null, total: null };
   const nodes: any[] = Array.isArray(rt.nodes) ? rt.nodes : [];
   const open = nodes.reduce((n: number, t: any) => n + (t?.isResolved ? 0 : 1), 0);
   const total = typeof rt.totalCount === "number" ? rt.totalCount : nodes.length;
