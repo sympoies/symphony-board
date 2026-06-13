@@ -28,11 +28,19 @@ interface Props {
 
 function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (value: string) => void }) {
   const { label, values, active, displayValue, mode = "facet" } = group;
-  const shown = mode === "pinned" ? values.filter((v) => active.has(v)) : values;
-  // facet: nothing to choose between when <= 1 value. pinned/toggle: hide only
-  // when empty — pinned has no active drill-down to surface; toggle has no
-  // applicable rows (e.g. no review activity in the window).
-  const hide = mode === "facet" ? shown.length <= 1 : shown.length === 0;
+  // facet: union the active values into the visible set so an active value with
+  // no rows in the current range (e.g. a drill-down to a source/kind/action that
+  // the selected window has none of) still renders as a removable chip — without
+  // this it applies invisibly and can only be cleared by editing the URL.
+  const shown = mode === "pinned"
+    ? values.filter((v) => active.has(v))
+    : mode === "facet"
+      ? [...new Set([...values, ...active])]
+      : values;
+  // facet: nothing to choose between when <= 1 value AND nothing active to clear.
+  // pinned/toggle: hide only when empty — pinned has no active drill-down to
+  // surface; toggle has no applicable rows (e.g. no review activity in the window).
+  const hide = mode === "facet" ? (shown.length <= 1 && active.size === 0) : shown.length === 0;
   if (hide) return null;
   return (
     <div className="toggle-group">

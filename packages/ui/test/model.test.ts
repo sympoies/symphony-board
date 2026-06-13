@@ -228,6 +228,40 @@ test("itemReviewMatches / itemMatches honor the review-thread lens (threads, unr
   assert.equal(itemMatches(resolved, { ...emptyFilters(), reviews: new Set(["unresolved"]) }), false);
 });
 
+test("itemMatches honors the exact-repo lens (irepo), with no prefix collision", () => {
+  const inRepo = item({ project_path: "o/r" });
+  const sibling = item({ project_path: "o/r2" });
+  const nullPath = item({ project_path: null });
+  // exact project_path match — "o/r" must NOT match "o/r2" (shared prefix).
+  assert.equal(itemMatches(inRepo, { ...emptyFilters(), repos: new Set(["o/r"]) }), true);
+  assert.equal(itemMatches(sibling, { ...emptyFilters(), repos: new Set(["o/r"]) }), false, "no prefix collision");
+  assert.equal(itemMatches(nullPath, { ...emptyFilters(), repos: new Set(["o/r"]) }), false, "null path never matches a repo pin");
+  // empty repo lens = no constraint
+  assert.equal(itemMatches(inRepo, { ...emptyFilters(), repos: new Set() }), true);
+  // emptyFilters seeds an empty repo set
+  assert.equal(emptyFilters().repos.size, 0);
+});
+
+test("parseHashRoute / buildHashRoute round-trip the irepo exact-repo pin", () => {
+  const route = parseHashRoute(buildHashRoute({ page: "board", irepo: "o/r" }));
+  assert.equal(route.irepo, "o/r");
+  assert.ok(buildHashRoute({ page: "board", irepo: "o/r" }).includes("irepo=o%2Fr"), "irepo is percent-encoded");
+  assert.equal(parseHashRoute(buildHashRoute({ page: "board" })).irepo, null, "absent irepo round-trips to null");
+});
+
+test("graphFocusHref threads an optional lens into the focus deep link", () => {
+  const href = graphFocusHref(item({ id: "github:github.com|42" }), { isource: "x", irepo: "o/r" });
+  const route = parseHashRoute(href);
+  assert.equal(route.page, "graph");
+  assert.equal(route.focus, "github:github.com|42");
+  assert.equal(route.isource, "x");
+  assert.equal(route.irepo, "o/r");
+  assert.ok(href.includes("isource=x"));
+  assert.ok(href.includes("irepo=o%2Fr"));
+  // no lens supplied -> a bare focus link
+  assert.equal(parseHashRoute(graphFocusHref(item({ id: "github:github.com|7" }))).irepo, null);
+});
+
 test("reviewActivityIsUnresolved resolves the target PR's current open-thread count", () => {
   const byId = new Map<string, ItemDTO>([
     ["github:github.com|PR_open", item({ id: "github:github.com|PR_open", kind: "change_request", review_threads: { open: 1, total: 1 } })],
@@ -1152,7 +1186,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, unresolved: null, from: null, to: null, preset: null, tab: null };
+  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -1225,6 +1259,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     istate: null,
     ikind: null,
     ireview: null,
+    irepo: null,
     unresolved: null,
     from: null,
     to: null,
@@ -1244,6 +1279,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     istate: null,
     ikind: null,
     ireview: null,
+    irepo: null,
     unresolved: null,
     from: null,
     to: null,
@@ -1263,6 +1299,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     istate: null,
     ikind: null,
     ireview: null,
+    irepo: null,
     unresolved: null,
     from: null,
     to: null,

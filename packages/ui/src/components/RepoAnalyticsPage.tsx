@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
 import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
-import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref } from "../nav.ts";
+import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref, type ItemRouteFields } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 
@@ -80,14 +80,14 @@ function displayScore(value: number): number {
 // filters the destination renders stay in lockstep. The Activity feed reflects
 // kind/action/source/repo as active chips; the Commits page reads source/repo in
 // its own repo combobox.
-function activityHref(metric: RepoMetricDTO, range: TimeRange, filter: { kind?: string; action?: string } = {}): string | null {
+function activityHref(metric: RepoMetricDTO, range: TimeRange, filter: { kind?: string; action?: string } = {}, lens?: ItemRouteFields): string | null {
   if (!metric.project_path) return null;
-  return activityDrilldownHref({ source: metric.source_id, repo: metric.project_path, range, kind: filter.kind, action: filter.action });
+  return activityDrilldownHref({ source: metric.source_id, repo: metric.project_path, range, kind: filter.kind, action: filter.action, item: lens });
 }
 
-function commitsHref(metric: RepoMetricDTO, range: TimeRange): string | null {
+function commitsHref(metric: RepoMetricDTO, range: TimeRange, lens?: ItemRouteFields): string | null {
   if (!metric.project_path) return null;
-  return commitsDrilldownHref({ source: metric.source_id, repo: metric.project_path, range });
+  return commitsDrilldownHref({ source: metric.source_id, repo: metric.project_path, range, item: lens });
 }
 
 // Open review threads drill straight to the Board, filtered to this repo's
@@ -187,12 +187,16 @@ export function RepoAnalyticsPage({
   range,
   sourceKind,
   colorOf,
+  lens,
 }: {
   metrics: RepoMetricDTO[];
   windowTotal: number;
   range: TimeRange;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
+  // The shared item lens to thread into the drill-down links, so a round-trip
+  // back to the board/graph preserves the active facets (incl. the repo pin).
+  lens?: ItemRouteFields;
 }) {
   const totals = metrics.reduce((acc, metric) => addMetricStats(acc, metric.totals), zeroStats());
   const countLabel = metrics.length === windowTotal ? `${metrics.length} repos` : `${metrics.length} matches`;
@@ -275,14 +279,14 @@ export function RepoAnalyticsPage({
                       </span>
                     </td>
                     <td><TrendBars metric={metric} /></td>
-                    <td><MetricValue value={displayScore(activityScore(metric.totals))} href={activityHref(metric, range)} label={`Open activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.commits} href={commitsHref(metric, range)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" })} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" })} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" })} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" })} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" })} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" })} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={displayScore(activityScore(metric.totals))} href={activityHref(metric, range, {}, lens)} label={`Open activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.commits} href={commitsHref(metric, range, lens)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" }, lens)} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" }, lens)} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" }, lens)} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" }, lens)} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" }, lens)} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" }, lens)} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td title="open review threads (resolvable, still unresolved)"><MetricValue value={metric.totals.unresolved_review_threads ?? 0} href={unresolvedThreadsHref(metric, range)} label={`Open the board filtered to unresolved review threads for ${metric.project_path ?? "repo"}`} /></td>
                     <td><QualityBadge metric={metric} /></td>
                     <td><TopActors metric={metric} /></td>

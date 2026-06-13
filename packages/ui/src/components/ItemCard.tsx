@@ -4,7 +4,7 @@ import { Badge } from "./Badge.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 import { relativeTime, reviewThreadsLabel, type RelationCount } from "../model.ts";
-import { graphFocusHref } from "../nav.ts";
+import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
 
@@ -86,6 +86,7 @@ export function ItemCard({
   accentColor,
   related,
   graphLink,
+  lens,
 }: {
   item: ItemDTO;
   anchorId?: string;
@@ -103,6 +104,9 @@ export function ItemCard({
   // board sets it; the graph side list doesn't (you are already on the graph,
   // and the card body itself is the focus target there).
   graphLink?: boolean;
+  // The shared item lens (isource/istate/ikind/ireview/irepo) to thread into the
+  // graph-focus deep link, so a round-trip back to the board keeps the lens.
+  lens?: ItemRouteFields;
 }) {
   const icon = KIND_ICON[item.kind] ?? "•";
   return (
@@ -124,7 +128,7 @@ export function ItemCard({
         {related && graphLink ? (
           <a
             className="card-graph"
-            href={graphFocusHref(item)}
+            href={graphFocusHref(item, lens)}
             title="focus this item in the relationship graph"
             aria-label="focus in graph"
             onClick={(e) => e.stopPropagation()}
