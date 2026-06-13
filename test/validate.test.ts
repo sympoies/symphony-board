@@ -94,7 +94,26 @@ test("null is accepted where the type union and enum allow it", () => {
   const env: any = validEnvelope();
   env.sources[0].last_status = null; // enum includes null
   env.items[0].review_state = null; // enum includes null
+  env.items[1].review_threads = null; // object-or-null: null is allowed
   assert.deepEqual(validateContract(env), []);
+});
+
+test("a malformed review_threads object is rejected (count map is validated, not skipped)", () => {
+  const env: any = validEnvelope();
+  // PR_xyz carries review_threads {open:1,total:2}; break it: negative open,
+  // missing total, extra prop. The object-or-null shape must catch all three.
+  env.items[1].review_threads = { open: -1, surprise: true };
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => /\/review_threads\/open$/.test(e.path) && /minimum 0/.test(e.message)), JSON.stringify(errors));
+  assert.ok(errors.some((e) => /\/review_threads\/total$/.test(e.path) && /required/.test(e.message)), JSON.stringify(errors));
+  assert.ok(errors.some((e) => /\/review_threads\/surprise$/.test(e.path) && /additional property/.test(e.message)), JSON.stringify(errors));
+});
+
+test("a non-object, non-null review_threads is rejected", () => {
+  const env: any = validEnvelope();
+  env.items[1].review_threads = "lots";
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => /\/review_threads$/.test(e.path) && /expected type/.test(e.message)), JSON.stringify(errors));
 });
 
 test("an envelope carrying source + repo colors validates clean", () => {

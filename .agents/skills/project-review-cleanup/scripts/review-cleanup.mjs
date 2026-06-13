@@ -359,13 +359,14 @@ function buildCandidates(contract, options, repo) {
 
   const allowSet = new Set(options.allowActors);
   const candidates = new Map();
-  const candidateKey = (projectPath, iid) => `${projectPath ?? ""}#${Number(iid)}`;
+  const candidateKey = (sourceId, projectPath, iid) => `${sourceId ?? ""}|${projectPath ?? ""}#${Number(iid)}`;
   const ensure = (sourceId, projectPath, iid, item) => {
-    const key = candidateKey(projectPath, iid);
+    const sid = sourceId ?? item?.source_id ?? null;
+    const key = candidateKey(sid, projectPath, iid);
     let candidate = candidates.get(key);
     if (!candidate) {
       candidate = {
-        sourceId: sourceId ?? item?.source_id ?? null,
+        sourceId: sid,
         pr: Number(iid),
         repo: projectPath,
         title: item?.title ?? null,
