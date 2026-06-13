@@ -180,9 +180,9 @@ function ItemNode({ data }: NodeProps) {
       ) : (
         <div className="rf-node-title">{d.label}</div>
       )}
-      <div className="rf-node-repo muted">
-        {d.repo ?? "untracked"}
-        {d.iid != null ? ` #${d.iid}` : ""}
+      <div className="rf-node-repo">
+        <span className={d.repo ? "card-repo" : "muted"}>{d.repo ?? "untracked"}</span>
+        {d.iid != null ? <span className="card-iid"> #{d.iid}</span> : null}
       </div>
       {/* Two fixed rows mirroring the board/side-list card: the counts row
           (@author 💬 🔗) then the times row (updated · created). Deterministic

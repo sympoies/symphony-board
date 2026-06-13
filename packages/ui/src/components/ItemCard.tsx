@@ -151,25 +151,33 @@ export function ItemCard({
         </a>
       </div>
 
+      {/* Two meta rows, mirroring the graph node card: the identity row
+          (source · repo · #iid) then the people/engagement row (@author ·
+          demand · related). The engagement row only renders when it has
+          content, so a bare item doesn't leave an empty line. */}
       <div className="card-meta">
         <SourceIcon kind={sourceKind} />
         {item.project_path ? <span className="card-repo">{item.project_path}</span> : null}
-        {item.iid != null ? <span className="muted">#{item.iid}</span> : null}
-        {item.author ? <span className="muted">@{item.author}</span> : null}
-        {item.demand != null ? (
-          <span className="muted demand" title="comments + reactions">
-            <DemandIcon /> {item.demand}
-          </span>
-        ) : null}
-        {/* Distinct related items, tooltip broken down by strongest edge type
-            ("closes 2 · mentions 3"). Same data that gates the graph link above,
-            so the count and the focus affordance can never disagree. */}
-        {related && related.total > 0 ? (
-          <span className="muted related" title={related.byType.map((t) => `${t.type} ${t.count}`).join(" · ")}>
-            <LinkIcon /> {related.total}
-          </span>
-        ) : null}
+        {item.iid != null ? <span className="card-iid">#{item.iid}</span> : null}
       </div>
+      {(item.author || item.demand != null || (related && related.total > 0)) && (
+        <div className="card-meta">
+          {item.author ? <span className="muted">@{item.author}</span> : null}
+          {item.demand != null ? (
+            <span className="muted demand" title="comments + reactions">
+              <DemandIcon /> {item.demand}
+            </span>
+          ) : null}
+          {/* Distinct related items, tooltip broken down by strongest edge type
+              ("closes 2 · mentions 3"). Same data that gates the graph link above,
+              so the count and the focus affordance can never disagree. */}
+          {related && related.total > 0 ? (
+            <span className="muted related" title={related.byType.map((t) => `${t.type} ${t.count}`).join(" · ")}>
+              <LinkIcon /> {related.total}
+            </span>
+          ) : null}
+        </div>
+      )}
 
       {/* updated · created, on their own line beneath the meta row */}
       {(item.created_at || item.updated_at) && (

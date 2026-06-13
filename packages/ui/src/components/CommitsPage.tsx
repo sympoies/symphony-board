@@ -367,8 +367,8 @@ function CommitTimeline({
                   </div>
                   <div className="commit-row-meta">
                     <SourceIcon kind={sourceKind.get(commit.source_id)} />
-                    <span>{actor} committed {relativeTime(commit.occurred_at)}</span>
                     {commit.project_path ? <span className="card-repo">{commit.project_path}</span> : null}
+                    <span>{actor} committed {relativeTime(commit.occurred_at)}</span>
                     {branches.slice(0, 2).map((branch) => (
                       <span key={branch} className="commit-ref-chip">{branch}</span>
                     ))}
