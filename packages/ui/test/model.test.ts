@@ -50,6 +50,7 @@ import {
   computeBoardWindowStats,
   computeGraphStats,
   relativeTime,
+  pluralize,
   buildGraph,
   buildAdjacency,
   focusSubgraph,
@@ -831,6 +832,16 @@ test("relativeTime renders coarse buckets from an injected now", () => {
   assert.equal(relativeTime("2026-06-07T00:00:00Z", now), "3d ago");
   assert.equal(relativeTime("2026-06-09T23:59:40Z", now), "just now");
   assert.equal(relativeTime(null, now), "—");
+});
+
+test("pluralize returns the singular only for exactly one, with irregular plurals", () => {
+  assert.equal(pluralize(1, "event"), "event");
+  assert.equal(pluralize(0, "event"), "events");
+  assert.equal(pluralize(2, "event"), "events");
+  // default plural is the regular "+s"; pass an explicit plural for irregulars
+  assert.equal(pluralize(2, "repo"), "repos");
+  assert.equal(pluralize(1, "branch", "branches"), "branch");
+  assert.equal(pluralize(3, "branch", "branches"), "branches");
 });
 
 test("cutoffIso is deterministic for a fixed now", () => {

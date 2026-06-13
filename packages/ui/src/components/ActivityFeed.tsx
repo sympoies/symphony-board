@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { SourceIcon } from "./SourceIcon.tsx";
+import { SourceRepo } from "./SourceRepo.tsx";
+import { useListViewport } from "../useListViewport.ts";
 import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
   ACTIVITY_ROW_GAP_PX,
@@ -57,39 +58,13 @@ export function ActivityFeed({
   // callers without it simply render no review-resolution chip.
   itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(ACTIVITY_DEFAULT_VIEWPORT_PX);
-
-  const resetScroll = useCallback(() => {
-    setScrollTop(0);
-    if (listRef.current) listRef.current.scrollTop = 0;
-  }, []);
-
-  // A new `activities` array means the range or repo filter changed — jump back
-  // to the top so the viewer is not stranded mid-scroll in a different result set.
-  useEffect(() => {
-    resetScroll();
-  }, [activities, resetScroll]);
-
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-
-    const updateHeight = () => {
-      setViewportHeight(el.clientHeight || ACTIVITY_DEFAULT_VIEWPORT_PX);
-    };
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateHeight);
-      return () => window.removeEventListener("resize", updateHeight);
-    }
-
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(el);
-    return () => resizeObserver.disconnect();
-  }, [activities.length]);
+  // A new `activities` array means the range or repo filter changed — the hook
+  // jumps back to the top so the viewer is not stranded mid-scroll in a
+  // different result set.
+  const { listRef, scrollTop, viewportHeight, handleScroll } = useListViewport({
+    defaultViewportPx: ACTIVITY_DEFAULT_VIEWPORT_PX,
+    resetKey: activities,
+  });
 
   const virtual = useMemo(
     () => activityVirtualRange({ count: activities.length, scrollTop, viewportHeight }),
@@ -108,7 +83,7 @@ export function ActivityFeed({
       className="activity-list"
       role="list"
       aria-label="Activity feed"
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={handleScroll}
       style={
         {
           "--activity-row-height": `${ACTIVITY_ROW_HEIGHT_PX}px`,
@@ -148,8 +123,7 @@ export function ActivityFeed({
                   )}
                 </div>
                 <div className="activity-meta">
-                  <SourceIcon kind={sourceKind.get(a.source_id)} />
-                  {display.repo ? <span className="card-repo">{display.repo}</span> : null}
+                  <SourceRepo kind={sourceKind.get(a.source_id)} repo={display.repo} />
                   {display.meta.map((part) => (
                     <span key={part}>{part}</span>
                   ))}

@@ -3,6 +3,7 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import {
   buildActivityHeatmap,
   buildActivityTrend,
+  pluralize,
   sourceDisplayName,
   type ActivityTrend,
   type ActivityTrendBucket,
@@ -19,7 +20,7 @@ const TREND_PAD_X = 18;
 const TREND_PAD_Y = 16;
 
 const cellTip = (cell: HeatmapCell) =>
-  `${cell.date} · ${cell.count.toLocaleString()} ${cell.count === 1 ? "event" : "events"}`;
+  `${cell.date} · ${cell.count.toLocaleString()} ${pluralize(cell.count, "event")}`;
 
 // The trend line plots the smoothed average while dots plot raw counts, so the
 // tooltip carries both — otherwise a hovered value looks "off the line".
@@ -29,7 +30,7 @@ const formatAverage = (value: number) => {
 };
 
 const pointTip = (point: ActivityTrendPoint) =>
-  `${point.label} · ${point.count.toLocaleString()} ${point.count === 1 ? "event" : "events"} · avg ${formatAverage(point.average)}`;
+  `${point.label} · ${point.count.toLocaleString()} ${pluralize(point.count, "event")} · avg ${formatAverage(point.average)}`;
 
 function formatKind(kind: string): string {
   return kind.replace(/_/g, " ");

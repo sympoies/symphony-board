@@ -1824,6 +1824,14 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   return `${Math.round(mo / 12)}y ago`;
 }
 
+// The noun for a count: singular when exactly one, else `plural` (default the
+// regular "+s"). Returns only the word — callers render the number themselves —
+// so it composes both as `{n} {pluralize(n, "repo")}` and standalone. Pass an
+// explicit plural for irregulars ("branch" -> "branches", "match" -> "matches").
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
+}
+
 // --- writer-owned config control plane (Settings -> Sources editor) ---
 // The UI edits a typed subset of the producer config and round-trips every
 // other field untouched (identities, exclude_actors, $comment_*, …). Server
