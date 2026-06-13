@@ -8,6 +8,11 @@ import {
   activityFacetField,
   activityFacetFields,
   toggleActivityFacet,
+  ITEM_FACET_DIMS,
+  itemFacets,
+  itemFacetField,
+  itemFacetFields,
+  toggleItemFacet,
   activityDrilldownHref,
   commitsDrilldownHref,
   tabHref,
@@ -93,13 +98,24 @@ test("commitsDrilldownHref targets commits with source/repo and no facet fields"
 
 // One rule for what carries across a tab hop: search + range travel; page-local
 // drill-down state (facets, graph focus, commit branch) does NOT.
-test("tabHref carries search and range but drops drill-down state", () => {
-  const route = parseHashRoute(tabHref("board", { q: "flaky", range: { from: "2026-06-01", to: "2026-06-07", preset: "this-week" } }));
+test("tabHref carries search, range, and the shared item lens but drops drill-down state", () => {
+  const route = parseHashRoute(
+    tabHref("board", {
+      q: "flaky",
+      range: { from: "2026-06-01", to: "2026-06-07", preset: "this-week" },
+      item: { isource: "github:github.com", istate: "open", ikind: "issue" },
+    }),
+  );
   assert.equal(route.page, "board");
   assert.equal(route.q, "flaky");
   assert.equal(route.from, "2026-06-01");
   assert.equal(route.to, "2026-06-07");
   assert.equal(route.preset, "this-week");
+  // the shared item lens travels...
+  assert.deepEqual([...itemFacets(route).sources], ["github:github.com"]);
+  assert.deepEqual([...itemFacets(route).states], ["open"]);
+  assert.deepEqual([...itemFacets(route).kinds], ["issue"]);
+  // ...but page-local drill-down state does not.
   for (const dropped of ["source", "repo", "kind", "action", "focus", "branch"] as const) {
     assert.equal(route[dropped], null, `${dropped} does not carry across a tab hop`);
   }
@@ -107,6 +123,38 @@ test("tabHref carries search and range but drops drill-down state", () => {
   const bare = parseHashRoute(tabHref("activity", {}));
   assert.equal(bare.page, "activity");
   assert.equal(bare.q, null);
+  assert.equal(bare.isource, null, "no item lens when none is supplied");
+});
+
+// The board / graph / repo-analytics shared lens. Distinct route fields from the
+// Activity facets so the two never collide when both ride a URL across a tab hop.
+test("itemFacetField maps every dim to a distinct route field; ITEM_FACET_DIMS is the full set", () => {
+  assert.deepEqual(ITEM_FACET_DIMS, ["sources", "states", "kinds"]);
+  assert.equal(itemFacetField("sources"), "isource");
+  assert.equal(itemFacetField("states"), "istate");
+  assert.equal(itemFacetField("kinds"), "ikind");
+});
+
+test("item facets parse, toggle, and round-trip through the hash without colliding with Activity facets", () => {
+  const empty = itemFacets({ isource: null, istate: null, ikind: null });
+  assert.equal(empty.sources.size + empty.states.size + empty.kinds.size, 0);
+
+  const withKind = toggleItemFacet(empty, "kinds", "issue");
+  assert.deepEqual([...withKind.kinds], ["issue"]);
+  assert.equal(itemFacetFields(withKind).ikind, "issue");
+  assert.equal(itemFacetFields(toggleItemFacet(withKind, "kinds", "issue")).ikind, null, "re-toggle clears the field");
+
+  const facets = itemFacets({ isource: "github:github.com,gitlab:gitlab.com", istate: "open", ikind: "issue,change_request" });
+  const hash = buildHashRoute({ page: "board", ...itemFacetFields(facets) });
+  const route = parseHashRoute(hash);
+  const parsed = itemFacets(route);
+  assert.deepEqual([...parsed.sources].sort(), ["github:github.com", "gitlab:gitlab.com"]);
+  assert.deepEqual([...parsed.states], ["open"]);
+  assert.deepEqual([...parsed.kinds].sort(), ["change_request", "issue"]);
+  // the item lens uses isource/istate/ikind, leaving the Activity fields free
+  assert.equal(route.source, null);
+  assert.equal(route.kind, null);
+  assert.deepEqual([...activityFacets(route).sources], [], "Activity facets are untouched by the item lens");
 });
 
 test("graphFocusHref is re-exported from nav and builds a graph focus link", () => {

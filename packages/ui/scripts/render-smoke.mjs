@@ -1028,6 +1028,33 @@ try {
     expression: "document.querySelector('.settings-repo') === null && document.querySelector('.settings-sync') === null",
     returnByValue: true,
   })).result.value === true;
+
+  // The board/graph/repo-analytics item-facet lens is route-backed and shared:
+  // clicking a board kind chip must write `ikind=` into the URL, light the chip,
+  // and PERSIST when hopping to the Graph tab (the sticky lens travels across a
+  // tab hop via nav.tabHref). This locks the cross-tab single-track behaviour.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+  await sleep(350);
+  await waitHtml("document.querySelector('.board-7 .card') && document.querySelector('.controls .toggle-group')");
+  const itemKindGroupExpr = `Array.from(document.querySelectorAll('.controls .toggle-group')).find((g) => g.querySelector('.toggle-label')?.textContent === 'kind')`;
+  const boardFacetInitial = (await send("Runtime.evaluate", {
+    expression: `(() => { const g = ${itemKindGroupExpr}; const c = g?.querySelector('.toggle'); return { hasGroup: !!g, value: c?.textContent?.trim() || null, anyOn: !!g?.querySelector('.toggle.toggle-on'), hashHasIkind: location.hash.includes('ikind=') }; })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: `(() => { ${itemKindGroupExpr}?.querySelector('.toggle')?.click(); })()` });
+  await sleep(300);
+  const boardFacetOn = (await send("Runtime.evaluate", {
+    expression: `(() => { const g = ${itemKindGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null, onCount: g?.querySelectorAll('.toggle.toggle-on').length || 0 }; })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Hop to the Graph tab via the real tab anchor (routeHref -> nav.tabHref).
+  await send("Runtime.evaluate", { expression: `(() => { Array.from(document.querySelectorAll('.page-tabs a')).find((a) => (a.textContent || '').trim() === 'Graph')?.click(); })()` });
+  await sleep(400);
+  await waitHtml("location.hash.startsWith('#/graph') && document.querySelector('.controls .toggle-group')");
+  const graphFacetCarry = (await send("Runtime.evaluate", {
+    expression: `(() => { const g = ${itemKindGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null }; })()`,
+    returnByValue: true,
+  })).result.value || {};
   ws.close();
 
   // --- assertions ---
@@ -1086,6 +1113,10 @@ try {
     // color, so coloured repos render the left-bar `card-accent`
     [has(boardHtml, "card-accent"), "board: repo/source highlight bar rendered (card-accent)"],
     [boardTimeOrder.count >= 1 && boardTimeOrder.ok, `board: timestamps render updated before created (${boardTimeOrder.count})`],
+    [boardFacetInitial.hasGroup === true, "board: route-backed facet Controls render a kind group"],
+    [boardFacetInitial.anyOn === false && boardFacetInitial.hashHasIkind === false, "board: no kind chip is active before selection"],
+    [boardFacetOn.chipOn === true && boardFacetOn.chipText === boardFacetInitial.value && boardFacetOn.onCount === 1 && /[?&]ikind=/.test(boardFacetOn.hash || ""), `board: a kind chip lights up and writes ikind to the route (${boardFacetOn.hash})`],
+    [graphFacetCarry.hash.startsWith("#/graph") && /[?&]ikind=/.test(graphFacetCarry.hash || "") && graphFacetCarry.chipOn === true && graphFacetCarry.chipText === boardFacetInitial.value, `board: the shared item lens carries across the tab hop to graph (${graphFacetCarry.hash})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],

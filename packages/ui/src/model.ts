@@ -137,6 +137,13 @@ export interface HashRoute {
   branch: string | null; // a branch/ref name the Commits page filters to when commit refs are present
   kind: string | null; // Activity kind filter from internal drill-down links
   action: string | null; // Activity action filter from internal drill-down links
+  // The shared item-facet lens for board / graph / repo-analytics: source, state,
+  // and kind of work items. Distinct from the Activity `source`/`kind` fields so
+  // the two never bleed when both ride the URL across a tab hop. Each is a comma
+  // list (multi-select). See `nav.ts` (ItemFacets).
+  isource: string | null;
+  istate: string | null;
+  ikind: string | null;
   from: string | null; // YYYY-MM-DD explicit time-range start
   to: string | null; // YYYY-MM-DD explicit time-range end
   preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
@@ -163,6 +170,9 @@ export function parseHashRoute(hash: string): HashRoute {
     branch: routeParam(params?.get("branch")),
     kind: routeParam(params?.get("kind")),
     action: routeParam(params?.get("action")),
+    isource: routeParam(params?.get("isource")),
+    istate: routeParam(params?.get("istate")),
+    ikind: routeParam(params?.get("ikind")),
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
     preset: isTimeRangePresetId(preset) ? preset : null,
@@ -170,7 +180,7 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -179,6 +189,9 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const branch = routeParam(route.branch);
   const kind = routeParam(route.kind);
   const action = routeParam(route.action);
+  const isource = routeParam(route.isource);
+  const istate = routeParam(route.istate);
+  const ikind = routeParam(route.ikind);
   const from = routeParam(route.from);
   const to = routeParam(route.to);
   const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
@@ -190,6 +203,9 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (branch) params.push(`branch=${encodeURIComponent(branch)}`);
   if (kind) params.push(`kind=${encodeURIComponent(kind)}`);
   if (action) params.push(`action=${encodeURIComponent(action)}`);
+  if (isource) params.push(`isource=${encodeURIComponent(isource)}`);
+  if (istate) params.push(`istate=${encodeURIComponent(istate)}`);
+  if (ikind) params.push(`ikind=${encodeURIComponent(ikind)}`);
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
   if (preset) params.push(`preset=${encodeURIComponent(preset)}`);

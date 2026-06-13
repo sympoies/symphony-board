@@ -1079,7 +1079,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, from: null, to: null, preset: null, tab: null };
+  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, from: null, to: null, preset: null, tab: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -1148,6 +1148,9 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     branch: null,
     kind: null,
     action: null,
+    isource: null,
+    istate: null,
+    ikind: null,
     from: null,
     to: null,
     preset: null,
@@ -1162,6 +1165,9 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     branch: null,
     kind: null,
     action: null,
+    isource: null,
+    istate: null,
+    ikind: null,
     from: null,
     to: null,
     preset: null,
@@ -1176,6 +1182,9 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     branch: "main",
     kind: null,
     action: null,
+    isource: null,
+    istate: null,
+    ikind: null,
     from: null,
     to: null,
     preset: null,
@@ -1198,7 +1207,7 @@ test("graphFocusHref round-trips an item's id through parseHashRoute without tou
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, from: null, to: null, preset: null });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, from: null, to: null, preset: null, tab: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden
