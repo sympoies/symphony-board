@@ -6,23 +6,29 @@ Repo-local agent policy for `symphony-board`.
 
 This repository owns a provider-agnostic work-item aggregator: it reads issues
 and PR/MRs from multiple sources (GitHub, GitLab, …), stores them in a local
-SQLite canonical model, emits a versioned JSON contract, and serves a read-only
-UI from that contract.
+canonical model (SQLite by default, Postgres by opt-in), emits a versioned JSON
+contract, and serves a UI from that contract. The UI is read-only with respect
+to providers — it never writes issues, labels, or PR/MRs back — though a
+capability-gated writer control plane lets it trigger local syncs and edit
+producer config/tokens (see `docs/DESIGN.md`).
 
 ## Boundaries
 
-- Do not commit secrets, tokens, the SQLite store (`*.db`), `.env`,
-  `config/sources.json`, or runtime-emitted contracts under `data/`. All are
-  gitignored. `packages/ui/public/contract.json` is a tracked sample contract
-  for local UI development and render-smoke tests.
+- Do not commit secrets, tokens, the SQLite store (`*.db`), Postgres volume
+  dumps, `.env`, `config/sources.json`, `config/sources.pg.json`, or
+  runtime-emitted contracts under `data/`. All are gitignored.
+  `packages/ui/public/contract.json` is a tracked sample contract for local UI
+  development and render-smoke tests.
 - Tokens are referenced by env-var name in config and read from the environment
   — never inlined.
 - Keep the three layers separate: raw store, canonical DB, versioned contract.
-  Do not let the SQLite schema become the contract.
+  Do not let the canonical DB schema become the contract.
 - `normalize` MUST stay pure (no network/IO) so it is replayable against stored
   raw. Network lives in `src/sources/*`; DB IO in `src/db/*`.
-- Identity is the provider's immutable global id; never key on mutable
-  `project_path` / `iid`.
+- Identity is the provider's immutable global id `(source_id, external_id)`;
+  never key *identity* on mutable `project_path` / `iid`. Display *grouping*
+  (e.g. `repo_stats[]` / `repo_metrics[]`) may use `(source_id, project_path)`,
+  which is a per-repo bucket, not item identity.
 - Disappearance rule: only a full + complete sweep may soft-delete unseen items
   or intra-source edges; a partial, failed, or incremental fetch must never
   delete.
@@ -38,9 +44,14 @@ UI from that contract.
 - Validate before committing: `pnpm run typecheck && pnpm test`. Also run
   `pnpm --filter @symphony-board/ui run build`, UI tests, and UI smoke when the
   change touches UI, contract, shared view-model behavior, or docs that describe
-  those paths. Run a `--dry-run` sync when touching a source or the engine.
+  those paths. Run a `--dry-run` sync when touching a source or the engine, and
+  the Postgres gates (`pnpm run test:pg-e2e`, `pnpm run test:pg-compose`; Docker
+  required) when touching the `Store` seam, a driver, or the schema.
 - Contract changes follow `docs/CONTRACT.md` (schema + types + version bump +
-  test). DB changes are additive migrations tracked by `PRAGMA user_version`.
+  test). DB changes are additive migrations applied to EVERY driver
+  (`schema/sqlite/` AND `schema/postgres/`); schema version is driver-owned
+  (SQLite: `PRAGMA user_version`; Postgres: the `meta` table's
+  `schema_version`).
 - Prefer dry-run / recorded or throwaway fixtures over hitting live provider
   APIs in automated tests (rate limits; a self-hosted provider may be
   network-bound).
@@ -81,7 +92,9 @@ UI from that contract.
   `config/sources.json` `identities` / `exclude_actors`);
   `project-rebuild-open-app` (rebuild/install/open the thin macOS app);
   `project-rebuild-open-standalone-app` (rebuild/install/open the standalone
-  macOS app with the bundled sync daemon).
+  macOS app with the bundled sync daemon);
+  `project-review-cleanup` (find and disposition late or unresolved provider
+  review threads for this board).
 
 ## Agent helper scripts
 
@@ -92,13 +105,14 @@ Quick, read-only lookups in `scripts/` (no build — just run); see
 - `scripts/contract-summary.sh [contract.json]` — counts, per-source, edges by
   lifecycle from an emitted contract.
 - `scripts/db-summary.sh [db_path]` — items / edges / sync-run summary from the
-  canonical SQLite store (opened with `PRAGMA query_only`; the loop daemon stays
-  the sole writer).
+  canonical SQLite store (SQLite only, opened with `PRAGMA query_only`; the loop
+  daemon stays the sole writer). For a Postgres deployment, read the same shape
+  from the `/api/stats` read-only HTTP surface instead.
 
 ## Target
 
-- Contract + read-only UI are the product surface.
-- One writer per SQLite store (no external cron, no second writer): the Docker
-  loop daemon for the compose deployment, or the standalone app's bundled
-  `app-server` sidecar for its own per-user store
-  (`packages/desktop-standalone`).
+- Contract + UI (read-only toward providers) are the product surface.
+- One writer per store (no external cron, no second writer), enforced by the
+  `Store` writer lease, not just convention: the Docker loop daemon for the
+  compose deployment, or the standalone app's bundled `app-server` sidecar for
+  its own per-user store (`packages/desktop-standalone`).

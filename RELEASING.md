@@ -1,7 +1,10 @@
 # Releasing
 
-`symphony-board` ships two public container images to the GitHub Container
-Registry (GHCR):
+Creating a GitHub Release publishes two artifact sets: public container images
+to the GitHub Container Registry (GHCR) for the Docker stack, and unsigned macOS
+desktop app bundles attached to the Release.
+
+Container images (GHCR):
 
 | Image | Purpose |
 | --- | --- |
@@ -9,8 +12,21 @@ Registry (GHCR):
 | `ghcr.io/sympoies/symphony-board-web` | Read-only nginx UI sidecar |
 
 The repository and published images are public. Runtime secrets, local config,
-SQLite stores, and emitted contracts are supplied by the operator at runtime and
-are not baked into the images.
+SQLite/Postgres stores, and emitted contracts are supplied by the operator at
+runtime and are not baked into the images.
+
+Desktop assets (attached to the GitHub Release), built on native macOS runners
+so each bundles a matching-architecture Node sidecar:
+
+| Asset | Architecture |
+| --- | --- |
+| `Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip` | Apple Silicon |
+| `Symphony-Board-vX.Y.Z-macos-x64-unsigned.zip` | Intel |
+| `Symphony-Board-Standalone-vX.Y.Z-macos-arm64-unsigned.zip` | Apple Silicon |
+| `Symphony-Board-Standalone-vX.Y.Z-macos-x64-unsigned.zip` | Intel |
+
+These are unsigned, un-notarized app bundles; see the root README's "Build The
+macOS App" section for installing them with `scripts/install-release-app.sh`.
 
 ## Versioning
 
@@ -22,7 +38,7 @@ image tag.
 Published image tags:
 
 | Image | Version tag | Rolling tag |
-| --- | --- |
+| --- | --- | --- |
 | Backend | `ghcr.io/sympoies/symphony-board:0.1.0` | `ghcr.io/sympoies/symphony-board:latest` |
 | UI | `ghcr.io/sympoies/symphony-board-web:0.1.0` | `ghcr.io/sympoies/symphony-board-web:latest` |
 
@@ -66,10 +82,12 @@ To verify already-published images without creating a release:
 scripts/release.sh --verify-only --version v0.1.0
 ```
 
-## Image Workflow
+## Release Workflow
 
-Creating a GitHub Release publishes both images through
-`.github/workflows/publish-image.yml`:
+Creating a GitHub Release runs `.github/workflows/publish-image.yml`, which
+publishes both the container images and the desktop assets.
+
+Container images:
 
 1. Build `linux/amd64` images for smoke tests.
 2. Smoke-test the backend image with the validator and a no-token dry-run emit.
@@ -79,6 +97,17 @@ Creating a GitHub Release publishes both images through
 
 If anonymous manifest verification fails, treat the release as incomplete: the
 image is not publicly pullable yet.
+
+Desktop assets (the `desktop` job, in parallel):
+
+6. On native macOS runners (`macos-26` for arm64, `macos-26-intel` for x64),
+   run `scripts/package-desktop-release.sh` to build both the thin-client and
+   standalone apps for that architecture.
+7. Upload the four resulting unsigned `.zip` bundles to the GitHub Release with
+   `gh release upload --clobber`.
+
+Building on native per-architecture runners is what lets the standalone app
+bundle the matching Node sidecar for each Mac.
 
 ## Pulling And Running
 

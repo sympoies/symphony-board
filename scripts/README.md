@@ -30,6 +30,17 @@ scripts/install-release-app.sh
 scripts/install-release-app.sh ~/Downloads/Symphony-Board-v1.1.0-macos-arm64-unsigned.zip
 ```
 
+## Release Helper
+
+| Script | What it does |
+| --- | --- |
+| `release.sh [--dry-run\|--execute\|--verify-only] [--version X.Y.Z]` | Cuts a GitHub Release that publishes the GHCR images and the unsigned macOS desktop assets. Refuses a dirty tree, a non-`main` branch, or a local `main` that differs from `origin/main`. See [../RELEASING.md](../RELEASING.md). |
+
+```sh
+scripts/release.sh --dry-run
+scripts/release.sh --execute
+```
+
 ## CI Helpers
 
 | Script | What it does |
@@ -37,6 +48,8 @@ scripts/install-release-app.sh ~/Downloads/Symphony-Board-v1.1.0-macos-arm64-uns
 | `ci/coverage.sh` | Runs backend and UI logic coverage with `c8`, merges LCOV, and enforces the line floor. |
 | `ci/coverage-summary.sh [lcov]` | Emits a Markdown coverage summary with worst-covered files. Used by CI job summary and PR comment. |
 | `ci/coverage-badge.sh [lcov] [out.svg]` | Renders the self-hosted coverage badge SVG published from CI to the `coverage-badge` branch. |
+| `ci/pg-e2e.sh` | Composes up a throwaway Postgres, runs the store-conformance suite with the Postgres driver registered plus the live e2e, then tears down. The `pnpm run test:pg-e2e` / CI `pg` gate. Needs Docker. |
+| `ci/pg-compose-smoke.sh` | Builds the backend and UI images, starts the isolated `docker/compose.pg.yaml` stack, and asserts the served contract and `/api/stats` reporting `driver: "postgres"`. The `pnpm run test:pg-compose` / CI `pg_compose` gate. Needs Docker. |
 | `package-desktop-release.sh [options]` | Builds the thin and standalone macOS `.app` bundles, zips them as unsigned release assets, and writes SHA256 sums. |
 
 Coverage covers backend `.ts` files and UI `.ts` view-model logic. The React

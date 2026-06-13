@@ -1,9 +1,10 @@
 # symphony-board Design
 
 This is the current design record for `symphony-board`. It records the stable
-architecture and operating decisions after the baseline product path shipped:
-GitHub/GitLab sources, canonical SQLite/Postgres store drivers, contract major
-v3, read-only UI, and Docker writer/reader deployment.
+architecture and operating decisions of the shipped product: GitHub/GitLab
+sources, canonical SQLite/Postgres store drivers, contract major v3, a UI that
+is read-only toward providers (with writer-owned sync and config control
+planes), and Docker writer/reader plus standalone single-machine deployments.
 
 Historical validation runs, PR numbers, and one-off investigation details live
 in [docs/devlog](devlog). This file is the normative design summary.
@@ -645,8 +646,8 @@ questions without log access.
   method is async so a future driver (Postgres) drops in without changing the
   interface; `test/store-conformance.test.ts` — run against every registered
   driver — is the swap guarantee. Hand-rolled by design: the query surface is
-  ~16 statements and postgres.js has zero transitive dependencies, so an ORM or
-  query builder would abstract the wrong layer. Activity ordering is by instant
+  around two dozen statements and postgres.js has zero transitive dependencies,
+  so an ORM or query builder would abstract the wrong layer. Activity ordering is by instant
   (occurred_at keeps provider-local UTC offsets), which each driver implements
   in its own SQL (SQLite: `julianday`).
 - **Writer lease on the Store (#164)**: "exactly one sync writer per store" is
