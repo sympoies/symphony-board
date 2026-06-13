@@ -319,7 +319,7 @@ export function relationCountOf(refs: RelatedRef[]): RelationCount | null {
 
 // Shared quick-set presets for Board, Graph, Activity, and Repo Analytics, in
 // two groups the picker renders separately: `calendar` presets snap to local
-// day/week boundaries (Monday weeks), while `rolling` presets are windows of
+// day/week boundaries (Sunday weeks), while `rolling` presets are windows of
 // exactly `days` calendar days ending today (inclusive) — e.g. `1w` = 7 days.
 export const TIME_RANGE_PRESETS = [
   { id: "today", label: "today", kind: "today", group: "calendar" },
@@ -361,14 +361,14 @@ export function timeRangeForPreset(presetId: TimeRangePresetId, now: number, tz:
     return { from: yesterday, to: yesterday };
   }
   if (preset.kind === "this-week") {
-    // Monday of the local week: walk back from today's local weekday.
-    const daysSinceMonday = (zonedWeekday(now, tz) + 6) % 7;
-    return { from: shiftDateOnly(to, -daysSinceMonday), to };
+    // Sunday of the local week: walk back from today's local weekday (0 = Sunday).
+    const daysSinceSunday = zonedWeekday(now, tz);
+    return { from: shiftDateOnly(to, -daysSinceSunday), to };
   }
   if (preset.kind === "last-week") {
-    // The most recent complete Monday..Sunday local week.
-    const daysSinceMonday = (zonedWeekday(now, tz) + 6) % 7;
-    return { from: shiftDateOnly(to, -(daysSinceMonday + 7)), to: shiftDateOnly(to, -(daysSinceMonday + 1)) };
+    // The most recent complete Sunday..Saturday local week.
+    const daysSinceSunday = zonedWeekday(now, tz);
+    return { from: shiftDateOnly(to, -(daysSinceSunday + 7)), to: shiftDateOnly(to, -(daysSinceSunday + 1)) };
   }
   // Rolling window: exactly `days` calendar days ending today (inclusive), so
   // `1w` spans 7 local days (today and the 6 before it), not 8.

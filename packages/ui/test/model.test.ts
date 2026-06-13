@@ -542,18 +542,23 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
     ["1w", "1mo", "3mo", "6mo", "1y"],
   );
   assert.deepEqual(staticContractTimeRange(env), { from: "2026-03-10", to: "2026-06-08" });
-  assert.deepEqual(preferredDefaultTimeRange(env, "this-week"), { from: "2026-06-08", to: "2026-06-08" });
+  assert.deepEqual(preferredDefaultTimeRange(env, "this-week"), { from: "2026-06-07", to: "2026-06-08" });
   assert.deepEqual(timeRangeForPreset("today", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-08", to: "2026-06-08" });
   assert.deepEqual(timeRangeForPreset("yesterday", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-07", to: "2026-06-07" });
-  assert.equal(activeTimeRangePresetId({ from: "2026-06-08", to: "2026-06-08" }, Date.parse("2026-06-08T12:00:00Z"), "this-week"), "this-week");
-  assert.equal(activeTimeRangePresetId({ from: "2026-06-08", to: "2026-06-08" }, Date.parse("2026-06-08T12:00:00Z"), "today"), "today");
-  assert.deepEqual(timeRangeForPreset("this-week", Date.parse("2026-06-07T12:00:00Z")), { from: "2026-06-01", to: "2026-06-07" });
-  // 2026-06-11 is a Thursday: last week is the previous full Monday..Sunday.
-  assert.deepEqual(timeRangeForPreset("last-week", Date.parse("2026-06-11T12:00:00Z")), { from: "2026-06-01", to: "2026-06-07" });
-  // On a Monday, last week ends yesterday (Sunday).
-  assert.deepEqual(timeRangeForPreset("last-week", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-01", to: "2026-06-07" });
-  // On a Sunday, the current week is still in progress: last week is the one before.
-  assert.deepEqual(timeRangeForPreset("last-week", Date.parse("2026-06-07T12:00:00Z")), { from: "2026-05-25", to: "2026-05-31" });
+  // 2026-06-07 is a Sunday, so the week start coincides with today and the single-day
+  // range matches both `today` and `this-week`; the preferred preset wins the tie.
+  assert.equal(activeTimeRangePresetId({ from: "2026-06-07", to: "2026-06-07" }, Date.parse("2026-06-07T12:00:00Z"), "this-week"), "this-week");
+  assert.equal(activeTimeRangePresetId({ from: "2026-06-07", to: "2026-06-07" }, Date.parse("2026-06-07T12:00:00Z"), "today"), "today");
+  // 2026-06-07 is a Sunday — the start of its own week, so "this week" is just today.
+  assert.deepEqual(timeRangeForPreset("this-week", Date.parse("2026-06-07T12:00:00Z")), { from: "2026-06-07", to: "2026-06-07" });
+  // 2026-06-11 is a Thursday: this week starts on the prior Sunday.
+  assert.deepEqual(timeRangeForPreset("this-week", Date.parse("2026-06-11T12:00:00Z")), { from: "2026-06-07", to: "2026-06-11" });
+  // 2026-06-11 is a Thursday: last week is the previous full Sunday..Saturday.
+  assert.deepEqual(timeRangeForPreset("last-week", Date.parse("2026-06-11T12:00:00Z")), { from: "2026-05-31", to: "2026-06-06" });
+  // On a Sunday, the current week just started: last week ends yesterday (Saturday).
+  assert.deepEqual(timeRangeForPreset("last-week", Date.parse("2026-06-14T12:00:00Z")), { from: "2026-06-07", to: "2026-06-13" });
+  // On a Saturday, the current week is complete; last week is still the one before.
+  assert.deepEqual(timeRangeForPreset("last-week", Date.parse("2026-06-13T12:00:00Z")), { from: "2026-05-31", to: "2026-06-06" });
   assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-02", to: "2026-06-08" }, "1w is exactly 7 days ending today (today and the 6 before)");
   assert.deepEqual(timeRangeForPreset("6mo", Date.parse("2026-06-08T12:00:00Z")), { from: "2025-12-11", to: "2026-06-08" }, "6mo is exactly 180 days ending today");
   assert.deepEqual(timeRangeForPreset("1y", Date.parse("2026-06-08T12:00:00Z")), { from: "2025-06-09", to: "2026-06-08" }, "1y is exactly 365 days ending today");
@@ -594,9 +599,9 @@ test("time-range presets and filtering honor a configured timezone", () => {
   assert.deepEqual(timeRangeForPreset("today", now, "Asia/Taipei"), { from: "2026-06-09", to: "2026-06-09" });
   assert.deepEqual(timeRangeForPreset("yesterday", now, "UTC"), { from: "2026-06-07", to: "2026-06-07" });
   assert.deepEqual(timeRangeForPreset("yesterday", now, "Asia/Taipei"), { from: "2026-06-08", to: "2026-06-08" });
-  // Tuesday 2026-06-09 in Taipei → week starts Monday the 8th.
-  assert.deepEqual(timeRangeForPreset("this-week", now, "Asia/Taipei"), { from: "2026-06-08", to: "2026-06-09" });
-  assert.deepEqual(timeRangeForPreset("last-week", now, "Asia/Taipei"), { from: "2026-06-01", to: "2026-06-07" });
+  // Tuesday 2026-06-09 in Taipei → week starts Sunday the 7th.
+  assert.deepEqual(timeRangeForPreset("this-week", now, "Asia/Taipei"), { from: "2026-06-07", to: "2026-06-09" });
+  assert.deepEqual(timeRangeForPreset("last-week", now, "Asia/Taipei"), { from: "2026-05-31", to: "2026-06-06" });
   assert.deepEqual(timeRangeForPreset("1w", now, "Asia/Taipei"), { from: "2026-06-03", to: "2026-06-09" });
   assert.equal(activeTimeRangePresetId({ from: "2026-06-09", to: "2026-06-09" }, now, "today", "Asia/Taipei"), "today");
 

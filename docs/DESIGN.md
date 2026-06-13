@@ -404,7 +404,7 @@ Pages:
   overrides in `localStorage`. These preferences are a pre-filter before Board,
   Graph, Activity, and Repo Analytics compute their views. They are view-only;
   the daemon keeps syncing every configured source. When the URL has no explicit
-  `from` / `to`, new browsers default to `this week`, calculated from Monday in
+  `from` / `to`, new browsers default to `this week`, calculated from Sunday in
   the contract's configured `timezone` (default UTC).
 
 The UI supports contract major v3. It warns when a different major is loaded.
