@@ -444,17 +444,24 @@ export function App() {
         { dim: "repos", label: "repo", values: [...activityFacetState.repos], active: activityFacetState.repos, mode: "pinned" },
       ];
     }
-    // board / graph / repo-analytics share the item lens. The review facet is
-    // empty (hidden) on repo-analytics and on boards with no review data.
-    return [
+    // board / graph / repo-analytics share the item lens.
+    const groups: ControlGroup[] = [
       { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
       { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
       { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds },
-      { dim: "reviews", label: "review", values: facets.reviews, active: itemFacetState.reviews, displayValue: reviewFacetLabel },
-      // Exact-repo pin: a drill-down sets it; rendered pinned (only the active
-      // value shows as a removable chip), like the Activity feed's repo pin.
-      { dim: "repos", label: "repo", values: [...itemFacetState.repos], active: itemFacetState.repos, mode: "pinned" },
     ];
+    // The review lens filters items (board/graph) but not aggregated repo
+    // metrics (repoMetricMatches has no review predicate), so omit it on
+    // repo-analytics — otherwise an active ireview would render an inert,
+    // never-clearing-anything chip there. It stays clearable on board/graph.
+    if (page !== "repo-analytics") {
+      groups.push({ dim: "reviews", label: "review", values: facets.reviews, active: itemFacetState.reviews, displayValue: reviewFacetLabel });
+    }
+    // Exact-repo pin: a drill-down sets it; rendered pinned (only the active
+    // value shows as a removable chip), like the Activity feed's repo pin. Honored
+    // by both itemMatches (board/graph) and repoMetricMatches (repo-analytics).
+    groups.push({ dim: "repos", label: "repo", values: [...itemFacetState.repos], active: itemFacetState.repos, mode: "pinned" });
+    return groups;
   }, [page, facets, itemFacetState, activityFacetState, route.unresolved]);
 
   // The Commits page is a focused SCM log over commit records, with SCM filters

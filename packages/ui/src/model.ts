@@ -1276,6 +1276,11 @@ export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(metric.source_id)) return false;
   if (f.states.size && ![...f.states].some((state) => (metric.totals.by_item_state[state] ?? 0) > 0)) return false;
   if (f.kinds.size && ![...f.kinds].some((kind) => (metric.totals.by_item_kind[kind] ?? 0) > 0)) return false;
+  // The exact-repo lens (irepo) is a per-repo bucket, so it maps directly onto a
+  // repo metric: keep only the pinned project_path(s). Without this the board
+  // drill-down would pin a clearable repo chip while the metrics table still
+  // listed every repo in the source.
+  if (f.repos.size && !(metric.project_path != null && f.repos.has(metric.project_path))) return false;
   const q = f.search.trim().toLowerCase();
   if (!q) return true;
   const hay = [

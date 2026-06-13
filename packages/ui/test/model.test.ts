@@ -1002,6 +1002,9 @@ test("repoMetricMatches supports source/state/kind/search filters and sortRepoMe
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), kinds: new Set(["change_request"]) }), true);
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "alice workflow" }), true);
   assert.equal(repoMetricMatches(active, { ...emptyFilters(), search: "missing" }), false);
+  // exact-repo lens (irepo) maps onto a repo metric's project_path, no prefix collision.
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), repos: new Set(["o/active"]) }), true);
+  assert.equal(repoMetricMatches(active, { ...emptyFilters(), repos: new Set(["o/active2"]) }), false, "exact match, not a prefix");
   assert.deepEqual(sortRepoMetrics([quiet, active]).map((metric) => metric.project_path), ["g/quiet", "o/active"]);
 });
 
