@@ -19,6 +19,7 @@
   --accent: #82aaff;
   --accent-fg: #011627;
   --link: #7fdbca;
+  --iid: #ecc48d;        /* sandy tan (Night Owl string hue) — issue/PR number (#123), the item identity highlight */
 
   /* semantic hues */
   --open: #addb67;       /* green  — open / success                       */
@@ -307,12 +308,23 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .card-graph { margin-left: auto; display: inline-flex; align-items: center; color: var(--muted); line-height: 1; }
 .card-graph:hover { color: var(--accent); text-decoration: none; }
 .icon-graph { flex: none; }
-.card-title { font-weight: 600; flex: 1 1 100%; }
+/* title: white like the Commits and Activity titles (which already use
+   --text). The board/graph card title was the lone title anchor inheriting the
+   teal `a` color, which then collided with the teal repo name; align it and
+   hover to --accent, matching .commit-message-link / .activity-title. */
+.card-title { color: var(--text); font-weight: 600; flex: 1 1 100%; }
+.card-title:hover { color: var(--accent); }
 /* repo name: lifted out of the muted meta row into Night Owl's teal (the
    "path / string / link" hue) plus a touch of weight, so "which repo" reads as
    a notable target instead of blending into #iid / @author. Shared by the
-   board, graph list, commits, and activity meta rows. */
+   board, graph list + canvas nodes, commits, and activity meta rows. */
 .card-repo { color: var(--link); font-weight: 500; }
+/* issue/PR number (#123): this app is issue/PR-centric, so the number is a
+   focal identity reference, not muted meta. A warm sandy tan (Night Owl's
+   string hue) pops against the cool white title / teal repo. Same class
+   everywhere it appears (board + graph
+   list cards, graph canvas nodes). */
+.card-iid { color: var(--iid); font-weight: 500; }
 .card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
 /* created · updated, on their own row beneath the meta line */
 .card-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; }
@@ -613,9 +625,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .rf-node-untracked { border-style: dashed; opacity: .8; font-family: ui-monospace, monospace; }
 .rf-node-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
 .rf-node-title {
-  font-weight: 600; line-height: 1.3;
+  color: var(--text); font-weight: 600; line-height: 1.3;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+a.rf-node-title:hover { color: var(--accent); }
 .rf-node-repo { font-size: 0.85em; margin-top: 3px; }
 /* counts row (@author / demand / relations) then the times row — the same
    two-row order as the board card; small, legible once focused/zoomed */
