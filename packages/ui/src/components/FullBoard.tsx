@@ -4,6 +4,7 @@ import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import {
   anchorId,
+  columnCollapsed,
   computeBoardWindowStats,
   findContractScopedStats,
   STATUS_ORDER,
@@ -19,13 +20,17 @@ import {
 // A column renders at most `cap` cards (the list arrives already sorted, newest
 // first). The header ALWAYS shows the true total (items.length); when the cap
 // hides some, a "+N more" footer marks what was trimmed — so the count never
-// lies. Omit `cap` to render the whole column.
+// lies. Omit `cap` to render the whole column. A `collapsed` column renders
+// instead as a slim rail (dot + count + vertical label); clicking either the
+// rail or the header caret flips it via `onToggle`.
 function Column({
   kind,
   label,
   sub,
   items,
   cap,
+  collapsed,
+  onToggle,
   sourceKind,
   colorOf,
   relationCounts,
@@ -35,10 +40,33 @@ function Column({
   sub: string;
   items: ItemDTO[];
   cap?: number;
+  collapsed: boolean;
+  onToggle: () => void;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   relationCounts: Map<string, RelationCount>;
 }) {
+  // Collapsed: a slim, full-height rail — dot, count, vertical label — where the
+  // whole rail is the expand button. Empty columns arrive here automatically (see
+  // model.columnCollapsed); the labelled rail keeps the "this lane is empty"
+  // signal on screen instead of dropping the column entirely.
+  if (collapsed) {
+    return (
+      <div className={`col col-${kind} col-collapsed`}>
+        <button
+          type="button"
+          className="col-rail"
+          onClick={onToggle}
+          title={`${label} (${items.length}) — ${sub}. Click to expand.`}
+          aria-label={`Expand ${label} column, ${items.length} items`}
+        >
+          <span className={`dot dot-${kind}`} />
+          <span className="col-rail-count">{items.length}</span>
+          <span className="col-rail-label">{label}</span>
+        </button>
+      </div>
+    );
+  }
   const shown = cap != null ? items.slice(0, cap) : items;
   const hidden = items.length - shown.length;
   return (
@@ -46,6 +74,15 @@ function Column({
       <h3 className="col-head" title={sub}>
         <span className={`dot dot-${kind}`} />
         {label} <span className="count">{items.length}</span>
+        <button
+          type="button"
+          className="col-collapse-btn"
+          onClick={onToggle}
+          title={`Collapse ${label}`}
+          aria-label={`Collapse ${label} column`}
+        >
+          ‹
+        </button>
         <span className="col-sub">{sub}</span>
       </h3>
       <div className="col-cards">
@@ -88,6 +125,9 @@ export function FullBoard({
   sourceKind,
   colorOf,
   relationCounts,
+  collapsed,
+  peeked,
+  onToggleCollapse,
   aggregates = [],
   itemWindow,
   range,
@@ -98,6 +138,9 @@ export function FullBoard({
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   relationCounts: Map<string, RelationCount>;
+  collapsed: ReadonlySet<string>;
+  peeked: ReadonlySet<string>;
+  onToggleCollapse: (kind: string, isEmpty: boolean) => void;
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
@@ -125,11 +168,38 @@ export function FullBoard({
       <StatsBar scoped={boardStats} />
       <section className="board-7">
         {STATUS_ORDER.map((s) => (
-          <Column key={s} kind={s} label={STATUS_LABEL[s]} sub={STATUS_DESC[s]} items={statusCols[s]} cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined} sourceKind={sourceKind} colorOf={colorOf} relationCounts={relationCounts} />
+          <Column
+            key={s}
+            kind={s}
+            label={STATUS_LABEL[s]}
+            sub={STATUS_DESC[s]}
+            items={statusCols[s]}
+            cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined}
+            collapsed={columnCollapsed(s, statusCols[s].length === 0, collapsed, peeked)}
+            onToggle={() => onToggleCollapse(s, statusCols[s].length === 0)}
+            sourceKind={sourceKind}
+            colorOf={colorOf}
+            relationCounts={relationCounts}
+          />
         ))}
-        {lanes.map(({ lane, items: laneItems }) => (
-          <Column key={lane.key} kind={`lane-${lane.key}`} label={lane.label} sub={lane.hint} items={laneItems} cap={COLUMN_CAP} sourceKind={sourceKind} colorOf={colorOf} relationCounts={relationCounts} />
-        ))}
+        {lanes.map(({ lane, items: laneItems }) => {
+          const laneKind = `lane-${lane.key}`;
+          return (
+            <Column
+              key={lane.key}
+              kind={laneKind}
+              label={lane.label}
+              sub={lane.hint}
+              items={laneItems}
+              cap={COLUMN_CAP}
+              collapsed={columnCollapsed(laneKind, laneItems.length === 0, collapsed, peeked)}
+              onToggle={() => onToggleCollapse(laneKind, laneItems.length === 0)}
+              sourceKind={sourceKind}
+              colorOf={colorOf}
+              relationCounts={relationCounts}
+            />
+          );
+        })}
       </section>
     </>
   );

@@ -51,6 +51,8 @@ import {
   saveHidden,
   loadHiddenSources,
   saveHiddenSources,
+  loadCollapsedColumns,
+  saveCollapsedColumns,
   loadColorOverrides,
   saveColorOverrides,
   loadDefaultRangePreset,
@@ -117,6 +119,13 @@ export function App() {
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
+  // Board columns the viewer manually collapsed to a rail (persisted). Empty
+  // columns auto-collapse without being stored here; `peekedColumns` is the
+  // transient opposite — empty columns the viewer clicked open to peek inside,
+  // deliberately NOT persisted so a peek reverts on reload. See
+  // model.columnCollapsed for how the two combine.
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(loadCollapsedColumns);
+  const [peekedColumns, setPeekedColumns] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const onHash = () => {
@@ -237,6 +246,9 @@ export function App() {
   useEffect(() => {
     saveDefaultRangePreset(defaultRangePreset);
   }, [defaultRangePreset]);
+  useEffect(() => {
+    saveCollapsedColumns(collapsedColumns);
+  }, [collapsedColumns]);
 
   const applyServerBaseUrl = useCallback((nextRaw: string | null) => {
     saveServerBaseUrl(normalizeServerBaseUrl(nextRaw));
@@ -543,6 +555,21 @@ export function App() {
       const next = new Set(h);
       if (next.has(source_id)) next.delete(source_id);
       else next.add(source_id);
+      return next;
+    });
+  }
+
+  // Collapse / expand one board column by its column kind (a status key, or
+  // `lane-<key>` for a Spotlight lane). The click is routed by emptiness so the
+  // two regimes stay disjoint (see model.columnCollapsed): toggling an EMPTY
+  // column flips its transient peek; toggling a NON-EMPTY column flips its
+  // persisted manual collapse.
+  function toggleColumnCollapse(kind: string, isEmpty: boolean) {
+    const setter = isEmpty ? setPeekedColumns : setCollapsedColumns;
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
       return next;
     });
   }
@@ -902,6 +929,9 @@ export function App() {
           sourceKind={sourceKind}
           colorOf={colorOf}
           relationCounts={boardRelationCounts}
+          collapsed={collapsedColumns}
+          peeked={peekedColumns}
+          onToggleCollapse={toggleColumnCollapse}
           aggregates={compatibleAggregates}
           itemWindow={contentEnv.item_window}
           range={activeRange}

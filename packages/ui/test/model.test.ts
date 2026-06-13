@@ -62,6 +62,7 @@ import {
   sourceDisplayName,
   deriveStatuses,
   spotlight,
+  columnCollapsed,
   itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
@@ -1714,6 +1715,21 @@ test("deriveStatuses: related-open reads the OTHER endpoint's state, in both edg
   assert.equal(st.get("i|ca"), "trailing");
   assert.equal(st.get("i|cb"), "trailing");
   assert.equal(st.get("i|cc"), "closed");
+});
+
+test("columnCollapsed: empty is a rail unless peeked; non-empty is a rail only if explicitly collapsed", () => {
+  const none = new Set<string>();
+  // Empty: a rail by default, expanded when the viewer peeks it open.
+  assert.equal(columnCollapsed("in_progress", true, none, none), true, "empty -> rail");
+  assert.equal(columnCollapsed("in_progress", true, none, new Set(["in_progress"])), false, "empty + peeked -> expanded");
+  // Non-empty: expanded by default, a rail only when explicitly collapsed.
+  assert.equal(columnCollapsed("open", false, none, none), false, "non-empty, untouched -> expanded");
+  assert.equal(columnCollapsed("open", false, new Set(["open"]), none), true, "non-empty, explicitly collapsed -> rail");
+  // Regimes are disjoint: a column collapsed while populated STAYS a rail once it
+  // later empties (the collapse set governs only the non-empty regime; the peek
+  // set only the empty regime). The peek set is keyed by the full column kind.
+  assert.equal(columnCollapsed("lane-pr", false, new Set(["lane-pr"]), none), true, "collapsed while populated -> rail");
+  assert.equal(columnCollapsed("lane-pr", true, new Set(["lane-pr"]), none), true, "…and still a rail after emptying (not peeked)");
 });
 
 // The spotlight lanes are pure label/kind conventions compiled from

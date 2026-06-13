@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   loadHidden, saveHidden,
   loadHiddenSources, saveHiddenSources,
+  loadCollapsedColumns, saveCollapsedColumns,
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
@@ -37,6 +38,17 @@ test("hidden repos/sources round-trip and are independent layers", () => {
   saveHidden(new Set());
   assert.deepEqual([...loadHidden()], []);
   assert.deepEqual([...loadHiddenSources()], ["github:github.com"]);
+});
+
+test("collapsed columns round-trip and are independent from the hidden layers", () => {
+  assert.deepEqual([...loadCollapsedColumns()], [], "default: no column collapsed");
+  saveCollapsedColumns(new Set(["in_progress", "lane-pr"]));
+  assert.deepEqual([...loadCollapsedColumns()].sort(), ["in_progress", "lane-pr"]);
+  // Its own key — writing the hidden-repos layer never disturbs it.
+  saveHidden(new Set(["o/r"]));
+  assert.deepEqual([...loadCollapsedColumns()].sort(), ["in_progress", "lane-pr"]);
+  saveCollapsedColumns(new Set());
+  assert.deepEqual([...loadCollapsedColumns()], []);
 });
 
 test("loadHidden tolerates malformed / non-array / non-string storage", () => {
@@ -92,11 +104,13 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   const boom = new Proxy({}, { get() { throw new Error("storage disabled"); } });
   (globalThis as { localStorage?: unknown }).localStorage = boom;
   assert.deepEqual([...loadHidden()], [], "load degrades to empty");
+  assert.deepEqual([...loadCollapsedColumns()], [], "collapsed columns degrade to empty");
   assert.equal(loadColorOverrides().size, 0, "load degrades to no overrides");
   assert.equal(loadDefaultRangePreset(), "this-week", "load degrades to default range");
   assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
+  assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));
   assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
   assert.doesNotThrow(() => saveServerBaseUrl("http://localhost:8080"));
