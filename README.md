@@ -20,9 +20,9 @@ store, not the consumer API.
 - UI package: [packages/ui](packages/ui)
 - Contract package: [packages/contract](packages/contract)
 
-## Current Baseline
+## Features
 
-The basic product path is implemented:
+The full product path is implemented end to end:
 
 - GitHub and GitLab GraphQL sources fetch issues and change requests; REST
   activity surfaces add commit and repository/project event records.

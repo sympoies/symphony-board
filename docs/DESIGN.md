@@ -1,9 +1,10 @@
 # symphony-board Design
 
 This is the current design record for `symphony-board`. It records the stable
-architecture and operating decisions after the baseline product path shipped:
-GitHub/GitLab sources, canonical SQLite/Postgres store drivers, contract major
-v3, read-only UI, and Docker writer/reader deployment.
+architecture and operating decisions of the shipped product: GitHub/GitLab
+sources, canonical SQLite/Postgres store drivers, contract major v3, a UI that
+is read-only toward providers (with writer-owned sync and config control
+planes), and Docker writer/reader plus standalone single-machine deployments.
 
 Historical validation runs, PR numbers, and one-off investigation details live
 in [docs/devlog](devlog). This file is the normative design summary.
