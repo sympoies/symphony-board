@@ -149,7 +149,7 @@ export function ItemCard({
 
       <div className="card-meta">
         <SourceIcon kind={sourceKind} />
-        {item.project_path ? <span className="muted">{item.project_path}</span> : null}
+        {item.project_path ? <span className="card-repo">{item.project_path}</span> : null}
         {item.iid != null ? <span className="muted">#{item.iid}</span> : null}
         {item.author ? <span className="muted">@{item.author}</span> : null}
         {item.demand != null ? (

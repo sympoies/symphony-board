@@ -308,6 +308,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .card-graph:hover { color: var(--accent); text-decoration: none; }
 .icon-graph { flex: none; }
 .card-title { font-weight: 600; flex: 1 1 100%; }
+/* repo name: lifted out of the muted meta row into Night Owl's teal (the
+   "path / string / link" hue) plus a touch of weight, so "which repo" reads as
+   a notable target instead of blending into #iid / @author. Shared by the
+   board, graph list, commits, and activity meta rows. */
+.card-repo { color: var(--link); font-weight: 500; }
 .card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
 /* created · updated, on their own row beneath the meta line */
 .card-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; }

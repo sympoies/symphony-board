@@ -808,6 +808,7 @@ export function activityVirtualRange({
 
 export interface ActivityDisplay {
   title: string;
+  repo: string | null; // project_path, rendered with the .card-repo accent (kept out of `meta`)
   meta: string[];
   chips: string[];
 }
@@ -901,11 +902,12 @@ export function activityDisplay(
 ): ActivityDisplay {
   const title = cleanText(activity.title);
   const summary = cleanText(activity.summary);
-  const meta = [
-    cleanText(activity.project_path),
-    displayKind(activity.kind),
-    activity.actor ? `@${activity.actor}` : null,
-  ].filter((part): part is string => part !== null);
+  // repo is pulled out of `meta` so the feed can render it with the .card-repo
+  // accent (teal), matching the board / commits cards; the rest stays muted.
+  const repo = cleanText(activity.project_path);
+  const meta = [displayKind(activity.kind), activity.actor ? `@${activity.actor}` : null].filter(
+    (part): part is string => part !== null,
+  );
 
   const chips: string[] = [];
   const sha = shortSha(detailText(activity.details, "sha"));
@@ -926,20 +928,20 @@ export function activityDisplay(
   }
 
   const target = workItemTargetLabel(activity);
-  if (target) return { title: joinDistinct([target, title ?? summary]), meta, chips };
+  if (target) return { title: joinDistinct([target, title ?? summary]), repo, meta, chips };
 
   if (activity.kind === "commit" || activity.target_kind === "commit") {
     const commitLabel = sha ? `commit ${sha}` : "commit";
-    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message") ?? summary]), meta, chips };
+    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message") ?? summary]), repo, meta, chips };
   }
 
   if (activity.kind === "push" || activity.kind === "branch" || activity.kind === "tag" || ref) {
     const kind = activityRefKind(activity, rawRef);
-    return { title: ref ? `${kind} ${ref}` : (summary ?? title ?? `${activity.action} ${activity.kind}`), meta, chips };
+    return { title: ref ? `${kind} ${ref}` : (summary ?? title ?? `${activity.action} ${activity.kind}`), repo, meta, chips };
   }
 
   const kind = displayKind(activity.kind);
-  return { title: joinDistinct([kind, title ?? summary]) || `${activity.action} ${activity.kind}`, meta, chips };
+  return { title: joinDistinct([kind, title ?? summary]) || `${activity.action} ${activity.kind}`, repo, meta, chips };
 }
 
 // Does an item satisfy the review-thread lens? "threads" = has any resolvable
