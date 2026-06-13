@@ -350,7 +350,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
 /* primary full-bleed board: 4 status + 3 spotlight lanes in one 7-column row.
    Flex columns scroll horizontally (GitHub-Projects style) and share a uniform
-   height via the same .col cap + internal scroll. Flex (not grid) so a single
+   height via the same fixed .col height + internal scroll. Flex (not grid) so a single
    column can collapse to a slim fixed-width rail while the rest keep flexing. */
 .board-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 8px 0; }
 .board-7 {
@@ -372,8 +372,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
      mirrors the old grid track minmax(300px, 1fr). */
   flex: 1 1 300px;
   min-width: 260px;
-  /* cap the tallest column; shorter ones stretch up to match it (above). */
-  max-height: 78vh;
+  /* fixed height so every column reads the same length regardless of how many
+     cards it holds — a sparse lane would otherwise collapse to a short stub
+     while a full one stood tall. .col-cards scrolls internally past this, and
+     collapsed rails inherit the same height. */
+  height: 78vh;
 }
 /* a collapsed column drops to a slim, fixed-width rail: it keeps the board's
    structure (and the "this lane is empty" signal) on screen while handing its
