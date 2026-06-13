@@ -123,6 +123,7 @@ export interface Filters {
   // Review-thread lens: "threads" (review_threads.total > 0) and/or "unresolved"
   // (review_threads.open > 0). Empty = no review filter. OR within the set.
   reviews: ReadonlySet<string>;
+  repos: ReadonlySet<string>; // exact project_path match; empty = all
 }
 
 export const emptyFilters = (): Filters => ({
@@ -131,6 +132,7 @@ export const emptyFilters = (): Filters => ({
   states: new Set(),
   kinds: new Set(),
   reviews: new Set(),
+  repos: new Set(),
 });
 
 export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
@@ -172,6 +174,8 @@ export interface HashRoute {
   // review threads) and/or "unresolved" (open threads remain). Part of the
   // shared item lens, so it rides tab hops like isource/istate/ikind.
   ireview: string | null;
+  // exact project_path pin for the board/graph lens (single value, rendered pinned; rides tab hops).
+  irepo: string | null;
   // Activity-local toggle: "1" shows only review rows whose target PR/MR still
   // has open threads. Page-local (like source/kind/action), not part of the lens.
   unresolved: string | null;
@@ -205,6 +209,7 @@ export function parseHashRoute(hash: string): HashRoute {
     istate: routeParam(params?.get("istate")),
     ikind: routeParam(params?.get("ikind")),
     ireview: routeParam(params?.get("ireview")),
+    irepo: routeParam(params?.get("irepo")),
     unresolved: routeParam(params?.get("unresolved")),
     from: routeParam(params?.get("from")),
     to: routeParam(params?.get("to")),
@@ -213,7 +218,7 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -226,6 +231,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const istate = routeParam(route.istate);
   const ikind = routeParam(route.ikind);
   const ireview = routeParam(route.ireview);
+  const irepo = routeParam(route.irepo);
   const unresolved = routeParam(route.unresolved);
   const from = routeParam(route.from);
   const to = routeParam(route.to);
@@ -242,6 +248,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (istate) params.push(`istate=${encodeURIComponent(istate)}`);
   if (ikind) params.push(`ikind=${encodeURIComponent(ikind)}`);
   if (ireview) params.push(`ireview=${encodeURIComponent(ireview)}`);
+  if (irepo) params.push(`irepo=${encodeURIComponent(irepo)}`);
   if (unresolved) params.push(`unresolved=${encodeURIComponent(unresolved)}`);
   if (from) params.push(`from=${encodeURIComponent(from)}`);
   if (to) params.push(`to=${encodeURIComponent(to)}`);
@@ -257,8 +264,8 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
 // cross-tab filter since #63 — free of navigation state: hopping back to the
 // Board after a deep-link no longer narrows it to one card. Pairs with
 // parseHashRoute (encode here, decode there).
-export const graphFocusHref = (it: ItemDTO): string =>
-  buildHashRoute({ page: "graph", focus: it.id });
+export const graphFocusHref = (it: ItemDTO, lens?: { isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null }): string =>
+  buildHashRoute({ page: "graph", focus: it.id, ...lens });
 
 // Apply a route's "?q=" token to the filters. The URL is the source of truth for
 // the visible search box: present q sets the search, absent q clears it. That
@@ -971,6 +978,7 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;
   if (f.kinds.size && !f.kinds.has(it.kind)) return false;
+  if (f.repos.size && !(it.project_path != null && f.repos.has(it.project_path))) return false;
   if (!itemReviewMatches(it, f.reviews)) return false;
   const q = f.search.trim().toLowerCase();
   if (q) {
@@ -1270,6 +1278,11 @@ export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(metric.source_id)) return false;
   if (f.states.size && ![...f.states].some((state) => (metric.totals.by_item_state[state] ?? 0) > 0)) return false;
   if (f.kinds.size && ![...f.kinds].some((kind) => (metric.totals.by_item_kind[kind] ?? 0) > 0)) return false;
+  // The exact-repo lens (irepo) is a per-repo bucket, so it maps directly onto a
+  // repo metric: keep only the pinned project_path(s). Without this the board
+  // drill-down would pin a clearable repo chip while the metrics table still
+  // listed every repo in the source.
+  if (f.repos.size && !(metric.project_path != null && f.repos.has(metric.project_path))) return false;
   const q = f.search.trim().toLowerCase();
   if (!q) return true;
   const hay = [

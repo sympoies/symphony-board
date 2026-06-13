@@ -109,14 +109,15 @@ export function toggleActivityFacet(facets: ActivityFacets, dim: ActivityFacetDi
 // reload and share links agree). Kept in distinct route fields
 // (isource/istate/ikind) so it never collides with the Activity drill-down
 // facets when both are present in a URL.
-export type ItemFacetDim = "sources" | "states" | "kinds" | "reviews";
-type ItemRouteField = "isource" | "istate" | "ikind" | "ireview";
+export type ItemFacetDim = "sources" | "states" | "kinds" | "reviews" | "repos";
+type ItemRouteField = "isource" | "istate" | "ikind" | "ireview" | "irepo";
 
 export interface ItemFacets {
   sources: ReadonlySet<string>;
   states: ReadonlySet<string>;
   kinds: ReadonlySet<string>;
   reviews: ReadonlySet<string>;
+  repos: ReadonlySet<string>;
 }
 
 const ITEM_DIM_FIELD: Record<ItemFacetDim, ItemRouteField> = {
@@ -124,15 +125,16 @@ const ITEM_DIM_FIELD: Record<ItemFacetDim, ItemRouteField> = {
   states: "istate",
   kinds: "ikind",
   reviews: "ireview",
+  repos: "irepo",
 };
 
-export const ITEM_FACET_DIMS: ItemFacetDim[] = ["sources", "states", "kinds", "reviews"];
+export const ITEM_FACET_DIMS: ItemFacetDim[] = ["sources", "states", "kinds", "reviews", "repos"];
 
 // The closed vocabulary of the review-thread lens (fixed, not data-derived).
 export const ITEM_REVIEW_VALUES = ["threads", "unresolved"] as const;
 
 // The route fields the board/graph/repo-analytics lens reads and writes.
-type ItemRouteFields = Pick<HashRoute, "isource" | "istate" | "ikind" | "ireview">;
+export type ItemRouteFields = Pick<HashRoute, "isource" | "istate" | "ikind" | "ireview" | "irepo">;
 
 // Route -> the active item-facet set the pages filter by AND the chips show as on.
 export function itemFacets(route: ItemRouteFields): ItemFacets {
@@ -141,6 +143,7 @@ export function itemFacets(route: ItemRouteFields): ItemFacets {
     states: routeList(route.istate),
     kinds: routeList(route.ikind),
     reviews: routeList(route.ireview),
+    repos: routeList(route.irepo),
   };
 }
 
@@ -151,6 +154,7 @@ export function itemFacetFields(facets: ItemFacets): ItemRouteFields {
     istate: listField(facets.states),
     ikind: listField(facets.kinds),
     ireview: listField(facets.reviews),
+    irepo: listField(facets.repos),
   };
 }
 
@@ -160,6 +164,7 @@ export function toggleItemFacet(facets: ItemFacets, dim: ItemFacetDim, value: st
     states: new Set(facets.states),
     kinds: new Set(facets.kinds),
     reviews: new Set(facets.reviews),
+    repos: new Set(facets.repos),
   };
   if (next[dim].has(value)) next[dim].delete(value);
   else next[dim].add(value);
@@ -186,6 +191,7 @@ export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute
     istate: ctx.item?.istate ?? null,
     ikind: ctx.item?.ikind ?? null,
     ireview: ctx.item?.ireview ?? null,
+    irepo: ctx.item?.irepo ?? null,
     from: ctx.range?.from ?? null,
     to: ctx.range?.to ?? null,
     preset: ctx.range?.preset ?? null,
@@ -201,6 +207,7 @@ export function activityDrilldownHref(opts: {
   range: RangeRoute;
   kind?: string | null;
   action?: string | null;
+  item?: ItemRouteFields;
 }): string {
   return buildHashRoute({
     page: "activity",
@@ -208,6 +215,11 @@ export function activityDrilldownHref(opts: {
     repo: opts.repo,
     kind: opts.kind ?? null,
     action: opts.action ?? null,
+    isource: opts.item?.isource ?? null,
+    istate: opts.item?.istate ?? null,
+    ikind: opts.item?.ikind ?? null,
+    ireview: opts.item?.ireview ?? null,
+    irepo: opts.item?.irepo ?? null,
     from: opts.range.from ?? null,
     to: opts.range.to ?? null,
     preset: opts.range.preset ?? null,
@@ -215,16 +227,16 @@ export function activityDrilldownHref(opts: {
 }
 
 // Repo Analytics -> Board drill-down for the review-thread lens. Pins the source
-// facet and the review facet ("unresolved" / "threads"), and seeds the search
-// with the repo path (the Board has no repo facet; project_path is in the search
-// hay) so the landing board shows just that repo's matching items.
+// facet, the review facet ("unresolved" / "threads"), and the exact repo via
+// `irepo` (no longer relies on the free-text `q` substring, which collided on
+// shared path prefixes) so the landing board shows just that repo's matching items.
 export function boardReviewsHref(opts: { source: string; repo: string | null; range: RangeRoute; value: "threads" | "unresolved" }): string | null {
   if (!opts.repo) return null;
   return buildHashRoute({
     page: "board",
     isource: opts.source,
     ireview: opts.value,
-    q: opts.repo,
+    irepo: opts.repo,
     from: opts.range.from ?? null,
     to: opts.range.to ?? null,
     preset: opts.range.preset ?? null,
@@ -234,11 +246,16 @@ export function boardReviewsHref(opts: { source: string; repo: string | null; ra
 // Repo Analytics -> Commits drill-down. The Commits page renders source/repo in
 // its own repo combobox, so it reads these route fields directly (single-value,
 // exact match) — no facet chips involved.
-export function commitsDrilldownHref(opts: { source: string; repo: string; range: RangeRoute }): string {
+export function commitsDrilldownHref(opts: { source: string; repo: string; range: RangeRoute; item?: ItemRouteFields }): string {
   return buildHashRoute({
     page: "commits",
     source: opts.source,
     repo: opts.repo,
+    isource: opts.item?.isource ?? null,
+    istate: opts.item?.istate ?? null,
+    ikind: opts.item?.ikind ?? null,
+    ireview: opts.item?.ireview ?? null,
+    irepo: opts.item?.irepo ?? null,
     from: opts.range.from ?? null,
     to: opts.range.to ?? null,
     preset: opts.range.preset ?? null,

@@ -167,13 +167,13 @@ export function App() {
   // kept distinct from the Activity feed's own source/repo/kind/action facets.
   const itemFacetState = useMemo(
     () => itemFacets(route),
-    [route.isource, route.istate, route.ikind, route.ireview],
+    [route.isource, route.istate, route.ikind, route.ireview, route.irepo],
   );
   // A Filters view the item matchers (itemMatches / edgeMatches /
   // repoMetricMatches) consume: the route-backed item facets plus the URL-backed
   // search term. The React `filters` state now only carries `search`.
   const itemFilters = useMemo<Filters>(
-    () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds, reviews: itemFacetState.reviews }),
+    () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds, reviews: itemFacetState.reviews, repos: itemFacetState.repos }),
     [filters.search, itemFacetState],
   );
   // The zone the contract buckets calendar days in (default UTC). Threaded into
@@ -444,14 +444,24 @@ export function App() {
         { dim: "repos", label: "repo", values: [...activityFacetState.repos], active: activityFacetState.repos, mode: "pinned" },
       ];
     }
-    // board / graph / repo-analytics share the item lens. The review facet is
-    // empty (hidden) on repo-analytics and on boards with no review data.
-    return [
+    // board / graph / repo-analytics share the item lens.
+    const groups: ControlGroup[] = [
       { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
       { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
       { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds },
-      { dim: "reviews", label: "review", values: facets.reviews, active: itemFacetState.reviews, displayValue: reviewFacetLabel },
     ];
+    // The review lens filters items (board/graph) but not aggregated repo
+    // metrics (repoMetricMatches has no review predicate), so omit it on
+    // repo-analytics — otherwise an active ireview would render an inert,
+    // never-clearing-anything chip there. It stays clearable on board/graph.
+    if (page !== "repo-analytics") {
+      groups.push({ dim: "reviews", label: "review", values: facets.reviews, active: itemFacetState.reviews, displayValue: reviewFacetLabel });
+    }
+    // Exact-repo pin: a drill-down sets it; rendered pinned (only the active
+    // value shows as a removable chip), like the Activity feed's repo pin. Honored
+    // by both itemMatches (board/graph) and repoMetricMatches (repo-analytics).
+    groups.push({ dim: "repos", label: "repo", values: [...itemFacetState.repos], active: itemFacetState.repos, mode: "pinned" });
+    return groups;
   }, [page, facets, itemFacetState, activityFacetState, route.unresolved]);
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
@@ -495,7 +505,8 @@ export function App() {
     itemFacetState.sources.size === 0 &&
     itemFacetState.states.size === 0 &&
     itemFacetState.kinds.size === 0 &&
-    itemFacetState.reviews.size === 0;
+    itemFacetState.reviews.size === 0 &&
+    itemFacetState.repos.size === 0;
   const compatibleAggregates = canUseContractAggregates && !customRange ? (env?.aggregates ?? []) : [];
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
@@ -548,6 +559,7 @@ export function App() {
       istate: current.istate,
       ikind: current.ikind,
       ireview: current.ireview,
+      irepo: current.irepo,
       unresolved: current.unresolved,
       q: filters.search,
       from: explicitRange?.from,
@@ -569,6 +581,7 @@ export function App() {
       istate: current.istate,
       ikind: current.ikind,
       ireview: current.ireview,
+      irepo: current.irepo,
       unresolved: current.unresolved === "1" ? null : "1",
       q: filters.search,
       from: explicitRange?.from,
@@ -673,6 +686,7 @@ export function App() {
       istate: route.istate,
       ikind: route.ikind,
       ireview: route.ireview,
+      irepo: route.irepo,
       unresolved: route.unresolved,
       q,
       from: explicitRange?.from,
@@ -696,6 +710,7 @@ export function App() {
       istate: route.istate,
       ikind: route.ikind,
       ireview: route.ireview,
+      irepo: route.irepo,
       unresolved: route.unresolved,
       q: filters.search,
       from: explicitRange?.from,
@@ -718,6 +733,7 @@ export function App() {
       istate: route.istate,
       ikind: route.ikind,
       ireview: route.ireview,
+      irepo: route.irepo,
       unresolved: route.unresolved,
       q: filters.search,
       from: explicitRange?.from,
@@ -738,6 +754,7 @@ export function App() {
       istate: route.istate,
       ikind: route.ikind,
       ireview: route.ireview,
+      irepo: route.irepo,
       unresolved: route.unresolved,
       q: filters.search,
       from: explicitRange?.from,
@@ -761,6 +778,7 @@ export function App() {
       istate: route.istate,
       ikind: route.ikind,
       ireview: route.ireview,
+      irepo: route.irepo,
       unresolved: route.unresolved,
       q: filters.search,
       from: range.from,
@@ -962,6 +980,7 @@ export function App() {
           range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}
+          lens={itemFacetFields(itemFacetState)}
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
@@ -996,6 +1015,7 @@ export function App() {
           aggregates={compatibleAggregates}
           itemWindow={contentEnv.item_window}
           range={activeRange}
+          lens={itemFacetFields(itemFacetState)}
         />
       )}
     </div>

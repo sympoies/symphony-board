@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { AggregateDTO, EdgeDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
+import type { ItemRouteFields } from "../nav.ts";
 import { StatsBar } from "./StatsBar.tsx";
 import {
   anchorId,
@@ -34,6 +35,7 @@ function Column({
   sourceKind,
   colorOf,
   relationCounts,
+  lens,
 }: {
   kind: string;
   label: string;
@@ -45,6 +47,7 @@ function Column({
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   relationCounts: Map<string, RelationCount>;
+  lens?: ItemRouteFields;
 }) {
   // Collapsed: a slim, full-height rail — dot, count, vertical label — where the
   // whole rail is the expand button. Empty columns arrive here automatically (see
@@ -95,6 +98,7 @@ function Column({
             accentColor={colorOf(it.source_id, it.project_path)}
             related={relationCounts.get(it.id) ?? null}
             graphLink
+            lens={lens}
           />
         ))}
         {hidden > 0 && <div className="col-more muted">+{hidden} more</div>}
@@ -131,6 +135,7 @@ export function FullBoard({
   aggregates = [],
   itemWindow,
   range,
+  lens,
 }: {
   items: ItemDTO[];
   edges: EdgeDTO[];
@@ -144,6 +149,7 @@ export function FullBoard({
   aggregates?: readonly AggregateDTO[];
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
+  lens?: ItemRouteFields;
 }) {
   const boardItems = items;
   const contractBoardStats = useMemo(
@@ -180,6 +186,7 @@ export function FullBoard({
             sourceKind={sourceKind}
             colorOf={colorOf}
             relationCounts={relationCounts}
+            lens={lens}
           />
         ))}
         {lanes.map(({ lane, items: laneItems }) => {
@@ -197,6 +204,7 @@ export function FullBoard({
               sourceKind={sourceKind}
               colorOf={colorOf}
               relationCounts={relationCounts}
+              lens={lens}
             />
           );
         })}

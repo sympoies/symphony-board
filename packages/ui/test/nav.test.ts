@@ -105,7 +105,7 @@ test("tabHref carries search, range, and the shared item lens but drops drill-do
     tabHref("board", {
       q: "flaky",
       range: { from: "2026-06-01", to: "2026-06-07", preset: "this-week" },
-      item: { isource: "github:github.com", istate: "open", ikind: "issue" },
+      item: { isource: "github:github.com", istate: "open", ikind: "issue", irepo: "o/r" },
     }),
   );
   assert.equal(route.page, "board");
@@ -117,6 +117,8 @@ test("tabHref carries search, range, and the shared item lens but drops drill-do
   assert.deepEqual([...itemFacets(route).sources], ["github:github.com"]);
   assert.deepEqual([...itemFacets(route).states], ["open"]);
   assert.deepEqual([...itemFacets(route).kinds], ["issue"]);
+  assert.deepEqual([...itemFacets(route).repos], ["o/r"], "the exact-repo pin rides the tab hop");
+  assert.equal(route.irepo, "o/r");
   // ...but page-local drill-down state does not.
   for (const dropped of ["source", "repo", "kind", "action", "focus", "branch"] as const) {
     assert.equal(route[dropped], null, `${dropped} does not carry across a tab hop`);
@@ -131,23 +133,39 @@ test("tabHref carries search, range, and the shared item lens but drops drill-do
 // The board / graph / repo-analytics shared lens. Distinct route fields from the
 // Activity facets so the two never collide when both ride a URL across a tab hop.
 test("itemFacetField maps every dim to a distinct route field; ITEM_FACET_DIMS is the full set", () => {
-  assert.deepEqual(ITEM_FACET_DIMS, ["sources", "states", "kinds", "reviews"]);
+  assert.deepEqual(ITEM_FACET_DIMS, ["sources", "states", "kinds", "reviews", "repos"]);
   assert.equal(itemFacetField("sources"), "isource");
   assert.equal(itemFacetField("states"), "istate");
   assert.equal(itemFacetField("kinds"), "ikind");
   assert.equal(itemFacetField("reviews"), "ireview");
+  assert.equal(itemFacetField("repos"), "irepo");
+});
+
+// The exact-repo pin (irepo). A single-value lens dimension, rendered as a pinned
+// chip; distinct from the Activity feed's substring `repo` so the two never bleed.
+test("repos item facet maps to irepo and round-trips exact project_paths", () => {
+  const facets = itemFacets({ isource: null, istate: null, ikind: null, ireview: null, irepo: "a/b,c/d" });
+  assert.deepEqual([...facets.repos].sort(), ["a/b", "c/d"]);
+  // serialize back to the irepo route field
+  assert.equal(itemFacetFields(facets).irepo, "a/b,c/d");
+  // toggle adds then clears the field
+  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null, irepo: null });
+  const pinned = toggleItemFacet(empty, "repos", "o/r");
+  assert.deepEqual([...pinned.repos], ["o/r"]);
+  assert.equal(itemFacetFields(pinned).irepo, "o/r");
+  assert.equal(itemFacetFields(toggleItemFacet(pinned, "repos", "o/r")).irepo, null, "re-toggle clears the pin");
 });
 
 test("item facets parse, toggle, and round-trip through the hash without colliding with Activity facets", () => {
-  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null });
-  assert.equal(empty.sources.size + empty.states.size + empty.kinds.size + empty.reviews.size, 0);
+  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null, irepo: null });
+  assert.equal(empty.sources.size + empty.states.size + empty.kinds.size + empty.reviews.size + empty.repos.size, 0);
 
   const withKind = toggleItemFacet(empty, "kinds", "issue");
   assert.deepEqual([...withKind.kinds], ["issue"]);
   assert.equal(itemFacetFields(withKind).ikind, "issue");
   assert.equal(itemFacetFields(toggleItemFacet(withKind, "kinds", "issue")).ikind, null, "re-toggle clears the field");
 
-  const facets = itemFacets({ isource: "github:github.com,gitlab:gitlab.com", istate: "open", ikind: "issue,change_request", ireview: "unresolved" });
+  const facets = itemFacets({ isource: "github:github.com,gitlab:gitlab.com", istate: "open", ikind: "issue,change_request", ireview: "unresolved", irepo: null });
   const hash = buildHashRoute({ page: "board", ...itemFacetFields(facets) });
   const route = parseHashRoute(hash);
   const parsed = itemFacets(route);
@@ -163,19 +181,45 @@ test("item facets parse, toggle, and round-trip through the hash without collidi
 
 test("review lens: toggleItemFacet round-trips ireview; boardReviewsHref pins source + review + repo search", () => {
   assert.deepEqual([...ITEM_REVIEW_VALUES], ["threads", "unresolved"]);
-  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null });
+  const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null, irepo: null });
   const withReview = toggleItemFacet(empty, "reviews", "unresolved");
   assert.deepEqual([...withReview.reviews], ["unresolved"]);
   assert.equal(itemFacetFields(withReview).ireview, "unresolved");
   assert.equal(itemFacetFields(toggleItemFacet(withReview, "reviews", "unresolved")).ireview, null, "re-toggle clears it");
 
-  const href = boardReviewsHref({ source: "github:github.com", repo: "sympoies/symphony-board", range: { from: null, to: null, preset: null }, value: "unresolved" });
+  const href = boardReviewsHref({ source: "github:github.com", repo: "o/r", range: { from: null, to: null, preset: null }, value: "unresolved" });
   const route = parseHashRoute(href!);
   assert.equal(route.page, "board");
   assert.equal(route.isource, "github:github.com");
   assert.equal(route.ireview, "unresolved");
-  assert.equal(route.q, "sympoies/symphony-board", "repo path seeds the board search (no repo facet on the board)");
+  // the exact repo is pinned via irepo (NOT the free-text q substring, which
+  // collided on shared path prefixes).
+  assert.equal(route.irepo, "o/r", "repo path pins the exact-repo lens");
+  assert.equal(route.q, null, "no free-text q substring on the board reviews link");
+  assert.ok(href!.includes("irepo=o%2Fr"), `hash carries the encoded irepo pin (${href})`);
+  assert.ok(!href!.includes("q="), "hash carries no q= field");
   assert.equal(boardReviewsHref({ source: "s", repo: null, range: { from: null, to: null, preset: null }, value: "unresolved" }), null, "null repo -> no link");
+});
+
+// The lens (incl. irepo) threads through the Repo Analytics drill-downs so a
+// round-trip back to the board/graph preserves the active facets.
+test("activityDrilldownHref / commitsDrilldownHref thread the item lens (isource/irepo)", () => {
+  const lens = { isource: "github:github.com", istate: null, ikind: "issue", ireview: null, irepo: "o/r" };
+  const aHref = activityDrilldownHref({ source: "github:github.com", repo: "o/r", range: {}, kind: "review", item: lens });
+  assert.ok(aHref.includes("isource=github%3Agithub.com"), `activity drill-down carries isource (${aHref})`);
+  assert.ok(aHref.includes("irepo=o%2Fr"), `activity drill-down carries irepo (${aHref})`);
+  const aRoute = parseHashRoute(aHref);
+  assert.equal(aRoute.isource, "github:github.com");
+  assert.equal(aRoute.irepo, "o/r");
+  assert.equal(aRoute.ikind, "issue");
+
+  const cHref = commitsDrilldownHref({ source: "github:github.com", repo: "o/r", range: {}, item: lens });
+  assert.ok(cHref.includes("isource=github%3Agithub.com"), `commits drill-down carries isource (${cHref})`);
+  assert.ok(cHref.includes("irepo=o%2Fr"), `commits drill-down carries irepo (${cHref})`);
+  // no item lens supplied -> drill-down carries no lens fields
+  const bare = parseHashRoute(commitsDrilldownHref({ source: "s", repo: "r", range: {} }));
+  assert.equal(bare.isource, null);
+  assert.equal(bare.irepo, null);
 });
 
 test("graphFocusHref is re-exported from nav and builds a graph focus link", () => {
