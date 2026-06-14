@@ -1756,18 +1756,53 @@ test("buildActivityTrend exposes per-kind series aligned to the bucket axis", ()
     trend.points.map((point) => point.count),
   );
 
-  // Per-kind series carry one entry per kind seen, sorted by descending count,
-  // each aligned 1:1 with the shared bucket axis.
+  // Series come in a stable order: total first, then kinds by descending count
+  // (ties broken by kind name, so change_request precedes review).
+  assert.deepEqual(
+    trend.series.map((series) => series.kind),
+    ["total", "commit", "change_request", "review"],
+  );
+
+  // Per-kind series carry one entry per kind seen, each aligned 1:1 with the
+  // shared bucket axis.
   const byKind = new Map(trend.series.map((series) => [series.kind, series]));
   assert.deepEqual(byKind.get("total")?.points.map((point) => point.count), [1, 2, 1]);
   assert.deepEqual(byKind.get("commit")?.points.map((point) => point.count), [1, 1, 0]);
   assert.deepEqual(byKind.get("review")?.points.map((point) => point.count), [0, 1, 0]);
   assert.deepEqual(byKind.get("change_request")?.points.map((point) => point.count), [0, 0, 1]);
+
+  // The smoothing and the per-series maxima the chart scales on are pinned, not
+  // just the raw counts (commit counts [1,1,0] over a day bucket, radius 2).
   assert.equal(byKind.get("commit")?.total, 2);
+  assert.deepEqual(byKind.get("commit")?.points.map((point) => point.average), [2 / 3, 2 / 3, 2 / 3]);
+  assert.equal(byKind.get("commit")?.maxCount, 1);
+  assert.equal(byKind.get("commit")?.maxAverage, 2 / 3);
+
   for (const series of trend.series) {
     assert.equal(series.points.length, trend.points.length);
     assert.ok(series.points.every((point) => typeof point.average === "number"));
   }
+});
+
+test("buildActivityTrend series: total-only for a valid empty range, hourly alignment, none for an invalid range", () => {
+  // A valid range with no activity still yields the (zeroed) total series and no
+  // kind lines.
+  const empty = buildActivityTrend([], { from: "2026-06-01", to: "2026-06-03" });
+  assert.deepEqual(empty.series.map((series) => series.kind), ["total"]);
+  assert.equal(empty.series[0]?.total, 0);
+  assert.equal(empty.series[0]?.points.length, empty.points.length);
+
+  // The per-kind series follow the hourly axis (24 buckets, radius-1 smoothing).
+  const hourly = buildActivityTrend(
+    [activity({ id: "hk", occurred_at: "2026-06-10T13:00:00Z", kind: "commit" })],
+    { from: "2026-06-10", to: "2026-06-10" },
+  );
+  assert.equal(hourly.bucket, "hour");
+  assert.ok(hourly.series.every((series) => series.points.length === 24));
+  assert.deepEqual(hourly.series.map((series) => series.kind), ["total", "commit"]);
+
+  // An inverted (invalid) range short-circuits to an empty series list.
+  assert.deepEqual(buildActivityTrend([], { from: "2026-06-03", to: "2026-06-01" }).series, []);
 });
 
 test("buildActivityTrend uses hourly buckets for a single selected day", () => {

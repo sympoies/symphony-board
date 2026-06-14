@@ -7,7 +7,6 @@ import {
   sourceDisplayName,
   type ActivityTrend,
   type ActivityTrendBucket,
-  type ActivityTrendPoint,
   type HeatmapCell,
   type TimeRange,
 } from "../model.ts";
@@ -21,10 +20,13 @@ const TREND_PAD_Y = 16;
 
 // The lines the trend chart can overlay, in legend order: the aggregate plus
 // the developer-significant kinds. Colors are CSS-driven via `data-kind`.
-// `total` is visible by default; the per-kind lines are opt-in toggles so the
-// default view matches the historical single-line chart with no regression.
+// All lines are visible by default; the legend toggles let the viewer hide any
+// of them (which rescales the rest to fill the height).
 const TREND_LINE_ORDER = ["total", "commit", "change_request", "review"] as const;
-const TREND_DEFAULT_HIDDEN = ["commit", "change_request", "review"];
+// The component kinds the chart sums into its `total` line. Keep in sync with
+// the non-total entries of TREND_LINE_ORDER.
+const TREND_KIND_LINES = ["commit", "change_request", "review"] as const;
+const TREND_DEFAULT_HIDDEN: string[] = [];
 const TREND_LINE_LABELS: Record<string, string> = {
   total: "total",
   commit: "commit",
@@ -35,16 +37,6 @@ const seriesLabel = (kind: string) => TREND_LINE_LABELS[kind] ?? kind.replace(/_
 
 const cellTip = (cell: HeatmapCell) =>
   `${cell.date} · ${cell.count.toLocaleString()} ${pluralize(cell.count, "event")}`;
-
-// The trend line plots the smoothed average while dots plot raw counts, so the
-// tooltip carries both — otherwise a hovered value looks "off the line".
-const formatAverage = (value: number) => {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? rounded.toLocaleString() : rounded.toFixed(1);
-};
-
-const pointTip = (point: ActivityTrendPoint) =>
-  `${point.label} · ${point.count.toLocaleString()} ${pluralize(point.count, "event")} · avg ${formatAverage(point.average)}`;
 
 function formatKind(kind: string): string {
   return kind.replace(/_/g, " ");
@@ -105,7 +97,7 @@ function ActivityTrendChart({
   trend: ActivityTrend;
   onTip: (tip: { label: string; x: number; y: number } | null) => void;
 }) {
-  const { points, bucket, total, from, to } = trend;
+  const { points, bucket, from, to } = trend;
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
   // Persistent show/hide (legend click) vs. transient emphasis (legend or line
   // hover). They are independent: a hidden line never draws; a focused line
@@ -113,13 +105,39 @@ function ActivityTrendChart({
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(TREND_DEFAULT_HIDDEN));
   const [focused, setFocused] = useState<string | null>(null);
 
-  const seriesByKind = useMemo(
+  const modelSeries = useMemo(
     () => new Map(trend.series.map((series) => [series.kind, series] as const)),
     [trend.series],
   );
-  // Legend entries: curated lines that actually occur in this range.
+  // This chart is scoped to the developer-significant kinds, and its `total`
+  // line is their per-bucket sum — not every activity kind — so the lines and
+  // the total stay self-consistent (the total is exactly what the kind lines
+  // add up to). Branch/issue activity is intentionally excluded here, so this
+  // total differs from the all-events count shown in the overview / feed.
+  const seriesByKind = useMemo(() => {
+    const parts = TREND_KIND_LINES.flatMap((kind) => {
+      const series = modelSeries.get(kind);
+      return series ? [series] : [];
+    });
+    const totalPoints = points.map((point, index) => ({
+      date: point.date,
+      label: point.label,
+      count: parts.reduce((sum, series) => sum + (series.points[index]?.count ?? 0), 0),
+      average: parts.reduce((sum, series) => sum + (series.points[index]?.average ?? 0), 0),
+    }));
+    const totalSeries = {
+      kind: "total",
+      total: parts.reduce((sum, series) => sum + series.total, 0),
+      maxCount: totalPoints.reduce((max, point) => Math.max(max, point.count), 0),
+      maxAverage: totalPoints.reduce((max, point) => Math.max(max, point.average), 0),
+      points: totalPoints,
+    };
+    return new Map([totalSeries, ...parts].map((series) => [series.kind, series] as const));
+  }, [points, modelSeries]);
+  // Legend entries: total plus the curated lines that actually occur in range.
   const legend = TREND_LINE_ORDER.filter((kind) => seriesByKind.has(kind));
   const visible = legend.filter((kind) => !hidden.has(kind)).map((kind) => seriesByKind.get(kind)!);
+  const shownTotal = seriesByKind.get("total")?.total ?? 0;
 
   // Shared Y axis across visible lines only — so hiding the dominant line
   // (usually commits) rescales the rest up to fill the height and become
@@ -129,13 +147,15 @@ function ActivityTrendChart({
     ...visible.flatMap((series) => [series.maxCount, series.maxAverage]),
   );
 
-  // Per-line plotted coordinates, keyed by kind, plus the smoothed path.
-  const lines = visible.map((series) => ({
-    kind: series.kind,
-    series,
-    line: series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.average)),
-    path: smoothPath(series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.average))),
-  }));
+  // Per-line geometry: `line` is the smoothed-average curve (drives the path and
+  // nearest-line hover detection); `raw` is the per-bucket count position, where
+  // the dots sit — so the dots show the actual values around the trend line.
+  const dotStep = Math.max(1, Math.ceil(points.length / 120));
+  const lines = visible.map((series) => {
+    const line = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.average));
+    const raw = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.count));
+    return { kind: series.kind, series, line, raw, path: smoothPath(line) };
+  });
 
   const byLabel = bucketLabel(bucket);
   const selectedRange = rangeLabel(from, to);
@@ -153,12 +173,15 @@ function ActivityTrendChart({
   });
 
   const tipFor = (index: number) => {
-    // Prefer the focused line's value; fall back to the aggregate.
-    const series = (focused && seriesByKind.get(focused)) || seriesByKind.get("total");
-    const point = series?.points[index];
-    if (!series || !point) return null;
-    const name = seriesLabel(series.kind);
-    return `${point.label} · ${name} ${point.count.toLocaleString()} ${pluralize(point.count, "event")} · avg ${formatAverage(point.average)}`;
+    // List every visible line's count for the hovered bucket, in legend order,
+    // so the tooltip reads as a snapshot of the whole group at that moment.
+    if (visible.length === 0) return null;
+    const label = visible[0]!.points[index]?.label ?? points[index]?.label;
+    if (!label) return null;
+    const parts = visible.map(
+      (series) => `${seriesLabel(series.kind)} ${(series.points[index]?.count ?? 0).toLocaleString()}`,
+    );
+    return `${label} · ${parts.join(" · ")}`;
   };
 
   const focusAt = (index: number, event: ReactMouseEvent) => {
@@ -201,7 +224,7 @@ function ActivityTrendChart({
           Selected range activity by {byLabel}
           <small>{selectedRange}</small>
         </span>
-        <b>{total.toLocaleString()} events</b>
+        <b>{shownTotal.toLocaleString()} events</b>
       </div>
       <div className="hm-trend-legend" role="group" aria-label="Toggle activity lines">
         {legend.map((kind) => {
@@ -245,8 +268,6 @@ function ActivityTrendChart({
             y2={TREND_PAD_Y + n * (TREND_H - TREND_PAD_Y * 2)}
           />
         ))}
-        {/* Draw dimmed lines first, the focused line last, so emphasis reads on
-            top regardless of legend order. */}
         {lines.map((entry) => (
           <path
             key={entry.kind}
@@ -256,6 +277,23 @@ function ActivityTrendChart({
             d={entry.path}
           />
         ))}
+        {/* Per-bucket markers at the raw count, one per visible line, so the
+            actual values read around the smoothed trend line. */}
+        {lines.map((entry) =>
+          entry.raw.map((coord, index) =>
+            entry.series.points[index]?.count && index % dotStep === 0 ? (
+              <circle
+                key={`${entry.kind}-${entry.series.points[index]!.date}`}
+                className="hm-trend-dot"
+                data-kind={entry.kind}
+                data-dim={focused && focused !== entry.kind ? true : undefined}
+                cx={coord.x}
+                cy={coord.y}
+                r="2.2"
+              />
+            ) : null,
+          ),
+        )}
         {focusIndex !== null ? (
           <g className="hm-trend-focus" aria-hidden="true">
             <line
@@ -266,7 +304,7 @@ function ActivityTrendChart({
               y2={TREND_H - TREND_PAD_Y}
             />
             {lines.map((entry) => {
-              const coord = entry.line[focusIndex];
+              const coord = entry.raw[focusIndex];
               if (!coord) return null;
               const isFocused = focused === entry.kind;
               return (

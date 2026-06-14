@@ -861,6 +861,19 @@ a.rf-node-title:hover { color: var(--accent); }
   stroke: color-mix(in srgb, var(--muted) 55%, transparent);
   opacity: .5;
 }
+/* Raw-count markers, colored to match their line. */
+.hm-trend-dot {
+  fill: var(--trend-color, color-mix(in srgb, var(--open) 65%, var(--accent)));
+  opacity: .4;
+}
+.hm-trend-dot[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
+.hm-trend-dot[data-kind="commit"] { --trend-color: var(--open); }
+.hm-trend-dot[data-kind="change_request"] { --trend-color: var(--merged); }
+.hm-trend-dot[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-dot[data-dim] {
+  fill: color-mix(in srgb, var(--muted) 55%, transparent);
+  opacity: .3;
+}
 /* Hover affordances: invisible full-height hit bands drive a crosshair plus an
    enlarged focus dot, so tiny (or decimated / zero-count) dots stay reachable. */
 .hm-trend-hit {

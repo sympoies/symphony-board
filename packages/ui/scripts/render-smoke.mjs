@@ -604,8 +604,8 @@ try {
     returnByValue: true,
   })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
   // Trend hover: dispatch a mouseover on a hit band (React's onMouseEnter listens
-  // to bubbled mouseover) and expect the shared tooltip plus the enlarged focus
-  // dot. Guarded by `present`, like the heatmap checks above.
+  // to bubbled mouseover) and expect the shared per-line tooltip plus the
+  // enlarged focus dot. Guarded by `present`, like the heatmap checks above.
   await send("Runtime.evaluate", {
     expression: `(() => {
       const hit = document.querySelector('.hm-trend .hm-trend-hit');
@@ -624,12 +624,14 @@ try {
       const tipText = document.querySelector('.hm-tip')?.textContent || '';
       return {
         hits: document.querySelectorAll('.hm-trend .hm-trend-hit').length,
-        tip: tipText.includes('event') && tipText.includes('avg'),
+        legend: document.querySelectorAll('.hm-trend-legend .hm-trend-legend-item').length,
+        lines: document.querySelectorAll('.hm-trend-chart .hm-trend-line').length,
+        tip: tipText.includes('total') && /\\d/.test(tipText),
         focus: !!document.querySelector('.hm-trend-dot-focus'),
       };
     })()`,
     returnByValue: true,
-  })).result.value || { hits: 0, tip: false, focus: false };
+  })).result.value || { hits: 0, legend: 0, lines: 0, tip: false, focus: false };
   // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
@@ -1205,7 +1207,9 @@ try {
     [!activityHeatmap.present || activityHeatmap.rangeRepos >= 1, `activity: selected-range repo summary rendered (${activityHeatmap.rangeRepos || 0} rows)`],
     [!activityHeatmap.present || activityHeatmap.rangeReposSorted === true, "activity: selected-range repo summary sorted by events desc"],
     [!activityHeatmap.present || trendHover.hits > 0, `activity: trend hover hit bands rendered (${trendHover.hits})`],
-    [!activityHeatmap.present || trendHover.tip === true, "activity: hovering a trend point shows count + avg tooltip"],
+    [!activityHeatmap.present || trendHover.legend >= 1, `activity: trend legend toggles rendered (${trendHover.legend})`],
+    [!activityHeatmap.present || trendHover.lines >= 1, `activity: trend overlay lines rendered (${trendHover.lines})`],
+    [!activityHeatmap.present || trendHover.tip === true, "activity: hovering a trend point shows the per-line counts tooltip"],
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
