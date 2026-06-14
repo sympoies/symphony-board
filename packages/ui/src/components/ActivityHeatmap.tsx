@@ -121,9 +121,8 @@ function ActivityTrendChart({
     () => new Map(trend.series.map((series) => [series.kind, series] as const)),
     [trend.series],
   );
-  // Keep the model-provided total as the all-activity aggregate. The optional
-  // kind overlays are curated, so recomputing total from them would under-count
-  // issue, branch, tag, and repository activity that still appears in the feed.
+  // The model's total series is the chart aggregate: commit + change request +
+  // review. Broader all-event totals stay in the summary panels.
   const seriesByKind = useMemo(() => {
     const total = modelSeries.get("total");
     const parts = TREND_KIND_LINES.flatMap((kind) => {

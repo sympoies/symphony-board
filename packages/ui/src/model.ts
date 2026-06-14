@@ -579,8 +579,9 @@ export interface ActivityTrend {
   busiest: ActivityTrendBusiest | null;
   byKind: ActivityKindCount[];
   byRepo: ActivityTrendRepoCount[];
-  // [total, ...one per kind seen] — kind series sorted by descending count.
-  // Every series shares the same bucket axis as `points`.
+  // Chart series: total first, then one per kind seen. The total series sums the
+  // curated activity kinds the chart displays, while top-level `total` / `points`
+  // keep counting every selected event for summary panels.
   series: ActivityTrendSeries[];
 }
 
@@ -800,12 +801,15 @@ export function buildActivityTrend(
   const bucket: ActivityTrendBucket = days <= 1 ? "hour" : days <= 31 ? "day" : days <= 366 ? "week" : "month";
   const buckets = activityTrendBuckets(normalized, bucket);
   const countByKey = new Map<string, number>();
+  const chartTotalCountByKey = new Map<string, number>();
   // Per-kind bucket counts, so each kind can be plotted as its own line.
   const countByKeyByKind = new Map<string, Map<string, number>>();
+  const chartTotalKinds = new Set<string>(ACTIVITY_SUMMARY_KINDS);
   const kindCounts = new Map<string, number>();
   const repoCounts = new Map<string, ActivityTrendRepoCount>();
   const activeDayKeys = new Set<string>();
   let total = 0;
+  let chartTotal = 0;
   for (const a of activities) {
     const ms = timestampMs(a.occurred_at);
     if (ms === null) continue;
@@ -814,6 +818,10 @@ export function buildActivityTrend(
     activeDayKeys.add(day);
     const key = activityTrendBucketKey(day, ms, normalized, bucket, tz);
     countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    if (chartTotalKinds.has(a.kind)) {
+      chartTotalCountByKey.set(key, (chartTotalCountByKey.get(key) ?? 0) + 1);
+      chartTotal += 1;
+    }
     let kindKeys = countByKeyByKind.get(a.kind);
     if (!kindKeys) {
       kindKeys = new Map<string, number>();
@@ -857,8 +865,15 @@ export function buildActivityTrend(
 
   // The aggregate line first, then one line per kind in `byKind` (descending)
   // order so the legend and overlay share a stable, count-ranked sequence.
+  const chartAggregate = smoothTrendSeries(buckets, chartTotalCountByKey, bucket);
   const series: ActivityTrendSeries[] = [
-    { kind: "total", total, maxCount, maxAverage, points },
+    {
+      kind: "total",
+      total: chartTotal,
+      maxCount: chartAggregate.maxCount,
+      maxAverage: chartAggregate.maxAverage,
+      points: chartAggregate.points,
+    },
     ...byKind.map(({ kind, count }) => {
       const smoothed = smoothTrendSeries(buckets, countByKeyByKind.get(kind) ?? new Map(), bucket);
       return { kind, total: count, maxCount: smoothed.maxCount, maxAverage: smoothed.maxAverage, points: smoothed.points };
