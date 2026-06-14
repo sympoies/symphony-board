@@ -842,16 +842,37 @@ a.rf-node-title:hover { color: var(--accent); }
   stroke: color-mix(in srgb, var(--line) 70%, transparent);
   stroke-width: 1;
 }
-.hm-trend-dot {
-  fill: color-mix(in srgb, var(--open) 65%, var(--accent));
-  opacity: .34;
-}
+/* Per-line palette: total keeps the historical accent/green blend; the kind
+   lines reuse the badge hues so a line reads the same color as its chip. */
 .hm-trend-line {
   fill: none;
-  stroke: color-mix(in srgb, var(--accent) 72%, var(--open));
+  stroke: var(--trend-color, color-mix(in srgb, var(--accent) 72%, var(--open)));
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+  transition: stroke .12s ease, opacity .12s ease;
+}
+.hm-trend-line[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
+.hm-trend-line[data-kind="commit"] { --trend-color: var(--open); }
+.hm-trend-line[data-kind="change_request"] { --trend-color: var(--merged); }
+.hm-trend-line[data-kind="review"] { --trend-color: var(--declared); }
+/* Background-fade the non-focused lines so the hovered one stands alone. */
+.hm-trend-line[data-dim] {
+  stroke: color-mix(in srgb, var(--muted) 55%, transparent);
+  opacity: .5;
+}
+/* Raw-count markers, colored to match their line. */
+.hm-trend-dot {
+  fill: var(--trend-color, color-mix(in srgb, var(--open) 65%, var(--accent)));
+  opacity: .4;
+}
+.hm-trend-dot[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
+.hm-trend-dot[data-kind="commit"] { --trend-color: var(--open); }
+.hm-trend-dot[data-kind="change_request"] { --trend-color: var(--merged); }
+.hm-trend-dot[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-dot[data-dim] {
+  fill: color-mix(in srgb, var(--muted) 55%, transparent);
+  opacity: .3;
 }
 /* Hover affordances: invisible full-height hit bands drive a crosshair plus an
    enlarged focus dot, so tiny (or decimated / zero-count) dots stay reachable. */
@@ -864,13 +885,20 @@ a.rf-node-title:hover { color: var(--accent); }
   stroke-dasharray: 3 4;
 }
 .hm-trend-halo {
-  fill: color-mix(in srgb, var(--accent) 26%, transparent);
+  fill: color-mix(in srgb, var(--trend-color, var(--accent)) 26%, transparent);
 }
 .hm-trend-dot-focus {
-  fill: color-mix(in srgb, var(--open) 55%, var(--accent));
+  fill: var(--trend-color, color-mix(in srgb, var(--open) 55%, var(--accent)));
   stroke: var(--panel-2);
   stroke-width: 1.5;
 }
+.hm-trend-dot-focus[data-dim] {
+  fill: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.hm-trend-halo[data-kind="total"], .hm-trend-dot-focus[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
+.hm-trend-halo[data-kind="commit"], .hm-trend-dot-focus[data-kind="commit"] { --trend-color: var(--open); }
+.hm-trend-halo[data-kind="change_request"], .hm-trend-dot-focus[data-kind="change_request"] { --trend-color: var(--merged); }
+.hm-trend-halo[data-kind="review"], .hm-trend-dot-focus[data-kind="review"] { --trend-color: var(--declared); }
 .hm-trend-halo,
 .hm-trend-dot-focus {
   transform-box: fill-box;
@@ -880,6 +908,56 @@ a.rf-node-title:hover { color: var(--accent); }
 @keyframes hm-trend-focus-pop {
   from { transform: scale(.45); }
 }
+/* Toggle legend: one chip per line, click to show/hide, hover to focus. */
+.hm-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+.hm-trend-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .12s ease, border-color .12s ease;
+}
+.hm-trend-legend-item small {
+  color: var(--muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.hm-trend-legend-item[data-focused] {
+  border-color: color-mix(in srgb, var(--trend-color, var(--accent)) 60%, var(--chip-border));
+}
+.hm-trend-legend-item[data-hidden] {
+  opacity: .42;
+}
+.hm-trend-legend-item[data-hidden] .hm-trend-swatch {
+  background: transparent;
+}
+.hm-trend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--trend-color, var(--accent));
+  border: 1px solid var(--trend-color, var(--accent));
+}
+.hm-trend-swatch[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
+.hm-trend-swatch[data-kind="commit"] { --trend-color: var(--open); }
+.hm-trend-swatch[data-kind="change_request"] { --trend-color: var(--merged); }
+.hm-trend-swatch[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-legend-item[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
+.hm-trend-legend-item[data-kind="commit"] { --trend-color: var(--open); }
+.hm-trend-legend-item[data-kind="change_request"] { --trend-color: var(--merged); }
+.hm-trend-legend-item[data-kind="review"] { --trend-color: var(--declared); }
 .hm-trend-axis {
   display: flex;
   justify-content: space-between;

@@ -7,7 +7,6 @@ import {
   sourceDisplayName,
   type ActivityTrend,
   type ActivityTrendBucket,
-  type ActivityTrendPoint,
   type HeatmapCell,
   type TimeRange,
 } from "../model.ts";
@@ -19,18 +18,25 @@ const TREND_H = 170;
 const TREND_PAD_X = 18;
 const TREND_PAD_Y = 16;
 
+// The lines the trend chart can overlay, in legend order: the aggregate plus
+// the developer-significant kinds. Colors are CSS-driven via `data-kind`.
+// All lines are visible by default; the legend toggles let the viewer hide any
+// of them (which rescales the rest to fill the height).
+const TREND_LINE_ORDER = ["total", "commit", "change_request", "review"] as const;
+// The component kinds the chart sums into its `total` line. Keep in sync with
+// the non-total entries of TREND_LINE_ORDER.
+const TREND_KIND_LINES = ["commit", "change_request", "review"] as const;
+const TREND_DEFAULT_HIDDEN: string[] = [];
+const TREND_LINE_LABELS: Record<string, string> = {
+  total: "total",
+  commit: "commit",
+  change_request: "change request",
+  review: "review",
+};
+const seriesLabel = (kind: string) => TREND_LINE_LABELS[kind] ?? kind.replace(/_/g, " ");
+
 const cellTip = (cell: HeatmapCell) =>
   `${cell.date} · ${cell.count.toLocaleString()} ${pluralize(cell.count, "event")}`;
-
-// The trend line plots the smoothed average while dots plot raw counts, so the
-// tooltip carries both — otherwise a hovered value looks "off the line".
-const formatAverage = (value: number) => {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? rounded.toLocaleString() : rounded.toFixed(1);
-};
-
-const pointTip = (point: ActivityTrendPoint) =>
-  `${point.label} · ${point.count.toLocaleString()} ${pluralize(point.count, "event")} · avg ${formatAverage(point.average)}`;
 
 function formatKind(kind: string): string {
   return kind.replace(/_/g, " ");
@@ -75,6 +81,15 @@ function rangeLabel(from: string, to: string): string {
   return from === to ? from : `${from} to ${to}`;
 }
 
+// Map a pointer's client Y onto the chart's viewBox Y so we can pick the line
+// nearest the cursor. The hit band spans the full chart height, so its bounding
+// rect maps 1:1 onto [0, TREND_H].
+function viewBoxY(event: ReactMouseEvent): number {
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (rect.height <= 0) return 0;
+  return ((event.clientY - rect.top) / rect.height) * TREND_H;
+}
+
 function ActivityTrendChart({
   trend,
   onTip,
@@ -82,36 +97,125 @@ function ActivityTrendChart({
   trend: ActivityTrend;
   onTip: (tip: { label: string; x: number; y: number } | null) => void;
 }) {
-  const { points, bucket, total, maxCount, maxAverage, from, to } = trend;
+  const { points, bucket, from, to } = trend;
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
-  const maxY = Math.max(1, maxCount, maxAverage);
-  const linePoints = points.map((point, index) => trendCoord(index, points.length, maxY, point.average));
-  const rawPoints = points.map((point, index) => trendCoord(index, points.length, maxY, point.count));
-  const path = smoothPath(linePoints);
+  // Persistent show/hide (legend click) vs. transient emphasis (legend or line
+  // hover). They are independent: a hidden line never draws; a focused line
+  // stays full-strength while the others dim to background grey.
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(TREND_DEFAULT_HIDDEN));
+  const [focused, setFocused] = useState<string | null>(null);
+
+  const modelSeries = useMemo(
+    () => new Map(trend.series.map((series) => [series.kind, series] as const)),
+    [trend.series],
+  );
+  // This chart is scoped to the developer-significant kinds, and its `total`
+  // line is their per-bucket sum — not every activity kind — so the lines and
+  // the total stay self-consistent (the total is exactly what the kind lines
+  // add up to). Branch/issue activity is intentionally excluded here, so this
+  // total differs from the all-events count shown in the overview / feed.
+  const seriesByKind = useMemo(() => {
+    const parts = TREND_KIND_LINES.flatMap((kind) => {
+      const series = modelSeries.get(kind);
+      return series ? [series] : [];
+    });
+    const totalPoints = points.map((point, index) => ({
+      date: point.date,
+      label: point.label,
+      count: parts.reduce((sum, series) => sum + (series.points[index]?.count ?? 0), 0),
+      average: parts.reduce((sum, series) => sum + (series.points[index]?.average ?? 0), 0),
+    }));
+    const totalSeries = {
+      kind: "total",
+      total: parts.reduce((sum, series) => sum + series.total, 0),
+      maxCount: totalPoints.reduce((max, point) => Math.max(max, point.count), 0),
+      maxAverage: totalPoints.reduce((max, point) => Math.max(max, point.average), 0),
+      points: totalPoints,
+    };
+    return new Map([totalSeries, ...parts].map((series) => [series.kind, series] as const));
+  }, [points, modelSeries]);
+  // Legend entries: total plus the curated lines that actually occur in range.
+  const legend = TREND_LINE_ORDER.filter((kind) => seriesByKind.has(kind));
+  const visible = legend.filter((kind) => !hidden.has(kind)).map((kind) => seriesByKind.get(kind)!);
+  const shownTotal = seriesByKind.get("total")?.total ?? 0;
+
+  // Shared Y axis across visible lines only — so hiding the dominant line
+  // (usually commits) rescales the rest up to fill the height and become
+  // readable, which is the whole point of the toggle.
+  const maxY = Math.max(
+    1,
+    ...visible.flatMap((series) => [series.maxCount, series.maxAverage]),
+  );
+
+  // Per-line geometry: `line` is the smoothed-average curve (drives the path and
+  // nearest-line hover detection); `raw` is the per-bucket count position, where
+  // the dots sit — so the dots show the actual values around the trend line.
   const dotStep = Math.max(1, Math.ceil(points.length / 120));
+  const lines = visible.map((series) => {
+    const line = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.average));
+    const raw = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.count));
+    return { kind: series.kind, series, line, raw, path: smoothPath(line) };
+  });
+
   const byLabel = bucketLabel(bucket);
   const selectedRange = rangeLabel(from, to);
   const axisStart = points[0]?.label ?? from;
   const axisEnd = points.at(-1)?.label ?? to;
+
   // Full-height invisible hit bands, one per bucket with boundaries at the
   // midpoints between neighbors: every bucket is hoverable — including
-  // zero-count and dot-decimated ones — without aiming at a 2px dot.
-  const hitBands = rawPoints.map((point, index) => {
-    const left = index === 0 ? 0 : (rawPoints[index - 1]!.x + point.x) / 2;
-    const right = index === rawPoints.length - 1 ? TREND_W : (point.x + rawPoints[index + 1]!.x) / 2;
+  // zero-count ones — without aiming at a thin line.
+  const axisX = points.map((_, index) => trendCoord(index, points.length, maxY, 0).x);
+  const hitBands = axisX.map((x, index) => {
+    const left = index === 0 ? 0 : (axisX[index - 1]! + x) / 2;
+    const right = index === axisX.length - 1 ? TREND_W : (x + axisX[index + 1]!) / 2;
     return { x: left, width: right - left };
   });
-  const focusPoint = focusIndex !== null ? (rawPoints[focusIndex] ?? null) : null;
+
+  const tipFor = (index: number) => {
+    // List every visible line's count for the hovered bucket, in legend order,
+    // so the tooltip reads as a snapshot of the whole group at that moment.
+    if (visible.length === 0) return null;
+    const label = visible[0]!.points[index]?.label ?? points[index]?.label;
+    if (!label) return null;
+    const parts = visible.map(
+      (series) => `${seriesLabel(series.kind)} ${(series.points[index]?.count ?? 0).toLocaleString()}`,
+    );
+    return `${label} · ${parts.join(" · ")}`;
+  };
 
   const focusAt = (index: number, event: ReactMouseEvent) => {
     setFocusIndex(index);
-    const point = points[index];
-    if (point) onTip({ label: pointTip(point), x: event.clientX, y: event.clientY });
+    // Emphasize the visible line whose curve sits closest to the cursor.
+    if (lines.length > 0) {
+      const vy = viewBoxY(event);
+      let nearest = lines[0]!;
+      let best = Infinity;
+      for (const entry of lines) {
+        const dy = Math.abs((entry.line[index]?.y ?? Infinity) - vy);
+        if (dy < best) {
+          best = dy;
+          nearest = entry;
+        }
+      }
+      setFocused(nearest.kind);
+    }
+    const label = tipFor(index);
+    if (label) onTip({ label, x: event.clientX, y: event.clientY });
   };
-  const clearFocus = () => {
+  const clearChartFocus = () => {
     setFocusIndex(null);
+    setFocused(null);
     onTip(null);
   };
+
+  const toggle = (kind: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
 
   return (
     <section className="hm-trend" aria-label="Selected range activity trend" data-bucket={bucket}>
@@ -120,7 +224,30 @@ function ActivityTrendChart({
           Selected range activity by {byLabel}
           <small>{selectedRange}</small>
         </span>
-        <b>{total.toLocaleString()} events</b>
+        <b>{shownTotal.toLocaleString()} events</b>
+      </div>
+      <div className="hm-trend-legend" role="group" aria-label="Toggle activity lines">
+        {legend.map((kind) => {
+          const isHidden = hidden.has(kind);
+          return (
+            <button
+              key={kind}
+              type="button"
+              className="hm-trend-legend-item"
+              data-kind={kind}
+              data-hidden={isHidden || undefined}
+              data-focused={!isHidden && focused === kind ? true : undefined}
+              aria-pressed={!isHidden}
+              onClick={() => toggle(kind)}
+              onMouseEnter={() => setFocused(kind)}
+              onMouseLeave={() => setFocused((cur) => (cur === kind ? null : cur))}
+            >
+              <span className="hm-trend-swatch" data-kind={kind} aria-hidden="true" />
+              {seriesLabel(kind)}
+              <small>{(seriesByKind.get(kind)?.total ?? 0).toLocaleString()}</small>
+            </button>
+          );
+        })}
       </div>
       {/* aria-label, not <title>: a <title> child doubles as a native hover
           tooltip and fights the custom hm-tip. */}
@@ -129,7 +256,7 @@ function ActivityTrendChart({
         viewBox={`0 0 ${TREND_W} ${TREND_H}`}
         role="img"
         aria-label={`Activity trend by ${byLabel} from ${from} to ${to}`}
-        onMouseLeave={clearFocus}
+        onMouseLeave={clearChartFocus}
       >
         {[0.25, 0.5, 0.75].map((n) => (
           <line
@@ -141,23 +268,61 @@ function ActivityTrendChart({
             y2={TREND_PAD_Y + n * (TREND_H - TREND_PAD_Y * 2)}
           />
         ))}
-        {rawPoints.map((point, index) =>
-          points[index]?.count && index % dotStep === 0 ? (
-            <circle key={points[index]!.date} className="hm-trend-dot" cx={point.x} cy={point.y} r="2.2" />
-          ) : null,
+        {lines.map((entry) => (
+          <path
+            key={entry.kind}
+            className="hm-trend-line"
+            data-kind={entry.kind}
+            data-dim={focused && focused !== entry.kind ? true : undefined}
+            d={entry.path}
+          />
+        ))}
+        {/* Per-bucket markers at the raw count, one per visible line, so the
+            actual values read around the smoothed trend line. */}
+        {lines.map((entry) =>
+          entry.raw.map((coord, index) =>
+            entry.series.points[index]?.count && index % dotStep === 0 ? (
+              <circle
+                key={`${entry.kind}-${entry.series.points[index]!.date}`}
+                className="hm-trend-dot"
+                data-kind={entry.kind}
+                data-dim={focused && focused !== entry.kind ? true : undefined}
+                cx={coord.x}
+                cy={coord.y}
+                r="2.2"
+              />
+            ) : null,
+          ),
         )}
-        <path className="hm-trend-line" d={path} />
-        {focusPoint ? (
+        {focusIndex !== null ? (
           <g className="hm-trend-focus" aria-hidden="true">
             <line
               className="hm-trend-cursor"
-              x1={focusPoint.x}
-              x2={focusPoint.x}
+              x1={axisX[focusIndex]}
+              x2={axisX[focusIndex]}
               y1={TREND_PAD_Y}
               y2={TREND_H - TREND_PAD_Y}
             />
-            <circle className="hm-trend-halo" cx={focusPoint.x} cy={focusPoint.y} r="9" />
-            <circle className="hm-trend-dot-focus" cx={focusPoint.x} cy={focusPoint.y} r="4.4" />
+            {lines.map((entry) => {
+              const coord = entry.raw[focusIndex];
+              if (!coord) return null;
+              const isFocused = focused === entry.kind;
+              return (
+                <g key={entry.kind}>
+                  {isFocused ? (
+                    <circle className="hm-trend-halo" data-kind={entry.kind} cx={coord.x} cy={coord.y} r="9" />
+                  ) : null}
+                  <circle
+                    className="hm-trend-dot-focus"
+                    data-kind={entry.kind}
+                    data-dim={focused && !isFocused ? true : undefined}
+                    cx={coord.x}
+                    cy={coord.y}
+                    r={isFocused ? 4.4 : 3}
+                  />
+                </g>
+              );
+            })}
           </g>
         ) : null}
         {hitBands.map((band, index) => (
