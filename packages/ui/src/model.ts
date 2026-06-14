@@ -527,6 +527,8 @@ export interface ActivityHeatmap {
   from: string; // window start (the Sunday 52 weeks before today's week), YYYY-MM-DD
   to: string; // today, YYYY-MM-DD
   total: number; // events counted inside the window
+  activeDays: number; // distinct calendar days with at least one event
+  dayCount: number; // visible calendar days in the trailing window
   maxCount: number;
   busiest: HeatmapCell | null;
   byKind: ActivityKindCount[]; // descending, ties broken by kind name
@@ -570,6 +572,8 @@ export interface ActivityTrend {
   bucket: ActivityTrendBucket;
   points: ActivityTrendPoint[];
   total: number;
+  activeDays: number;
+  dayCount: number;
   maxCount: number;
   maxAverage: number;
   busiest: ActivityTrendBusiest | null;
@@ -626,6 +630,8 @@ export function buildActivityHeatmap(
   }
 
   const level = heatmapLevelFn([...countByDay.values()]);
+  const activeDays = [...countByDay.values()].filter((count) => count > 0).length;
+  const dayCount = daysBetween(startKey, today) + 1;
   const weeks: (HeatmapCell | null)[][] = [];
   const monthLabels: { col: number; label: string }[] = [];
   let busiest: HeatmapCell | null = null;
@@ -662,7 +668,7 @@ export function buildActivityHeatmap(
     .map(([kind, count]) => ({ kind, count }))
     .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
 
-  return { weeks, monthLabels, from: startKey, to: today, total, maxCount, busiest, byKind };
+  return { weeks, monthLabels, from: startKey, to: today, total, activeDays, dayCount, maxCount, busiest, byKind };
 }
 
 function dateOnlyUtcMs(date: string): number {
@@ -777,6 +783,8 @@ export function buildActivityTrend(
       bucket: "day",
       points: [],
       total: 0,
+      activeDays: 0,
+      dayCount: 0,
       maxCount: 0,
       maxAverage: 0,
       busiest: null,
@@ -796,12 +804,14 @@ export function buildActivityTrend(
   const countByKeyByKind = new Map<string, Map<string, number>>();
   const kindCounts = new Map<string, number>();
   const repoCounts = new Map<string, ActivityTrendRepoCount>();
+  const activeDayKeys = new Set<string>();
   let total = 0;
   for (const a of activities) {
     const ms = timestampMs(a.occurred_at);
     if (ms === null) continue;
     const day = zonedDateOnly(ms, tz);
     if (day < normalized.from || day > normalized.to) continue;
+    activeDayKeys.add(day);
     const key = activityTrendBucketKey(day, ms, normalized, bucket, tz);
     countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
     let kindKeys = countByKeyByKind.get(a.kind);
@@ -855,7 +865,21 @@ export function buildActivityTrend(
     }),
   ];
 
-  return { from: normalized.from, to: normalized.to, bucket, points, total, maxCount, maxAverage, busiest, byKind, byRepo, series };
+  return {
+    from: normalized.from,
+    to: normalized.to,
+    bucket,
+    points,
+    total,
+    activeDays: activeDayKeys.size,
+    dayCount: days,
+    maxCount,
+    maxAverage,
+    busiest,
+    byKind,
+    byRepo,
+    series,
+  };
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;

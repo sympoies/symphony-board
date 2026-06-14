@@ -577,9 +577,11 @@ try {
   const activityHeatmap = (await send("Runtime.evaluate", {
     expression: `(() => {
       const heatmap = document.querySelector('.activity-heatmap');
-      if (!heatmap) return { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
+      if (!heatmap) return { present: false, total: 0, inRange: 0, columns: 0, summary: false, overviewLabels: [], rangeLabels: [], scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
       const repoCounts = Array.from(heatmap.querySelectorAll('.hm-range-repos li b')).map((node) => Number((node.textContent || '').replace(/,/g, '')));
       const overviewScope = heatmap.querySelector(':scope > .hm-overview-head small')?.textContent || '';
+      const overviewLabels = Array.from(heatmap.querySelectorAll(':scope > .hm-summary dt')).map((node) => node.textContent?.trim() || '');
+      const rangeLabels = Array.from(heatmap.querySelectorAll('.hm-range-summary dt')).map((node) => node.textContent?.trim() || '');
       const listHeight = Math.round(document.querySelector('.activity-list')?.getBoundingClientRect().height || 0);
       const panelHeight = Math.round(heatmap.getBoundingClientRect().height || 0);
       const wideLayout = window.matchMedia('(min-width: 1531px)').matches;
@@ -589,11 +591,13 @@ try {
         inRange: heatmap.querySelectorAll('.hm-grid .hm-cell[data-in-range]').length,
         columns: heatmap.querySelectorAll('.hm-grid .hm-col').length,
         summary: !!heatmap.querySelector('.hm-summary dd'),
+        overviewLabels,
         scope: overviewScope.includes('last 12 months') && overviewScope.includes(' to '),
         trend: !!heatmap.querySelector('.hm-trend-line[d]'),
         trendBucket: heatmap.querySelector('.hm-trend')?.getAttribute('data-bucket') || null,
         trendScope: (heatmap.querySelector('.hm-trend-head small')?.textContent || '').includes(' to '),
         rangeSummary: !!heatmap.querySelector('.hm-range-summary dd'),
+        rangeLabels,
         rangeRepos: repoCounts.length,
         rangeReposSorted: repoCounts.length > 0 && repoCounts.every((count, index) => index === 0 || repoCounts[index - 1] >= count),
         balancedHeight: !wideLayout || listHeight + 1 >= panelHeight,
@@ -602,7 +606,7 @@ try {
       };
     })()`,
     returnByValue: true,
-  })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
+  })).result.value || { present: false, total: 0, inRange: 0, columns: 0, summary: false, overviewLabels: [], rangeLabels: [], scope: false, trend: false, trendBucket: null, trendScope: false, rangeSummary: false, rangeRepos: 0, rangeReposSorted: false, balancedHeight: false, listHeight: 0, panelHeight: 0 };
   // Trend hover: dispatch a mouseover on a hit band (React's onMouseEnter listens
   // to bubbled mouseover) and expect the shared per-line tooltip plus the
   // enlarged focus dot. Guarded by `present`, like the heatmap checks above.
@@ -1198,12 +1202,14 @@ try {
     [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     [!activityHeatmap.present || activityHeatmap.summary === true, "activity: rhythm summary row rendered"],
+    [!activityHeatmap.present || JSON.stringify(activityHeatmap.overviewLabels) === JSON.stringify(["events", "busiest day", "active days", "commit", "change request", "review"]), `activity: overview summary keeps rhythm metrics above kind counts (${(activityHeatmap.overviewLabels || []).join(", ")})`],
     [!activityHeatmap.present || activityHeatmap.scope === true, "activity: rhythm section shows its 12-month date range"],
     [!activityHeatmap.present || activityHeatmap.columns === 53, `activity: rhythm heatmap renders one 53-week grid (${activityHeatmap.columns})`],
     [!activityHeatmap.present || activityHeatmap.trend === true, "activity: selected-range trend line rendered"],
     [!activityHeatmap.present || activityHeatmap.trendBucket === "day", `activity: this-week trend uses daily buckets (${activityHeatmap.trendBucket})`],
     [!activityHeatmap.present || activityHeatmap.trendScope === true, "activity: selected-range trend shows its date range"],
     [!activityHeatmap.present || activityHeatmap.rangeSummary === true, "activity: selected-range summary rendered below the trend"],
+    [!activityHeatmap.present || JSON.stringify(activityHeatmap.rangeLabels) === JSON.stringify(["events", "busiest day", "active days", "commit", "change request", "review"]), `activity: selected range summary keeps rhythm metrics above kind counts (${(activityHeatmap.rangeLabels || []).join(", ")})`],
     [!activityHeatmap.present || activityHeatmap.rangeRepos >= 1, `activity: selected-range repo summary rendered (${activityHeatmap.rangeRepos || 0} rows)`],
     [!activityHeatmap.present || activityHeatmap.rangeReposSorted === true, "activity: selected-range repo summary sorted by events desc"],
     [!activityHeatmap.present || trendHover.hits > 0, `activity: trend hover hit bands rendered (${trendHover.hits})`],
