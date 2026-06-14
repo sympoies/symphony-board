@@ -84,6 +84,7 @@ import {
   relationCounts,
   relationCountOf,
   graphWindowEdgesInRange,
+  graphOverviewVisibility,
   isSyncRunActive,
   syncProducedFreshData,
   liveSourceStatus,
@@ -953,6 +954,26 @@ test("pluralize returns the singular only for exactly one, with irregular plural
 test("cutoffIso is deterministic for a fixed now", () => {
   const now = Date.parse("2026-06-07T00:00:00Z");
   assert.equal(cutoffIso(90, now).slice(0, 10), "2026-03-09");
+});
+
+test("graphOverviewVisibility keeps mention-only nodes discoverable while the overview canvas is decluttered", () => {
+  const issue = item({ id: "issue-345", kind: "issue", state: "open", iid: 345, title: "Mention-only issue", updated_at: "2026-06-14T05:28:48Z" });
+  const mentionedPr = item({ id: "pr-343", kind: "change_request", state: "merged", iid: 343, updated_at: "2026-06-14T05:27:16Z" });
+  const closedIssue = item({ id: "issue-341", kind: "issue", state: "closed", iid: 341, updated_at: "2026-06-14T05:23:13Z" });
+  const closer = item({ id: "pr-339", kind: "change_request", state: "merged", iid: 339, updated_at: "2026-06-14T05:24:00Z" });
+  const resolved: ResolvedEdge[] = [
+    { edge: edge("issue-345", "pr-343", null, "mentions"), from: issue, to: mentionedPr },
+    { edge: edge("pr-339", "issue-341", "fulfilled", "closes"), from: closer, to: closedIssue },
+  ];
+
+  const overview = graphOverviewVisibility(resolved, { from: "2026-06-14", to: "2026-06-14" }, "UTC", { showMentions: false, mentionTarget: "all" });
+  assert.deepEqual(overview.candidateEdges.map((re) => re.edge.type), ["mentions", "closes"], "the side list indexes all in-range relationships");
+  assert.deepEqual(overview.drawnEdges.map((re) => re.edge.type), ["closes"], "the canvas keeps the default no-mentions declutter");
+  assert.equal(overview.candidateIds.has("issue-345"), true, "mention-only item remains discoverable in the side list");
+  assert.equal(overview.drawnIds.has("issue-345"), false, "mention-only item is not drawn until mentions are enabled");
+
+  const withMentions = graphOverviewVisibility(resolved, { from: "2026-06-14", to: "2026-06-14" }, "UTC", { showMentions: true, mentionTarget: "all" });
+  assert.equal(withMentions.drawnIds.has("issue-345"), true, "enabling mentions promotes the same item onto the canvas");
 });
 
 test("buildGraph keeps only edge-connected nodes and flags untracked ends", () => {

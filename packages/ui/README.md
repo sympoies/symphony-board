@@ -46,7 +46,10 @@ The Graph page renders edge-connected items with React Flow:
 
 - `closes` edges are the workflow spine and are colored by lifecycle.
 - `mentions` can be included for context.
-- side-list search and kind filters keep large graphs navigable.
+- the side list indexes every relationship candidate in the selected range; the
+  canvas can still hide mention-only items for the default overview, and those
+  list cards are marked `not drawn`.
+- side-list search and kind filters keep the relationship inventory navigable.
 - the shared date range windows the overview.
 - focusing an item narrows the canvas to that item's relationship
   neighborhood.

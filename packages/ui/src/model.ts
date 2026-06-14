@@ -1558,6 +1558,13 @@ export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
 }
+export type GraphMentionTarget = "all" | "issue" | "change_request";
+export interface GraphOverviewVisibility {
+  candidateEdges: ResolvedEdge[];
+  drawnEdges: ResolvedEdge[];
+  candidateIds: Set<string>;
+  drawnIds: Set<string>;
+}
 
 // Night Owl hexes duplicated here ONLY because the cytoscape canvas cannot read
 // CSS custom properties; keep in sync with styles.css :root.
@@ -1578,6 +1585,38 @@ export function graphEdgeInTimeRange(re: ResolvedEdge, range: TimeRange, tz: str
 
 export function graphWindowEdgesInRange(edges: ResolvedEdge[], range: TimeRange, tz: string = DEFAULT_TIMEZONE): ResolvedEdge[] {
   return edges.filter((re) => graphEdgeInTimeRange(re, range, tz));
+}
+
+function endpointIds(edges: ResolvedEdge[]): Set<string> {
+  const ids = new Set<string>();
+  for (const re of edges) {
+    ids.add(re.edge.from);
+    ids.add(re.edge.to);
+  }
+  return ids;
+}
+
+function graphMentionVisible(re: ResolvedEdge, mentionTarget: GraphMentionTarget): boolean {
+  if (re.edge.type !== "mentions") return true;
+  return mentionTarget === "all" || re.to?.kind === mentionTarget;
+}
+
+export function graphOverviewVisibility(
+  edges: ResolvedEdge[],
+  range: TimeRange,
+  tz: string = DEFAULT_TIMEZONE,
+  opts: { showMentions: boolean; mentionTarget: GraphMentionTarget } = { showMentions: false, mentionTarget: "all" },
+): GraphOverviewVisibility {
+  const candidateEdges = graphWindowEdgesInRange(edges, range, tz);
+  const drawnEdges = opts.showMentions
+    ? candidateEdges.filter((re) => graphMentionVisible(re, opts.mentionTarget))
+    : candidateEdges.filter((re) => re.edge.type !== "mentions");
+  return {
+    candidateEdges,
+    drawnEdges,
+    candidateIds: endpointIds(candidateEdges),
+    drawnIds: endpointIds(drawnEdges),
+  };
 }
 
 // Build a relationship graph from already-windowed resolved edges, keeping only
