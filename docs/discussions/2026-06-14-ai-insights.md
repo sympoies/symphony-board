@@ -81,14 +81,30 @@ entry points, v1 insight scope) live in the follow-up issue, not here.
   `buildContract`; it belongs in a new emit-time enrichment stage the writer
   daemon orchestrates. Output is folded into the contract as **additive optional
   fields → minor version bump** per `docs/CONTRACT.md`. Make it **diff-aware**:
-  re-summarize only what changed since the previous contract version, so a run
-  does not re-pay for the whole board.
+  re-summarize only what changed since the **previous emitted contract snapshot**
+  (keyed on per-item `updated_at` / `last_seen_at` or a per-item content hash),
+  so a run does not re-pay for the whole board. Do **not** key the diff on
+  `contract_version` — that is the schema semver, manually bumped only on schema
+  changes (`docs/CONTRACT.md`), so it stays constant across ordinary emits and
+  keying on it would leave summaries stale until the next schema bump.
+- **Range responses need an explicit enrichment rule.** Mode A enrichment is
+  emit-path only, but custom time ranges are served by `GET /api/range` — a
+  read-only projection built on demand by the read-only `api` sidecar **outside**
+  the daemon emit (`docs/CONTRACT.md` → Range Query). Pick one and state it: AI
+  fields are emit-path-only and the UI **suppresses/labels them as unavailable**
+  on range responses, **or** a cached/range-aware enrichment serves range-scoped
+  fields without the read-only sidecar making a model call. A range response must
+  **never** silently reuse full-board summaries for a narrow window.
 - **Mode B follows the existing control-plane precedent.** Add it as a third
   **writer-owned, capability-split AI control plane** — same env-flag + same-
   origin-header gating as sync/config control, served by the writer
   (`board` daemon / standalone `app-server`), **never** the read-only `api`/`web`
-  sidecars; standalone ON / Docker OFF by default. This keeps the read-only
-  sidecar discipline intact.
+  sidecars. This keeps the read-only sidecar discipline intact. **Unlike
+  sync/config control, the AI capability defaults OFF on every deployment**
+  (standalone included) until an AI provider and data-residency policy are
+  explicitly configured: the sync/config ON-by-default is for same-user *local
+  writer* actions, whereas an AI plane can egress internal board data to a
+  third-party cloud model (see Risks → Data residency).
 - **API key handling matches the existing secret rule.** Keyed by env-var
   *name*, read from the environment, never inlined or committed, never shipped in
   the renderer / Tauri JS bundle. The model call happens server-side (daemon for
@@ -120,7 +136,11 @@ entry points, v1 insight scope) live in the follow-up issue, not here.
   `DEVELOPMENT.md` (`pnpm run typecheck`, `pnpm test`, UI build/test/smoke,
   `pnpm run emit`/`validate`).
 - Control-plane addition → mirror the sync-control safety model (env flag +
-  same-origin custom header; read-only GETs always served, mutations gated).
+  same-origin custom header). For the AI plane the gate keys on **any route that
+  triggers a model call or returns AI output**, not just mutations — only pure
+  availability/capability probes stay ungated. A Mode B answer endpoint spends
+  the server-side key and egresses board data even on a `GET`, so it must not be
+  treated as a harmless read-only route.
 
 ## Risks and guardrails
 
