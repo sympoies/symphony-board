@@ -262,8 +262,10 @@ export interface ItemDTO {
   ci_state: CiState | null;
   merge_state: MergeState | null;
   // Open/total review threads for a change_request, or null for issues and when
-  // a provider did not report it. Added in 3.3.0; see ReviewThreadsDTO.
-  review_threads: ReviewThreadsDTO | null;
+  // a provider did not report it. Added in 3.3.0 as an optional additive field
+  // (absent in pre-3.3 payloads and not in the schema's item `required`), so it
+  // is optional here like the other additive fields. See ReviewThreadsDTO.
+  review_threads?: ReviewThreadsDTO | null;
   milestone: string | null;
   demand: number | null;
   last_seen_at: string | null;
