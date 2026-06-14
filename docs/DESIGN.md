@@ -370,13 +370,15 @@ Pages:
   ways: side-list clicks, canvas node-body clicks (which focus the node — the
   node title is the anchor to the provider page), and focus exits all write
   `?focus=` back to the hash, so a focused view is shareable and the browser
-  back button steps through focus changes. Graph overview
-  summary stats are scoped to the rendered overview graph after the range,
-  mention controls, search, and facets. Focus view uses a separate `focus`
-  summary for the focused subgraph instead of reusing overview totals. Contract
-  aggregates are used only for the default no-mentions overview when the static
-  window exactly matches an emitted aggregate row; custom range responses compute
-  from the returned edges.
+  back button steps through focus changes. In overview, the side list is the
+  relationship inventory for the selected range before the mention canvas
+  declutter is applied, so mention-only items remain discoverable; cards hidden
+  from the current canvas carry a `not drawn` cue. Graph overview summary stats
+  are still scoped to the rendered canvas after the range, mention controls,
+  search, and facets. Focus view uses a separate `focus` summary for the focused
+  subgraph instead of reusing overview totals. Contract aggregates are used only
+  for the default no-mentions overview when the static window exactly matches an
+  emitted aggregate row; custom range responses compute from the returned edges.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It uses the same date range as Board and Graph. The
   range is applied before source/kind/search filters, and the page virtualizes

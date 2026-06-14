@@ -27,7 +27,7 @@ import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contr
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphWindowEdgesInRange, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
+import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -53,7 +53,8 @@ import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats,
 // instead of staying the windowed overview fit; remounting React Flow on the
 // focus change reframes the camera. Related items are computed from the FULL
 // edge set (model buildAdjacency), so a relation hidden by the "active since"
-// window still lists, marked "off-window"; a "← all items" button returns.
+// window still lists, marked "off-window"; overview candidates hidden only from
+// the canvas carry "not drawn". A "← all items" button returns.
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 // Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
@@ -88,9 +89,7 @@ const NODE_LEGEND = [
   { c: "#637777", t: "untracked" },
 ];
 
-// What the mention-direction filter keeps: all mentions, or only those whose
-// MENTIONED (target) item is an issue / a change request.
-type MentionTarget = "all" | "issue" | "change_request";
+type GraphListVisibility = "off-window" | "not-drawn";
 
 // Engagement marker (comments + reactions) — the same stroked speech-bubble as
 // the board card, sized in `em` so it scales with the surrounding font.
@@ -433,6 +432,7 @@ function GraphListCard({
   sourceKind,
   accentColor,
   relation,
+  visibility,
   related,
   active,
   onActivate,
@@ -441,7 +441,8 @@ function GraphListCard({
   fallbackLabel: string;
   sourceKind?: string;
   accentColor?: string | null;
-  relation?: { type: string; direction: "out" | "in" | "both"; offWindow: boolean };
+  relation?: { type: string; direction: "out" | "in" | "both"; visibility: GraphListVisibility | null };
+  visibility?: GraphListVisibility | null;
   // The item's OWN relation count (chain-link chip in the card meta row), same
   // chip as the board. Distinct from `relation`, which describes this card's
   // relationship TO THE FOCUSED item in the focus view.
@@ -453,6 +454,7 @@ function GraphListCard({
   // rather than onFocus — re-clicking the active card is a "clear", not a focus.
   onActivate: () => void;
 }) {
+  const badge = relation?.visibility ?? visibility ?? null;
   return (
     <div
       className={`graph-list-card${active ? " active" : ""}`}
@@ -470,16 +472,22 @@ function GraphListCard({
         }
       }}
     >
-      {relation && (
+      {(relation || badge) && (
         <div className="glc-relation muted">
-          <span className="glc-rel-type">
-            {relation.direction === "both" ? "↔" : relation.direction === "out" ? "→" : "←"} {relation.type}
-          </span>
-          {relation.offWindow && (
+          {relation ? (
+            <span className="glc-rel-type">
+              {relation.direction === "both" ? "↔" : relation.direction === "out" ? "→" : "←"} {relation.type}
+            </span>
+          ) : null}
+          {badge === "off-window" ? (
             <span className="glc-offwindow" title="outside the current “active since” window — shown here in focus, but absent from the overview graph until you widen it">
               off-window
             </span>
-          )}
+          ) : badge === "not-drawn" ? (
+            <span className="glc-notdrawn" title="listed as a relationship candidate, but hidden from the current overview canvas by the edge filter">
+              not drawn
+            </span>
+          ) : null}
         </div>
       )}
       {item ? (
@@ -504,8 +512,9 @@ function GraphListCard({
 // switches the canvas to the focused item's relationship neighbourhood and
 // reframes it by remounting the canvas (this list no longer drives the camera
 // itself). Two modes share one <aside>:
-//   • list  — searchable, demand-sorted cards of the on-graph (windowed) nodes,
-//             with an all/issue/pr kind toggle; click a card to focus it.
+//   • list  — searchable, demand-sorted cards of the in-range relationship
+//             candidates, with an all/issue/pr kind toggle; click a card to
+//             focus it. Cards hidden only by the canvas edge filter are marked.
 //   • focus — that item + its related items (other edge ends, from the FULL edge
 //             set, off-window ones flagged). A related card re-focuses
 //             (navigation chain); "← all items" returns.
@@ -513,7 +522,8 @@ function GraphSideList({
   nodes,
   itemsByRef,
   adjacency,
-  windowedIds,
+  candidateIds,
+  drawnIds,
   sourceKind,
   colorOf,
   focusId,
@@ -523,7 +533,8 @@ function GraphSideList({
   nodes: GraphNode[];
   itemsByRef: Map<string, ItemDTO>;
   adjacency: Map<string, RelatedRef[]>;
-  windowedIds: Set<string>;
+  candidateIds: Set<string>;
+  drawnIds: Set<string>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   // Focus is lifted to the route (GraphPage's onFocusChange writes "?focus=")
@@ -539,7 +550,7 @@ function GraphSideList({
   // opens on the smaller, more actionable issue set rather than the PR-heavy
   // full graph. Reuses MentionTarget — same three-way issue|change_request|all
   // shape. Applies only to the flat list below, not the focus view.
-  const [kindFilter, setKindFilter] = useState<MentionTarget>("issue");
+  const [kindFilter, setKindFilter] = useState<GraphMentionTarget>("issue");
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const labelOf = (ref: string): string => nodeById.get(ref)?.label ?? itemsByRef.get(ref)?.title ?? ref.split("|").pop() ?? ref;
@@ -554,14 +565,21 @@ function GraphSideList({
   // The card's own chain-link relation count, from the SAME adjacency the focus
   // view lists — so the chip always matches what focusing the card would show.
   const countOf = (ref: string): RelationCount | null => relationCountOf(adjacency.get(ref) ?? []);
+  const visibilityOf = (ref: string): GraphListVisibility | null => {
+    if (!candidateIds.has(ref)) return "off-window";
+    if (!drawnIds.has(ref)) return "not-drawn";
+    return null;
+  };
 
   if (focusId !== null) {
     // Collapse the per-direction adjacency entries to one card per (ref, type)
     // — a mutual relationship (e.g. two items that mention each other) becomes a
     // single "both" entry instead of a duplicate "→" + "←" pair.
-    const related = relatedItems(adjacency.get(focusId) ?? []).sort(
-      (a, b) => Number(!windowedIds.has(a.ref)) - Number(!windowedIds.has(b.ref)) || a.type.localeCompare(b.type) || labelOf(a.ref).localeCompare(labelOf(b.ref)),
-    );
+    const related = relatedItems(adjacency.get(focusId) ?? []).sort((a, b) => {
+      const rank = (ref: string) => (candidateIds.has(ref) ? (drawnIds.has(ref) ? 0 : 1) : 2);
+      return rank(a.ref) - rank(b.ref) || a.type.localeCompare(b.type) || labelOf(a.ref).localeCompare(labelOf(b.ref));
+    });
+    const focusVisibility = visibilityOf(focusId);
     return (
       <aside className="graph-list">
         <button type="button" className="graph-list-back" onClick={onBack}>
@@ -570,9 +588,12 @@ function GraphSideList({
         <div className="graph-list-scroll">
           {/* Re-clicking the focused item clears focus (toggle off) — same exit as
               "← all items", so the card the user just clicked is also the way back. */}
-          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} related={countOf(focusId)} active onActivate={onBack} />
-          {!windowedIds.has(focusId) && (
+          <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} visibility={focusVisibility} related={countOf(focusId)} active onActivate={onBack} />
+          {focusVisibility === "off-window" && (
             <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
+          )}
+          {focusVisibility === "not-drawn" && (
+            <p className="muted glc-note">This item is in the relationship list, but hidden from the overview canvas by the current edge filter.</p>
           )}
           <div className="graph-related-head muted">
             {related.length} related {pluralize(related.length, "item")}
@@ -587,7 +608,7 @@ function GraphSideList({
                 fallbackLabel={labelOf(r.ref)}
                 sourceKind={kindOf(r.ref)}
                 accentColor={colorFor(r.ref)}
-                relation={{ type: r.type, direction: r.direction, offWindow: !windowedIds.has(r.ref) }}
+                relation={{ type: r.type, direction: r.direction, visibility: visibilityOf(r.ref) }}
                 related={countOf(r.ref)}
                 onActivate={() => onFocus(r.ref)}
               />
@@ -620,7 +641,7 @@ function GraphSideList({
           ["all", "all"],
           ["issue", "issue"],
           ["change_request", "pr"],
-        ] as Array<[MentionTarget, string]>).map(([val, lab]) => (
+        ] as Array<[GraphMentionTarget, string]>).map(([val, lab]) => (
           <button key={val} type="button" className={`toggle${kindFilter === val ? " toggle-on" : ""}`} onClick={() => setKindFilter(val)}>
             {lab}
           </button>
@@ -632,7 +653,7 @@ function GraphSideList({
           <p className="muted empty-list">no items match</p>
         ) : (
           filtered.map((n) => (
-            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} related={countOf(n.id)} onActivate={() => onFocus(n.id)} />
+            <GraphListCard key={n.id} item={itemsByRef.get(n.id) ?? null} fallbackLabel={n.label} sourceKind={kindOf(n.id)} accentColor={colorFor(n.id)} visibility={visibilityOf(n.id)} related={countOf(n.id)} onActivate={() => onFocus(n.id)} />
           ))
         )}
       </div>
@@ -664,7 +685,7 @@ export function GraphPage({
   colorOf: ColorOf;
   // The focused item ref, owned by the ROUTE ("?focus="): a deep-link sets it,
   // and every in-page focus mutation (side-list click, canvas node click,
-  // "← all items", the windowed-membership drop below) goes through
+  // "← all items", the candidate-membership drop below) goes through
   // onFocusChange, which writes the hash back. That makes a focused view
   // shareable/reloadable and lets the browser back button step through focus
   // changes — the page holds no hidden focus state.
@@ -677,29 +698,22 @@ export function GraphPage({
 }) {
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
-  const [mentionTarget, setMentionTarget] = useState<MentionTarget>("all");
+  const [mentionTarget, setMentionTarget] = useState<GraphMentionTarget>("all");
   // Drives BOTH the side list's focus view and the canvas subgraph below;
   // null = the flat list + full graph.
   const focusId = focusRef ?? null;
 
-  const graphInputEdges = useMemo(() => {
-    let visible = showMentions ? edges : edges.filter((re) => re.edge.type !== "mentions");
-    // Mention-direction filter: keep mentions only when the mentioned (target)
-    // item is the chosen kind. Non-mention edges are unaffected; an untracked
-    // target (no kind) is shown only under "all".
-    if (showMentions && mentionTarget !== "all") {
-      visible = visible.filter((re) => re.edge.type !== "mentions" || re.to?.kind === mentionTarget);
-    }
-    return visible;
-  }, [edges, showMentions, mentionTarget]);
-
-  const graphEdges = useMemo(() => graphWindowEdgesInRange(graphInputEdges, range, timezone), [graphInputEdges, range, timezone]);
-  const graph = useMemo(() => buildGraph(graphEdges), [graphEdges]);
+  const overview = useMemo(
+    () => graphOverviewVisibility(edges, range, timezone, { showMentions, mentionTarget }),
+    [edges, range, timezone, showMentions, mentionTarget],
+  );
+  const listGraph = useMemo(() => buildGraph(overview.candidateEdges), [overview]);
+  const graph = useMemo(() => buildGraph(overview.drawnEdges), [overview]);
 
   // Side-list derivations over the FOCUS edge set — full payload, no time
   // window: every resolvable item (so the focus view can surface relations the
   // window OR the range projection hides), the adjacency map, and the set of
-  // refs currently on the graph.
+  // refs currently available to the overview list/canvas.
   const itemsByRef = useMemo(() => {
     const m = new Map<string, ItemDTO>();
     for (const re of focusEdges) {
@@ -709,24 +723,25 @@ export function GraphPage({
     return m;
   }, [focusEdges]);
   const adjacency = useMemo(() => buildAdjacency(focusEdges), [focusEdges]);
-  const windowedIds = useMemo(() => new Set(graph.nodes.map((n) => n.id)), [graph]);
+  const candidateIds = overview.candidateIds;
+  const drawnIds = overview.drawnIds;
 
-  // Drop focus when the windowed graph's MEMBERSHIP changes (the "active since" /
-  // mention filters changed). The focus view is tied to the current graph, so a
-  // stale focus on an item that just left the window would be confusing. Compared
+  // Drop focus when the overview candidate MEMBERSHIP changes (the "active since"
+  // range changed). Mention filters can remove a card from the canvas while it
+  // remains a list candidate, so they should not kick the user out of focus. Compared
   // by CONTENT, not identity: a background contract reload rebuilds every memo
   // (new arrays, same ids), and an identity check would kick the user out of the
   // focus view on every sync tick. Content comparison is also idempotent under
   // React 18 StrictMode's double-invoked effects and never wipes the deep-link
   // seed on mount.
-  const prevWindowed = useRef(windowedIds);
+  const prevCandidates = useRef(candidateIds);
   useEffect(() => {
-    if (prevWindowed.current === windowedIds) return;
-    const prev = prevWindowed.current;
-    prevWindowed.current = windowedIds;
-    const sameMembers = prev.size === windowedIds.size && [...windowedIds].every((id) => prev.has(id));
+    if (prevCandidates.current === candidateIds) return;
+    const prev = prevCandidates.current;
+    prevCandidates.current = candidateIds;
+    const sameMembers = prev.size === candidateIds.size && [...candidateIds].every((id) => prev.has(id));
     if (!sameMembers) onFocusChange(null);
-  }, [windowedIds, onFocusChange]);
+  }, [candidateIds, onFocusChange]);
 
   // When an item is focused, the canvas shows that item's FULL relationship
   // neighbourhood (focusSubgraph over focusEdges — all edge types, no overview
@@ -867,7 +882,7 @@ export function GraphPage({
               ["all", "all"],
               ["issue", "issues"],
               ["change_request", "PRs"],
-            ] as Array<[MentionTarget, string]>).map(([val, lab]) => (
+            ] as Array<[GraphMentionTarget, string]>).map(([val, lab]) => (
               <button
                 key={val}
                 type="button"
@@ -890,7 +905,7 @@ export function GraphPage({
         </div>
       </div>
       <StatsBar scoped={scopedStats} totalLabel="nodes" edgeLabel="links" />
-      {graph.links.length === 0 ? (
+      {listGraph.links.length === 0 ? (
         <p className="empty">No relationships in this range.</p>
       ) : (
         // One shared ReactFlowProvider wraps the side list + canvas; remounting
@@ -898,10 +913,11 @@ export function GraphPage({
         <ReactFlowProvider>
           <div className="graph-body">
             <GraphSideList
-              nodes={graph.nodes}
+              nodes={listGraph.nodes}
               itemsByRef={itemsByRef}
               adjacency={adjacency}
-              windowedIds={windowedIds}
+              candidateIds={candidateIds}
+              drawnIds={drawnIds}
               sourceKind={sourceKind}
               colorOf={colorOf}
               focusId={focusId}
@@ -911,7 +927,11 @@ export function GraphPage({
             <div className="graph-canvas">
               {/* Re-clicking the focused node clears focus — the same toggle
                   exit as the side list's active card. */}
-              <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} />
+              {view.links.length === 0 ? (
+                <p className="empty">No relationships are drawn with the current edge filter.</p>
+              ) : (
+                <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} />
+              )}
             </div>
           </div>
         </ReactFlowProvider>

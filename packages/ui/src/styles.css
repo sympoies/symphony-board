@@ -628,6 +628,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   font-size: 10px; padding: 0 5px; border-radius: 999px;
   border: 1px solid var(--declared); color: var(--declared);
 }
+.glc-notdrawn {
+  font-size: 10px; padding: 0 5px; border-radius: 999px;
+  border: 1px solid var(--muted); color: var(--muted);
+}
 /* React Flow card nodes */
 .rf-node {
   /* fills the RF node box, whose size scales with demand (see GraphPage dims()) */
