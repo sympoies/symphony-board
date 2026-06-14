@@ -499,6 +499,23 @@ export interface ActivityKindCount {
   count: number;
 }
 
+// The developer-significant activity kinds the summary tiles surface, in a fixed
+// order shared by both the "Activity overview" and "Selected range summary"
+// panels so the two read identically. Other kinds (issue, branch, tag,
+// repository, …) still count toward each panel's `events` total — they just
+// don't get a dedicated tile. Mirrors the trend chart's overlaid kinds; `review`
+// is intentionally last so it anchors the end of both summaries.
+export const ACTIVITY_SUMMARY_KINDS = ["commit", "change_request", "review"] as const;
+
+// Project a count-sorted `byKind` list onto ACTIVITY_SUMMARY_KINDS in that fixed
+// order, zero-filling any curated kind missing from the window. This is what
+// keeps the two summaries aligned: the output order never depends on which kinds
+// happened to be busiest in a given range.
+export function activitySummaryKindCounts(byKind: readonly ActivityKindCount[]): ActivityKindCount[] {
+  const counts = new Map(byKind.map((k) => [k.kind, k.count] as const));
+  return ACTIVITY_SUMMARY_KINDS.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+}
+
 export interface ActivityHeatmap {
   // Column-major: weeks[col] is one Sunday→Saturday column of 7 entries. Cells
   // before the window start or after `to` (today) are null so the grid stays a

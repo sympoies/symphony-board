@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import {
+  activitySummaryKindCounts,
   buildActivityHeatmap,
   buildActivityTrend,
   pluralize,
@@ -342,7 +343,7 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
     ...(trend.busiest
       ? [{ label: `busiest ${byLabel}`, value: trend.busiest.count.toLocaleString(), detail: trend.busiest.label }]
       : []),
-    ...trend.byKind.slice(0, 4).map((k) => ({
+    ...activitySummaryKindCounts(trend.byKind).map((k) => ({
       label: formatKind(k.kind),
       value: k.count.toLocaleString(),
       detail: "events",
@@ -424,7 +425,7 @@ export function ActivityHeatmap({
     ...(hm.busiest
       ? [{ label: "busiest day", value: hm.busiest.count.toLocaleString(), detail: hm.busiest.date }]
       : []),
-    ...hm.byKind.slice(0, 4).map((k) => ({
+    ...activitySummaryKindCounts(hm.byKind).map((k) => ({
       label: formatKind(k.kind),
       value: k.count.toLocaleString(),
       detail: "events",
