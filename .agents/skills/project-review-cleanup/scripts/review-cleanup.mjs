@@ -771,6 +771,58 @@ function annotateDispositions(live, dispositions) {
   return live;
 }
 
+function liveTargetKey(repo, pr) {
+  return `${repo ?? ""}#${pr ?? ""}`;
+}
+
+function summarizeCandidateLive(entry) {
+  if (!entry) {
+    return {
+      checked: false,
+      unresolvedCount: null,
+      safeToResolveCount: null,
+      unresolvedThreadIds: [],
+    };
+  }
+  if (entry.error) {
+    return {
+      checked: true,
+      error: entry.error,
+      unresolvedCount: null,
+      safeToResolveCount: null,
+      unresolvedThreadIds: [],
+    };
+  }
+  return {
+    checked: true,
+    state: entry.state ?? null,
+    unresolvedCount: entry.unresolvedCount,
+    safeToResolveCount: entry.safeToResolveCount,
+    unresolvedThreadIds: entry.unresolvedThreads.map((thread) => thread.id),
+  };
+}
+
+function attachCandidateLiveSummaries(result) {
+  const liveByTarget = new Map(result.live.map((entry) => [liveTargetKey(entry.repo, entry.pr), entry]));
+  for (const candidate of result.candidates) {
+    candidate.live = summarizeCandidateLive(liveByTarget.get(liveTargetKey(candidate.repo, candidate.pr)));
+  }
+}
+
+function summarizeResult(result) {
+  const verifiedLive = result.live.filter((entry) => !entry.error);
+  return {
+    contractCandidateCount: result.candidates.length,
+    liveTargetCount: result.live.length,
+    liveFailedTargetCount: result.live.length - verifiedLive.length,
+    liveUnresolvedThreadCount: verifiedLive.reduce((sum, entry) => sum + entry.unresolvedCount, 0),
+    liveSafeToResolveThreadCount: verifiedLive.reduce((sum, entry) => sum + entry.safeToResolveCount, 0),
+    applyActionCount: result.actions.length,
+    resolvedActionCount: result.actions.filter((action) => action.status === "resolved").length,
+    warningCount: result.warnings.length,
+  };
+}
+
 function runCleanup(options, repo, contract, deps = {}) {
   const queryPrFn = deps.queryPr ?? queryPr;
   const resolveThreadFn = deps.resolveThread ?? resolveThread;
@@ -798,6 +850,7 @@ function runCleanup(options, repo, contract, deps = {}) {
     live: [],
     actions: [],
     warnings: [],
+    summary: null,
   };
 
   if (options.pr && !repo && focusedTargets.length === 0) {
@@ -863,6 +916,8 @@ function runCleanup(options, repo, contract, deps = {}) {
     result.warnings.push("--no-live skipped provider verification");
   }
 
+  attachCandidateLiveSummaries(result);
+  result.summary = summarizeResult(result);
   return result;
 }
 

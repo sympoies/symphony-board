@@ -192,6 +192,33 @@ test("default contract scan verifies candidates from every GitHub repo", () => {
   ]);
 });
 
+test("JSON result summarizes live unresolved threads on the result and candidates", () => {
+  const contract = candidateContract([
+    { source_id: "github:github.com", project_path: "graysurf/agent-runtime-kit", iid: 356 },
+  ]);
+
+  const result = runCleanup(options(), null, contract, {
+    queryPr(_repo, pr) {
+      return pullRequest(pr, [
+        reviewThread("thread-356-a", [
+          { author: { login: "chatgpt-codex-connector" }, url: "https://example.test/356-a" },
+        ]),
+        reviewThread("thread-356-b", [
+          { author: { login: "chatgpt-codex-connector" }, url: "https://example.test/356-b" },
+        ]),
+      ]);
+    },
+  });
+
+  assert.equal(result.summary.contractCandidateCount, 1);
+  assert.equal(result.summary.liveTargetCount, 1);
+  assert.equal(result.summary.liveUnresolvedThreadCount, 2);
+  assert.equal(result.summary.liveSafeToResolveThreadCount, 2);
+  assert.equal(result.candidates[0].live.checked, true);
+  assert.equal(result.candidates[0].live.unresolvedCount, 2);
+  assert.deepEqual(result.candidates[0].live.unresolvedThreadIds, ["thread-356-a", "thread-356-b"]);
+});
+
 test("--pr without --repo warns when the contract has no matching candidate", () => {
   const contract = candidateContract([
     { source_id: "github:github.com", project_path: "sympoies/symphony-board", iid: 183 },
