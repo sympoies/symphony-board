@@ -316,11 +316,13 @@ test("mergeActivityIndex unions full-contract and range-projection items (neithe
   // ...and one on a PR only in the range projection (range predates the window) also resolves.
   assert.equal(reviewActivityIsUnresolved(activity({ kind: "review", action: "reviewed", target_ref: "g|PR_old" }), merged), true);
 
-  // On overlap the full-contract entry wins (its review_threads reflect current state).
+  // On overlap the /api/range projection wins: it reads the canonical store live
+  // at request time, whereas the static contract is an emitted file that can lag
+  // after a background sync, so the range row carries the current review_threads.
   const overlapFull = item({ id: "g|dup", kind: "change_request", review_threads: { open: 0, total: 2 } });
   const overlapRange = item({ id: "g|dup", kind: "change_request", review_threads: { open: 9, total: 9 } });
   const dup = mergeActivityIndex(new Map([[overlapFull.id, overlapFull]]), new Map([[overlapRange.id, overlapRange]]));
-  assert.equal(dup.get("g|dup")?.review_threads?.open, 0, "full-contract entry wins on overlap");
+  assert.equal(dup.get("g|dup")?.review_threads?.open, 9, "live range projection wins on overlap");
 });
 
 test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one item)", () => {

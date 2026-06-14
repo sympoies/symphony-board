@@ -144,14 +144,19 @@ export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
 // alone is sufficient: the full-contract `items[]` is windowed (it omits a PR
 // updated only inside a custom range that predates the static window), while the
 // active /api/range projection omits a PR updated *after* the range. Union them
-// — preferring the full-contract entry on overlap — so the unresolved lens
+// — preferring the /api/range projection on overlap — so the unresolved lens
 // resolves a review whether its target is in the static window OR the range.
+//
+// On overlap the range row wins because it is the fresher source: /api/range
+// reads the canonical store live at request time, whereas the full contract is
+// an emitted file loaded at page mount that can lag after a background sync, so
+// its review_threads can be stale. See symphony-board#209.
 export function mergeActivityIndex(
   fullVisible: ReadonlyMap<string, ItemDTO>,
   rangeProjected: ReadonlyMap<string, ItemDTO>,
 ): Map<string, ItemDTO> {
   const merged = new Map(fullVisible);
-  for (const [id, it] of rangeProjected) if (!merged.has(id)) merged.set(id, it);
+  for (const [id, it] of rangeProjected) merged.set(id, it);
   return merged;
 }
 
