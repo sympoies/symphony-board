@@ -842,20 +842,19 @@ a.rf-node-title:hover { color: var(--accent); }
   stroke: color-mix(in srgb, var(--line) 70%, transparent);
   stroke-width: 1;
 }
-/* Per-line palette: total keeps the historical accent/green blend; the kind
-   lines reuse the badge hues so a line reads the same color as its chip. */
+/* Per-line palette: Night Owl chart hues, independent from status badge colors. */
 .hm-trend-line {
   fill: none;
-  stroke: var(--trend-color, color-mix(in srgb, var(--accent) 72%, var(--open)));
+  stroke: var(--trend-color, var(--accent));
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: stroke .12s ease, opacity .12s ease;
 }
-.hm-trend-line[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
-.hm-trend-line[data-kind="commit"] { --trend-color: var(--open); }
-.hm-trend-line[data-kind="change_request"] { --trend-color: var(--merged); }
-.hm-trend-line[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-line[data-kind="total"] { --trend-color: var(--accent); }
+.hm-trend-line[data-kind="commit"] { --trend-color: var(--link); }
+.hm-trend-line[data-kind="change_request"] { --trend-color: var(--closed); }
+.hm-trend-line[data-kind="review"] { --trend-color: var(--iid); }
 /* Background-fade the non-focused lines so the hovered one stands alone. */
 .hm-trend-line[data-dim] {
   stroke: color-mix(in srgb, var(--muted) 55%, transparent);
@@ -863,13 +862,13 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 /* Raw-count markers, colored to match their line. */
 .hm-trend-dot {
-  fill: var(--trend-color, color-mix(in srgb, var(--open) 65%, var(--accent)));
+  fill: var(--trend-color, var(--accent));
   opacity: .4;
 }
-.hm-trend-dot[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
-.hm-trend-dot[data-kind="commit"] { --trend-color: var(--open); }
-.hm-trend-dot[data-kind="change_request"] { --trend-color: var(--merged); }
-.hm-trend-dot[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-dot[data-kind="total"] { --trend-color: var(--accent); }
+.hm-trend-dot[data-kind="commit"] { --trend-color: var(--link); }
+.hm-trend-dot[data-kind="change_request"] { --trend-color: var(--closed); }
+.hm-trend-dot[data-kind="review"] { --trend-color: var(--iid); }
 .hm-trend-dot[data-dim] {
   fill: color-mix(in srgb, var(--muted) 55%, transparent);
   opacity: .3;
@@ -888,17 +887,17 @@ a.rf-node-title:hover { color: var(--accent); }
   fill: color-mix(in srgb, var(--trend-color, var(--accent)) 26%, transparent);
 }
 .hm-trend-dot-focus {
-  fill: var(--trend-color, color-mix(in srgb, var(--open) 55%, var(--accent)));
+  fill: var(--trend-color, var(--accent));
   stroke: var(--panel-2);
   stroke-width: 1.5;
 }
 .hm-trend-dot-focus[data-dim] {
   fill: color-mix(in srgb, var(--muted) 60%, transparent);
 }
-.hm-trend-halo[data-kind="total"], .hm-trend-dot-focus[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
-.hm-trend-halo[data-kind="commit"], .hm-trend-dot-focus[data-kind="commit"] { --trend-color: var(--open); }
-.hm-trend-halo[data-kind="change_request"], .hm-trend-dot-focus[data-kind="change_request"] { --trend-color: var(--merged); }
-.hm-trend-halo[data-kind="review"], .hm-trend-dot-focus[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-halo[data-kind="total"], .hm-trend-dot-focus[data-kind="total"] { --trend-color: var(--accent); }
+.hm-trend-halo[data-kind="commit"], .hm-trend-dot-focus[data-kind="commit"] { --trend-color: var(--link); }
+.hm-trend-halo[data-kind="change_request"], .hm-trend-dot-focus[data-kind="change_request"] { --trend-color: var(--closed); }
+.hm-trend-halo[data-kind="review"], .hm-trend-dot-focus[data-kind="review"] { --trend-color: var(--iid); }
 .hm-trend-halo,
 .hm-trend-dot-focus {
   transform-box: fill-box;
@@ -950,14 +949,14 @@ a.rf-node-title:hover { color: var(--accent); }
   background: var(--trend-color, var(--accent));
   border: 1px solid var(--trend-color, var(--accent));
 }
-.hm-trend-swatch[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
-.hm-trend-swatch[data-kind="commit"] { --trend-color: var(--open); }
-.hm-trend-swatch[data-kind="change_request"] { --trend-color: var(--merged); }
-.hm-trend-swatch[data-kind="review"] { --trend-color: var(--declared); }
-.hm-trend-legend-item[data-kind="total"] { --trend-color: color-mix(in srgb, var(--accent) 72%, var(--open)); }
-.hm-trend-legend-item[data-kind="commit"] { --trend-color: var(--open); }
-.hm-trend-legend-item[data-kind="change_request"] { --trend-color: var(--merged); }
-.hm-trend-legend-item[data-kind="review"] { --trend-color: var(--declared); }
+.hm-trend-swatch[data-kind="total"] { --trend-color: var(--accent); }
+.hm-trend-swatch[data-kind="commit"] { --trend-color: var(--link); }
+.hm-trend-swatch[data-kind="change_request"] { --trend-color: var(--closed); }
+.hm-trend-swatch[data-kind="review"] { --trend-color: var(--iid); }
+.hm-trend-legend-item[data-kind="total"] { --trend-color: var(--accent); }
+.hm-trend-legend-item[data-kind="commit"] { --trend-color: var(--link); }
+.hm-trend-legend-item[data-kind="change_request"] { --trend-color: var(--closed); }
+.hm-trend-legend-item[data-kind="review"] { --trend-color: var(--iid); }
 .hm-trend-axis {
   display: flex;
   justify-content: space-between;

@@ -104,7 +104,14 @@ Outputs:
 - Live GitHub review-thread status for candidate PRs or the focused `--pr`.
 - In JSON mode, enriched unresolved-thread evidence:
   `comments[].bodyText`, `comments[].diffHunk`, comment URLs, review URLs,
-  author logins, path/line, and the safety reason.
+  author logins, path/line, and the safety reason. The live provider truth is
+  summarized in `summary.liveUnresolvedThreadCount` and
+  `summary.liveSafeToResolveThreadCount`; each contract candidate also carries
+  a `live` object (`checked`, `unresolvedCount`, `safeToResolveCount`,
+  `unresolvedThreadIds`) joined from the top-level `live[]` array. In
+  `--apply` output, successfully resolved actions are reflected in that summary
+  as a `post_apply_derived` snapshot, with `preApplyUnresolvedCount` retained
+  for audit.
 - In `--apply` mode only, optional `addPullRequestReviewThreadReply` notes plus
   safe `resolveReviewThread` mutations for allowlisted bot threads on
   closed/merged PRs. With `--disposition-file`, only dispositioned threads are
@@ -153,7 +160,12 @@ Failure modes:
    age — this is the complete set the board "unresolved" lens shows. A
    `late_review` means the submitted review timestamp is after the PR's
    `merged_at` / `closed_at`; a closed/merged PR with zero unresolved live
-   threads needs no provider mutation.
+   threads needs no provider mutation. Use `summary.liveUnresolvedThreadCount`
+   for the scan-wide live provider count, or `candidate.live.unresolvedCount`
+   for a specific candidate. Do not infer provider truth from the top-level
+   `candidates[]` array alone. After `--apply`, use `actions[].status` plus the
+   post-apply `summary` / `candidate.live` counts; the top-level `live[]`
+   entries retain pre-apply counts in `preApplyUnresolvedCount`.
 3. For a specific PR, run:
    `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh --pr 181 --json`
 4. Classify each thread:

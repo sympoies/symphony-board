@@ -771,6 +771,86 @@ function annotateDispositions(live, dispositions) {
   return live;
 }
 
+function liveTargetKey(repo, pr) {
+  return `${repo ?? ""}#${pr ?? ""}`;
+}
+
+function summarizeCandidateLive(entry) {
+  if (!entry) {
+    return {
+      checked: false,
+      unresolvedCount: null,
+      safeToResolveCount: null,
+      unresolvedThreadIds: [],
+    };
+  }
+  if (entry.error) {
+    return {
+      checked: true,
+      error: entry.error,
+      unresolvedCount: null,
+      safeToResolveCount: null,
+      unresolvedThreadIds: [],
+    };
+  }
+  return {
+    checked: true,
+    snapshot: entry.snapshot ?? "live",
+    state: entry.state ?? null,
+    unresolvedCount: entry.unresolvedCount,
+    safeToResolveCount: entry.safeToResolveCount,
+    preApplyUnresolvedCount: entry.preApplyUnresolvedCount ?? null,
+    preApplySafeToResolveCount: entry.preApplySafeToResolveCount ?? null,
+    unresolvedThreadIds: entry.unresolvedThreads.map((thread) => thread.id),
+  };
+}
+
+function attachCandidateLiveSummaries(result) {
+  const liveByTarget = new Map(result.live.map((entry) => [liveTargetKey(entry.repo, entry.pr), entry]));
+  for (const candidate of result.candidates) {
+    candidate.live = summarizeCandidateLive(liveByTarget.get(liveTargetKey(candidate.repo, candidate.pr)));
+  }
+}
+
+function derivePostApplyLiveState(result) {
+  if (!result.apply || result.actions.length === 0) return;
+  const resolvedByTarget = new Map();
+  for (const action of result.actions) {
+    if (action.status !== "resolved") continue;
+    const key = liveTargetKey(action.repo, action.pr);
+    const resolved = resolvedByTarget.get(key) ?? new Set();
+    resolved.add(action.threadId);
+    resolvedByTarget.set(key, resolved);
+  }
+  if (resolvedByTarget.size === 0) return;
+
+  for (const entry of result.live) {
+    if (entry.error) continue;
+    const resolved = resolvedByTarget.get(liveTargetKey(entry.repo, entry.pr));
+    if (!resolved?.size) continue;
+    entry.preApplyUnresolvedCount = entry.unresolvedCount;
+    entry.preApplySafeToResolveCount = entry.safeToResolveCount;
+    entry.unresolvedThreads = entry.unresolvedThreads.filter((thread) => !resolved.has(thread.id));
+    entry.unresolvedCount = entry.unresolvedThreads.length;
+    entry.safeToResolveCount = entry.unresolvedThreads.filter((thread) => thread.safeToResolve).length;
+    entry.snapshot = "post_apply_derived";
+  }
+}
+
+function summarizeResult(result) {
+  const verifiedLive = result.live.filter((entry) => !entry.error);
+  return {
+    contractCandidateCount: result.candidates.length,
+    liveTargetCount: result.live.length,
+    liveFailedTargetCount: result.live.length - verifiedLive.length,
+    liveUnresolvedThreadCount: verifiedLive.reduce((sum, entry) => sum + entry.unresolvedCount, 0),
+    liveSafeToResolveThreadCount: verifiedLive.reduce((sum, entry) => sum + entry.safeToResolveCount, 0),
+    applyActionCount: result.actions.length,
+    resolvedActionCount: result.actions.filter((action) => action.status === "resolved").length,
+    warningCount: result.warnings.length,
+  };
+}
+
 function runCleanup(options, repo, contract, deps = {}) {
   const queryPrFn = deps.queryPr ?? queryPr;
   const resolveThreadFn = deps.resolveThread ?? resolveThread;
@@ -798,6 +878,7 @@ function runCleanup(options, repo, contract, deps = {}) {
     live: [],
     actions: [],
     warnings: [],
+    summary: null,
   };
 
   if (options.pr && !repo && focusedTargets.length === 0) {
@@ -863,6 +944,9 @@ function runCleanup(options, repo, contract, deps = {}) {
     result.warnings.push("--no-live skipped provider verification");
   }
 
+  derivePostApplyLiveState(result);
+  attachCandidateLiveSummaries(result);
+  result.summary = summarizeResult(result);
   return result;
 }
 
