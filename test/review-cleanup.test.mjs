@@ -378,6 +378,13 @@ test("apply posts a resolution note, resolves the thread, and records the dispos
   assert.equal(result.actions.length, 1);
   assert.equal(result.actions[0].reason, "closed_pr_allowlisted_bot_thread");
   assert.equal(result.actions[0].noteUrl, "https://example.test/note");
+  assert.equal(result.live[0].preApplyUnresolvedCount, 1);
+  assert.equal(result.live[0].snapshot, "post_apply_derived");
+  assert.equal(result.live[0].unresolvedCount, 0);
+  assert.equal(result.summary.liveUnresolvedThreadCount, 0);
+  assert.equal(result.candidates[0].live.unresolvedCount, 0);
+  assert.equal(result.candidates[0].live.snapshot, "post_apply_derived");
+  assert.equal(result.candidates[0].live.preApplyUnresolvedCount, 1);
 });
 
 test("apply with dispositions resolves only agent-dispositioned safe threads", () => {
