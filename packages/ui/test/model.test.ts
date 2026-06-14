@@ -1793,22 +1793,28 @@ test("buildActivityTrend exposes per-kind series aligned to the bucket axis", ()
       activity({ id: "s2", occurred_at: "2026-06-02T12:00:00Z", kind: "commit" }),
       activity({ id: "s3", occurred_at: "2026-06-02T13:00:00Z", kind: "review" }),
       activity({ id: "s4", occurred_at: "2026-06-03T12:00:00Z", kind: "change_request" }),
+      activity({ id: "s5", occurred_at: "2026-06-03T13:00:00Z", kind: "issue" }),
     ],
     { from: "2026-06-01", to: "2026-06-03" },
   );
 
-  // The aggregate series comes first and equals the existing top-level points.
+  assert.equal(trend.total, 5, "the range total still counts every activity row");
+  assert.deepEqual(trend.points.map((point) => point.count), [1, 2, 2]);
+
+  // The aggregate chart series comes first and sums the curated lines the chart
+  // displays, so uncurated activity kinds do not dominate the plotted scale.
   assert.equal(trend.series[0]?.kind, "total");
   assert.deepEqual(
     trend.series[0]?.points.map((point) => point.count),
-    trend.points.map((point) => point.count),
+    [1, 2, 1],
   );
+  assert.equal(trend.series[0]?.total, 4);
 
   // Series come in a stable order: total first, then kinds by descending count
-  // (ties broken by kind name, so change_request precedes review).
+  // (ties broken by kind name).
   assert.deepEqual(
     trend.series.map((series) => series.kind),
-    ["total", "commit", "change_request", "review"],
+    ["total", "commit", "change_request", "issue", "review"],
   );
 
   // Per-kind series carry one entry per kind seen, each aligned 1:1 with the
@@ -1818,6 +1824,7 @@ test("buildActivityTrend exposes per-kind series aligned to the bucket axis", ()
   assert.deepEqual(byKind.get("commit")?.points.map((point) => point.count), [1, 1, 0]);
   assert.deepEqual(byKind.get("review")?.points.map((point) => point.count), [0, 1, 0]);
   assert.deepEqual(byKind.get("change_request")?.points.map((point) => point.count), [0, 0, 1]);
+  assert.deepEqual(byKind.get("issue")?.points.map((point) => point.count), [0, 0, 1]);
 
   // The smoothing and the per-series maxima the chart scales on are pinned, not
   // just the raw counts (commit counts [1,1,0] over a day bucket, radius 2).
