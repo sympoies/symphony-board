@@ -244,6 +244,13 @@ set `SYMPHONY_DB_URL` to the matching URL as well. Use `docker compose -f
 docker/compose.pg.yaml down -v` to delete the independent pg database and
 generated contract volume.
 
+The agent deploy entrypoint (`.agents/scripts/deploy.sh`, used by the `deploy`
+skill) builds and starts whichever stack the `SYMPHONY_BOARD_ENV` switch in
+`.env` selects — `postgres` → `docker/compose.pg.yaml`, `sqlite` or unset →
+`docker/compose.yaml` — the same switch `project-review-cleanup` reads, so the
+two never target different stacks. The explicit `docker compose -f …` commands
+above stay valid for ad-hoc use.
+
 The deployment smoke gate for this path is:
 
 ```sh

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+// The active-runtime switch (SYMPHONY_BOARD_ENV) and repo .env loader live in a
+// shared module so deploy tooling and this skill resolve them identically.
+import { loadRepoEnv, resolveRuntime } from "../../../../scripts/lib/repo-env.mjs";
 
 const DEFAULT_ACTORS = ["chatgpt-codex-connector"];
 const DEFAULT_RESOLUTION_NOTE = "Resolved by project-review-cleanup: stale allowlisted bot review thread on a closed or merged PR after live verification.";
@@ -238,45 +240,6 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function repoRoot() {
-  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
-  if (result.status !== 0) return null;
-  return result.stdout.trim() || null;
-}
-
-function parseEnvContent(content) {
-  const env = {};
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
-    const equals = normalized.indexOf("=");
-    if (equals <= 0) continue;
-    const key = normalized.slice(0, equals).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    env[key] = stripEnvQuotes(normalized.slice(equals + 1).trim());
-  }
-  return env;
-}
-
-function stripEnvQuotes(value) {
-  if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
-function loadRepoEnv() {
-  const root = repoRoot();
-  if (!root) return {};
-  try {
-    return parseEnvContent(readFileSync(join(root, ".env"), "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return {};
-    throw new Error(`failed to read repo .env: ${error.message}`);
-  }
-}
-
 function resolveContractSource(options, deps = {}) {
   if (options.contractPath) {
     return { kind: "file", value: options.contractPath, origin: "--contract" };
@@ -295,7 +258,7 @@ function resolveContractSource(options, deps = {}) {
   const boardUrl = envValue("SYMPHONY_BOARD_CONTRACT_URL");
   if (boardUrl) return { kind: "url", value: boardUrl, origin: "SYMPHONY_BOARD_CONTRACT_URL" };
 
-  const runtime = (envValue("SYMPHONY_BOARD_ENV") ?? envValue("SYMPHONY_BOARD_RUNTIME") ?? "").toLowerCase();
+  const runtime = resolveRuntime({ processEnv, repoEnv });
   if (runtime === "postgres") {
     const port = envValue("SYMPHONY_POSTGRES_WEB_PORT") ?? envValue("SYMPHONY_PG_WEB_PORT") ?? DEFAULT_PG_CONTRACT_PORT;
     return {
@@ -303,9 +266,6 @@ function resolveContractSource(options, deps = {}) {
       value: `http://127.0.0.1:${port}/contract.json`,
       origin: "SYMPHONY_BOARD_ENV=postgres",
     };
-  }
-  if (runtime && runtime !== "sqlite") {
-    throw usageError(`unsupported SYMPHONY_BOARD_ENV=${runtime}; expected postgres or sqlite`);
   }
 
   return {
