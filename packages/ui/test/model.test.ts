@@ -279,6 +279,23 @@ test("reviewActivityIsUnresolved resolves the target PR's current open-thread co
   assert.equal(reviewActivityIsUnresolved(nonReview, byId), false, "only review rows qualify");
 });
 
+test("reviewActivityIsUnresolved must resolve against the full contract, not a range projection", () => {
+  // Regression guard for the historical-range unresolved lens: a review that
+  // occurred in-range on a PR whose `updated_at` is later than the range is
+  // dropped from the /api/range projection, yet the PR still carries open
+  // threads. Resolving against the range-projected index hides it; resolving
+  // against the full visible contract keeps it. App builds the activity index
+  // from the full contract for exactly this reason.
+  const prLate = item({ id: "github:github.com|PR_late", kind: "change_request", review_threads: { open: 2, total: 5 } });
+  const reviewInRange = activity({ kind: "review", action: "reviewed", target_ref: "github:github.com|PR_late" });
+
+  const rangeProjection = new Map<string, ItemDTO>(); // PR updated after the range -> omitted
+  const fullContract = new Map<string, ItemDTO>([[prLate.id, prLate]]);
+
+  assert.equal(reviewActivityIsUnresolved(reviewInRange, rangeProjection), false, "range projection omits the later-updated PR -> wrongly resolved");
+  assert.equal(reviewActivityIsUnresolved(reviewInRange, fullContract), true, "full contract retains the PR -> correctly unresolved");
+});
+
 test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one item)", () => {
   const it13 = item({ id: "g|13", project_path: "owner/repo", iid: 13, title: "Add thing" });
   const it130 = item({ id: "g|130", project_path: "owner/repo", iid: 130, title: "Other" });
