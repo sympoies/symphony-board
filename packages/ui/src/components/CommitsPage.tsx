@@ -4,33 +4,28 @@ import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import {
+  buildCommitRows,
   commitBranches,
-  commitBody,
   commitMessage,
   commitSha,
   commitShortSha,
+  commitVirtualRange,
   relativeTime,
   pluralize,
+  COMMIT_DEFAULT_VIEWPORT_PX,
+  COMMIT_ROW_BODY_HEIGHT_PX,
+  COMMIT_ROW_BODY_HEIGHT_NARROW_PX,
   type ColorOf,
   type CommitBranchOption,
   type CommitRepoOption,
   type TimeRange,
 } from "../model.ts";
-import { zonedDateOnly } from "../tz.ts";
 
 // A cross-provider commit log over ActivityDTO commit rows. It intentionally does
 // not render GitHub-only badges such as Verified or check counts; only fields
-// already present in the provider-neutral contract surface appear here.
-
-const COMMIT_ROW_BODY_HEIGHT_PX = 70;
-const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
-const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
-const COMMIT_ROW_GAP_PX = 8;
-const COMMIT_EXPANDED_PANEL_CHROME_PX = 18;
-const COMMIT_EXPANDED_PANEL_LINE_HEIGHT_PX = 18;
-const COMMIT_EXPANDED_PANEL_MAIN_GAP_PX = 6;
-const COMMIT_DEFAULT_VIEWPORT_PX = 680;
-const COMMIT_OVERSCAN_ROWS = 8;
+// already present in the provider-neutral contract surface appear here. The
+// row-layout / visible-window math lives in model.ts (buildCommitRows /
+// commitVirtualRange); this file owns the rendering and the DOM measurement.
 
 function CopyIcon() {
   return (
@@ -86,12 +81,6 @@ function dateLabel(iso: string, tz: string): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: tz }).format(parsed);
 }
 
-function dateKey(iso: string, tz: string): string {
-  const parsed = Date.parse(iso);
-  if (!Number.isFinite(parsed)) return "unknown";
-  return zonedDateOnly(parsed, tz);
-}
-
 function copyToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
 
@@ -108,92 +97,6 @@ function copyToClipboard(text: string): Promise<void> {
   } finally {
     document.body.removeChild(el);
   }
-}
-
-interface CommitVirtualRow {
-  commit: ActivityDTO;
-  index: number;
-  offset: number;
-  height: number;
-  showDate: boolean;
-  body: string | null;
-  expanded: boolean;
-}
-
-function estimateCommitBodyPanelHeight(body: string, narrow: boolean): number {
-  const wrapWidth = narrow ? 44 : 96;
-  const estimatedLines = body
-    .split(/\r\n|\r|\n/)
-    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / wrapWidth)), 0);
-  return COMMIT_EXPANDED_PANEL_CHROME_PX + estimatedLines * COMMIT_EXPANDED_PANEL_LINE_HEIGHT_PX;
-}
-
-function buildCommitRows({
-  commits,
-  rowBodyHeight,
-  expandedBodyId,
-  measuredExpandedBodyHeights,
-  timezone,
-}: {
-  commits: ActivityDTO[];
-  rowBodyHeight: number;
-  expandedBodyId: string | null;
-  measuredExpandedBodyHeights: ReadonlyMap<string, number>;
-  timezone: string;
-}): { rows: CommitVirtualRow[]; totalHeightPx: number } {
-  const rows: CommitVirtualRow[] = [];
-  let offset = 0;
-  let previousDateKey: string | null = null;
-  const narrow = rowBodyHeight > COMMIT_ROW_BODY_HEIGHT_PX;
-
-  commits.forEach((commit, index) => {
-    const key = dateKey(commit.occurred_at, timezone);
-    const showDate = previousDateKey === null || previousDateKey !== key;
-    const body = commitBody(commit);
-    const expanded = body !== null && commit.id === expandedBodyId;
-    const bodyHeight = expanded
-      ? measuredExpandedBodyHeights.get(commit.id) ??
-        rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
-      : rowBodyHeight;
-    const height = bodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + COMMIT_ROW_GAP_PX;
-    rows.push({ commit, index, offset, height, showDate, body, expanded });
-    offset += height;
-    previousDateKey = key;
-  });
-
-  return { rows, totalHeightPx: offset };
-}
-
-function commitVirtualRange({
-  rows,
-  totalHeightPx,
-  scrollTop,
-  viewportHeight,
-}: {
-  rows: CommitVirtualRow[];
-  totalHeightPx: number;
-  scrollTop: number;
-  viewportHeight: number;
-}): { start: number; end: number; totalHeightPx: number } {
-  if (rows.length === 0) return { start: 0, end: 0, totalHeightPx: 0 };
-
-  const safeScrollTop = Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);
-  const safeViewportHeight = Math.max(1, Number.isFinite(viewportHeight) ? viewportHeight : COMMIT_DEFAULT_VIEWPORT_PX);
-  const viewportBottom = safeScrollTop + safeViewportHeight;
-
-  let firstVisible = 0;
-  while (firstVisible < rows.length - 1 && rows[firstVisible]!.offset + rows[firstVisible]!.height <= safeScrollTop) {
-    firstVisible += 1;
-  }
-
-  let endVisible = firstVisible;
-  while (endVisible < rows.length && rows[endVisible]!.offset < viewportBottom) {
-    endVisible += 1;
-  }
-
-  const start = Math.max(0, firstVisible - COMMIT_OVERSCAN_ROWS);
-  const end = Math.min(rows.length, Math.max(endVisible, firstVisible + 1) + COMMIT_OVERSCAN_ROWS);
-  return { start, end, totalHeightPx };
 }
 
 function CommitTimeline({

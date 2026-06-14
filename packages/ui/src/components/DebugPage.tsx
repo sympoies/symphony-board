@@ -8,11 +8,12 @@
 // page shares this data, and it must render with no contract loaded — that is
 // exactly when it is needed.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { formatBytes, relativeTime, runDuration } from "../model.ts";
 import { useStoreStats, useDaemonLogs } from "../useDebug.ts";
 import { Badge } from "./Badge.tsx";
+import { StatTile } from "./StatTile.tsx";
 
 interface Props {
   serverBaseUrl: string | null;
@@ -41,15 +42,6 @@ function CountsTable({ title, counts }: { title: string; counts: Record<string, 
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function StatTile({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="debug-stat-tile">
-      <span className="stat-label">{label}</span>
-      <b>{children}</b>
     </div>
   );
 }

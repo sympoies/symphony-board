@@ -25,6 +25,8 @@ import {
   itemReviewMatches,
   reviewActivityIsUnresolved,
   activityVirtualRange,
+  buildCommitRows,
+  commitVirtualRange,
   filterActivitiesByRange,
   buildActivityHeatmap,
   buildActivityTrend,
@@ -672,6 +674,69 @@ test("activityVirtualRange clamps empty and invalid inputs", () => {
     end: 2,
     visibleCount: 2,
     totalHeightPx: 2 * (ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX) - ACTIVITY_ROW_GAP_PX,
+  });
+});
+
+test("buildCommitRows stacks date separators and expanded-body height into each row offset", () => {
+  // Two commits on one UTC day then one on the previous day, so the first and
+  // third rows carry a "Commits on <date>" separator and the second does not.
+  const commits = [
+    activity({ id: "c1", external_id: "c1", kind: "commit", occurred_at: "2026-06-10T10:00:00Z", details: { sha: "a".repeat(16) } }),
+    activity({ id: "c2", external_id: "c2", kind: "commit", occurred_at: "2026-06-10T02:00:00Z", details: { sha: "b".repeat(16), body: "Explain it" } }),
+    activity({ id: "c3", external_id: "c3", kind: "commit", occurred_at: "2026-06-09T20:00:00Z", details: { sha: "c".repeat(16) } }),
+  ];
+  // Expand c2 with a measured height (200), short-circuiting the estimate.
+  const { rows, totalHeightPx } = buildCommitRows({
+    commits,
+    rowBodyHeight: 70, // COMMIT_ROW_BODY_HEIGHT_PX
+    expandedBodyId: "c2",
+    measuredExpandedBodyHeights: new Map([["c2", 200]]),
+    timezone: "UTC",
+  });
+
+  // height = bodyHeight + (showDate ? 22 : 0) + 8 gap. row1's body is measured 200.
+  assert.deepEqual(
+    rows.map((r) => ({ index: r.index, offset: r.offset, height: r.height, showDate: r.showDate, expanded: r.expanded })),
+    [
+      { index: 0, offset: 0, height: 100, showDate: true, expanded: false }, // 70 + 22 + 8
+      { index: 1, offset: 100, height: 208, showDate: false, expanded: true }, // 200 + 0 + 8
+      { index: 2, offset: 308, height: 100, showDate: true, expanded: false }, // 70 + 22 + 8
+    ],
+  );
+  assert.equal(totalHeightPx, 408);
+  assert.equal(rows[1]!.body, "Explain it");
+  assert.equal(rows[0]!.body, null); // no details.body -> never expandable
+});
+
+test("commitVirtualRange returns the visible slice plus overscan over variable-height rows", () => {
+  const dummy = activity({ id: "x", external_id: "x", kind: "commit", details: { sha: "a".repeat(16) } });
+  const rows = Array.from({ length: 30 }, (_, i) => ({
+    commit: dummy,
+    index: i,
+    offset: i * 100,
+    height: 100,
+    showDate: false,
+    body: null,
+    expanded: false,
+  }));
+
+  // scrollTop 1000 / viewport 250 => rows 10..12 visible, widened by the 8-row overscan.
+  assert.deepEqual(commitVirtualRange({ rows, totalHeightPx: 3000, scrollTop: 1000, viewportHeight: 250 }), {
+    start: 2,
+    end: 21,
+    totalHeightPx: 3000,
+  });
+
+  // empty + invalid inputs clamp instead of throwing.
+  assert.deepEqual(commitVirtualRange({ rows: [], totalHeightPx: 0, scrollTop: 50, viewportHeight: 100 }), {
+    start: 0,
+    end: 0,
+    totalHeightPx: 0,
+  });
+  assert.deepEqual(commitVirtualRange({ rows: rows.slice(0, 3), totalHeightPx: 300, scrollTop: Number.NaN, viewportHeight: Number.NaN }), {
+    start: 0,
+    end: 3,
+    totalHeightPx: 300,
   });
 });
 

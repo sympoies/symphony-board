@@ -4,6 +4,7 @@ import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoC
 import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref, type ItemRouteFields } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
+import { StatTile } from "./StatTile.tsx";
 
 function addMetricStats(target: RepoMetricStatsDTO, next: RepoMetricStatsDTO): RepoMetricStatsDTO {
   return {
@@ -172,15 +173,6 @@ function TopActors({ metric }: { metric: RepoMetricDTO }) {
   );
 }
 
-function StatTile({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="repo-stat-tile">
-      <span className="stat-label">{label}</span>
-      <b>{value}</b>
-    </div>
-  );
-}
-
 export function RepoAnalyticsPage({
   metrics,
   windowTotal,
@@ -209,15 +201,15 @@ export function RepoAnalyticsPage({
         <span className="muted">{range.from} to {range.to}</span>
       </div>
       <div className="repo-stat-grid">
-        <StatTile label="activity" value={displayScore(activityScore(totals))} />
-        <StatTile label="commits" value={totals.commits} />
-        <StatTile label="issues opened" value={issuesOpened(totals)} />
-        <StatTile label="PR/MRs opened" value={totals.change_requests_opened} />
-        <StatTile label="total opened" value={totals.items_opened} />
-        <StatTile label="closed / merged" value={totals.items_closed} />
-        <StatTile label="merged PR/MRs" value={totals.change_requests_merged} />
-        <StatTile label="reviews" value={totals.reviews} />
-        <StatTile label="open threads" value={totals.unresolved_review_threads ?? 0} />
+        <StatTile label="activity">{displayScore(activityScore(totals))}</StatTile>
+        <StatTile label="commits">{totals.commits}</StatTile>
+        <StatTile label="issues opened">{issuesOpened(totals)}</StatTile>
+        <StatTile label="PR/MRs opened">{totals.change_requests_opened}</StatTile>
+        <StatTile label="total opened">{totals.items_opened}</StatTile>
+        <StatTile label="closed / merged">{totals.items_closed}</StatTile>
+        <StatTile label="merged PR/MRs">{totals.change_requests_merged}</StatTile>
+        <StatTile label="reviews">{totals.reviews}</StatTile>
+        <StatTile label="open threads">{totals.unresolved_review_threads ?? 0}</StatTile>
       </div>
       {metrics.length === 0 ? (
         <p className="empty">{windowTotal === 0 ? "No repo metrics in this range." : "No repo metrics match the current filters."}</p>

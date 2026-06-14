@@ -813,6 +813,118 @@ export function activityVirtualRange({
   return { start, end, visibleCount: end - start, totalHeightPx };
 }
 
+// --- Commit timeline virtualization ---
+// The commit log is variable-height: a row grows for a "Commits on <date>"
+// separator and again when its body is expanded, so it can't use the fixed
+// stride `activityVirtualRange` above. `buildCommitRows` lays out every row's
+// offset/height once (replayable, pure), and `commitVirtualRange` walks that
+// layout to pick the visible slice. The CommitTimeline component renders the
+// slice; this is the pure math, kept here so it is testable and beside its
+// fixed-height sibling.
+export const COMMIT_ROW_BODY_HEIGHT_PX = 70;
+export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
+const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
+const COMMIT_ROW_GAP_PX = 8;
+const COMMIT_EXPANDED_PANEL_CHROME_PX = 18;
+const COMMIT_EXPANDED_PANEL_LINE_HEIGHT_PX = 18;
+const COMMIT_EXPANDED_PANEL_MAIN_GAP_PX = 6;
+export const COMMIT_DEFAULT_VIEWPORT_PX = 680;
+const COMMIT_OVERSCAN_ROWS = 8;
+
+// A commit's instant mapped to a calendar day in the viewer's timezone — the
+// key the timeline groups rows under for its date separators.
+function commitDateKey(iso: string, tz: string): string {
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return "unknown";
+  return zonedDateOnly(parsed, tz);
+}
+
+export interface CommitVirtualRow {
+  commit: ActivityDTO;
+  index: number;
+  offset: number;
+  height: number;
+  showDate: boolean;
+  body: string | null;
+  expanded: boolean;
+}
+
+function estimateCommitBodyPanelHeight(body: string, narrow: boolean): number {
+  const wrapWidth = narrow ? 44 : 96;
+  const estimatedLines = body
+    .split(/\r\n|\r|\n/)
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / wrapWidth)), 0);
+  return COMMIT_EXPANDED_PANEL_CHROME_PX + estimatedLines * COMMIT_EXPANDED_PANEL_LINE_HEIGHT_PX;
+}
+
+export function buildCommitRows({
+  commits,
+  rowBodyHeight,
+  expandedBodyId,
+  measuredExpandedBodyHeights,
+  timezone,
+}: {
+  commits: ActivityDTO[];
+  rowBodyHeight: number;
+  expandedBodyId: string | null;
+  measuredExpandedBodyHeights: ReadonlyMap<string, number>;
+  timezone: string;
+}): { rows: CommitVirtualRow[]; totalHeightPx: number } {
+  const rows: CommitVirtualRow[] = [];
+  let offset = 0;
+  let previousDateKey: string | null = null;
+  const narrow = rowBodyHeight > COMMIT_ROW_BODY_HEIGHT_PX;
+
+  commits.forEach((commit, index) => {
+    const key = commitDateKey(commit.occurred_at, timezone);
+    const showDate = previousDateKey === null || previousDateKey !== key;
+    const body = commitBody(commit);
+    const expanded = body !== null && commit.id === expandedBodyId;
+    const bodyHeight = expanded
+      ? measuredExpandedBodyHeights.get(commit.id) ??
+        rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
+      : rowBodyHeight;
+    const height = bodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + COMMIT_ROW_GAP_PX;
+    rows.push({ commit, index, offset, height, showDate, body, expanded });
+    offset += height;
+    previousDateKey = key;
+  });
+
+  return { rows, totalHeightPx: offset };
+}
+
+export function commitVirtualRange({
+  rows,
+  totalHeightPx,
+  scrollTop,
+  viewportHeight,
+}: {
+  rows: CommitVirtualRow[];
+  totalHeightPx: number;
+  scrollTop: number;
+  viewportHeight: number;
+}): { start: number; end: number; totalHeightPx: number } {
+  if (rows.length === 0) return { start: 0, end: 0, totalHeightPx: 0 };
+
+  const safeScrollTop = Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);
+  const safeViewportHeight = Math.max(1, Number.isFinite(viewportHeight) ? viewportHeight : COMMIT_DEFAULT_VIEWPORT_PX);
+  const viewportBottom = safeScrollTop + safeViewportHeight;
+
+  let firstVisible = 0;
+  while (firstVisible < rows.length - 1 && rows[firstVisible]!.offset + rows[firstVisible]!.height <= safeScrollTop) {
+    firstVisible += 1;
+  }
+
+  let endVisible = firstVisible;
+  while (endVisible < rows.length && rows[endVisible]!.offset < viewportBottom) {
+    endVisible += 1;
+  }
+
+  const start = Math.max(0, firstVisible - COMMIT_OVERSCAN_ROWS);
+  const end = Math.min(rows.length, Math.max(endVisible, firstVisible + 1) + COMMIT_OVERSCAN_ROWS);
+  return { start, end, totalHeightPx };
+}
+
 export interface ActivityDisplay {
   title: string;
   repo: string | null; // project_path, rendered with the .card-repo accent (kept out of `meta`)
