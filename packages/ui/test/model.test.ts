@@ -30,6 +30,8 @@ import {
   filterActivitiesByRange,
   buildActivityHeatmap,
   buildActivityTrend,
+  activitySummaryKindCounts,
+  ACTIVITY_SUMMARY_KINDS,
   isCommitActivity,
   filterCommits,
   commitBranches,
@@ -1679,6 +1681,48 @@ test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid",
   const quiet = byDate.get("2026-06-01");
   assert.ok((busy?.level ?? 0) > (quiet?.level ?? 0), "denser day gets a higher level");
   assert.equal(byDate.get("2026-05-15")?.level, 0, "an empty day is level 0");
+});
+
+test("activitySummaryKindCounts projects byKind onto the curated kinds in a fixed, aligned order", () => {
+  // byKind arrives sorted by count — issue dominates, change_request is absent.
+  // Both summaries must still read commit -> change request -> review, so a
+  // count-driven order like this one is irrelevant to the output.
+  const byKind = [
+    { kind: "issue", count: 9 },
+    { kind: "commit", count: 5 },
+    { kind: "branch", count: 3 },
+    { kind: "review", count: 2 },
+  ];
+
+  assert.deepEqual(activitySummaryKindCounts(byKind), [
+    { kind: "commit", count: 5 },
+    { kind: "change_request", count: 0 }, // absent kind zero-fills, never drops out
+    { kind: "review", count: 2 }, // review is always the last tile
+  ]);
+
+  // Order is driven by the constant, not by input order: feed the curated kinds
+  // already out of fixed position and they must still come back commit-first.
+  assert.deepEqual(
+    activitySummaryKindCounts([
+      { kind: "review", count: 7 },
+      { kind: "change_request", count: 4 },
+      { kind: "commit", count: 1 },
+    ]),
+    [
+      { kind: "commit", count: 1 },
+      { kind: "change_request", count: 4 },
+      { kind: "review", count: 7 },
+    ],
+  );
+
+  // The order is the contract both panels share, and review anchors the end.
+  assert.deepEqual([...ACTIVITY_SUMMARY_KINDS], ["commit", "change_request", "review"]);
+  assert.equal(activitySummaryKindCounts([]).at(-1)?.kind, "review");
+  assert.deepEqual(
+    activitySummaryKindCounts([]).map((k) => k.count),
+    [0, 0, 0],
+    "an empty window still renders every curated tile at zero",
+  );
 });
 
 test("buildActivityHeatmap buckets days in the configured timezone", () => {

@@ -1,6 +1,8 @@
 import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import {
+  ACTIVITY_SUMMARY_KINDS,
+  activitySummaryKindCounts,
   buildActivityHeatmap,
   buildActivityTrend,
   pluralize,
@@ -21,11 +23,13 @@ const TREND_PAD_Y = 16;
 // The lines the trend chart can overlay, in legend order: the aggregate plus
 // the developer-significant kinds. Colors are CSS-driven via `data-kind`.
 // All lines are visible by default; the legend toggles let the viewer hide any
-// of them (which rescales the rest to fill the height).
-const TREND_LINE_ORDER = ["total", "commit", "change_request", "review"] as const;
-// The component kinds the chart sums into its `total` line. Keep in sync with
-// the non-total entries of TREND_LINE_ORDER.
-const TREND_KIND_LINES = ["commit", "change_request", "review"] as const;
+// of them (which rescales the rest to fill the height). The kind lines are
+// single-sourced from the model's ACTIVITY_SUMMARY_KINDS so the chart overlay
+// and the summary tiles can never drift apart.
+const TREND_LINE_ORDER = ["total", ...ACTIVITY_SUMMARY_KINDS] as const;
+// The component kinds the chart sums into its `total` line — the non-total
+// entries of TREND_LINE_ORDER.
+const TREND_KIND_LINES = ACTIVITY_SUMMARY_KINDS;
 const TREND_DEFAULT_HIDDEN: string[] = [];
 const TREND_LINE_LABELS: Record<string, string> = {
   total: "total",
@@ -342,7 +346,7 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
     ...(trend.busiest
       ? [{ label: `busiest ${byLabel}`, value: trend.busiest.count.toLocaleString(), detail: trend.busiest.label }]
       : []),
-    ...trend.byKind.slice(0, 4).map((k) => ({
+    ...activitySummaryKindCounts(trend.byKind).map((k) => ({
       label: formatKind(k.kind),
       value: k.count.toLocaleString(),
       detail: "events",
@@ -424,7 +428,7 @@ export function ActivityHeatmap({
     ...(hm.busiest
       ? [{ label: "busiest day", value: hm.busiest.count.toLocaleString(), detail: hm.busiest.date }]
       : []),
-    ...hm.byKind.slice(0, 4).map((k) => ({
+    ...activitySummaryKindCounts(hm.byKind).map((k) => ({
       label: formatKind(k.kind),
       value: k.count.toLocaleString(),
       detail: "events",
