@@ -109,31 +109,17 @@ function ActivityTrendChart({
     () => new Map(trend.series.map((series) => [series.kind, series] as const)),
     [trend.series],
   );
-  // This chart is scoped to the developer-significant kinds, and its `total`
-  // line is their per-bucket sum — not every activity kind — so the lines and
-  // the total stay self-consistent (the total is exactly what the kind lines
-  // add up to). Branch/issue activity is intentionally excluded here, so this
-  // total differs from the all-events count shown in the overview / feed.
+  // Keep the model-provided total as the all-activity aggregate. The optional
+  // kind overlays are curated, so recomputing total from them would under-count
+  // issue, branch, tag, and repository activity that still appears in the feed.
   const seriesByKind = useMemo(() => {
+    const total = modelSeries.get("total");
     const parts = TREND_KIND_LINES.flatMap((kind) => {
       const series = modelSeries.get(kind);
       return series ? [series] : [];
     });
-    const totalPoints = points.map((point, index) => ({
-      date: point.date,
-      label: point.label,
-      count: parts.reduce((sum, series) => sum + (series.points[index]?.count ?? 0), 0),
-      average: parts.reduce((sum, series) => sum + (series.points[index]?.average ?? 0), 0),
-    }));
-    const totalSeries = {
-      kind: "total",
-      total: parts.reduce((sum, series) => sum + series.total, 0),
-      maxCount: totalPoints.reduce((max, point) => Math.max(max, point.count), 0),
-      maxAverage: totalPoints.reduce((max, point) => Math.max(max, point.average), 0),
-      points: totalPoints,
-    };
-    return new Map([totalSeries, ...parts].map((series) => [series.kind, series] as const));
-  }, [points, modelSeries]);
+    return new Map([...(total ? [total] : []), ...parts].map((series) => [series.kind, series] as const));
+  }, [modelSeries]);
   // Legend entries: total plus the curated lines that actually occur in range.
   const legend = TREND_LINE_ORDER.filter((kind) => seriesByKind.has(kind));
   const visible = legend.filter((kind) => !hidden.has(kind)).map((kind) => seriesByKind.get(kind)!);

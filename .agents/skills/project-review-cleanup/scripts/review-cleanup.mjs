@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_ACTORS = ["chatgpt-codex-connector"];
 const DEFAULT_RESOLUTION_NOTE = "Resolved by project-review-cleanup: stale allowlisted bot review thread on a closed or merged PR after live verification.";
 const DISPOSITIONS = new Set(["stale", "fixed", "follow_up", "accepted"]);
+const DEFAULT_CONTRACT_PATH = "data/contract.json";
+const DEFAULT_PG_CONTRACT_PORT = "18080";
+const CONTRACT_FETCH_TIMEOUT_MS = 10_000;
 
 const REVIEW_QUERY = `
 query($owner: String!, $name: String!, $number: Int!, $threadCursor: String) {
@@ -95,7 +99,12 @@ function usage() {
   project-review-cleanup.sh [options]
 
 Options:
-  --contract PATH   Contract to scan (default: data/contract.json).
+  --contract PATH   Contract file to scan (overrides repo .env defaults).
+  --contract-url URL
+                    Contract URL to scan (overrides repo .env defaults).
+                    By default, repo .env SYMPHONY_BOARD_ENV=postgres reads
+                    http://127.0.0.1:\${SYMPHONY_POSTGRES_WEB_PORT:-18080}/contract.json;
+                    otherwise the default is data/contract.json.
   --repo OWNER/REPO GitHub repository to verify (default: all GitHub repos in
                     the contract; origin for live-only without a contract).
   --pr NUMBER       Focus one PR and allow live-only verification.
@@ -120,7 +129,8 @@ Options:
 
 function parseArgs(argv) {
   const options = {
-    contractPath: "data/contract.json",
+    contractPath: null,
+    contractUrl: null,
     repo: null,
     pr: null,
     days: 7,
@@ -147,6 +157,8 @@ function parseArgs(argv) {
       options.help = true;
     } else if (arg === "--contract") {
       options.contractPath = next();
+    } else if (arg === "--contract-url") {
+      options.contractUrl = next();
     } else if (arg === "--repo") {
       options.repo = next();
     } else if (arg === "--pr") {
@@ -178,6 +190,9 @@ function parseArgs(argv) {
 
   if (options.apply && !options.live) {
     throw usageError("--apply requires live provider verification");
+  }
+  if (options.contractPath && options.contractUrl) {
+    throw usageError("--contract and --contract-url are mutually exclusive");
   }
   if (options.dispositionPath && !options.live) {
     throw usageError("--disposition-file requires live provider verification");
@@ -223,12 +238,114 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function loadContract(path) {
+function repoRoot() {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  if (result.status !== 0) return null;
+  return result.stdout.trim() || null;
+}
+
+function parseEnvContent(content) {
+  const env = {};
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
+    const equals = normalized.indexOf("=");
+    if (equals <= 0) continue;
+    const key = normalized.slice(0, equals).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    env[key] = stripEnvQuotes(normalized.slice(equals + 1).trim());
+  }
+  return env;
+}
+
+function stripEnvQuotes(value) {
+  if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function loadRepoEnv() {
+  const root = repoRoot();
+  if (!root) return {};
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    return parseEnvContent(readFileSync(join(root, ".env"), "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return {};
+    throw new Error(`failed to read repo .env: ${error.message}`);
+  }
+}
+
+function resolveContractSource(options, deps = {}) {
+  if (options.contractPath) {
+    return { kind: "file", value: options.contractPath, origin: "--contract" };
+  }
+  if (options.contractUrl) {
+    return { kind: "url", value: options.contractUrl, origin: "--contract-url" };
+  }
+
+  const repoEnv = deps.repoEnv ?? loadRepoEnv();
+  const processEnv = deps.processEnv ?? process.env;
+  const envValue = (name) => stringValue(processEnv[name]) ?? stringValue(repoEnv[name]);
+
+  const cleanupUrl = envValue("PROJECT_REVIEW_CLEANUP_CONTRACT_URL");
+  if (cleanupUrl) return { kind: "url", value: cleanupUrl, origin: "PROJECT_REVIEW_CLEANUP_CONTRACT_URL" };
+
+  const boardUrl = envValue("SYMPHONY_BOARD_CONTRACT_URL");
+  if (boardUrl) return { kind: "url", value: boardUrl, origin: "SYMPHONY_BOARD_CONTRACT_URL" };
+
+  const runtime = (envValue("SYMPHONY_BOARD_ENV") ?? envValue("SYMPHONY_BOARD_RUNTIME") ?? "").toLowerCase();
+  if (runtime === "postgres") {
+    const port = envValue("SYMPHONY_POSTGRES_WEB_PORT") ?? envValue("SYMPHONY_PG_WEB_PORT") ?? DEFAULT_PG_CONTRACT_PORT;
+    return {
+      kind: "url",
+      value: `http://127.0.0.1:${port}/contract.json`,
+      origin: "SYMPHONY_BOARD_ENV=postgres",
+    };
+  }
+  if (runtime && runtime !== "sqlite") {
+    throw usageError(`unsupported SYMPHONY_BOARD_ENV=${runtime}; expected postgres or sqlite`);
+  }
+
+  return {
+    kind: "file",
+    value: DEFAULT_CONTRACT_PATH,
+    origin: runtime ? `SYMPHONY_BOARD_ENV=${runtime}` : "default",
+  };
+}
+
+async function loadContract(source) {
+  if (source.kind === "url") {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONTRACT_FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(source.value, {
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new Error(`failed to fetch contract ${source.value}: ${error.message}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(`failed to fetch contract ${source.value}: HTTP ${response.status}`);
+    }
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new Error(`failed to parse contract ${source.value}: ${error.message}`);
+    }
+  }
+
+  try {
+    return JSON.parse(readFileSync(source.value, "utf8"));
   } catch (error) {
     if (error?.code === "ENOENT") return null;
-    throw new Error(`failed to read contract ${path}: ${error.message}`);
+    throw new Error(`failed to read contract ${source.value}: ${error.message}`);
   }
 }
 
@@ -669,6 +786,8 @@ function runCleanup(options, repo, contract, deps = {}) {
   const result = {
     repo,
     contractPath: options.contractPath,
+    contractSourceKind: options.contractSourceKind ?? null,
+    contractSourceOrigin: options.contractSourceOrigin ?? null,
     contractLoaded: Boolean(contract),
     apply: options.apply,
     dispositionPath: options.dispositionPath,
@@ -750,7 +869,8 @@ function runCleanup(options, repo, contract, deps = {}) {
 function printText(result) {
   console.log("Project review cleanup");
   console.log(`Repo: ${result.repo ?? "all GitHub repos in contract"}`);
-  console.log(`Contract: ${result.contractPath}${result.contractLoaded ? "" : " (not loaded)"}`);
+  const source = result.contractSourceOrigin ? ` (${result.contractSourceOrigin})` : "";
+  console.log(`Contract: ${result.contractPath}${source}${result.contractLoaded ? "" : " (not loaded)"}`);
   console.log(`Mode: ${result.apply ? "apply" : "dry-run"}`);
   if (result.dispositionPath) console.log(`Disposition file: ${result.dispositionPath} (${result.dispositionCount} thread${result.dispositionCount === 1 ? "" : "s"})`);
   console.log(`Allowlisted actors: ${result.allowActors.join(", ") || "(none)"}`);
@@ -820,7 +940,11 @@ async function main() {
     return;
   }
 
-  const contract = loadContract(options.contractPath);
+  const contractSource = resolveContractSource(options);
+  options.contractPath = contractSource.value;
+  options.contractSourceKind = contractSource.kind;
+  options.contractSourceOrigin = contractSource.origin;
+  const contract = await loadContract(contractSource);
   if (!contract && !options.pr) {
     throw new Error(`contract not found at ${options.contractPath}; pass --contract or --pr for live-only triage`);
   }
@@ -859,4 +983,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   });
 }
 
-export { buildCandidates, classifyLive, parseArgs, parseDispositionDocument, runCleanup };
+export { buildCandidates, classifyLive, parseArgs, parseDispositionDocument, resolveContractSource, runCleanup };

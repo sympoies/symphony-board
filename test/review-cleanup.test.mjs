@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCandidates, classifyLive, parseDispositionDocument, runCleanup } from "../.agents/skills/project-review-cleanup/scripts/review-cleanup.mjs";
+import { buildCandidates, classifyLive, parseDispositionDocument, resolveContractSource, runCleanup } from "../.agents/skills/project-review-cleanup/scripts/review-cleanup.mjs";
 
 const allowActors = ["chatgpt-codex-connector"];
 
@@ -67,6 +67,57 @@ function candidateContract(entries) {
   }));
   return { sources, items, activities };
 }
+
+test("repo env selects the Postgres served contract by default", () => {
+  const source = resolveContractSource(
+    {
+      contractPath: null,
+      contractUrl: null,
+    },
+    {
+      repoEnv: { SYMPHONY_BOARD_ENV: "postgres" },
+      processEnv: {},
+    },
+  );
+
+  assert.equal(source.kind, "url");
+  assert.equal(source.value, "http://127.0.0.1:18080/contract.json");
+  assert.equal(source.origin, "SYMPHONY_BOARD_ENV=postgres");
+});
+
+test("explicit contract path wins over the repo environment default", () => {
+  const source = resolveContractSource(
+    {
+      contractPath: "data/contract.json",
+      contractUrl: null,
+    },
+    {
+      repoEnv: { SYMPHONY_BOARD_ENV: "postgres" },
+      processEnv: {},
+    },
+  );
+
+  assert.equal(source.kind, "file");
+  assert.equal(source.value, "data/contract.json");
+  assert.equal(source.origin, "--contract");
+});
+
+test("repo env selects the SQLite contract file by default", () => {
+  const source = resolveContractSource(
+    {
+      contractPath: null,
+      contractUrl: null,
+    },
+    {
+      repoEnv: { SYMPHONY_BOARD_ENV: "sqlite" },
+      processEnv: {},
+    },
+  );
+
+  assert.equal(source.kind, "file");
+  assert.equal(source.value, "data/contract.json");
+  assert.equal(source.origin, "SYMPHONY_BOARD_ENV=sqlite");
+});
 
 function reviewThread(id, comments) {
   return {

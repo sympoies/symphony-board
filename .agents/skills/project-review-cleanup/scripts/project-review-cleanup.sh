@@ -7,7 +7,12 @@ Usage:
   project-review-cleanup.sh [options]
 
 Options:
-  --contract PATH   Contract to scan (default: data/contract.json).
+  --contract PATH   Contract file to scan (overrides repo .env defaults).
+  --contract-url URL
+                    Contract URL to scan (overrides repo .env defaults).
+                    By default, repo .env SYMPHONY_BOARD_ENV=postgres reads
+                    http://127.0.0.1:${SYMPHONY_POSTGRES_WEB_PORT:-18080}/contract.json;
+                    otherwise the default is data/contract.json.
   --repo OWNER/REPO GitHub repository to verify (default: all GitHub repos in
                     the contract; origin for live-only without a contract).
   --pr NUMBER       Focus one PR and allow live-only verification.

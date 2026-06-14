@@ -47,8 +47,18 @@ Prereqs:
 - Run inside the `symphony-board` git work tree.
 - Node 24 on PATH; the wrapper honors `.node-version` via `fnm` when present.
 - `gh` is installed and authenticated for live GitHub verification.
-- For contract discovery, an emitted board contract exists at
-  `data/contract.json`, or pass `--contract <path>`.
+- For contract discovery, the helper resolves the active contract source before
+  scanning:
+  - `--contract <path>` uses a local emitted contract file.
+  - `--contract-url <url>` uses a served contract URL.
+  - Otherwise repo `.env` is read for local defaults.
+    `SYMPHONY_BOARD_ENV=postgres` means the active Postgres compose UI contract
+    at `http://127.0.0.1:${SYMPHONY_POSTGRES_WEB_PORT:-18080}/contract.json`
+    (`SYMPHONY_PG_WEB_PORT` is also honored for the existing compose variable);
+    `SYMPHONY_BOARD_ENV=sqlite` means the repo-local `data/contract.json`;
+    `SYMPHONY_BOARD_CONTRACT_URL` or
+    `PROJECT_REVIEW_CLEANUP_CONTRACT_URL` can pin a specific served contract.
+    With no env default, the fallback remains `data/contract.json`.
 - For live-only triage without a contract, pass `--pr <number>` and
   `--repo <owner/repo>`; when a contract is available, `--pr` searches matching
   GitHub repositories in that contract.
@@ -56,7 +66,10 @@ Prereqs:
 Inputs:
 
 - Optional:
-  - `--contract <path>` - contract to scan; default `data/contract.json`.
+  - `--contract <path>` - local contract file to scan; overrides `.env`
+    defaults.
+  - `--contract-url <url>` - served contract URL to scan; overrides `.env`
+    defaults.
   - `--repo <owner/repo>` - GitHub repository to verify; default is every
     GitHub repository in the contract, falling back to `origin` for live-only
     `--pr` runs without a contract.
@@ -131,6 +144,9 @@ Failure modes:
 
 1. Run a read-only enriched scan:
    `bash .agents/skills/project-review-cleanup/scripts/project-review-cleanup.sh --json`
+   The default scan follows the repo `.env` environment selection; for the
+   current Postgres-only runtime, keep `SYMPHONY_BOARD_ENV=postgres` in `.env`
+   so the scan uses the same served contract that the UI is rendering.
 2. Inspect every unresolved thread in the JSON. The default report may include
    multiple GitHub repositories from the board contract. An `open_review_threads`
    candidate has unresolved threads at last sync regardless of actor or review
