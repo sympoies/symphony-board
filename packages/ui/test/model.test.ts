@@ -1700,6 +1700,21 @@ test("activitySummaryKindCounts projects byKind onto the curated kinds in a fixe
     { kind: "review", count: 2 }, // review is always the last tile
   ]);
 
+  // Order is driven by the constant, not by input order: feed the curated kinds
+  // already out of fixed position and they must still come back commit-first.
+  assert.deepEqual(
+    activitySummaryKindCounts([
+      { kind: "review", count: 7 },
+      { kind: "change_request", count: 4 },
+      { kind: "commit", count: 1 },
+    ]),
+    [
+      { kind: "commit", count: 1 },
+      { kind: "change_request", count: 4 },
+      { kind: "review", count: 7 },
+    ],
+  );
+
   // The order is the contract both panels share, and review anchors the end.
   assert.deepEqual([...ACTIVITY_SUMMARY_KINDS], ["commit", "change_request", "review"]);
   assert.equal(activitySummaryKindCounts([]).at(-1)?.kind, "review");
