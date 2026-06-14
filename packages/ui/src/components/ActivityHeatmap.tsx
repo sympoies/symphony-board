@@ -85,6 +85,14 @@ function rangeLabel(from: string, to: string): string {
   return from === to ? from : `${from} to ${to}`;
 }
 
+function activeDaysItem(activeDays: number, dayCount: number) {
+  return {
+    label: "active days",
+    value: activeDays.toLocaleString(),
+    detail: `of ${dayCount.toLocaleString()} ${pluralize(dayCount, "day")}`,
+  };
+}
+
 // Map a pointer's client Y onto the chart's viewBox Y so we can pick the line
 // nearest the cursor. The hit band spans the full chart height, so its bounding
 // rect maps 1:1 onto [0, TREND_H].
@@ -346,6 +354,7 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
     ...(trend.busiest
       ? [{ label: `busiest ${byLabel}`, value: trend.busiest.count.toLocaleString(), detail: trend.busiest.label }]
       : []),
+    activeDaysItem(trend.activeDays, trend.dayCount),
     ...activitySummaryKindCounts(trend.byKind).map((k) => ({
       label: formatKind(k.kind),
       value: k.count.toLocaleString(),
@@ -428,6 +437,7 @@ export function ActivityHeatmap({
     ...(hm.busiest
       ? [{ label: "busiest day", value: hm.busiest.count.toLocaleString(), detail: hm.busiest.date }]
       : []),
+    activeDaysItem(hm.activeDays, hm.dayCount),
     ...activitySummaryKindCounts(hm.byKind).map((k) => ({
       label: formatKind(k.kind),
       value: k.count.toLocaleString(),

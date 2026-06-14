@@ -1670,6 +1670,8 @@ test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid",
   assert.equal(byDate.get("2026-06-30"), undefined);
 
   assert.equal(hm.total, 4, "only the four in-window events count");
+  assert.equal(hm.activeDays, 2, "events landed on two distinct in-window days");
+  assert.equal(hm.dayCount, 366, "summary denominator covers the visible trailing window days");
   assert.equal(hm.maxCount, 3);
   assert.equal(hm.busiest?.date, "2026-06-08");
   assert.deepEqual(hm.byKind, [
@@ -1757,6 +1759,8 @@ test("buildActivityTrend returns daily points and a smoothed activity average", 
   );
 
   assert.equal(trend.total, 3);
+  assert.equal(trend.activeDays, 2, "selected range has activity on two days");
+  assert.equal(trend.dayCount, 4, "selected range spans four inclusive days");
   assert.equal(trend.bucket, "day");
   assert.equal(trend.maxCount, 2);
   assert.equal(trend.points.length, 4);
