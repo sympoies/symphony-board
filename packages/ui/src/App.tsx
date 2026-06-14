@@ -12,6 +12,7 @@ import {
   staticContractTimeRange,
   filterActivitiesByRange,
   indexItems,
+  mergeActivityIndex,
   itemMatches,
   reviewActivityIsUnresolved,
   repoMetricMatches,
@@ -328,9 +329,23 @@ export function App() {
   // re-enable) hidden repos.
   const visibleEnv = useMemo(() => (chromeEnv ? applyVisibility(chromeEnv, hidden, hiddenSources) : null), [chromeEnv, hidden, hiddenSources]);
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
-  // Item index by ref, shared by the edge resolver and the Activity feed (where
-  // a review row resolves its target change_request to show open review threads).
+  // Item index by ref for the edge resolver. When a historical range is active,
+  // visibleEnv is the /api/range projection, so this index is intentionally
+  // range-scoped (exactly the projected items + their edge endpoints).
   const itemsById = useMemo(() => (visibleEnv ? indexItems(visibleEnv) : new Map()), [visibleEnv]);
+  // Index for resolving Activity review rows to their target PR's CURRENT review
+  // threads. A review's target can live in only one of two item sets: the full
+  // visible contract `items[]` is 90-day windowed (omits a PR updated only in a
+  // custom range that predates the window), while the active /api/range
+  // projection omits a PR updated *after* the range. Resolving against either
+  // alone makes ?unresolved=1 wrongly hide real unresolved reviews (and drop the
+  // thread chip), so union both. Visibility (hidden repos/sources) applies to
+  // both. With no range active this equals itemsById.
+  const fullVisibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
+  const activityItemsById = useMemo(
+    () => mergeActivityIndex(fullVisibleEnv ? indexItems(fullVisibleEnv) : new Map(), itemsById),
+    [fullVisibleEnv, itemsById],
+  );
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const windowedActivities = useMemo(
     () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange, tz) : []),
@@ -423,9 +438,10 @@ export function App() {
   const filteredActivities = useMemo(() => {
     const base = routeActivities.filter((a) => activityMatches(a, { ...emptyFilters(), search: filters.search }));
     // "unresolved only" (?unresolved=1): keep just the review rows whose target
-    // PR/MR still has open threads. Resolves target_ref against the live items.
-    return route.unresolved === "1" ? base.filter((a) => reviewActivityIsUnresolved(a, itemsById)) : base;
-  }, [routeActivities, filters.search, route.unresolved, itemsById]);
+    // PR/MR still has open threads. Resolves target_ref against the full visible
+    // contract so an in-range review on a later-updated PR is not lost.
+    return route.unresolved === "1" ? base.filter((a) => reviewActivityIsUnresolved(a, activityItemsById)) : base;
+  }, [routeActivities, filters.search, route.unresolved, activityItemsById]);
 
   // The chip groups the shared Controls renders, built per page — every page now
   // drives its chips STRICTLY from the route. Activity uses its own
@@ -954,7 +970,7 @@ export function App() {
           timezone={tz}
           sourceKind={sourceKind}
           colorOf={colorOf}
-          itemsById={itemsById}
+          itemsById={activityItemsById}
         />
       ) : page === "commits" ? (
         <CommitsPage
