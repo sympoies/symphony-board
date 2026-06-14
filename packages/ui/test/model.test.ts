@@ -1738,6 +1738,38 @@ test("buildActivityTrend returns daily points and a smoothed activity average", 
   ]);
 });
 
+test("buildActivityTrend exposes per-kind series aligned to the bucket axis", () => {
+  const trend = buildActivityTrend(
+    [
+      activity({ id: "s1", occurred_at: "2026-06-01T12:00:00Z", kind: "commit" }),
+      activity({ id: "s2", occurred_at: "2026-06-02T12:00:00Z", kind: "commit" }),
+      activity({ id: "s3", occurred_at: "2026-06-02T13:00:00Z", kind: "review" }),
+      activity({ id: "s4", occurred_at: "2026-06-03T12:00:00Z", kind: "change_request" }),
+    ],
+    { from: "2026-06-01", to: "2026-06-03" },
+  );
+
+  // The aggregate series comes first and equals the existing top-level points.
+  assert.equal(trend.series[0]?.kind, "total");
+  assert.deepEqual(
+    trend.series[0]?.points.map((point) => point.count),
+    trend.points.map((point) => point.count),
+  );
+
+  // Per-kind series carry one entry per kind seen, sorted by descending count,
+  // each aligned 1:1 with the shared bucket axis.
+  const byKind = new Map(trend.series.map((series) => [series.kind, series]));
+  assert.deepEqual(byKind.get("total")?.points.map((point) => point.count), [1, 2, 1]);
+  assert.deepEqual(byKind.get("commit")?.points.map((point) => point.count), [1, 1, 0]);
+  assert.deepEqual(byKind.get("review")?.points.map((point) => point.count), [0, 1, 0]);
+  assert.deepEqual(byKind.get("change_request")?.points.map((point) => point.count), [0, 0, 1]);
+  assert.equal(byKind.get("commit")?.total, 2);
+  for (const series of trend.series) {
+    assert.equal(series.points.length, trend.points.length);
+    assert.ok(series.points.every((point) => typeof point.average === "number"));
+  }
+});
+
 test("buildActivityTrend uses hourly buckets for a single selected day", () => {
   const trend = buildActivityTrend(
     [

@@ -534,6 +534,17 @@ export interface ActivityTrendRepoCount {
   count: number;
 }
 
+// One plottable line: the aggregate ("total") or a single activity kind, with
+// its points aligned 1:1 to the shared bucket axis so the chart can overlay
+// several lines and let the viewer toggle / focus them.
+export interface ActivityTrendSeries {
+  kind: string; // "total" for the aggregate, else the activity kind
+  total: number;
+  maxCount: number;
+  maxAverage: number;
+  points: ActivityTrendPoint[];
+}
+
 export interface ActivityTrend {
   from: string;
   to: string;
@@ -545,6 +556,9 @@ export interface ActivityTrend {
   busiest: ActivityTrendBusiest | null;
   byKind: ActivityKindCount[];
   byRepo: ActivityTrendRepoCount[];
+  // [total, ...one per kind seen] — kind series sorted by descending count.
+  // Every series shares the same bucket axis as `points`.
+  series: ActivityTrendSeries[];
 }
 
 // Map a per-nonzero-day count onto a 1..4 intensity using quartile thresholds of
@@ -706,6 +720,31 @@ function activityTrendBucketKey(
   return monthBucketStart(day, range.from);
 }
 
+// Smooth a per-bucket count series into plottable points: a centered moving
+// average (the line) carried alongside the raw count (the dots), using a wider
+// window for the denser daily bucket. Shared by every trend line so the
+// aggregate and per-kind series are smoothed identically.
+function smoothTrendSeries(
+  buckets: Array<{ key: string; date: string; label: string }>,
+  countByKey: ReadonlyMap<string, number>,
+  bucket: ActivityTrendBucket,
+): { points: ActivityTrendPoint[]; maxCount: number; maxAverage: number } {
+  const raw = buckets.map((point) => ({ ...point, count: countByKey.get(point.key) ?? 0 }));
+  let maxCount = 0;
+  let maxAverage = 0;
+  const radius = bucket === "day" ? 2 : 1;
+  const points = raw.map((point, index) => {
+    maxCount = Math.max(maxCount, point.count);
+    const start = Math.max(0, index - radius);
+    const end = Math.min(raw.length, index + radius + 1);
+    const sum = raw.slice(start, end).reduce((acc, next) => acc + next.count, 0);
+    const average = raw.length > 1 ? sum / (end - start) : point.count;
+    maxAverage = Math.max(maxAverage, average);
+    return { date: point.date, label: point.label, count: point.count, average };
+  });
+  return { points, maxCount, maxAverage };
+}
+
 export function buildActivityTrend(
   activities: readonly ActivityDTO[],
   range: TimeRange,
@@ -724,6 +763,7 @@ export function buildActivityTrend(
       busiest: null,
       byKind: [],
       byRepo: [],
+      series: [],
     };
   }
 
@@ -733,6 +773,8 @@ export function buildActivityTrend(
   const bucket: ActivityTrendBucket = days <= 1 ? "hour" : days <= 31 ? "day" : days <= 366 ? "week" : "month";
   const buckets = activityTrendBuckets(normalized, bucket);
   const countByKey = new Map<string, number>();
+  // Per-kind bucket counts, so each kind can be plotted as its own line.
+  const countByKeyByKind = new Map<string, Map<string, number>>();
   const kindCounts = new Map<string, number>();
   const repoCounts = new Map<string, ActivityTrendRepoCount>();
   let total = 0;
@@ -743,6 +785,12 @@ export function buildActivityTrend(
     if (day < normalized.from || day > normalized.to) continue;
     const key = activityTrendBucketKey(day, ms, normalized, bucket, tz);
     countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    let kindKeys = countByKeyByKind.get(a.kind);
+    if (!kindKeys) {
+      kindKeys = new Map<string, number>();
+      countByKeyByKind.set(a.kind, kindKeys);
+    }
+    kindKeys.set(key, (kindKeys.get(key) ?? 0) + 1);
     kindCounts.set(a.kind, (kindCounts.get(a.kind) ?? 0) + 1);
     const repoCountKey = repoKey(a.source_id, a.project_path);
     const repoCount = repoCounts.get(repoCountKey) ?? {
@@ -755,24 +803,17 @@ export function buildActivityTrend(
     total += 1;
   }
 
-  const raw = buckets.map((point) => ({ ...point, count: countByKey.get(point.key) ?? 0 }));
+  const aggregate = smoothTrendSeries(buckets, countByKey, bucket);
+  const points = aggregate.points;
+  const maxCount = aggregate.maxCount;
+  const maxAverage = aggregate.maxAverage;
 
-  let maxCount = 0;
-  let maxAverage = 0;
   let busiest: ActivityTrendBusiest | null = null;
-  const points = raw.map((point, index) => {
-    maxCount = Math.max(maxCount, point.count);
+  for (const point of points) {
     if (point.count > (busiest?.count ?? 0)) {
       busiest = { date: point.date, label: point.label, count: point.count };
     }
-    const radius = bucket === "day" ? 2 : 1;
-    const start = Math.max(0, index - radius);
-    const end = Math.min(raw.length, index + radius + 1);
-    const sum = raw.slice(start, end).reduce((acc, next) => acc + next.count, 0);
-    const average = raw.length > 1 ? sum / (end - start) : point.count;
-    maxAverage = Math.max(maxAverage, average);
-    return { date: point.date, label: point.label, count: point.count, average };
-  });
+  }
 
   const byKind = [...kindCounts.entries()]
     .map(([kind, count]) => ({ kind, count }))
@@ -785,7 +826,17 @@ export function buildActivityTrend(
       a.source_id.localeCompare(b.source_id),
   );
 
-  return { from: normalized.from, to: normalized.to, bucket, points, total, maxCount, maxAverage, busiest, byKind, byRepo };
+  // The aggregate line first, then one line per kind in `byKind` (descending)
+  // order so the legend and overlay share a stable, count-ranked sequence.
+  const series: ActivityTrendSeries[] = [
+    { kind: "total", total, maxCount, maxAverage, points },
+    ...byKind.map(({ kind, count }) => {
+      const smoothed = smoothTrendSeries(buckets, countByKeyByKind.get(kind) ?? new Map(), bucket);
+      return { kind, total: count, maxCount: smoothed.maxCount, maxAverage: smoothed.maxAverage, points: smoothed.points };
+    }),
+  ];
+
+  return { from: normalized.from, to: normalized.to, bucket, points, total, maxCount, maxAverage, busiest, byKind, byRepo, series };
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;
