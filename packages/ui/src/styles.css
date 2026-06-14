@@ -1346,7 +1346,8 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 8px;
   margin: 10px 0 12px;
 }
-.repo-stat-tile {
+/* Shared StatTile (repo analytics totals + diagnostics DB stats). */
+.stat-tile {
   min-height: 56px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1356,7 +1357,7 @@ a.rf-node-title:hover { color: var(--accent); }
   flex-direction: column;
   justify-content: space-between;
 }
-.repo-stat-tile b { font-size: 18px; color: var(--accent); line-height: 1.1; }
+.stat-tile b { font-size: 18px; color: var(--accent); line-height: 1.1; }
 .repo-table-wrap {
   overflow-x: auto;
   scrollbar-gutter: stable;
@@ -1587,17 +1588,6 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 8px;
   margin: 0 0 12px;
 }
-.debug-stat-tile {
-  min-height: 56px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-.debug-stat-tile b { font-size: 18px; color: var(--accent); line-height: 1.1; }
 .debug-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; }
 .debug-card {
   background: var(--panel);
