@@ -229,7 +229,11 @@ The store a deployment uses is config-selected (`src/db/factory.ts`): SQLite at
 holding a `postgres://` URL) selects the Postgres driver. `docker/compose.yaml`
 is the default SQLite stack; `docker/compose.pg.yaml` is the independent
 Postgres stack. The API sidecars use `openConfiguredStoreReadOnly`, so
-`/api/range` and `/api/stats` read whichever store the config selects.
+`/api/range` and `/api/stats` read whichever store the config selects. The agent
+deploy entrypoint (`.agents/scripts/deploy.sh`) picks between the two stacks from
+the `SYMPHONY_BOARD_ENV` switch in `.env` (`postgres` → `docker/compose.pg.yaml`,
+`sqlite`/unset → `docker/compose.yaml`), resolved by `scripts/lib/repo-env.mjs` —
+the same switch `project-review-cleanup` reads.
 
 ### Changing The Contract
 
