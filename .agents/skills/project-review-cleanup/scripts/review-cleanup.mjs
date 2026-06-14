@@ -2,9 +2,10 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-// The active-runtime switch (SYMPHONY_BOARD_ENV) and repo .env loader live in a
-// shared module so deploy tooling and this skill resolve them identically.
-import { loadRepoEnv, resolveRuntime } from "../../../../scripts/lib/repo-env.mjs";
+// The active-runtime switch (SYMPHONY_BOARD_ENV), repo .env loader, and usage
+// error live in a shared module so deploy tooling and this skill resolve them
+// identically.
+import { loadRepoEnv, resolveRuntime, usageError } from "../../../../scripts/lib/repo-env.mjs";
 
 const DEFAULT_ACTORS = ["chatgpt-codex-connector"];
 const DEFAULT_RESOLUTION_NOTE = "Resolved by project-review-cleanup: stale allowlisted bot review thread on a closed or merged PR after live verification.";
@@ -228,12 +229,6 @@ function parseNonNegativeNumber(value, name) {
     throw usageError(`${name} must be a non-negative number`);
   }
   return parsed;
-}
-
-function usageError(message) {
-  const error = new Error(message);
-  error.usage = true;
-  return error;
 }
 
 function unique(values) {

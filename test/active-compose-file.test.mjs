@@ -1,7 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { resolveComposeFile } from "../scripts/active-compose-file.mjs";
 import { resolveRuntime, parseEnvContent } from "../scripts/lib/repo-env.mjs";
+
+const CLI = fileURLToPath(new URL("../scripts/active-compose-file.mjs", import.meta.url));
+// An explicit SYMPHONY_BOARD_ENV in the child env wins over any repo .env, so
+// these stay deterministic regardless of the checkout's .env.
+const runCli = (value) =>
+  spawnSync(process.execPath, [CLI], {
+    encoding: "utf8",
+    env: value === undefined ? { ...process.env } : { ...process.env, SYMPHONY_BOARD_ENV: value },
+  });
 
 // deploy.sh must pick its docker compose stack from the SAME SYMPHONY_BOARD_ENV
 // switch project-review-cleanup reads, so the two never target different stacks.
@@ -64,6 +75,23 @@ test("resolveRuntime preserves the unset-vs-sqlite distinction review-cleanup ne
   assert.equal(resolveRuntime({ processEnv: {}, repoEnv: {} }), "");
   assert.equal(resolveRuntime({ processEnv: { SYMPHONY_BOARD_ENV: "sqlite" }, repoEnv: {} }), "sqlite");
   assert.equal(resolveRuntime({ processEnv: { SYMPHONY_BOARD_ENV: "postgres" }, repoEnv: {} }), "postgres");
+});
+
+test("the CLI prints exactly the compose path + newline and exits 0 (the contract deploy.sh captures)", () => {
+  const pg = runCli("postgres");
+  assert.equal(pg.status, 0);
+  assert.equal(pg.stdout, "docker/compose.pg.yaml\n");
+
+  const sqlite = runCli("sqlite");
+  assert.equal(sqlite.status, 0);
+  assert.equal(sqlite.stdout, "docker/compose.yaml\n");
+});
+
+test("the CLI exits 2 with a usage message and no stdout on an unsupported runtime", () => {
+  const bad = runCli("mysql");
+  assert.equal(bad.status, 2);
+  assert.equal(bad.stdout, "");
+  assert.match(bad.stderr, /unsupported SYMPHONY_BOARD_ENV=mysql/);
 });
 
 test("parseEnvContent reads simple keys, ignores comments/blanks, strips quotes and export", () => {
