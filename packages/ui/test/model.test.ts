@@ -41,6 +41,7 @@ import {
   activityInTimeRange,
   itemMatches,
   indexItems,
+  mergeActivityIndex,
   resolveEdges,
   edgeMatches,
   computeStats,
@@ -294,6 +295,29 @@ test("reviewActivityIsUnresolved must resolve against the full contract, not a r
 
   assert.equal(reviewActivityIsUnresolved(reviewInRange, rangeProjection), false, "range projection omits the later-updated PR -> wrongly resolved");
   assert.equal(reviewActivityIsUnresolved(reviewInRange, fullContract), true, "full contract retains the PR -> correctly unresolved");
+});
+
+test("mergeActivityIndex unions full-contract and range-projection items (neither alone suffices)", () => {
+  // Static items[] is 90-day windowed; the /api/range projection covers a custom
+  // range. Each set can hold a review target the other omits, so the activity
+  // index must union both, not replace one with the other.
+  const inStaticWindow = item({ id: "g|PR_recent", kind: "change_request", review_threads: { open: 1, total: 1 } });
+  const onlyInRange = item({ id: "g|PR_old", kind: "change_request", review_threads: { open: 3, total: 3 } });
+  const full = new Map<string, ItemDTO>([[inStaticWindow.id, inStaticWindow]]);
+  const range = new Map<string, ItemDTO>([[onlyInRange.id, onlyInRange]]);
+
+  const merged = mergeActivityIndex(full, range);
+  assert.equal(merged.size, 2);
+  // A review on a PR only in the static window resolves...
+  assert.equal(reviewActivityIsUnresolved(activity({ kind: "review", action: "reviewed", target_ref: "g|PR_recent" }), merged), true);
+  // ...and one on a PR only in the range projection (range predates the window) also resolves.
+  assert.equal(reviewActivityIsUnresolved(activity({ kind: "review", action: "reviewed", target_ref: "g|PR_old" }), merged), true);
+
+  // On overlap the full-contract entry wins (its review_threads reflect current state).
+  const overlapFull = item({ id: "g|dup", kind: "change_request", review_threads: { open: 0, total: 2 } });
+  const overlapRange = item({ id: "g|dup", kind: "change_request", review_threads: { open: 9, total: 9 } });
+  const dup = mergeActivityIndex(new Map([[overlapFull.id, overlapFull]]), new Map([[overlapRange.id, overlapRange]]));
+  assert.equal(dup.get("g|dup")?.review_threads?.open, 0, "full-contract entry wins on overlap");
 });
 
 test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one item)", () => {

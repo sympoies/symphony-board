@@ -139,6 +139,22 @@ export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
   return new Map(env.items.map((it) => [it.id, it]));
 }
 
+// Index used to resolve Activity review rows to their target PR's CURRENT review
+// threads. A review's target can live in only ONE of two item sets, so neither
+// alone is sufficient: the full-contract `items[]` is windowed (it omits a PR
+// updated only inside a custom range that predates the static window), while the
+// active /api/range projection omits a PR updated *after* the range. Union them
+// — preferring the full-contract entry on overlap — so the unresolved lens
+// resolves a review whether its target is in the static window OR the range.
+export function mergeActivityIndex(
+  fullVisible: ReadonlyMap<string, ItemDTO>,
+  rangeProjected: ReadonlyMap<string, ItemDTO>,
+): Map<string, ItemDTO> {
+  const merged = new Map(fullVisible);
+  for (const [id, it] of rangeProjected) if (!merged.has(id)) merged.set(id, it);
+  return merged;
+}
+
 // A DOM-safe anchor id for an item ref (refs contain '|', ':', '/'). The same
 // encoding is used for the element id and the link fragment so they match.
 export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)}`;

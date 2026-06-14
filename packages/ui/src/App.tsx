@@ -12,6 +12,7 @@ import {
   staticContractTimeRange,
   filterActivitiesByRange,
   indexItems,
+  mergeActivityIndex,
   itemMatches,
   reviewActivityIsUnresolved,
   repoMetricMatches,
@@ -333,14 +334,18 @@ export function App() {
   // range-scoped (exactly the projected items + their edge endpoints).
   const itemsById = useMemo(() => (visibleEnv ? indexItems(visibleEnv) : new Map()), [visibleEnv]);
   // Index for resolving Activity review rows to their target PR's CURRENT review
-  // threads. Those counts do not depend on any active range, so it is built from
-  // the FULL visible contract rather than the range projection: a review that
-  // occurred in-range on a PR updated *after* the range is otherwise missing
-  // from the projection, and ?unresolved=1 would wrongly hide it (and drop its
-  // thread chip). Visibility (hidden repos/sources) still applies. With no range
-  // active this equals itemsById.
+  // threads. A review's target can live in only one of two item sets: the full
+  // visible contract `items[]` is 90-day windowed (omits a PR updated only in a
+  // custom range that predates the window), while the active /api/range
+  // projection omits a PR updated *after* the range. Resolving against either
+  // alone makes ?unresolved=1 wrongly hide real unresolved reviews (and drop the
+  // thread chip), so union both. Visibility (hidden repos/sources) applies to
+  // both. With no range active this equals itemsById.
   const fullVisibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
-  const activityItemsById = useMemo(() => (fullVisibleEnv ? indexItems(fullVisibleEnv) : new Map()), [fullVisibleEnv]);
+  const activityItemsById = useMemo(
+    () => mergeActivityIndex(fullVisibleEnv ? indexItems(fullVisibleEnv) : new Map(), itemsById),
+    [fullVisibleEnv, itemsById],
+  );
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const windowedActivities = useMemo(
     () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange, tz) : []),
