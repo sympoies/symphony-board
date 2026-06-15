@@ -6,6 +6,9 @@
 packages:
   - "packages/*"
 
+overrides:
+  esbuild: 0.28.1
+
 # pnpm 11 reads build-script policy from here, not the package.json "pnpm" field.
 # We keep an explicit, minimal-trust allowlist:
 #   * lefthook: false  — its hooks are wired by our own `prepare` script, so we
