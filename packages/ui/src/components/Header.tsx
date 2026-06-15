@@ -1,17 +1,28 @@
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { relativeTime, isSyncRunActive, liveSourceStatus, syncRunSummary } from "../model.ts";
+import { relativeTime, isSyncRunActive, liveSourceStatus, syncRunSummary, visibleHeaderSources } from "../model.ts";
 import type { SyncState } from "../useSync.ts";
+
+const NO_HIDDEN_SOURCES: ReadonlySet<string> = new Set();
 
 // Title + contract provenance + per-source health, so a viewer can immediately
 // see whether the data is fresh and whether any source last synced partial/error.
 // When the writer-owned control surface is available, the manual Sync action sits
 // beside the source health on the same row (a fixed gap, independent of the
 // status text width), and the run status drops onto its own row below.
-export function Header({ env, sync }: { env: ContractEnvelope; sync?: SyncState }) {
+export function Header({
+  env,
+  sync,
+  hiddenSources = NO_HIDDEN_SOURCES,
+}: {
+  env: ContractEnvelope;
+  sync?: SyncState;
+  hiddenSources?: ReadonlySet<string>;
+}) {
   const showSync = sync?.available ?? false;
   const running = showSync && isSyncRunActive(sync!.current);
   const summary = showSync ? (sync!.error ?? syncRunSummary(running ? sync!.current : sync!.last)) : "";
+  const sources = visibleHeaderSources(env.sources, hiddenSources);
   return (
     <header className="app-header">
       <div className="brand">
@@ -23,7 +34,7 @@ export function Header({ env, sync }: { env: ContractEnvelope; sync?: SyncState 
       <div className="header-aside">
         <div className="header-aside-row">
           <div className="sources">
-            {env.sources.map((s) => {
+            {sources.map((s) => {
               // While a run is in flight the chip badge shows that run's live
               // state for this source (syncing / fresh outcome); otherwise the
               // contract's last status. The reloaded contract takes over after
