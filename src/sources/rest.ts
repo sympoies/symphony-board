@@ -6,31 +6,14 @@ import {
   fetchWithTimeout,
   firstAvailableToken,
   githubRateLimitInfo,
+  isGithubPrimaryRateLimit,
+  nextAvailableToken,
   normalizeAuthTokens,
   primaryCooldownUntil,
   type AuthTokenInput,
 } from "./http.ts";
 
 export type RestClient = <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>) => Promise<T>;
-
-function nextTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedUntil: Map<number, number>, tried: Set<number>, after: number): number | null {
-  const now = Date.now();
-  for (let step = 1; step <= tokens.length; step++) {
-    const idx = (after + step) % tokens.length;
-    if (tried.has(idx)) continue;
-    const blocked = blockedUntil.get(idx) ?? 0;
-    if (blocked <= now) return idx;
-  }
-  return null;
-}
-
-// A GitHub primary rate limit (not secondary / abuse): cool the token down
-// regardless of pool size, so even a single-token client short-circuits the next
-// request instead of hammering the exhausted PAT. Rotation is gated separately on
-// nextTokenIndex (see graphql.ts for the shared rationale).
-function isGithubPrimaryRateLimit(provider: "github" | "gitlab", err: ProviderHttpError): boolean {
-  return provider === "github" && err.rateLimit?.kind === "primary";
-}
 
 export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, provider: "github" | "gitlab", timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS): RestClient {
   const base = baseUrl.replace(/\/+$/, "");
@@ -80,7 +63,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
-          const next = nextTokenIndex(tokens, blockedUntil, tried, idx);
+          const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
           if (next !== null) {
             lastError = err;
             idx = next;

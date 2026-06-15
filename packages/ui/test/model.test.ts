@@ -339,7 +339,7 @@ test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one
   assert.equal(itemMatches(it13, f("add thing")), true, "both words present -> match");
   assert.equal(itemMatches(it13, f("thing add")), true, "order-independent");
   assert.equal(itemMatches(it13, f("add nope")), false, "one missing term fails the AND");
-  // a "#<n>" term is an EXACT iid match, never a substring -> #13 must not hit #130
+  // a numeric iid term is an EXACT match, never a substring
   assert.equal(itemMatches(it13, f("#13")), true);
   assert.equal(itemMatches(it130, f("#13")), false, "#13 must not match #130");
   assert.equal(itemMatches(item({ iid: null }), f("#13")), false, "no iid never matches a #<n> term");
@@ -1003,7 +1003,7 @@ test("buildGraph keeps only edge-connected nodes and flags untracked ends", () =
   assert.equal(untracked?.label, "UNTRACKED", "untracked label is the bare ref tail");
   assert.equal(untracked?.created_at, null, "untracked node carries no timestamps");
   assert.equal(untracked?.updated_at, null);
-  // tracked nodes carry created_at / updated_at through to the node card (#24)
+  // tracked nodes carry created_at / updated_at through to the node card
   const tracked = g.nodes.find((n) => n.id === "I");
   assert.equal(tracked?.created_at, "2026-05-20T00:00:00Z", "tracked node carries created_at");
   assert.equal(tracked?.updated_at, "2026-06-01T00:00:00Z", "tracked node carries updated_at");
@@ -1319,7 +1319,7 @@ function gnode(over: Partial<GraphNode> = {}): GraphNode {
   };
 }
 
-test("compareGraphNodes orders by state bucket then newest-created, not demand (#32)", () => {
+test("compareGraphNodes orders by state bucket then newest-created, not demand", () => {
   const openOld = gnode({ id: "o1", label: "open-old", state: "open", created_at: "2026-01-01T00:00:00Z", demand: 0 });
   const o2 = gnode({ id: "o2", label: "open-newer", state: "open", created_at: "2026-05-01T00:00:00Z" });
   const mergedNew = gnode({ id: "m1", label: "merged-new", state: "merged", created_at: "2026-06-01T00:00:00Z", demand: 99 });
@@ -1337,7 +1337,7 @@ test("compareGraphNodes orders by state bucket then newest-created, not demand (
   assert.deepEqual(order, ["o2", "o1", "c1", "m1", "c2"], "opens (newest→oldest), then closed/merged (newest→oldest)");
 });
 
-test("compareGraphNodes: undated nodes sort last in their bucket, with a stable id tie-break (#32)", () => {
+test("compareGraphNodes: undated nodes sort last in their bucket, with a stable id tie-break", () => {
   const dated = gnode({ id: "d", label: "dated", state: "open", created_at: "2026-01-01T00:00:00Z" });
   const undatedZ = gnode({ id: "zzz", label: "u", state: "open", created_at: null });
   const undatedA = gnode({ id: "aaa", label: "u", state: "open", created_at: null });
@@ -1591,7 +1591,7 @@ test("syncRunSummary distinguishes running, reloaded, dry-run, and error states"
   assert.match(syncRunSummary(syncRun({ status: "ok", emitted: true }), now), /Synced .* · 7 items · contract reloaded/);
   assert.match(syncRunSummary(syncRun({ dry_run: true, emitted: false }), now), /Dry-run completed/);
   assert.match(syncRunSummary(syncRun({ status: "error", emitted: false, error: "boom" }), now), /Sync failed .*: boom/);
-  // A lease-denied run (#164): another writer held the store, the run was
+  // A lease-denied run: another writer held the store, the run was
   // skipped — benign, never "Synced", never "failed".
   assert.match(syncRunSummary(syncRun({ status: "skipped", emitted: false, totals: null }), now), /Sync skipped .*another writer/);
   assert.equal(syncRunSummary(null, now), "");

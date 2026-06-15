@@ -406,7 +406,7 @@ for (const driver of DRIVERS) {
   });
 
   t("the writer lease is exclusive across handles to the same store", async () => {
-    // #164: "exactly one sync writer" as a per-driver obligation, not a
+    // "Exactly one sync writer" is a per-driver obligation, not a
     // deployment convention. Try-lock semantics: a refused acquire returns
     // false immediately (the caller skips its run), never blocks.
     const { a, b, cleanup } = await driver.openShared();

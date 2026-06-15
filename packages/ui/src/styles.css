@@ -19,7 +19,7 @@
   --accent: #82aaff;
   --accent-fg: #011627;
   --link: #7fdbca;
-  --iid: #ecc48d;        /* sandy tan (Night Owl string hue) — issue/PR number (#123), the item identity highlight */
+  --iid: #ecc48d;        /* sandy tan (Night Owl string hue) — work-item number highlight */
 
   /* chip chrome — translucent fill + hairline border, shared by the commit-row
      SHA and branch chips so they read as one chip family */
@@ -324,11 +324,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
    a notable target instead of blending into #iid / @author. Shared by the
    board, graph list + canvas nodes, commits, and activity meta rows. */
 .card-repo { color: var(--link); font-weight: 500; }
-/* issue/PR number (#123): this app is issue/PR-centric, so the number is a
-   focal identity reference, not muted meta. A warm sandy tan (Night Owl's
-   string hue) pops against the cool white title / teal repo. Same class
-   everywhere it appears (board + graph
-   list cards, graph canvas nodes). */
+/* Work-item number: a focal identity reference, not muted meta. A warm sandy
+   tan (Night Owl's string hue) pops against the cool white title / teal repo.
+   Same class everywhere it appears (board + graph list cards, graph canvas
+   nodes). */
 .card-iid { color: var(--iid); font-weight: 500; }
 .card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
 /* created · updated, on their own row beneath the meta line */

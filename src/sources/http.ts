@@ -87,6 +87,26 @@ export function firstAvailableToken(tokenCount: number, blockedUntil: Map<number
   return null;
 }
 
+export function nextAvailableToken(
+  tokenCount: number,
+  blockedUntil: Map<number, number>,
+  tried: ReadonlySet<number>,
+  after: number,
+  now: number = Date.now(),
+): number | null {
+  for (let step = 1; step <= tokenCount; step++) {
+    const idx = (after + step) % tokenCount;
+    if (tried.has(idx)) continue;
+    const blocked = blockedUntil.get(idx) ?? 0;
+    if (blocked <= now) return idx;
+  }
+  return null;
+}
+
+export function isGithubPrimaryRateLimit(provider: string, err: ProviderHttpError): boolean {
+  return provider === "github" && err.rateLimit?.kind === "primary";
+}
+
 // Error raised when every token in the pool is cooled down. Carries the soonest
 // reset so callers/telemetry can see when a retry could succeed.
 export function allTokensCooledDownError(label: string, tokenCount: number, blockedUntil: Map<number, number>): ProviderHttpError {

@@ -42,7 +42,7 @@ jobs:
       # Headless render smoke: actually render the built board in Chrome and
       # assert it draws (item cards + all 3 edge lifecycle buckets) with zero
       # console errors. Catches render-only crashes that tsc/build/unit tests
-      # can't (e.g. the reserved-`ref`-prop bug in PR #3).
+      # can't.
       - uses: browser-actions/setup-chrome@v1
         id: chrome
       - run: pnpm --filter @symphony-board/ui run smoke
@@ -51,7 +51,7 @@ jobs:
 
   # PgStore gate: the store conformance suite with the Postgres driver
   # registered, plus the live e2e (from zero through migrate, full sync,
-  # incremental, disappearance sweep, contract emit, and the #164 writer-lease
+  # incremental, disappearance sweep, contract emit, and the writer-lease
   # guarantees) against a real Postgres composed up by scripts/ci/pg-e2e.sh.
   # Separate job: `check` stays Docker-free, exactly like local `pnpm test`.
   pg:

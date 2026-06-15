@@ -1,7 +1,7 @@
 // Live Postgres e2e: a REAL Postgres (scripts/ci/pg-e2e.sh docker-composes a
 // throwaway one) taken from zero — empty database — through migration, a full
 // sync, an incremental sync, the disappearance sweep, contract emission, and
-// the writer-lease guarantees of #164, all through the same engine/runner code
+// the writer-lease guarantees, all through the same engine/runner code
 // the daemon runs. Providers are network-free fixtures (test/helpers); hitting
 // live provider APIs stays out of automated tests by policy.
 //
@@ -73,7 +73,7 @@ test(
     const cfg: AppConfig = { db_path: ":memory:", sources: [sc(GH), sc(GL)] };
 
     // The store under test, plus a second independent handle to the SAME
-    // logical store — the "other writer" of #164.
+    // logical store — the "other writer".
     const store = await openPostgresStore(PG_URL, { schema });
     const second = await openPostgresStore(PG_URL, { schema });
 
@@ -163,7 +163,7 @@ test(
         assert.equal(await store.getWatermark(GH), "2026-06-03T00:00:00Z");
 
         // The pg driver's GREATEST upsert: an interleaved older run can never
-        // regress the watermark (#164 defense-in-depth, driver-owned SQL).
+        // regress the watermark.
         await store.updateSyncState(GH, "2026-01-01T00:00:00Z", "ok", null, "2026-06-03T01:00:00Z");
         assert.equal(await store.getWatermark(GH), "2026-06-03T00:00:00Z", "an older watermark is ignored");
       });
@@ -201,7 +201,7 @@ test(
         assert.equal(ov.edges.tombstoned, 1);
       });
 
-      await t.test("a second concurrent writer is refused and its run skips wholesale (#164)", async () => {
+      await t.test("a second concurrent writer is refused and its run skips wholesale", async () => {
         assert.equal(await store.acquireWriterLease(), true, "the first handle holds the lease");
         let emitCalls = 0;
         const refused = await executeSyncRun(
@@ -269,7 +269,7 @@ test(
 );
 
 test(
-  "postgres read-only open: a pinned read-only session that never migrates (#170)",
+  "postgres read-only open: a pinned read-only session that never migrates",
   { skip: PG_URL.length === 0 ? "SYMPHONY_PG_TEST_URL not set (use pnpm run test:pg-e2e)" : false },
   async () => {
     const { openPostgresStore, openPostgresStoreReadOnly } = await import("../../src/db/postgres.ts");

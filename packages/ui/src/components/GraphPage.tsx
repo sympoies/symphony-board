@@ -35,14 +35,13 @@ import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats,
 // overview, but drawn full-strength in the focus view. Layout is computed (RF
 // ships none): dagre for the hierarchy view, d3-force for the knowledge-graph view.
 //
-// Polish (#15): node size scales with demand (comments + reactions) so busy
-// items stand out; hovering a node highlights it + its neighbours and dims the
-// rest, and labels its incident edges with the edge type; mentions can be
-// filtered by the mentioned item's kind to thin the dense view.
+// Node size scales with demand (comments + reactions) so busy items stand out;
+// hovering a node highlights it + its neighbours and dims the rest, and labels
+// its incident edges with the edge type; mentions can be filtered by the
+// mentioned item's kind to thin the dense view.
 //
-// Navigation (#24): a searchable side list beside the canvas focuses a node,
-// and each node card carries updated / created (relative) + demand — legible
-// once focused/zoomed.
+// A searchable side list beside the canvas focuses a node, and each node card
+// carries updated / created (relative) + demand — legible once focused/zoomed.
 //
 // Side-list depth: the list cards now carry the same detail as the board card
 // (author, updated/created, review/CI/merge signals, collapsed labels, source
@@ -58,9 +57,9 @@ import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats,
 
 const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 // Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
-// the muted "other" grey (#637777, model EDGE_STROKE), which is near-invisible on
-// the dark canvas — a problem the dense overview hides via opacity/width but the
-// sparse focus view exposes. A lighter slate lifts it off the background. (Edge
+// the muted "other" grey, which is near-invisible on the dark canvas — a problem
+// the dense overview hides via opacity/width but the sparse focus view exposes.
+// A lighter slate lifts it off the background. (Edge
 // colours are JS hexes, not CSS vars — the canvas can't read custom properties.)
 const MENTION_STROKE = "#8aa0b6";
 const NODE_W = 200;
@@ -630,7 +629,7 @@ function GraphSideList({
     // Kind toggle: "all" keeps everything (incl. untracked "unknown" nodes);
     // "issue" / "change_request" narrow to that kind.
     if (kindFilter !== "all") match = match.filter((n) => n.kind === kindFilter);
-    // #32: order by actionable state then newest-created (not demand).
+    // Order by actionable state then newest-created, not demand.
     return match.sort(compareGraphNodes);
   })();
 

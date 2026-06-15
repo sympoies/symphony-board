@@ -46,7 +46,7 @@ export const STATUS_DESC: Record<ItemStatus, string> = {
 
 // Spotlight: recency lanes independent of status, after the predecessor's second
 // board view. Each lane collects EVERY matching item (by created_at, newest
-// first), REGARDLESS of open/closed/merged — so follow-up / plan issues stay
+// first), REGARDLESS of open/closed/merged — so workflow-labeled issues stay
 // visible even after they close. The view (FullBoard) caps how many cards render
 // and shows the true total; lanes therefore return the full sorted list here. The
 // lane CONVENTIONS (which labels/kinds) live in `spotlight.config.ts`; here we
@@ -150,8 +150,7 @@ export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
 //
 // On overlap the range row wins because it is the fresher source: /api/range
 // reads the canonical store live at request time, whereas the full contract is
-// an emitted file loaded at page mount that can lag after a background sync, so
-// its review_threads can be stale. See symphony-board#209.
+// an emitted file loaded at page mount that can lag after a background sync.
 export function mergeActivityIndex(
   fullVisible: ReadonlyMap<string, ItemDTO>,
   rangeProjected: ReadonlyMap<string, ItemDTO>,
@@ -282,10 +281,9 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
 // The hash a board card links to, to open the graph on `it`: `focus` alone
 // drives the side-list focus view AND the canvas — GraphPage renders the focused
 // item's focusSubgraph (small by construction), so no `q` token is needed to
-// keep the canvas tiny. Leaving `q` out keeps the global search bar — a
-// cross-tab filter since #63 — free of navigation state: hopping back to the
-// Board after a deep-link no longer narrows it to one card. Pairs with
-// parseHashRoute (encode here, decode there).
+// keep the canvas tiny. Leaving `q` out keeps the global cross-tab search free
+// of navigation state: hopping back to the Board after a deep-link no longer
+// narrows it to one card. Pairs with parseHashRoute (encode here, decode there).
 export const graphFocusHref = (it: ItemDTO, lens?: { isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null }): string =>
   buildHashRoute({ page: "graph", focus: it.id, ...lens });
 
@@ -1226,17 +1224,17 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   const q = f.search.trim().toLowerCase();
   if (q) {
     // iid is intentionally NOT in the hay — it is matched ONLY via the exact
-    // `#<n>` term below. Putting it in the hay would reintroduce substring
-    // collisions (a search for "#13" matching "#130").
+    // number term below. Putting it in the hay would reintroduce substring
+    // collisions between short and longer identifiers.
     const hay = [it.title, it.author, it.project_path, it.external_id, ...it.labels.map((l) => l.name)]
       .filter((s): s is string => !!s)
       .join(" ")
       .toLowerCase();
-    // AND across whitespace-separated terms. A `#<n>` term is an explicit
-    // issue/PR number — matched EXACTLY against iid (so "#13" never matches
-    // "#130"); every other term is a case-insensitive substring of the hay. This
-    // lets a hand-typed "repo #iid" search pin exactly one item, while staying
-    // backward compatible for a plain single-word search.
+    // AND across whitespace-separated terms. A number term is an explicit work
+    // item number — matched EXACTLY against iid; every other term is a
+    // case-insensitive substring of the hay. This lets a hand-typed repo+number
+    // search pin exactly one item, while staying backward compatible for a plain
+    // single-word search.
     for (const term of q.split(/\s+/)) {
       const num = /^#(\d+)$/.exec(term);
       if (num) {
@@ -1769,7 +1767,7 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
   return { nodes: [...nodes.values()], links };
 }
 
-// Graph side-list ordering (#32): actionable state first, then newest-created.
+// Graph side-list ordering: actionable state first, then newest-created.
 // Bucket 0 = `open` (still actionable); bucket 1 = everything else (closed /
 // merged / unknown). Within a bucket, `created_at` DESC so the newest item is
 // first; a node without a `created_at` (e.g. an untracked cross-repo ref) sorts

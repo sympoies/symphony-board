@@ -108,9 +108,9 @@ test("GitHub REST primary rate limit rotates to the next token for the same requ
 });
 
 test("once every token is cooled down, the REST client stops hammering them", async () => {
-  // #222 follow-up: mirror of the GraphQL guard — when every token in the pool
-  // has been primary-rate-limited, the REST client must short-circuit rather
-  // than send another doomed request with a known-cooled-down PAT.
+  // When every token in the pool has been primary-rate-limited, the REST client
+  // must short-circuit rather than send another doomed request with a
+  // known-cooled-down PAT.
   let calls = 0;
   mockFetch(() => {
     calls++;
@@ -133,9 +133,8 @@ test("once every token is cooled down, the REST client stops hammering them", as
 });
 
 test("a single-token GitHub REST client cools down after a primary rate limit", async () => {
-  // #225 follow-up (mirror of the GraphQL guard): a single-token REST client
-  // must record the cooldown too, so the next request short-circuits instead of
-  // re-sending the exhausted PAT.
+  // A single-token REST client must record the cooldown too, so the next request
+  // short-circuits instead of re-sending the exhausted PAT.
   let calls = 0;
   mockFetch(() => {
     calls++;

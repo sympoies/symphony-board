@@ -99,7 +99,7 @@ await api("PUT", `/projects/${id}/merge_requests/${mrBrk.iid}`, { state_event: "
 
 console.log(`MRs: fulfilled=!${mrFul.iid}(merged) declared=!${mrDec.iid}(open) draft=!${mrDraft.iid}(draft) broken=!${mrBrk.iid}(closed)`);
 
-// --- cross-reference edges (issue #13) -------------------------------------
+// --- cross-reference edges -------------------------------------------------
 // GitLab has no relatedIssues / CrossReferencedEvent in GraphQL; mentions and
 // related links surface only as SYSTEM notes on the target item. Seed both so
 // the source's note-parsing path (and the Graph "+ mentions" toggle) has data:

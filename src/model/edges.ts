@@ -1,10 +1,11 @@
 // Edge reconciliation — the workflow spine.
 //
 // An issue<->PR/MR link is RECONCILED, not merely stored: it can be reported by
-// the change request ("Closes #5") and/or by the issue ("closed by !12"), at
-// different times with different freshness. We merge by (type, from, to), prefer
-// the most recently known endpoint state, record which side(s) we heard it from,
-// and DERIVE the edge lifecycle. All pure: no network, caller supplies any clock.
+// the change request's closing reference and/or by the issue's closer backlink,
+// at different times with different freshness. We merge by (type, from, to),
+// prefer the most recently known endpoint state, record which side(s) we heard
+// it from, and DERIVE the edge lifecycle. All pure: no network, caller supplies
+// any clock.
 
 import type {
   CanonicalEdge,
