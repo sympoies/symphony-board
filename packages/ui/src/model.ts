@@ -2134,6 +2134,7 @@ export interface ConfigSourceDoc {
   display_name?: string;
   color?: string;
   token_env: string;
+  fallback_token_envs?: string[];
   graphql_url: string;
   rest_url?: string;
   projects: ConfigProjectEntry[];

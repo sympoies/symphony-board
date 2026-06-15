@@ -441,7 +441,9 @@ export async function handleControlRequest(
     const secrets: Record<string, boolean> = {};
     try {
       const { cfg } = loadConfig(cc.path);
-      for (const s of cfg.sources) secrets[s.token_env] = false;
+      for (const s of cfg.sources) {
+        for (const envName of [s.token_env, ...(s.fallback_token_envs ?? [])]) secrets[envName] = false;
+      }
     } catch {
       // no config yet: report only the names present in the secrets file
     }

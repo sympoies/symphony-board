@@ -13,7 +13,8 @@
 //                         the sidecar's config control plane; absent until the
 //                         first-run onboarding saves one. Hand-editing remains
 //                         a fallback — the daemon re-reads it per run.
-//   secrets.env           KEY=VALUE provider tokens (names match token_env);
+//   secrets.env           KEY=VALUE provider tokens (names match token_env /
+//                         fallback_token_envs);
 //                         written in-app through the write-only secrets surface
 //                         (SYMPHONY_SECRETS_FILE), hand-editable as a fallback
 //   data/board state      SQLite store + emitted contract.json
@@ -52,7 +53,8 @@ fn wait_for_port(port: u16, timeout: Duration) {
 
 // Parse KEY=VALUE lines ('#' comments, blank lines, surrounding whitespace
 // allowed). This file is how provider tokens reach the sidecar's environment;
-// names must match each source's token_env in config/sources.json.
+// names must match each source's token_env or fallback_token_envs in
+// config/sources.json.
 fn read_env_file(path: &Path) -> Vec<(String, String)> {
     let Ok(raw) = fs::read_to_string(path) else {
         return Vec::new();
@@ -75,9 +77,10 @@ fn read_env_file(path: &Path) -> Vec<(String, String)> {
 
 const SECRETS_TEMPLATE: &str = "# Provider tokens for Symphony Board Standalone.\n\
 # Lines are KEY=VALUE; '#' starts a comment. Names must match each source's\n\
-# token_env in config/sources.json. Settings -> Sources writes entries here\n\
-# for you; hand edits also work and apply on the next sync run.\n\
+# token_env or fallback_token_envs in config/sources.json. Settings -> Sources\n\
+# writes entries here for you; hand edits also work and apply on the next sync run.\n\
 # GITHUB_TOKEN=ghp_xxx\n\
+# GITHUB_TOKEN_BACKUP=ghp_xxx_from_a_different_account\n\
 # GITLAB_TOKEN=glpat-xxx\n";
 
 fn ensure_data_layout(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {

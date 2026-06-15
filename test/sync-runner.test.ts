@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AppConfig } from "../src/config.ts";
 import type { Store } from "../src/db/store.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
-import { executeSyncRun, type SyncRunProgress } from "../src/sync-runner.ts";
+import { executeSyncRun, runConfiguredSync, type SyncRunProgress } from "../src/sync-runner.ts";
 // Network-free Source fakes (FakeSource/BoomSource/prepared) shared with the
 // Postgres live e2e; see test/helpers/fake-source.ts.
 import { BoomSource, item, prepared, sc } from "./helpers/fake-source.ts";
@@ -122,6 +123,42 @@ test("skipped sources are reported without counting as a failure", async () => {
   const skipped = result.sources.find((s) => s.source_id === "fake:b");
   assert.equal(skipped?.status, "skipped");
   await db.close();
+});
+
+test("runConfiguredSync builds sources with primary and fallback tokens", async () => {
+  const cfg: AppConfig = {
+    db_path: "unused.db",
+    sources: [{
+      source_id: "github:github.com",
+      kind: "github",
+      host: "github.com",
+      token_env: "RUNNER_POOL_PRIMARY",
+      fallback_token_envs: ["RUNNER_POOL_BACKUP_1"],
+      graphql_url: "https://api.github.com/graphql",
+      projects: ["o/r"],
+    }],
+  };
+  const seen: unknown[] = [];
+  process.env.RUNNER_POOL_PRIMARY = "primary";
+  process.env.RUNNER_POOL_BACKUP_1 = "backup";
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: true, sourceId: null }, null, {
+      openStore: () => openSqliteStore(":memory:"),
+      buildSource: (sc, tokens) => {
+        seen.push(tokens);
+        return prepared(sc.source_id, [item("A1")]).source;
+      },
+    });
+
+    assert.equal(result.status, "ok");
+    assert.deepEqual(seen, [[
+      { env: "RUNNER_POOL_PRIMARY", value: "primary" },
+      { env: "RUNNER_POOL_BACKUP_1", value: "backup" },
+    ]]);
+  } finally {
+    delete process.env.RUNNER_POOL_PRIMARY;
+    delete process.env.RUNNER_POOL_BACKUP_1;
+  }
 });
 
 test("each source logs a 'syncing' progress line before its result line", async () => {

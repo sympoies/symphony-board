@@ -91,3 +91,50 @@ test("an empty errors array is not an error", async () => {
   const gql = makeGqlClient("https://api.github.com/graphql", "tok");
   assert.deepEqual(await gql("query { x }"), { ok: true });
 });
+
+test("GitHub GraphQL primary rate limit rotates to the next token for the same request", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    if (auths.length === 1) {
+      return new Response(JSON.stringify({ data: null, errors: [{ message: "API rate limit exceeded" }] }), {
+        status: 200,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1770000000" },
+      });
+    }
+    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ]);
+
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
+});
+
+test("GitHub GraphQL fallback repo-access failures identify the fallback token", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    if (auths.length === 1) {
+      return new Response(JSON.stringify({ data: null, errors: [{ message: "API rate limit exceeded" }] }), {
+        status: 200,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1770000000" },
+      });
+    }
+    return new Response(
+      JSON.stringify({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository with the name 'org/private'." }] }),
+      { status: 200 },
+    );
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ]);
+
+  await assert.rejects(() => gql("query { repository(owner:\"org\", name:\"private\") { id } }"), /fallback token lacks repo access/);
+  assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
+});

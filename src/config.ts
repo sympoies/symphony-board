@@ -21,6 +21,10 @@ export interface SourceConfig {
   // consumer. Display-only metadata — never stored in the DB.
   color?: string;
   token_env: string; // name of the env var holding the PAT
+  // Optional fallback PAT env vars. The primary token_env is tried first; these
+  // are only used when the provider clearly reports a primary rate-limit
+  // exhaustion for the current token.
+  fallback_token_envs?: string[];
   graphql_url: string;
   // Optional REST base URL. Defaults by provider/host when omitted; used for
   // activity surfaces such as commits and project/repository events.
@@ -79,6 +83,11 @@ export interface AppConfig {
   exclude_actors?: string[];
 }
 
+export interface ResolvedToken {
+  env: string;
+  value: string;
+}
+
 const DEFAULT_PATH = "config/sources.json";
 
 // Highlight colors are #rgb or #rrggbb. This mirrors what an <input type="color">
@@ -128,6 +137,26 @@ export function configErrors(raw: unknown, label: string): string[] {
       }
       if (s.commit_branches !== undefined && s.commit_branches !== "all" && s.commit_branches !== "default") {
         errors.push(`${label}: source "${s.source_id}" commit_branches must be "all" or "default" when set`);
+      }
+      if (s.fallback_token_envs !== undefined) {
+        if (!Array.isArray(s.fallback_token_envs)) {
+          errors.push(`${label}: source "${s.source_id}" fallback_token_envs must be an array when set`);
+        } else {
+          const seenTokenEnvNames = new Set<string>();
+          if (typeof s.token_env === "string") seenTokenEnvNames.add(s.token_env.trim());
+          for (const envName of s.fallback_token_envs) {
+            if (typeof envName !== "string" || envName.trim().length === 0) {
+              errors.push(`${label}: source "${s.source_id}" fallback_token_envs entries must be non-empty strings`);
+              continue;
+            }
+            const trimmed = envName.trim();
+            if (seenTokenEnvNames.has(trimmed)) {
+              errors.push(`${label}: source "${s.source_id}" fallback_token_envs must not repeat token_env or another fallback token env`);
+              continue;
+            }
+            seenTokenEnvNames.add(trimmed);
+          }
+        }
       }
       if (!Array.isArray(s.projects) || s.projects.length === 0) {
         errors.push(`${label}: source "${s.source_id}" has no projects`);
@@ -239,6 +268,12 @@ export function readSecretsOverlay(path: string | null): Map<string, string> {
   }
 }
 
+function secretValueForEnv(envName: string, overlay: Map<string, string>): string | null {
+  const fromFile = overlay.get(envName) ?? "";
+  const v = (fromFile.length > 0 ? fromFile : (process.env[envName] ?? "")).trim();
+  return v.length ? v : null;
+}
+
 // Set or remove one KEY in env-file text, preserving comments and unrelated
 // lines. A set replaces the first existing KEY= line (dropping duplicates); a
 // remove drops every KEY= line.
@@ -286,7 +321,18 @@ export function saveSecret(path: string, name: string, value: string | null): vo
 // Returns null when unset, so a caller can skip that source with a warning
 // instead of crashing the run.
 export function tokenFor(s: SourceConfig): string | null {
-  const fromFile = readSecretsOverlay(resolveSecretsPath()).get(s.token_env) ?? "";
-  const v = (fromFile.length > 0 ? fromFile : (process.env[s.token_env] ?? "")).trim();
-  return v.length ? v : null;
+  return tokensForSource(s)[0]?.value ?? null;
+}
+
+export function tokensForSource(s: SourceConfig): ResolvedToken[] {
+  const overlay = readSecretsOverlay(resolveSecretsPath());
+  const envNames = [s.token_env, ...(s.fallback_token_envs ?? [])];
+  const out: ResolvedToken[] = [];
+  for (const rawEnvName of envNames) {
+    const envName = rawEnvName.trim();
+    if (envName.length === 0) continue;
+    const value = secretValueForEnv(envName, overlay);
+    if (value) out.push({ env: envName, value });
+  }
+  return out;
 }

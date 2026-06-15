@@ -84,3 +84,66 @@ test("makeRestClient aborts a stalled request after the timeout", { timeout: 200
   const client = makeRestClient("https://api.github.com", "tok", "github", 50);
   await assert.rejects(() => client("repos/o/r/commits"), /timed out after 50ms/);
 });
+
+test("GitHub REST primary rate limit rotates to the next token for the same request", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    if (auths.length === 1) {
+      return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1770000000" },
+      });
+    }
+    return new Response(JSON.stringify([{ ok: true }]), { status: 200 });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ], "github");
+
+  assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
+});
+
+test("GitHub REST secondary rate limit does not rotate PATs", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify({ message: "You have exceeded a secondary rate limit" }), {
+      status: 403,
+      headers: { "x-ratelimit-remaining": "10", "retry-after": "60" },
+    });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ], "github");
+
+  await assert.rejects(() => client("repos/o/r/commits"), /secondary rate limit/);
+  assert.deepEqual(auths, ["Bearer primary"]);
+});
+
+test("GitHub REST fallback repo-access failures identify the fallback token", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    if (auths.length === 1) {
+      return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1770000000" },
+      });
+    }
+    return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ], "github");
+
+  await assert.rejects(() => client("repos/o/private/commits"), /fallback token lacks repo access/);
+  assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
+});

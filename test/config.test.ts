@@ -12,6 +12,7 @@ import {
   saveConfig,
   saveSecret,
   tokenFor,
+  tokensForSource,
   upsertEnvText,
   type AppConfig,
 } from "../src/config.ts";
@@ -85,6 +86,22 @@ test("accepts commit_branches all/default and rejects any other value", () => {
   const errors = configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "branches" })] }, "config");
   assert.equal(errors.length, 1);
   assert.match(errors[0]!, /commit_branches must be "all" or "default"/);
+});
+
+test("accepts fallback_token_envs and rejects malformed token pools", () => {
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ fallback_token_envs: ["GITHUB_TOKEN_BACKUP"] })] }, "config"), []);
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ fallback_token_envs: "GITHUB_TOKEN_BACKUP" })] }, "config")[0]!,
+    /fallback_token_envs must be an array/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ fallback_token_envs: ["  "] })] }, "config")[0]!,
+    /fallback_token_envs entries must be non-empty strings/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ token_env: "GITHUB_TOKEN", fallback_token_envs: ["GITHUB_TOKEN"] })] }, "config")[0]!,
+    /must not repeat token_env/,
+  );
 });
 
 test("rejects document-shape violations: non-object, missing db_path, no sources", () => {
@@ -225,6 +242,37 @@ test("saveSecret creates the file owner-only and tokenFor prefers the fresh file
     if (prev === undefined) delete process.env.SYMPHONY_SECRETS_FILE;
     else process.env.SYMPHONY_SECRETS_FILE = prev;
     delete process.env.CONFIG_TEST_OVERLAY_TOKEN;
+  }
+});
+
+test("tokensForSource resolves primary plus fallback tokens from env and fresh secrets overlay", () => {
+  const secretsPath = join(tmp, "secrets", "pool.env");
+  const prevSecrets = process.env.SYMPHONY_SECRETS_FILE;
+  const source = {
+    ...baseSource({ token_env: "CONFIG_POOL_PRIMARY", fallback_token_envs: ["CONFIG_POOL_BACKUP_1", "CONFIG_POOL_BACKUP_2"] }),
+  } as unknown as Parameters<typeof tokensForSource>[0];
+  process.env.CONFIG_POOL_PRIMARY = " from-env-primary ";
+  process.env.CONFIG_POOL_BACKUP_1 = " ";
+  process.env.CONFIG_POOL_BACKUP_2 = "from-env-backup-2";
+  try {
+    process.env.SYMPHONY_SECRETS_FILE = secretsPath;
+    assert.deepEqual(tokensForSource(source), [
+      { env: "CONFIG_POOL_PRIMARY", value: "from-env-primary" },
+      { env: "CONFIG_POOL_BACKUP_2", value: "from-env-backup-2" },
+    ]);
+
+    saveSecret(secretsPath, "CONFIG_POOL_BACKUP_1", "from-file-backup-1");
+    assert.deepEqual(tokensForSource(source), [
+      { env: "CONFIG_POOL_PRIMARY", value: "from-env-primary" },
+      { env: "CONFIG_POOL_BACKUP_1", value: "from-file-backup-1" },
+      { env: "CONFIG_POOL_BACKUP_2", value: "from-env-backup-2" },
+    ]);
+  } finally {
+    if (prevSecrets === undefined) delete process.env.SYMPHONY_SECRETS_FILE;
+    else process.env.SYMPHONY_SECRETS_FILE = prevSecrets;
+    delete process.env.CONFIG_POOL_PRIMARY;
+    delete process.env.CONFIG_POOL_BACKUP_1;
+    delete process.env.CONFIG_POOL_BACKUP_2;
   }
 });
 
