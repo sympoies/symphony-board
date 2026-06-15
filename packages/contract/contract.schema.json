@@ -467,6 +467,7 @@
         "actor_key": { "type": "string", "description": "Stable, non-PII actor identity key. Scheme-prefixed: provider-user:<source_id>:<username>, email:<hash> (raw email is never exposed), or name:<normalized>." },
         "display_name": { "type": "string", "description": "Deterministically chosen display name for this actor identity." },
         "aliases": { "type": "array", "items": { "type": "string" }, "description": "Other display names observed for this identity (omitted when none)." },
+        "profile_url": { "type": ["string", "null"], "description": "Canonical provider profile page (https://<host>/<username>) on a supported GitHub/GitLab source. Emitted for a provider-user identity, and for a config-merged person identity whose provider username is recoverable (observed on this source, else a single config-declared username). Omitted when no username is recoverable (email/name authorship) and for unsupported sources. Optional (added in 3.4.0)." },
         "activities": { "type": "integer", "minimum": 0 },
         "commits": { "type": "integer", "minimum": 0 },
         "items_opened": { "type": "integer", "minimum": 0 },

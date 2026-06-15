@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.3.0`.
+Current emitted version: `3.4.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "3.3.0",
+  "contract_version": "3.4.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -169,6 +169,7 @@ package version, to decide compatibility.
           "actor_key": "provider-user:github:github.com:graysurf",
           "display_name": "graysurf",
           "aliases": ["Gray Surf"],
+          "profile_url": "https://github.com/graysurf",
           "activities": 8,
           "commits": 3,
           "items_opened": 1,
@@ -590,6 +591,17 @@ username (issues/PRs/MRs) and several commit author names (commits). Added in
 - `actor`: a backward-compatibility display field equal to `display_name`, kept
   so pre-`2.3.0` consumers keep rendering. Render `display_name` and key React
   lists on `actor_key`.
+- `profile_url`: the actor's canonical provider profile page, added in `3.4.0` —
+  `https://<host>/<username>` on a supported GitHub/GitLab source. It is emitted
+  for a `provider-user:<source_id>:<username>` identity, and for a config-merged
+  `person:<slug>` identity whose provider username is recoverable: the username
+  observed on this source (a `person` row is per-source, so the absorbed
+  provider-user sub-identity supplies it), else the identity's single
+  config-declared username when it was matched only by commit name/email. It is
+  **omitted** when no username is recoverable — `email:<hash>` / `name:<normalized>`
+  authorship, or a multi-username `person` with no observed username on this
+  source — and for unsupported sources. Like `repo_url`, treat it as a
+  display/navigation convenience, not identity.
 
 An optional producer-side **config identity map** (`identities[]` in
 `config/sources.json`) can declare that several of the keys above are one human —
@@ -649,6 +661,17 @@ link a Repo Analytics row back to its provider repository without reconstructing
 provider URL rules. It is additive within contract major v3. The row key remains
 `(source_id, project_path)`, and `repo_url` may be `null` when the source kind,
 host, or path cannot produce a safe provider URL.
+
+Version `3.4.0` added optional `repo_metrics[].top_actors[].profile_url`, the
+per-actor counterpart to `repo_url`: the actor's canonical provider profile page
+(`https://<host>/<username>`) so consumers can link a handle to its GitHub/GitLab
+profile without reconstructing provider URL rules. It is additive within contract
+major v3 and follows the same omit-when-absent rule as the sibling `aliases`
+field. It is present for a `provider-user:<source_id>:<username>` identity and
+for a config-merged `person:<slug>` identity whose provider username is
+recoverable (observed on this source, else a single config-declared username);
+it is omitted for email/name authorship with no recoverable username and for
+unsupported sources. See "Actor identity" above.
 
 Version `2.5.0` added `data_quality.last_activity_at` to each repo metric row —
 the most recent observed activity instant (max `occurred_at`), the counterpart to
