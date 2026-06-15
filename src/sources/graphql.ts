@@ -5,8 +5,10 @@
 import {
   DEFAULT_FETCH_TIMEOUT_MS,
   ProviderHttpError,
+  allTokensCooledDownError,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
+  firstAvailableToken,
   githubRateLimitInfo,
   normalizeAuthTokens,
   primaryCooldownUntil,
@@ -39,15 +41,6 @@ function nextTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedU
   return null;
 }
 
-function firstTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedUntil: Map<number, number>): number {
-  const now = Date.now();
-  for (let idx = 0; idx < tokens.length; idx++) {
-    const blocked = blockedUntil.get(idx) ?? 0;
-    if (blocked <= now) return idx;
-  }
-  return 0;
-}
-
 function shouldRotateToken(provider: string, err: ProviderHttpError, tokensLength: number): boolean {
   return provider === "github" && tokensLength > 1 && err.rateLimit?.kind === "primary";
 }
@@ -58,7 +51,13 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
   const blockedUntil = new Map<number, number>();
 
   return async function gql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-    let idx = firstTokenIndex(tokens, blockedUntil);
+    const first = firstAvailableToken(tokens.length, blockedUntil);
+    if (first === null) {
+      // Every token is still cooled down from a prior rate limit; do not send
+      // another doomed request with a known-blocked PAT.
+      throw allTokensCooledDownError(`GraphQL request to ${url}`, tokens.length, blockedUntil);
+    }
+    let idx = first;
     const tried = new Set<number>();
     let lastError: Error | null = null;
 

@@ -74,6 +74,34 @@ export function primaryCooldownUntil(rateLimit: GitHubRateLimitInfo): number {
   return rateLimit.resetAtMs ?? Date.now() + 60 * 60 * 1000;
 }
 
+// Index of the first token whose cooldown (`blockedUntil`) has elapsed, or
+// `null` when EVERY token in the pool is still cooled down. The shared selector
+// for both the REST and GraphQL clients: returning `null` lets the caller
+// short-circuit instead of re-sending a request with a known-rate-limited PAT,
+// which would otherwise risk escalating to a secondary rate limit / abuse
+// detection.
+export function firstAvailableToken(tokenCount: number, blockedUntil: Map<number, number>, now: number = Date.now()): number | null {
+  for (let idx = 0; idx < tokenCount; idx++) {
+    if ((blockedUntil.get(idx) ?? 0) <= now) return idx;
+  }
+  return null;
+}
+
+// Error raised when every token in the pool is cooled down. Carries the soonest
+// reset so callers/telemetry can see when a retry could succeed.
+export function allTokensCooledDownError(label: string, tokenCount: number, blockedUntil: Map<number, number>): ProviderHttpError {
+  let soonest: number | null = null;
+  for (const at of blockedUntil.values()) {
+    if (soonest === null || at < soonest) soonest = at;
+  }
+  const when = soonest ? ` until ${new Date(soonest).toISOString()}` : "";
+  return new ProviderHttpError(
+    `${label}: all ${tokenCount} token(s) are rate-limited${when}`,
+    429,
+    soonest ? { kind: "primary", resetAtMs: soonest, retryAfterMs: null } : null,
+  );
+}
+
 export async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit,

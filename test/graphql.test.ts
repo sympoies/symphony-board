@@ -114,6 +114,34 @@ test("GitHub GraphQL primary rate limit rotates to the next token for the same r
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
+test("once every token is cooled down, the GraphQL client stops hammering them", async () => {
+  // #222 follow-up: when every token in the pool has been primary-rate-limited,
+  // the client must NOT keep sending requests with a known-cooled-down PAT
+  // (that can escalate to secondary rate limits / abuse detection). It must
+  // short-circuit and reject without another doomed request.
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ data: null, errors: [{ message: "API rate limit exceeded" }] }), {
+      status: 200,
+      headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+    });
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ]);
+
+  // First call tries each token once, cools both down, then rejects.
+  await assert.rejects(() => gql("query { x }"));
+  assert.equal(calls, 2, "first call tries both tokens once each");
+
+  // Second call: both tokens are still cooled down -> no further request.
+  await assert.rejects(() => gql("query { x }"), /rate-limited/);
+  assert.equal(calls, 2, "no further request once all tokens are cooled down");
+});
+
 test("GitHub GraphQL fallback repo-access failures identify the fallback token", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
