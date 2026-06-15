@@ -132,6 +132,28 @@ test("once every token is cooled down, the REST client stops hammering them", as
   assert.equal(calls, 2, "no further request once all tokens are cooled down");
 });
 
+test("a single-token GitHub REST client cools down after a primary rate limit", async () => {
+  // #225 follow-up (mirror of the GraphQL guard): a single-token REST client
+  // must record the cooldown too, so the next request short-circuits instead of
+  // re-sending the exhausted PAT.
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+      status: 403,
+      headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+    });
+  });
+
+  const client = makeRestClient("https://api.github.com", "only-token", "github");
+
+  await assert.rejects(() => client("repos/o/r/commits"));
+  assert.equal(calls, 1, "first call hits the single token once");
+
+  await assert.rejects(() => client("repos/o/r/commits"), /rate-limited/);
+  assert.equal(calls, 1, "no further request after the single token is cooled down");
+});
+
 test("GitHub REST secondary rate limit does not rotate PATs", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {

@@ -41,8 +41,14 @@ function nextTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedU
   return null;
 }
 
-function shouldRotateToken(provider: string, err: ProviderHttpError, tokensLength: number): boolean {
-  return provider === "github" && tokensLength > 1 && err.rateLimit?.kind === "primary";
+// A GitHub primary rate limit (not secondary / abuse): the token is exhausted
+// until its reset, so it must be cooled down — regardless of how many tokens are
+// in the pool. A single-token client records the cooldown too, so the next
+// request short-circuits (see firstAvailableToken) instead of hammering the
+// exhausted PAT; rotation to another token is a separate decision gated on
+// nextTokenIndex finding an available one.
+function isGithubPrimaryRateLimit(provider: string, err: ProviderHttpError): boolean {
+  return provider === "github" && err.rateLimit?.kind === "primary";
 }
 
 export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: number | GqlClientOptions): GqlClient {
@@ -88,7 +94,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
         const rawMessage = `GraphQL HTTP ${res.status}: ${json?.message ?? text}`;
         const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, idx > 0);
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
-        if (shouldRotateToken(provider, err, tokens.length)) {
+        if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
           const next = nextTokenIndex(tokens, blockedUntil, tried, idx);
           if (next !== null) {
@@ -103,7 +109,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
         const rawMessage = `GraphQL errors: ${json.errors.map((e: { message: string }) => e.message).join("; ")}`;
         const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, idx > 0);
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
-        if (shouldRotateToken(provider, err, tokens.length)) {
+        if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
           const next = nextTokenIndex(tokens, blockedUntil, tried, idx);
           if (next !== null) {

@@ -24,8 +24,12 @@ function nextTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedU
   return null;
 }
 
-function shouldRotateToken(provider: "github" | "gitlab", err: ProviderHttpError, tokensLength: number): boolean {
-  return provider === "github" && tokensLength > 1 && err.rateLimit?.kind === "primary";
+// A GitHub primary rate limit (not secondary / abuse): cool the token down
+// regardless of pool size, so even a single-token client short-circuits the next
+// request instead of hammering the exhausted PAT. Rotation is gated separately on
+// nextTokenIndex (see graphql.ts for the shared rationale).
+function isGithubPrimaryRateLimit(provider: "github" | "gitlab", err: ProviderHttpError): boolean {
+  return provider === "github" && err.rateLimit?.kind === "primary";
 }
 
 export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, provider: "github" | "gitlab", timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS): RestClient {
@@ -74,7 +78,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
         const rawMessage = `REST HTTP ${res.status}: ${json?.message ?? text}`;
         const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, idx > 0);
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
-        if (shouldRotateToken(provider, err, tokens.length)) {
+        if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
           const next = nextTokenIndex(tokens, blockedUntil, tried, idx);
           if (next !== null) {

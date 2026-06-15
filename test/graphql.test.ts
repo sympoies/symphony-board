@@ -142,6 +142,28 @@ test("once every token is cooled down, the GraphQL client stops hammering them",
   assert.equal(calls, 2, "no further request once all tokens are cooled down");
 });
 
+test("a single-token GitHub client cools down and stops hammering after a primary rate limit", async () => {
+  // #225 follow-up: with no fallback pool (the default), a primary rate limit
+  // must still cool the token down so the NEXT request short-circuits instead of
+  // re-sending the exhausted PAT for the rest of the run.
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ data: null, errors: [{ message: "API rate limit exceeded" }] }), {
+      status: 200,
+      headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+    });
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", "only-token");
+
+  await assert.rejects(() => gql("query { x }"));
+  assert.equal(calls, 1, "first call hits the single token once");
+
+  await assert.rejects(() => gql("query { x }"), /rate-limited/);
+  assert.equal(calls, 1, "no further request after the single token is cooled down");
+});
+
 test("GitHub GraphQL fallback repo-access failures identify the fallback token", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
