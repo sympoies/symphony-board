@@ -168,11 +168,11 @@ export interface RepoMetricActorDTO {
   // Canonical provider profile page for this actor (added in 3.4.0) —
   // `https://<host>/<username>` on a supported GitHub/GitLab source. Emitted for
   // a `provider-user:<source_id>:<username>` identity, and for a config-merged
-  // `person:<slug>` identity whose provider username is recoverable (the one
-  // observed on this source, else its single config-declared username). Omitted
-  // when no username is recoverable (email/name-keyed authorship, or a multi-
-  // username person with no observed username here) and for unsupported sources.
-  // A display/navigation convenience, not identity.
+  // `person:<slug>` identity via the provider username observed on this source
+  // (a `person` row is per-source). Omitted when no username was observed here
+  // (email/name-keyed authorship) and for unsupported sources — config-declared
+  // usernames are host-agnostic, so they are never guessed onto a source. A
+  // display/navigation convenience, not identity.
   profile_url?: string | null;
   activities: number;
   commits: number;

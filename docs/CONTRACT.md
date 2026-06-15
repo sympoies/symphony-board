@@ -594,14 +594,13 @@ username (issues/PRs/MRs) and several commit author names (commits). Added in
 - `profile_url`: the actor's canonical provider profile page, added in `3.4.0` —
   `https://<host>/<username>` on a supported GitHub/GitLab source. It is emitted
   for a `provider-user:<source_id>:<username>` identity, and for a config-merged
-  `person:<slug>` identity whose provider username is recoverable: the username
-  observed on this source (a `person` row is per-source, so the absorbed
-  provider-user sub-identity supplies it), else the identity's single
-  config-declared username when it was matched only by commit name/email. It is
-  **omitted** when no username is recoverable — `email:<hash>` / `name:<normalized>`
-  authorship, or a multi-username `person` with no observed username on this
-  source — and for unsupported sources. Like `repo_url`, treat it as a
-  display/navigation convenience, not identity.
+  `person:<slug>` identity via the provider username **observed on this source**
+  (a `person` row is per-source, so the absorbed provider-user sub-identity
+  supplies it). It is **omitted** when no username was observed on this source —
+  `email:<hash>` / `name:<normalized>` authorship — and for unsupported sources.
+  A config identity's declared usernames are host-agnostic, so they are never
+  guessed onto a source (that could link a wrong-host profile). Like `repo_url`,
+  treat it as a display/navigation convenience, not identity.
 
 An optional producer-side **config identity map** (`identities[]` in
 `config/sources.json`) can declare that several of the keys above are one human —
@@ -668,10 +667,9 @@ per-actor counterpart to `repo_url`: the actor's canonical provider profile page
 profile without reconstructing provider URL rules. It is additive within contract
 major v3 and follows the same omit-when-absent rule as the sibling `aliases`
 field. It is present for a `provider-user:<source_id>:<username>` identity and
-for a config-merged `person:<slug>` identity whose provider username is
-recoverable (observed on this source, else a single config-declared username);
-it is omitted for email/name authorship with no recoverable username and for
-unsupported sources. See "Actor identity" above.
+for a config-merged `person:<slug>` identity via the provider username observed
+on this source; it is omitted for email/name authorship with no observed
+username and for unsupported sources. See "Actor identity" above.
 
 Version `2.5.0` added `data_quality.last_activity_at` to each repo metric row —
 the most recent observed activity instant (max `occurred_at`), the counterpart to

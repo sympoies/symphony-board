@@ -533,7 +533,7 @@ test("config identities collapse a GitLab username and commit-email facet into o
   assert.ok((row.aliases ?? []).includes("Terry LIN"), "observed commit name kept as an alias");
 });
 
-test("a name-only merged person links via its single config-declared username", () => {
+test("a name-only merged person is not linked (config usernames are host-agnostic, so no guess)", () => {
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
   ];
@@ -549,8 +549,10 @@ test("a name-only merged person links via its single config-declared username", 
   assert.deepEqual(validateContract(env), []);
   const row = (env.repo_metrics?.[0]?.top_actors ?? [])[0]!;
   assert.equal(row.actor_key, "person:racheltung");
-  // No username was observed in activity, so the single declared config username links.
-  assert.equal(row.profile_url, "https://gitlab.gamania.com/racheltung");
+  // No provider username was observed on this source. The config declares one, but
+  // it is host-agnostic, so applying it here could link a wrong-host profile — the
+  // row stays unlinked rather than guess.
+  assert.equal(row.profile_url, undefined);
 });
 
 test("two identities whose names slug alike stay distinct people (no collision merge)", () => {

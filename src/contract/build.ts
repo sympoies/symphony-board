@@ -555,8 +555,11 @@ function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: Identi
     for (const [name, count] of acc.names) target.names.set(name, (target.names.get(name) ?? 0) + count);
     // Resolve a username for the profile link. A provider-user sub-identity
     // observed on this source is ground truth — pick the busiest one (code-unit
-    // tie-break for determinism). When the person was matched only by commit
-    // name/email and declares exactly one username in config, fall back to that.
+    // tie-break for determinism). We deliberately do NOT fall back to a config
+    // identity's declared username: `identities[].usernames` is host-agnostic, so
+    // applying it to a source where the person was seen only by commit name/email
+    // could link a wrong-host / wrong-person profile. No observed username here
+    // means we genuinely don't know the handle on this source, so it stays unlinked.
     const observed = usernameOfKey(acc.key);
     if (observed) {
       const better =
@@ -567,8 +570,6 @@ function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: Identi
         target.username = observed;
         target.usernameActivities = acc.activities;
       }
-    } else if (id && target.usernameActivities === undefined && id.usernames.size === 1) {
-      target.username = [...id.usernames][0];
     }
   }
   return merged;
