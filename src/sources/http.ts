@@ -9,6 +9,71 @@
 // Override the default with SYNC_FETCH_TIMEOUT_MS (milliseconds).
 export const DEFAULT_FETCH_TIMEOUT_MS = Math.max(1000, Number(process.env.SYNC_FETCH_TIMEOUT_MS) || 30000);
 
+export interface AuthToken {
+  env: string;
+  value: string;
+}
+
+export type AuthTokenInput = string | AuthToken[];
+
+export interface GitHubRateLimitInfo {
+  kind: "primary" | "secondary";
+  resetAtMs: number | null;
+  retryAfterMs: number | null;
+}
+
+export class ProviderHttpError extends Error {
+  readonly status: number;
+  readonly rateLimit: GitHubRateLimitInfo | null;
+
+  constructor(message: string, status: number, rateLimit: GitHubRateLimitInfo | null = null) {
+    super(message);
+    this.name = "ProviderHttpError";
+    this.status = status;
+    this.rateLimit = rateLimit;
+  }
+}
+
+export function normalizeAuthTokens(input: AuthTokenInput): AuthToken[] {
+  if (typeof input === "string") return [{ env: "token", value: input }];
+  return input.filter((token) => token.value.trim().length > 0).map((token) => ({ env: token.env, value: token.value.trim() }));
+}
+
+export function githubRateLimitInfo(headers: Headers, message: string): GitHubRateLimitInfo | null {
+  const lower = message.toLowerCase();
+  const retryAfter = Number(headers.get("retry-after"));
+  const reset = Number(headers.get("x-ratelimit-reset"));
+  const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : null;
+  const resetAtMs = Number.isFinite(reset) && reset > 0 ? reset * 1000 : null;
+
+  if (lower.includes("secondary rate limit") || lower.includes("abuse detection")) {
+    return { kind: "secondary", resetAtMs, retryAfterMs };
+  }
+  if (headers.get("x-ratelimit-remaining") === "0") {
+    return { kind: "primary", resetAtMs, retryAfterMs };
+  }
+  return null;
+}
+
+export function githubRepoAccessFailure(status: number, message: string): boolean {
+  const lower = message.toLowerCase();
+  if (lower.includes("could not resolve to a repository")) return true;
+  if (lower.includes("resource not accessible")) return true;
+  if (lower.includes("not accessible by integration")) return true;
+  if (status === 404 && lower.includes("not found")) return true;
+  if (status === 403 && lower.includes("forbidden")) return true;
+  return false;
+}
+
+export function fallbackRepoAccessMessage(message: string, token: AuthToken, status: number, provider: string, isFallback: boolean): string {
+  if (!isFallback || provider !== "github" || !githubRepoAccessFailure(status, message)) return message;
+  return `${message} (fallback token lacks repo access: ${token.env})`;
+}
+
+export function primaryCooldownUntil(rateLimit: GitHubRateLimitInfo): number {
+  return rateLimit.resetAtMs ?? Date.now() + 60 * 60 * 1000;
+}
+
 export async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit,

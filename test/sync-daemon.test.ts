@@ -447,11 +447,12 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
     fetch(`${base}/api/secrets`, { method: "PUT", headers: { [SYNC_CONTROL_HEADER]: "1" }, body: JSON.stringify(body) });
   try {
     // write a config that references two token env names
-    const source = (id: string, tokenEnv: string) => ({
+    const source = (id: string, tokenEnv: string, fallbackTokenEnvs: string[] = []) => ({
       source_id: id,
       kind: "github",
       host: "github.com",
       token_env: tokenEnv,
+      fallback_token_envs: fallbackTokenEnvs,
       graphql_url: "https://api.github.com/graphql",
       projects: ["a/b"],
     });
@@ -460,7 +461,10 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
       headers: { [SYNC_CONTROL_HEADER]: "1" },
       body: JSON.stringify({
         db_path: join(dir, "board.db"),
-        sources: [source("github:github.com", "SECRETS_TEST_TOKEN_A"), source("github:ghe.example.com", "SECRETS_TEST_TOKEN_B")],
+        sources: [
+          source("github:github.com", "SECRETS_TEST_TOKEN_A", ["SECRETS_TEST_TOKEN_A_BACKUP"]),
+          source("github:ghe.example.com", "SECRETS_TEST_TOKEN_B"),
+        ],
       }),
     });
     assert.equal(cfgPut.status, 200);
@@ -470,7 +474,7 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
     assert.deepEqual(listed, {
       enabled: true,
       writable: true,
-      secrets: { SECRETS_TEST_TOKEN_A: false, SECRETS_TEST_TOKEN_B: false },
+      secrets: { SECRETS_TEST_TOKEN_A: false, SECRETS_TEST_TOKEN_A_BACKUP: false, SECRETS_TEST_TOKEN_B: false },
     });
 
     // guards: header required, env name and value validated

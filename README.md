@@ -145,11 +145,16 @@ cp config/sources.example.json config/sources.json
 $EDITOR config/sources.json
 
 export GITHUB_TOKEN="$(gh auth token)"
+export GITHUB_TOKEN_BACKUP="ghp_xxx"  # optional: use a different GitHub account
 export GITLAB_TOKEN="glpat_xxx"   # only when a GitLab source is configured
 ```
 
 Tokens are referenced by env-var name in config and read from the environment.
-Do not inline tokens in `config/sources.json`.
+Do not inline tokens in `config/sources.json`. For GitHub, add optional
+`fallback_token_envs` to a source to retry the same request with another PAT
+when GitHub clearly reports primary rate-limit exhaustion for the current token.
+Use a PAT from a different GitHub account; multiple PATs from the same account
+share the same user quota.
 
 Initialize and run one full sync:
 
@@ -161,8 +166,8 @@ pnpm run emit --out data/contract.json
 pnpm run validate --in data/contract.json
 ```
 
-A source is skipped with a warning when its token env var is unset. `--dry-run`
-fetches and normalizes but writes nothing.
+A source is skipped with a warning when none of its configured token env vars is
+set. `--dry-run` fetches and normalizes but writes nothing.
 
 Useful sync flags:
 
@@ -211,7 +216,10 @@ Docker Compose runs three services in both store modes:
   routes to `board`.
 
 ```sh
-echo "GITHUB_TOKEN=ghp_xxx" > .env
+cat > .env <<'EOF'
+GITHUB_TOKEN=ghp_xxx
+GITHUB_TOKEN_BACKUP=ghp_xxx_from_a_different_account
+EOF
 # add GITLAB_TOKEN=... if configured
 cp config/sources.example.json config/sources.json
 $EDITOR config/sources.json

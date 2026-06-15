@@ -9,7 +9,7 @@
 // contract, and a failed run must never present stale derived data as fresh.
 
 import type { AppConfig, SourceConfig } from "./config.ts";
-import { tokenFor } from "./config.ts";
+import { tokensForSource } from "./config.ts";
 import type { Store } from "./db/store.ts";
 import { openConfiguredStore } from "./db/factory.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
@@ -209,13 +209,14 @@ export async function runConfiguredSync(
   const skipped: string[] = [];
   for (const sc of cfg.sources) {
     if (opts.sourceId && sc.source_id !== opts.sourceId) continue; // out of scope, not reported
-    const token = tokenFor(sc);
-    if (!token) {
-      log.warn(`skip ${sc.source_id}: env ${sc.token_env} not set`);
+    const tokens = tokensForSource(sc);
+    if (tokens.length === 0) {
+      const envNames = [sc.token_env, ...(sc.fallback_token_envs ?? [])].join(", ");
+      log.warn(`skip ${sc.source_id}: none of token envs [${envNames}] are set`);
       skipped.push(sc.source_id);
       continue;
     }
-    prepared.push({ config: sc, source: buildSource(sc, token) });
+    prepared.push({ config: sc, source: buildSource(sc, tokens) });
   }
 
   const store = await openStore(cfg);
