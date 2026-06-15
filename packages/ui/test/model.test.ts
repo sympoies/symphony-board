@@ -103,6 +103,8 @@ import {
   configWithoutSource,
   sourcesNeedingSync,
   suggestSourceDefaults,
+  sourceTokenEnvs,
+  isSourceTokenSet,
   NEW_CONFIG_DB_PATH,
   type ConfigDocument,
   type ConfigProjectEntry,
@@ -2155,4 +2157,25 @@ test("spotlight lanes sort newest created_at first; missing created_at sinks to 
   const lanes = spotlight([old, undated, newer]);
   const prLane = lanes.find((l) => l.lane.key === "pr");
   assert.deepEqual(prLane?.items.map((i) => i.id), ["i|new", "i|old", "i|und"]);
+});
+
+test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties", () => {
+  assert.deepEqual(sourceTokenEnvs({ token_env: "GH_TOKEN" }), ["GH_TOKEN"]);
+  assert.deepEqual(
+    sourceTokenEnvs({ token_env: "GH_TOKEN", fallback_token_envs: ["GH_BACKUP", "GH_THIRD"] }),
+    ["GH_TOKEN", "GH_BACKUP", "GH_THIRD"],
+  );
+  assert.deepEqual(sourceTokenEnvs({ token_env: "", fallback_token_envs: ["GH_BACKUP", ""] }), ["GH_BACKUP"]);
+});
+
+test("isSourceTokenSet is true when the primary OR any fallback env secret is set", () => {
+  const source = { token_env: "GH_TOKEN", fallback_token_envs: ["GH_BACKUP"] };
+  // Only the fallback is set -> the source is still token-present (the daemon
+  // would use the fallback), so Settings must not show it as token-missing.
+  assert.equal(isSourceTokenSet(source, { GH_BACKUP: true }), true);
+  assert.equal(isSourceTokenSet(source, { GH_TOKEN: true }), true);
+  assert.equal(isSourceTokenSet(source, { GH_TOKEN: false, GH_BACKUP: false }), false);
+  assert.equal(isSourceTokenSet(source, {}), false);
+  // No fallback configured: only the primary counts.
+  assert.equal(isSourceTokenSet({ token_env: "GH_TOKEN" }, { GH_BACKUP: true }), false);
 });

@@ -2148,6 +2148,24 @@ export interface ConfigDocument {
   [extra: string]: unknown;
 }
 
+// Every token env-var name a source can authenticate with: the primary
+// `token_env` followed by any `fallback_token_envs` (the PAT fallback pool).
+// Empty names are dropped. Settings renders one secret control per entry, and a
+// source counts as token-present when ANY of these is set (see
+// `isSourceTokenSet`) — the daemon's `runConfiguredSync` will use a fallback
+// even when the primary is absent.
+export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs">): string[] {
+  return [source.token_env, ...(source.fallback_token_envs ?? [])].filter((env) => env.length > 0);
+}
+
+// True when ANY of a source's token envs (primary or fallback) has a secret set.
+export function isSourceTokenSet(
+  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs">,
+  secrets: Record<string, boolean>,
+): boolean {
+  return sourceTokenEnvs(source).some((env) => secrets[env] === true);
+}
+
 export interface ConfigControlInfo {
   enabled: boolean;
   config: ConfigDocument | null;

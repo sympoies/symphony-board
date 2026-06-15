@@ -107,6 +107,31 @@ test("GitHub REST primary rate limit rotates to the next token for the same requ
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
+test("once every token is cooled down, the REST client stops hammering them", async () => {
+  // #222 follow-up: mirror of the GraphQL guard — when every token in the pool
+  // has been primary-rate-limited, the REST client must short-circuit rather
+  // than send another doomed request with a known-cooled-down PAT.
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+      status: 403,
+      headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+    });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "GITHUB_TOKEN", value: "primary" },
+    { env: "GITHUB_TOKEN_BACKUP", value: "backup" },
+  ], "github");
+
+  await assert.rejects(() => client("repos/o/r/commits"));
+  assert.equal(calls, 2, "first call tries both tokens once each");
+
+  await assert.rejects(() => client("repos/o/r/commits"), /rate-limited/);
+  assert.equal(calls, 2, "no further request once all tokens are cooled down");
+});
+
 test("GitHub REST secondary rate limit does not rotate PATs", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {

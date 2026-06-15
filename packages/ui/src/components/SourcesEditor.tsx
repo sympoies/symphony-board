@@ -6,7 +6,9 @@ import {
   configWithSourcePatch,
   configWithoutProject,
   configWithoutSource,
+  isSourceTokenSet,
   isSyncRunActive,
+  sourceTokenEnvs,
   sourcesNeedingSync,
   suggestSourceDefaults,
   NEW_CONFIG_DB_PATH,
@@ -117,7 +119,8 @@ export function SourcesEditor({ config, sync }: Props) {
       ) : (
         <>
           {draft.sources.map((s) => {
-            const tokenSet = config.secrets[s.token_env] === true;
+            const tokenEnvs = sourceTokenEnvs(s);
+            const tokenSet = isSourceTokenSet(s, config.secrets);
             return (
               <div className="config-source" key={s.source_id}>
                 <div className="config-source-head">
@@ -143,25 +146,36 @@ export function SourcesEditor({ config, sync }: Props) {
                 </div>
                 <div className="config-token">
                   <Badge text={tokenSet ? "token set" : "token missing"} kind={tokenSet ? "status-ok" : "status-error"} />
-                  <span className="muted">{s.token_env}</span>
-                  {config.secretsWritable ? (
-                    <>
-                      <input
-                        type="password"
-                        className="config-input config-token-input"
-                        placeholder={tokenSet ? "replace token" : "paste token"}
-                        autoComplete="off"
-                        value={tokenInput[s.token_env] ?? ""}
-                        onChange={(e) => setTokenInput((m) => ({ ...m, [s.token_env]: e.target.value }))}
-                      />
-                      <button type="button" className="toggle" disabled={!(tokenInput[s.token_env] ?? "").trim()} onClick={() => void setToken(s.token_env)}>
-                        {tokenSet ? "Replace" : "Set"}
-                      </button>
-                    </>
-                  ) : (
-                    <span className="muted">set via the server's environment</span>
-                  )}
-                  {tokenError[s.token_env] ? <span className="config-error">{tokenError[s.token_env]}</span> : null}
+                  {tokenEnvs.map((env, i) => {
+                    const envSet = config.secrets[env] === true;
+                    const isFallback = i > 0;
+                    return (
+                      <div className="config-token-env" key={env}>
+                        <span className="muted">
+                          {env}
+                          {isFallback ? " (fallback)" : ""}
+                        </span>
+                        {config.secretsWritable ? (
+                          <>
+                            <input
+                              type="password"
+                              className="config-input config-token-input"
+                              placeholder={envSet ? "replace token" : "paste token"}
+                              autoComplete="off"
+                              value={tokenInput[env] ?? ""}
+                              onChange={(e) => setTokenInput((m) => ({ ...m, [env]: e.target.value }))}
+                            />
+                            <button type="button" className="toggle" disabled={!(tokenInput[env] ?? "").trim()} onClick={() => void setToken(env)}>
+                              {envSet ? "Replace" : "Set"}
+                            </button>
+                          </>
+                        ) : (
+                          <span className="muted">{envSet ? "set via the server's environment" : "not set"}</span>
+                        )}
+                        {tokenError[env] ? <span className="config-error">{tokenError[env]}</span> : null}
+                      </div>
+                    );
+                  })}
                 </div>
                 <ul className="config-projects">
                   {s.projects.map((p) => {

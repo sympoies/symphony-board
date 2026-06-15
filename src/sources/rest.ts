@@ -1,8 +1,10 @@
 import {
   DEFAULT_FETCH_TIMEOUT_MS,
   ProviderHttpError,
+  allTokensCooledDownError,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
+  firstAvailableToken,
   githubRateLimitInfo,
   normalizeAuthTokens,
   primaryCooldownUntil,
@@ -10,15 +12,6 @@ import {
 } from "./http.ts";
 
 export type RestClient = <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>) => Promise<T>;
-
-function firstTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedUntil: Map<number, number>): number {
-  const now = Date.now();
-  for (let idx = 0; idx < tokens.length; idx++) {
-    const blocked = blockedUntil.get(idx) ?? 0;
-    if (blocked <= now) return idx;
-  }
-  return 0;
-}
 
 function nextTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedUntil: Map<number, number>, tried: Set<number>, after: number): number | null {
   const now = Date.now();
@@ -46,7 +39,13 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
       if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
     }
 
-    let idx = firstTokenIndex(tokens, blockedUntil);
+    const first = firstAvailableToken(tokens.length, blockedUntil);
+    if (first === null) {
+      // Every token is still cooled down from a prior rate limit; do not send
+      // another doomed request with a known-blocked PAT.
+      throw allTokensCooledDownError(`REST request to ${url}`, tokens.length, blockedUntil);
+    }
+    let idx = first;
     const tried = new Set<number>();
     let lastError: Error | null = null;
 

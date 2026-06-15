@@ -1633,6 +1633,7 @@ a.rf-node-title:hover { color: var(--accent); }
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 12px;
 }
 .config-token { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.config-token-env { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 100%; }
 .config-token-input { flex: 1 1 180px; max-width: 280px; }
 .config-projects { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .config-projects li { display: flex; align-items: center; gap: 8px; }
