@@ -1551,6 +1551,14 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--muted);
   font-size: 12px;
 }
+.repo-actor-link {
+  color: var(--muted);
+  text-decoration: none;
+}
+.repo-actor-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }

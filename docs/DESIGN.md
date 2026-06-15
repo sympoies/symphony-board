@@ -235,7 +235,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v3. Current emitted version: `3.3.0`.
+Current major: v3. Current emitted version: `3.4.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -335,6 +335,17 @@ previously reserved `details.branches` / `details.refs` membership lists when a
 commit is reachable from more than one branch, and `details.branch` /
 `details.ref` become the commit's primary branch instead of always the default
 branch. No shape change.
+
+Version `3.4.0` adds optional `repo_metrics[].top_actors[].profile_url`, the
+per-actor counterpart to `repo_url`. The same producer-owned provider-link layer
+builds an actor's profile page (`https://<host>/<username>`) so Repo Analytics
+can link a handle to its GitHub/GitLab profile without duplicating URL rules in
+the UI. It links `provider-user`-keyed actors directly, and config-merged
+`person` identities through the provider username observed on that source during
+the identity merge (a `person` row is per-source). Config-declared usernames are
+host-agnostic, so they are never guessed onto a source — authorship with no
+observed username on a source (raw email/name) renders unlinked there rather than
+risk a wrong-host profile link.
 
 Contract rules:
 

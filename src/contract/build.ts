@@ -34,7 +34,7 @@ import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/acto
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 import { zonedDayStartIso, zonedDateOnly, shiftDateOnly } from "../lib/tz.ts";
-import { providerRepoUrl, type ProviderLinkSource } from "../provider-links.ts";
+import { providerProfileUrl, providerRepoUrl, type ProviderLinkSource } from "../provider-links.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
@@ -425,6 +425,12 @@ interface ActorAccumulator {
   // Set when a config identity merged this accumulator: the declared display
   // name wins over the frequency pick (see chooseDisplayName).
   canonicalName?: string;
+  // Resolved provider username for the profile link, set during identity merge so
+  // a `person:<slug>` row can still link even though its key carries no username
+  // (see applyIdentities). `usernameActivities` is the activity volume of the
+  // observed sub-identity that supplied it, used only to pick deterministically.
+  username?: string;
+  usernameActivities?: number;
   activities: number;
   commits: number;
   items_opened: number;
@@ -547,6 +553,24 @@ function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: Identi
     target.items_opened += acc.items_opened;
     target.change_requests_merged += acc.change_requests_merged;
     for (const [name, count] of acc.names) target.names.set(name, (target.names.get(name) ?? 0) + count);
+    // Resolve a username for the profile link. A provider-user sub-identity
+    // observed on this source is ground truth — pick the busiest one (code-unit
+    // tie-break for determinism). We deliberately do NOT fall back to a config
+    // identity's declared username: `identities[].usernames` is host-agnostic, so
+    // applying it to a source where the person was seen only by commit name/email
+    // could link a wrong-host / wrong-person profile. No observed username here
+    // means we genuinely don't know the handle on this source, so it stays unlinked.
+    const observed = usernameOfKey(acc.key);
+    if (observed) {
+      const better =
+        target.usernameActivities === undefined ||
+        acc.activities > target.usernameActivities ||
+        (acc.activities === target.usernameActivities && observed.localeCompare(target.username ?? "") < 0);
+      if (better) {
+        target.username = observed;
+        target.usernameActivities = acc.activities;
+      }
+    }
   }
   return merged;
 }
@@ -589,15 +613,22 @@ function excludeBots(map: Map<string, ActorAccumulator>, excludes: RegExp[]): Ma
   return kept;
 }
 
-function topActors(map: Map<string, ActorAccumulator>): RepoMetricActorDTO[] {
+function topActors(map: Map<string, ActorAccumulator>, source: ProviderLinkSource | undefined): RepoMetricActorDTO[] {
   return [...map.values()]
     .map((acc): RepoMetricActorDTO => {
       const { displayName, aliases } = chooseDisplayName(acc);
+      // The username for the profile link: a `provider-user:*` key carries it
+      // directly; a config-merged `person:*` key carries it on `username` (the
+      // username observed on this source, else its single config-declared one).
+      // email/name keys with no resolved username yield null and the field is omitted.
+      const username = usernameOfKey(acc.key) ?? acc.username ?? null;
+      const profileUrl = source ? providerProfileUrl(source, username) : null;
       return {
         actor: displayName,
         actor_key: acc.key,
         display_name: displayName,
         ...(aliases.length ? { aliases } : {}),
+        ...(profileUrl ? { profile_url: profileUrl } : {}),
         activities: acc.activities,
         commits: acc.commits,
         items_opened: acc.items_opened,
@@ -788,7 +819,7 @@ function buildRepoMetrics(
       const edgesForRepo = repoEdges.get(key) ?? [];
       const actors = new Map<string, ActorAccumulator>();
       const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
-      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers), actorExcludes));
+      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers), actorExcludes), sourcesById.get(identity.source_id));
       const series = bucketRanges(range, window.bucket, timezone).map((bucket) => ({
         bucket_start: bucket.from,
         bucket_end: bucket.to,

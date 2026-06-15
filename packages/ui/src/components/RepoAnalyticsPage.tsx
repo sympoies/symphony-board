@@ -163,7 +163,19 @@ function TopActors({ metric }: { metric: RepoMetricDTO }) {
         const title = aliases.length
           ? `${actor.activities} activities (also ${aliases.join(", ")})`
           : `${actor.activities} activities`;
-        return (
+        return actor.profile_url ? (
+          <a
+            key={actor.actor_key}
+            className="repo-actor-link"
+            href={actor.profile_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={title}
+            aria-label={`Open ${actor.display_name} profile on provider`}
+          >
+            @{actor.display_name}
+          </a>
+        ) : (
           <span key={actor.actor_key} title={title}>
             @{actor.display_name}
           </span>

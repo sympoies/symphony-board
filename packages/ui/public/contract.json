@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.3.0",
+  "contract_version": "3.4.0",
   "generated_at": "2026-06-10T09:00:00Z",
   "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
@@ -1090,6 +1090,7 @@
           "aliases": [
             "Maintainer Bot"
           ],
+          "profile_url": "https://github.com/maintainer",
           "activities": 4,
           "commits": 1,
           "items_opened": 2,
@@ -1099,6 +1100,7 @@
           "actor": "reviewer",
           "actor_key": "provider-user:github:github.com:reviewer",
           "display_name": "reviewer",
+          "profile_url": "https://github.com/reviewer",
           "activities": 3,
           "commits": 2,
           "items_opened": 2,
@@ -1237,6 +1239,7 @@
           "actor": "gitlab-bot",
           "actor_key": "provider-user:gitlab:gitlab.com:gitlab-bot",
           "display_name": "gitlab-bot",
+          "profile_url": "https://gitlab.com/gitlab-bot",
           "activities": 2,
           "commits": 1,
           "items_opened": 1,

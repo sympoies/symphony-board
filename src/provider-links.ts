@@ -49,8 +49,29 @@ function shortRef(ref: unknown): string | null {
   return value.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") || null;
 }
 
+// A provider username safe to place as a single profile path segment. GitHub
+// logins and GitLab usernames are slugs drawn from [A-Za-z0-9._-]; anything else
+// (whitespace, slashes that would smuggle in extra path segments, control chars)
+// is rejected rather than encoded.
+function safeUsername(value: string | null | undefined): string | null {
+  const name = value?.trim();
+  if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) return null;
+  return name;
+}
+
 export function providerRepoUrl(source: ProviderLinkSource, projectPath: string | null | undefined): string | null {
   return repoBase(source, projectPath);
+}
+
+// Canonical provider profile page for an actor's username. Both GitHub and
+// GitLab serve a user profile at `https://<host>/<username>`. Returns null when
+// the source kind/host is unsupported or the username is missing/unsafe.
+export function providerProfileUrl(source: ProviderLinkSource, username: string | null | undefined): string | null {
+  const kind = providerKind(source);
+  const host = safeHost(source.host);
+  const name = safeUsername(username);
+  if (!kind || !host || !name) return null;
+  return `https://${host}/${encodeURIComponent(name)}`;
 }
 
 export function providerIssueUrl(source: ProviderLinkSource, projectPath: string | null | undefined, iid: number | null | undefined): string | null {

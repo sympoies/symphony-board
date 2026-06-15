@@ -298,7 +298,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "3.3.0");
+  assert.equal(env.contract_version, "3.4.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -326,6 +326,10 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.data_quality.last_activity_at, "2026-06-07T11:00:00Z");
   assert.ok(metric?.series.some((bucket) => bucket.stats.commits === 1 && bucket.stats.pushes === 1));
   assert.deepEqual(metric?.top_actors?.map((actor) => actor.actor).sort(), ["alice", "bob"]);
+  // Each provider-user actor links to its provider profile page.
+  const actorsByName = new Map((metric?.top_actors ?? []).map((actor) => [actor.actor, actor]));
+  assert.equal(actorsByName.get("alice")?.profile_url, "https://github.com/alice");
+  assert.equal(actorsByName.get("bob")?.profile_url, "https://github.com/bob");
 });
 
 test("review_threads folds the two columns into a nested DTO, null for issues and unreported rows", () => {
@@ -503,7 +507,14 @@ test("config identities collapse a GitLab username and commit-email facet into o
 
   // Without a declared identity the two facets are separate rows.
   const split = buildContract({ sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
-  assert.equal(split.repo_metrics?.[0]?.top_actors?.length, 2);
+  const splitRows = split.repo_metrics?.[0]?.top_actors ?? [];
+  assert.equal(splitRows.length, 2);
+  // The provider-user facet links to the GitLab profile on the source's host ...
+  const username = splitRows.find((r) => r.actor_key.startsWith("provider-user:"));
+  assert.equal(username?.profile_url, "https://gitlab.gamania.com/terrylin");
+  // ... while the account-less commit-email facet has no linkable username.
+  const emailFacet = splitRows.find((r) => r.actor_key.startsWith("email:"));
+  assert.equal(emailFacet?.profile_url, undefined);
 
   // The config identity merges them: username match OR commit-name match.
   const merged = buildContract({
@@ -515,10 +526,33 @@ test("config identities collapse a GitLab username and commit-email facet into o
   assert.equal(rows.length, 1, "one canonical actor");
   const row = rows[0]!;
   assert.equal(row.actor_key, "person:terry-lin", "canonical person key, not a raw username/email key");
+  assert.equal(row.profile_url, "https://gitlab.gamania.com/terrylin", "the merged person links to the username observed on this source");
   assert.equal(row.display_name, "Terry Lin", "config display name wins");
   assert.equal(row.commits, 1, "commit counted");
   assert.equal(row.change_requests_merged, 1, "MR merge counted under the same identity");
   assert.ok((row.aliases ?? []).includes("Terry LIN"), "observed commit name kept as an alias");
+});
+
+test("a name-only merged person is not linked (config usernames are host-agnostic, so no guess)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  // Only commit activity, carrying a name and email but no provider username.
+  const commitKey = deriveActorKey({ sourceId: "gitlab:gitlab.gamania.com", email: "rachel@example.com", name: "Rachel TUNG" });
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "g/p", actor: "Rachel TUNG", actor_key: commitKey, source_id: "gitlab:gitlab.gamania.com", target_source_id: "gitlab:gitlab.gamania.com", occurred_at: "2026-06-07T10:00:00Z" }),
+  ];
+  const env = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [{ name: "racheltung", usernames: ["racheltung"], names: ["Rachel TUNG"] }],
+  });
+  assert.deepEqual(validateContract(env), []);
+  const row = (env.repo_metrics?.[0]?.top_actors ?? [])[0]!;
+  assert.equal(row.actor_key, "person:racheltung");
+  // No provider username was observed on this source. The config declares one, but
+  // it is host-agnostic, so applying it here could link a wrong-host profile — the
+  // row stays unlinked rather than guess.
+  assert.equal(row.profile_url, undefined);
 });
 
 test("two identities whose names slug alike stay distinct people (no collision merge)", () => {

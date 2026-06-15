@@ -30,7 +30,7 @@ The full product path is implemented end to end:
   edges, and activity rows are stored in the configured canonical store.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v3, currently `3.3.0`, and validates the JSON
+- `emit` produces contract major v3, currently `3.4.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
   Activity feed, a GitHub-like Commits log, a Repo Analytics table/trend view,
@@ -374,7 +374,7 @@ scripts/devlog-search.sh graph
 
 ## Contract Summary
 
-The current emitted contract is major v3, currently `3.3.0`. The canonical
+The current emitted contract is major v3, currently `3.4.0`. The canonical
 schema, field semantics, version rules, and full version history live in
 [docs/CONTRACT.md](docs/CONTRACT.md). The TypeScript DTO and JSON Schema entry
 point is [`@symphony-board/contract`](packages/contract).
