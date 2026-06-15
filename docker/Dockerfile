@@ -20,7 +20,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY packages/contract/package.json ./packages/contract/package.json
 RUN corepack enable \
-  && corepack prepare pnpm@11.4.0 --activate \
+  && corepack prepare pnpm@11.7.0 --activate \
   && pnpm install --prod --frozen-lockfile --ignore-scripts
 
 # Source + the normative SQL schema (read at runtime by each migrator) + the
