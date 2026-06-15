@@ -520,7 +520,7 @@ test("GitHub CI refresh fetches configured PR candidates without advancing the w
   assert.equal(src.normalize(res.records[0]!)?.item?.ciState, "passing");
 });
 
-test("GitHub: submitted PR reviews normalize into review activities (issue #93)", () => {
+test("GitHub: submitted PR reviews normalize into review activities", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {
     entityKind: "change_request", externalId: "PR_rev", apiVersion: "github.graphql.v4",
@@ -852,7 +852,7 @@ test("a pre-expansion GitLab commit payload (defaultBranch, no branches) replays
   });
 });
 
-// --- GitLab: system-note cross-references (issue #13) ----------------------
+// --- GitLab: system-note cross-references -----------------------------------
 
 const GL_DESC: SourceDescriptor = { sourceId: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", displayName: null };
 
@@ -932,7 +932,7 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(mr1men[0]!.to.externalId, "gid:MR1");
 });
 
-test("GitLab: MR approvers normalize into approved review activities (issue #93)", () => {
+test("GitLab: MR approvers normalize into approved review activities", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {
     entityKind: "change_request", externalId: "gid:MR_appr", apiVersion: "gitlab.graphql",
@@ -952,7 +952,7 @@ test("GitLab: MR approvers normalize into approved review activities (issue #93)
   assert.equal(reviews[0]!.target?.externalId, "gid:MR_appr");
 });
 
-test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy (issue #93)", () => {
+test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {
     entityKind: "activity", externalId: "event:appr", apiVersion: "gitlab.graphql.rest",

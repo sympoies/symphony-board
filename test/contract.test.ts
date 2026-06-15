@@ -398,7 +398,7 @@ test("repo metric data_quality timestamps are null when a repo has no activity r
   assert.equal(metric?.data_quality.last_activity_at, null);
 });
 
-test("buildContract counts review activity rows into reviews and approvals (issue #93)", () => {
+test("buildContract counts review activity rows into reviews and approvals", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
   ];
@@ -422,7 +422,7 @@ test("buildContract counts review activity rows into reviews and approvals (issu
   assert.equal(metric?.totals.by_activity_action.approved, 1);
 });
 
-test("repo metrics group top_actors by canonical identity (issue #95)", () => {
+test("repo metrics group top_actors by canonical identity", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
   ];

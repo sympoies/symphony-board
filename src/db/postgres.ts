@@ -14,8 +14,7 @@
 //   last.
 // - The watermark upsert uses GREATEST (Postgres ignores NULLs in GREATEST),
 //   which both COALESCEs a null watermark away AND makes the watermark
-//   monotonic — an interleaved older run can never regress it (#164
-//   defense-in-depth).
+//   monotonic — an interleaved older run can never regress it.
 // - The writer lease is `pg_try_advisory_lock` on a DEDICATED single-connection
 //   client created per acquire: session-scoped, so a holder whose connection
 //   (or process) dies releases it automatically — no TTL machinery. Release
@@ -328,7 +327,7 @@ export class PgStore implements Store {
     const lastSuccess = status === "ok" ? nowIso : null;
     // GREATEST ignores NULLs in Postgres: a null incoming watermark keeps the
     // stored one (the COALESCE the interface requires), and a non-null one
-    // only ever moves forward (monotonic, #164 defense-in-depth).
+    // only ever moves forward.
     await this.#q`
       INSERT INTO sync_state (source_id, watermark, last_run_at, last_success_at, last_status, last_error)
       VALUES (${sourceId}, ${nz(watermark)}, ${nowIso}, ${nz(lastSuccess)}, ${status}, ${nz(error)})

@@ -223,8 +223,8 @@ export interface Store {
   listSources(): Promise<SourceRow[]>;
 
   // -- writer lease --
-  // Try-acquire the store's single-sync-writer lease (#164): "exactly one sync
-  // writer per store" enforced by the database, not by deployment topology.
+  // Try-acquire the store's single-sync-writer lease: "exactly one sync writer
+  // per store" enforced by the database, not by deployment topology.
   // Non-blocking: resolves false when another live handle (any process) holds
   // it — the caller skips its run rather than waiting. Idempotent on the
   // holding handle. Released by releaseWriterLease() or close(); a holder that

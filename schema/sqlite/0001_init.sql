@@ -135,8 +135,9 @@ CREATE INDEX IF NOT EXISTS label_by_name ON item_label (name);
 -- ---------------------------------------------------------------------------
 -- edge: THE SPINE. The issue <-> PR/MR relationship, modeled as a
 -- typed, directed, stateful, many-to-many, possibly cross-source link. An edge
--- is RECONCILED from both endpoints (a PR declares "Closes #5"; the issue
--- reports "closed by !12") and may be seen from either side at different times.
+-- is RECONCILED from both endpoints (a change request declares a closing
+-- reference; the issue reports the closer) and may be seen from either side at
+-- different times.
 --
 -- Direction: `from` asserts the relationship about `to`. For type='closes',
 -- from = the change request, to = the issue. Endpoints are stored as

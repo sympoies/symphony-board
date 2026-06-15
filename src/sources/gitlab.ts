@@ -10,14 +10,14 @@
 //     strict closing MRs; we model it as `closes` for the workflow lifecycle.
 //   * detailedMergeStatus / PipelineStatusEnum mapped to their real enum values.
 //
-// Cross-reference edges (issue #13), validated against gitlab.com (2026-06-07):
+// Cross-reference edges, validated against gitlab.com (2026-06-07):
 //   * There is NO `relatedIssues` field and no CrossReferencedEvent equivalent on
 //     the GraphQL Issue/MergeRequest. The links live in human-readable SYSTEM
 //     notes on the mentioned/linked item:
-//       "mentioned in issue #5"         -> issue #5 references this item   (mentions)
-//       "mentioned in merge request !3" -> MR !3 references this item       (mentions)
+//       "mentioned in issue <ref>"         -> an issue references this item   (mentions)
+//       "mentioned in merge request <ref>" -> an MR references this item       (mentions)
 //       "mentioned in commit <sha>"     -> ignored (not an issue/MR)
-//       "marked as related to #6"       -> linked-related to issue #6       (relates)
+//       "marked as related to <ref>"    -> linked-related to another issue    (relates)
 //     So BOTH `mentions` and `relates` are parsed out of system notes. We fetch
 //     notes per item (an N+1, like relatedMergeRequests — inlining notes in the
 //     bulk page would exceed GitLab's GraphQL complexity limit), resolve the
@@ -115,7 +115,7 @@ const ISSUE_RESOLVE_Q = `query($path:ID!, $iid:String!) {
   }
 }`;
 
-// Per-MR resolve: the current approvers (issue #93 review metrics) plus the
+// Per-MR resolve: the current approvers for review metrics plus the
 // system notes (an MR has no issue-link / closing field on its own side).
 const MR_RESOLVE_Q = `query($path:ID!, $iid:String!) {
   project(fullPath:$path) {
@@ -147,14 +147,14 @@ function parseRefToken(token: string): NoteRef | null {
   return { projectPath: m[1] ? m[1] : null, kind: m[2] === "!" ? "change_request" : "issue", iid: m[3]! };
 }
 
-// "mentioned in issue #5" / "mentioned in merge request !3" — but NOT
+// "mentioned in issue <ref>" / "mentioned in merge request <ref>" — but NOT
 // "mentioned in commit <sha>" (no #/! ref, so parseRefToken returns null).
 function parseMention(body: string): NoteRef | null {
   const m = /^mentioned in (?:issue|merge request) (.+)$/.exec(body.trim());
   return m ? parseRefToken(m[1]!) : null;
 }
 
-// "marked as related to #6" (GitLab issue links are issue<->issue).
+// "marked as related to <ref>" (GitLab issue links are issue<->issue).
 function parseRelate(body: string): NoteRef | null {
   const m = /^marked as related to (.+)$/.exec(body.trim());
   return m ? parseRefToken(m[1]!) : null;
@@ -432,7 +432,7 @@ export class GitLabSource implements Source {
     return { item, labels: this.labels(p), edges, activities: itemActivities(item) };
   }
 
-  // Current MR approvers -> `review` / `approved` activity rows (issue #93).
+  // Current MR approvers -> `review` / `approved` activity rows.
   // GitLab exposes no per-approval timestamp on the GraphQL surface, so each
   // approver is dated by the MR's merge (if merged) or last-update instant — a
   // documented approximation. This mirrors itemActivities' state-derived rows:
@@ -636,8 +636,8 @@ export class GitLabSource implements Source {
       const data = event.push_data ?? event.data ?? null;
       const targetKind = mapEventTargetKind(event.target_type, event.action_name, data);
       const action = mapGitLabAction(event.action_name);
-      // MR approvals are ingested exactly once from MergeRequest.approvedBy (issue
-      // #93). Some GitLab instances ALSO surface an "approved" project event; drop
+      // MR approvals are ingested exactly once from MergeRequest.approvedBy.
+      // Some GitLab instances ALSO surface an "approved" project event; drop
       // it here so the approval metric is never double-counted.
       if (action === "approved") return null;
       const title = event.target_title ?? data?.commit_title ?? data?.ref ?? null;

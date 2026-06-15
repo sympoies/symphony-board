@@ -10,6 +10,8 @@ import {
   fetchWithTimeout,
   firstAvailableToken,
   githubRateLimitInfo,
+  isGithubPrimaryRateLimit,
+  nextAvailableToken,
   normalizeAuthTokens,
   primaryCooldownUntil,
   type AuthTokenInput,
@@ -28,27 +30,6 @@ function gqlOptions(input: number | GqlClientOptions | undefined, url: string): 
     timeoutMs: input?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
     provider: input?.provider ?? (url.includes("github") ? "github" : ""),
   };
-}
-
-function nextTokenIndex(tokens: ReturnType<typeof normalizeAuthTokens>, blockedUntil: Map<number, number>, tried: Set<number>, after: number): number | null {
-  const now = Date.now();
-  for (let step = 1; step <= tokens.length; step++) {
-    const idx = (after + step) % tokens.length;
-    if (tried.has(idx)) continue;
-    const blocked = blockedUntil.get(idx) ?? 0;
-    if (blocked <= now) return idx;
-  }
-  return null;
-}
-
-// A GitHub primary rate limit (not secondary / abuse): the token is exhausted
-// until its reset, so it must be cooled down — regardless of how many tokens are
-// in the pool. A single-token client records the cooldown too, so the next
-// request short-circuits (see firstAvailableToken) instead of hammering the
-// exhausted PAT; rotation to another token is a separate decision gated on
-// nextTokenIndex finding an available one.
-function isGithubPrimaryRateLimit(provider: string, err: ProviderHttpError): boolean {
-  return provider === "github" && err.rateLimit?.kind === "primary";
 }
 
 export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: number | GqlClientOptions): GqlClient {
@@ -96,7 +77,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
-          const next = nextTokenIndex(tokens, blockedUntil, tried, idx);
+          const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
           if (next !== null) {
             lastError = err;
             idx = next;
@@ -111,7 +92,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
-          const next = nextTokenIndex(tokens, blockedUntil, tried, idx);
+          const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
           if (next !== null) {
             lastError = err;
             idx = next;

@@ -56,7 +56,7 @@ export interface SyncRequest {
 
 // The JSON status the UI consumes for a run. `status` is "running" until the run
 // finishes, then the worst-of per-source outcome (ok | partial | error), or
-// "skipped" when the run was refused the store's writer lease (#164) — another
+// "skipped" when the run was refused the store's writer lease — another
 // live writer (e.g. a host-side sync against the daemon's store) held it. While
 // running, `sources` fills incrementally as each source finishes and
 // `active_source_id` names the source currently being fetched (null between

@@ -42,8 +42,8 @@ function mapState(s: string | null | undefined): ItemState {
 }
 
 const REF_NODE = `id number url state repository { nameWithOwner }`;
-// Submitted pull request reviews — the trustworthy review-event surface (issue
-// #93). `state` is PENDING|COMMENTED|APPROVED|CHANGES_REQUESTED|DISMISSED;
+// Submitted pull request reviews — the trustworthy review-event surface.
+// `state` is PENDING|COMMENTED|APPROVED|CHANGES_REQUESTED|DISMISSED;
 // PENDING reviews have a null `submittedAt` and are skipped in normalize.
 const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedAt url } }`;
 // Review threads with their resolution state — the "is this review resolved?"
@@ -294,7 +294,7 @@ export class GitHubSource implements Source {
     return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.reviewActivities(p, item)] };
   }
 
-  // Submitted PR reviews -> `review` activity rows (issue #93). Each submission
+  // Submitted PR reviews -> `review` activity rows. Each submission
   // is an event with a real `submittedAt`; PENDING (unsubmitted) reviews are
   // skipped. Pure: derived only from the PR payload, so it replays from raw.
   private reviewActivities(p: any, item: CanonicalItem): CanonicalActivity[] {
@@ -661,7 +661,7 @@ function repoActivitySummary(action: string, ref: string, project: string | null
 }
 
 // PullRequestReviewState -> a review activity action. Everything submitted is a
-// `review` activity (issue #93); only APPROVED is also counted as an approval.
+// `review` activity; only APPROVED is also counted as an approval.
 function mapReviewAction(state: string): string {
   if (state === "APPROVED") return "approved";
   if (state === "CHANGES_REQUESTED") return "changes_requested";

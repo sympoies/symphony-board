@@ -115,10 +115,9 @@ test("GitHub GraphQL primary rate limit rotates to the next token for the same r
 });
 
 test("once every token is cooled down, the GraphQL client stops hammering them", async () => {
-  // #222 follow-up: when every token in the pool has been primary-rate-limited,
-  // the client must NOT keep sending requests with a known-cooled-down PAT
-  // (that can escalate to secondary rate limits / abuse detection). It must
-  // short-circuit and reject without another doomed request.
+  // When every token in the pool has been primary-rate-limited, the client must
+  // NOT keep sending requests with a known-cooled-down PAT. It must short-circuit
+  // and reject without another doomed request.
   let calls = 0;
   mockFetch(() => {
     calls++;
@@ -143,9 +142,9 @@ test("once every token is cooled down, the GraphQL client stops hammering them",
 });
 
 test("a single-token GitHub client cools down and stops hammering after a primary rate limit", async () => {
-  // #225 follow-up: with no fallback pool (the default), a primary rate limit
-  // must still cool the token down so the NEXT request short-circuits instead of
-  // re-sending the exhausted PAT for the rest of the run.
+  // With no fallback pool (the default), a primary rate limit must still cool
+  // the token down so the NEXT request short-circuits instead of re-sending the
+  // exhausted PAT for the rest of the run.
   let calls = 0;
   mockFetch(() => {
     calls++;

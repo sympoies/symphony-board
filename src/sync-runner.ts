@@ -49,7 +49,7 @@ export interface SyncRunTotals {
 }
 
 export interface SyncRunResult {
-  // "skipped": another live writer held the store's writer lease (#164) — the
+  // "skipped": another live writer held the store's writer lease, so the
   // whole run was skipped before touching any source; benign, not a failure
   // (the loop daemon's next tick simply tries again).
   status: "ok" | "partial" | "error" | "skipped";
@@ -102,9 +102,9 @@ export async function executeSyncRun(
   onProgress?: SyncProgressReporter,
 ): Promise<SyncRunResult> {
   const full = opts.mode === "full";
-  // The writer lease (#164) guards the whole non-dry run: when another live
-  // writer holds it, skip everything before touching any source — non-blocking,
-  // like a scheduled tick skipping while a manual run is active. A dry-run
+  // The writer lease guards the whole non-dry run: when another live writer
+  // holds it, skip everything before touching any source — non-blocking, like a
+  // scheduled tick skipping while a manual run is active. A dry-run
   // writes nothing and runs leaseless, so inspecting a live deployment whose
   // daemon is mid-run stays possible.
   if (!opts.dryRun && !(await store.acquireWriterLease())) {

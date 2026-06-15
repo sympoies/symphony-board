@@ -30,7 +30,7 @@ export async function openConfiguredStore(cfg: AppConfig): Promise<Store> {
 
 // Read-only counterpart for the API sidecars and inspection surfaces: the same
 // selection rules, but the store opens read-only — never migrates, and writes
-// through the handle fail (#170).
+// through the handle fail.
 export async function openConfiguredStoreReadOnly(cfg: AppConfig): Promise<Store> {
   const url = configuredPgUrl(cfg);
   if (!url) return openSqliteStoreReadOnly(cfg.db_path);
