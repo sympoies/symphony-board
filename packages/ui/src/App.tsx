@@ -868,7 +868,7 @@ export function App() {
 
   return (
     <div className="app app-wide">
-      <Header env={env} sync={sync} />
+      <Header env={env} sync={sync} hiddenSources={hiddenSources} />
       <nav className="page-tabs">
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity

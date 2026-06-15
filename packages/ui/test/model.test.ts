@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO } from "@symphony-board/contract";
+import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, SourceDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
   DEFAULT_TIME_RANGE_PRESET_ID,
@@ -69,6 +69,7 @@ import {
   repoCoverage,
   sortRepoMetrics,
   sourceDisplayName,
+  visibleHeaderSources,
   deriveStatuses,
   spotlight,
   columnCollapsed,
@@ -1050,6 +1051,19 @@ test("sourceDisplayName drops provider prefix from source ids", () => {
   assert.equal(sourceDisplayName("gitlab:gitlab.gamania.com"), "gitlab.gamania.com");
   assert.equal(sourceDisplayName("legacy-source"), "legacy-source");
   assert.equal(sourceDisplayName("github:"), "github:");
+});
+
+test("visibleHeaderSources follows Settings source visibility", () => {
+  const sources: SourceDTO[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok", color: null },
+    { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GitLab", last_success_at: null, last_status: "ok", color: null },
+    { source_id: "gitlab:gamania", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab (Gamania)", last_success_at: null, last_status: "ok", color: null },
+  ];
+
+  assert.deepEqual(
+    visibleHeaderSources(sources, new Set(["github:github.com"])).map((s) => s.source_id),
+    ["gitlab:gitlab.com", "gitlab:gamania"],
+  );
 });
 
 test("deriveRepos groups items into (source, project_path) repos with counts, sorted", () => {

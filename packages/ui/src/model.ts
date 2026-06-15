@@ -11,6 +11,7 @@ import type {
   EdgeDTO,
   RepoMetricDTO,
   ReviewThreadsDTO,
+  SourceDTO,
 } from "@symphony-board/contract";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 import { zonedDateOnly, zonedWeekday, zonedHour, zonedDayStartIso, zonedDayEndIso, shiftDateOnly } from "./tz.ts";
@@ -1514,6 +1515,11 @@ export function sourceDisplayName(sourceId: string | null | undefined): string {
   if (sep === -1) return raw;
   const host = raw.slice(sep + 1).trim();
   return host || raw;
+}
+
+export function visibleHeaderSources(sources: readonly SourceDTO[], hiddenSources: ReadonlySet<string>): readonly SourceDTO[] {
+  if (hiddenSources.size === 0) return sources;
+  return sources.filter((source) => !hiddenSources.has(source.source_id));
 }
 
 export function repoMetricMatches(metric: RepoMetricDTO, f: Filters): boolean {
