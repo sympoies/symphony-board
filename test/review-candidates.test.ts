@@ -354,6 +354,40 @@ test("Pass 2: a late review still matches its item across a repo rename (immutab
   assert.equal(c.actor, "chatgpt-codex-connector", "enrichment also joins by target_ref");
 });
 
+test("focused --repo discovery finds a renamed PR's late review (filter the resolved item, not the stale activity path)", () => {
+  // Same rename scenario, but scoped to the item's CURRENT repo. Pass 2 must
+  // resolve the item before applying --repo, else it filters on the activity's
+  // stale project_path and the renamed PR is skipped under focused discovery.
+  const env = envelope({
+    items: [
+      changeRequest({
+        id: "github:github.com|PR_renamed",
+        external_id: "PR_renamed",
+        iid: 300,
+        project_path: "graysurf/repo-new",
+        state: "merged",
+        merged_at: "2026-06-11T00:00:00Z",
+        review_threads: { open: 0, total: 2 },
+      }),
+    ],
+    activities: [
+      reviewActivity({
+        id: "github:github.com|REV_renamed",
+        external_id: "REV_renamed",
+        project_path: "graysurf/repo-old", // stale: pre-rename path
+        target_ref: "github:github.com|PR_renamed",
+        target_iid: 300,
+        occurred_at: "2026-06-13T00:00:00Z",
+        url: "https://github.com/graysurf/repo-new/pull/300#review",
+      }),
+    ],
+  });
+  const candidates = buildReviewCandidates(env, opts({ repo: "graysurf/repo-new" }));
+  assert.equal(candidates.length, 1, "focused --repo discovery matches against the item's current path");
+  assert.equal(candidates[0]!.pr, 300);
+  assert.equal(candidates[0]!.repo, "graysurf/repo-new");
+});
+
 // Discovery must see EVERY open-thread change_request, not just the 90-day board
 // window buildContract applies to envelope.items. A merged PR with a lingering
 // unresolved thread and no recent update ages out of that window, so a windowed
