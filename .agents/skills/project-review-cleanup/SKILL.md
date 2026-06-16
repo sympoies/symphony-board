@@ -209,6 +209,30 @@ Failure modes:
 8. Re-run the scan after apply. The focused PR set should have no unresolved
    safe threads lacking disposition.
 
+## Convergence
+
+Fixing a thread opens a fix PR, and the async bot reviews that fix PR too, so a
+mechanical "fix every new thread" sweep can recurse across generations on
+principled-but-imperfect code (or stop early and leave a real bug). Apply the
+shared, provider-agnostic convergence discipline — canonical source:
+`agent-runtime-kit` `core/policies/review-thread-convergence.md` (an optional
+`project-dev` home-scoped doc; resolve it with
+`agent-docs preflight --intent project-dev`). In short:
+
+- Fix genuine defects; escalate major/high-risk to the user (unchanged from the
+  classification in step 4).
+- When threads cluster on one mechanism, prefer a single terminal/uniform rule
+  over per-case special-casing — converge the code instead of patching each
+  edge.
+- For an inherently-ambiguous key (e.g. a placeholder indistinguishable from
+  real data), pick the conservative/safe branch once, uniformly, and document
+  the tradeoff rather than chasing per-case heuristics.
+- Once only preference or inherently-ambiguous threads on principled code
+  remain, resolve them as `accepted` with a recorded rationale and stop — do
+  not open another fix PR that would only draw another review. `accepted` is
+  for verified preference or genuine ambiguity, never to silence an unread or
+  unverified finding just to end the loop.
+
 ## Boundary
 
 This is a project-local skill. The helper script reads `data/contract.json` and
