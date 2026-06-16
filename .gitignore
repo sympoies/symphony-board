@@ -13,6 +13,7 @@ data/
 config/sources.json
 config/sources.pg.json
 config/secrets.env
+config/certs/
 
 # Emitted contract artifacts (regenerate from the DB).
 out/
