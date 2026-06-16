@@ -622,8 +622,9 @@ function topActors(map: Map<string, ActorAccumulator>, source: ProviderLinkSourc
     .map((acc): RepoMetricActorDTO => {
       const { displayName, aliases } = chooseDisplayName(acc);
       // The username for the profile link: a `provider-user:*` key carries it
-      // directly; a config-merged `person:*` key carries it on `username` (the
-      // username observed on this source, else its single config-declared one).
+      // directly; a config-merged `person:*` key carries only a username that was
+      // observed on this source while merging. Config-declared usernames are not
+      // guessed onto another source.
       // email/name keys with no resolved username yield null and the field is omitted.
       const username = usernameOfKey(acc.key) ?? acc.username ?? null;
       const profileUrl = source ? providerProfileUrl(source, username) : null;
