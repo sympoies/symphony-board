@@ -33,7 +33,12 @@ export function displayColors(cfg: AppConfig): { sourceColors: Record<string, st
 
 // Build the contract envelope from the current store state: a pure mapping over
 // the canonical rows plus the config-derived display colors / identities.
-export async function buildContractEnvelope(store: Store, cfg: AppConfig, generatedAt: string): Promise<ContractEnvelope> {
+export async function buildContractEnvelope(
+  store: Store,
+  cfg: AppConfig,
+  generatedAt: string,
+  opts: { itemWindow?: "default" | "full" } = {},
+): Promise<ContractEnvelope> {
   const { sourceColors, repoColors } = displayColors(cfg);
   return buildContract({
     sources: await store.listSources(),
@@ -47,6 +52,7 @@ export async function buildContractEnvelope(store: Store, cfg: AppConfig, genera
     identities: cfg.identities,
     excludeActors: cfg.exclude_actors,
     timezone: cfg.timezone,
+    itemWindow: opts.itemWindow,
   });
 }
 

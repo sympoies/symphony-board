@@ -119,10 +119,31 @@ export function buildReviewCandidates(
     sourceId != null && sources.get(sourceId)?.kind === "github";
 
   const items = new Map<string, ItemDTO>();
+  const itemsByRef = new Map<string, ItemDTO>();
   for (const item of contract.items ?? []) {
     if (item.kind !== "change_request") continue;
     items.set(itemKey(item.source_id, item.project_path, item.iid), item);
+    if (item.id) itemsByRef.set(item.id, item);
   }
+
+  // Resolve the change_request an activity targets. Prefer the immutable
+  // target_ref (= item.id, "<source_id>|<external_id>"): a repo rename changes
+  // project_path on items and activities independently (they sync at different
+  // times), so the mutable (source_id, project_path, iid) tuple can miss an item
+  // that is actually present. Fall back to the tuple only when target_ref is
+  // absent.
+  const resolveItem = (activity: ActivityDTO): ItemDTO | undefined =>
+    (activity.target_ref ? itemsByRef.get(activity.target_ref) : undefined) ??
+    items.get(itemKey(activity.source_id, activity.project_path, activity.target_iid));
+
+  // The key under which a review's enrichment is filed and looked up: the
+  // immutable target_ref / item id when known, else the mutable tuple.
+  const reviewKey = (
+    sourceId: string | null,
+    projectPath: string | null,
+    iid: number | null,
+    ref: string | null,
+  ): string => ref ?? itemKey(sourceId, projectPath, iid);
 
   // Most recent GitHub review activity per change_request. Used only to enrich
   // candidate display (who reviewed last, when) — never to gate Pass 1, so an
@@ -131,7 +152,7 @@ export function buildReviewCandidates(
   for (const activity of contract.activities ?? []) {
     if (activity.kind !== "review" || activity.target_kind !== "change_request") continue;
     if (!isGithub(activity.source_id)) continue;
-    const key = itemKey(activity.source_id, activity.project_path, activity.target_iid);
+    const key = reviewKey(activity.source_id, activity.project_path, activity.target_iid, activity.target_ref);
     const prev = latestReview.get(key);
     if (!prev || (toMs(activity.occurred_at) ?? 0) > (toMs(prev.occurred_at) ?? 0)) {
       latestReview.set(key, activity);
@@ -140,6 +161,9 @@ export function buildReviewCandidates(
 
   const allowSet = new Set([...DEFAULT_ACTORS, ...options.actors].filter(Boolean));
   const candidates = new Map<string, ReviewCandidate>();
+  // candidateKey -> the candidate's item ref, so enrichment can join reviews by
+  // the immutable ref (set the first time a ref is known for the candidate).
+  const refOfCandidate = new Map<string, string | null>();
   const candidateKey = (sourceId: string | null, projectPath: string | null, iid: number | null): string =>
     `${sourceId ?? ""}|${projectPath ?? ""}#${Number(iid)}`;
   const ensure = (
@@ -147,9 +171,12 @@ export function buildReviewCandidates(
     projectPath: string | null,
     iid: number | null,
     item: ItemDTO | undefined,
+    ref: string | null = null,
   ): ReviewCandidate => {
     const sid = sourceId ?? item?.source_id ?? null;
     const key = candidateKey(sid, projectPath, iid);
+    const itemRef = ref ?? item?.id ?? null;
+    if (itemRef && !refOfCandidate.get(key)) refOfCandidate.set(key, itemRef);
     let candidate = candidates.get(key);
     if (!candidate) {
       candidate = {
@@ -208,22 +235,34 @@ export function buildReviewCandidates(
     const occurredMs = toMs(activity.occurred_at);
     if (occurredMs != null && occurredMs < cutoffMs) continue;
 
-    const item = items.get(itemKey(activity.source_id, activity.project_path, activity.target_iid));
+    const item = resolveItem(activity);
     const resolvedAt = item?.merged_at ?? item?.closed_at ?? null;
     const resolvedMs = toMs(resolvedAt);
     const late = resolvedMs != null && occurredMs != null && occurredMs > resolvedMs;
     const closed = item?.state != null && item.state !== "open";
     if (!late && !closed && !options.pr) continue;
 
+    // Key the candidate by the resolved item's own fields when available, so it
+    // dedups with the Pass 1 candidate and reports the item's current
+    // project_path rather than the (possibly stale) path on the activity row.
     addReason(
-      ensure(activity.source_id, activity.project_path, activity.target_iid, item),
+      ensure(
+        item?.source_id ?? activity.source_id,
+        item?.project_path ?? activity.project_path,
+        item?.iid ?? activity.target_iid,
+        item,
+        item?.id ?? activity.target_ref ?? null,
+      ),
       late ? "late_review" : "review_on_closed_pr",
     );
   }
 
   const list = [...candidates.values()];
   for (const candidate of list) {
-    const review = latestReview.get(itemKey(candidate.source_id, candidate.repo, candidate.pr));
+    const ref = refOfCandidate.get(candidateKey(candidate.source_id, candidate.repo, candidate.pr)) ?? null;
+    const review =
+      (ref ? latestReview.get(ref) : undefined) ??
+      latestReview.get(itemKey(candidate.source_id, candidate.repo, candidate.pr));
     if (review) {
       candidate.actor = review.actor ?? null;
       candidate.action = review.action ?? null;
@@ -319,7 +358,11 @@ async function main(): Promise<void> {
   const store = await openConfiguredStoreReadOnly(cfg);
   let envelope: ContractEnvelope;
   try {
-    envelope = await buildContractEnvelope(store, cfg, new Date().toISOString());
+    // Discovery must see EVERY change_request with open threads, so build the
+    // unwindowed projection: the default 90-day board window would drop an old
+    // PR whose unresolved thread has aged out of it (Pass 1 is documented as the
+    // complete, non-windowed signal).
+    envelope = await buildContractEnvelope(store, cfg, new Date().toISOString(), { itemWindow: "full" });
   } finally {
     await store.close();
   }

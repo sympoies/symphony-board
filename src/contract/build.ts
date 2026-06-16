@@ -934,6 +934,28 @@ function buildWindowedProjection(
   };
 }
 
+// The unwindowed projection: every live item and edge, no 90-day board cutoff.
+// Used only for "itemWindow: full" consumers (review-candidates discovery), so
+// the shipped UI contract keeps its windowed payload. Items carry no
+// window_reasons — consumers treat a missing value as "primary".
+function fullItemProjection(
+  items: ItemDTO[],
+  edges: EdgeDTO[],
+): { items: ItemDTO[]; edges: EdgeDTO[]; itemWindow: ItemWindowDTO } {
+  return {
+    items,
+    edges,
+    itemWindow: {
+      scope: "boardWindow",
+      window: aggregateWindow("full", "full_contract", null, null, null),
+      primary_items: items.length,
+      edge_endpoint_items: 0,
+      total_items: items.length,
+      truncated: false,
+    },
+  };
+}
+
 function edgeKey(edge: EdgeDTO): string {
   return JSON.stringify([edge.type, edge.from, edge.to]);
 }
@@ -1012,6 +1034,13 @@ export interface BuildInput {
   // Config-declared IANA timezone for calendar-day bucketing (NOT stored in the
   // DB). Emitted onto the envelope for consumers; "UTC" when unset.
   timezone?: string;
+  // Item-window mode for the emitted `items`/`edges`. "default" applies the
+  // 90-day board window (the shipped UI contract). "full" emits every live item
+  // unwindowed — for in-process consumers like review-candidates discovery that
+  // must see EVERY change_request (e.g. an old PR with a lingering unresolved
+  // thread that has aged out of the board window). Defaults to "default", so
+  // existing callers/tests are unaffected.
+  itemWindow?: "default" | "full";
 }
 
 // Map each activity DTO id to its persisted canonical actor key. Kept off the
@@ -1026,7 +1055,10 @@ function activityActorKeyMap(rows: ActivityRow[] | undefined): Map<string, strin
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
   const sourcesById = sourceLinkMap(input.sources);
-  const windowed = buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
+  const windowed =
+    input.itemWindow === "full"
+      ? fullItemProjection(mapped.items, mapped.edges)
+      : buildWindowedProjection(mapped.items, mapped.edges, input.generatedAt);
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
   const actorExcludes = compileActorExcludes(input.excludeActors);

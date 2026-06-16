@@ -11,6 +11,8 @@ import {
   defaultOptions,
   type ReviewCandidateOptions,
 } from "../src/cli/review-candidates.ts";
+import { buildContract } from "../src/contract/build.ts";
+import type { ItemRow, SourceRow } from "../src/db/store.ts";
 
 // review-candidates is the board's first-class promotion of the bespoke
 // project-review-cleanup discovery logic: the board computes candidates from
@@ -39,13 +41,18 @@ const GITLAB_SOURCE: SourceDTO = {
 };
 
 function changeRequest(over: Partial<ItemDTO> = {}): ItemDTO {
+  // Each change_request gets a unique immutable id derived from its iid (real
+  // provider node ids are unique), so the activity->item join can key on the
+  // ref instead of the mutable (source_id, project_path, iid) tuple.
+  const iid = over.iid ?? 100;
+  const externalId = over.external_id ?? `PR_${iid}`;
   return {
-    id: "github:github.com|PR_x",
+    id: `github:github.com|${externalId}`,
     source_id: "github:github.com",
-    external_id: "PR_x",
+    external_id: externalId,
     kind: "change_request",
     project_path: "graysurf/repo",
-    iid: 100,
+    iid,
     url: "https://github.com/graysurf/repo/pull/100",
     title: "A change request",
     state: "open",
@@ -70,6 +77,10 @@ function changeRequest(over: Partial<ItemDTO> = {}): ItemDTO {
 }
 
 function reviewActivity(over: Partial<ActivityDTO> = {}): ActivityDTO {
+  // target_ref defaults to the matching change_request's immutable id (derived
+  // from target_iid), mirroring how the contract links a review to its PR.
+  const targetIid = over.target_iid ?? 100;
+  const targetRef = over.target_ref ?? `github:github.com|PR_${targetIid}`;
   return {
     id: "github:github.com|REV_x",
     source_id: "github:github.com",
@@ -78,8 +89,8 @@ function reviewActivity(over: Partial<ActivityDTO> = {}): ActivityDTO {
     action: "reviewed",
     project_path: "graysurf/repo",
     target_kind: "change_request",
-    target_ref: "github:github.com|PR_x",
-    target_iid: 100,
+    target_ref: targetRef,
+    target_iid: targetIid,
     title: "A change request",
     url: "https://github.com/graysurf/repo/pull/100#review",
     actor: "chatgpt-codex-connector",
@@ -304,4 +315,107 @@ test("an item that is BOTH open-thread and late_review carries both reasons, led
   const c = candidates[0]!;
   assert.deepEqual([...c.reasons].sort(), ["late_review", "open_review_threads"]);
   assert.equal(c.reason, "open_review_threads");
+});
+
+test("Pass 2: a late review still matches its item across a repo rename (immutable target_ref join)", () => {
+  // The item was re-synced under its new project_path; the older review activity
+  // still carries the pre-rename project_path. Both share the immutable
+  // id / target_ref, so the activity->item join must key on the ref, not the
+  // mutable (source_id, project_path, iid) tuple.
+  const env = envelope({
+    items: [
+      changeRequest({
+        id: "github:github.com|PR_renamed",
+        external_id: "PR_renamed",
+        iid: 300,
+        project_path: "graysurf/repo-new",
+        state: "merged",
+        merged_at: "2026-06-11T00:00:00Z",
+        review_threads: { open: 0, total: 2 },
+      }),
+    ],
+    activities: [
+      reviewActivity({
+        id: "github:github.com|REV_renamed",
+        external_id: "REV_renamed",
+        project_path: "graysurf/repo-old", // stale: pre-rename path
+        target_ref: "github:github.com|PR_renamed", // immutable
+        target_iid: 300,
+        occurred_at: "2026-06-13T00:00:00Z",
+        url: "https://github.com/graysurf/repo-new/pull/300#review",
+      }),
+    ],
+  });
+  const candidates = buildReviewCandidates(env, opts());
+  assert.equal(candidates.length, 1, "the late review matches the renamed item via target_ref");
+  const c = candidates[0]!;
+  assert.equal(c.pr, 300);
+  assert.deepEqual(c.reasons, ["late_review"]);
+  assert.equal(c.actor, "chatgpt-codex-connector", "enrichment also joins by target_ref");
+});
+
+// Discovery must see EVERY open-thread change_request, not just the 90-day board
+// window buildContract applies to envelope.items. A merged PR with a lingering
+// unresolved thread and no recent update ages out of that window, so a windowed
+// envelope silently drops it from Pass 1. review-candidates therefore builds the
+// candidate set from the full ("itemWindow: full") projection.
+const GITHUB_SOURCE_ROW: SourceRow = {
+  source_id: "github:github.com",
+  kind: "github",
+  host: "github.com",
+  display_name: "GitHub",
+  last_success_at: "2026-06-01T00:00:00Z",
+  last_status: "ok",
+};
+
+function staleOpenThreadRow(): ItemRow {
+  return {
+    item_id: 1,
+    source_id: "github:github.com",
+    external_id: "PR_stale",
+    kind: "change_request",
+    project_path: "graysurf/repo",
+    iid: 400,
+    url: "https://github.com/graysurf/repo/pull/400",
+    title: "A long-merged PR with a lingering open thread",
+    state: "merged",
+    state_raw: "MERGED",
+    state_reason: null,
+    is_draft: false,
+    author: "graysurf",
+    created_at: "2025-01-01T00:00:00Z",
+    updated_at: "2025-01-10T00:00:00Z", // > 90 days before generatedAt
+    closed_at: null,
+    merged_at: "2025-01-10T00:00:00Z",
+    review_state: null,
+    ci_state: null,
+    merge_state: null,
+    open_review_threads: 1,
+    total_review_threads: 1,
+    milestone: null,
+    demand: null,
+    last_seen_at: "2026-06-15T00:00:00Z",
+  };
+}
+
+test("discovery finds an old open-thread PR that the default board window drops (itemWindow full)", () => {
+  const generatedAt = "2026-06-16T00:00:00Z";
+  const rows = [staleOpenThreadRow()];
+
+  const windowed = buildContract({ sources: [GITHUB_SOURCE_ROW], items: rows, labels: [], edges: [], generatedAt });
+  assert.equal(windowed.items.length, 0, "the default 90-day window drops the stale open-thread PR");
+  assert.equal(buildReviewCandidates(windowed, opts()).length, 0, "so windowed discovery misses it — the bug");
+
+  const full = buildContract({
+    sources: [GITHUB_SOURCE_ROW],
+    items: rows,
+    labels: [],
+    edges: [],
+    generatedAt,
+    itemWindow: "full",
+  });
+  const found = buildReviewCandidates(full, opts());
+  assert.equal(found.length, 1, "the full projection keeps the item so discovery finds it");
+  assert.equal(found[0]!.pr, 400);
+  assert.deepEqual(found[0]!.reasons, ["open_review_threads"]);
 });

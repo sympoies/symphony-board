@@ -37,9 +37,14 @@ Prereqs:
   (it ships from `agent-runtime-kit`). Read
   `core/policies/review-thread-convergence.md` (resolve with
   `agent-docs preflight --intent project-dev`) — it is the judgment contract.
-- `review-candidates` reads the board's active store read-only through the
-  repo config, the same source the contract/UI use; no contract file path is
-  needed.
+- `review-candidates` reads the board's active store read-only through the repo
+  config (`loadConfig` resolves `--config` → `SYMPHONY_CONFIG` →
+  `config/sources.json`). On a Postgres board (the `docker/compose.pg.yaml`
+  stack), the active store is `config/${SYMPHONY_CONFIG_BASENAME:-sources.pg.json}`
+  plus `SYMPHONY_DB_URL` — so run `review-candidates` with the SAME
+  `SYMPHONY_CONFIG` / `SYMPHONY_DB_URL` the stack uses (or pass `--config`).
+  Otherwise it falls back to `config/sources.json` (the SQLite default) and
+  scans a different, stale store than the UI is serving.
 
 Inputs (all optional, forwarded to `review-candidates`):
 
@@ -101,7 +106,12 @@ Failure modes:
    skill.** For each `{repo, pr}`, run that skill, which:
    - lists unresolved threads via
      `forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>`
-     (`data.unresolved == 0` is the convergence target);
+     (`data.unresolved == 0` is the convergence target). NOTE: the v1.9.1 `list`
+     payload carries only each thread's first comment (author/body/url) — not
+     later replies or the diff hunk. Before dispositioning a thread whose
+     finding depends on a reply, the author's answer, or the diff, fetch the
+     full context (open the thread `url`, or `gh api` the review-thread comments
+     / PR diff) so triage is not decided on partial evidence;
    - triages each thread against `core/policies/review-thread-convergence.md`
      (`fix` / `stale` / `follow_up` / `accepted`; escalate major/high-risk);
    - resolves or replies through
@@ -114,10 +124,16 @@ Failure modes:
    delivery workflow, or open and link a follow-up issue. Then return to the
    shared skill to resolve the original thread with the fix/follow-up note.
 
-4. **Re-discover after a sweep.** Re-run `pnpm review-candidates --json` (or
-   the focused `forge-cli pr review-threads list <pr>`) and confirm the swept
-   PRs no longer carry unresolved threads, or that the residual threads are
-   recorded `follow_up` / `accepted` per the policy's stopping rule.
+4. **Confirm convergence from the live provider, not the board store.** The
+   board store/contract `review-candidates` reads only changes on the next board
+   sync, so it lags the `forge-cli` resolutions you just applied. Confirm with
+   the focused live check
+   `forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>`
+   (`data.unresolved == 0`), NOT a fresh `pnpm review-candidates` run — the
+   latter can still report a just-resolved PR as open and cause repeated work.
+   Use `review-candidates` for re-discovery only after the board has re-synced.
+   The sweep is done when each PR carries no unresolved threads, or its residual
+   threads are recorded `follow_up` / `accepted` per the policy's stopping rule.
 
 ## Convergence
 
