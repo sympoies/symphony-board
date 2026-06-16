@@ -59,6 +59,10 @@ services:
       SYNC_CONTROL_ENABLED: "1"
       SYNC_CONTROL_PORT: "8080"
       LOG_CONTROL_ENABLED: "1"
+      # Trusted single-user deployments can opt in to Settings -> Sources
+      # producer-config edits with a compose override:
+      #   CONFIG_CONTROL_ENABLED: "1"
+      #   SYMPHONY_SECRETS_FILE: config/secrets.env
     env_file:
       - path: ${SYMPHONY_ENV_FILE:-../.env}
         required: false

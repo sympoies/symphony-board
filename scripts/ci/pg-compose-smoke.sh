@@ -39,6 +39,16 @@ cat >"$CONFIG_DIR/sources.pg.json" <<'JSON'
 }
 JSON
 
+cat >"$WORKDIR/config-control.override.yaml" <<'YAML'
+services:
+  board:
+    environment:
+      CONFIG_CONTROL_ENABLED: "1"
+      SYMPHONY_SECRETS_FILE: config/secrets.env
+    volumes:
+      - ${SYMPHONY_CONFIG_DIR:-../config}:/app/config
+YAML
+
 PROJECT="${PG_COMPOSE_SMOKE_PROJECT:-symphony-board-pg-smoke-$(date +%s)-$$}"
 WEB_PORT="${SYMPHONY_PG_WEB_PORT:-18081}"
 PG_PORT="${SYMPHONY_PG_PORT:-15433}"
@@ -46,6 +56,7 @@ COMPOSE=(
   docker compose
   -p "$PROJECT"
   -f docker/compose.pg.yaml
+  -f "$WORKDIR/config-control.override.yaml"
 )
 
 cleanup() {
@@ -72,6 +83,9 @@ export SYMPHONY_PG_PORT="$PG_PORT"
 base="http://127.0.0.1:$WEB_PORT"
 contract="$WORKDIR/contract.json"
 stats="$WORKDIR/stats.json"
+config_probe="$WORKDIR/config-probe.json"
+config_next="$WORKDIR/config-next.json"
+secrets_probe="$WORKDIR/secrets-probe.json"
 
 curl -fsS "$base/contract.json" >"$contract"
 node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts --in "$contract"
@@ -92,5 +106,73 @@ if (stats.db?.schema_version !== 4) {
 ' "$stats"
 
 curl -fsS "$base/api/sync-control" >/dev/null
+
+curl -fsS "$base/api/config" >"$config_probe"
+node -e '
+const fs = require("fs");
+const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (probe.enabled !== true) {
+  console.error(`expected config control enabled, got ${probe.enabled}`);
+  process.exit(1);
+}
+if (probe.config?.sources?.[0]?.source_id !== "github:github.com") {
+  console.error("expected config probe to expose the throwaway GitHub source");
+  process.exit(1);
+}
+probe.config.timezone = "Asia/Taipei";
+fs.writeFileSync(process.argv[2], JSON.stringify(probe.config));
+' "$config_probe" "$config_next"
+
+curl -fsS \
+  -X PUT \
+  -H "Content-Type: application/json" \
+  -H "X-Symphony-Sync-Control: 1" \
+  --data-binary "@$config_next" \
+  "$base/api/config" >/dev/null
+
+curl -fsS "$base/api/config" >"$config_probe"
+node -e '
+const fs = require("fs");
+const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (probe.config?.timezone !== "Asia/Taipei") {
+  console.error(`expected updated timezone, got ${probe.config?.timezone ?? "(missing)"}`);
+  process.exit(1);
+}
+' "$config_probe"
+
+curl -fsS "$base/api/secrets" >"$secrets_probe"
+node -e '
+const fs = require("fs");
+const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (probe.enabled !== true || probe.writable !== true) {
+  console.error(`expected writable secrets surface, got enabled=${probe.enabled} writable=${probe.writable}`);
+  process.exit(1);
+}
+if (probe.secrets?.PG_COMPOSE_SMOKE_TOKEN !== false) {
+  console.error("expected PG_COMPOSE_SMOKE_TOKEN to be listed as unset");
+  process.exit(1);
+}
+' "$secrets_probe"
+
+curl -fsS \
+  -X PUT \
+  -H "Content-Type: application/json" \
+  -H "X-Symphony-Sync-Control: 1" \
+  -d '{"env":"PG_COMPOSE_SMOKE_TOKEN","value":"smoke-token"}' \
+  "$base/api/secrets" >/dev/null
+
+curl -fsS "$base/api/secrets" >"$secrets_probe"
+node -e '
+const fs = require("fs");
+const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (probe.secrets?.PG_COMPOSE_SMOKE_TOKEN !== true) {
+  console.error("expected PG_COMPOSE_SMOKE_TOKEN to be reported as set");
+  process.exit(1);
+}
+if (JSON.stringify(probe).includes("smoke-token")) {
+  console.error("secret value leaked through GET /api/secrets");
+  process.exit(1);
+}
+' "$secrets_probe"
 
 echo "pg compose smoke passed: $PROJECT at $base"

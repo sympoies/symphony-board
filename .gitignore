@@ -12,6 +12,7 @@ data/
 .env
 config/sources.json
 config/sources.pg.json
+config/secrets.env
 
 # Emitted contract artifacts (regenerate from the DB).
 out/

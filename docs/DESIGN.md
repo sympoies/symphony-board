@@ -569,13 +569,17 @@ standalone sidecar enables by default and the Docker stack keeps off.
 **Capability split.** Mutations are gated by `CONFIG_CONTROL_ENABLED` plus the
 same same-origin custom header as sync control (`X-Symphony-Sync-Control`).
 `app-server.ts` (standalone) defaults the flag ON — a same-user, loopback-only
-deployment; `sync-daemon.ts` (Docker) defaults it OFF: Compose bind-mounts
-`config/` read-only into every service, a web deployment may have many viewers
-with no auth layer, and config-as-file is the right ops interface there. The
-UI probes `GET /api/config` and renders the Settings -> Sources editor only
-when the capability answers enabled; a disabled deployment never serves its
-config document over HTTP. Nothing prevents a trusted single-user Docker
-deployment from opting in later — the split is configuration, not code.
+deployment; `sync-daemon.ts` (Docker) defaults it OFF: a web deployment may have
+many viewers with no auth layer, and config-as-file is the safest default ops
+interface there. Docker web sidecars still proxy `/api/config` and
+`/api/secrets` to the writer daemon so the UI can probe capability consistently.
+Trusted single-user Docker deployments opt in by setting
+`CONFIG_CONTROL_ENABLED=1`, mounting `config/` writable for the writer daemon,
+and setting `SYMPHONY_SECRETS_FILE` to a write-only token overlay such as
+`config/secrets.env`. The UI probes `GET /api/config` and renders the Settings
+-> Sources editor only when the capability answers enabled; a disabled
+deployment never serves its config document over HTTP. The split is
+configuration, not code.
 
 **Server-side validation is authoritative.** `PUT /api/config` runs the same
 rules as `loadConfig` (`src/config.ts`), collects every problem via

@@ -308,10 +308,23 @@ atomically; edits apply on the next sync run without a restart. Removing a
 source or repo stops syncing it but keeps already-synced history.
 
 It is gated by `CONFIG_CONTROL_ENABLED` plus the same same-origin header as
-sync control, and it is **off by default in the Docker stack** — Compose mounts
-`config/` read-only, so keep editing `config/sources.json` on the host there
-(the daemon picks the edit up on the next run). The standalone desktop app
-enables it by default and onboards new installs entirely in-app. See
+sync control, and it is **off by default in the Docker stack**. Trusted
+single-user deployments can opt in with a compose override that makes
+`config/` writable for the writer daemon and provides a write-only token file:
+
+```yaml
+services:
+  board:
+    environment:
+      CONFIG_CONTROL_ENABLED: "1"
+      SYMPHONY_SECRETS_FILE: config/secrets.env
+    volumes:
+      - ${SYMPHONY_CONFIG_DIR:-../config}:/app/config
+```
+
+Keep this behind a private network such as Tailscale; there is no user auth
+layer on the config writer. The standalone desktop app enables the same control
+plane by default and onboards new installs entirely in-app. See
 [docs/DESIGN.md](docs/DESIGN.md) for the full decision record, including why
 the config file stays JSON.
 
