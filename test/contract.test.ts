@@ -533,6 +533,43 @@ test("config identities collapse a GitLab username and commit-email facet into o
   assert.ok((row.aliases ?? []).includes("Terry LIN"), "observed commit name kept as an alias");
 });
 
+test("source-scoped config identities do not merge same-name actors from other sources", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({
+      item_id: 1, source_id: "gitlab:gitlab.gamania.com", external_id: "MR_1", kind: "change_request",
+      state: "merged", author: "terrylin", project_path: "g/p",
+      created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z", closed_at: "2026-06-06T00:00:00Z", merged_at: "2026-06-06T00:00:00Z",
+    }),
+  ];
+  const githubCommitKey = deriveActorKey({ sourceId: "github:github.com", email: "github-terry@example.com", name: "Terry Lin" });
+  const gitlabCommitKey = deriveActorKey({ sourceId: "gitlab:gitlab.gamania.com", email: "gamania-terry@example.com", name: "Terry Lin" });
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "gh-commit", kind: "commit", action: "committed", project_path: "o/repo", actor: "Terry Lin", actor_key: githubCommitKey, source_id: "github:github.com", target_source_id: "github:github.com", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "gl-commit", kind: "commit", action: "committed", project_path: "g/p", actor: "Terry Lin", actor_key: gitlabCommitKey, source_id: "gitlab:gitlab.gamania.com", target_source_id: "gitlab:gitlab.gamania.com", occurred_at: "2026-06-07T11:00:00Z" }),
+  ];
+
+  const env = buildContract({
+    sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [{ name: "terrylin", usernames: ["terrylin"], names: ["Terry Lin"], source_ids: ["gitlab:gitlab.gamania.com"] }],
+  });
+  assert.deepEqual(validateContract(env), []);
+
+  const githubActors = env.repo_metrics?.find((m) => m.source_id === "github:github.com" && m.project_path === "o/repo")?.top_actors ?? [];
+  assert.equal(githubActors.length, 1);
+  assert.equal(githubActors[0]!.actor_key, githubCommitKey, "GitHub same-name commit stays on its own email identity");
+  assert.equal(githubActors[0]!.display_name, "Terry Lin");
+
+  const gitlabActors = env.repo_metrics?.find((m) => m.source_id === "gitlab:gitlab.gamania.com" && m.project_path === "g/p")?.top_actors ?? [];
+  assert.equal(gitlabActors.length, 1);
+  assert.equal(gitlabActors[0]!.actor_key, "person:terrylin", "scoped source still applies inside the declared source");
+  assert.equal(gitlabActors[0]!.commits, 1);
+  assert.equal(gitlabActors[0]!.change_requests_merged, 1);
+});
+
 test("a name-only merged person is not linked (config usernames are host-agnostic, so no guess)", () => {
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
