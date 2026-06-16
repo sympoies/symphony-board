@@ -118,14 +118,18 @@ function configuredServerBaseUrl(): string | null {
   return normalizeServerBaseUrl(env?.VITE_SYMPHONY_BOARD_SERVER_URL);
 }
 
-function configuredClientKind(): string | null {
+export function currentClientKind(): string | null {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
   return env?.VITE_SYMPHONY_BOARD_CLIENT?.trim().toLowerCase() || null;
 }
 
+export function requiresConfiguredServerBaseUrl(clientKind: string | null): boolean {
+  return clientKind === ANDROID_CLIENT_KIND;
+}
+
 export function defaultServerBaseUrlForRuntime(clientKind: string | null, tauriRuntime: boolean): string | null {
   if (!tauriRuntime) return null;
-  return clientKind === ANDROID_CLIENT_KIND ? null : DESKTOP_DEFAULT_SERVER_BASE_URL;
+  return requiresConfiguredServerBaseUrl(clientKind) ? null : DESKTOP_DEFAULT_SERVER_BASE_URL;
 }
 
 export function loadServerBaseUrl(): string | null {
@@ -135,7 +139,7 @@ export function loadServerBaseUrl(): string | null {
   } catch {
     /* storage unavailable — fall through to configured/default host */
   }
-  return configuredServerBaseUrl() ?? defaultServerBaseUrlForRuntime(configuredClientKind(), isTauriRuntime());
+  return configuredServerBaseUrl() ?? defaultServerBaseUrlForRuntime(currentClientKind(), isTauriRuntime());
 }
 
 export function saveServerBaseUrl(baseUrl: string | null): void {
