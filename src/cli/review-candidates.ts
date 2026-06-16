@@ -228,7 +228,6 @@ export function buildReviewCandidates(
   for (const activity of contract.activities ?? []) {
     if (activity.kind !== "review" || activity.target_kind !== "change_request") continue;
     if (!isGithub(activity.source_id)) continue;
-    if (options.repo && activity.project_path !== options.repo) continue;
     if (options.pr && Number(activity.target_iid) !== options.pr) continue;
     if (!options.allActors && !(activity.actor != null && allowSet.has(activity.actor))) continue;
 
@@ -236,6 +235,11 @@ export function buildReviewCandidates(
     if (occurredMs != null && occurredMs < cutoffMs) continue;
 
     const item = resolveItem(activity);
+    // Apply --repo against the resolved item's CURRENT project_path: a repo
+    // rename leaves the activity row's project_path stale, so filtering on it
+    // before resolution would skip a renamed PR under focused discovery. Fall
+    // back to the activity path only when no item resolved.
+    if (options.repo && (item?.project_path ?? activity.project_path) !== options.repo) continue;
     const resolvedAt = item?.merged_at ?? item?.closed_at ?? null;
     const resolvedMs = toMs(resolvedAt);
     const late = resolvedMs != null && occurredMs != null && occurredMs > resolvedMs;
