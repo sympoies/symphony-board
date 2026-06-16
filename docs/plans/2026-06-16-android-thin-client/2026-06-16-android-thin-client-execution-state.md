@@ -17,8 +17,7 @@
 - Source document: `docs/plans/2026-06-16-android-thin-client/2026-06-16-android-thin-client-plan.md`
 - Plan document: `docs/plans/2026-06-16-android-thin-client/2026-06-16-android-thin-client-plan.md`
 - Direct source-doc execution waiver: not applicable
-- Tracking issue: tbd (to be opened by `create-plan-tracking-issue` against
-  `sympoies/symphony-board`)
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/234>
 - Source snapshot: pending - posted by `create-plan-tracking-issue` at issue open
 - Plan snapshot: pending - posted by `create-plan-tracking-issue` at issue open
 - Initial state snapshot: pending - posted by `create-plan-tracking-issue` at
