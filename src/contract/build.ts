@@ -477,13 +477,15 @@ function chooseDisplayName(acc: ActorAccumulator): { displayName: string; aliase
 }
 
 // A compiled config identity: the canonical key/name plus the match sets it owns
-// (provider usernames, hashed email keys, normalized names). See IdentityConfig.
+// (provider usernames, hashed email keys, normalized names, and optional source
+// allowlist). See IdentityConfig.
 interface IdentityMatcher {
   key: string; // person:<slug>
   name: string;
   usernames: Set<string>; // lowercased
   emailKeys: Set<string>; // email:<hash>
   names: Set<string>; // normalized
+  sourceIds: Set<string>; // empty means global / historical behavior
 }
 
 function identitySlug(name: string, index: number): string {
@@ -508,6 +510,7 @@ function buildIdentityMatchers(identities: IdentityConfig[] | undefined): Identi
       usernames: new Set((id.usernames ?? []).map((u) => u.trim().toLowerCase()).filter(Boolean)),
       emailKeys: new Set((id.emails ?? []).map((e) => emailActorKey(e)).filter((k): k is string => !!k)),
       names: new Set((id.names ?? []).map((n) => normalizeActorName(n)).filter(Boolean)),
+      sourceIds: new Set((id.source_ids ?? []).map((s) => s.trim()).filter(Boolean)),
     };
   });
 }
@@ -522,11 +525,12 @@ function usernameOfKey(key: string): string | null {
 
 // First identity that claims this accumulator (by username, hashed email, or any
 // observed display name), or null. First-match wins on a (mis)configured overlap.
-function resolveIdentity(acc: ActorAccumulator, matchers: IdentityMatcher[]): IdentityMatcher | null {
+function resolveIdentity(acc: ActorAccumulator, matchers: IdentityMatcher[], sourceId: string): IdentityMatcher | null {
   if (matchers.length === 0) return null;
   const username = usernameOfKey(acc.key);
   const observed = [...acc.names.keys()].map((n) => normalizeActorName(n));
   for (const m of matchers) {
+    if (m.sourceIds.size > 0 && !m.sourceIds.has(sourceId)) continue;
     if (username && m.usernames.has(username)) return m;
     if (m.emailKeys.has(acc.key)) return m;
     if (observed.some((n) => m.names.has(n))) return m;
@@ -536,11 +540,11 @@ function resolveIdentity(acc: ActorAccumulator, matchers: IdentityMatcher[]): Id
 
 // Collapse every accumulator a config identity claims into one canonical row,
 // summing counters and unioning observed names. Untouched actors keep their key.
-function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: IdentityMatcher[]): Map<string, ActorAccumulator> {
+function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: IdentityMatcher[], sourceId: string): Map<string, ActorAccumulator> {
   if (matchers.length === 0) return actors;
   const merged = new Map<string, ActorAccumulator>();
   for (const acc of actors.values()) {
-    const id = resolveIdentity(acc, matchers);
+    const id = resolveIdentity(acc, matchers, sourceId);
     const key = id ? id.key : acc.key;
     let target = merged.get(key);
     if (!target) {
@@ -618,8 +622,9 @@ function topActors(map: Map<string, ActorAccumulator>, source: ProviderLinkSourc
     .map((acc): RepoMetricActorDTO => {
       const { displayName, aliases } = chooseDisplayName(acc);
       // The username for the profile link: a `provider-user:*` key carries it
-      // directly; a config-merged `person:*` key carries it on `username` (the
-      // username observed on this source, else its single config-declared one).
+      // directly; a config-merged `person:*` key carries only a username that was
+      // observed on this source while merging. Config-declared usernames are not
+      // guessed onto another source.
       // email/name keys with no resolved username yield null and the field is omitted.
       const username = usernameOfKey(acc.key) ?? acc.username ?? null;
       const profileUrl = source ? providerProfileUrl(source, username) : null;
@@ -819,7 +824,7 @@ function buildRepoMetrics(
       const edgesForRepo = repoEdges.get(key) ?? [];
       const actors = new Map<string, ActorAccumulator>();
       const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
-      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers), actorExcludes), sourcesById.get(identity.source_id));
+      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers, identity.source_id), actorExcludes), sourcesById.get(identity.source_id));
       const series = bucketRanges(range, window.bucket, timezone).map((bucket) => ({
         bucket_start: bucket.from,
         bucket_end: bucket.to,
@@ -1025,7 +1030,8 @@ export interface BuildInput {
   repoColors?: RepoDTO[]; // sparse: only repos with a configured color
   // Config-declared identity aliases (NOT stored in the DB). Collapse a person's
   // separate actor identities (e.g. a GitLab username vs their commit email) into
-  // one top_actors row. Empty/absent leaves automatic keying untouched.
+  // one top_actors row. An identity may be scoped to specific source_ids; empty
+  // / absent leaves automatic keying untouched and keeps identities global.
   identities?: IdentityConfig[];
   // Config-declared actor exclusions (NOT stored in the DB). Drop CI/dependency
   // bots from top_actors; combines with the built-in [bot] / service-account

@@ -175,7 +175,11 @@ usernames / commit emails / commit names that are one human; at emit time
 `person:<slug>` actor named by the config. This is deterministic and explicit —
 no fuzzy matching — so it never silently merges two different people. Like
 colors, it is display-only config: read at emit time, never stored in the DB,
-and it leaves automatic keying untouched for everyone not declared.
+and it leaves automatic keying untouched for everyone not declared. The identity
+map is global by default for backwards compatibility, but an entry can declare
+`source_ids[]` to limit its username / email / name matches to specific provider
+instances. Use that for broad commit display names that are safe on one host but
+could belong to someone else on another host.
 
 `top_actors[]` also filters CI/dependency bots as noise: the build auto-drops
 unambiguous markers (a GitHub `[bot]` login suffix, GitLab service-account

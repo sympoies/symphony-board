@@ -49,12 +49,15 @@ export interface SourceConfig {
 // carry a username while their commits carry only an email. Emails are matched
 // by hash (the raw address is never stored or emitted); names are matched
 // case-insensitively with whitespace collapsed. Display-only config, like colors
-// — never stored in the DB, applied at emit time.
+// — never stored in the DB, applied at emit time. `source_ids` optionally scopes
+// a declaration to one or more configured provider instances; omitted keeps the
+// historical global behavior.
 export interface IdentityConfig {
   name: string; // canonical display name for the merged actor
   usernames?: string[]; // provider usernames (any source) that are this person
   emails?: string[]; // commit emails that are this person
   names?: string[]; // raw commit display names that are this person
+  source_ids?: string[]; // optional source_id allowlist for this identity
 }
 
 export interface AppConfig {
@@ -189,7 +192,7 @@ export function configErrors(raw: unknown, label: string): string[] {
           errors.push(`${label}: every identity needs a non-empty "name"`);
           continue;
         }
-        for (const field of ["usernames", "emails", "names"] as const) {
+        for (const field of ["usernames", "emails", "names", "source_ids"] as const) {
           const v = id[field];
           if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
             errors.push(`${label}: identity "${id.name}" ${field} must be an array of strings when set`);

@@ -44,7 +44,8 @@
       "name": "Your Name",
       "usernames": ["your-gitlab-username"],
       "emails": ["you@example.com"],
-      "names": ["Your Name", "Y. Name"]
+      "names": ["Your Name", "Y. Name"],
+      "source_ids": ["gitlab:gitlab.com"]
     }
   ],
   "exclude_actors": ["dependabot", "github-code-quality", "renovate*"]

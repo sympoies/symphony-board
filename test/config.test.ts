@@ -149,11 +149,12 @@ function writeWithIdentities(identities: unknown): string {
 
 test("accepts a valid identities map and leaves it on the config", () => {
   const { cfg } = loadConfig(
-    writeWithIdentities([{ name: "Terry Lin", usernames: ["terrylin"], emails: ["terry@example.com"], names: ["Terry LIN"] }]),
+    writeWithIdentities([{ name: "Terry Lin", usernames: ["terrylin"], emails: ["terry@example.com"], names: ["Terry LIN"], source_ids: ["gitlab:gitlab.gamania.com"] }]),
   );
   assert.equal(cfg.identities?.length, 1);
   assert.equal(cfg.identities?.[0]!.name, "Terry Lin");
   assert.deepEqual(cfg.identities?.[0]!.usernames, ["terrylin"]);
+  assert.deepEqual(cfg.identities?.[0]!.source_ids, ["gitlab:gitlab.gamania.com"]);
 });
 
 test("rejects a malformed identities map", () => {
@@ -162,6 +163,7 @@ test("rejects a malformed identities map", () => {
   assert.throws(() => loadConfig(writeWithIdentities([{ name: "  " }])), /needs a non-empty "name"/);
   assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", emails: "a@b.com" }])), /emails must be an array of strings/);
   assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", usernames: [1] }])), /usernames must be an array of strings/);
+  assert.throws(() => loadConfig(writeWithIdentities([{ name: "X", source_ids: [1] }])), /source_ids must be an array of strings/);
 });
 
 test("accepts a valid timezone (UTC / IANA), defaults to undefined, and rejects bad values", () => {

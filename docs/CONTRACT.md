@@ -609,7 +609,11 @@ whose issues carry a username while their commits carry only an email. Matching
 identities collapse into one `person:<slug>` row named by the config, with the
 other observed names as `aliases`. This is producer/display config (read at emit
 time, never stored, never exposing raw email); it changes which `actor_key`
-values appear but not the contract shape, so it is not a version change.
+values appear but not the contract shape, so it is not a version change. Identity
+entries are global unless they include `source_ids[]`; a scoped entry only
+matches actors while building repo metrics for those provider source ids. Scope
+broad name aliases when the same commit display name may appear on another host
+for a different account.
 
 `top_actors[]` also omits CI/dependency **bots** as noise. The producer
 auto-drops the unambiguous markers — a GitHub `[bot]` login suffix and GitLab
