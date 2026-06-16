@@ -21,6 +21,7 @@
     "sync": "node --disable-warning=ExperimentalWarning src/cli/sync.ts",
     "emit": "node --disable-warning=ExperimentalWarning src/cli/emit-contract.ts",
     "validate": "node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts",
+    "review-candidates": "node --disable-warning=ExperimentalWarning src/cli/review-candidates.ts",
     "desktop:dev": "pnpm --filter @symphony-board/desktop dev",
     "desktop:build": "pnpm --filter @symphony-board/desktop build",
     "desktop-standalone:dev": "pnpm --filter @symphony-board/desktop-standalone dev",
