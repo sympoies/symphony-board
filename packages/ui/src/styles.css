@@ -371,6 +371,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
    height via the same fixed .col height + internal scroll. Flex (not grid) so a single
    column can collapse to a slim fixed-width rail while the rest keep flexing. */
 .board-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 8px 0; }
+.board-mobile-selector { display: none; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.board-mobile-selector .toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; }
 .board-7 {
   display: flex;
   gap: 12px;
@@ -1508,14 +1510,14 @@ a.rf-node-title:hover { color: var(--accent); }
 .repo-table td:nth-child(11) { text-align: center; }
 /* Quality coverage pills: fixed to active + one character of breathing room on
    each side; longer rare states still fit, just with less padding. */
-.repo-table td:nth-child(11) .badge {
+.repo-table td:nth-child(12) .badge {
   box-sizing: border-box;
   inline-size: 8ch;
   padding-inline: 0;
   text-align: center;
 }
-.repo-table th:nth-child(12),
-.repo-table td:nth-child(12) { min-width: 240px; text-align: left; }
+.repo-table th:nth-child(13),
+.repo-table td:nth-child(13) { min-width: 240px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
 .repo-name-cell { overflow: hidden; }
 .repo-name-main {
@@ -1746,3 +1748,218 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .debug-log .log-warn { color: var(--warn); }
 .debug-log .log-error { color: var(--broken); }
+
+@media (max-width: 1180px) {
+  .board-7 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+  .col {
+    min-width: 0;
+    max-width: none;
+    height: min(68vh, 760px);
+  }
+  .col-collapsed {
+    width: auto;
+    min-width: 0;
+    height: auto;
+  }
+  .col-collapsed .col-rail {
+    flex-direction: row;
+    justify-content: flex-start;
+    height: 48px;
+    padding: 0 12px;
+  }
+  .col-rail-label {
+    writing-mode: horizontal-tb;
+    white-space: normal;
+  }
+
+  .graph-body { flex-direction: column; }
+  .graph-list {
+    width: 100%;
+    height: min(42vh, 420px);
+  }
+  .graph-canvas {
+    height: min(54vh, 620px);
+  }
+  .graph-legend > span:last-child { flex-basis: 100%; }
+
+  .repo-table-wrap {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+  }
+  .repo-table,
+  .repo-table tbody,
+  .repo-table tr,
+  .repo-table td {
+    display: block;
+  }
+  .repo-table {
+    min-width: 0;
+    width: 100%;
+    border-collapse: separate;
+  }
+  .repo-table colgroup,
+  .repo-table thead {
+    display: none;
+  }
+  .repo-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+  .repo-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .repo-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 8px 10px;
+    text-align: right;
+    white-space: normal;
+    border-bottom: 1px solid var(--line);
+  }
+  .repo-table tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+  .repo-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .repo-table td:first-child,
+  .repo-table td[data-label="Trend"],
+  .repo-table td[data-label="Actors"] {
+    grid-column: 1 / -1;
+  }
+  .repo-table td:first-child {
+    display: block;
+    text-align: left;
+  }
+  .repo-table td:first-child::before { display: none; }
+  .repo-table td[data-label="Trend"] .repo-trend {
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
+  .repo-table td[data-label="Actors"] {
+    justify-content: flex-start;
+  }
+  .repo-actors {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .board-mobile-selector { display: flex; }
+  .board-7 {
+    display: block;
+    overflow-x: visible;
+  }
+  .board-7 .col {
+    display: none;
+    height: auto;
+    min-height: 0;
+  }
+  .board-7 .col-mobile-active {
+    display: flex;
+  }
+  .board-7 .col-collapsed.col-mobile-active {
+    min-height: 96px;
+  }
+  .col-head { position: static; }
+  .col-cards {
+    max-height: none;
+    overflow: visible;
+  }
+  .toggle,
+  .link-btn,
+  .settings-tab,
+  .date-picker-button {
+    min-height: 34px;
+  }
+  .graph-list {
+    height: min(48vh, 420px);
+  }
+  .graph-canvas {
+    height: min(50vh, 460px);
+  }
+  .repo-table tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .repo-table td,
+  .repo-table td:first-child,
+  .repo-table td[data-label="Trend"],
+  .repo-table td[data-label="Actors"] {
+    grid-column: 1 / -1;
+  }
+  .repo-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settings-page {
+    max-width: none;
+  }
+  .settings-pref {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-bulk,
+  .settings-source-actions,
+  .server-form,
+  .config-save,
+  .debug-head,
+  .debug-foot,
+  .debug-log-controls {
+    flex-wrap: wrap;
+  }
+  .server-form {
+    align-items: stretch;
+    width: 100%;
+  }
+  .server-url-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .server-url-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+  }
+  .server-url-status,
+  .settings-repo-name,
+  .config-input,
+  .debug-run-error {
+    overflow-wrap: anywhere;
+  }
+  .settings-source-actions {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .settings-repos li {
+    align-items: flex-start;
+  }
+  .settings-repo {
+    min-width: 0;
+  }
+  .config-source-head .config-display-name,
+  .config-token-input,
+  .config-add-project .config-input,
+  .config-add-source .config-input {
+    max-width: none;
+  }
+  .debug-card {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

@@ -44,6 +44,10 @@ The full product path is implemented end to end:
 - `packages/desktop` builds a thin macOS app with Tauri. It bundles the same
   read-only UI and connects to the Docker/server HTTP surface; SQLite, provider
   tokens, sync, and the API sidecar stay server-side.
+- `packages/android` builds an internal Android thin-client APK with Tauri. It
+  bundles the same read-only UI, starts without a localhost server default, and
+  expects Settings -> Server or `VITE_SYMPHONY_BOARD_SERVER_URL` to point at a
+  Docker/server HTTP surface, typically reached over Tailscale.
 - `packages/desktop-standalone` builds the fully self-contained macOS app: the
   same UI plus the bundled Node runtime running the whole backend
   (`src/cli/app-server.ts`) against a per-user data directory — an alternative
@@ -112,6 +116,7 @@ This is a pnpm workspace:
 - `packages/contract`: contract JSON Schema and TypeScript DTOs
 - `packages/ui`: Vite + React read-only board
 - `packages/desktop`: Tauri macOS shell for the UI
+- `packages/android`: Tauri Android shell for the UI
 
 The backend runs TypeScript directly under Node 24 type stripping. There is no
 backend build step; the Docker image installs root production runtime
@@ -399,6 +404,43 @@ scripts/db-summary.sh
 scripts/contract-summary.sh
 scripts/devlog-search.sh graph
 ```
+
+## Build The Android App
+
+`packages/android` is a thin-client shell for phones and tablets. It contains no
+SQLite/Postgres store, provider tokens, sync daemon, or backend sidecar; it
+loads the same shared UI build as the web and macOS thin client.
+
+Install Android Studio, Android SDK Platform Tools, Build Tools, Command-line
+Tools, NDK, a JDK (`JAVA_HOME`), `ANDROID_HOME`, `NDK_HOME`, and Rust Android
+targets, then run:
+
+```sh
+fnm use
+pnpm install
+pnpm android:info
+pnpm android:init
+pnpm android:build:apk
+```
+
+Run `pnpm android:init` once after the Android SDK and NDK are installed; Tauri
+creates the native Android project under `packages/android/src-tauri/gen/android`.
+Set `VITE_SYMPHONY_BOARD_SERVER_URL` during build to preconfigure a server URL,
+or enter it later in Settings -> Server. Android deliberately does not inherit
+the macOS thin-client `http://localhost:8080/` default.
+
+The preferred self-hosted path is the Ubuntu `docker/compose.pg.yaml` stack with
+its web and Postgres ports still loopback-only, then Tailscale Serve exposing
+only the web surface to the tailnet:
+
+```sh
+docker compose -f docker/compose.pg.yaml up -d --build
+tailscale serve --bg 18080
+```
+
+Use the resulting tailnet URL in Settings -> Server. Validate from a tailnet
+device with `/contract.json`, `/api/range?...`, and `/api/stats`. Do not expose
+Postgres or provider config/token files to Android.
 
 ## Contract Summary
 

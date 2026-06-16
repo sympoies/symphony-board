@@ -6,6 +6,7 @@ import {
   loadCollapsedColumns, saveCollapsedColumns,
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
+  defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
 
@@ -98,6 +99,13 @@ test("server base URL persists as an optional setting", () => {
   assert.equal(loadServerBaseUrl(), "http://localhost:8080/");
   saveServerBaseUrl(null);
   assert.equal(loadServerBaseUrl(), null);
+});
+
+test("Tauri host defaults split desktop and Android shells", () => {
+  assert.equal(defaultServerBaseUrlForRuntime(null, false), null, "web stays same-origin by default");
+  assert.equal(defaultServerBaseUrlForRuntime(null, true), "http://localhost:8080/", "desktop shell keeps the local Docker default");
+  assert.equal(defaultServerBaseUrlForRuntime("desktop", true), "http://localhost:8080/", "explicit desktop keeps the local Docker default");
+  assert.equal(defaultServerBaseUrlForRuntime("android", true), null, "Android shell requires a configured or user-entered server URL");
 });
 
 test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () => {

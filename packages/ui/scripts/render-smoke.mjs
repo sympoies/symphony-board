@@ -23,7 +23,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
 const HTTP_PORT = 4399;
 const CDP_PORT = 9333;
-const DEADLINE_MS = 30000;
+const DEADLINE_MS = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
@@ -1086,6 +1086,53 @@ try {
     expression: `(() => { const g = ${reviewGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null }; })()`,
     returnByValue: true,
   })).result.value || {};
+  const portraitPresets = [
+    { name: "phone-portrait", width: 384, height: 854, dpr: 3 },
+    { name: "tablet-portrait", width: 930, height: 1240, dpr: 2 },
+  ];
+  const portraitPages = [
+    { page: "board", hash: "#/board", selector: ".board-7" },
+    { page: "graph", hash: "#/graph", selector: ".graph-body" },
+    { page: "activity", hash: "#/activity", selector: ".activity-page" },
+    { page: "commits", hash: "#/commits", selector: ".commits-page" },
+    { page: "repo-analytics", hash: "#/repo-analytics", selector: ".repo-analytics-page" },
+    { page: "settings", hash: "#/settings", selector: ".settings-page" },
+    { page: "debug", hash: "#/debug", selector: ".debug-page" },
+  ];
+  const portraitResults = [];
+  for (const preset of portraitPresets) {
+    await send("Emulation.setDeviceMetricsOverride", { width: preset.width, height: preset.height, deviceScaleFactor: preset.dpr, mobile: true });
+    await sleep(150);
+    for (const page of portraitPages) {
+      await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(page.hash)}` });
+      await sleep(300);
+      await waitHtml(`document.querySelector(${JSON.stringify(page.selector)})`);
+      const result = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const doc = document.documentElement;
+          const root = document.querySelector(${JSON.stringify(page.selector)});
+          const boardSelector = document.querySelector('.board-mobile-selector');
+          const cols = Array.from(document.querySelectorAll('.board-7 .col'));
+          const graphBody = document.querySelector('.graph-body');
+          const repoTable = document.querySelector('.repo-table');
+          return {
+            ready: !!root,
+            overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            dpr: window.devicePixelRatio,
+            boardSelectorVisible: !!boardSelector && getComputedStyle(boardSelector).display !== 'none',
+            visibleBoardColumns: cols.filter((el) => getComputedStyle(el).display !== 'none').length,
+            graphStacked: !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
+            repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
+          };
+        })()`,
+        returnByValue: true,
+      })).result.value || {};
+      portraitResults.push({ preset: preset.name, page: page.page, ...result });
+    }
+  }
+  await send("Emulation.clearDeviceMetricsOverride");
   ws.close();
 
   // --- assertions ---
@@ -1122,6 +1169,12 @@ try {
   const graphNarrowTotal = statTotal(graphNarrowStats, "nodes");
   const expectedRangeButtons = ["today", "yesterday", "this week", "last week", "1w", "1mo", "3mo", "6mo", "1y"];
   const sameRangeButtons = (labels) => JSON.stringify(labels) === JSON.stringify(expectedRangeButtons);
+  const portraitMissing = portraitResults.filter((r) => !r.ready);
+  const portraitOverflow = portraitResults.filter((r) => r.overflow > 2);
+  const phoneBoard = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "board") || {};
+  const tabletBoard = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "board") || {};
+  const portraitGraphs = portraitResults.filter((r) => r.page === "graph");
+  const portraitRepos = portraitResults.filter((r) => r.page === "repo-analytics");
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
@@ -1150,6 +1203,12 @@ try {
     [graphFacetCarry.hash.startsWith("#/graph") && /[?&]ikind=/.test(graphFacetCarry.hash || "") && graphFacetCarry.chipOn === true && graphFacetCarry.chipText === boardFacetInitial.value, `board: the shared item lens carries across the tab hop to graph (${graphFacetCarry.hash})`],
     [boardReviewInitial.hasGroup === true && (boardReviewInitial.chips || []).includes("unresolved") && (boardReviewInitial.chips || []).includes("has threads") && boardReviewInitial.anyOn === false && boardReviewInitial.hashHasIreview === false, `board: review-thread lens renders its chips, none active on a fresh board (${(boardReviewInitial.chips || []).join(", ")})`],
     [boardReviewOn.chipOn === true && boardReviewOn.chipText === "unresolved" && /[?&]ireview=unresolved/.test(boardReviewOn.hash || ""), `board: the 'unresolved' review chip lights up and writes ireview to the route (${boardReviewOn.hash})`],
+    [portraitMissing.length === 0, `portrait: all page roots render at phone/tablet presets (${portraitMissing.map((r) => `${r.preset}:${r.page}`).join(", ") || "ok"})`],
+    [portraitOverflow.length === 0, `portrait: app shell avoids page-level horizontal overflow (${portraitOverflow.map((r) => `${r.preset}:${r.page}+${r.overflow}px`).join(", ") || "ok"})`],
+    [phoneBoard.boardSelectorVisible === true && phoneBoard.visibleBoardColumns === 1, `portrait: phone board uses one selected lane (${phoneBoard.visibleBoardColumns || 0} visible, selector=${phoneBoard.boardSelectorVisible})`],
+    [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
+    [portraitGraphs.every((r) => r.graphStacked === true), "portrait: graph stacks list and canvas"],
+    [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],

@@ -1,0 +1,18 @@
+[package]
+name = "symphony-board-android"
+version = "1.1.4"
+description = "Android thin-client shell for symphony-board"
+authors = ["sympoies"]
+edition = "2021"
+
+[lib]
+name = "symphony_board_android"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+tauri-plugin-opener = "2"

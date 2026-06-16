@@ -26,6 +26,7 @@ const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // this set holds only explicit collapses of non-empty columns.
 const COLLAPSED_COLUMNS_KEY = "symphony-board:collapsed-columns";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
+export const ANDROID_CLIENT_KIND = "android";
 
 function loadStringSet(key: string): Set<string> {
   try {
@@ -117,6 +118,16 @@ function configuredServerBaseUrl(): string | null {
   return normalizeServerBaseUrl(env?.VITE_SYMPHONY_BOARD_SERVER_URL);
 }
 
+function configuredClientKind(): string | null {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  return env?.VITE_SYMPHONY_BOARD_CLIENT?.trim().toLowerCase() || null;
+}
+
+export function defaultServerBaseUrlForRuntime(clientKind: string | null, tauriRuntime: boolean): string | null {
+  if (!tauriRuntime) return null;
+  return clientKind === ANDROID_CLIENT_KIND ? null : DESKTOP_DEFAULT_SERVER_BASE_URL;
+}
+
 export function loadServerBaseUrl(): string | null {
   try {
     const stored = normalizeServerBaseUrl(localStorage.getItem(SERVER_BASE_URL_KEY));
@@ -124,7 +135,7 @@ export function loadServerBaseUrl(): string | null {
   } catch {
     /* storage unavailable — fall through to configured/default host */
   }
-  return configuredServerBaseUrl() ?? (isTauriRuntime() ? DESKTOP_DEFAULT_SERVER_BASE_URL : null);
+  return configuredServerBaseUrl() ?? defaultServerBaseUrlForRuntime(configuredClientKind(), isTauriRuntime());
 }
 
 export function saveServerBaseUrl(baseUrl: string | null): void {
