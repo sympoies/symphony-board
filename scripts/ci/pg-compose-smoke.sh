@@ -108,6 +108,7 @@ if (stats.db?.schema_version !== 4) {
 curl -fsS "$base/api/sync-control" >/dev/null
 
 curl -fsS "$base/api/config" >"$config_probe"
+# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -131,6 +132,7 @@ curl -fsS \
   "$base/api/config" >/dev/null
 
 curl -fsS "$base/api/config" >"$config_probe"
+# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -141,6 +143,7 @@ if (probe.config?.timezone !== "Asia/Taipei") {
 ' "$config_probe"
 
 curl -fsS "$base/api/secrets" >"$secrets_probe"
+# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
