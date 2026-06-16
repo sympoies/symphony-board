@@ -27,7 +27,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { AppConfig, SourceConfig } from "../config.ts";
-import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret } from "../config.ts";
+import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret, sourceEnabled } from "../config.ts";
 import {
   runConfiguredSync,
   type SyncMode,
@@ -194,6 +194,7 @@ export interface SourceOption {
   source_id: string;
   display_name: string | null;
   kind: string;
+  enabled: boolean;
 }
 
 export function sourceOptions(cfg: AppConfig): SourceOption[] {
@@ -201,6 +202,7 @@ export function sourceOptions(cfg: AppConfig): SourceOption[] {
     source_id: s.source_id,
     display_name: s.display_name ?? null,
     kind: s.kind,
+    enabled: sourceEnabled(s),
   }));
 }
 

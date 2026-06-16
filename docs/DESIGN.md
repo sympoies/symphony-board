@@ -601,6 +601,13 @@ Docker daemon was aligned to app-server's existing behavior), so a control
 plane PUT — or a hand edit on the Docker host — needs no restart. The active
 run keeps the config it started with; the next run picks up the new one.
 
+**Source enablement.** A source can set `"enabled": false` to remain in
+`config/sources.json` while being skipped by sync runs, including explicit
+source-scoped manual runs. This is an operational pause for temporarily
+unreachable providers, not a delete or purge path; omitted/`true` means enabled.
+The sync-control surface still reports disabled sources with an `enabled` flag
+so clients can render the state without losing the source entry.
+
 **Removal semantics.** Removing a source or project stops syncing it but keeps
 already-synced history: the disappearance rule only tombstones via a full +
 complete sweep of a configured source, and an unconfigured source is never

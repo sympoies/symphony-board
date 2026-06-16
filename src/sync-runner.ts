@@ -9,7 +9,7 @@
 // contract, and a failed run must never present stale derived data as fresh.
 
 import type { AppConfig, SourceConfig } from "./config.ts";
-import { tokensForSource } from "./config.ts";
+import { sourceEnabled, tokensForSource } from "./config.ts";
 import type { Store } from "./db/store.ts";
 import { openConfiguredStore } from "./db/factory.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
@@ -209,6 +209,11 @@ export async function runConfiguredSync(
   const skipped: string[] = [];
   for (const sc of cfg.sources) {
     if (opts.sourceId && sc.source_id !== opts.sourceId) continue; // out of scope, not reported
+    if (!sourceEnabled(sc)) {
+      log.warn(`skip ${sc.source_id}: disabled in config`);
+      skipped.push(sc.source_id);
+      continue;
+    }
     const tokens = tokensForSource(sc);
     if (tokens.length === 0) {
       const envNames = [sc.token_env, ...(sc.fallback_token_envs ?? [])].join(", ");

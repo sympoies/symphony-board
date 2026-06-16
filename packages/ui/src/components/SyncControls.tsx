@@ -40,8 +40,9 @@ export function SyncControls({ sync }: { sync: SyncState }) {
           <select className="settings-select sync-source" value={sourceId} disabled={disabled} onChange={(e) => setSourceId(e.target.value)}>
             <option value="">all sources</option>
             {sync.sources.map((s) => (
-              <option key={s.source_id} value={s.source_id}>
+              <option key={s.source_id} value={s.source_id} disabled={s.enabled === false}>
                 {s.display_name ?? s.source_id}
+                {s.enabled === false ? " (disabled)" : ""}
               </option>
             ))}
           </select>

@@ -2020,6 +2020,7 @@ export interface SyncSourceOption {
   source_id: string;
   display_name: string | null;
   kind: string;
+  enabled?: boolean;
 }
 
 export interface SyncControlInfo {
@@ -2130,6 +2131,7 @@ export interface ConfigSourceDoc {
   kind: string;
   host: string;
   display_name?: string;
+  enabled?: boolean;
   color?: string;
   token_env: string;
   fallback_token_envs?: string[];
@@ -2355,10 +2357,16 @@ export function configWithoutProject(doc: ConfigDocument, sourceId: string, path
 export function sourcesNeedingSync(prev: ConfigDocument | null, next: ConfigDocument | null): string[] {
   if (!next) return [];
   const prevProjects = new Map((prev?.sources ?? []).map((s) => [s.source_id, new Set(s.projects.map(configProjectPath))]));
+  const prevEnabled = new Map((prev?.sources ?? []).map((s) => [s.source_id, s.enabled !== false]));
   const out: string[] = [];
   for (const s of next.sources) {
+    if (s.enabled === false) continue;
     const before = prevProjects.get(s.source_id);
     if (!before) {
+      out.push(s.source_id);
+      continue;
+    }
+    if (prevEnabled.get(s.source_id) === false) {
       out.push(s.source_id);
       continue;
     }

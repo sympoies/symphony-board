@@ -104,6 +104,16 @@ test("accepts fallback_token_envs and rejects malformed token pools", () => {
   );
 });
 
+test("accepts source enabled boolean and rejects malformed enabled values", () => {
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ enabled: true })] }, "config"), []);
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ enabled: false })] }, "config"), []);
+  assert.equal(loadConfig(writeConfig(baseSource({ enabled: false }))).cfg.sources[0]!.enabled, false);
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ enabled: "false" })] }, "config")[0]!,
+    /enabled must be a boolean/,
+  );
+});
+
 test("rejects document-shape violations: non-object, missing db_path, no sources", () => {
   assert.throws(() => loadConfig(writeRaw(42)), /is not an object/);
   assert.throws(() => loadConfig(writeRaw(null)), /is not an object/);

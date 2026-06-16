@@ -161,6 +161,58 @@ test("runConfiguredSync builds sources with primary and fallback tokens", async 
   }
 });
 
+test("runConfiguredSync skips disabled sources even when tokens are configured", async () => {
+  const cfg: AppConfig = {
+    db_path: "unused.db",
+    sources: [
+      { ...sc("fake:off"), enabled: false },
+      sc("fake:on"),
+    ],
+  };
+  const built: string[] = [];
+  process.env.FAKE_TOKEN = "token";
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: true, sourceId: null }, null, {
+      openStore: () => openSqliteStore(":memory:"),
+      buildSource: (sourceConfig) => {
+        built.push(sourceConfig.source_id);
+        return prepared(sourceConfig.source_id, [item("A1")]).source;
+      },
+    });
+
+    assert.deepEqual(built, ["fake:on"]);
+    assert.equal(result.status, "ok");
+    assert.equal(result.sources.find((s) => s.source_id === "fake:off")?.status, "skipped");
+    assert.equal(result.sources.find((s) => s.source_id === "fake:on")?.status, "ok");
+  } finally {
+    delete process.env.FAKE_TOKEN;
+  }
+});
+
+test("runConfiguredSync reports an explicitly scoped disabled source as skipped", async () => {
+  const cfg: AppConfig = {
+    db_path: "unused.db",
+    sources: [{ ...sc("fake:off"), enabled: false }],
+  };
+  let built = false;
+  process.env.FAKE_TOKEN = "token";
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: true, sourceId: "fake:off" }, null, {
+      openStore: () => openSqliteStore(":memory:"),
+      buildSource: (sourceConfig) => {
+        built = true;
+        return prepared(sourceConfig.source_id, [item("A1")]).source;
+      },
+    });
+
+    assert.equal(built, false);
+    assert.equal(result.status, "ok");
+    assert.deepEqual(result.sources.map((s) => [s.source_id, s.status]), [["fake:off", "skipped"]]);
+  } finally {
+    delete process.env.FAKE_TOKEN;
+  }
+});
+
 test("each source logs a 'syncing' progress line before its result line", async () => {
   const db = await openSqliteStore(":memory:");
   const lines: string[] = [];

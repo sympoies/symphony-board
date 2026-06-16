@@ -156,6 +156,11 @@ when GitHub clearly reports primary rate-limit exhaustion for the current token.
 Use a PAT from a different GitHub account; multiple PATs from the same account
 share the same user quota.
 
+A source may also set `"enabled": false` to stay in the config while being
+skipped by every sync run. Use this for temporarily unreachable providers (for
+example a self-hosted GitLab that needs VPN on one host) instead of removing and
+later reconstructing the source.
+
 Initialize and run one full sync:
 
 ```sh
@@ -166,8 +171,9 @@ pnpm run emit --out data/contract.json
 pnpm run validate --in data/contract.json
 ```
 
-A source is skipped with a warning when none of its configured token env vars is
-set. `--dry-run` fetches and normalizes but writes nothing.
+A source is skipped with a warning when it has `"enabled": false` or when none
+of its configured token env vars is set. `--dry-run` fetches and normalizes but
+writes nothing.
 
 Useful sync flags:
 

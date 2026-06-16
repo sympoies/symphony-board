@@ -1624,9 +1624,11 @@ a.rf-node-title:hover { color: var(--accent); }
 .settings-config > div:first-child p { max-width: none; }
 .config-empty { display: flex; align-items: center; gap: 12px; }
 .config-source { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.config-source-disabled { opacity: .72; }
 .config-source + .config-source { margin-top: 8px; }
 .config-source-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .config-source-head .config-display-name { margin-left: auto; max-width: 180px; }
+.config-enabled { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
 .config-input {
   background: var(--panel); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 12px;

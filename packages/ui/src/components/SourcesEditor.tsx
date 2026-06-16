@@ -121,13 +121,22 @@ export function SourcesEditor({ config, sync }: Props) {
           {draft.sources.map((s) => {
             const tokenEnvs = sourceTokenEnvs(s);
             const tokenSet = isSourceTokenSet(s, config.secrets);
+            const sourceEnabled = s.enabled !== false;
             return (
-              <div className="config-source" key={s.source_id}>
+              <div className={`config-source${sourceEnabled ? "" : " config-source-disabled"}`} key={s.source_id}>
                 <div className="config-source-head">
                   <span className="source-name">{s.source_id}</span>
                   <span className="muted">
                     {s.kind} @ {s.host}
                   </span>
+                  <label className="config-enabled">
+                    <input
+                      type="checkbox"
+                      checked={sourceEnabled}
+                      onChange={(e) => update(configWithSourcePatch(draft, s.source_id, { enabled: e.target.checked ? undefined : false }))}
+                    />
+                    <span>{sourceEnabled ? "Enabled" : "Disabled"}</span>
+                  </label>
                   <input
                     type="text"
                     className="config-input config-display-name"

@@ -2004,6 +2004,9 @@ test("config draft mutations are immutable and leave unknown fields untouched", 
   assert.equal(patched.sources[0]!.display_name, "GH");
   assert.equal(doc.sources[0]!.display_name, undefined);
 
+  const disabled = configWithSourcePatch(doc, "github:github.com", { enabled: false });
+  assert.equal(disabled.sources[0]!.enabled, false);
+
   // projects: add trims and dedups (against both string and object entries), remove matches by path
   const withObj = { ...doc, sources: [src("github:github.com", ["a/b", { path: "c/d", color: "#abc" }])] };
   assert.equal(configWithProject(withObj, "github:github.com", "  c/d  ").sources[0]!.projects.length, 2, "dedup against object form");
@@ -2014,13 +2017,14 @@ test("config draft mutations are immutable and leave unknown fields untouched", 
 });
 
 test("sourcesNeedingSync flags new sources and grown project sets only", () => {
-  const src = (id: string, projects: string[]): ConfigSourceDoc => ({
+  const src = (id: string, projects: string[], enabled?: boolean): ConfigSourceDoc => ({
     source_id: id,
     kind: "github",
     host: "github.com",
     token_env: "T",
     graphql_url: "https://api.github.com/graphql",
     projects,
+    ...(enabled === undefined ? {} : { enabled }),
   });
   const prev: ConfigDocument = { db_path: "x", sources: [src("a", ["p/q"]), src("b", ["r/s"])] };
 
@@ -2029,6 +2033,17 @@ test("sourcesNeedingSync flags new sources and grown project sets only", () => {
   assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", ["p/q", "new/repo"]), src("b", ["r/s"])] }), ["a"]);
   assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", ["p/q"]), src("b", ["r/s"]), src("c", ["t/u"])] }), ["c"]);
   assert.deepEqual(sourcesNeedingSync(prev, { ...prev, sources: [src("a", [])] }), [], "removals alone need no sync");
+  assert.deepEqual(sourcesNeedingSync(null, { db_path: "x", sources: [src("c", ["t/u"], false)] }), [], "new disabled sources do not need sync");
+  assert.deepEqual(
+    sourcesNeedingSync({ db_path: "x", sources: [src("c", ["t/u"], false)] }, { db_path: "x", sources: [src("c", ["t/u"])] }),
+    ["c"],
+    "enabling a disabled source offers a first sync",
+  );
+  assert.deepEqual(
+    sourcesNeedingSync(prev, { ...prev, sources: [src("a", ["p/q", "new/repo"], false), src("b", ["r/s"])] }),
+    [],
+    "disabled sources do not need sync even when their project list grows",
+  );
   assert.deepEqual(sourcesNeedingSync(prev, null), []);
 });
 

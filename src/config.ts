@@ -16,6 +16,9 @@ export interface SourceConfig {
   kind: string; // github | gitlab | ...
   host: string;
   display_name?: string;
+  // Optional runtime switch. Omitted/true means the source participates in sync
+  // runs; false keeps the source in config but prevents fetch/build attempts.
+  enabled?: boolean;
   // Optional source-level highlight color (hex). A repo with no color of its
   // own inherits it; resolution (override -> repo -> source) lives in the
   // consumer. Display-only metadata — never stored in the DB.
@@ -129,6 +132,9 @@ export function configErrors(raw: unknown, label: string): string[] {
       if (typeof s.source_id === "string" && s.source_id.includes("|")) {
         errors.push(`${label}: source_id "${s.source_id}" must not contain '|'`);
       }
+      if (s.enabled !== undefined && typeof s.enabled !== "boolean") {
+        errors.push(`${label}: source "${s.source_id}" enabled must be a boolean when set`);
+      }
       if (s.color !== undefined && !HEX_COLOR.test(s.color)) {
         errors.push(`${label}: source "${s.source_id}" color "${s.color}" is not a hex color (#rgb or #rrggbb)`);
       }
@@ -228,6 +234,10 @@ export function saveConfig(cfg: AppConfig, path: string): void {
 // The fetch layer only needs paths to query; color is an emit/consumer concern.
 export function projectPaths(s: SourceConfig): string[] {
   return s.projects.map((p) => (typeof p === "string" ? p : p.path));
+}
+
+export function sourceEnabled(s: Pick<SourceConfig, "enabled">): boolean {
+  return s.enabled !== false;
 }
 
 // --- secrets file (token overlay) ---

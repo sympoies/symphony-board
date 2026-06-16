@@ -9,6 +9,7 @@ import {
   SyncController,
   createControlServer,
   parseSyncRequest,
+  sourceOptions,
   SYNC_CONTROL_HEADER,
   type ConfigControl,
   type ControlContext,
@@ -31,11 +32,27 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-const SOURCES: SourceOption[] = [{ source_id: "fake:a", display_name: "A", kind: "fake" }];
+const SOURCES: SourceOption[] = [{ source_id: "fake:a", display_name: "A", kind: "fake", enabled: true }];
 const NO_CONFIG_CONTROL: ConfigControl = { enabled: false, path: "/nonexistent/sources.json", secretsPath: null };
 function ctx(controlEnabled: boolean, configControl: ConfigControl = NO_CONFIG_CONTROL, logsEnabled = false): ControlContext {
   return { controlEnabled, configControl, logsEnabled, sources: SOURCES, intervalSeconds: 120, fullEvery: 30 };
 }
+
+test("sourceOptions exposes per-source enabled state for clients", () => {
+  assert.deepEqual(
+    sourceOptions({
+      db_path: "x",
+      sources: [
+        { source_id: "fake:on", kind: "fake", host: "test", display_name: "On", token_env: "T", graphql_url: "http://x", projects: ["a/b"] },
+        { source_id: "fake:off", kind: "fake", host: "test", token_env: "T", graphql_url: "http://x", projects: ["a/b"], enabled: false },
+      ],
+    }),
+    [
+      { source_id: "fake:on", display_name: "On", kind: "fake", enabled: true },
+      { source_id: "fake:off", display_name: null, kind: "fake", enabled: false },
+    ],
+  );
+});
 
 function listen(server: Server): Promise<string> {
   return new Promise((resolve) => {

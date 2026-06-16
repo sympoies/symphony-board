@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database.",
+  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database. Set a source's optional enabled:false to keep it in config but skip sync runs.",
   "db_path": "data/symphony.db",
   "db_url_env": "SYMPHONY_DB_URL",
   "$comment_db_path": "db_path is still required by the shared config schema but is unused when db_url_env selects Postgres.",
@@ -29,6 +29,7 @@
       "kind": "gitlab",
       "host": "gitlab.com",
       "display_name": "GitLab",
+      "enabled": true,
       "token_env": "GITLAB_TOKEN",
       "graphql_url": "https://gitlab.com/api/graphql",
       "rest_url": "https://gitlab.com/api/v4",
