@@ -74,5 +74,6 @@ curl -fsS "https://<host>.<tailnet>.ts.net/api/range?from=2026-06-01&to=2026-06-
 ```
 
 Postgres remains unexposed to Android. If Tailscale Serve is unavailable, bind
-only the web port to the host's Tailscale IP with an operator-local compose
-override; do not bind web to `0.0.0.0`, and never expose Postgres.
+the web port to the host's Tailscale IP by setting `SYMPHONY_PG_WEB_BIND` to
+that IP in an untracked `.env` (see [`.env.example`](../../.env.example)); do
+not bind web to `0.0.0.0`, and never expose Postgres.
