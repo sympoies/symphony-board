@@ -1487,13 +1487,14 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .filter-groups .toggle-label { flex-basis: 100%; }
   .time-range-controls { align-items: flex-start; gap: 8px; }
+  .time-range-controls > .muted:first-child { flex-basis: 100%; }
   .time-range-controls .date-filter {
-    flex: 1 1 calc(50% - 8px);
+    flex: 1 1 100%;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 3px;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
   }
   .time-range-controls .date-input-wrap { min-width: 0; width: 100%; margin-left: 0; }
   .time-range-controls .date-filter input { width: 100%; }

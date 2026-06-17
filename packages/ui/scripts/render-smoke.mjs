@@ -1220,6 +1220,26 @@ try {
     ...phoneActiveFilterDisclosureBefore,
     ...phoneActiveFilterDisclosureAfter,
   };
+  const phoneRangeLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const controls = document.querySelector('.time-range-controls');
+      const labels = Array.from(controls?.querySelectorAll('.date-filter') || []);
+      const wraps = labels.map((label) => label.querySelector('.date-input-wrap'));
+      const controlRect = controls?.getBoundingClientRect();
+      const labelRects = labels.map((label) => label.getBoundingClientRect());
+      const wrapRects = wraps.map((wrap) => wrap?.getBoundingClientRect());
+      return {
+        found: labels.length === 2 && wraps.length === 2,
+        controlWidth: Math.round(controlRect?.width || 0),
+        labelWidths: labelRects.map((rect) => Math.round(rect.width)),
+        wrapWidths: wrapRects.map((rect) => Math.round(rect?.width || 0)),
+        labelLefts: labelRects.map((rect) => Math.round(rect.left)),
+        sameWrapWidth: wrapRects.length === 2 && Math.abs((wrapRects[0]?.width || 0) - (wrapRects[1]?.width || 0)) <= 1,
+        fullWidthRows: labelRects.length === 2 && labelRects.every((rect) => controlRect && rect.width >= controlRect.width - 2),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Emulation.clearDeviceMetricsOverride");
   ws.close();
 
@@ -1302,6 +1322,7 @@ try {
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
+    [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /\b1\b/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActivity.activityHeatmapAboveFeed === true && phoneActivity.activityListHeight > 0 && phoneActivity.activityListHeight <= Math.round(phoneActivity.viewportHeight * 0.55), `portrait: phone activity puts rhythm before a shorter feed (${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px)`],
     // page 2: the relationship graph mounts and the lazy chunk loads
