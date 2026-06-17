@@ -29,6 +29,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
 const ACTIVITY_SMOKE_ROWS = 1200;
 let rangeResponseDelayMs = 500;
+let contractResponseDelayMs = 0;
 
 // A minimal in-process mock of the board daemon's sync control surface, so the
 // headless render exercises the writer-owned manual-sync affordance (the static
@@ -84,6 +85,28 @@ function readBody(req) {
   });
 }
 
+function withSmokeHeaderSources(env) {
+  const sources = Array.isArray(env.sources) ? env.sources : [];
+  if (sources.length >= 3 || sources.some((s) => s?.source_id === "gitlab:gitlab.gamania.com")) return env;
+  const gitlab = sources.find((s) => s?.kind === "gitlab") ?? sources[0] ?? {};
+  return {
+    ...env,
+    sources: [
+      ...sources,
+      {
+        ...gitlab,
+        source_id: "gitlab:gitlab.gamania.com",
+        kind: "gitlab",
+        host: "gitlab.gamania.com",
+        display_name: "GitLab (Gamania)",
+        last_status: "ok",
+        last_success_at: env.generated_at ?? gitlab.last_success_at ?? null,
+        color: null,
+      },
+    ],
+  };
+}
+
 // A minimal mock of the writer-owned config control plane, so the headless
 // render exercises the Settings -> Sources editor (capability present, one
 // token set and one missing). PUTs adopt the submitted document like the real
@@ -117,8 +140,8 @@ function fail(msg) {
 }
 
 function inflateActivityContract(body) {
-  const env = JSON.parse(body.toString("utf8"));
-  if (!Array.isArray(env.activities) || env.activities.length === 0) return body;
+  const env = withSmokeHeaderSources(JSON.parse(body.toString("utf8")));
+  if (!Array.isArray(env.activities) || env.activities.length === 0) return JSON.stringify(env);
 
   const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
   const activities = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
@@ -312,6 +335,7 @@ const server = createServer(async (req, res) => {
     const rawBody = await readFile(file);
     const isContract = file === join(DIST, "contract.json");
     if (isContract) contractRequestCount += 1;
+    if (isContract && contractResponseDelayMs > 0) await sleep(contractResponseDelayMs);
     const body = isContract ? inflateActivityContract(rawBody) : rawBody;
     const ext = file.slice(file.lastIndexOf("."));
     res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" }).end(body);
@@ -450,26 +474,48 @@ try {
   })()`);
   rangeResponseDelayMs = 0;
   const defaultActivityHtml = await waitHtml("document.querySelector('.activity-page')");
+  const colorSchemeHints = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      colorScheme: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content') || '',
+      supportedColorSchemes: document.querySelector('meta[name="supported-color-schemes"]')?.getAttribute('content') || '',
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   const headerRefreshBefore = await contractRequests();
   const headerRefreshHashBefore = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  contractResponseDelayMs = 250;
   const headerRefresh = (await send("Runtime.evaluate", {
     expression: `(() => {
       const btn = document.querySelector('.brand-refresh');
+      const idleIcon = btn?.querySelector('.brand-refresh-app-icon');
       btn?.click();
       return {
         title: document.querySelector('.brand h1')?.textContent?.trim() || '',
         hasButton: !!btn,
+        hasIdleAppIcon: !!idleIcon,
+        idleIconTag: idleIcon?.tagName?.toLowerCase() || '',
+        idleIconViewBox: idleIcon?.getAttribute('viewBox') || '',
         label: btn?.getAttribute('aria-label') || '',
         clicked: !!btn,
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
+  await sleep(80);
+  headerRefresh.hasBusyRefreshGlyph = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.brand-refresh .brand-refresh-glyph')",
+    returnByValue: true,
+  })).result.value === true;
   await sleep(400);
+  contractResponseDelayMs = 0;
   headerRefresh.requestsBefore = headerRefreshBefore;
   headerRefresh.requestsAfter = await contractRequests();
   headerRefresh.hashBefore = headerRefreshHashBefore;
   headerRefresh.hashAfter = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  headerRefresh.restoredAppIcon = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.brand-refresh .brand-refresh-app-icon')",
+    returnByValue: true,
+  })).result.value === true;
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   // Page 1 — the full-bleed 7-column board.
@@ -1185,11 +1231,19 @@ try {
           const controls = document.querySelector('.controls');
           const filterToggle = controls?.querySelector('.filter-disclosure');
           const filterGroups = controls?.querySelector('.filter-groups');
+          const localFile = controls?.querySelector('.file-load');
+          const localFileSummary = localFile?.querySelector('summary');
+          const localFileInput = localFile?.querySelector('input[type="file"]');
+          const localFileSummaryStyle = localFileSummary ? getComputedStyle(localFileSummary) : null;
           const rangeControls = document.querySelector('.time-range-controls');
           const activityHeatmap = document.querySelector('.activity-heatmap');
           const activityList = document.querySelector('.activity-list');
           const heatmapRect = activityHeatmap?.getBoundingClientRect();
           const listRect = activityList?.getBoundingClientRect();
+          const sources = document.querySelector('.app-header .sources');
+          const sourceChips = Array.from(document.querySelectorAll('.app-header .source-chip'));
+          const sourceChipTops = sourceChips.map((chip) => Math.round(chip.getBoundingClientRect().top));
+          const sourcesRect = sources?.getBoundingClientRect();
           return {
             ready: !!root,
             overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
@@ -1202,9 +1256,15 @@ try {
             repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
             filterButtonVisible: !controls || (!!filterToggle && getComputedStyle(filterToggle).display !== 'none'),
             filterGroupsCollapsed: !controls || (!!filterGroups && getComputedStyle(filterGroups).display === 'none'),
+            fileDisclosureVisible: !controls || (!!localFileSummary && getComputedStyle(localFileSummary).display !== 'none'),
+            fileInputCollapsed: !controls || (!!localFileInput && getComputedStyle(localFileInput).display === 'none'),
+            fileDisclosureSingleLine: !controls || (!!localFileSummary && localFileSummaryStyle?.whiteSpace === 'nowrap' && localFileSummary.getBoundingClientRect().height <= 38),
             rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
+            headerSourcesCount: sourceChips.length,
+            headerSourcesHeight: Math.round(sourcesRect?.height || 0),
+            headerSourcesOneLine: sourceChipTops.length > 0 && new Set(sourceChipTops).size === 1,
           };
         })()`,
         returnByValue: true,
@@ -1263,7 +1323,18 @@ try {
       const columns = (style?.gridTemplateColumns || '').split(' ').filter(Boolean);
       const primary = Array.from(row?.querySelectorAll('.repo-metric-primary') || []);
       const secondary = Array.from(row?.querySelectorAll('.repo-metric-secondary') || []);
+      const trendHeight = Math.round(row?.querySelector('.repo-trend-cell')?.getBoundingClientRect().height || 0);
+      const qualityCell = row?.querySelector('.repo-quality-cell');
       const firstPrimaryTops = primary.slice(0, 4).map((cell) => Math.round(cell.getBoundingClientRect().top));
+      const secondaryWidths = secondary.map((cell) => Math.round(cell.getBoundingClientRect().width));
+      const primaryCentered = primary.length >= 4 && primary.every((cell) => {
+        const s = getComputedStyle(cell);
+        return s.alignItems === 'center' && s.justifyContent === 'center' && s.textAlign === 'center';
+      });
+      const secondaryGrouped = secondary.length >= 5 && secondary.every((cell) => {
+        const s = getComputedStyle(cell);
+        return s.justifyContent === 'center' && s.textAlign === 'center';
+      });
       return {
         found: !!row,
         gridColumns: columns.length,
@@ -1271,10 +1342,18 @@ try {
         primaryCount: primary.length,
         secondaryCount: secondary.length,
         primarySameRow: firstPrimaryTops.length === 4 && new Set(firstPrimaryTops).size === 1,
+        primaryCentered,
         secondaryCompact: secondary.length >= 5 && secondary.every((cell) => cell.getBoundingClientRect().height <= 38),
-        trendCompact: (row?.querySelector('.repo-trend-cell')?.getBoundingClientRect().height || 0) <= 34,
+        secondaryReadable: secondaryWidths.length >= 5 && Math.min(...secondaryWidths) >= 84,
+        secondaryTight: secondaryWidths.length >= 5 && Math.max(...secondaryWidths) <= 108,
+        secondaryMinWidth: secondaryWidths.length ? Math.min(...secondaryWidths) : 0,
+        secondaryMaxWidth: secondaryWidths.length ? Math.max(...secondaryWidths) : 0,
+        secondaryGrouped,
+        trendReadable: trendHeight >= 36 && trendHeight <= 48,
+        trendHeight,
         actorsCompact: !row?.querySelector('.repo-actors-cell') || row.querySelector('.repo-actors-cell').getBoundingClientRect().height <= 42,
         qualityInHeader: !!row?.querySelector('.repo-mobile-quality .badge'),
+        qualityCellHidden: !qualityCell || getComputedStyle(qualityCell).display === 'none',
       };
     })()`,
     returnByValue: true,
@@ -1343,13 +1422,17 @@ try {
   const portraitGraphs = portraitResults.filter((r) => r.page === "graph");
   const portraitRepos = portraitResults.filter((r) => r.page === "repo-analytics");
   const phoneFilterPages = portraitResults.filter((r) => r.preset === "phone-portrait" && !["commits", "settings", "debug"].includes(r.page));
+  const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
+    [colorSchemeHints.colorScheme === "dark light" && colorSchemeHints.supportedColorSchemes === "dark light", `app: declares supported color schemes for mobile browsers (${JSON.stringify(colorSchemeHints)})`],
     [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],
     [headerRefresh.hasButton === true && headerRefresh.label === "Refresh data", `app: header exposes a touch refresh button (${JSON.stringify(headerRefresh)})`],
+    [headerRefresh.hasIdleAppIcon === true && headerRefresh.idleIconTag === "svg" && headerRefresh.idleIconViewBox === "0 0 1024 1024", `app: header refresh idles as the app SVG mark (${JSON.stringify(headerRefresh)})`],
+    [headerRefresh.hasBusyRefreshGlyph === true && headerRefresh.restoredAppIcon === true, `app: header refresh shows glyph while loading then restores app icon (${JSON.stringify(headerRefresh)})`],
     [headerRefresh.clicked === true && headerRefresh.requestsAfter > headerRefresh.requestsBefore && headerRefresh.hashAfter === headerRefresh.hashBefore, `app: header refresh reloads data in place (${JSON.stringify(headerRefresh)})`],
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
@@ -1382,8 +1465,11 @@ try {
     [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
     [portraitGraphs.every((r) => r.graphStacked === true), "portrait: graph stacks list and canvas"],
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
-    [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.trendCompact === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.rowHeight <= 260, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
+    [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
+    [phoneFilterPages.every((r) => r.fileDisclosureVisible === true && r.fileInputCollapsed === true), `portrait: phone local file loader is collapsed (${phoneFilterPages.map((r) => `${r.page}:disclosure=${r.fileDisclosureVisible},inputCollapsed=${r.fileInputCollapsed}`).join("; ")})`],
+    [phoneFilterPages.every((r) => r.fileDisclosureSingleLine === true), `portrait: phone local file disclosure stays single-line (${phoneFilterPages.map((r) => `${r.page}:singleLine=${r.fileDisclosureSingleLine}`).join("; ")})`],
+    [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32), `portrait: phone source health strip stays compact (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /\b1\b/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],

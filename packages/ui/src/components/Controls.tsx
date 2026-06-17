@@ -91,10 +91,13 @@ export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Pro
           <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
         ))}
       </div>
-      <label className="file-load">
-        load contract.json
-        <input type="file" accept="application/json,.json" onChange={onFile} />
-      </label>
+      <details className="file-load">
+        <summary className="toggle file-load-summary">Local file</summary>
+        <label className="file-load-picker">
+          contract.json
+          <input type="file" accept="application/json,.json" onChange={onFile} />
+        </label>
+      </details>
     </div>
   );
 }

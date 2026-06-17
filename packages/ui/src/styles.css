@@ -41,6 +41,8 @@
   --warn: #ffcb6b;       /* gold   — partial-source banner                */
   --graph-grid: #1d3b53;
   --graph-mention: #8aa0b6;
+  --brand-mark-bg: #030b22;
+  --brand-mark-bars: #24dae8;
 
   /* scroll surfaces */
   --scrollbar-size: 8px;
@@ -88,6 +90,8 @@
   --warn: #855b00;
   --graph-grid: #d6d9cf;
   --graph-mention: #596b79;
+  --brand-mark-bg: #f8f8f3;
+  --brand-mark-bars: #1f2520;
 
   --scrollbar-track: color-mix(in srgb, var(--bg) 84%, var(--panel));
   --scrollbar-thumb: color-mix(in srgb, var(--line) 72%, var(--muted));
@@ -216,6 +220,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   cursor: progress;
 }
 .brand-refresh svg {
+  width: 22px;
+  height: 22px;
+}
+.brand-refresh .brand-refresh-glyph {
   width: 18px;
   height: 18px;
   fill: none;
@@ -224,7 +232,18 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.brand-refresh.refreshing svg {
+.brand-refresh .brand-refresh-app-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
+}
+.brand-refresh .app-mark-bg {
+  fill: var(--brand-mark-bg);
+}
+.brand-refresh .app-mark-bars {
+  fill: var(--brand-mark-bars);
+}
+.brand-refresh.refreshing .brand-refresh-glyph {
   animation: sync-spin 0.8s linear infinite;
 }
 /* The right cluster: chips + Sync on one row (fixed gap), the sync status on its
@@ -262,9 +281,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 @keyframes sync-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .sync-running::before { display: none; }
-  .brand-refresh.refreshing svg { animation: none; }
+  .brand-refresh.refreshing .brand-refresh-glyph { animation: none; }
 }
-html[data-theme="paper"] .brand-refresh.refreshing svg { animation: none; }
+html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animation: none; }
 .sync-status { font-size: 12px; max-width: 360px; }
 .header-aside .sync-status { text-align: right; }
 .sync-status.sync-error { color: var(--warn); }
@@ -295,7 +314,32 @@ html[data-theme="paper"] .brand-refresh.refreshing svg { animation: none; }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .filter-disclosure { display: none; }
 .filter-groups { display: contents; }
-.file-load { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.file-load {
+  color: var(--muted);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.file-load-summary {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  list-style: none;
+  min-height: 30px;
+  white-space: nowrap;
+}
+.file-load-summary::-webkit-details-marker { display: none; }
+.file-load-summary::after {
+  content: "…";
+  margin-left: 2px;
+}
+.file-load[open] .file-load-summary::after { content: ""; }
+.file-load-picker {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.file-load:not([open]) input[type="file"] { display: none; }
 /* The bare control box plus its browser-rendered "Choose File" button: the box
    is styled directly, the button only through the ::file-selector-button
    pseudo-element (else it keeps the native light chrome). Shaped like .toggle. */
@@ -2004,6 +2048,64 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (max-width: 760px) {
+  .app,
+  .app-wide {
+    padding: 12px;
+  }
+  .app-header {
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+  .header-aside {
+    width: 100%;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .header-aside-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .sources {
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 5px;
+    overflow: hidden;
+  }
+  .source-chip {
+    box-sizing: border-box;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 28px;
+    gap: 4px;
+    padding: 2px 5px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .source-chip .badge {
+    flex: none;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+  .source-chip .source-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-chip > .muted {
+    display: none;
+  }
+  .sync-button {
+    min-height: 30px;
+    padding: 4px 10px;
+  }
+  .header-aside .sync-status {
+    max-width: none;
+    text-align: right;
+  }
   .board-mobile-selector { display: flex; }
   .board-7 {
     display: block;
@@ -2039,7 +2141,7 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .repo-table tr {
     position: relative;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(12, minmax(0, 1fr));
     gap: 6px;
     padding: 8px;
     overflow: visible;
@@ -2057,12 +2159,13 @@ a.rf-node-title:hover { color: var(--accent); }
     display: inline-flex;
     flex: none;
   }
-  .repo-quality-cell { display: none; }
-  .repo-metric-primary {
+  .repo-table .repo-quality-cell { display: none; }
+  .repo-table .repo-metric-primary {
+    grid-column: span 3;
     order: 2;
     display: flex;
     min-height: 46px;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     flex-direction: column;
     gap: 2px;
@@ -2073,13 +2176,13 @@ a.rf-node-title:hover { color: var(--accent); }
     color: var(--text);
     font-size: 16px;
     font-weight: 700;
-    text-align: left;
+    text-align: center;
   }
-  .repo-metric-primary::before {
+  .repo-table .repo-metric-primary::before {
     line-height: 1;
     font-size: 10px;
   }
-  .repo-metric-primary .repo-metric-link { font-size: 16px; }
+  .repo-table .repo-metric-primary .repo-metric-link { font-size: 16px; }
   .repo-trend-cell {
     grid-column: 1 / -1;
     order: 3;
@@ -2088,25 +2191,32 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .repo-trend-cell::before { display: none; }
   .repo-trend-cell .repo-trend {
-    height: 18px;
+    height: 40px;
     min-width: 0;
+    gap: 3px;
   }
-  .repo-trend-bar { min-width: 2px; }
-  .repo-metric-secondary {
+  .repo-trend-bar { min-width: 3px; border-radius: 4px 4px 0 0; }
+  .repo-table .repo-metric-secondary {
+    grid-column: span 4;
     order: 4;
     display: flex;
+    box-sizing: border-box;
+    justify-self: center;
+    width: max-content;
+    min-width: 84px;
+    max-width: 100%;
     min-height: 24px;
     align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    padding: 2px 6px;
+    justify-content: center;
+    gap: 5px;
+    padding: 2px 10px;
     border: 1px solid var(--chip-border);
     border-radius: 999px;
     background: var(--chip-bg);
     font-size: 12px;
-    text-align: right;
+    text-align: center;
   }
-  .repo-metric-secondary::before {
+  .repo-table .repo-metric-secondary::before {
     font-size: 10px;
     line-height: 1;
   }

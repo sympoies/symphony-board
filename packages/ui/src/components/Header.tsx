@@ -5,9 +5,24 @@ import type { SyncState } from "../useSync.ts";
 
 const NO_HIDDEN_SOURCES: ReadonlySet<string> = new Set();
 
+function AppMarkIcon() {
+  return (
+    <svg className="brand-refresh-app-icon" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+      <rect className="app-mark-bg" x="0" y="0" width="1024" height="1024" rx="240" ry="240" />
+      <g className="app-mark-bars">
+        <rect x="134" y="414" width="92" height="196" rx="46" />
+        <rect x="280" y="299" width="116" height="426" rx="58" />
+        <rect x="450" y="212" width="124" height="600" rx="62" />
+        <rect x="628" y="299" width="116" height="426" rx="58" />
+        <rect x="798" y="414" width="92" height="196" rx="46" />
+      </g>
+    </svg>
+  );
+}
+
 function RefreshIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className="brand-refresh-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M20 11a8 8 0 0 0-14.7-4.4L3 9" />
       <path d="M3 4v5h5" />
       <path d="M4 13a8 8 0 0 0 14.7 4.4L21 15" />
@@ -51,7 +66,7 @@ export function Header({
             title="Refresh data"
             onClick={onRefresh}
           >
-            <RefreshIcon />
+            {refreshing ? <RefreshIcon /> : <AppMarkIcon />}
           </button>
           <h1>Symphony Board</h1>
         </div>
