@@ -182,7 +182,51 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start;
   gap: 12px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
+.brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; min-width: 0; }
+.brand-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.brand-main h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.brand-refresh {
+  flex: none;
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.brand-refresh:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.brand-refresh:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.brand-refresh svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-refresh.refreshing svg {
+  animation: sync-spin 0.8s linear infinite;
+}
 /* The right cluster: chips + Sync on one row (fixed gap), the sync status on its
    own row below. Keeping the status off the chips/button row means its text width
    never changes the gap between the chips and the Sync button. */
@@ -218,7 +262,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 @keyframes sync-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .sync-running::before { display: none; }
+  .brand-refresh.refreshing svg { animation: none; }
 }
+html[data-theme="paper"] .brand-refresh.refreshing svg { animation: none; }
 .sync-status { font-size: 12px; max-width: 360px; }
 .header-aside .sync-status { text-align: right; }
 .sync-status.sync-error { color: var(--warn); }

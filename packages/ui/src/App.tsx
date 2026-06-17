@@ -119,6 +119,7 @@ export function App() {
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingData, setRefreshingData] = useState(false);
   // Seed the search from the hash's "?q=" token if present; the URL is the source
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
@@ -213,19 +214,31 @@ export function App() {
   // re-fetches the contract (and the range response for a custom range); the
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
-  const reloadData = useCallback(() => {
-    fetchContract(undefined, serverBaseUrl)
+  const reloadData = useCallback(async () => {
+    const pending: Promise<void>[] = [];
+    pending.push(fetchContract(undefined, serverBaseUrl)
       .then((e) => {
         setEnv(e);
         setError(null);
       })
-      .catch((err: unknown) => setError((err as Error).message));
+      .catch((err: unknown) => setError((err as Error).message)));
     if (needsRangeEnv && activeRange) {
-      fetchRangeContract(activeRange, serverBaseUrl)
-        .then((next) => setRangeEnv(next))
-        .catch((err: unknown) => setRangeError((err as Error).message));
+      setRangeLoading(true);
+      setRangeError(null);
+      pending.push(fetchRangeContract(activeRange, serverBaseUrl)
+        .then((next) => {
+          setRangeEnv(next);
+          setRangeError(null);
+        })
+        .catch((err: unknown) => setRangeError((err as Error).message))
+        .finally(() => setRangeLoading(false)));
     }
+    await Promise.all(pending);
   }, [needsRangeEnv, activeRange, serverBaseUrl]);
+  const refreshData = useCallback(() => {
+    setRefreshingData(true);
+    void reloadData().finally(() => setRefreshingData(false));
+  }, [reloadData]);
   const sync = useSync(reloadData, serverBaseUrl);
   const configState = useConfig(serverBaseUrl);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
@@ -258,11 +271,11 @@ export function App() {
       }
       if (!isRefreshShortcut(event)) return;
       event.preventDefault();
-      reloadData();
+      refreshData();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reloadData, toggleDebug]);
+  }, [refreshData, toggleDebug]);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -949,7 +962,7 @@ export function App() {
 
   return (
     <div className="app app-wide">
-      <Header env={env} sync={sync} hiddenSources={hiddenSources} />
+      <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
       <nav className="page-tabs">
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity

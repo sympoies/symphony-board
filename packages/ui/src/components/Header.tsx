@@ -5,6 +5,17 @@ import type { SyncState } from "../useSync.ts";
 
 const NO_HIDDEN_SOURCES: ReadonlySet<string> = new Set();
 
+function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20 11a8 8 0 0 0-14.7-4.4L3 9" />
+      <path d="M3 4v5h5" />
+      <path d="M4 13a8 8 0 0 0 14.7 4.4L21 15" />
+      <path d="M16 15h5v5" />
+    </svg>
+  );
+}
+
 // Title + contract provenance + per-source health, so a viewer can immediately
 // see whether the data is fresh and whether any source last synced partial/error.
 // When the writer-owned control surface is available, the manual Sync action sits
@@ -14,10 +25,14 @@ export function Header({
   env,
   sync,
   hiddenSources = NO_HIDDEN_SOURCES,
+  refreshing = false,
+  onRefresh,
 }: {
   env: ContractEnvelope;
   sync?: SyncState;
   hiddenSources?: ReadonlySet<string>;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   const showSync = sync?.available ?? false;
   const running = showSync && isSyncRunActive(sync!.current);
@@ -26,7 +41,20 @@ export function Header({
   return (
     <header className="app-header">
       <div className="brand">
-        <h1>symphony-board</h1>
+        <div className="brand-main">
+          <button
+            type="button"
+            className={`brand-refresh${refreshing ? " refreshing" : ""}`}
+            disabled={refreshing}
+            aria-label="Refresh data"
+            aria-busy={refreshing}
+            title="Refresh data"
+            onClick={onRefresh}
+          >
+            <RefreshIcon />
+          </button>
+          <h1>Symphony Board</h1>
+        </div>
         <span className="muted">
           contract {env.contract_version} · {env.generator} · emitted {relativeTime(env.generated_at)}
         </span>

@@ -37,6 +37,7 @@ let rangeResponseDelayMs = 500;
 const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 const syncMock = { current: null, last: null, seq: 0 };
 let cachedSyncSources = null;
+let contractRequestCount = 0;
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -240,6 +241,10 @@ const server = createServer(async (req, res) => {
       res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
       return;
     }
+    if (p === "/__smoke/contract-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ contractRequests: contractRequestCount }));
+      return;
+    }
     if (p === "/api/sync-control") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, sources: await syncSources(), current: syncMock.current, last: syncMock.last, interval_seconds: 120, full_every: 30 }));
       return;
@@ -305,7 +310,9 @@ const server = createServer(async (req, res) => {
       return;
     }
     const rawBody = await readFile(file);
-    const body = file === join(DIST, "contract.json") ? inflateActivityContract(rawBody) : rawBody;
+    const isContract = file === join(DIST, "contract.json");
+    if (isContract) contractRequestCount += 1;
+    const body = isContract ? inflateActivityContract(rawBody) : rawBody;
     const ext = file.slice(file.lastIndexOf("."));
     res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" }).end(body);
   } catch {
@@ -404,6 +411,12 @@ try {
   };
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  const contractRequests = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/contract-count').then((res) => res.json()).then((body) => body.contractRequests || 0)",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || 0;
   const rangeButtonLabels = async () =>
     (await send("Runtime.evaluate", {
       expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).map((el) => el.textContent?.trim() || '')",
@@ -437,6 +450,26 @@ try {
   })()`);
   rangeResponseDelayMs = 0;
   const defaultActivityHtml = await waitHtml("document.querySelector('.activity-page')");
+  const headerRefreshBefore = await contractRequests();
+  const headerRefreshHashBefore = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  const headerRefresh = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.brand-refresh');
+      btn?.click();
+      return {
+        title: document.querySelector('.brand h1')?.textContent?.trim() || '',
+        hasButton: !!btn,
+        label: btn?.getAttribute('aria-label') || '',
+        clicked: !!btn,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(400);
+  headerRefresh.requestsBefore = headerRefreshBefore;
+  headerRefresh.requestsAfter = await contractRequests();
+  headerRefresh.hashBefore = headerRefreshHashBefore;
+  headerRefresh.hashAfter = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   // Page 1 — the full-bleed 7-column board.
@@ -1315,6 +1348,9 @@ try {
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
+    [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],
+    [headerRefresh.hasButton === true && headerRefresh.label === "Refresh data", `app: header exposes a touch refresh button (${JSON.stringify(headerRefresh)})`],
+    [headerRefresh.clicked === true && headerRefresh.requestsAfter > headerRefresh.requestsBefore && headerRefresh.hashAfter === headerRefresh.hashBefore, `app: header refresh reloads data in place (${JSON.stringify(headerRefresh)})`],
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
     [has(boardHtml, "board-7"), "board: 7-column board rendered"],
