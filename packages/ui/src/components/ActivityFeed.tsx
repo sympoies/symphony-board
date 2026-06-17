@@ -1,10 +1,11 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
+  ACTIVITY_MOBILE_ROW_HEIGHT_PX,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
   activityDisplay,
@@ -37,7 +38,11 @@ export const ACTION_KIND: Record<string, string> = {
   dismissed: "status-idle",
 };
 
-const ACTIVITY_ROW_STRIDE_PX = ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX;
+const ACTIVITY_MOBILE_QUERY = "(max-width: 760px)";
+
+function mobileActivityRows(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(ACTIVITY_MOBILE_QUERY).matches;
+}
 
 // The scrollable, virtualized activity list. Rows render a clickable title when
 // the record carries a `url` (e.g. a commit links straight to its GitHub/GitLab
@@ -59,6 +64,19 @@ export function ActivityFeed({
   // callers without it simply render no review-resolution chip.
   itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
+  const [mobileRows, setMobileRows] = useState(mobileActivityRows);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia(ACTIVITY_MOBILE_QUERY);
+    const onChange = () => setMobileRows(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  const rowHeight = mobileRows ? ACTIVITY_MOBILE_ROW_HEIGHT_PX : ACTIVITY_ROW_HEIGHT_PX;
+  const rowStride = rowHeight + ACTIVITY_ROW_GAP_PX;
+
   // A new `activities` array means the range or repo filter changed — the hook
   // jumps back to the top so the viewer is not stranded mid-scroll in a
   // different result set.
@@ -68,8 +86,8 @@ export function ActivityFeed({
   });
 
   const virtual = useMemo(
-    () => activityVirtualRange({ count: activities.length, scrollTop, viewportHeight }),
-    [activities.length, scrollTop, viewportHeight],
+    () => activityVirtualRange({ count: activities.length, scrollTop, viewportHeight, rowHeight }),
+    [activities.length, rowHeight, scrollTop, viewportHeight],
   );
   const visibleActivities = useMemo(
     () => activities.slice(virtual.start, virtual.end),
@@ -87,7 +105,7 @@ export function ActivityFeed({
       onScroll={handleScroll}
       style={
         {
-          "--activity-row-height": `${ACTIVITY_ROW_HEIGHT_PX}px`,
+          "--activity-row-height": `${rowHeight}px`,
         } as CSSProperties
       }
     >
@@ -108,7 +126,7 @@ export function ActivityFeed({
               style={
                 {
                   "--repo-color": accentColor ?? undefined,
-                  transform: `translateY(${index * ACTIVITY_ROW_STRIDE_PX}px)`,
+                  transform: `translateY(${index * rowStride}px)`,
                 } as CSSProperties
               }
             >

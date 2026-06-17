@@ -951,6 +951,7 @@ export function buildActivityTrend(
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;
+export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 124;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;

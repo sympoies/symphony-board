@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import {
   ACTIVITY_SUMMARY_KINDS,
@@ -425,6 +425,13 @@ export function ActivityHeatmap({
     [trendActivities, range, timezone],
   );
   const [tip, setTip] = useState<{ label: string; x: number; y: number } | null>(null);
+  const calendarScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const node = calendarScrollRef.current;
+    if (!node) return;
+    node.scrollLeft = node.scrollWidth;
+  }, [hm.from, hm.to, hm.weeks.length]);
 
   if (hm.total === 0) return null;
 
@@ -467,7 +474,7 @@ export function ActivityHeatmap({
         <h3>Activity rhythm</h3>
       </div>
 
-      <div className="hm-calendar-scroll">
+      <div ref={calendarScrollRef} className="hm-calendar-scroll">
         <div
           className="hm-calendar"
           role="img"

@@ -1237,13 +1237,18 @@ try {
           const localFileSummaryStyle = localFileSummary ? getComputedStyle(localFileSummary) : null;
           const rangeControls = document.querySelector('.time-range-controls');
           const activityHeatmap = document.querySelector('.activity-heatmap');
+          const heatmapScroll = activityHeatmap?.querySelector('.hm-calendar-scroll');
           const activityList = document.querySelector('.activity-list');
           const heatmapRect = activityHeatmap?.getBoundingClientRect();
           const listRect = activityList?.getBoundingClientRect();
+          const activityRows = Array.from(document.querySelectorAll('.activity-row'));
+          const activityChips = document.querySelector('.activity-chips');
+          const activityChipsStyle = activityChips ? getComputedStyle(activityChips) : null;
           const sources = document.querySelector('.app-header .sources');
           const sourceChips = Array.from(document.querySelectorAll('.app-header .source-chip'));
           const sourceChipTops = sourceChips.map((chip) => Math.round(chip.getBoundingClientRect().top));
           const sourcesRect = sources?.getBoundingClientRect();
+          const heatmapMaxScroll = heatmapScroll ? Math.max(0, heatmapScroll.scrollWidth - heatmapScroll.clientWidth) : 0;
           return {
             ready: !!root,
             overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
@@ -1261,7 +1266,10 @@ try {
             fileDisclosureSingleLine: !controls || (!!localFileSummary && localFileSummaryStyle?.whiteSpace === 'nowrap' && localFileSummary.getBoundingClientRect().height <= 38),
             rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
+            activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
+            activityChipsWrap: !activityChips || (activityChipsStyle?.whiteSpace === 'normal' && activityChipsStyle?.flexWrap === 'wrap'),
+            activityRowsNotClipped: activityRows.every((row) => row.scrollHeight <= row.clientHeight + 1),
             headerSourcesCount: sourceChips.length,
             headerSourcesHeight: Math.round(sourcesRect?.height || 0),
             headerSourcesOneLine: sourceChipTops.length > 0 && new Set(sourceChipTops).size === 1,
@@ -1474,6 +1482,8 @@ try {
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /\b1\b/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActivity.activityHeatmapAboveFeed === true && phoneActivity.activityListHeight > 0 && phoneActivity.activityListHeight <= Math.round(phoneActivity.viewportHeight * 0.55), `portrait: phone activity puts rhythm before a shorter feed (${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px)`],
+    [phoneActivity.activityHeatmapScrolledToLatest === true, "portrait: phone activity heatmap opens scrolled to the latest dates"],
+    [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],

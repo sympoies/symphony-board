@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import {
+  installAndroidSafeAreaInsets,
   internalRouteHashFromHref,
   isTauriRuntime,
   normalizeDesktopStartupRoute,
@@ -11,6 +12,7 @@ import {
 import "./styles.css";
 
 normalizeDesktopStartupRoute();
+installAndroidSafeAreaInsets();
 
 document.addEventListener(
   "click",

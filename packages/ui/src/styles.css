@@ -116,51 +116,62 @@ body {
   font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap) {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-track {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-track-piece {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece {
   background: var(--scrollbar-track);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-thumb {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border: 2px solid var(--scrollbar-thumb-border);
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-thumb:hover {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-thumb:active {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-corner {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
-:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap) {
+:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
   --scrollbar-track: color-mix(in srgb, var(--panel) 80%, var(--bg));
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
 
-.app { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: calc(16px + var(--android-safe-area-top, 0px)) 16px calc(16px + var(--android-safe-area-bottom, 0px));
+}
 /* full-bleed page (the primary 7-column board), GitHub-Projects style */
-.app-wide { max-width: none; padding: 16px 20px; }
+.app-wide {
+  max-width: none;
+  padding:
+    calc(16px + var(--android-safe-area-top, 0px))
+    calc(20px + var(--android-safe-area-right, 0px))
+    calc(16px + var(--android-safe-area-bottom, 0px))
+    calc(20px + var(--android-safe-area-left, 0px));
+}
 
 /* page tabs (Board / Graph) */
 .page-tabs { display: flex; gap: 4px; margin: 12px 0 4px; border-bottom: 1px solid var(--line); }
@@ -1535,7 +1546,14 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (max-width: 760px) {
-  .app-wide { padding: 14px 12px; overflow-x: hidden; }
+  .app-wide {
+    padding:
+      calc(14px + var(--android-safe-area-top, 0px))
+      calc(12px + var(--android-safe-area-right, 0px))
+      calc(14px + var(--android-safe-area-bottom, 0px))
+      calc(12px + var(--android-safe-area-left, 0px));
+    overflow-x: hidden;
+  }
   .page-tabs {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1601,6 +1619,16 @@ a.rf-node-title:hover { color: var(--accent); }
   .activity-layout > .activity-list {
     grid-row: 2;
     max-height: 45vh;
+  }
+  .activity-chips {
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
+  }
+  .activity-chips span {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .commits-toolbar { align-items: stretch; flex-direction: column; }
   .commits-filter { flex: none; max-width: none; }

@@ -26,11 +26,25 @@ writeFileSync(
 
 import android.os.Bundle
 import android.webkit.WebView
+import android.webkit.JavascriptInterface
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import java.util.Locale
 
 class MainActivity : TauriActivity() {
+    private var safeInsetTop = 0f
+    private var safeInsetRight = 0f
+    private var safeInsetBottom = 0f
+    private var safeInsetLeft = 0f
+
+    inner class SafeAreaBridge {
+        @JavascriptInterface fun top(): Float = safeInsetTop
+        @JavascriptInterface fun right(): Float = safeInsetRight
+        @JavascriptInterface fun bottom(): Float = safeInsetBottom
+        @JavascriptInterface fun left(): Float = safeInsetLeft
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
@@ -38,22 +52,39 @@ class MainActivity : TauriActivity() {
 
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
-        val baseLeft = webView.paddingLeft
-        val baseTop = webView.paddingTop
-        val baseRight = webView.paddingRight
-        val baseBottom = webView.paddingBottom
+        webView.addJavascriptInterface(SafeAreaBridge(), "symphonyAndroidInsets")
 
-        ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(
-                baseLeft + bars.left,
-                baseTop + bars.top,
-                baseRight + bars.right,
-                baseBottom + bars.bottom
-            )
+            val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+            safeInsetTop = bars.top / density
+            safeInsetRight = bars.right / density
+            safeInsetBottom = bars.bottom / density
+            safeInsetLeft = bars.left / density
+            injectSafeAreaInsets(webView)
             insets
         }
         ViewCompat.requestApplyInsets(webView)
+    }
+
+    private fun cssPx(value: Float): String = String.format(Locale.US, "%.2fpx", value)
+
+    private fun injectSafeAreaInsets(webView: WebView) {
+        val script = """
+            (() => {
+              const root = document.documentElement;
+              if (!root) return;
+              root.style.setProperty('--android-safe-area-top', '\${cssPx(safeInsetTop)}');
+              root.style.setProperty('--android-safe-area-right', '\${cssPx(safeInsetRight)}');
+              root.style.setProperty('--android-safe-area-bottom', '\${cssPx(safeInsetBottom)}');
+              root.style.setProperty('--android-safe-area-left', '\${cssPx(safeInsetLeft)}');
+              root.dataset.androidSystemInsets = 'true';
+            })();
+        """.trimIndent()
+
+        webView.post { webView.evaluateJavascript(script, null) }
+        webView.postDelayed({ webView.evaluateJavascript(script, null) }, 250)
+        webView.postDelayed({ webView.evaluateJavascript(script, null) }, 1000)
     }
 }
 `,
