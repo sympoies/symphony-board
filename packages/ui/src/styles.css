@@ -116,6 +116,32 @@ body {
   font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Android edge-to-edge (targetSdk >= 35) makes the WebView fill the screen and
+   the system bars transparent, so page content scrolling past the top/bottom
+   padding would otherwise show through behind the status / navigation bars.
+   These fixed scrims paint the bar regions with the app background (matching the
+   page, theme-aware) so scrolled content stays hidden behind opaque bars. Heights
+   come from the safe-area bridge; they resolve to 0 in the browser and on desktop
+   (variable unset), so the scrims are invisible no-ops there. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  z-index: 60;
+  pointer-events: none;
+}
+body::before {
+  top: 0;
+  height: var(--android-safe-area-top, 0px);
+}
+body::after {
+  bottom: 0;
+  height: var(--android-safe-area-bottom, 0px);
+}
+
 :where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
@@ -158,14 +184,14 @@ body {
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
 
-.app {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: calc(16px + var(--android-safe-area-top, 0px)) 16px calc(16px + var(--android-safe-area-bottom, 0px));
-}
-/* full-bleed page (the primary 7-column board), GitHub-Projects style */
+/* The single app container, always rendered as `app app-wide` (full-bleed —
+   the primary 7-column board, GitHub-Projects style). Top/bottom padding folds
+   in the Android system-bar safe-area insets so content clears the status / nav
+   bars on edge-to-edge devices; the insets resolve to 0 in the browser and on
+   desktop. The narrower mobile padding is set in the @media block below. */
 .app-wide {
   max-width: none;
+  margin: 0 auto;
   padding:
     calc(16px + var(--android-safe-area-top, 0px))
     calc(20px + var(--android-safe-area-right, 0px))
@@ -174,7 +200,23 @@ body {
 }
 
 /* page tabs (Board / Graph) */
-.page-tabs { display: flex; gap: 4px; margin: 12px 0 4px; border-bottom: 1px solid var(--line); }
+/* Primary nav is pinned to the top so it stays reachable while scrolling (web +
+   Android); the brand/source header above it scrolls away. On Android it sticks
+   just below the status bar via the safe-area inset (0 elsewhere), and the
+   opaque background keeps scrolled content hidden behind it. The top gap is
+   padding rather than margin so the sticky box has no outer margin that would
+   leave a content sliver above it when pinned. */
+.page-tabs {
+  position: sticky;
+  top: var(--android-safe-area-top, 0px);
+  z-index: 40;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding-top: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
 .tab { padding: 6px 12px; color: var(--muted); border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
 .tab:hover { color: var(--text); text-decoration: none; }
 .tab-on { color: var(--text); border-bottom-color: var(--accent); }
@@ -1546,14 +1588,6 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (max-width: 760px) {
-  .app-wide {
-    padding:
-      calc(14px + var(--android-safe-area-top, 0px))
-      calc(12px + var(--android-safe-area-right, 0px))
-      calc(14px + var(--android-safe-area-bottom, 0px))
-      calc(12px + var(--android-safe-area-left, 0px));
-    overflow-x: hidden;
-  }
   .page-tabs {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2076,9 +2110,18 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (max-width: 760px) {
-  .app,
   .app-wide {
-    padding: 12px;
+    /* Narrower mobile padding, still folding in the Android safe-area insets so
+       the header clears the status bar on edge-to-edge devices. */
+    padding:
+      calc(12px + var(--android-safe-area-top, 0px))
+      calc(12px + var(--android-safe-area-right, 0px))
+      calc(12px + var(--android-safe-area-bottom, 0px))
+      calc(12px + var(--android-safe-area-left, 0px));
+    /* `clip`, not `hidden`: hidden would force overflow-y to `auto`, making
+       .app-wide a scroll container and silently breaking the sticky .page-tabs.
+       clip stops horizontal overflow without establishing a scroll container. */
+    overflow-x: clip;
   }
   .app-header {
     gap: 8px;

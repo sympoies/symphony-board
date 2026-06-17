@@ -46,6 +46,10 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Android 15+ (targetSdk >= 35) forces edge-to-edge: the activity draws
+        // under the status and navigation bars. Opt the decor view out of fitting
+        // system windows so the WebView can fill the screen, then re-inset the page
+        // content ourselves via the safe-area bridge below.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
     }
@@ -54,8 +58,17 @@ class MainActivity : TauriActivity() {
         super.onWebViewCreate(webView)
         webView.addJavascriptInterface(SafeAreaBridge(), "symphonyAndroidInsets")
 
-        ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+        // Listen on the decor view, not the WebView. Inside wry's view hierarchy the
+        // WebView is not reliably in the window-inset dispatch path, so a listener on
+        // it never observed a non-zero status-bar inset and the page kept drawing
+        // under the status bar. The decor view always receives the raw window insets.
+        // Fold display-cutout insets into the system bars so notch / punch-hole
+        // devices stay clear too.
+        val decorView = window.decorView
+        ViewCompat.setOnApplyWindowInsetsListener(decorView) { _, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
             val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
             safeInsetTop = bars.top / density
             safeInsetRight = bars.right / density
@@ -64,7 +77,7 @@ class MainActivity : TauriActivity() {
             injectSafeAreaInsets(webView)
             insets
         }
-        ViewCompat.requestApplyInsets(webView)
+        ViewCompat.requestApplyInsets(decorView)
     }
 
     private fun cssPx(value: Float): String = String.format(Locale.US, "%.2fpx", value)
