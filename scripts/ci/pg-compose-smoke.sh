@@ -91,7 +91,8 @@ curl -fsS "$base/contract.json" >"$contract"
 node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts --in "$contract"
 
 curl -fsS "$base/api/stats" >"$stats"
-# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
 node -e '
 const fs = require("fs");
 const stats = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -108,7 +109,8 @@ if (stats.db?.schema_version !== 4) {
 curl -fsS "$base/api/sync-control" >/dev/null
 
 curl -fsS "$base/api/config" >"$config_probe"
-# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -132,7 +134,8 @@ curl -fsS \
   "$base/api/config" >/dev/null
 
 curl -fsS "$base/api/config" >"$config_probe"
-# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -143,7 +146,8 @@ if (probe.config?.timezone !== "Asia/Taipei") {
 ' "$config_probe"
 
 curl -fsS "$base/api/secrets" >"$secrets_probe"
-# shellcheck disable=SC2016 # Node reads process.argv; shell expansion is not wanted.
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -165,6 +169,8 @@ curl -fsS \
   "$base/api/secrets" >/dev/null
 
 curl -fsS "$base/api/secrets" >"$secrets_probe"
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
 node -e '
 const fs = require("fs");
 const probe = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));

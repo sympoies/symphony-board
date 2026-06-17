@@ -4,7 +4,7 @@
   "version": "1.1.4",
   "identifier": "com.sympoies.symphonyboard.android",
   "build": {
-    "beforeDevCommand": "VITE_SYMPHONY_BOARD_CLIENT=android pnpm --dir ../.. --filter @symphony-board/ui dev -- --host 127.0.0.1 --port 5174",
+    "beforeDevCommand": "VITE_SYMPHONY_BOARD_CLIENT=android pnpm --dir ../.. --filter @symphony-board/ui dev -- --host 0.0.0.0 --port 5174",
     "beforeBuildCommand": "VITE_SYMPHONY_BOARD_CLIENT=android pnpm --dir ../.. --filter @symphony-board/ui build",
     "devUrl": "http://127.0.0.1:5174",
     "frontendDist": "../../ui/dist"
