@@ -194,6 +194,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .toggle:hover { border-color: var(--accent); }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.filter-disclosure { display: none; }
+.filter-groups { display: contents; }
 .file-load { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 /* The bare control box plus its browser-rendered "Choose File" button: the box
    is styled directly, the button only through the ::file-selector-button
@@ -1406,6 +1408,31 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .brand .muted, .activity-head .muted { overflow-wrap: anywhere; }
   .activity-head .muted { flex-basis: 100%; }
+  .controls { align-items: stretch; gap: 8px; }
+  .controls .search { flex-basis: 100%; width: 100%; box-sizing: border-box; }
+  .filter-disclosure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+  }
+  .filter-groups {
+    display: none;
+    width: 100%;
+  }
+  .filter-groups[data-open="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .filter-groups .toggle-group {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .filter-groups .toggle-label { flex-basis: 100%; }
   .time-range-controls { align-items: flex-start; gap: 8px; }
   .time-range-controls .date-filter {
     flex: 1 1 calc(50% - 8px);
@@ -1425,6 +1452,12 @@ a.rf-node-title:hover { color: var(--accent); }
     gap: 5px;
   }
   .time-range-controls .toggle-label { flex-basis: 100%; }
+  .activity-layout { gap: 12px; }
+  .activity-heatmap { grid-row: 1; }
+  .activity-layout > .activity-list {
+    grid-row: 2;
+    max-height: 45vh;
+  }
   .commits-toolbar { align-items: stretch; flex-direction: column; }
   .commits-filter { flex: none; max-width: none; }
   .commits-filter-hint { align-self: flex-start; }

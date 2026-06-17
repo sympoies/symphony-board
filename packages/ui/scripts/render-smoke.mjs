@@ -1115,6 +1115,14 @@ try {
           const cols = Array.from(document.querySelectorAll('.board-7 .col'));
           const graphBody = document.querySelector('.graph-body');
           const repoTable = document.querySelector('.repo-table');
+          const controls = document.querySelector('.controls');
+          const filterToggle = controls?.querySelector('.filter-disclosure');
+          const filterGroups = controls?.querySelector('.filter-groups');
+          const rangeControls = document.querySelector('.time-range-controls');
+          const activityHeatmap = document.querySelector('.activity-heatmap');
+          const activityList = document.querySelector('.activity-list');
+          const heatmapRect = activityHeatmap?.getBoundingClientRect();
+          const listRect = activityList?.getBoundingClientRect();
           return {
             ready: !!root,
             overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
@@ -1125,6 +1133,11 @@ try {
             visibleBoardColumns: cols.filter((el) => getComputedStyle(el).display !== 'none').length,
             graphStacked: !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
             repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
+            filterButtonVisible: !controls || (!!filterToggle && getComputedStyle(filterToggle).display !== 'none'),
+            filterGroupsCollapsed: !controls || (!!filterGroups && getComputedStyle(filterGroups).display === 'none'),
+            rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
+            activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
+            activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
           };
         })()`,
         returnByValue: true,
@@ -1132,6 +1145,47 @@ try {
       portraitResults.push({ preset: preset.name, page: page.page, ...result });
     }
   }
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity?kind=commit'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.activity-page')");
+  const phoneActiveFilterDisclosureBefore = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const controls = document.querySelector('.controls');
+      const button = controls?.querySelector('.filter-disclosure');
+      const groups = controls?.querySelector('.filter-groups');
+      const activeChip = groups?.querySelector('.toggle.toggle-on');
+      return {
+        hasButton: !!button,
+        buttonVisible: !!button && getComputedStyle(button).display !== 'none',
+        buttonText: button?.textContent?.trim() || '',
+        groupsHidden: !!groups && getComputedStyle(groups).display === 'none',
+        rangeVisible: !!document.querySelector('.time-range-controls') && getComputedStyle(document.querySelector('.time-range-controls')).display !== 'none',
+        activeChipText: activeChip?.textContent?.trim() || null,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: "document.querySelector('.controls .filter-disclosure')?.click()",
+  });
+  await sleep(150);
+  const phoneActiveFilterDisclosureAfter = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const groups = document.querySelector('.controls .filter-groups');
+      const activeChip = groups?.querySelector('.toggle.toggle-on');
+      return {
+        groupsVisible: !!groups && getComputedStyle(groups).display !== 'none',
+        activeChipVisible: !!activeChip && getComputedStyle(activeChip).display !== 'none',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const phoneActiveFilterDisclosure = {
+    ...phoneActiveFilterDisclosureBefore,
+    ...phoneActiveFilterDisclosureAfter,
+  };
   await send("Emulation.clearDeviceMetricsOverride");
   ws.close();
 
@@ -1175,6 +1229,9 @@ try {
   const tabletBoard = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "board") || {};
   const portraitGraphs = portraitResults.filter((r) => r.page === "graph");
   const portraitRepos = portraitResults.filter((r) => r.page === "repo-analytics");
+  const phoneFilterPages = portraitResults.filter((r) => r.preset === "phone-portrait" && !["commits", "settings", "debug"].includes(r.page));
+  const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
+  const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
@@ -1209,6 +1266,10 @@ try {
     [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
     [portraitGraphs.every((r) => r.graphStacked === true), "portrait: graph stacks list and canvas"],
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
+    [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
+    [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
+    [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /\b1\b/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
+    [phoneActivity.activityHeatmapAboveFeed === true && phoneActivity.activityListHeight > 0 && phoneActivity.activityListHeight <= Math.round(phoneActivity.viewportHeight * 0.55), `portrait: phone activity puts rhythm before a shorter feed (${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px)`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],
