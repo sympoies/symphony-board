@@ -42,6 +42,12 @@ android:build:apk` runs `tauri android build --apk --ci` and uses
 otherwise the Android app starts without a default server and Settings ->
 Server is the recovery path.
 
+The Android generated project is intentionally gitignored. The package scripts
+run `scripts/prepare-generated-android.mjs` before dev/build commands so the
+generated app uses the Symphony Board launcher mark and applies Android
+system-bar insets to the WebView, avoiding status/navigation bar overlap on
+edge-to-edge devices.
+
 ## Server Shape
 
 The intended deployment is the Docker Compose Postgres stack on the Ubuntu host:

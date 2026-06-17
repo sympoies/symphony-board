@@ -31,6 +31,28 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+export function internalRouteHashFromHref(rawHref: string | null, resolvedHref: string, currentHref: string): string | null {
+  const href = rawHref?.trim() ?? "";
+  if (href.startsWith("#/")) return href;
+
+  try {
+    const resolved = new URL(resolvedHref);
+    const current = new URL(currentHref);
+    if (!resolved.hash.startsWith("#/")) return null;
+    if (resolved.origin !== current.origin) return null;
+    if (resolved.pathname !== current.pathname) return null;
+    if (resolved.search !== current.search) return null;
+    return resolved.hash;
+  } catch {
+    return null;
+  }
+}
+
+export function shouldOpenExternalHttpHref(rawHref: string | null, resolvedHref: string, currentHref: string): boolean {
+  if (internalRouteHashFromHref(rawHref, resolvedHref, currentHref)) return false;
+  return isHttpUrl(resolvedHref);
+}
+
 export async function appFetch(url: string, init?: RequestInit): Promise<Response> {
   if (isTauriRuntime() && isHttpUrl(url)) {
     const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
