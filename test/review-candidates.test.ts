@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import type { ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   ActivityDTO,
   ContractEnvelope,
@@ -12,7 +16,11 @@ import {
   type ReviewCandidateOptions,
 } from "../src/cli/review-candidates.ts";
 import { buildContract } from "../src/contract/build.ts";
+import type { AppConfig } from "../src/config.ts";
+import { openSqliteStore } from "../src/db/sqlite.ts";
 import type { ItemRow, SourceRow } from "../src/db/store.ts";
+import type { CanonicalItem } from "../src/model/types.ts";
+import { handleReviewCandidatesRequest } from "../src/server/review-candidates.ts";
 
 // review-candidates is the board's first-class promotion of the bespoke
 // project-review-cleanup discovery logic: the board computes candidates from
@@ -432,6 +440,48 @@ function staleOpenThreadRow(): ItemRow {
   };
 }
 
+function staleOpenThreadCanonical(): CanonicalItem {
+  return {
+    sourceId: "github:github.com",
+    externalId: "PR_stale",
+    kind: "change_request",
+    projectPath: "graysurf/repo",
+    iid: 400,
+    url: "https://github.com/graysurf/repo/pull/400",
+    title: "A long-merged PR with a lingering open thread",
+    state: "merged",
+    stateRaw: "MERGED",
+    stateReason: null,
+    isDraft: false,
+    author: "graysurf",
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-10T00:00:00Z",
+    closedAt: null,
+    mergedAt: "2025-01-10T00:00:00Z",
+    reviewState: null,
+    ciState: null,
+    mergeState: null,
+    openReviewThreads: 1,
+    totalReviewThreads: 1,
+    milestone: null,
+    demand: null,
+  };
+}
+
+function fakeRes(): { res: ServerResponse; out: { status: number; body: string } } {
+  const out = { status: 0, body: "" };
+  const res = {
+    writeHead(status: number) {
+      out.status = status;
+      return res;
+    },
+    end(chunk?: string) {
+      out.body += chunk ?? "";
+    },
+  } as unknown as ServerResponse;
+  return { res, out };
+}
+
 test("discovery finds an old open-thread PR that the default board window drops (itemWindow full)", () => {
   const generatedAt = "2026-06-16T00:00:00Z";
   const rows = [staleOpenThreadRow()];
@@ -452,4 +502,54 @@ test("discovery finds an old open-thread PR that the default board window drops 
   assert.equal(found.length, 1, "the full projection keeps the item so discovery finds it");
   assert.equal(found[0]!.pr, 400);
   assert.deepEqual(found[0]!.reasons, ["open_review_threads"]);
+});
+
+test("GET /api/review-candidates serves full-store candidates and validates query params", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "review-candidates-api-test-"));
+  const dbPath = join(dir, "board.db");
+  const db = await openSqliteStore(dbPath);
+  try {
+    await db.ensureSource(
+      { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" },
+      "2026-06-01T00:00:00Z",
+    );
+    await db.upsertItem(staleOpenThreadCanonical(), "github/pr-stale", "2026-06-16T00:00:00Z");
+  } finally {
+    await db.close();
+  }
+
+  const cfg = {
+    db_path: dbPath,
+    timezone: "UTC",
+    sources: [
+      {
+        source_id: "github:github.com",
+        kind: "github",
+        host: "github.com",
+        graphql_url: "https://api.github.com/graphql",
+        projects: ["graysurf/repo"],
+      },
+    ],
+  } as AppConfig;
+
+  try {
+    const { res, out } = fakeRes();
+    await handleReviewCandidatesRequest(
+      cfg,
+      new URL("http://localhost/api/review-candidates?repo=graysurf/repo&pr=400"),
+      res,
+    );
+    assert.equal(out.status, 200);
+    const candidates = JSON.parse(out.body) as Array<{ pr: number; reasons: string[] }>;
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]!.pr, 400);
+    assert.deepEqual(candidates[0]!.reasons, ["open_review_threads"]);
+
+    const bad = fakeRes();
+    await handleReviewCandidatesRequest(cfg, new URL("http://localhost/api/review-candidates?limit=0"), bad.res);
+    assert.equal(bad.out.status, 400);
+    assert.equal((JSON.parse(bad.out.body) as { error: string }).error, "bad_request");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

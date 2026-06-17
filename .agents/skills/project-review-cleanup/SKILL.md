@@ -16,13 +16,14 @@ closing out delivery work where provider review threads may have arrived after
 checks and local review passed.
 
 This skill is a thin **board-discovery adapter**. It owns one board-specific
-job: deciding *which* PRs to sweep, computed from the board's own canonical
+job: deciding *which* PRs to sweep, computed from the active board's canonical
 store/contract. The actual per-PR thread sweep — list, triage, resolve/reply —
 is owned by the shared `review-thread-cleanup` skill (the `pr` plugin) over the
 released `forge-cli pr review-threads` surfaces. Discovery lives in the board's
-`review-candidates` CLI; the provider mechanics live in `forge-cli`; the
-judgment lives in `core/policies/review-thread-convergence.md`. This skill no
-longer carries its own discovery, live-read, or resolve/reply GraphQL.
+`/api/review-candidates` endpoint or the local `review-candidates` CLI; the
+provider mechanics live in `forge-cli`; the judgment lives in
+`core/policies/review-thread-convergence.md`. This skill no longer carries its
+own discovery, live-read, or resolve/reply GraphQL.
 
 ## Contract
 
@@ -37,14 +38,14 @@ Prereqs:
   (it ships from `agent-runtime-kit`). Read
   `core/policies/review-thread-convergence.md` (resolve with
   `agent-docs preflight --intent project-dev`) — it is the judgment contract.
-- `review-candidates` reads the board's active store read-only through the repo
-  config (`loadConfig` resolves `--config` → `SYMPHONY_CONFIG` →
-  `config/sources.json`). On a Postgres board (the `docker/compose.pg.yaml`
-  stack), the active store is `config/${SYMPHONY_CONFIG_BASENAME:-sources.pg.json}`
-  plus `SYMPHONY_DB_URL` — so run `review-candidates` with the SAME
-  `SYMPHONY_CONFIG` / `SYMPHONY_DB_URL` the stack uses (or pass `--config`).
-  Otherwise it falls back to `config/sources.json` (the SQLite default) and
-  scans a different, stale store than the UI is serving.
+- Discovery must target the active board endpoint, not an incidental local
+  store. In this private workspace the default base is the g14 Tailscale board:
+  `http://terry-g14.tail841b2e.ts.net:18080`. Override with
+  `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` (exact endpoint) or
+  `SYMPHONY_BOARD_BASE_URL` (base URL; `/api/review-candidates` is appended).
+  Do not run local-store discovery for cleanup; stale local SQLite is not an
+  acceptable source for deciding whether provider review threads still need
+  attention.
 
 Inputs (all optional, forwarded to `review-candidates`):
 
@@ -87,16 +88,20 @@ Failure modes:
 
 ## Workflow
 
-1. **Discover candidates** from the board's own store (read-only):
+1. **Discover candidates** from the active board endpoint (read-only):
 
    ```bash
+   export SYMPHONY_BOARD_BASE_URL="${SYMPHONY_BOARD_BASE_URL:-http://terry-g14.tail841b2e.ts.net:18080}"
    pnpm review-candidates --json
    # focus one PR / repo, or widen the late-review window/actors:
    pnpm review-candidates --json --repo sympoies/symphony-board --pr 181
    pnpm review-candidates --json --all-actors --days 14
    ```
 
-   Each candidate carries `repo` (`owner/name`) and `pr`. Lead with the
+   `pnpm review-candidates` reads
+   `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` / `SYMPHONY_BOARD_BASE_URL` (including
+   `.env`) and otherwise uses the hard-coded g14 endpoint. Each candidate carries
+   `repo` (`owner/name`) and `pr`. Lead with the
    `open_review_threads` candidates (most open threads first) — that is the
    complete "unresolved" set the board lens shows. `late_review` /
    `review_on_closed_pr` add review-timing context the point-in-time count
@@ -124,8 +129,8 @@ Failure modes:
    delivery workflow, or open and link a follow-up issue. Then return to the
    shared skill to resolve the original thread with the fix/follow-up note.
 
-4. **Confirm convergence from the live provider, not the board store.** The
-   board store/contract `review-candidates` reads only changes on the next board
+4. **Confirm convergence from the live provider, not the board endpoint.** The
+   board endpoint / `review-candidates` reads only changes on the next board
    sync, so it lags the `forge-cli` resolutions you just applied. Confirm with
    the focused live check
    `forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>`

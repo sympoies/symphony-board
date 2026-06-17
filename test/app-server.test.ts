@@ -114,6 +114,11 @@ test("app-server serves health, contract, range, and the sync control surface", 
     assert.equal(stats.tables.item, 0);
     assert.ok(stats.db.schema_version >= 3);
 
+    // review cleanup discovery: mounted on the same read-only store sidecar role
+    const reviewCandidatesRes = await fetch(`${base}/api/review-candidates`);
+    assert.equal(reviewCandidatesRes.status, 200);
+    assert.deepEqual(await json(reviewCandidatesRes), []);
+
     // recent-log tail: enabled here; "?after=latest" means caught up
     const logs = await json(await fetch(`${base}/api/logs`));
     assert.equal(logs.enabled, true);
@@ -193,13 +198,16 @@ test("app-server degrades cleanly when the config is missing", async () => {
     assert.equal(control.status, 200);
     assert.deepEqual((await json(control)).sources, []);
 
-    // range and stats report the config failure instead of crashing the process
+    // range, stats, and review-candidates report the config failure instead of crashing the process
     const range = await fetch(`${base}/api/range?from=2026-01-01&to=2026-01-02`);
     assert.equal(range.status, 500);
     assert.equal((await json(range)).error, "config_error");
     const stats = await fetch(`${base}/api/stats`);
     assert.equal(stats.status, 500);
     assert.equal((await json(stats)).error, "config_error");
+    const reviewCandidates = await fetch(`${base}/api/review-candidates`);
+    assert.equal(reviewCandidates.status, 500);
+    assert.equal((await json(reviewCandidates)).error, "config_error");
 
     // the log tail is disabled on this deployment: probe answers, leaks nothing
     const logs = await json(await fetch(`${base}/api/logs`));

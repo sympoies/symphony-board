@@ -13,7 +13,12 @@
 //   node src/cli/review-candidates.ts [--days <n>] [--actor <login>]...
 //                                     [--all-actors] [--limit <n>]
 //                                     [--repo <owner/name>] [--pr <iid>]
-//                                     [--config <path>] [--json]
+//                                     [--endpoint <url>] [--json]
+//
+// Discovery is endpoint-first on purpose: this private repo's active board runs
+// on g14, so local-store fallback is more dangerous than useful. The endpoint
+// can be overridden with --endpoint, SYMPHONY_BOARD_REVIEW_CANDIDATES_URL, or
+// SYMPHONY_BOARD_BASE_URL. The default is the g14 Tailscale board endpoint.
 //
 // Discovery has two passes, mirroring project-review-cleanup buildCandidates:
 //   Pass 1 (item-centric, actor-agnostic, the primary signal): every GitHub
@@ -24,15 +29,13 @@
 //     -> `late_review`, or on an already-closed item -> `review_on_closed_pr`.
 
 import { pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
 import type {
   ActivityDTO,
   ContractEnvelope,
   ItemDTO,
   SourceDTO,
 } from "@symphony-board/contract";
-import { loadConfig } from "../config.ts";
-import { openConfiguredStoreReadOnly } from "../db/factory.ts";
-import { buildContractEnvelope } from "../contract/emit.ts";
 
 // The same default allowlist the project-review-cleanup skill uses. The actor
 // allowlist governs only Pass 2 discovery (and what --apply may auto-resolve in
@@ -298,9 +301,12 @@ export function buildReviewCandidates(
 // ---- CLI driver (only runs when invoked directly) ---------------------------
 
 interface CliArgs extends ReviewCandidateOptions {
-  config: string | null;
+  endpoint: string | null;
   json: boolean;
 }
+
+const DEFAULT_REVIEW_CANDIDATES_ENDPOINT =
+  "http://terry-g14.tail841b2e.ts.net:18080/api/review-candidates";
 
 function parsePositiveInt(value: string | undefined, name: string): number {
   const parsed = Number(value);
@@ -319,7 +325,7 @@ function parseNonNegativeNumber(value: string | undefined, name: string): number
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const a: CliArgs = { ...defaultOptions(), config: null, json: false };
+  const a: CliArgs = { ...defaultOptions(), endpoint: null, json: false };
   for (let i = 0; i < argv.length; i++) {
     const x = argv[i];
     if (x === "--days") a.days = parseNonNegativeNumber(argv[++i], "--days");
@@ -331,11 +337,81 @@ function parseArgs(argv: string[]): CliArgs {
     else if (x === "--limit") a.limit = parsePositiveInt(argv[++i], "--limit");
     else if (x === "--repo") a.repo = argv[++i] ?? null;
     else if (x === "--pr") a.pr = parsePositiveInt(argv[++i], "--pr");
-    else if (x === "--config") a.config = argv[++i] ?? null;
+    else if (x === "--endpoint") a.endpoint = argv[++i] ?? null;
     else if (x === "--json") a.json = true;
     else throw new Error(`unknown argument: ${x}`);
   }
   return a;
+}
+
+function stripEnvQuotes(value: string): string {
+  if (
+    value.length >= 2 &&
+    ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function loadRepoEnv(): Record<string, string> {
+  try {
+    const env: Record<string, string> = {};
+    for (const rawLine of readFileSync(".env", "utf8").split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
+      const equals = normalized.indexOf("=");
+      if (equals <= 0) continue;
+      const key = normalized.slice(0, equals).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+      env[key] = stripEnvQuotes(normalized.slice(equals + 1).trim());
+    }
+    return env;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
+  }
+}
+
+function envValue(repoEnv: Record<string, string>, name: string): string | null {
+  const raw = process.env[name] ?? repoEnv[name] ?? "";
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : null;
+}
+
+function defaultEndpoint(repoEnv: Record<string, string>): string {
+  const explicit = envValue(repoEnv, "SYMPHONY_BOARD_REVIEW_CANDIDATES_URL");
+  if (explicit) return explicit;
+  const base = envValue(repoEnv, "SYMPHONY_BOARD_BASE_URL");
+  if (base) return `${base.replace(/\/+$/, "")}/api/review-candidates`;
+  return DEFAULT_REVIEW_CANDIDATES_ENDPOINT;
+}
+
+function endpointWithOptions(endpoint: string, args: CliArgs): string {
+  const url = new URL(endpoint);
+  url.searchParams.set("days", String(args.days));
+  url.searchParams.set("limit", String(args.limit));
+  if (args.repo) url.searchParams.set("repo", args.repo);
+  if (args.pr) url.searchParams.set("pr", String(args.pr));
+  for (const actor of args.actors) url.searchParams.append("actor", actor);
+  if (args.allActors) url.searchParams.set("all_actors", "1");
+  return url.toString();
+}
+
+function isCandidateArray(value: unknown): value is ReviewCandidate[] {
+  return Array.isArray(value);
+}
+
+async function fetchRemoteCandidates(endpoint: string, args: CliArgs): Promise<ReviewCandidate[]> {
+  const url = endpointWithOptions(endpoint, args);
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`candidate endpoint ${url} returned HTTP ${response.status}`);
+  }
+  const payload = (await response.json()) as unknown;
+  if (isCandidateArray(payload)) return payload;
+  throw new Error(`candidate endpoint ${url} returned unsupported JSON shape; expected candidate array`);
 }
 
 function renderText(candidates: ReviewCandidate[]): string {
@@ -355,29 +431,9 @@ function renderText(candidates: ReviewCandidate[]): string {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const { cfg } = loadConfig(args.config);
-
-  // Read-only: the candidate set is computed from the contract projection, and
-  // this command must never mutate the canonical store.
-  const store = await openConfiguredStoreReadOnly(cfg);
-  let envelope: ContractEnvelope;
-  try {
-    // Discovery must see EVERY change_request with open threads, so build the
-    // unwindowed projection: the default 90-day board window would drop an old
-    // PR whose unresolved thread has aged out of it (Pass 1 is documented as the
-    // complete, non-windowed signal).
-    envelope = await buildContractEnvelope(store, cfg, new Date().toISOString(), { itemWindow: "full" });
-  } finally {
-    await store.close();
-  }
-
-  const candidates = buildReviewCandidates(envelope, args);
-
-  if (args.json) {
-    process.stdout.write(JSON.stringify(candidates, null, 2) + "\n");
-  } else {
-    process.stdout.write(renderText(candidates) + "\n");
-  }
+  const endpoint = args.endpoint ?? defaultEndpoint(loadRepoEnv());
+  const candidates = await fetchRemoteCandidates(endpoint, args);
+  process.stdout.write(args.json ? JSON.stringify(candidates, null, 2) + "\n" : renderText(candidates) + "\n");
 }
 
 // Only run when invoked directly (node src/cli/review-candidates.ts), so tests

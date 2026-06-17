@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
 import { loadConfig } from "../config.ts";
 import { handleRangeRequest } from "../server/range.ts";
+import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 
 interface Args {
@@ -56,6 +57,10 @@ const server = createServer((req, res) => {
     // The handlers respond on every path (success and failure), so the returned
     // promise never rejects and is safe to detach.
     void handleStatsRequest(cfg, url, res);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/review-candidates") {
+    void handleReviewCandidatesRequest(cfg, url, res);
     return;
   }
   if (req.method !== "GET" || url.pathname !== "/api/range") {

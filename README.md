@@ -214,12 +214,13 @@ Docker Compose runs three services in both store modes:
   below) plus its recent-log tail on `GET /api/logs` for the hidden Diagnostics
   page (`#/debug`, toggled with Cmd+/ or Ctrl+/).
 - `api`: a read-only Node sidecar. It opens the configured store read-only and
-  serves `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus store statistics on
+  serves `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`, review cleanup
+  discovery on `GET /api/review-candidates`, plus store statistics on
   `GET /api/stats`.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
   latest `data/contract.json` as `/contract.json`, proxies `/api/range` and
-  `/api/stats` to the read-only `api`, and proxies the sync-control and log-tail
-  routes to `board`.
+  `/api/stats` / `/api/review-candidates` to the read-only `api`, and proxies
+  the sync-control and log-tail routes to `board`.
 
 ```sh
 cat > .env <<'EOF'

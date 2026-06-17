@@ -44,6 +44,7 @@ import {
   type ControlContext,
 } from "./sync-daemon.ts";
 import { handleRangeRequest } from "../server/range.ts";
+import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { log } from "../log.ts";
 
@@ -113,7 +114,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       return;
     }
 
-    if (method === "GET" && (path === "/api/range" || path === "/api/stats")) {
+    if (method === "GET" && (path === "/api/range" || path === "/api/stats" || path === "/api/review-candidates")) {
       let cfg: AppConfig;
       try {
         cfg = freshConfig();
@@ -122,6 +123,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
         return;
       }
       if (path === "/api/stats") await handleStatsRequest(cfg, url, res);
+      else if (path === "/api/review-candidates") await handleReviewCandidatesRequest(cfg, url, res);
       else await handleRangeRequest(cfg, url, res);
       return;
     }

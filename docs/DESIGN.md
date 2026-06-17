@@ -645,15 +645,18 @@ fails to load — exactly when it is needed.
 | Route | Method | Served by | Purpose |
 | --- | --- | --- | --- |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
+| `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
 | `/api/logs` | GET | writer (`board` daemon / app server) | the writer process's in-memory recent-log tail; `?after=<seq>` returns only newer entries |
 
-**Stats are an operational surface, not contract.** `/api/stats` describes the
-store (sizes, row counts, run history), never the work-item data model, so it
-carries no `contract_version` and needs no bump. It follows the `/api/range`
-access discipline — every request opens the configured store read-only and
-closes it — and
-lives on the read-only `api` sidecar in the Docker stack (the generic `/api/`
-proxy covers it; nginx is untouched for stats).
+**Stats and review candidates are operational surfaces, not contract.**
+`/api/stats` describes the store (sizes, row counts, run history), never the
+work-item data model, so it carries no `contract_version` and needs no bump.
+`/api/review-candidates` is an agent/workflow surface for review-thread cleanup:
+it computes from the full canonical store, not the windowed UI contract, so an
+old merged PR with a lingering unresolved thread still appears. Both follow the
+`/api/range` access discipline — every request opens the configured store
+read-only and closes it — and live on the read-only `api` sidecar in the Docker
+stack (the generic `/api/` proxy covers them).
 
 **Logs are a per-process ring buffer.** `src/log.ts` tees every line into a
 1000-entry in-memory buffer with a monotonic `seq`; `GET /api/logs` is gated by
