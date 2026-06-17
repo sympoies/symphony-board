@@ -1,4 +1,5 @@
-:root {
+:root,
+:root[data-theme="night-owl"] {
   /* === Night Owl theme ===
      Every colour the UI uses lives in this block; the rules below derive their
      tints, fills and borders from these tokens via color-mix(), so a palette
@@ -25,6 +26,10 @@
      SHA and branch chips so they read as one chip family */
   --chip-bg: rgba(139, 164, 164, 0.08);
   --chip-border: rgba(139, 164, 164, 0.24);
+  --hover-soft: rgba(255, 255, 255, 0.04);
+  --hover-strong: rgba(255, 255, 255, 0.06);
+  --shadow-popover: 0 16px 32px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 6px 18px rgba(1, 22, 39, 0.6);
 
   /* semantic hues */
   --open: #addb67;       /* green  — open / success                       */
@@ -34,6 +39,8 @@
   --declared: #ffcb6b;   /* gold   — in flight / pending                  */
   --broken: #f78c6c;     /* salmon — abandoned / error                    */
   --warn: #ffcb6b;       /* gold   — partial-source banner                */
+  --graph-grid: #1d3b53;
+  --graph-mention: #8aa0b6;
 
   /* scroll surfaces */
   --scrollbar-size: 8px;
@@ -44,6 +51,52 @@
   --scrollbar-thumb-border: var(--scrollbar-track);
 
   font-synthesis: none;
+  color-scheme: dark;
+}
+
+:root[data-theme="paper"] {
+  /* === Paper theme ===
+     Device-local light palette for e-ink / e-paper readers: simple surfaces,
+     strong text contrast, restrained colour, and minimal shadow reliance. */
+
+  --bg: #f4f3ed;
+  --panel: #ffffff;
+  --panel-2: #ecefe8;
+  --line: #c7c9bf;
+
+  --text: #1f2520;
+  --muted: #5d645c;
+
+  --accent: #2457a7;
+  --accent-fg: #ffffff;
+  --link: #0c655b;
+  --iid: #73520f;
+
+  --chip-bg: rgba(31, 37, 32, 0.06);
+  --chip-border: rgba(31, 37, 32, 0.22);
+  --hover-soft: rgba(31, 37, 32, 0.06);
+  --hover-strong: rgba(31, 37, 32, 0.09);
+  --shadow-popover: 0 8px 18px rgba(31, 37, 32, 0.18);
+  --shadow-float: 0 4px 12px rgba(31, 37, 32, 0.22);
+
+  --open: #2d6c3f;
+  --fulfilled: #2d6c3f;
+  --closed: #5c4b86;
+  --merged: #49366f;
+  --declared: #855b00;
+  --broken: #a43c2e;
+  --warn: #855b00;
+  --graph-grid: #d6d9cf;
+  --graph-mention: #596b79;
+
+  --scrollbar-track: color-mix(in srgb, var(--bg) 84%, var(--panel));
+  --scrollbar-thumb: color-mix(in srgb, var(--line) 72%, var(--muted));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 34%, var(--line));
+  --scrollbar-thumb-active: color-mix(in srgb, var(--link) 40%, var(--line));
+  --scrollbar-thumb-border: var(--scrollbar-track);
+
+  font-synthesis: none;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -428,7 +481,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   cursor: pointer;
   border-radius: 10px;
 }
-.col-rail:hover { background: rgba(255, 255, 255, 0.04); }
+.col-rail:hover { background: var(--hover-soft); }
 .col-rail-count { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .col-rail-label {
   writing-mode: vertical-rl;
@@ -475,7 +528,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   padding: 0 2px;
   border-radius: 4px;
 }
-.col-collapse-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.col-collapse-btn:hover { color: var(--text); background: var(--hover-strong); }
 /* the column board uses one card per row, so let cards fill the column width */
 .board-7 .card { width: 100%; }
 
@@ -531,7 +584,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-popover);
 }
 .date-picker-head {
   display: flex;
@@ -1144,7 +1197,7 @@ a.rf-node-title:hover { color: var(--accent); }
   margin: 0; padding: 4px; list-style: none;
   max-height: 320px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-popover);
 }
 .repo-combobox-option {
   display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
@@ -1196,8 +1249,8 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .activity-chips span {
   flex: none; max-width: 280px; overflow: hidden; text-overflow: ellipsis;
-  border: 1px solid rgba(139, 164, 164, 0.24); border-radius: 999px;
-  padding: 1px 7px; background: rgba(139, 164, 164, 0.08);
+  border: 1px solid var(--chip-border); border-radius: 999px;
+  padding: 1px 7px; background: var(--chip-bg);
 }
 .activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 3px; }
 
@@ -1289,9 +1342,9 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .commit-body-panel {
   overflow: visible;
-  border: 1px solid rgba(139, 164, 164, 0.24);
+  border: 1px solid var(--chip-border);
   border-radius: 6px;
-  background: rgba(139, 164, 164, 0.08);
+  background: var(--chip-bg);
   padding: 8px 10px;
 }
 .commit-body-panel pre {
@@ -1368,7 +1421,7 @@ a.rf-node-title:hover { color: var(--accent); }
   font: 600 12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 6px 18px rgba(1, 22, 39, 0.6);
+  box-shadow: var(--shadow-float);
   transform: translateX(-50%);
   animation: commit-copy-pop 1200ms ease forwards;
 }

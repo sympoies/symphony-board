@@ -898,6 +898,40 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  const themeBefore = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
+        Array.from(el.options || []).some((option) => option.value === 'paper')
+      );
+      return {
+        found: !!select,
+        before: document.documentElement.dataset.theme || '',
+        options: select ? Array.from(select.options).map((option) => option.value) : [],
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
+        Array.from(el.options || []).some((option) => option.value === 'paper')
+      );
+      if (!select) return false;
+      select.value = 'paper';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`,
+    returnByValue: true,
+  });
+  await sleep(150);
+  const themeAfter = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      root: document.documentElement.dataset.theme || '',
+      stored: localStorage.getItem('symphony-board:theme') || '',
+      bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
   // the graph ALREADY in that item's focus view (not the plain list); the canvas
   // shows the focus subgraph, so the global search bar stays EMPTY (it is a
@@ -1438,6 +1472,8 @@ try {
     // settings: source hide toggle, the read-only source color swatch, and the
     // per-repo color picker (the new display controls)
     [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
+    [has(settingsHtml, "Theme") && themeBefore.found === true && themeBefore.before === "night-owl" && themeBefore.options.includes("night-owl") && themeBefore.options.includes("paper"), `settings: theme selector defaults to Night Owl (${JSON.stringify(themeBefore)})`],
+    [themeAfter.root === "paper" && themeAfter.stored === "paper" && themeAfter.bg === "#f4f3ed", `settings: Paper theme applies and persists (${JSON.stringify(themeAfter)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],

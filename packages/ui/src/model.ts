@@ -1774,10 +1774,11 @@ export interface GraphOverviewVisibility {
   drawnIds: Set<string>;
 }
 
-// Night Owl hexes duplicated here ONLY because the cytoscape canvas cannot read
-// CSS custom properties; keep in sync with styles.css :root.
-const NODE_FILL: Record<string, string> = { open: "#addb67", closed: "#c792ea", merged: "#7e57c2", unknown: "#637777" };
-const EDGE_STROKE: Record<string, string> = { declared: "#ffcb6b", fulfilled: "#addb67", broken: "#f78c6c", other: "#637777" };
+// Graph nodes/edges are styled inline by React Flow, but CSS custom properties
+// still resolve there. Keep these semantic so the selected UI theme owns the
+// actual palette.
+const NODE_FILL: Record<string, string> = { open: "var(--open)", closed: "var(--closed)", merged: "var(--merged)", unknown: "var(--muted)" };
+const EDGE_STROKE: Record<string, string> = { declared: "var(--declared)", fulfilled: "var(--fulfilled)", broken: "var(--broken)", other: "var(--muted)" };
 
 // ISO cutoff for "N days ago" (browser-side; now is injectable for tests).
 export function cutoffIso(days: number, now: number = Date.now()): string {
@@ -1864,8 +1865,8 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "#637777", demand: null, created_at: null, updated_at: null, untracked: true },
+          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
       );
     };
     ensure(re.from, re.edge.from);
@@ -1876,7 +1877,7 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
       target: re.edge.to,
       type: re.edge.type,
       lifecycle: re.edge.lifecycle ?? null,
-      color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "#637777",
+      color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "var(--muted)",
     });
   }
   return { nodes: [...nodes.values()], links };

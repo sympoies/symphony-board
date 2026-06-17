@@ -4,6 +4,7 @@
 //   • hidden sources — set of HIDDEN source_ids (an independent layer)
 //   • color overrides — repoKey -> hex, this viewer's per-repo highlight override
 //   • default range preset — one of the shared quick preset ids
+//   • theme — device-local palette choice (Night Owl by default, Paper for e-ink)
 //   • collapsed columns — board column kinds the viewer manually collapsed
 // We store what is HIDDEN (not what is visible) so a repo/source that first
 // appears in a later sync defaults to visible — "everything visible" stays the
@@ -20,6 +21,7 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 // JSON-string tuple, a valid object key); a repo absent here inherits from config.
 const COLORS_KEY = "symphony-board:repo-colors";
 const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
+const THEME_KEY = "symphony-board:theme";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
 // auto-collapse without being persisted (they re-open when an item lands), so
@@ -27,6 +29,12 @@ const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 const COLLAPSED_COLUMNS_KEY = "symphony-board:collapsed-columns";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
 export const ANDROID_CLIENT_KIND = "android";
+export const VIEW_THEMES = [
+  { id: "night-owl", label: "Night Owl" },
+  { id: "paper", label: "Paper" },
+] as const;
+export type ViewTheme = (typeof VIEW_THEMES)[number]["id"];
+export const DEFAULT_VIEW_THEME: ViewTheme = "night-owl";
 
 function loadStringSet(key: string): Set<string> {
   try {
@@ -93,6 +101,27 @@ export function loadDefaultRangePreset(): TimeRangePresetId {
 export function saveDefaultRangePreset(preset: TimeRangePresetId): void {
   try {
     localStorage.setItem(DEFAULT_RANGE_PRESET_KEY, preset);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+export function isViewTheme(value: unknown): value is ViewTheme {
+  return typeof value === "string" && VIEW_THEMES.some((theme) => theme.id === value);
+}
+
+export function loadTheme(): ViewTheme {
+  try {
+    const raw = localStorage.getItem(THEME_KEY);
+    return isViewTheme(raw) ? raw : DEFAULT_VIEW_THEME;
+  } catch {
+    return DEFAULT_VIEW_THEME;
+  }
+}
+
+export function saveTheme(theme: ViewTheme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

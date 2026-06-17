@@ -28,6 +28,7 @@ import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
+import type { ViewTheme } from "../viewconfig.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -59,9 +60,8 @@ const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄",
 // Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
 // the muted "other" grey, which is near-invisible on the dark canvas — a problem
 // the dense overview hides via opacity/width but the sparse focus view exposes.
-// A lighter slate lifts it off the background. (Edge
-// colours are JS hexes, not CSS vars — the canvas can't read custom properties.)
-const MENTION_STROKE = "#8aa0b6";
+// A lighter slate lifts it off the background. CSS vars keep it theme-aware.
+const MENTION_STROKE = "var(--graph-mention)";
 const NODE_W = 200;
 // Tall enough for head + two-line title + repo + the counts row (@author 💬 🔗)
 // + the updated/created times row — the two meta rows mirror the board card and
@@ -82,10 +82,10 @@ function dims(demand: number | null): { w: number; h: number; scale: number } {
 }
 
 const NODE_LEGEND = [
-  { c: "#addb67", t: "open" },
-  { c: "#c792ea", t: "closed" },
-  { c: "#7e57c2", t: "merged" },
-  { c: "#637777", t: "untracked" },
+  { c: "var(--open)", t: "open" },
+  { c: "var(--closed)", t: "closed" },
+  { c: "var(--merged)", t: "merged" },
+  { c: "var(--muted)", t: "untracked" },
 ];
 
 type GraphListVisibility = "off-window" | "not-drawn";
@@ -352,7 +352,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean; onNodeActivate: (id: string) => void }) {
+function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ViewTheme }) {
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -405,13 +405,13 @@ function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate }: { rfNodes: N
       // node owns opening the provider page and stops propagation, so the two
       // never both fire.
       onNodeClick={(_, node) => onNodeActivate(node.id)}
-      colorMode="dark"
+      colorMode={theme === "paper" ? "light" : "dark"}
       fitView
       minZoom={0.05}
       onlyRenderVisibleElements
       proOptions={{ hideAttribution: true }}
     >
-      <Background color="#1d3b53" gap={22} />
+      <Background color="var(--graph-grid)" gap={22} />
       <Controls showInteractive={false} />
       <MiniMap pannable zoomable nodeColor={(n) => (n.data as unknown as GraphNode).color} />
     </ReactFlow>
@@ -721,6 +721,7 @@ export function GraphPage({
   timezone,
   emptyState,
   onClearFilters,
+  theme,
 }: {
   edges: ResolvedEdge[];
   // The FOCUS-path edge set: same visibility + facet filters as `edges`, but
@@ -751,6 +752,7 @@ export function GraphPage({
   // facet filter can hide a focused item's edges, which would otherwise read as
   // "no relationships" with no way out.
   onClearFilters?: () => void;
+  theme: ViewTheme;
 }) {
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
@@ -1020,7 +1022,7 @@ export function GraphPage({
                   onShowAllMentions={() => setMentionTarget("all")}
                 />
               ) : (
-                <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} />
+                <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
               )}
             </div>
           </div>
