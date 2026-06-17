@@ -1220,6 +1220,32 @@ try {
     ...phoneActiveFilterDisclosureBefore,
     ...phoneActiveFilterDisclosureAfter,
   };
+  await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.repo-analytics-page')");
+  const phoneRepoAnalyticsLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = document.querySelector('.repo-table tbody tr');
+      const style = row ? getComputedStyle(row) : null;
+      const columns = (style?.gridTemplateColumns || '').split(' ').filter(Boolean);
+      const primary = Array.from(row?.querySelectorAll('.repo-metric-primary') || []);
+      const secondary = Array.from(row?.querySelectorAll('.repo-metric-secondary') || []);
+      const firstPrimaryTops = primary.slice(0, 4).map((cell) => Math.round(cell.getBoundingClientRect().top));
+      return {
+        found: !!row,
+        gridColumns: columns.length,
+        rowHeight: Math.round(row?.getBoundingClientRect().height || 0),
+        primaryCount: primary.length,
+        secondaryCount: secondary.length,
+        primarySameRow: firstPrimaryTops.length === 4 && new Set(firstPrimaryTops).size === 1,
+        secondaryCompact: secondary.length >= 5 && secondary.every((cell) => cell.getBoundingClientRect().height <= 38),
+        trendCompact: (row?.querySelector('.repo-trend-cell')?.getBoundingClientRect().height || 0) <= 34,
+        actorsCompact: !row?.querySelector('.repo-actors-cell') || row.querySelector('.repo-actors-cell').getBoundingClientRect().height <= 42,
+        qualityInHeader: !!row?.querySelector('.repo-mobile-quality .badge'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const phoneRangeLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
       const controls = document.querySelector('.time-range-controls');
@@ -1320,6 +1346,7 @@ try {
     [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
     [portraitGraphs.every((r) => r.graphStacked === true), "portrait: graph stacks list and canvas"],
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
+    [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.trendCompact === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.rowHeight <= 260, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],

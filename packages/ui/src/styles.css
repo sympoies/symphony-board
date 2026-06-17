@@ -1607,11 +1607,18 @@ a.rf-node-title:hover { color: var(--accent); }
 .repo-table td:nth-child(13) { min-width: 240px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
 .repo-name-cell { overflow: hidden; }
+.repo-name-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .repo-name-main {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
   font-weight: 600;
 }
 .repo-name-main span {
@@ -1639,6 +1646,7 @@ a.rf-node-title:hover { color: var(--accent); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.repo-mobile-quality { display: none; }
 .repo-trend {
   height: 34px;
   display: grid;
@@ -1682,6 +1690,7 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--accent);
   text-decoration: underline;
 }
+.repo-actors-cell:empty { display: none; }
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }
@@ -1983,13 +1992,92 @@ a.rf-node-title:hover { color: var(--accent); }
     height: min(50vh, 460px);
   }
   .repo-table tr {
-    grid-template-columns: minmax(0, 1fr);
+    position: relative;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+    overflow: visible;
   }
-  .repo-table td,
-  .repo-table td:first-child,
-  .repo-table td[data-label="Trend"],
-  .repo-table td[data-label="Actors"] {
+  .repo-table td {
+    border-bottom: 0;
+    padding: 0;
+  }
+  .repo-table tbody tr:last-child td { border-bottom: 0; }
+  .repo-table td:first-child {
     grid-column: 1 / -1;
+    order: 1;
+  }
+  .repo-mobile-quality {
+    display: inline-flex;
+    flex: none;
+  }
+  .repo-quality-cell { display: none; }
+  .repo-metric-primary {
+    order: 2;
+    display: flex;
+    min-height: 46px;
+    align-items: flex-start;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+  }
+  .repo-metric-primary::before {
+    line-height: 1;
+    font-size: 10px;
+  }
+  .repo-metric-primary .repo-metric-link { font-size: 16px; }
+  .repo-trend-cell {
+    grid-column: 1 / -1;
+    order: 3;
+    display: block;
+    padding: 0;
+  }
+  .repo-trend-cell::before { display: none; }
+  .repo-trend-cell .repo-trend {
+    height: 18px;
+    min-width: 0;
+  }
+  .repo-trend-bar { min-width: 2px; }
+  .repo-metric-secondary {
+    order: 4;
+    display: flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 2px 6px;
+    border: 1px solid var(--chip-border);
+    border-radius: 999px;
+    background: var(--chip-bg);
+    font-size: 12px;
+    text-align: right;
+  }
+  .repo-metric-secondary::before {
+    font-size: 10px;
+    line-height: 1;
+  }
+  .repo-actors-cell {
+    grid-column: 1 / -1;
+    order: 5;
+    display: flex;
+    min-height: 18px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .repo-actors-cell::before { display: none; }
+  .repo-actors {
+    max-height: 22px;
+    overflow: hidden;
   }
   .repo-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
