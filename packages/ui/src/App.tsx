@@ -669,6 +669,9 @@ export function App() {
     const nextFacets = toggleActivityFacet(activityFacets(current), dim, value);
     const next = buildHashRoute({
       page: "activity",
+      // Keep the mobile Activity sub-view (Feed / Overview) the user is editing;
+      // dropping `tab` here would snap a narrow-screen Overview back to the Feed.
+      tab: current.tab,
       ...activityFacetFields(nextFacets),
       isource: current.isource,
       istate: current.istate,
@@ -691,6 +694,7 @@ export function App() {
     const current = parseHashRoute(readHash());
     const next = buildHashRoute({
       page: "activity",
+      tab: current.tab,
       ...activityFacetFields(activityFacets(current)),
       isource: current.isource,
       istate: current.istate,
@@ -791,6 +795,9 @@ export function App() {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
       page,
+      // Keep the current page's sub-view (Activity Feed/Overview, Graph List/Graph)
+      // so changing the search box does not reset it on a narrow screen.
+      tab: route.tab,
       focus: page === "graph" ? route.focus : null,
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,
@@ -883,6 +890,9 @@ export function App() {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
       page,
+      // Preserve the current page's sub-view (Activity Feed/Overview, Graph
+      // List/Graph) across a date-range change on a narrow screen.
+      tab: route.tab,
       focus: page === "graph" ? route.focus : null,
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,

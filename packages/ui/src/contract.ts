@@ -81,12 +81,28 @@ function isTransient(err: unknown): boolean {
   return !!(err && typeof err === "object" && (err as TaggedError).transient === true);
 }
 
+// Per-attempt overall-timeout signal. `AbortSignal.timeout` is the direct path,
+// but some older WebViews (e.g. an older WKWebView, since the Tauri configs do
+// not raise the default macOS minimum) have not implemented the static helper;
+// calling it unguarded throws a TypeError that the retry loop would only repeat,
+// so the UI would never load a contract. Fall back to an AbortController +
+// setTimeout — universally available — when the static helper is missing.
+function createAttemptTimeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 async function loadContractAttempt(target: string, requestTimeoutMs: number, connectTimeoutMs: number): Promise<ContractEnvelope> {
+  const signal = createAttemptTimeoutSignal(requestTimeoutMs);
   let res: Response;
   try {
     res = await appFetch(target, {
       cache: "no-store",
-      signal: AbortSignal.timeout(requestTimeoutMs),
+      signal,
       connectTimeout: connectTimeoutMs,
     });
   } catch (err) {
@@ -102,10 +118,21 @@ async function loadContractAttempt(target: string, requestTimeoutMs: number, con
     tagged.transient = res.status >= 500; // 5xx is transient; a 4xx is definitive
     throw tagged;
   }
-  // A 200 with an unparseable / non-contract body is a definitive content error,
-  // not a transient one: asContractEnvelope / JSON.parse throw plain (untagged)
-  // errors, so they surface immediately without spinning.
-  return asContractEnvelope(await readJson(res));
+  // The transfer can still stall AFTER headers arrive: the per-attempt timeout
+  // fires (or the connection drops) mid-body, so readJson rejects. That interrupted
+  // body read is transient — retry it like a thrown fetch — but a SyntaxError on a
+  // fully-received body is a definitive content error, surfaced without retrying.
+  let body: unknown;
+  try {
+    body = await readJson(res);
+  } catch (err) {
+    const tagged = (err instanceof Error ? err : new Error(String(err))) as TaggedError;
+    tagged.transient = signal.aborted || !(err instanceof SyntaxError);
+    throw tagged;
+  }
+  // A well-formed but non-contract body is definitive: asContractEnvelope throws a
+  // plain (untagged) error, so it surfaces immediately without spinning.
+  return asContractEnvelope(body);
 }
 
 // Fetch the contract emitted alongside the app (the loop daemon writes

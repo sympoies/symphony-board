@@ -168,6 +168,63 @@ test("fetchContract does not retry a 200 whose body is not a contract", async ()
   }
 });
 
+test("fetchContract retries a body-read abort but surfaces a parse error immediately", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    // The per-attempt timeout (or a network drop) can fire AFTER headers arrive,
+    // while the body is still streaming: res.json() then rejects. That stall is
+    // transient and must be retried, exactly like a thrown fetch.
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls < 2) {
+        return { ok: true, status: 200, json: async () => { throw new DOMException("body read timed out", "TimeoutError"); } };
+      }
+      return { ok: true, status: 200, json: async () => ({ contract_version: "3.0.0", items: [] }) };
+    }) as unknown as typeof fetch;
+    const env = await fetchContract("./x.json", null, null, { retries: 3, retryBaseDelayMs: 0, sleep: async () => {} });
+    assert.equal(env.contract_version, "3.0.0");
+    assert.equal(calls, 2, "the timed-out body read is retried, not surfaced");
+
+    // A genuine JSON parse error on a fully-received body is a definitive content
+    // error: surface it immediately, do not spin.
+    let parseCalls = 0;
+    globalThis.fetch = (async () => {
+      parseCalls++;
+      return { ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected end of JSON input"); } };
+    }) as unknown as typeof fetch;
+    await assert.rejects(
+      () => fetchContract("./bad.json", null, null, { retries: 3, retryBaseDelayMs: 0, sleep: async () => {} }),
+      SyntaxError,
+    );
+    assert.equal(parseCalls, 1, "a definitive parse error is not retried");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract loads when AbortSignal.timeout is unavailable (older WebViews)", async () => {
+  const realFetch = globalThis.fetch;
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+  try {
+    // Simulate an older WebView (e.g. an older WKWebView) that has not implemented
+    // the static AbortSignal.timeout helper: relying on it must not throw a
+    // TypeError that the retry loop then repeats forever, never loading a contract.
+    Object.defineProperty(AbortSignal, "timeout", { value: undefined, configurable: true, writable: true });
+    let seenSignal: AbortSignal | undefined;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      seenSignal = init.signal ?? undefined;
+      return { ok: true, status: 200, json: async () => ({ contract_version: "3.0.0", items: [] }) };
+    }) as unknown as typeof fetch;
+    const env = await fetchContract("./x.json", null, null, { requestTimeoutMs: 50, retries: 0, sleep: async () => {} });
+    assert.equal(env.contract_version, "3.0.0", "the load still succeeds via the AbortController fallback");
+    assert.ok(seenSignal instanceof AbortSignal, "a fallback abort signal still bounds the attempt");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (descriptor) Object.defineProperty(AbortSignal, "timeout", descriptor);
+  }
+});
+
 test("fetchContract aborts a stalled request via the per-attempt timeout", async () => {
   const realFetch = globalThis.fetch;
   try {

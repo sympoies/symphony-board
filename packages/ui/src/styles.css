@@ -1401,6 +1401,14 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--muted); background: var(--panel);
   border: 1px solid var(--line); border-radius: 8px;
 }
+/* The inner input clears its own outline (above), so the pill carries the focus
+   indication for the whole control — otherwise a keyboard user tabbing onto the
+   repo filter gets no visible cue that it is active. Matches the accent ring used
+   for other focused/targeted surfaces (e.g. .card:target). */
+.repo-combobox-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
 .repo-combobox .search {
   flex: 1; min-width: 0; width: auto; height: 100%;
   padding: 0; background: transparent; border: none; outline: none; box-shadow: none;

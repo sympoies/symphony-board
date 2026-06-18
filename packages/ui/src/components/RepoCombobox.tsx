@@ -38,6 +38,7 @@ export function RepoCombobox({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // The applied value is the source of truth; mirror it into the input text when
   // it changes from outside (URL navigation, clear) and the list is closed, so we
@@ -88,9 +89,24 @@ export function RepoCombobox({
 
   return (
     <div className="repo-combobox" ref={rootRef}>
-      <div className="repo-combobox-field">
+      <div
+        className="repo-combobox-field"
+        // The input does not fill the whole pill — the leading repo glyph, trailing
+        // dropdown caret, and padding sit beside it. A click on that chrome (most
+        // notably the presentational caret, which signals "dropdown") should still
+        // focus and open the combobox, as the affordance implies. The input and the
+        // clear button keep their own handlers, so we forward only the gaps.
+        onMouseDown={(e) => {
+          const target = e.target as HTMLElement;
+          if (target === inputRef.current || target.closest("button")) return;
+          e.preventDefault();
+          inputRef.current?.focus();
+          setOpen(true);
+        }}
+      >
         <RepoFilterIcon />
         <input
+          ref={inputRef}
           className="search"
           type="text"
           role="combobox"
