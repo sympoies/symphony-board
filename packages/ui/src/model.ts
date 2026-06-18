@@ -1780,7 +1780,7 @@ export function graphOverviewVisibility(
 // the edge filter is currently suppressing.
 export type GraphCanvasEmptyReason =
   | { kind: "mentions-hidden"; hiddenLinks: number } // mentions toggle off, every candidate is a mention
-  | { kind: "mention-target-filtered"; mentionTarget: GraphMentionTarget; hiddenLinks: number } // mentions on, but the target filter drops them all
+  | { kind: "mention-target-filtered"; mentionTarget: Exclude<GraphMentionTarget, "all">; hiddenLinks: number } // mentions on, but the target filter drops them all (never "all" — that draws every candidate)
   | { kind: "filtered"; hiddenLinks: number }; // suppressed for some other filter combination (defensive fallback)
 
 // Returns null when there is nothing actionable to explain: the canvas already

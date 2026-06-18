@@ -674,6 +674,9 @@ function GraphCanvasEmptyState({
   onShowAllMentions: () => void;
 }) {
   if (!reason || reason.kind === "filtered") {
+    // `filtered` is the non-actionable fallback — no single toggle flip recovers
+    // the canvas — so keep the original bare line. (Effectively unreachable via
+    // graphOverviewVisibility; see graphCanvasEmptyReason.)
     return <p className="empty">No relationships are drawn with the current edge filter.</p>;
   }
   if (reason.kind === "mentions-hidden") {
@@ -975,6 +978,9 @@ export function GraphPage({
                 <GraphCanvasEmptyState
                   reason={inFocus ? null : graphCanvasEmptyReason(overview, { showMentions, mentionTarget })}
                   onShowMentions={() => {
+                    // Also reset the target: it persists while mentions are off,
+                    // so a stale non-"all" target could keep the canvas empty
+                    // even after enabling mentions.
                     setMentionTarget("all");
                     setShowMentions(true);
                   }}

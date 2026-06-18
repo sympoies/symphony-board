@@ -1016,6 +1016,25 @@ test("graphCanvasEmptyReason diagnoses why the overview canvas is empty so the e
     "mentions-on but every candidate filtered by target -> mention-target-filtered",
   );
 
+  // The other target arm: with only a PR-targeted mention in range, filtering to
+  // issues drops it -> the same diagnosis, carrying the "issue" target.
+  const prMention: ResolvedEdge[] = [{ edge: edge("issue-345", "pr-343", null, "mentions"), from: issue, to: mentionedPr }];
+  const issueFiltered = graphOverviewVisibility(prMention, range, "UTC", { showMentions: true, mentionTarget: "issue" });
+  assert.deepEqual(
+    graphCanvasEmptyReason(issueFiltered, { showMentions: true, mentionTarget: "issue" }),
+    { kind: "mention-target-filtered", mentionTarget: "issue", hiddenLinks: 1 },
+    "filtering to issues hides the PR-targeted mention",
+  );
+
+  // Defensive `filtered` fallback — a non-mention candidate that is somehow not
+  // drawn with mentions on + target all. Unreachable through
+  // graphOverviewVisibility, so build the visibility shape directly.
+  const fallback = graphCanvasEmptyReason(
+    { candidateEdges: [{ edge: edge("a", "b", null, "closes"), from: null, to: null }], drawnEdges: [], candidateIds: new Set(["a", "b"]), drawnIds: new Set() },
+    { showMentions: true, mentionTarget: "all" },
+  );
+  assert.deepEqual(fallback, { kind: "filtered", hiddenLinks: 1 }, "showMentions + target all + no drawn edges -> filtered fallback");
+
   // Canvas has drawn edges -> no empty reason (the Flow renders).
   const drawn = graphOverviewVisibility(
     [{ edge: edge("pr-339", "issue-341", "fulfilled", "closes"), from: mentionedPr, to: issue }],
