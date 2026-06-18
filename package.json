@@ -12,6 +12,7 @@
   "scripts": {
     "prepare": "lefthook install",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:app-versions": "bash scripts/check-app-versions.sh",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts test/*.test.mjs",
     "test:pg-e2e": "bash scripts/ci/pg-e2e.sh",
     "test:pg-compose": "bash scripts/ci/pg-compose-smoke.sh",
