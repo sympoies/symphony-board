@@ -3,18 +3,19 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: blocked on real-device validation.
+- Status: Samsung Galaxy S24 Plus real-device portrait smoke complete; Hanvon
+  N10 Pro (e-ink) real-device smoke deferred to follow-up #242.
 - Target scope: Android internal thin-client APK, portrait-responsive shared UI,
   Ubuntu compose-pg over Tailscale, and real-device validation on Samsung Galaxy
   S24 Plus plus Hanvon N10 Pro.
 - Execution window: Sprint 1 Android shell and transport -> Sprint 2 portrait UI
   -> Sprint 3 compose-pg/Tailscale plus device smoke.
-- Current task: Task 3.2 real-device smoke is blocked by unavailable target
-  devices.
-- Next task: install the debug APK on Samsung Galaxy S24 Plus and Hanvon N10 Pro,
-  then record portrait CSS viewport, DPR, Android/WebView version, and page smoke
-  result.
-- Last updated: 2026-06-17
+- Current task: Task 3.2 partial - Samsung Galaxy S24 Plus portrait smoke
+  passed against a compose-pg deployment over Tailscale; Hanvon N10 Pro (e-ink)
+  smoke deferred to follow-up #242.
+- Next task: closeout. The remaining e-ink real-device smoke is tracked in #242
+  and unblocks when the Hanvon N10 Pro device is available.
+- Last updated: 2026-06-18
 - Branch/commit/PR: `feat/android-thin-client-shell` / PR
   <https://github.com/sympoies/symphony-board/pull/235>.
 - Source document: `docs/plans/2026-06-16-android-thin-client/2026-06-16-android-thin-client-plan.md`
@@ -54,6 +55,44 @@
     `devicePixelRatio`, Android/WebView version when available, and page smoke
     result.
 
+## Device Smoke Results
+
+### Samsung Galaxy S24 Plus (2026-06-18) - PASS
+
+- Device: Samsung SM-S9260, Android 16 (SDK 36), WebView/Chromium 149.0.7827.
+- Physical 1440 x 3120 at density 560; measured CSS viewport **411 x 891**,
+  `devicePixelRatio` **3.5**.
+- Build: arm64-v8a debug APK from the PR head, server URL configured to a
+  compose-pg deployment over Tailscale; data path is the Tauri HTTP plugin to
+  the Postgres-backed web surface (contract 3.4.0, 3 sources, schema v4).
+- Every page walked in portrait with **no horizontal overflow**
+  (`scrollWidth == clientWidth == 411` on each) and no JS console errors / no
+  crash:
+
+  | Page | Result | Note |
+  | --- | --- | --- |
+  | Board | pass | single-lane selector with counts; tab nav wraps to two rows |
+  | Graph | pass | controls/legend/filters prioritized, canvas secondary |
+  | Activity | pass | rhythm overview + heatmap render before the feed |
+  | Commits | pass | SCM log cards with branch + SHA chips |
+  | Repo Analytics | pass | compact metric-card grid, no wide table |
+  | Settings | pass | long Tailscale server URL fits; theme + range controls usable |
+  | Diagnostics | pass | full store/stats readout reachable in portrait |
+
+- Capability-gated config/token editing stays hidden on the read-only Docker
+  deployment, as designed.
+- Residual: external provider-link opening uses correct `target="_blank"`
+  / `rel="noopener"` anchors and the WebView does not navigate in-app; firing the
+  system browser needs a real touch and was not exercised by the automated
+  harness (same opener plugin as the validated desktop thin client).
+
+### Hanvon N10 Pro (e-ink) - DEFERRED to #242
+
+Device unavailable at merge time. Tracked in
+<https://github.com/sympoies/symphony-board/issues/242>, including the
+e-ink-specific checks (Paper theme readability, reduced motion, refresh/ghosting)
+that desktop Chrome smoke cannot catch.
+
 ## Task Ledger
 
 | ID | Status | Task | Evidence | Notes |
@@ -67,4 +106,4 @@
 | 2.4 | done | Replace wide analytics/settings layouts on portrait | pnpm --filter @symphony-board/ui run smoke pass: repo analytics compact, settings/debug no page overflow | Repo Analytics card/list alternative; Settings URL controls fit. |
 | 2.5 | done | Acceptance mobile UI adjustments | `pnpm --filter @symphony-board/ui run build` pass; `pnpm --filter @symphony-board/ui run smoke` pass with phone filter/Activity checks; `pnpm --filter @symphony-board/ui run test` pass; `pnpm run typecheck && pnpm test` pass | Phone facet filters now collapse behind an active-count button while date range controls stay visible; phone Activity shows the rhythm panel before a shorter feed. |
 | 3.1 | done | Validate compose-pg web exposure over Tailscale | g14 compose-pg healthy; Postgres remains loopback-only on the host; web exposure verified over the tailnet for /contract.json, /api/stats, and /api/range; macOS thin desktop was rebuilt/opened against the g14 server URL | Tailscale Serve is disabled by tailnet policy, so the host uses an operator-local compose override that binds only the web service to the Tailscale interface. The Gamania source is excluded from g14 runtime config until VPN is available. |
-| 3.2 | blocked | APK install and target-device portrait smoke | Debug APK install/launch smoke passes on `symphony_board_api36_16k`; Samsung Galaxy S24 Plus and Hanvon N10 Pro devices are not attached; local `pnpm android:init && pnpm android:build:apk` retry blocked because this shell has no Android SDK/NDK env | Automated portrait smoke uses phone/tablet presets; real device CSS viewport/DPR remains required. |
+| 3.2 | partial | APK install and target-device portrait smoke | Samsung Galaxy S24 Plus portrait smoke PASS (arm64 debug APK, CSS 411x891 @ DPR 3.5, Android 16 / WebView 149, no overflow on any page, data via Tailscale compose-pg) - see Device Smoke Results above. Hanvon N10 Pro (e-ink) deferred to #242. | S24 Plus done on real hardware; e-ink real-device smoke is the only remaining portion, tracked in #242. |
