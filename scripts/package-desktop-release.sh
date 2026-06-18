@@ -157,8 +157,19 @@ need_command shasum
 # at the point the artifacts are actually built.
 "$repo_root/scripts/check-app-versions.sh"
 
+# check-app-versions.sh has now proven every per-app version file matches root
+# package.json, and the bundled .app version comes from tauri.conf.json — so the
+# .app advertises the package.json version regardless of --version, which only
+# names the output zip. publish-image.yml passes the published tag as --version
+# (GITHUB_REF_NAME), independently of package.json, so a manually published or
+# retagged release where the tag leads package.json would write a v<tag> zip
+# around an .app advertising the older package.json version. Reject that drift —
+# the same guard scripts/release.sh applies before creating the release.
+pkg_version="$(normalize_version "$(package_version)")"
 if [ -z "$version" ]; then
-  version="$(normalize_version "$(package_version)")"
+  version="$pkg_version"
+elif [ "$version" != "$pkg_version" ]; then
+  die "requested release version v$version does not match package.json version v$pkg_version"
 fi
 
 label="$(target_label "$target")"
