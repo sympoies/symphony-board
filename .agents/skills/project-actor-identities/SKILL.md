@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Edit
 
 Keep Repo Analytics `top_actors[]` clean: one row per human, no CI/dependency
 bots. Invoke this when the board shows the same person twice (a GitLab username
-like `@terrylin` next to their commit name `Terry LIN`), when a new contributor
+like `@dev-b` next to their commit name `Dev A`), when a new contributor
 appears split, or when a bot shows up as noise. The skill runs a read-only scan
 that proposes config changes; you review them and edit `config/sources.json`.
 
@@ -61,12 +61,12 @@ Failure modes:
 "identities": [
   // Collapse one human's split facets into a single top_actors row. `usernames`
   // match the provider login; `names` match commit author display names, folded
-  // by case and whitespace ONLY — so one entry covers "Rachel Tung" / "Rachel
+  // by case and whitespace ONLY — so one entry covers "Dev D" / "Dev D
   // TUNG", but a variant that differs by more than case/space (punctuation, or a
   // localized / non-ASCII full name) needs its own entry. `name` is the canonical
   // board display; the convention here is the username (the first when several),
   // so rows read as consistent @handles — change it by hand for a different label.
-  { "name": "racheltung", "usernames": ["racheltung"], "names": ["Rachel Tung", "Rachel TUNG"] }
+  { "name": "dev-d", "usernames": ["dev-d"], "names": ["Dev D", "Dev D"] }
 ],
 "exclude_actors": ["dependabot", "github-code-quality"]
 // Drop CI/dependency bots from top_actors (they still count in totals). The

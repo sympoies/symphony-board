@@ -12,15 +12,15 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
     source_id: "github:github.com",
     external_id: "ISSUE_abc",
     kind: "issue",
-    project_path: "graysurf/repo",
+    project_path: "dev-a/repo",
     iid: 7,
-    url: "https://github.com/graysurf/repo/issues/7",
+    url: "https://github.com/dev-a/repo/issues/7",
     title: "An issue",
     state: "open",
     state_raw: "OPEN",
     state_reason: null,
     is_draft: null,
-    author: "graysurf",
+    author: "dev-a",
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-06-01T00:00:00Z",
     closed_at: null,
@@ -43,14 +43,14 @@ function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
     external_id: "activity-1",
     kind: "issue",
     action: "opened",
-    project_path: "graysurf/repo",
+    project_path: "dev-a/repo",
     target_kind: "issue",
     target_source_id: "github:github.com",
     target_external_id: "ISSUE_abc",
     target_iid: 7,
     title: "An issue",
-    url: "https://github.com/graysurf/repo/issues/7",
-    actor: "graysurf",
+    url: "https://github.com/dev-a/repo/issues/7",
+    actor: "dev-a",
     actor_key: null,
     occurred_at: "2026-01-01T00:00:00Z",
     summary: "Opened issue #7",
@@ -126,11 +126,11 @@ test("buildContract applies source colors where set and emits the repos block ve
     edges: [],
     generatedAt: "2026-06-02T00:00:00Z",
     sourceColors: { "github:github.com": "#1f6feb" },
-    repoColors: [{ source_id: "github:github.com", project_path: "graysurf/repo", color: "#e0af68" }],
+    repoColors: [{ source_id: "github:github.com", project_path: "dev-a/repo", color: "#e0af68" }],
   });
   assert.equal(env.sources[0]!.color, "#1f6feb"); // set
   assert.equal(env.sources[1]!.color, null); // unset -> null
-  assert.deepEqual(env.repos, [{ source_id: "github:github.com", project_path: "graysurf/repo", color: "#e0af68" }]);
+  assert.deepEqual(env.repos, [{ source_id: "github:github.com", project_path: "dev-a/repo", color: "#e0af68" }]);
 });
 
 test("buildContract defaults to no colors when none are supplied", () => {
@@ -362,13 +362,13 @@ test("review_threads folds the two columns into a nested DTO, null for issues an
 
 test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {
   const sources: SourceRow[] = [
-    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
   ];
   const env = buildContract({
     sources,
     items: [
-      itemRow({ item_id: 1, source_id: "gitlab:gitlab.gamania.com", external_id: "GL_1", project_path: "group/sub/project" }),
+      itemRow({ item_id: 1, source_id: "gitlab:gitlab.internal", external_id: "GL_1", project_path: "group/sub/project" }),
       itemRow({ item_id: 2, source_id: "github:github.com", external_id: "GH_bad", project_path: "too/deep/for/github" }),
     ],
     labels: [],
@@ -376,7 +376,7 @@ test("repo metrics emit provider repo URLs for nested GitLab paths and null for 
     generatedAt: "2026-06-08T00:00:00.000Z",
   });
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.repo_metrics?.find((m) => m.project_path === "group/sub/project")?.repo_url, "https://gitlab.gamania.com/group/sub/project");
+  assert.equal(env.repo_metrics?.find((m) => m.project_path === "group/sub/project")?.repo_url, "https://gitlab.internal/group/sub/project");
   assert.equal(env.repo_metrics?.find((m) => m.project_path === "too/deep/for/github")?.repo_url, null);
 });
 
@@ -489,20 +489,20 @@ test("repo metrics group top_actors by canonical identity", () => {
 
 test("config identities collapse a GitLab username and commit-email facet into one actor", () => {
   const sources: SourceRow[] = [
-    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
   ];
-  // An MR authored by the username "terrylin" (provider-user key) ...
+  // An MR authored by the username "dev-b" (provider-user key) ...
   const items: ItemRow[] = [
     itemRow({
-      item_id: 1, source_id: "gitlab:gitlab.gamania.com", external_id: "MR_1", kind: "change_request",
-      state: "merged", author: "terrylin", project_path: "g/p",
+      item_id: 1, source_id: "gitlab:gitlab.internal", external_id: "MR_1", kind: "change_request",
+      state: "merged", author: "dev-b", project_path: "g/p",
       created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z", closed_at: "2026-06-06T00:00:00Z", merged_at: "2026-06-06T00:00:00Z",
     }),
   ];
   // ... and a commit by the same human, which GitLab only gives an email + name.
-  const commitKey = deriveActorKey({ sourceId: "gitlab:gitlab.gamania.com", email: "terry@example.com", name: "Terry LIN" });
+  const commitKey = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "dev-a@example.com", name: "DEV A" });
   const activities: ActivityRow[] = [
-    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "g/p", actor: "Terry LIN", actor_key: commitKey, source_id: "gitlab:gitlab.gamania.com", target_source_id: "gitlab:gitlab.gamania.com", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "g/p", actor: "DEV A", actor_key: commitKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
   ];
 
   // Without a declared identity the two facets are separate rows.
@@ -511,7 +511,7 @@ test("config identities collapse a GitLab username and commit-email facet into o
   assert.equal(splitRows.length, 2);
   // The provider-user facet links to the GitLab profile on the source's host ...
   const username = splitRows.find((r) => r.actor_key.startsWith("provider-user:"));
-  assert.equal(username?.profile_url, "https://gitlab.gamania.com/terrylin");
+  assert.equal(username?.profile_url, "https://gitlab.internal/dev-b");
   // ... while the account-less commit-email facet has no linkable username.
   const emailFacet = splitRows.find((r) => r.actor_key.startsWith("email:"));
   assert.equal(emailFacet?.profile_url, undefined);
@@ -519,73 +519,73 @@ test("config identities collapse a GitLab username and commit-email facet into o
   // The config identity merges them: username match OR commit-name match.
   const merged = buildContract({
     sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
-    identities: [{ name: "Terry Lin", usernames: ["terrylin"], names: ["Terry LIN"] }],
+    identities: [{ name: "Dev A", usernames: ["dev-b"], names: ["DEV A"] }],
   });
   assert.deepEqual(validateContract(merged), []);
   const rows = merged.repo_metrics?.[0]?.top_actors ?? [];
   assert.equal(rows.length, 1, "one canonical actor");
   const row = rows[0]!;
-  assert.equal(row.actor_key, "person:terry-lin", "canonical person key, not a raw username/email key");
-  assert.equal(row.profile_url, "https://gitlab.gamania.com/terrylin", "the merged person links to the username observed on this source");
-  assert.equal(row.display_name, "Terry Lin", "config display name wins");
+  assert.equal(row.actor_key, "person:dev-a", "canonical person key, not a raw username/email key");
+  assert.equal(row.profile_url, "https://gitlab.internal/dev-b", "the merged person links to the username observed on this source");
+  assert.equal(row.display_name, "Dev A", "config display name wins");
   assert.equal(row.commits, 1, "commit counted");
   assert.equal(row.change_requests_merged, 1, "MR merge counted under the same identity");
-  assert.ok((row.aliases ?? []).includes("Terry LIN"), "observed commit name kept as an alias");
+  assert.ok((row.aliases ?? []).includes("DEV A"), "observed commit name kept as an alias");
 });
 
 test("source-scoped config identities do not merge same-name actors from other sources", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
-    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
   ];
   const items: ItemRow[] = [
     itemRow({
-      item_id: 1, source_id: "gitlab:gitlab.gamania.com", external_id: "MR_1", kind: "change_request",
-      state: "merged", author: "terrylin", project_path: "g/p",
+      item_id: 1, source_id: "gitlab:gitlab.internal", external_id: "MR_1", kind: "change_request",
+      state: "merged", author: "dev-b", project_path: "g/p",
       created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z", closed_at: "2026-06-06T00:00:00Z", merged_at: "2026-06-06T00:00:00Z",
     }),
   ];
-  const githubCommitKey = deriveActorKey({ sourceId: "github:github.com", email: "github-terry@example.com", name: "Terry Lin" });
-  const gitlabCommitKey = deriveActorKey({ sourceId: "gitlab:gitlab.gamania.com", email: "gamania-terry@example.com", name: "Terry Lin" });
+  const githubCommitKey = deriveActorKey({ sourceId: "github:github.com", email: "github-dev-a@example.com", name: "Dev A" });
+  const gitlabCommitKey = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "dev-b@example.com", name: "Dev A" });
   const activities: ActivityRow[] = [
-    activityRow({ external_id: "gh-commit", kind: "commit", action: "committed", project_path: "o/repo", actor: "Terry Lin", actor_key: githubCommitKey, source_id: "github:github.com", target_source_id: "github:github.com", occurred_at: "2026-06-07T10:00:00Z" }),
-    activityRow({ external_id: "gl-commit", kind: "commit", action: "committed", project_path: "g/p", actor: "Terry Lin", actor_key: gitlabCommitKey, source_id: "gitlab:gitlab.gamania.com", target_source_id: "gitlab:gitlab.gamania.com", occurred_at: "2026-06-07T11:00:00Z" }),
+    activityRow({ external_id: "gh-commit", kind: "commit", action: "committed", project_path: "o/repo", actor: "Dev A", actor_key: githubCommitKey, source_id: "github:github.com", target_source_id: "github:github.com", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "gl-commit", kind: "commit", action: "committed", project_path: "g/p", actor: "Dev A", actor_key: gitlabCommitKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
   ];
 
   const env = buildContract({
     sources, items, activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
-    identities: [{ name: "terrylin", usernames: ["terrylin"], names: ["Terry Lin"], source_ids: ["gitlab:gitlab.gamania.com"] }],
+    identities: [{ name: "dev-b", usernames: ["dev-b"], names: ["Dev A"], source_ids: ["gitlab:gitlab.internal"] }],
   });
   assert.deepEqual(validateContract(env), []);
 
   const githubActors = env.repo_metrics?.find((m) => m.source_id === "github:github.com" && m.project_path === "o/repo")?.top_actors ?? [];
   assert.equal(githubActors.length, 1);
   assert.equal(githubActors[0]!.actor_key, githubCommitKey, "GitHub same-name commit stays on its own email identity");
-  assert.equal(githubActors[0]!.display_name, "Terry Lin");
+  assert.equal(githubActors[0]!.display_name, "Dev A");
 
-  const gitlabActors = env.repo_metrics?.find((m) => m.source_id === "gitlab:gitlab.gamania.com" && m.project_path === "g/p")?.top_actors ?? [];
+  const gitlabActors = env.repo_metrics?.find((m) => m.source_id === "gitlab:gitlab.internal" && m.project_path === "g/p")?.top_actors ?? [];
   assert.equal(gitlabActors.length, 1);
-  assert.equal(gitlabActors[0]!.actor_key, "person:terrylin", "scoped source still applies inside the declared source");
+  assert.equal(gitlabActors[0]!.actor_key, "person:dev-b", "scoped source still applies inside the declared source");
   assert.equal(gitlabActors[0]!.commits, 1);
   assert.equal(gitlabActors[0]!.change_requests_merged, 1);
 });
 
 test("a name-only merged person is not linked (config usernames are host-agnostic, so no guess)", () => {
   const sources: SourceRow[] = [
-    { source_id: "gitlab:gitlab.gamania.com", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
   ];
   // Only commit activity, carrying a name and email but no provider username.
-  const commitKey = deriveActorKey({ sourceId: "gitlab:gitlab.gamania.com", email: "rachel@example.com", name: "Rachel TUNG" });
+  const commitKey = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "dev-d@example.com", name: "Dev D" });
   const activities: ActivityRow[] = [
-    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "g/p", actor: "Rachel TUNG", actor_key: commitKey, source_id: "gitlab:gitlab.gamania.com", target_source_id: "gitlab:gitlab.gamania.com", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "commit-1", kind: "commit", action: "committed", project_path: "g/p", actor: "Dev D", actor_key: commitKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
   ];
   const env = buildContract({
     sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
-    identities: [{ name: "racheltung", usernames: ["racheltung"], names: ["Rachel TUNG"] }],
+    identities: [{ name: "dev-d", usernames: ["dev-d"], names: ["Dev D"] }],
   });
   assert.deepEqual(validateContract(env), []);
   const row = (env.repo_metrics?.[0]?.top_actors ?? [])[0]!;
-  assert.equal(row.actor_key, "person:racheltung");
+  assert.equal(row.actor_key, "person:dev-d");
   // No provider username was observed on this source. The config declares one, but
   // it is host-agnostic, so applying it here could link a wrong-host profile — the
   // row stays unlinked rather than guess.
@@ -600,12 +600,12 @@ test("two identities whose names slug alike stay distinct people (no collision m
     itemRow({ item_id: 1, external_id: "I_a", author: "alice", project_path: "o/repo", created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z" }),
     itemRow({ item_id: 2, external_id: "I_b", author: "bob", project_path: "o/repo", created_at: "2026-06-05T00:00:00Z", updated_at: "2026-06-06T00:00:00Z" }),
   ];
-  // "Terry Lin" and "terry-lin" both slug to person:terry-lin — they MUST NOT merge.
+  // "Dev A" and "dev-a" both slug to person:dev-a — they MUST NOT merge.
   const env = buildContract({
     sources, items, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
     identities: [
-      { name: "Terry Lin", usernames: ["alice"] },
-      { name: "terry-lin", usernames: ["bob"] },
+      { name: "Dev A", usernames: ["alice"] },
+      { name: "dev-a", usernames: ["bob"] },
     ],
   });
   assert.deepEqual(validateContract(env), []);
@@ -624,7 +624,7 @@ test("bot actors are filtered from top_actors but still count in totals", () => 
   const commit = (id: string, actor: string) =>
     activityRow({ external_id: id, kind: "commit", action: "committed", project_path: "o/repo", actor, occurred_at: "2026-06-07T10:00:00Z" });
   const activities: ActivityRow[] = [
-    commit("c-human", "graysurf"),
+    commit("c-human", "dev-a"),
     commit("c-dependabot-bot", "dependabot[bot]"),
     commit("c-gl-service", "project_1936_bot_f58c77dbc1"),
     commit("c-ghcq", "github-code-quality"),
@@ -634,7 +634,7 @@ test("bot actors are filtered from top_actors but still count in totals", () => 
   // Auto-detection alone drops the two marked bots; the two unmarked ones remain.
   const auto = buildContract({ sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
   const autoRows = auto.repo_metrics?.[0]?.top_actors ?? [];
-  assert.deepEqual(autoRows.map((r) => r.display_name).sort(), ["dependabot", "github-code-quality", "graysurf"], "marked bots auto-dropped; unmarked remain");
+  assert.deepEqual(autoRows.map((r) => r.display_name).sort(), ["dependabot", "dev-a", "github-code-quality"], "marked bots auto-dropped; unmarked remain");
 
   // The config list removes the unmarked bots too, leaving only the human.
   const filtered = buildContract({
@@ -644,7 +644,7 @@ test("bot actors are filtered from top_actors but still count in totals", () => 
   assert.deepEqual(validateContract(filtered), []);
   const metric = filtered.repo_metrics?.[0];
   const rows = metric?.top_actors ?? [];
-  assert.deepEqual(rows.map((r) => r.display_name), ["graysurf"], "only the human remains");
+  assert.deepEqual(rows.map((r) => r.display_name), ["dev-a"], "only the human remains");
   assert.equal(metric?.totals.commits, 5, "bot commits still count in totals");
   assert.equal(metric?.totals.activities, 5, "bot activity still counts in totals");
 });

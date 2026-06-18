@@ -39,8 +39,8 @@ Prereqs:
   `core/policies/review-thread-convergence.md` (resolve with
   `agent-docs preflight --intent project-dev`) — it is the judgment contract.
 - Discovery must target the active board endpoint, not an incidental local
-  store. In this private workspace the default base is the g14 Tailscale board:
-  `http://terry-g14.tail841b2e.ts.net:18080`. Override with
+  store. The default base is a loopback board endpoint:
+  `http://127.0.0.1:18080`. Override with
   `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` (exact endpoint) or
   `SYMPHONY_BOARD_BASE_URL` (base URL; `/api/review-candidates` is appended).
   Do not run local-store discovery for cleanup; stale local SQLite is not an
@@ -91,7 +91,7 @@ Failure modes:
 1. **Discover candidates** from the active board endpoint (read-only):
 
    ```bash
-   export SYMPHONY_BOARD_BASE_URL="${SYMPHONY_BOARD_BASE_URL:-http://terry-g14.tail841b2e.ts.net:18080}"
+   export SYMPHONY_BOARD_BASE_URL="${SYMPHONY_BOARD_BASE_URL:-http://127.0.0.1:18080}"
    pnpm review-candidates --json
    # focus one PR / repo, or widen the late-review window/actors:
    pnpm review-candidates --json --repo sympoies/symphony-board --pr 181
@@ -100,7 +100,7 @@ Failure modes:
 
    `pnpm review-candidates` reads
    `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` / `SYMPHONY_BOARD_BASE_URL` (including
-   `.env`) and otherwise uses the hard-coded g14 endpoint. Each candidate carries
+   `.env`) and otherwise uses the hard-coded default endpoint. Each candidate carries
    `repo` (`owner/name`) and `pr`. Lead with the
    `open_review_threads` candidates (most open threads first) — that is the
    complete "unresolved" set the board lens shows. `late_review` /

@@ -15,10 +15,11 @@
 //                                     [--repo <owner/name>] [--pr <iid>]
 //                                     [--endpoint <url>] [--json]
 //
-// Discovery is endpoint-first on purpose: this private repo's active board runs
-// on g14, so local-store fallback is more dangerous than useful. The endpoint
-// can be overridden with --endpoint, SYMPHONY_BOARD_REVIEW_CANDIDATES_URL, or
-// SYMPHONY_BOARD_BASE_URL. The default is the g14 Tailscale board endpoint.
+// Discovery is endpoint-first on purpose: this repo's active board runs on a
+// dedicated host, so local-store fallback is more dangerous than useful. The
+// endpoint can be overridden with --endpoint, SYMPHONY_BOARD_REVIEW_CANDIDATES_URL,
+// or SYMPHONY_BOARD_BASE_URL. The default is a loopback board endpoint; point it
+// at the real board with one of those vars.
 //
 // Discovery has two passes, mirroring project-review-cleanup buildCandidates:
 //   Pass 1 (item-centric, actor-agnostic, the primary signal): every GitHub
@@ -306,7 +307,7 @@ interface CliArgs extends ReviewCandidateOptions {
 }
 
 const DEFAULT_REVIEW_CANDIDATES_ENDPOINT =
-  "http://terry-g14.tail841b2e.ts.net:18080/api/review-candidates";
+  "http://127.0.0.1:18080/api/review-candidates";
 
 function parsePositiveInt(value: string | undefined, name: string): number {
   const parsed = Number(value);

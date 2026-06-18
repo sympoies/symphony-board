@@ -494,8 +494,8 @@ function identitySlug(name: string, index: number): string {
 }
 
 function buildIdentityMatchers(identities: IdentityConfig[] | undefined): IdentityMatcher[] {
-  // Two entries whose names slug to the same value (e.g. "Terry Lin" and
-  // "terry-lin"), or that collide with the empty-slug index fallback, would
+  // Two entries whose names slug to the same value (e.g. "Dev A" and
+  // "dev-a"), or that collide with the empty-slug index fallback, would
   // otherwise share a person:<slug> key and wrongly merge two distinct declared
   // people. Disambiguate so every entry gets a unique canonical key.
   const used = new Set<string>();

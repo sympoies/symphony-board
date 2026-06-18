@@ -14,18 +14,18 @@ function validEnvelope() {
   const items: ItemRow[] = [
     {
       item_id: 1, source_id: "github:github.com", external_id: "ISSUE_abc", kind: "issue",
-      project_path: "graysurf/repo", iid: 7, url: "https://github.com/graysurf/repo/issues/7",
+      project_path: "dev-a/repo", iid: 7, url: "https://github.com/dev-a/repo/issues/7",
       title: "An issue", state: "open", state_raw: "OPEN", state_reason: null, is_draft: null,
-      author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
+      author: "dev-a", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: null, merged_at: null, review_state: null, ci_state: null, merge_state: null,
       open_review_threads: null, total_review_threads: null,
       milestone: null, demand: 3, last_seen_at: "2026-06-01T00:00:00Z",
     },
     {
       item_id: 2, source_id: "github:github.com", external_id: "PR_xyz", kind: "change_request",
-      project_path: "graysurf/repo", iid: 8, url: "https://github.com/graysurf/repo/pull/8",
+      project_path: "dev-a/repo", iid: 8, url: "https://github.com/dev-a/repo/pull/8",
       title: "A PR", state: "merged", state_raw: "MERGED", state_reason: null, is_draft: false,
-      author: "graysurf", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
+      author: "dev-a", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: "2026-01-03T00:00:00Z", merged_at: "2026-01-03T00:00:00Z", review_state: "approved",
       ci_state: "passing", merge_state: "mergeable", open_review_threads: 1, total_review_threads: 2,
       milestone: null, demand: 1, last_seen_at: "2026-06-01T00:00:00Z",
@@ -119,13 +119,13 @@ test("a non-object, non-null review_threads is rejected", () => {
 test("an envelope carrying source + repo colors validates clean", () => {
   const env: any = validEnvelope();
   env.sources[0].color = "#1f6feb";
-  env.repos = [{ source_id: "github:github.com", project_path: "graysurf/repo", color: "#e0af68" }];
+  env.repos = [{ source_id: "github:github.com", project_path: "dev-a/repo", color: "#e0af68" }];
   assert.deepEqual(validateContract(env), []);
 });
 
 test("a repo entry missing its required color is rejected", () => {
   const env: any = validEnvelope();
-  env.repos = [{ source_id: "github:github.com", project_path: "graysurf/repo" }];
+  env.repos = [{ source_id: "github:github.com", project_path: "dev-a/repo" }];
   const errors = validateContract(env);
   assert.ok(errors.some((e) => e.path === "/repos/0/color" && /required/.test(e.message)));
 });
@@ -146,13 +146,13 @@ test("activity records validate and reject malformed timestamps", () => {
       external_id: "activity-1",
       kind: "issue",
       action: "opened",
-      project_path: "graysurf/repo",
+      project_path: "dev-a/repo",
       target_kind: "issue",
       target_ref: "github:github.com|ISSUE_abc",
       target_iid: 7,
       title: "An issue",
-      url: "https://github.com/graysurf/repo/issues/7",
-      actor: "graysurf",
+      url: "https://github.com/dev-a/repo/issues/7",
+      actor: "dev-a",
       occurred_at: "2026-01-01T00:00:00Z",
       summary: "Opened issue #7",
       details: { source: "test" },
@@ -198,7 +198,7 @@ test("aggregate counts must be non-negative", () => {
 test("repo metric repo_url validates as an optional nullable provider link", () => {
   const env: any = validEnvelope();
   const metric = env.repo_metrics[0];
-  metric.repo_url = "https://github.com/graysurf/repo";
+  metric.repo_url = "https://github.com/dev-a/repo";
   assert.deepEqual(validateContract(env), []);
   metric.repo_url = null;
   assert.deepEqual(validateContract(env), []);

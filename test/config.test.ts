@@ -149,12 +149,12 @@ function writeWithIdentities(identities: unknown): string {
 
 test("accepts a valid identities map and leaves it on the config", () => {
   const { cfg } = loadConfig(
-    writeWithIdentities([{ name: "Terry Lin", usernames: ["terrylin"], emails: ["terry@example.com"], names: ["Terry LIN"], source_ids: ["gitlab:gitlab.gamania.com"] }]),
+    writeWithIdentities([{ name: "Dev A", usernames: ["dev-b"], emails: ["dev-a@example.com"], names: ["Dev A"], source_ids: ["gitlab:gitlab.internal"] }]),
   );
   assert.equal(cfg.identities?.length, 1);
-  assert.equal(cfg.identities?.[0]!.name, "Terry Lin");
-  assert.deepEqual(cfg.identities?.[0]!.usernames, ["terrylin"]);
-  assert.deepEqual(cfg.identities?.[0]!.source_ids, ["gitlab:gitlab.gamania.com"]);
+  assert.equal(cfg.identities?.[0]!.name, "Dev A");
+  assert.deepEqual(cfg.identities?.[0]!.usernames, ["dev-b"]);
+  assert.deepEqual(cfg.identities?.[0]!.source_ids, ["gitlab:gitlab.internal"]);
 });
 
 test("rejects a malformed identities map", () => {
@@ -207,7 +207,7 @@ test("saveConfig writes atomically, creates parent dirs, and round-trips through
     db_path: "data/board.db",
     timezone: "Asia/Taipei",
     sources: [baseSource()],
-    identities: [{ name: "Terry", usernames: ["graysurf"] }],
+    identities: [{ name: "Dev A", usernames: ["dev-a"] }],
     exclude_actors: ["renovate*"],
   } as unknown as AppConfig;
   saveConfig(cfg, target);

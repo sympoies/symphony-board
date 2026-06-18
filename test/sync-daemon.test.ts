@@ -325,7 +325,7 @@ test("config GET/PUT round-trip: probe, guards, validation, atomic write", async
           projects: ["a/b", { path: "c/d", color: "#abc" }],
         },
       ],
-      identities: [{ name: "Terry", usernames: ["graysurf"] }],
+      identities: [{ name: "Dev A", usernames: ["dev-a"] }],
       exclude_actors: ["renovate*"],
       x_unknown_field: { keep: true },
     };

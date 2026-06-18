@@ -59,15 +59,15 @@ function changeRequest(over: Partial<ItemDTO> = {}): ItemDTO {
     source_id: "github:github.com",
     external_id: externalId,
     kind: "change_request",
-    project_path: "graysurf/repo",
+    project_path: "dev-a/repo",
     iid,
-    url: "https://github.com/graysurf/repo/pull/100",
+    url: "https://github.com/dev-a/repo/pull/100",
     title: "A change request",
     state: "open",
     state_raw: "OPEN",
     state_reason: null,
     is_draft: null,
-    author: "graysurf",
+    author: "dev-a",
     created_at: "2026-06-01T00:00:00Z",
     updated_at: "2026-06-10T00:00:00Z",
     closed_at: null,
@@ -95,12 +95,12 @@ function reviewActivity(over: Partial<ActivityDTO> = {}): ActivityDTO {
     external_id: "REV_x",
     kind: "review",
     action: "reviewed",
-    project_path: "graysurf/repo",
+    project_path: "dev-a/repo",
     target_kind: "change_request",
     target_ref: targetRef,
     target_iid: targetIid,
     title: "A change request",
-    url: "https://github.com/graysurf/repo/pull/100#review",
+    url: "https://github.com/dev-a/repo/pull/100#review",
     actor: "chatgpt-codex-connector",
     occurred_at: "2026-06-12T00:00:00Z",
     summary: null,
@@ -142,7 +142,7 @@ test("Pass 1: an open-thread GitHub change_request becomes an open_review_thread
   assert.equal(candidates.length, 1);
   const c = candidates[0]!;
   assert.equal(c.pr, 100);
-  assert.equal(c.repo, "graysurf/repo");
+  assert.equal(c.repo, "dev-a/repo");
   assert.equal(c.source_id, "github:github.com");
   assert.equal(c.openThreads, 2);
   assert.equal(c.totalThreads, 5);
@@ -196,7 +196,7 @@ test("Pass 2: a late allowlisted bot review (after merge) is a late_review candi
   assert.deepEqual(c.reasons, ["late_review"]);
   assert.equal(c.reason, "late_review");
   assert.equal(c.actor, "chatgpt-codex-connector");
-  assert.equal(c.reviewUrl, "https://github.com/graysurf/repo/pull/100#review");
+  assert.equal(c.reviewUrl, "https://github.com/dev-a/repo/pull/100#review");
 });
 
 test("Pass 2: an allowlisted bot review on an already-closed PR is review_on_closed_pr", () => {
@@ -285,7 +285,7 @@ test("ordering: open-thread candidates first (most open threads first), enrichme
         external_id: "REV_112",
         target_iid: 112,
         occurred_at: "2026-06-13T00:00:00Z",
-        url: "https://github.com/graysurf/repo/pull/112#review",
+        url: "https://github.com/dev-a/repo/pull/112#review",
       }),
     ],
   });
@@ -336,7 +336,7 @@ test("Pass 2: a late review still matches its item across a repo rename (immutab
         id: "github:github.com|PR_renamed",
         external_id: "PR_renamed",
         iid: 300,
-        project_path: "graysurf/repo-new",
+        project_path: "dev-a/repo-new",
         state: "merged",
         merged_at: "2026-06-11T00:00:00Z",
         review_threads: { open: 0, total: 2 },
@@ -346,11 +346,11 @@ test("Pass 2: a late review still matches its item across a repo rename (immutab
       reviewActivity({
         id: "github:github.com|REV_renamed",
         external_id: "REV_renamed",
-        project_path: "graysurf/repo-old", // stale: pre-rename path
+        project_path: "dev-a/repo-old", // stale: pre-rename path
         target_ref: "github:github.com|PR_renamed", // immutable
         target_iid: 300,
         occurred_at: "2026-06-13T00:00:00Z",
-        url: "https://github.com/graysurf/repo-new/pull/300#review",
+        url: "https://github.com/dev-a/repo-new/pull/300#review",
       }),
     ],
   });
@@ -372,7 +372,7 @@ test("focused --repo discovery finds a renamed PR's late review (filter the reso
         id: "github:github.com|PR_renamed",
         external_id: "PR_renamed",
         iid: 300,
-        project_path: "graysurf/repo-new",
+        project_path: "dev-a/repo-new",
         state: "merged",
         merged_at: "2026-06-11T00:00:00Z",
         review_threads: { open: 0, total: 2 },
@@ -382,18 +382,18 @@ test("focused --repo discovery finds a renamed PR's late review (filter the reso
       reviewActivity({
         id: "github:github.com|REV_renamed",
         external_id: "REV_renamed",
-        project_path: "graysurf/repo-old", // stale: pre-rename path
+        project_path: "dev-a/repo-old", // stale: pre-rename path
         target_ref: "github:github.com|PR_renamed",
         target_iid: 300,
         occurred_at: "2026-06-13T00:00:00Z",
-        url: "https://github.com/graysurf/repo-new/pull/300#review",
+        url: "https://github.com/dev-a/repo-new/pull/300#review",
       }),
     ],
   });
-  const candidates = buildReviewCandidates(env, opts({ repo: "graysurf/repo-new" }));
+  const candidates = buildReviewCandidates(env, opts({ repo: "dev-a/repo-new" }));
   assert.equal(candidates.length, 1, "focused --repo discovery matches against the item's current path");
   assert.equal(candidates[0]!.pr, 300);
-  assert.equal(candidates[0]!.repo, "graysurf/repo-new");
+  assert.equal(candidates[0]!.repo, "dev-a/repo-new");
 });
 
 // Discovery must see EVERY open-thread change_request, not just the 90-day board
@@ -416,15 +416,15 @@ function staleOpenThreadRow(): ItemRow {
     source_id: "github:github.com",
     external_id: "PR_stale",
     kind: "change_request",
-    project_path: "graysurf/repo",
+    project_path: "dev-a/repo",
     iid: 400,
-    url: "https://github.com/graysurf/repo/pull/400",
+    url: "https://github.com/dev-a/repo/pull/400",
     title: "A long-merged PR with a lingering open thread",
     state: "merged",
     state_raw: "MERGED",
     state_reason: null,
     is_draft: false,
-    author: "graysurf",
+    author: "dev-a",
     created_at: "2025-01-01T00:00:00Z",
     updated_at: "2025-01-10T00:00:00Z", // > 90 days before generatedAt
     closed_at: null,
@@ -445,15 +445,15 @@ function staleOpenThreadCanonical(): CanonicalItem {
     sourceId: "github:github.com",
     externalId: "PR_stale",
     kind: "change_request",
-    projectPath: "graysurf/repo",
+    projectPath: "dev-a/repo",
     iid: 400,
-    url: "https://github.com/graysurf/repo/pull/400",
+    url: "https://github.com/dev-a/repo/pull/400",
     title: "A long-merged PR with a lingering open thread",
     state: "merged",
     stateRaw: "MERGED",
     stateReason: null,
     isDraft: false,
-    author: "graysurf",
+    author: "dev-a",
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-10T00:00:00Z",
     closedAt: null,
@@ -527,7 +527,7 @@ test("GET /api/review-candidates serves full-store candidates and validates quer
         kind: "github",
         host: "github.com",
         graphql_url: "https://api.github.com/graphql",
-        projects: ["graysurf/repo"],
+        projects: ["dev-a/repo"],
       },
     ],
   } as AppConfig;
@@ -536,7 +536,7 @@ test("GET /api/review-candidates serves full-store candidates and validates quer
     const { res, out } = fakeRes();
     await handleReviewCandidatesRequest(
       cfg,
-      new URL("http://localhost/api/review-candidates?repo=graysurf/repo&pr=400"),
+      new URL("http://localhost/api/review-candidates?repo=dev-a/repo&pr=400"),
       res,
     );
     assert.equal(out.status, 200);

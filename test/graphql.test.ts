@@ -27,13 +27,13 @@ test("makeGqlClient POSTs the query with bearer auth and unwraps json.data", asy
   mockFetch((url, init) => {
     seenUrl = url;
     seenInit = init;
-    return new Response(JSON.stringify({ data: { viewer: { login: "graysurf" } } }), { status: 200 });
+    return new Response(JSON.stringify({ data: { viewer: { login: "dev-a" } } }), { status: 200 });
   });
 
   const gql = makeGqlClient("https://api.github.com/graphql", "gh-token");
   const data = await gql<{ viewer: { login: string } }>("query Q($a: Int) { viewer { login } }", { a: 1 });
 
-  assert.deepEqual(data, { viewer: { login: "graysurf" } });
+  assert.deepEqual(data, { viewer: { login: "dev-a" } });
   assert.equal(seenUrl?.href, "https://api.github.com/graphql");
   assert.equal(seenInit.method, "POST");
   const headers = seenInit.headers as Record<string, string>;

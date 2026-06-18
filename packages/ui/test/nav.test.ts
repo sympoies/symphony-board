@@ -70,7 +70,7 @@ test("Activity facets round-trip through the hash (link -> route -> chips agree)
 test("activityDrilldownHref lands with kind/action/source/repo as ACTIVE facets", () => {
   const href = activityDrilldownHref({
     source: "github:github.com",
-    repo: "graysurf/agent-runtime-kit",
+    repo: "dev-a/agent-runtime-kit",
     range: { from: "2026-06-08", to: "2026-06-13" },
     kind: "review",
   });
@@ -79,7 +79,7 @@ test("activityDrilldownHref lands with kind/action/source/repo as ACTIVE facets"
   const f = activityFacets(route);
   assert.deepEqual([...f.kinds], ["review"], "the kind chip is active on arrival");
   assert.deepEqual([...f.sources], ["github:github.com"]);
-  assert.deepEqual([...f.repos], ["graysurf/agent-runtime-kit"]);
+  assert.deepEqual([...f.repos], ["dev-a/agent-runtime-kit"]);
   assert.equal(route.from, "2026-06-08");
   assert.equal(route.to, "2026-06-13");
 

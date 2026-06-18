@@ -136,7 +136,7 @@ function activity(over: Partial<ActivityDTO> = {}): ActivityDTO {
   return {
     id: "github:github.com|A1", source_id: "github:github.com", external_id: "A1", kind: "issue",
     action: "closed", project_path: "o/r", target_kind: "issue", target_ref: "github:github.com|X",
-    target_iid: 13, title: "Closed issue", url: "https://x", actor: "graysurf",
+    target_iid: 13, title: "Closed issue", url: "https://x", actor: "dev-a",
     occurred_at: "2026-06-07T00:00:00Z", summary: "Closed issue #13", details: { sha: "abc1234" },
     first_seen_at: "2026-06-07T00:00:00Z", last_seen_at: "2026-06-07T00:00:00Z", ...over,
   };
@@ -206,7 +206,7 @@ function repoMetric(over: Partial<RepoMetricDTO> = {}): RepoMetricDTO {
 }
 
 test("itemMatches applies source/state/kind/search filters (AND)", () => {
-  const it = item({ title: "Flaky test", author: "graysurf", labels: [{ name: "bug", scope: null, color: null }] });
+  const it = item({ title: "Flaky test", author: "dev-a", labels: [{ name: "bug", scope: null, color: null }] });
   assert.equal(itemMatches(it, emptyFilters()), true);
   assert.equal(itemMatches(it, { ...emptyFilters(), states: new Set(["closed"]) }), false);
   assert.equal(itemMatches(it, { ...emptyFilters(), kinds: new Set(["issue"]) }), true);
@@ -1116,7 +1116,7 @@ test("repoKey is collision-proof and deriveRepos handles an empty contract", () 
 
 test("sourceDisplayName drops provider prefix from source ids", () => {
   assert.equal(sourceDisplayName("github:github.com"), "github.com");
-  assert.equal(sourceDisplayName("gitlab:gitlab.gamania.com"), "gitlab.gamania.com");
+  assert.equal(sourceDisplayName("gitlab:gitlab.internal"), "gitlab.internal");
   assert.equal(sourceDisplayName("legacy-source"), "legacy-source");
   assert.equal(sourceDisplayName("github:"), "github:");
 });
@@ -1125,12 +1125,12 @@ test("visibleHeaderSources follows Settings source visibility", () => {
   const sources: SourceDTO[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok", color: null },
     { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GitLab", last_success_at: null, last_status: "ok", color: null },
-    { source_id: "gitlab:gamania", kind: "gitlab", host: "gitlab.gamania.com", display_name: "GitLab (Gamania)", last_success_at: null, last_status: "ok", color: null },
+    { source_id: "gitlab:internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab (self-hosted)", last_success_at: null, last_status: "ok", color: null },
   ];
 
   assert.deepEqual(
     visibleHeaderSources(sources, new Set(["github:github.com"])).map((s) => s.source_id),
-    ["gitlab:gitlab.com", "gitlab:gamania"],
+    ["gitlab:gitlab.com", "gitlab:internal"],
   );
 });
 
@@ -2076,7 +2076,7 @@ test("config draft mutations are immutable and leave unknown fields untouched", 
   const doc: ConfigDocument = {
     db_path: "data/x.db",
     sources: [src("github:github.com")],
-    identities: [{ name: "Terry" }],
+    identities: [{ name: "Dev A" }],
     exclude_actors: ["renovate*"],
   };
 
@@ -2084,7 +2084,7 @@ test("config draft mutations are immutable and leave unknown fields untouched", 
   const added = configWithSource(doc, src("gitlab:gitlab.com"));
   assert.equal(added.sources.length, 2);
   assert.equal(configWithSource(added, src("gitlab:gitlab.com")).sources.length, 2);
-  assert.deepEqual(added.identities, [{ name: "Terry" }], "fields the editor does not own ride along");
+  assert.deepEqual(added.identities, [{ name: "Dev A" }], "fields the editor does not own ride along");
   assert.equal(doc.sources.length, 1, "the input document is untouched");
 
   // creating from null seeds the standalone db_path
