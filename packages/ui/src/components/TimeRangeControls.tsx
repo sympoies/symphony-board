@@ -75,7 +75,9 @@ export function TimeRangeControls({
   error,
   suspended,
   collapsibleOnNarrow,
+  mobilePanel,
   onRange,
+  onMobilePanel,
 }: {
   range: TimeRange;
   generatedAt: string;
@@ -93,11 +95,13 @@ export function TimeRangeControls({
   // disclosure that summarizes the active range, so a long-feed page (Commits)
   // doesn't spend the first screen on date controls. Desktop always shows them.
   collapsibleOnNarrow?: boolean;
+  mobilePanel?: "search" | "filters" | "range" | null;
   onRange: (range: TimeRange, presetId?: TimeRangePresetId | null) => void;
+  onMobilePanel?: (panel: "search" | "filters" | "range" | null) => void;
 }) {
   const controlsRef = useRef<HTMLDivElement | null>(null);
   const [draftDisplay, setDraftDisplay] = useState<DisplayRange>(() => rangeToDisplay(range));
-  const [rangeOpen, setRangeOpen] = useState(false);
+  const [localRangeOpen, setLocalRangeOpen] = useState(false);
   const [openPicker, setOpenPicker] = useState<RangeField | null>(null);
   const [pickerMonth, setPickerMonth] = useState(() => monthStart(range.to));
   const generatedAtMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
@@ -107,6 +111,11 @@ export function TimeRangeControls({
   // label, else the explicit from–to range.
   const activePresetLabel = presetOptions.find(({ option }) => option.id === activePresetId)?.option.label ?? null;
   const rangeSummary = activePresetLabel ?? `${dateOnlyToDisplay(range.from)} – ${dateOnlyToDisplay(range.to)}`;
+  const rangeOpen = mobilePanel === undefined ? localRangeOpen : mobilePanel === "range";
+  const setRangeOpen = (open: boolean) => {
+    if (mobilePanel === undefined) setLocalRangeOpen(open);
+    else onMobilePanel?.(open ? "range" : null);
+  };
   useEffect(() => setDraftDisplay(rangeToDisplay(range)), [range.from, range.to]);
   useEffect(() => {
     if (!openPicker) return;
@@ -220,25 +229,8 @@ export function TimeRangeControls({
           </button>
         );
       });
-  return (
-    <div
-      ref={controlsRef}
-      className={`time-range-controls${suspended ? " range-suspended" : ""}`}
-      data-range-collapsed={collapsibleOnNarrow && !rangeOpen ? "true" : undefined}
-      title={suspended ? "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable." : undefined}
-    >
-      {collapsibleOnNarrow ? (
-        <button
-          type="button"
-          className="filter-summary-disclosure range-disclosure"
-          aria-expanded={rangeOpen}
-          onClick={() => setRangeOpen((open) => !open)}
-        >
-          <span className="filter-summary-disclosure-label">range</span>
-          <span className="filter-summary-disclosure-summary">{rangeSummary}</span>
-          <span className="filter-summary-disclosure-caret" aria-hidden="true" />
-        </button>
-      ) : null}
+  const rangeBody = (className: string) => (
+    <div className={className}>
       <span className="muted time-range-label">range</span>
       <label className="date-filter">
         from
@@ -299,6 +291,52 @@ export function TimeRangeControls({
       {suspended ? <span className="muted">not applied in focus</span> : null}
       {loading ? <span className="muted">loading range...</span> : null}
       {error ? <span className="range-error">{error}</span> : null}
+    </div>
+  );
+  return (
+    <div
+      ref={controlsRef}
+      className={`time-range-controls${suspended ? " range-suspended" : ""}`}
+      data-range-collapsed={collapsibleOnNarrow && !rangeOpen ? "true" : undefined}
+      title={suspended ? "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable." : undefined}
+    >
+      {collapsibleOnNarrow ? (
+        <button
+          type="button"
+          className="filter-summary-disclosure range-disclosure"
+          aria-expanded={rangeOpen}
+          onClick={() => setRangeOpen(!rangeOpen)}
+        >
+          <span className="filter-summary-disclosure-label">range</span>
+          <span className="filter-summary-disclosure-summary">{rangeSummary}</span>
+          <span className="filter-summary-disclosure-caret" aria-hidden="true" />
+        </button>
+      ) : null}
+      {rangeBody("time-range-inline")}
+      {rangeOpen ? (
+        <>
+          <button type="button" className="mobile-control-backdrop" aria-label="Close controls" onClick={() => setRangeOpen(false)} />
+          <div
+            id="mobile-range-panel"
+            className="mobile-control-sheet"
+            data-panel="range"
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="mobile-range-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setRangeOpen(false);
+            }}
+          >
+            <div className="mobile-control-sheet-head">
+              <strong id="mobile-range-title" className="mobile-control-sheet-title">Range</strong>
+              <button type="button" className="mobile-control-sheet-close" aria-label="Close controls" onClick={() => setRangeOpen(false)}>
+                ×
+              </button>
+            </div>
+            {rangeBody("time-range-sheet-body")}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

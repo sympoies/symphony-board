@@ -104,6 +104,7 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 const UNRESOLVED_ON: ReadonlySet<string> = new Set(["unresolved"]);
 // Chip labels for the review lens: "threads" -> "has threads", "unresolved" as-is.
 const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads" : v);
+type MobileControlPanel = "search" | "filters" | "range" | null;
 
 // Pages via a zero-dep hash route: "" (first open) defaults to Activity,
 // "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
@@ -130,6 +131,7 @@ export function App() {
   // Seed the search from the hash's "?q=" token if present; the URL is the source
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
+  const [mobileControlPanel, setMobileControlPanel] = useState<MobileControlPanel>(null);
   const [hash, setHash] = useState<string>(readHash);
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
@@ -181,6 +183,9 @@ export function App() {
             : route.page === "settings"
               ? "settings"
               : "activity";
+  useEffect(() => {
+    setMobileControlPanel(null);
+  }, [page]);
   // The shared item-facet lens (source/state/kind) for board / graph /
   // repo-analytics, read STRICTLY from the URL route (isource/istate/ikind) — the
   // single source of truth shared by the content filters AND the chips. One set
@@ -1040,6 +1045,7 @@ export function App() {
             <Controls
               search={filters.search}
               groups={controlGroups}
+              mobilePanel={mobileControlPanel}
               onSearch={setRouteSearch}
               onToggle={(dim, value) => {
                 if (dim === "unresolved") setUnresolvedReviews();
@@ -1047,6 +1053,7 @@ export function App() {
                 else setItemFacet(dim as ItemFacetDim, value);
               }}
               onLoadFile={loadFile}
+              onMobilePanel={setMobileControlPanel}
             />
           )}
           <TimeRangeControls
@@ -1066,7 +1073,9 @@ export function App() {
             // pickers. This block only renders for non-Settings pages, so the
             // range always collapses on a phone; desktop always shows it inline.
             collapsibleOnNarrow
+            mobilePanel={mobileControlPanel}
             onRange={setRouteRange}
+            onMobilePanel={setMobileControlPanel}
           />
         </div>
       )}
