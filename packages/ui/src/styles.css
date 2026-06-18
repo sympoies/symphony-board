@@ -1899,8 +1899,8 @@ a.rf-node-title:hover { color: var(--accent); }
   text-decoration: underline;
 }
 .repo-actors-cell:empty { display: none; }
-/* Idle repos (no ranked actors): a muted em-dash placeholder so the Actors cell
-   reads as an intentional "no data" marker instead of a blank gap. Slightly
+/* Idle repos (no ranked actors): a muted middle-dot placeholder so the Actors
+   cell reads as an intentional "no data" marker instead of a blank gap. Slightly
    faint so it never competes with real actor names; theme-agnostic via --muted. */
 .repo-actors-empty { opacity: 0.55; }
 
