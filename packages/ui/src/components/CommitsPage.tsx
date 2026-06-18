@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -369,6 +369,39 @@ export function CommitsPage({
     activeFilterCount === 0
       ? "all repos · all branches"
       : `${selectedRepo ?? "all repos"} · ${selectedBranch ?? "all branches"}`;
+  const closeFiltersOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") setFiltersOpen(false);
+  };
+  const filterBody = (className: string) => (
+    <div className={className}>
+      <div className="commits-filter">
+        <RepoCombobox options={repoOptions} selectedSource={selectedSource} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
+        <span className="muted commits-filter-hint">
+          {repoOptions.length} {pluralize(repoOptions.length, "repo")} with commits
+          {branchOptions.length > 0 ? ` · ${branchOptions.length} ${pluralize(branchOptions.length, "branch", "branches")}` : ""}
+        </span>
+      </div>
+      <label className="commit-branch-select">
+        <BranchIcon />
+        <select
+          aria-label="Filter commits by branch"
+          value={selectedBranch ?? ""}
+          disabled={branchOptions.length === 0}
+          onChange={(event) => onBranch(event.target.value || null)}
+        >
+          <option value="">All branches</option>
+          {selectedBranch && !branchOptions.some((option) => option.branch === selectedBranch) ? (
+            <option value={selectedBranch}>{selectedBranch}</option>
+          ) : null}
+          {branchOptions.map((option) => (
+            <option key={option.branch} value={option.branch}>
+              {option.branch} ({option.count})
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
 
   return (
     <main className="commits-page">
@@ -383,40 +416,36 @@ export function CommitsPage({
         type="button"
         className="filter-summary-disclosure commits-filter-disclosure"
         aria-expanded={filtersOpen}
+        aria-controls="mobile-commits-filter-panel"
         onClick={() => setFiltersOpen((open) => !open)}
       >
         <span className="filter-summary-disclosure-label">filters</span>
         <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
         <span className="filter-summary-disclosure-caret" aria-hidden="true" />
       </button>
-      <div className="commits-toolbar" data-filters-collapsed={filtersOpen ? undefined : "true"}>
-        <div className="commits-filter">
-          <RepoCombobox options={repoOptions} selectedSource={selectedSource} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
-          <span className="muted commits-filter-hint">
-            {repoOptions.length} {pluralize(repoOptions.length, "repo")} with commits
-            {branchOptions.length > 0 ? ` · ${branchOptions.length} ${pluralize(branchOptions.length, "branch", "branches")}` : ""}
-          </span>
-        </div>
-        <label className="commit-branch-select">
-          <BranchIcon />
-          <select
-            aria-label="Filter commits by branch"
-            value={selectedBranch ?? ""}
-            disabled={branchOptions.length === 0}
-            onChange={(event) => onBranch(event.target.value || null)}
+      {filterBody("commits-toolbar commits-toolbar-inline")}
+      {filtersOpen ? (
+        <>
+          <button type="button" className="mobile-control-backdrop" aria-label="Close commit filters" onClick={() => setFiltersOpen(false)} />
+          <div
+            id="mobile-commits-filter-panel"
+            className="mobile-control-sheet"
+            data-panel="commits-filters"
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="mobile-commits-filter-title"
+            onKeyDown={closeFiltersOnEscape}
           >
-            <option value="">All branches</option>
-            {selectedBranch && !branchOptions.some((option) => option.branch === selectedBranch) ? (
-              <option value={selectedBranch}>{selectedBranch}</option>
-            ) : null}
-            {branchOptions.map((option) => (
-              <option key={option.branch} value={option.branch}>
-                {option.branch} ({option.count})
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+            <div className="mobile-control-sheet-head">
+              <strong id="mobile-commits-filter-title" className="mobile-control-sheet-title">Filters</strong>
+              <button type="button" className="mobile-control-sheet-close" aria-label="Close commit filters" onClick={() => setFiltersOpen(false)}>
+                ×
+              </button>
+            </div>
+            {filterBody("commits-toolbar commits-toolbar-sheet")}
+          </div>
+        </>
+      ) : null}
       <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} timezone={timezone} />
     </main>
   );

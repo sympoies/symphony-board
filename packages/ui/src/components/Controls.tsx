@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, type ChangeEvent, type KeyboardEvent } from "react";
 
 // A single facet group the Controls bar renders. `mode` decides which values
 // show: "facet" lists every value (the usual multi-select chips, hidden when
@@ -21,9 +21,11 @@ export interface ControlGroup {
 interface Props {
   search: string;
   groups: ControlGroup[];
+  mobilePanel?: "search" | "filters" | "range" | null;
   onSearch: (q: string) => void;
   onToggle: (dim: string, value: string) => void;
   onLoadFile: (file: File) => void;
+  onMobilePanel?: (panel: "search" | "filters" | "range" | null) => void;
 }
 
 function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (value: string) => void }) {
@@ -60,15 +62,25 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
   );
 }
 
-export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Props) {
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+export function Controls({ search, groups, mobilePanel = null, onSearch, onToggle, onLoadFile, onMobilePanel }: Props) {
+  const mobileSearchRef = useRef<HTMLInputElement | null>(null);
+  const filtersOpen = mobilePanel === "filters";
+  const searchOpen = mobilePanel === "search";
   const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
   // Collapsed-state summary for the narrow disclosure: "all" when nothing narrows
   // the view, else the active facet count. Mirrors the range / commits filter
   // disclosures so every page's filter chrome reads the same on a phone.
   const filtersSummary = activeFilterCount === 0 ? "all" : `${activeFilterCount} active`;
   const searchSummary = search.trim() === "" ? "search" : "search active";
+  useEffect(() => {
+    if (searchOpen) mobileSearchRef.current?.focus();
+  }, [searchOpen]);
+  const setMobilePanel = (panel: "search" | "filters" | "range" | null) => {
+    onMobilePanel?.(panel);
+  };
+  const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") setMobilePanel(null);
+  };
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
@@ -79,9 +91,9 @@ export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Pro
         type="button"
         className="filter-summary-disclosure search-disclosure"
         aria-expanded={searchOpen}
-        aria-controls="global-search"
+        aria-controls="mobile-search-panel"
         aria-label={`${searchOpen ? "Hide" : "Show"} search`}
-        onClick={() => setSearchOpen((open) => !open)}
+        onClick={() => setMobilePanel(searchOpen ? null : "search")}
       >
         <span className="filter-summary-disclosure-summary">{searchSummary}</span>
       </button>
@@ -97,9 +109,9 @@ export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Pro
         type="button"
         className="filter-summary-disclosure filter-disclosure"
         aria-expanded={filtersOpen}
-        aria-controls="facet-filter-groups"
+        aria-controls="mobile-filter-panel"
         aria-label={`${filtersOpen ? "Hide" : "Show"} filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ""}`}
-        onClick={() => setFiltersOpen((open) => !open)}
+        onClick={() => setMobilePanel(filtersOpen ? null : "filters")}
       >
         <span className="filter-summary-disclosure-label">filters</span>
         <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
@@ -110,6 +122,46 @@ export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Pro
           <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
         ))}
       </div>
+      {searchOpen || filtersOpen ? (
+        <>
+          <button type="button" className="mobile-control-backdrop" aria-label="Close controls" onClick={() => setMobilePanel(null)} />
+          <div
+            id={searchOpen ? "mobile-search-panel" : "mobile-filter-panel"}
+            className="mobile-control-sheet"
+            data-panel={searchOpen ? "search" : "filters"}
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby={searchOpen ? "mobile-search-title" : "mobile-filter-title"}
+            onKeyDown={closeOnEscape}
+          >
+            <div className="mobile-control-sheet-head">
+              <strong id={searchOpen ? "mobile-search-title" : "mobile-filter-title"} className="mobile-control-sheet-title">
+                {searchOpen ? "Search" : "Filters"}
+              </strong>
+              <button type="button" className="mobile-control-sheet-close" aria-label="Close controls" onClick={() => setMobilePanel(null)}>
+                ×
+              </button>
+            </div>
+            {searchOpen ? (
+              <input
+                ref={mobileSearchRef}
+                id="global-search-mobile"
+                className="search mobile-control-search"
+                type="search"
+                placeholder="Search title / author / repo / label…"
+                value={search}
+                onChange={(e) => onSearch(e.target.value)}
+              />
+            ) : (
+              <div className="filter-groups mobile-filter-groups">
+                {groups.map((group) => (
+                  <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
       <details className="file-load">
         <summary className="toggle file-load-summary">Local file</summary>
         <label className="file-load-picker">

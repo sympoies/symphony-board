@@ -808,7 +808,9 @@ try {
   })).result.value || 0;
   const commitsToolbarLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const toolbar = document.querySelector('.commits-page .commits-toolbar');
+      const visible = (selector, root = document) => Array.from(root.querySelectorAll(selector))
+        .find((el) => getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+      const toolbar = visible('.commits-page .commits-toolbar');
       const repoFilter = toolbar?.querySelector(':scope > .commits-filter');
       const repoInput = repoFilter?.querySelector('input.search');
       const repoField = repoFilter?.querySelector('.repo-combobox-field');
@@ -940,7 +942,7 @@ try {
   })).result.value || false;
   // Open the combobox (focus + click both set it open) and inspect the styled list.
   await send("Runtime.evaluate", {
-    expression: "(() => { const i = document.querySelector('.commits-filter input.search'); if (i) { i.focus(); i.click(); } })()",
+    expression: "(() => { const i = Array.from(document.querySelectorAll('.commits-filter input.search')).find((el) => getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0); if (i) { i.focus(); i.click(); } })()",
   });
   await sleep(250);
   const commitsCombo = (await send("Runtime.evaluate", {
@@ -963,7 +965,7 @@ try {
     expression: `(() => ({
       hash: location.hash,
       rows: document.querySelectorAll('.commits-page .commit-row').length,
-      inputValue: document.querySelector('.commits-filter input.search')?.value || '',
+      inputValue: (Array.from(document.querySelectorAll('.commits-filter input.search')).find((el) => getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0))?.value || '',
       onlyPicked: Array.from(document.querySelectorAll('.commits-page .commit-row-meta'))
         .every((el) => (el.textContent || '').includes('example-group/symphony-board-fixture')),
     }))()`,
@@ -1414,6 +1416,8 @@ try {
       const button = controls?.querySelector('.filter-disclosure');
       const groups = controls?.querySelector('.filter-groups');
       const activeChip = groups?.querySelector('.toggle.toggle-on');
+      const primarySurface = document.querySelector('.activity-list');
+      const primaryRect = primarySurface?.getBoundingClientRect();
       return {
         hasButton: !!button,
         buttonVisible: !!button && getComputedStyle(button).display !== 'none',
@@ -1421,6 +1425,7 @@ try {
         groupsHidden: !!groups && getComputedStyle(groups).display === 'none',
         rangeVisible: !!document.querySelector('.time-range-controls') && getComputedStyle(document.querySelector('.time-range-controls')).display !== 'none',
         activeChipText: activeChip?.textContent?.trim() || null,
+        primaryTopBefore: Math.round(primaryRect?.top || 0),
       };
     })()`,
     returnByValue: true,
@@ -1431,16 +1436,26 @@ try {
   await sleep(150);
   const phoneActiveFilterDisclosureAfter = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const groups = document.querySelector('.controls .filter-groups');
+      const groups = Array.from(document.querySelectorAll('.controls .filter-groups'))
+        .find((candidate) => getComputedStyle(candidate).display !== 'none');
       const activeChip = groups?.querySelector('.toggle.toggle-on');
       const search = document.querySelector('.controls .search');
       const rangeDisclosure = document.querySelector('.time-range-controls .range-disclosure');
+      const sheet = document.querySelector('.mobile-control-sheet');
+      const sheets = Array.from(document.querySelectorAll('.mobile-control-sheet'));
+      const primarySurface = document.querySelector('.activity-list');
+      const sheetTitle = sheet?.querySelector('.mobile-control-sheet-title');
       const rangeRect = rangeDisclosure?.getBoundingClientRect();
+      const primaryRect = primarySurface?.getBoundingClientRect();
       return {
         groupsVisible: !!groups && getComputedStyle(groups).display !== 'none',
         activeChipVisible: !!activeChip && getComputedStyle(activeChip).display !== 'none',
         searchVisible: !!search && getComputedStyle(search).display !== 'none',
         rangeDisclosureHeight: Math.round(rangeRect?.height || 0),
+        sheetVisible: !!sheet && getComputedStyle(sheet).display !== 'none',
+        sheetCount: sheets.length,
+        sheetTitle: sheetTitle?.textContent?.trim() || null,
+        primaryTopAfter: Math.round(primaryRect?.top || 0),
       };
     })()`,
     returnByValue: true,
@@ -1449,6 +1464,55 @@ try {
     ...phoneActiveFilterDisclosureBefore,
     ...phoneActiveFilterDisclosureAfter,
   };
+  await send("Runtime.evaluate", { expression: "document.querySelector('.mobile-control-backdrop')?.click()" });
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.commits-page .commit-list')");
+  const phoneCommitsFilterDisclosureBefore = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const button = document.querySelector('.commits-filter-disclosure');
+      const toolbar = document.querySelector('.commits-toolbar-inline');
+      const primarySurface = document.querySelector('.commit-list');
+      const primaryRect = primarySurface?.getBoundingClientRect();
+      return {
+        hasButton: !!button,
+        buttonVisible: !!button && getComputedStyle(button).display !== 'none',
+        toolbarHidden: !toolbar || getComputedStyle(toolbar).display === 'none',
+        primaryTopBefore: Math.round(primaryRect?.top || 0),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-filter-disclosure')?.click()" });
+  await sleep(150);
+  const phoneCommitsFilterDisclosureAfter = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const sheet = document.querySelector('.mobile-control-sheet[data-panel="commits-filters"]');
+      const sheets = Array.from(document.querySelectorAll('.mobile-control-sheet'));
+      const sheetTitle = sheet?.querySelector('.mobile-control-sheet-title');
+      const repoInput = sheet?.querySelector('.commits-filter input.search');
+      const branchSelect = sheet?.querySelector('.commit-branch-select select');
+      const primarySurface = document.querySelector('.commit-list');
+      const primaryRect = primarySurface?.getBoundingClientRect();
+      return {
+        sheetVisible: !!sheet && getComputedStyle(sheet).display !== 'none',
+        sheetCount: sheets.length,
+        sheetTitle: sheetTitle?.textContent?.trim() || null,
+        repoInputVisible: !!repoInput && getComputedStyle(repoInput).display !== 'none',
+        branchSelectVisible: !!branchSelect && getComputedStyle(branchSelect).display !== 'none',
+        primaryTopAfter: Math.round(primaryRect?.top || 0),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const phoneCommitsFilterDisclosure = {
+    ...phoneCommitsFilterDisclosureBefore,
+    ...phoneCommitsFilterDisclosureAfter,
+  };
+  await send("Runtime.evaluate", { expression: "document.querySelector('.mobile-control-backdrop')?.click(); location.hash = '#/activity?kind=commit'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.activity-page')");
   // Flip the mobile toggle to Overview and confirm the single visible pane swaps
   // from the feed to the rhythm heatmap (which now only mounts in this view) and
   // that it still opens scrolled to the latest dates.
@@ -1582,9 +1646,11 @@ try {
   const phoneRangeLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
       const controls = document.querySelector('.time-range-controls');
-      const labels = Array.from(controls?.querySelectorAll('.date-filter') || []);
+      const labels = Array.from(controls?.querySelectorAll('.date-filter') || [])
+        .filter((label) => getComputedStyle(label).display !== 'none');
+      const container = document.querySelector('.mobile-control-sheet[data-panel="range"] .time-range-sheet-body') || controls;
       const wraps = labels.map((label) => label.querySelector('.date-input-wrap'));
-      const controlRect = controls?.getBoundingClientRect();
+      const controlRect = container?.getBoundingClientRect();
       const labelRects = labels.map((label) => label.getBoundingClientRect());
       const wrapRects = wraps.map((wrap) => wrap?.getBoundingClientRect());
       return {
@@ -1707,7 +1773,9 @@ try {
     [phoneContentPages.every((r) => r.primarySurfaceTop > 0 && r.primarySurfaceTop <= 360), `portrait: phone primary content starts in the first screen (${phoneContentPages.map((r) => `${r.page}:top=${r.primarySurfaceTop}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
-    [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone search/filter expansion keeps range as a compact chip (${JSON.stringify(phoneActiveFilterDisclosure)})`],
+    [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === false && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone filters open without keeping search inline (${JSON.stringify(phoneActiveFilterDisclosure)})`],
+    [phoneActiveFilterDisclosure.sheetVisible === true && phoneActiveFilterDisclosure.sheetCount === 1 && phoneActiveFilterDisclosure.sheetTitle === "Filters" && Math.abs((phoneActiveFilterDisclosure.primaryTopAfter || 0) - (phoneActiveFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile search/filter expansion opens one filter overlay sheet without pushing feed (${JSON.stringify(phoneActiveFilterDisclosure)})`],
+    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.repoInputVisible === true && phoneCommitsFilterDisclosure.branchSelectVisible === true && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open one overlay sheet without pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
     [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.6), `portrait: phone activity defaults to a tall records feed behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, heatmap=${phoneActivity.activityHeatmapPresent})`],
     [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],

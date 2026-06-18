@@ -388,6 +388,9 @@ html[data-theme="paper"] .toggle-on {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .filter-groups { display: contents; }
+.mobile-control-backdrop,
+.mobile-control-sheet { display: none; }
+.time-range-inline { display: contents; }
 /* The facet filters, the date range, and the Commits repo/branch filters each
    collapse behind this same full-width summary disclosure on narrow/portrait —
    one shared chrome so every page's filters read identically. Desktop shows the
@@ -1740,7 +1743,7 @@ a.rf-node-title:hover { color: var(--accent); }
     box-sizing: border-box;
     display: none;
   }
-  .controls[data-search-open="true"] .search { display: block; }
+  .controls[data-search-open="true"] > .search { display: none; }
   /* The local-file contract loader is a desktop dev affordance, never used on a
      phone — hide it so it doesn't spend a row of the filter bar. */
   .file-load { display: none; }
@@ -1784,17 +1787,85 @@ a.rf-node-title:hover { color: var(--accent); }
   .filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
     transform: translateY(-2px) rotate(45deg);
   }
-  .filter-groups {
+  .controls > .filter-groups {
     display: none;
     grid-column: 1 / -1;
     width: 100%;
   }
-  .filter-groups[data-open="true"] {
+  .controls > .filter-groups[data-open="true"] {
+    display: none;
+  }
+  .mobile-control-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    padding: 0;
+    border: 0;
+    background: rgba(1, 7, 18, 0.48);
+  }
+  .mobile-control-sheet {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: min(68vh, 560px);
+    box-sizing: border-box;
+    padding: 10px;
+    overflow: auto;
+    color: var(--text);
+    background: color-mix(in srgb, var(--panel) 95%, var(--bg));
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow-float);
+  }
+  .mobile-control-sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+  }
+  .mobile-control-sheet-title {
+    min-width: 0;
+    font-size: 15px;
+    line-height: 1.2;
+  }
+  .mobile-control-sheet-close {
+    margin-left: auto;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--muted);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .mobile-control-sheet-close:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .mobile-control-sheet .search {
+    display: block;
+    grid-column: auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .mobile-control-sheet .filter-groups {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
     gap: 8px;
   }
+  .mobile-control-sheet .filter-groups .toggle-group,
   .filter-groups .toggle-group {
     width: 100%;
     display: flex;
@@ -1804,6 +1875,18 @@ a.rf-node-title:hover { color: var(--accent); }
   .filter-groups .toggle-label { flex-basis: 100%; }
   .time-range-controls { align-items: flex-start; gap: 8px; }
   .time-range-controls .range-disclosure { width: 100%; }
+  .time-range-controls .time-range-inline { display: none; }
+  .time-range-controls .time-range-inline .time-range-label,
+  .time-range-controls .time-range-inline .date-filter,
+  .time-range-controls .time-range-inline .toggle-group {
+    display: none;
+  }
+  .time-range-controls .time-range-sheet-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
   .time-range-controls .time-range-label { flex-basis: 100%; }
   /* When the range is collapsed, hide the label, date inputs, and quick presets —
      the shared `.range-disclosure` summary bar stands in until expanded. */
@@ -1855,6 +1938,8 @@ a.rf-node-title:hover { color: var(--accent); }
     overflow-wrap: anywhere;
   }
   .commits-toolbar { align-items: stretch; flex-direction: column; }
+  .commits-toolbar-inline { display: none; }
+  .commits-toolbar-sheet { margin: 0; }
   .commits-filter { flex: none; max-width: none; }
   .commits-filter-hint { align-self: flex-start; }
   .repo-combobox { flex: none; width: 100%; }
