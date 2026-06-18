@@ -142,9 +142,18 @@ body::after {
   height: var(--android-safe-area-bottom, 0px);
 }
 
+/* Auto-hiding scrollbars: transparent at rest, painted only while the scroller
+   carries data-scrolling="true" (setupAutoHideScrollbars flags it on scroll and
+   clears it after a short idle) or while the pointer hovers the bar. The track is
+   never given a visible color and the gutter (--scrollbar-size) is always reserved,
+   so revealing the bar never shifts content. */
 :where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-color: transparent transparent;
   scrollbar-width: thin;
+}
+
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"] {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 :where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar {
@@ -152,31 +161,35 @@ body::after {
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 999px;
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track,
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece,
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece {
-  background: var(--scrollbar-track);
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
+  border-radius: 999px;
 }
 
 :where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border: 2px solid var(--scrollbar-thumb-border);
+  background: transparent;
+  border: 2px solid transparent;
   border-radius: 999px;
+}
+
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"]::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-color: var(--scrollbar-thumb-border);
 }
 
 :where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+  border-color: var(--scrollbar-thumb-border);
 }
 
 :where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
-}
-
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
-  background: var(--scrollbar-track);
+  border-color: var(--scrollbar-thumb-border);
 }
 
 :where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {

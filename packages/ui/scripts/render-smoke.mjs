@@ -492,6 +492,30 @@ try {
   })()`);
   rangeResponseDelayMs = 0;
   const defaultActivityHtml = await waitHtml("document.querySelector('.activity-page')");
+  // Auto-hiding scrollbars: the styled scrollbars are transparent at rest and only
+  // paint while their scroller carries `data-scrolling="true"`. A single
+  // capture-phase scroll listener flags the scrolled element and clears it after a
+  // short idle. Drive it synchronously: clear the flag, assert it is absent at rest,
+  // dispatch a scroll on the viewport (target: document -> documentElement) and on an
+  // inner scroller, and assert each one is flagged.
+  const scrollAutoHide = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const root = document.documentElement;
+      root.removeAttribute('data-scrolling');
+      const restHidden = !root.hasAttribute('data-scrolling');
+      document.dispatchEvent(new Event('scroll'));
+      const shownOnPageScroll = root.getAttribute('data-scrolling') === 'true';
+      const inner = document.querySelector('.activity-list');
+      let shownOnInnerScroll = null;
+      if (inner) {
+        inner.removeAttribute('data-scrolling');
+        inner.dispatchEvent(new Event('scroll'));
+        shownOnInnerScroll = inner.getAttribute('data-scrolling') === 'true';
+      }
+      return { restHidden, shownOnPageScroll, hasInner: !!inner, shownOnInnerScroll };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const colorSchemeHints = (await send("Runtime.evaluate", {
     expression: `(() => ({
       colorScheme: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content') || '',
@@ -1615,6 +1639,7 @@ try {
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
+    [scrollAutoHide.restHidden === true && scrollAutoHide.shownOnPageScroll === true && (scrollAutoHide.hasInner === false || scrollAutoHide.shownOnInnerScroll === true), `app: scrollbars stay hidden at rest and reveal the scroller on scroll (${JSON.stringify(scrollAutoHide)})`],
     [colorSchemeHints.colorScheme === "dark light" && colorSchemeHints.supportedColorSchemes === "dark light", `app: declares supported color schemes for mobile browsers (${JSON.stringify(colorSchemeHints)})`],
     [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],
     [headerRefresh.hasButton === true && headerRefresh.label === "Refresh data", `app: header exposes a touch refresh button (${JSON.stringify(headerRefresh)})`],
