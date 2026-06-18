@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
 import { relativeTime, repoCoverage, repoTrend, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
 import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref, type ItemRouteFields } from "../nav.ts";
@@ -195,6 +195,7 @@ export function RepoAnalyticsPage({
   sourceKind,
   colorOf,
   lens,
+  emptyState,
 }: {
   metrics: RepoMetricDTO[];
   windowTotal: number;
@@ -204,6 +205,8 @@ export function RepoAnalyticsPage({
   // The shared item lens to thread into the drill-down links, so a round-trip
   // back to the board/graph preserves the active facets (incl. the repo pin).
   lens?: ItemRouteFields;
+  // Shared empty-state node, rendered in place of the table when empty.
+  emptyState?: ReactNode;
 }) {
   const totals = metrics.reduce((acc, metric) => addMetricStats(acc, metric.totals), zeroStats());
   const countLabel = metrics.length === windowTotal ? `${metrics.length} repos` : `${metrics.length} matches`;
@@ -227,7 +230,9 @@ export function RepoAnalyticsPage({
         <StatTile label="open threads">{totals.unresolved_review_threads ?? 0}</StatTile>
       </div>
       {metrics.length === 0 ? (
-        <p className="empty">{windowTotal === 0 ? "No repo metrics in this range." : "No repo metrics match the current filters."}</p>
+        emptyState ?? (
+          <p className="empty">{windowTotal === 0 ? "No repo metrics in this range." : "No repo metrics match the current filters."}</p>
+        )
       ) : (
         <div className="repo-table-wrap">
           <table className="repo-table">

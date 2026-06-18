@@ -419,6 +419,34 @@ export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
   return { from: zonedDateOnly(sinceMs, tz), to: zonedDateOnly(generatedAt, tz) };
 }
 
+// Which empty-state treatment a page shows when it has nothing to render. The
+// page only consults this when every filter has been applied and zero rows
+// survive, so it answers "WHY is this empty?" — and the answer drives both the
+// copy and the escape-hatch the user is offered.
+//   board-empty  — the whole board has no data at all (fresh / unsynced)
+//   entity-empty — the board has data, but none of THIS entity (e.g. no commits)
+//   range-empty  — the entity exists, but not inside the selected time range
+//   filtered     — the range has data, but the active search/facets hid all of it
+export type EmptyStateKind = "board-empty" | "entity-empty" | "range-empty" | "filtered";
+
+export function emptyStateKind(input: { boardEmpty: boolean; total: number; windowTotal: number }): EmptyStateKind {
+  if (input.boardEmpty) return "board-empty";
+  if (input.total <= 0) return "entity-empty";
+  if (input.windowTotal <= 0) return "range-empty";
+  return "filtered";
+}
+
+// For the range-empty case: does the selected range still reach the newest data?
+// True means the range covers the most-recent-data boundary — so emptiness is
+// the "new day / quiet period" case and the fix is to WIDEN. False means the
+// range sits entirely to one side of the data (a stale historical pick, or a
+// future window) and the fix is to JUMP to where the data actually is. With no
+// known extent we cannot tell the data is elsewhere, so we default to widen.
+export function rangeReachesDataTail(range: TimeRange, dataExtent: TimeRange | null): boolean {
+  if (!dataExtent) return true;
+  return range.from <= dataExtent.to && range.to >= dataExtent.to;
+}
+
 export function isDateOnly(value: string | null | undefined): value is string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -445,6 +473,31 @@ export function timeRangeToIso(range: TimeRange, tz: string = DEFAULT_TIMEZONE):
 function timestampMs(value: string | null | undefined): number | null {
   const ms = Date.parse(value ?? "");
   return Number.isFinite(ms) ? ms : null;
+}
+
+// The actual calendar span of an activity set, earliest to latest `occurred_at`,
+// as date-only in the contract timezone. Unlike staticContractTimeRange (the
+// 90-day item window), activities are stored UNWINDOWED, so this is the true
+// extent the Activity / Commits empty states should advertise and "Show all"
+// should jump to — staticRange would understate a board with older history.
+// Returns null for an empty set; pass a predicate (e.g. isCommitActivity) to
+// scope the extent to a subset.
+export function activityOccurredExtent(
+  activities: ActivityDTO[],
+  tz: string = DEFAULT_TIMEZONE,
+  predicate?: (a: ActivityDTO) => boolean,
+): TimeRange | null {
+  let minMs = Infinity;
+  let maxMs = -Infinity;
+  for (const a of activities) {
+    if (predicate && !predicate(a)) continue;
+    const ms = timestampMs(a.occurred_at);
+    if (ms === null) continue;
+    if (ms < minMs) minMs = ms;
+    if (ms > maxMs) maxMs = ms;
+  }
+  if (!Number.isFinite(minMs)) return null;
+  return { from: zonedDateOnly(minMs, tz), to: zonedDateOnly(maxMs, tz) };
 }
 
 function timestampInTimeRange(value: string | null | undefined, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
