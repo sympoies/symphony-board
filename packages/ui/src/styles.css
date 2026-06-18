@@ -365,6 +365,15 @@ html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animat
 }
 .toggle:hover { border-color: var(--accent); }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+/* Paper theme: a solid accent fill reads too loud against the soft paper
+   surfaces, so a selected toggle borrows the outlined-badge recipe (see the
+   .badge-* group) — accent text, a solid accent border, and a faint accent
+   fill — so it stays clearly selected without dominating the filter bar. */
+html[data-theme="paper"] .toggle-on {
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
 .filter-disclosure { display: none; }
 .filter-groups { display: contents; }
 .file-load {
