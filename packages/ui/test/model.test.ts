@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, SourceDTO } from "@symphony-board/contract";
+import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, SourceDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
   DEFAULT_TIME_RANGE_PRESET_ID,
@@ -67,6 +67,7 @@ import {
   applyVisibility,
   repoMetricMatches,
   repoCoverage,
+  repoTrend,
   sortRepoMetrics,
   sourceDisplayName,
   visibleHeaderSources,
@@ -1186,6 +1187,35 @@ test("repoCoverage classifies a window against the repo's all-time activity boun
   assert.equal(win({ activity_available: false, observed_since: null, last_activity_at: null }), "no_activity");
   // stale wins over partial when both timestamps fall before the window start.
   assert.equal(win({ observed_since: "2026-05-01T00:00:00.000Z", last_activity_at: "2026-05-31T23:59:59.000Z" }), "stale");
+});
+
+test("repoTrend scales bars for an active series and falls back to a flat baseline when idle", () => {
+  const baseStats = repoMetric().totals;
+  const point = (activity_score: number): RepoMetricSeriesPointDTO => ({
+    bucket_start: "2026-06-01T00:00:00.000Z",
+    bucket_end: "2026-06-01T23:59:59.999Z",
+    stats: { ...baseStats, activity_score },
+  });
+
+  // Active repo: bar heights scale to the window max, with a 10% floor so a
+  // small non-zero bucket still shows a nub.
+  const active = repoTrend([point(10), point(0), point(5)]);
+  assert.equal(active.flat, false);
+  assert.deepEqual(active.bars.map((bar) => bar.height), [100, 10, 50]);
+  assert.deepEqual(active.bars.map((bar) => bar.value), [10, 0, 5]);
+
+  // Idle repo: every bucket is zero -> a single flat baseline, NOT a row of
+  // clamped 10% min-height bars that reads as a blank/broken dashed line.
+  const idle = repoTrend([point(0), point(0), point(0)]);
+  assert.equal(idle.flat, true);
+  assert.deepEqual(idle.bars, []);
+
+  // A repo with no observed buckets at all is flat too, never a blank grid.
+  assert.equal(repoTrend([]).flat, true);
+
+  // Only the trailing 16 buckets render.
+  const many = repoTrend(Array.from({ length: 20 }, (_, i) => point(i + 1)));
+  assert.equal(many.bars.length, 16);
 });
 
 test("applyVisibility hides a whole source independently of the repo set", () => {

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
-import { relativeTime, repoCoverage, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
+import { relativeTime, repoCoverage, repoTrend, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
 import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref, type ItemRouteFields } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
@@ -61,10 +61,6 @@ function zeroStats(): RepoMetricStatsDTO {
   };
 }
 
-function metricTrendValue(stats: RepoMetricStatsDTO): number {
-  return activityScore(stats);
-}
-
 function issuesOpened(stats: RepoMetricStatsDTO): number {
   return Math.max(0, stats.items_opened - stats.change_requests_opened);
 }
@@ -108,17 +104,24 @@ function MetricValue({ value, href, label }: { value: number; href: string | nul
 }
 
 function TrendBars({ metric }: { metric: RepoMetricDTO }) {
-  const values = metric.series.map((point) => metricTrendValue(point.stats));
-  const max = Math.max(1, ...values);
-  const visible = values.slice(-16);
+  const trend = repoTrend(metric.series);
+  // An idle / no-activity repo draws a single continuous baseline rather than a
+  // row of clamped min-height bars (which reads as a blank, broken dashed line).
+  if (trend.flat) {
+    return (
+      <div className="repo-trend repo-trend-flat" aria-label="repo activity trend">
+        <span className="repo-trend-baseline" title="0 activity" />
+      </div>
+    );
+  }
   return (
     <div className="repo-trend" aria-label="repo activity trend">
-      {visible.map((value, index) => (
+      {trend.bars.map((bar, index) => (
         <span
-          key={`${index}-${value}`}
+          key={`${index}-${bar.value}`}
           className="repo-trend-bar"
-          title={`${displayScore(value)} activity`}
-          style={{ "--bar-h": `${Math.max(10, Math.round((value / max) * 100))}%` } as CSSProperties}
+          title={`${displayScore(bar.value)} activity`}
+          style={{ "--bar-h": `${bar.height}%` } as CSSProperties}
         />
       ))}
     </div>

@@ -10,6 +10,7 @@ import type {
   ItemDTO,
   EdgeDTO,
   RepoMetricDTO,
+  RepoMetricSeriesPointDTO,
   ReviewThreadsDTO,
   SourceDTO,
 } from "@symphony-board/contract";
@@ -1585,6 +1586,42 @@ export function repoCoverage(metric: RepoMetricDTO): RepoCoverage {
   const since = dq.observed_since ? Date.parse(dq.observed_since) : Number.NaN;
   if (!Number.isNaN(since) && since > from) return "partial";
   return "ok";
+}
+
+// --- repo activity sparkline (Repo Analytics TREND column) --------------
+//
+// The TREND cell draws each window bucket's activity_score as a bar scaled to
+// the window's busiest bucket, with a 10% floor so a small non-zero bucket
+// still shows. An idle / no-activity repo (every bucket zero, or no buckets at
+// all) has nothing to scale: rendering 16 floor-height bars reads as a broken
+// row of dashes — a blank-looking gap. So that case collapses to `flat`, which
+// the cell renders as one continuous baseline line instead.
+const REPO_TREND_BUCKETS = 16;
+const REPO_TREND_MIN_HEIGHT = 10;
+
+export interface RepoTrendBar {
+  value: number; // the bucket's activity score, for the per-bar tooltip
+  height: number; // bar height as an integer percentage (REPO_TREND_MIN_HEIGHT..100)
+}
+
+export interface RepoTrend {
+  // True when the repo had no activity across the window (idle / no buckets) —
+  // render a flat baseline; `bars` is empty. Otherwise `bars` holds the trailing
+  // buckets to draw.
+  flat: boolean;
+  bars: RepoTrendBar[];
+}
+
+export function repoTrend(series: readonly RepoMetricSeriesPointDTO[]): RepoTrend {
+  const values = series.map((point) => point.stats.activity_score ?? 0);
+  const visible = values.slice(-REPO_TREND_BUCKETS);
+  if (!visible.some((value) => value > 0)) return { flat: true, bars: [] };
+  const max = Math.max(1, ...values);
+  const bars = visible.map((value) => ({
+    value,
+    height: Math.max(REPO_TREND_MIN_HEIGHT, Math.round((value / max) * 100)),
+  }));
+  return { flat: false, bars };
 }
 
 // --- highlight color (Settings page + board/graph rendering) ------------

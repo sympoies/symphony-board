@@ -1541,6 +1541,17 @@ a.rf-node-title:hover { color: var(--accent); }
   border-radius: 3px 3px 0 0;
   background: color-mix(in srgb, var(--link) 72%, var(--accent));
 }
+/* Idle / no-activity repos: one continuous baseline spanning the column,
+   instead of a broken row of floor-height bars that reads as blank. */
+.repo-trend-flat { grid-auto-columns: minmax(0, 1fr); }
+.repo-trend-baseline {
+  align-self: end;
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--link) 72%, var(--accent));
+  opacity: 0.45;
+}
 .repo-actors {
   display: flex;
   flex-wrap: wrap;
