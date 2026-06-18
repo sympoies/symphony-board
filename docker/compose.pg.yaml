@@ -117,8 +117,12 @@ services:
       context: ..
       dockerfile: docker/ui.Dockerfile
     restart: unless-stopped
+    # Loopback-only by default. To expose the web UI to other devices, set
+    # SYMPHONY_PG_WEB_BIND to a specific host interface (e.g. the host's
+    # Tailscale IP) in an untracked .env — never 0.0.0.0, and never for the
+    # Postgres port below. See .env.example.
     ports:
-      - "127.0.0.1:${SYMPHONY_PG_WEB_PORT:-18080}:80"
+      - "${SYMPHONY_PG_WEB_BIND:-127.0.0.1}:${SYMPHONY_PG_WEB_PORT:-18080}:80"
     volumes:
       - contract-data:/srv/data:ro
     depends_on:

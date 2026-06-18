@@ -10,10 +10,17 @@ data/
 
 # Secrets and local config overrides.
 .env
+!.env.example
 config/sources.json
 config/sources.pg.json
 config/secrets.env
 config/certs/
+
+# Operator-local Docker Compose overrides (never committed).
+docker/compose.override.yaml
+docker/compose.override.yml
+compose.override.yaml
+docker-compose.override.yml
 
 # Emitted contract artifacts (regenerate from the DB).
 out/
