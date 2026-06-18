@@ -141,10 +141,21 @@ cd "$repo_root"
 
 need_command ditto
 need_command git
+need_command jq
 need_command node
 need_command pnpm
 need_command rustc
 need_command shasum
+
+# Refuse to package a release whose per-app version files drift from root
+# package.json. The bundled .app version comes from each app's
+# src-tauri/tauri.conf.json (read by `tauri build`), NOT from --version, which
+# only names the output zip — so a stale tauri.conf.json would ship a bundle
+# advertising the wrong version under a correctly named zip. The push/PR `ci`
+# workflow runs this gate, but the release path (publish-image.yml on
+# `release: published`) reaches this packager without it, so re-assert it here
+# at the point the artifacts are actually built.
+"$repo_root/scripts/check-app-versions.sh"
 
 if [ -z "$version" ]; then
   version="$(normalize_version "$(package_version)")"

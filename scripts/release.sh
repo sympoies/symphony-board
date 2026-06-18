@@ -352,6 +352,17 @@ if [ "$skip_main_check" -eq 0 ] && [ "$mode" = "execute" ]; then
     die "local main is not aligned with origin/main (HEAD=$local_head origin/main=$remote_head)"
 fi
 
+# Re-assert the per-app version gate before cutting (or planning) a release. The
+# push/PR `ci` workflow runs check:app-versions, but a release can be cut from a
+# commit whose ci has not passed (raced against a fresh push, ignored failure,
+# or --skip-main-check), and publish-image.yml fires on `release: published`
+# independently of ci. Catch drift here, before the GitHub Release exists.
+# verify-only only inspects already-published artifacts, so it stays exempt.
+if [ "$mode" != "verify-only" ]; then
+  need_command jq
+  bash "$repo_root/scripts/check-app-versions.sh"
+fi
+
 info "repo=$repo"
 info "tag=$tag"
 info "app_version=$app_version"
