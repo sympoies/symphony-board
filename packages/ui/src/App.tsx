@@ -1035,7 +1035,7 @@ export function App() {
           filters (so it deliberately skips the shared facet Controls) — but
           every non-Settings page shares the date-range control. */}
       {page !== "settings" && (
-        <>
+        <div className="view-chrome" data-page={page}>
           {page !== "commits" && (
             <Controls
               search={filters.search}
@@ -1068,7 +1068,7 @@ export function App() {
             collapsibleOnNarrow
             onRange={setRouteRange}
           />
-        </>
+        </div>
       )}
       {rangeContentPending ? (
         <div className="state-msg state-msg-inline">Loading range…</div>

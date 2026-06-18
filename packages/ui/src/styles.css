@@ -393,6 +393,7 @@ html[data-theme="paper"] .toggle-on {
    one shared chrome so every page's filters read identically. Desktop shows the
    real controls inline and keeps the disclosure hidden. */
 .filter-summary-disclosure { display: none; }
+.search-disclosure { display: none; }
 .file-load {
   color: var(--muted);
   display: inline-flex;
@@ -1683,22 +1684,62 @@ a.rf-node-title:hover { color: var(--accent); }
 
 @media (max-width: 760px) {
   .page-tabs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px;
+    display: flex;
+    gap: 3px;
+    margin-bottom: 6px;
+    padding-top: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .page-tabs::-webkit-scrollbar { display: none; }
   .tab {
-    display: block;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
     min-width: 0;
-    padding: 6px 8px;
+    padding: 6px 10px;
     line-height: 1.25;
     text-align: center;
     overflow-wrap: normal;
+    white-space: nowrap;
   }
   .brand .muted, .activity-head .muted { overflow-wrap: anywhere; }
   .activity-head .muted { flex-basis: 100%; }
-  .controls { align-items: stretch; gap: 8px; }
-  .controls .search { flex-basis: 100%; width: 100%; box-sizing: border-box; }
+  .view-chrome {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+    margin: 8px 0 10px;
+  }
+  .view-chrome .controls {
+    flex: 1 1 calc(66% - 4px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 8px;
+    margin: 0;
+  }
+  .view-chrome .time-range-controls {
+    flex: 1 1 104px;
+    min-width: 104px;
+    margin: 0;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .view-chrome > .time-range-controls:first-child:last-child,
+  .view-chrome .time-range-controls:not([data-range-collapsed="true"]) {
+    flex-basis: 100%;
+  }
+  .controls .search-disclosure { display: inline-flex; }
+  .controls .search {
+    grid-column: 1 / -1;
+    width: 100%;
+    box-sizing: border-box;
+    display: none;
+  }
+  .controls[data-search-open="true"] .search { display: block; }
   /* The local-file contract loader is a desktop dev affordance, never used on a
      phone — hide it so it doesn't spend a row of the filter bar. */
   .file-load { display: none; }
@@ -1708,11 +1749,12 @@ a.rf-node-title:hover { color: var(--accent); }
   .filter-summary-disclosure {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    width: 100%;
+    width: auto;
     box-sizing: border-box;
-    min-height: 36px;
-    padding: 7px 12px;
+    min-height: 34px;
+    padding: 6px 9px;
     color: var(--text);
     background: var(--panel);
     border: 1px solid var(--line);
@@ -1743,6 +1785,7 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .filter-groups {
     display: none;
+    grid-column: 1 / -1;
     width: 100%;
   }
   .filter-groups[data-open="true"] {
@@ -1759,6 +1802,7 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .filter-groups .toggle-label { flex-basis: 100%; }
   .time-range-controls { align-items: flex-start; gap: 8px; }
+  .time-range-controls .range-disclosure { width: 100%; }
   .time-range-controls .time-range-label { flex-basis: 100%; }
   /* When the range is collapsed, hide the label, date inputs, and quick presets —
      the shared `.range-disclosure` summary bar stands in until expanded. */
@@ -1785,6 +1829,15 @@ a.rf-node-title:hover { color: var(--accent); }
     gap: 5px;
   }
   .time-range-controls .toggle-label { flex-basis: 100%; }
+  .activity-view-toggle,
+  .graph-view-toggle {
+    margin-bottom: 8px;
+    padding: 2px;
+  }
+  .activity-view-tab,
+  .graph-view-tab {
+    padding: 6px 10px;
+  }
   .activity-layout { gap: 12px; }
   /* Only one pane renders at a time on narrow viewports — the records feed OR the
      overview, picked by the segmented toggle. The feed therefore reclaims its base
@@ -1813,7 +1866,7 @@ a.rf-node-title:hover { color: var(--accent); }
   /* Read-only stat summary (Board + Graph): collapse behind the shared
      'stats · …' disclosure so the data shows first. The graph legend rides in
      the body's footer, so it tucks away with the stats. */
-  .stats-block { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
+  .stats-block { display: flex; flex-direction: column; gap: 4px; margin: 0 0 4px; }
   .stats-body { display: block; }
   .stats-body[data-stats-collapsed="true"] { display: none; }
   .stats { padding: 0; }
@@ -2278,9 +2331,10 @@ a.rf-node-title:hover { color: var(--accent); }
     overflow-x: clip;
   }
   .app-header {
-    gap: 8px;
-    padding-bottom: 10px;
+    gap: 6px 8px;
+    padding-bottom: 6px;
   }
+  .brand > .muted { display: none; }
   .header-aside {
     width: 100%;
     align-items: stretch;
@@ -2331,7 +2385,38 @@ a.rf-node-title:hover { color: var(--accent); }
     max-width: none;
     text-align: right;
   }
-  .board-mobile-selector { display: flex; }
+  .board-controls { display: none; }
+  .board-mobile-selector {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 5px;
+    margin: 4px 0 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .board-mobile-selector::-webkit-scrollbar { display: none; }
+  .board-mobile-selector .toggle {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 2px 8px;
+  }
+  .graph-controls {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-bottom: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .graph-controls::-webkit-scrollbar { display: none; }
+  .graph-controls > .muted { display: none; }
+  .graph-controls .toggle-group {
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+  .graph-controls .toggle {
+    min-height: 30px;
+    padding: 2px 8px;
+  }
   .board-7 {
     display: block;
     overflow-x: visible;
@@ -2465,6 +2550,13 @@ a.rf-node-title:hover { color: var(--accent); }
   .repo-actors {
     max-height: 22px;
     overflow: hidden;
+  }
+  .repo-stats-disclosure {
+    width: 100%;
+    margin: 0 0 8px;
+  }
+  .repo-stat-grid[data-stats-collapsed="true"] {
+    display: none;
   }
   .repo-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

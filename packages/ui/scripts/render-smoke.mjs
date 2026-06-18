@@ -1320,6 +1320,19 @@ try {
           const sourceChips = Array.from(document.querySelectorAll('.app-header .source-chip'));
           const sourceChipTops = sourceChips.map((chip) => Math.round(chip.getBoundingClientRect().top));
           const sourcesRect = sources?.getBoundingClientRect();
+          const pageName = ${JSON.stringify(page.page)};
+          const primarySurface = pageName === 'activity'
+            ? document.querySelector('.activity-list')
+            : pageName === 'commits'
+              ? document.querySelector('.commit-list')
+              : pageName === 'board'
+                ? document.querySelector('.board-7')
+                : pageName === 'graph'
+                  ? document.querySelector('.graph-list')
+                  : pageName === 'repo-analytics'
+                    ? document.querySelector('.repo-table-wrap')
+                    : null;
+          const primarySurfaceRect = primarySurface?.getBoundingClientRect();
           const heatmapMaxScroll = heatmapScroll ? Math.max(0, heatmapScroll.scrollWidth - heatmapScroll.clientWidth) : 0;
           return {
             ready: !!root,
@@ -1327,6 +1340,7 @@ try {
             viewportWidth: window.innerWidth,
             viewportHeight: window.innerHeight,
             dpr: window.devicePixelRatio,
+            primarySurfaceTop: primarySurfaceRect ? Math.round(primarySurfaceRect.top) : 0,
             boardSelectorVisible: !!boardSelector && getComputedStyle(boardSelector).display !== 'none',
             visibleBoardColumns: cols.filter((el) => getComputedStyle(el).display !== 'none').length,
             graphStacked: !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
@@ -1339,13 +1353,13 @@ try {
             repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
             filterButtonVisible: !controls || (!!filterToggle && getComputedStyle(filterToggle).display !== 'none'),
             filterGroupsCollapsed: !controls || (!!filterGroups && getComputedStyle(filterGroups).display === 'none'),
-            // The facet disclosure shares the full-width "label · summary · caret"
-            // chrome with the range + commits disclosures: shared class, a summary
-            // span, and (nearly) the full viewport width on a phone.
-            filterDisclosureUnified: !controls || (!!filterToggle
+            // The facet disclosure sits in the shared compact mobile toolbar:
+            // same summary chrome, but no longer a full-width row.
+            filterDisclosureCompact: !controls || (!!filterToggle
               && filterToggle.classList.contains('filter-summary-disclosure')
               && !!filterToggleSummary
-              && (filterToggleRect?.width ?? 0) >= window.innerWidth * 0.9),
+              && (filterToggleRect?.width ?? 0) >= 70
+              && (filterToggleRect?.width ?? 0) <= window.innerWidth * 0.45),
             // The local-file contract loader is a desktop dev affordance; on a
             // phone it is hidden entirely so it doesn't spend a row.
             fileLoadHidden: !controls || !localFile || getComputedStyle(localFile).display === 'none',
@@ -1628,6 +1642,7 @@ try {
   const phoneGraph = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "graph") || {};
   const tabletGraph = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "graph") || {};
   const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
+  const phoneContentPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["activity", "commits", "board", "graph", "repo-analytics"].includes(r.page));
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   // Every content page (not Settings, not the chrome-less Debug page) renders the
   // shared date range, so every one of them collapses it behind a disclosure on a
@@ -1684,6 +1699,7 @@ try {
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
     [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.fileLoadHidden === true), `portrait: phone hides the rarely-used local file loader (${phoneFilterPages.map((r) => `${r.page}:hidden=${r.fileLoadHidden}`).join("; ")})`],
     [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32), `portrait: phone source health strip stays compact (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight}`).join("; ")})`],
+    [phoneContentPages.every((r) => r.primarySurfaceTop > 0 && r.primarySurfaceTop <= 360), `portrait: phone primary content starts in the first screen (${phoneContentPages.map((r) => `${r.page}:top=${r.primarySurfaceTop}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
@@ -1692,7 +1708,7 @@ try {
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     [phoneRangeCollapsePages.length > 0 && phoneRangeCollapsePages.every((r) => r.rangeDisclosureVisible === true && r.rangeFieldsCollapsed === true), `portrait: phone collapses the date range behind a disclosure on every content page (${phoneRangeCollapsePages.map((r) => `${r.page}:disclosure=${r.rangeDisclosureVisible},collapsed=${r.rangeFieldsCollapsed}`).join("; ")})`],
-    [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.filterDisclosureUnified === true), `portrait: phone facet disclosure shares the unified full-width summary chrome (${phoneFilterPages.map((r) => `${r.page}:unified=${r.filterDisclosureUnified}`).join("; ")})`],
+    [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.filterDisclosureCompact === true), `portrait: phone facet disclosure uses the compact toolbar summary chrome (${phoneFilterPages.map((r) => `${r.page}:compact=${r.filterDisclosureCompact}`).join("; ")})`],
     [phoneStatsPages.length > 0 && phoneStatsPages.every((r) => r.statsDisclosureVisible === true && r.statsBodyCollapsed === true), `portrait: phone collapses the read-only stat summary behind a disclosure by default (${phoneStatsPages.map((r) => `${r.page}:disclosure=${r.statsDisclosureVisible},collapsed=${r.statsBodyCollapsed}`).join("; ")})`],
     [phoneGraph.graphLegendTucked === true && phoneGraph.statsBodyCollapsed === true, `portrait: phone graph tucks the legend + hint inside the collapsed stats disclosure (tucked=${phoneGraph.graphLegendTucked}, collapsed=${phoneGraph.statsBodyCollapsed})`],
     [phoneCommits.length > 0 && phoneCommits.every((r) => r.commitsFilterDisclosureVisible === true && r.commitsToolbarCollapsed === true), `portrait: phone commits collapses the repo + branch filters behind a disclosure by default (${phoneCommits.map((r) => `disclosure=${r.commitsFilterDisclosureVisible},collapsed=${r.commitsToolbarCollapsed}`).join("; ")})`],

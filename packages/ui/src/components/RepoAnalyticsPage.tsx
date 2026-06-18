@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
 import { relativeTime, repoCoverage, repoTrend, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
 import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref, type ItemRouteFields } from "../nav.ts";
@@ -218,8 +218,10 @@ export function RepoAnalyticsPage({
   // Shared empty-state node, rendered in place of the table when empty.
   emptyState?: ReactNode;
 }) {
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const totals = metrics.reduce((acc, metric) => addMetricStats(acc, metric.totals), zeroStats());
   const countLabel = metrics.length === windowTotal ? `${metrics.length} repos` : `${metrics.length} matches`;
+  const summaryLabel = `${displayScore(activityScore(totals))} activity · ${totals.commits} commits`;
 
   return (
     <main className="repo-analytics-page">
@@ -228,7 +230,18 @@ export function RepoAnalyticsPage({
         <span className="count">{countLabel}</span>
         <span className="muted">{range.from} to {range.to}</span>
       </div>
-      <div className="repo-stat-grid">
+      <button
+        type="button"
+        className="filter-summary-disclosure repo-stats-disclosure"
+        aria-expanded={summaryOpen}
+        aria-controls="repo-stat-grid"
+        onClick={() => setSummaryOpen((open) => !open)}
+      >
+        <span className="filter-summary-disclosure-label">summary</span>
+        <span className="filter-summary-disclosure-summary">{summaryLabel}</span>
+        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
+      </button>
+      <div id="repo-stat-grid" className="repo-stat-grid" data-stats-collapsed={!summaryOpen ? "true" : undefined}>
         <StatTile label="activity">{displayScore(activityScore(totals))}</StatTile>
         <StatTile label="commits">{totals.commits}</StatTile>
         <StatTile label="issues opened">{issuesOpened(totals)}</StatTile>
