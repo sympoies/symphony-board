@@ -2,7 +2,7 @@ import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ActivityFeed } from "./ActivityFeed.tsx";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
-import { ACTIVITY_MOBILE_QUERY, type ColorOf, type TimeRange } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, type ColorOf, type TimeRange } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import type { ActivityView } from "../nav.ts";
 
@@ -48,7 +48,7 @@ export function ActivityPage({
   // and the feed's own inner scroll makes the overview hard to reach — so we show
   // just one at a time, defaulting to the feed (latest records). Above it, both
   // render side by side as before and `view` is moot.
-  const isMobile = useMediaQuery(ACTIVITY_MOBILE_QUERY);
+  const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   const showFeed = !isMobile || view === "feed";
   const showOverview = !isMobile || view === "overview";
   const countLabel =

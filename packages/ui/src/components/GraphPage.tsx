@@ -27,8 +27,10 @@ import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contr
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import type { ViewTheme } from "../viewconfig.ts";
+import type { GraphView } from "../nav.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -722,6 +724,8 @@ export function GraphPage({
   emptyState,
   onClearFilters,
   theme,
+  mobileView,
+  onMobileView,
 }: {
   edges: ResolvedEdge[];
   // The FOCUS-path edge set: same visibility + facet filters as `edges`, but
@@ -753,7 +757,21 @@ export function GraphPage({
   // "no relationships" with no way out.
   onClearFilters?: () => void;
   theme: ViewTheme;
+  // Mobile sub-view selection (route-backed). On narrow viewports the page shows
+  // ONE of the two coupled panes — the searchable/focus list or the canvas —
+  // chosen here; on wide viewports both render and this is ignored. (Named
+  // `mobileView` to avoid colliding with the local graph-data `view` below.)
+  mobileView: GraphView;
+  onMobileView: (view: GraphView) => void;
 }) {
+  const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
+  // Below the breakpoint the list and canvas can't share the narrow column
+  // usefully, so we show one at a time. The list stays the default: focusing an
+  // item (route `focus=`) makes the list itself show that item's related
+  // issues/PRs, so the relationship view never depends on the canvas — the
+  // canvas is opt-in via the toggle. Above the breakpoint both render.
+  const showListPane = !isMobile || mobileView === "list";
+  const showGraphPane = !isMobile || mobileView === "graph";
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
   const [mentionTarget, setMentionTarget] = useState<GraphMentionTarget>("all");
@@ -1002,41 +1020,68 @@ export function GraphPage({
         // One shared ReactFlowProvider wraps the side list + canvas; remounting
         // <Flow> on a focus change (flowKey) is what reframes the camera now.
         <ReactFlowProvider>
+          {isMobile ? <GraphViewToggle view={mobileView} onView={onMobileView} /> : null}
           <div className="graph-body">
-            <GraphSideList
-              nodes={listGraph.nodes}
-              itemsByRef={itemsByRef}
-              adjacency={adjacency}
-              candidateIds={candidateIds}
-              drawnIds={drawnIds}
-              sourceKind={sourceKind}
-              colorOf={colorOf}
-              focusId={focusId}
-              onFocus={onFocusChange}
-              onBack={() => onFocusChange(null)}
-            />
-            <div className="graph-canvas">
-              {/* Re-clicking the focused node clears focus — the same toggle
-                  exit as the side list's active card. */}
-              {view.links.length === 0 ? (
-                <GraphCanvasEmptyState
-                  reason={inFocus ? null : graphCanvasEmptyReason(overview, { showMentions, mentionTarget })}
-                  onShowMentions={() => {
-                    // Also reset the target: it persists while mentions are off,
-                    // so a stale non-"all" target could keep the canvas empty
-                    // even after enabling mentions.
-                    setMentionTarget("all");
-                    setShowMentions(true);
-                  }}
-                  onShowAllMentions={() => setMentionTarget("all")}
-                />
-              ) : (
-                <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
-              )}
-            </div>
+            {showListPane ? (
+              <GraphSideList
+                nodes={listGraph.nodes}
+                itemsByRef={itemsByRef}
+                adjacency={adjacency}
+                candidateIds={candidateIds}
+                drawnIds={drawnIds}
+                sourceKind={sourceKind}
+                colorOf={colorOf}
+                focusId={focusId}
+                onFocus={onFocusChange}
+                onBack={() => onFocusChange(null)}
+              />
+            ) : null}
+            {showGraphPane ? (
+              <div className="graph-canvas">
+                {/* Re-clicking the focused node clears focus — the same toggle
+                    exit as the side list's active card. */}
+                {view.links.length === 0 ? (
+                  <GraphCanvasEmptyState
+                    reason={inFocus ? null : graphCanvasEmptyReason(overview, { showMentions, mentionTarget })}
+                    onShowMentions={() => {
+                      // Also reset the target: it persists while mentions are off,
+                      // so a stale non-"all" target could keep the canvas empty
+                      // even after enabling mentions.
+                      setMentionTarget("all");
+                      setShowMentions(true);
+                    }}
+                    onShowAllMentions={() => setMentionTarget("all")}
+                  />
+                ) : (
+                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
+                )}
+              </div>
+            ) : null}
           </div>
         </ReactFlowProvider>
       )}
     </section>
+  );
+}
+
+// Mobile-only segmented control choosing which single coupled pane the Graph
+// page shows — the searchable/focus list or the relationship canvas. Mirrors the
+// Activity view toggle / Settings sub-tab chrome (role=tablist + selected button).
+function GraphViewToggle({ view, onView }: { view: GraphView; onView: (view: GraphView) => void }) {
+  return (
+    <nav className="graph-view-toggle" role="tablist" aria-label="Graph view">
+      {(["list", "graph"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={view === v}
+          className={`graph-view-tab${view === v ? " graph-view-tab-active" : ""}`}
+          onClick={() => onView(v)}
+        >
+          {v === "list" ? "List" : "Graph"}
+        </button>
+      ))}
+    </nav>
   );
 }

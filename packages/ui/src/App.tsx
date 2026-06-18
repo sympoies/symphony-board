@@ -48,9 +48,12 @@ import {
   tabHref,
   activityView,
   activityViewTab,
+  graphView,
+  graphViewTab,
   ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
   type ActivityView,
+  type GraphView,
   type ItemFacetDim,
   type Page,
 } from "./nav.ts";
@@ -259,6 +262,16 @@ export function App() {
   const setActivityView = useCallback((next: ActivityView) => {
     const current = parseHashRoute(readHash());
     const nextHash = buildHashRoute({ ...current, page: "activity", tab: activityViewTab(next) });
+    if (readHash() !== nextHash) window.location.hash = nextHash;
+  }, []);
+  // Graph mobile sub-view (List default / Graph canvas), URL-backed through the
+  // same `tab` field; a top-nav hop drops `tab` and lands back on the list. The
+  // focused item stays in its own `focus` route field, so the toggle and the
+  // selection are independent — selecting never forces the canvas.
+  const graphViewValue = graphView(route);
+  const setGraphView = useCallback((next: GraphView) => {
+    const current = parseHashRoute(readHash());
+    const nextHash = buildHashRoute({ ...current, page: "graph", tab: graphViewTab(next) });
     if (readHash() !== nextHash) window.location.hash = nextHash;
   }, []);
 
@@ -1150,6 +1163,8 @@ export function App() {
             }
             onClearFilters={clearFilters}
             theme={theme}
+            mobileView={graphViewValue}
+            onMobileView={setGraphView}
           />
         </Suspense>
       ) : (

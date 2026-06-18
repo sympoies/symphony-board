@@ -21,6 +21,8 @@ import {
   graphFocusHref,
   activityView,
   activityViewTab,
+  graphView,
+  graphViewTab,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -250,4 +252,27 @@ test("Activity view round-trips through the hash, and a fresh tab hop resets to 
   assert.equal(activityView(parseHashRoute(overview)), "overview", "overview survives reload / a shared link");
   // a top-nav hop drops page-local `tab` -> back to the feed (default = latest records)
   assert.equal(activityView(parseHashRoute(tabHref("activity", {}))), "feed");
+});
+
+// The Graph page's mobile sub-view: the searchable/focus LIST (default) or the
+// relationship CANVAS. Same route-backed `tab` mechanism as the Activity view
+// (`tab=graph`); the list is the default because, once an item is focused, the
+// list itself surfaces that item's related issues/PRs — so selecting never
+// forces the canvas, which stays opt-in. A fresh tab hop resets to the list.
+test("graphView defaults to the list and reads `graph` from the route", () => {
+  assert.equal(graphView({ tab: null }), "list", "no tab -> the searchable/focus list by default");
+  assert.equal(graphView({ tab: "graph" }), "graph");
+  assert.equal(graphView({ tab: "overview" }), "list", "another page's tab value falls back to the list");
+});
+
+test("graphViewTab maps the view to a `tab` value; the list is the clean default (null)", () => {
+  assert.equal(graphViewTab("list"), null, "list is the default -> no tab field, so the URL stays clean");
+  assert.equal(graphViewTab("graph"), "graph");
+});
+
+test("Graph view round-trips through the hash, and a fresh tab hop resets to the list", () => {
+  const canvas = buildHashRoute({ page: "graph", tab: graphViewTab("graph") });
+  assert.equal(graphView(parseHashRoute(canvas)), "graph", "the canvas view survives reload / a shared link");
+  // a top-nav hop drops page-local `tab` -> back to the list (the default browse surface)
+  assert.equal(graphView(parseHashRoute(tabHref("graph", {}))), "list");
 });

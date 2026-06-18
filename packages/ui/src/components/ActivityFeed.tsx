@@ -6,7 +6,7 @@ import { useListViewport } from "../useListViewport.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
-  ACTIVITY_MOBILE_QUERY,
+  MOBILE_VIEWPORT_QUERY,
   ACTIVITY_MOBILE_ROW_HEIGHT_PX,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
@@ -60,7 +60,7 @@ export function ActivityFeed({
   // callers without it simply render no review-resolution chip.
   itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
-  const mobileRows = useMediaQuery(ACTIVITY_MOBILE_QUERY);
+  const mobileRows = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   const rowHeight = mobileRows ? ACTIVITY_MOBILE_ROW_HEIGHT_PX : ACTIVITY_ROW_HEIGHT_PX;
   const rowStride = rowHeight + ACTIVITY_ROW_GAP_PX;
 

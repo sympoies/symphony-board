@@ -559,6 +559,12 @@ try {
   // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
   // chunk loads without errors).
+  // The canvas only renders above the mobile breakpoint (the List/Graph toggle
+  // shows the list alone on narrow viewports), so pin a desktop width for this
+  // desktop graph capture — otherwise the canvas is absent and the shared
+  // waitHtml deadline would be burned waiting for a React Flow node.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
@@ -1300,6 +1306,12 @@ try {
             boardSelectorVisible: !!boardSelector && getComputedStyle(boardSelector).display !== 'none',
             visibleBoardColumns: cols.filter((el) => getComputedStyle(el).display !== 'none').length,
             graphStacked: !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
+            // The narrow-viewport List/Graph segmented toggle and which single
+            // coupled pane it currently shows (default: the list, canvas absent).
+            graphViewTogglePresent: !!document.querySelector('.graph-view-toggle'),
+            graphViewActiveTab: (document.querySelector('.graph-view-toggle [role="tab"][aria-selected="true"]')?.textContent || '').trim() || null,
+            graphCanvasPresent: !!document.querySelector('.graph-canvas'),
+            graphListPresent: !!document.querySelector('.graph-list'),
             repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
             filterButtonVisible: !controls || (!!filterToggle && getComputedStyle(filterToggle).display !== 'none'),
             filterGroupsCollapsed: !controls || (!!filterGroups && getComputedStyle(filterGroups).display === 'none'),
@@ -1422,6 +1434,57 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Graph page on a phone: the List/Graph toggle shows one coupled pane at a
+  // time, defaulting to the list. Confirm switching to Graph swaps in the canvas
+  // (and drops the list), then that focusing an item from the list shows its
+  // related items WITHOUT leaving the list (Option A — the canvas stays opt-in).
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.graph-view-toggle')");
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const tab = Array.from(document.querySelectorAll('.graph-view-tab')).find((b) => b.textContent.trim() === 'Graph');
+      tab?.click();
+    })()`,
+  });
+  await sleep(300);
+  await waitHtml("document.querySelector('.graph-canvas')");
+  const phoneGraphCanvas = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const active = document.querySelector('.graph-view-toggle [role="tab"][aria-selected="true"]');
+      return {
+        activeTab: (active?.textContent || '').trim() || null,
+        canvasPresent: !!document.querySelector('.graph-canvas'),
+        listPresent: !!document.querySelector('.graph-list'),
+        hashHasGraph: /[?&]tab=graph/.test(location.hash),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const tab = Array.from(document.querySelectorAll('.graph-view-tab')).find((b) => b.textContent.trim() === 'List');
+      tab?.click();
+    })()`,
+  });
+  await sleep(200);
+  await waitHtml("document.querySelector('.graph-list-card')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
+  await sleep(300);
+  const phoneGraphFocusInList = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const active = document.querySelector('.graph-view-toggle [role="tab"][aria-selected="true"]');
+      return {
+        activeTab: (active?.textContent || '').trim() || null,
+        inFocusView: !!document.querySelector('.graph-list-back'),
+        relatedShown: !!document.querySelector('.glc-rel-type'),
+        listPresent: !!document.querySelector('.graph-list'),
+        canvasPresent: !!document.querySelector('.graph-canvas'),
+        hashHasFocus: /[?&]focus=/.test(location.hash),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
   await sleep(300);
   await waitHtml("document.querySelector('.repo-analytics-page')");
@@ -1540,6 +1603,7 @@ try {
   // Board + Graph carry the read-only StatsBar; on a phone it collapses by default.
   const phoneStatsPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["board", "graph"].includes(r.page));
   const phoneGraph = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "graph") || {};
+  const tabletGraph = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "graph") || {};
   const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   // Every content page (not Settings, not the chrome-less Debug page) renders the
@@ -1587,7 +1651,10 @@ try {
     [portraitOverflow.length === 0, `portrait: app shell avoids page-level horizontal overflow (${portraitOverflow.map((r) => `${r.preset}:${r.page}+${r.overflow}px`).join(", ") || "ok"})`],
     [phoneBoard.boardSelectorVisible === true && phoneBoard.visibleBoardColumns === 1, `portrait: phone board uses one selected lane (${phoneBoard.visibleBoardColumns || 0} visible, selector=${phoneBoard.boardSelectorVisible})`],
     [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
-    [portraitGraphs.every((r) => r.graphStacked === true), "portrait: graph stacks list and canvas"],
+    [tabletGraph.graphStacked === true && tabletGraph.graphListPresent === true && tabletGraph.graphCanvasPresent === true, `portrait: tablet graph stacks both the list and the canvas (stacked=${tabletGraph.graphStacked}, list=${tabletGraph.graphListPresent}, canvas=${tabletGraph.graphCanvasPresent})`],
+    [phoneGraph.graphViewTogglePresent === true && phoneGraph.graphViewActiveTab === "List" && phoneGraph.graphListPresent === true && phoneGraph.graphCanvasPresent === false, `portrait: phone graph defaults to the list behind a List/Graph toggle (active=${phoneGraph.graphViewActiveTab}, list=${phoneGraph.graphListPresent}, canvas=${phoneGraph.graphCanvasPresent})`],
+    [phoneGraphCanvas.activeTab === "Graph" && phoneGraphCanvas.canvasPresent === true && phoneGraphCanvas.listPresent === false && phoneGraphCanvas.hashHasGraph === true, `portrait: phone graph Graph tab swaps in the canvas and drops the list (${JSON.stringify(phoneGraphCanvas)})`],
+    [phoneGraphFocusInList.activeTab === "List" && phoneGraphFocusInList.inFocusView === true && phoneGraphFocusInList.relatedShown === true && phoneGraphFocusInList.canvasPresent === false && phoneGraphFocusInList.hashHasFocus === true, `portrait: phone graph focusing an item stays in the list's focus view, no auto-switch to canvas (${JSON.stringify(phoneGraphFocusInList)})`],
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
     [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
