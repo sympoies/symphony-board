@@ -80,6 +80,7 @@ import { useConfig } from "./useConfig.ts";
 import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
 import { isRefreshShortcut, isDebugShortcut } from "./shortcuts.ts";
+import { setupAutoHideScrollbars } from "./autoHideScrollbars.ts";
 import { Header } from "./components/Header.tsx";
 import { Controls, type ControlGroup } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
@@ -150,6 +151,10 @@ export function App() {
   // model.columnCollapsed for how the two combine.
   const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(loadCollapsedColumns);
   const [peekedColumns, setPeekedColumns] = useState<Set<string>>(() => new Set());
+
+  // Scrollbars hide at rest and reveal on scroll (see autoHideScrollbars.ts and the
+  // data-scrolling rules in styles.css).
+  useEffect(() => setupAutoHideScrollbars(), []);
 
   useEffect(() => {
     const onHash = () => {
