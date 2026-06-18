@@ -1,0 +1,48 @@
+name: deploy-g14
+
+# Deploy the released GHCR image to the personal g14 host (single Ubuntu box,
+# Docker Compose reconciled from the private graysurf/g14-infra repo, exposed
+# only over Tailscale). The job runs on a self-hosted runner that lives ON g14,
+# so the deploy is outbound-only — nothing inbound to g14 is exposed.
+#
+# SECURITY — public repo + self-hosted runner. This workflow triggers ONLY:
+#   * after `publish-image` completes successfully (publish-image itself only
+#     runs on `release: published`, a maintainer-gated action), or
+#   * on manual `workflow_dispatch` (maintainer-gated).
+# It MUST NEVER gain a `pull_request` / `pull_request_target` trigger — that is
+# the one path that would let a fork's PR execute code on the g14 runner. The
+# job also does not check out this repo; it only pulls the trusted, private
+# g14-infra checkout and runs `docker compose`, so no PR-provided code runs here.
+
+on:
+  workflow_run:
+    workflows: ["publish-image"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-g14
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: pull + redeploy on g14
+    # Manual dispatch always; workflow_run only when publish-image succeeded.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, g14, deploy]
+    timeout-minutes: 15
+    steps:
+      - name: Pull g14-infra and redeploy the symphony-board stack
+        run: |
+          set -euo pipefail
+          infra="$HOME/Project/graysurf/g14-infra"
+          test -d "$infra/.git" || { echo "g14-infra checkout missing at $infra" >&2; exit 1; }
+          git -C "$infra" pull --ff-only
+          cd "$infra/stacks/symphony-board"
+          # Pull the freshly published :latest image and reconcile the stack.
+          # Reuses the existing named volumes (postgres-data / contract-data).
+          docker compose --env-file .env up -d --pull always
+          docker compose --env-file .env ps --format 'table {{.Service}}\t{{.Image}}\t{{.Status}}'
