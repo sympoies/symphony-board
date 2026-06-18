@@ -360,6 +360,16 @@ export function CommitsPage({
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
 
+  // The repo + branch SCM filters are rarely changed, so on narrow/portrait they
+  // collapse behind a summary disclosure (same pattern as the date range) and the
+  // commit feed gets the first screen. Desktop always shows them.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0);
+  const filtersSummary =
+    activeFilterCount === 0
+      ? "all repos · all branches"
+      : `${selectedRepo ?? "all repos"} · ${selectedBranch ?? "all branches"}`;
+
   return (
     <main className="commits-page">
       <div className="activity-head">
@@ -369,7 +379,17 @@ export function CommitsPage({
           {windowTotal} window / {totalCommits} total · {range.from} to {range.to}
         </span>
       </div>
-      <div className="commits-toolbar">
+      <button
+        type="button"
+        className="commits-filter-disclosure"
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen((open) => !open)}
+      >
+        <span className="commits-filter-disclosure-label">filters</span>
+        <span className="commits-filter-disclosure-summary">{filtersSummary}</span>
+        <span className="commits-filter-disclosure-caret" aria-hidden="true" />
+      </button>
+      <div className="commits-toolbar" data-filters-collapsed={filtersOpen ? undefined : "true"}>
         <div className="commits-filter">
           <RepoCombobox options={repoOptions} selectedSource={selectedSource} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
           <span className="muted commits-filter-hint">

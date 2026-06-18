@@ -733,6 +733,13 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
+  // The repo + branch filters collapse by default at narrow widths; expand them
+  // so the toolbar layout / chrome / combobox checks below can see the controls.
+  await send("Runtime.evaluate", {
+    expression:
+      "(() => { const d = document.querySelector('.commits-filter-disclosure'); if (d && getComputedStyle(d).display !== 'none' && d.getAttribute('aria-expanded') !== 'true') { d.click(); return 'expanded'; } return 'already-visible'; })()",
+  });
+  await sleep(150);
   const commitsRangeButtons = await rangeButtonLabels();
   const commitsCountText = await textOf(".commits-page .count");
   const commitsRowsAll = (await send("Runtime.evaluate", {
@@ -765,12 +772,14 @@ try {
       const toolbar = document.querySelector('.commits-page .commits-toolbar');
       const repoFilter = toolbar?.querySelector(':scope > .commits-filter');
       const repoInput = repoFilter?.querySelector('input.search');
+      const repoField = repoFilter?.querySelector('.repo-combobox-field');
       const branch = toolbar?.querySelector(':scope > .commit-branch-select');
       const bodyButton = document.querySelector('.commits-page button[aria-label^="Show commit body"], .commits-page button[aria-label^="Hide commit body"]');
       if (!repoFilter || !repoInput || !branch) return { repoBeforeBranch: false, topAligned: false, bodyToggleHasNoTitle: false };
       const repoRect = repoInput.getBoundingClientRect();
       const filterRect = repoFilter.getBoundingClientRect();
       const branchRect = branch.getBoundingClientRect();
+      const repoFieldRect = repoField ? repoField.getBoundingClientRect() : null;
       const stacked = getComputedStyle(toolbar).flexDirection === 'column';
       const stackedGap = branchRect.top - filterRect.bottom;
       return {
@@ -778,6 +787,10 @@ try {
         topAligned: stacked ? stackedGap >= 8 && stackedGap <= 14 : Math.abs(repoRect.top - branchRect.top) <= 2,
         topDelta: Math.round((stacked ? stackedGap : repoRect.top - branchRect.top) * 10) / 10,
         stacked,
+        // The repo combobox and branch picker should share the same pill chrome.
+        chromeHeightsMatch: !!repoFieldRect && Math.abs(Math.round(repoFieldRect.height) - Math.round(branchRect.height)) <= 1,
+        repoFieldHeight: repoFieldRect ? Math.round(repoFieldRect.height) : 0,
+        branchHeight: Math.round(branchRect.height),
         bodyToggleHasNoTitle: !!bodyButton && !bodyButton.hasAttribute('title'),
       };
     })()`,
@@ -1247,6 +1260,8 @@ try {
           const rangeControls = document.querySelector('.time-range-controls');
           const rangeDisclosure = document.querySelector('.time-range-controls .range-disclosure');
           const rangeDateFilter = document.querySelector('.time-range-controls .date-filter');
+          const commitsFilterDisclosure = document.querySelector('.commits-filter-disclosure');
+          const commitsToolbar = document.querySelector('.commits-toolbar');
           const activityHeatmap = document.querySelector('.activity-heatmap');
           const heatmapScroll = activityHeatmap?.querySelector('.hm-calendar-scroll');
           const activityList = document.querySelector('.activity-list');
@@ -1280,6 +1295,8 @@ try {
             rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
             rangeDisclosureVisible: !!rangeDisclosure && getComputedStyle(rangeDisclosure).display !== 'none',
             rangeFieldsCollapsed: !rangeDateFilter || getComputedStyle(rangeDateFilter).display === 'none',
+            commitsFilterDisclosureVisible: !!commitsFilterDisclosure && getComputedStyle(commitsFilterDisclosure).display !== 'none',
+            commitsToolbarCollapsed: !commitsToolbar || getComputedStyle(commitsToolbar).display === 'none',
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
             activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
@@ -1512,6 +1529,7 @@ try {
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     [phoneCommits.length > 0 && phoneCommits.every((r) => r.rangeDisclosureVisible === true && r.rangeFieldsCollapsed === true), `portrait: phone commits collapses the date range behind a disclosure by default (${phoneCommits.map((r) => `disclosure=${r.rangeDisclosureVisible},collapsed=${r.rangeFieldsCollapsed}`).join("; ")})`],
+    [phoneCommits.length > 0 && phoneCommits.every((r) => r.commitsFilterDisclosureVisible === true && r.commitsToolbarCollapsed === true), `portrait: phone commits collapses the repo + branch filters behind a disclosure by default (${phoneCommits.map((r) => `disclosure=${r.commitsFilterDisclosureVisible},collapsed=${r.commitsToolbarCollapsed}`).join("; ")})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],
@@ -1591,6 +1609,7 @@ try {
     [commitsCombo.styledList === true, "commits: opening the filter renders the self-styled suggestion list"],
     [commitsCombo.options >= 2, `commits: combobox offers each repo with commits (${commitsCombo.options || 0} >= 2)`],
     [commitsToolbarLayout.repoBeforeBranch === true, "commits: repo filter renders before the branch selector"],
+    [commitsToolbarLayout.chromeHeightsMatch === true, `commits: repo combobox and branch picker share the same pill height (${commitsToolbarLayout.repoFieldHeight ?? "n/a"}px vs ${commitsToolbarLayout.branchHeight ?? "n/a"}px)`],
     [commitsToolbarLayout.topAligned === true, `commits: repo and branch filters ${commitsToolbarLayout.stacked ? "stack compactly" : "align at the top"} (${commitsToolbarLayout.topDelta ?? "n/a"}px)`],
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
     [commitsHasCopyHash === true, "commits: commit hash copy buttons rendered"],

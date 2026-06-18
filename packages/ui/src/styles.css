@@ -378,6 +378,8 @@ html[data-theme="paper"] .toggle-on {
 .filter-groups { display: contents; }
 /* Shown only on narrow when a page opts into collapsing the date range (Commits). */
 .range-disclosure { display: none; }
+/* Commits repo + branch filters collapse behind this on narrow (same pattern). */
+.commits-filter-disclosure { display: none; }
 .file-load {
   color: var(--muted);
   display: inline-flex;
@@ -1337,12 +1339,26 @@ a.rf-node-title:hover { color: var(--accent); }
    browser renders with un-themeable OS chrome). The suggestion list is our own
    DOM, so it uses the same panel / border / accent tokens as the rest of the UI. */
 .repo-combobox { position: relative; flex: 0 1 auto; width: 100%; }
-.repo-combobox-field { position: relative; display: flex; align-items: center; }
-.repo-combobox .search { width: 100%; padding-right: 28px; }
-.repo-combobox-caret { position: absolute; right: 11px; color: var(--muted); font-size: 10px; pointer-events: none; }
+/* Match the branch picker's pill chrome (icon · value · trailing control) so the
+   two SCM filters read as a matched pair; the inner input is transparent and the
+   "All repos" placeholder is styled like a value to mirror "All branches". */
+.repo-combobox-field {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 10px;
+  color: var(--muted); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.repo-combobox .search {
+  flex: 1; min-width: 0; width: auto; height: 100%;
+  padding: 0; background: transparent; border: none; outline: none; box-shadow: none;
+  color: var(--text); font: inherit; font-weight: 600;
+}
+.repo-combobox .search::placeholder { color: var(--text); opacity: 1; }
+.repo-combobox-caret { flex: none; color: var(--muted); font-size: 10px; pointer-events: none; }
 .repo-combobox-clear {
-  position: absolute; right: 6px; display: flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; background: none; border: none; border-radius: 6px;
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-right: -4px; background: none; border: none; border-radius: 6px;
   color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0;
 }
 .repo-combobox-clear:hover { background: var(--line); color: var(--text); }
@@ -1723,6 +1739,44 @@ a.rf-node-title:hover { color: var(--accent); }
   .repo-combobox { flex: none; width: 100%; }
   .commit-branch-select { width: 100%; box-sizing: border-box; }
   .commit-branch-select select { max-width: none; flex: 1; }
+  /* Repo + branch collapse behind a summary toggle on narrow; expand on demand. */
+  .commits-filter-disclosure {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 36px;
+    margin: 0 0 8px;
+    padding: 7px 12px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .commits-filter-disclosure-label { color: var(--muted); flex: none; }
+  .commits-filter-disclosure-summary {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .commits-filter-disclosure-caret {
+    margin-left: auto;
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+    transform: translateY(1px) rotate(-135deg);
+  }
+  .commits-filter-disclosure[aria-expanded="true"] .commits-filter-disclosure-caret {
+    transform: translateY(-2px) rotate(45deg);
+  }
+  .commits-toolbar[data-filters-collapsed="true"] { display: none; }
   .commit-row-body {
     align-items: stretch;
     flex-direction: column;

@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { pluralize, type CommitRepoOption } from "../model.ts";
 
+// A repository glyph for the repo filter, mirroring the branch icon on the
+// adjacent branch picker so the two SCM filters read as a matched pair.
+function RepoFilterIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      <path d="M3 2.4h7.5a1.5 1.5 0 0 1 1.5 1.5v9.7H4.5A1.5 1.5 0 0 1 3 12.1Z" />
+      <path d="M4.5 13.6H12" />
+      <path d="M3 2.4v9.7" />
+    </svg>
+  );
+}
+
 // A small, dependency-free typeahead combobox for the Commits repo filter.
 //
 // It replaces a native <datalist>, whose popup the browser renders with its own
@@ -77,6 +89,7 @@ export function RepoCombobox({
   return (
     <div className="repo-combobox" ref={rootRef}>
       <div className="repo-combobox-field">
+        <RepoFilterIcon />
         <input
           className="search"
           type="text"
@@ -85,7 +98,9 @@ export function RepoCombobox({
           aria-controls="repo-combobox-list"
           aria-autocomplete="list"
           aria-label="Filter commits by repo"
-          placeholder="Filter by repo…"
+          // "All repos" is the empty/default scope, styled like a value to mirror
+          // the branch picker's "All branches" default; typing still filters.
+          placeholder="All repos"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
