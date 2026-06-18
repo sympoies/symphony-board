@@ -48,6 +48,15 @@ generated app uses the Symphony Board launcher mark and applies Android
 system-bar insets to the WebView, avoiding status/navigation bar overlap on
 edge-to-edge devices.
 
+The launcher mark is written as an **adaptive icon under `mipmap/`** (a navy
+background plus the cyan equalizer foreground, all vectors) and the manifest
+points at `@mipmap/ic_launcher`. A plain `@drawable` vector renders on the home
+screen but is ignored by the recents/running-apps list and themed-icon surfaces,
+which fall back to the framework default — so the icon must be an adaptive
+`mipmap` resource. Note Android caches launcher icons aggressively: after an
+icon change, a full uninstall + reinstall (or reboot) is needed to see it, since
+`adb install -r` does not bust the cache.
+
 ## Server Shape
 
 The intended deployment is the Docker Compose Postgres stack on the Ubuntu host:
