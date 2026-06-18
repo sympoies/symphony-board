@@ -159,6 +159,27 @@ writeRes(
 writeRes("mipmap-anydpi-v26/ic_launcher.xml", adaptiveIcon);
 writeRes("mipmap-anydpi-v26/ic_launcher_round.xml", adaptiveIcon);
 
+// Dedicated icon for the Android 12+ system splash (windowSplashScreenAnimatedIcon
+// below). The splash draws only the icon's foreground, scaled to the splash icon
+// slot — so the launcher foreground (bars sized to fill the adaptive canvas) comes
+// out oversized there. This splash icon is the same bars padded down to the
+// splash's safe size, centered, so they read as a tasteful logo on the navy
+// splash background instead of giant bars.
+writeRes(
+  "drawable/ic_splash.xml",
+  `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:scaleX="0.55" android:scaleY="0.55" android:pivotX="54" android:pivotY="54">
+${BAR_PATHS.map((d) => `        <path\n            android:fillColor="${CYAN}"\n            android:pathData="${d}" />`).join("\n")}
+    </group>
+</vector>
+`,
+);
+
 // Drop the legacy plain-vector launcher icon from earlier versions of this
 // script — it is no longer referenced (the manifest now uses @mipmap) and a
 // non-adaptive @drawable launcher icon is exactly what failed to render in the
@@ -177,6 +198,14 @@ for (const themePath of [
         <item name="android:navigationBarColor">#011627</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <!-- Brand-navy launch background so there is no white flash on cold start.
+             windowBackground covers the pre-splash window and pre-Android-12 cold
+             start; windowSplashScreenBackground is the Android 12+ system splash,
+             which draws the adaptive icon's (cyan-bars) foreground centered on this
+             color. Matches the status/navigation bars for a seamless dark launch. -->
+        <item name="android:windowBackground">#011627</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">#011627</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_splash</item>
     </style>
 </resources>
 `,
