@@ -767,7 +767,7 @@ try {
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
   // without changing the tracked sample contract.
-  await send("Emulation.clearDeviceMetricsOverride");
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
@@ -1493,14 +1493,22 @@ try {
       const sheetTitle = sheet?.querySelector('.mobile-control-sheet-title');
       const repoInput = sheet?.querySelector('.commits-filter input.search');
       const branchSelect = sheet?.querySelector('.commit-branch-select select');
+      const repoOptions = sheet?.querySelectorAll('.commit-filter-option[data-kind="repo"]').length || 0;
+      const branchOptions = sheet?.querySelectorAll('.commit-filter-option[data-kind="branch"]').length || 0;
       const primarySurface = document.querySelector('.commit-list');
       const primaryRect = primarySurface?.getBoundingClientRect();
+      const sheetRect = sheet?.getBoundingClientRect();
       return {
         sheetVisible: !!sheet && getComputedStyle(sheet).display !== 'none',
         sheetCount: sheets.length,
         sheetTitle: sheetTitle?.textContent?.trim() || null,
         repoInputVisible: !!repoInput && getComputedStyle(repoInput).display !== 'none',
+        repoInputFocused: !!repoInput && document.activeElement === repoInput,
         branchSelectVisible: !!branchSelect && getComputedStyle(branchSelect).display !== 'none',
+        repoOptions,
+        branchOptions,
+        sheetHeight: Math.round(sheetRect?.height || 0),
+        viewportHeight: window.innerHeight,
         primaryTopAfter: Math.round(primaryRect?.top || 0),
       };
     })()`,
@@ -1775,7 +1783,7 @@ try {
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === false && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone filters open without keeping search inline (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActiveFilterDisclosure.sheetVisible === true && phoneActiveFilterDisclosure.sheetCount === 1 && phoneActiveFilterDisclosure.sheetTitle === "Filters" && Math.abs((phoneActiveFilterDisclosure.primaryTopAfter || 0) - (phoneActiveFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile search/filter expansion opens one filter overlay sheet without pushing feed (${JSON.stringify(phoneActiveFilterDisclosure)})`],
-    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.repoInputVisible === true && phoneCommitsFilterDisclosure.branchSelectVisible === true && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open one overlay sheet without pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
+    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.branchOptions >= 3 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a self-styled overlay sheet without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
     [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.6), `portrait: phone activity defaults to a tall records feed behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, heatmap=${phoneActivity.activityHeatmapPresent})`],
     [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
