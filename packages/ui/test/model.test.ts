@@ -850,6 +850,39 @@ test("deriveRepoOptions uses full v2 repo_stats instead of loaded item counts", 
   );
 });
 
+test("deriveRepoOptions includes commit-only repos (in repo_metrics, not repo_stats) with count 0", () => {
+  const env: ContractEnvelope = {
+    contract_version: "3.5.0",
+    generated_at: "2026-06-08T00:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [item({ id: "i1", source_id: "github:github.com", project_path: "o/has-items" })],
+    edges: [],
+    item_window: {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-03-10T00:00:00.000Z", days: 90, edge_filter: null },
+      primary_items: 1,
+      edge_endpoint_items: 0,
+      total_items: 1,
+      truncated: false,
+    },
+    repo_stats: [
+      { source_id: "github:github.com", project_path: "o/has-items", items: 1, by_state: { open: 1 }, by_kind: { issue: 1 } },
+    ],
+    // o/commits-only has commit activity but NO work-items: it is in repo_metrics
+    // but absent from repo_stats. It must still surface in the global source
+    // filter (with a 0 item count) so its commits are reachable and toggleable.
+    repo_metrics: [
+      repoMetric({ source_id: "github:github.com", project_path: "o/commits-only" }),
+    ],
+  };
+
+  assert.deepEqual(
+    deriveRepoOptions(env).map((repo) => [repo.project_path, repo.count]),
+    [["o/commits-only", 0], ["o/has-items", 1]],
+  );
+});
+
 test("computeStats counts items by state/kind and edges by lifecycle", () => {
   const items = [item({ state: "open", kind: "issue" }), item({ state: "merged", kind: "change_request" })];
   const stats = computeStats(items, [

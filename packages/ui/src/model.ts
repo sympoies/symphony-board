@@ -1525,20 +1525,33 @@ export function deriveRepos(items: ItemDTO[]): RepoOption[] {
 }
 
 export function deriveRepoOptions(env: ContractEnvelope): RepoOption[] {
+  const byKey = new Map<string, RepoOption>();
+  // Work-item repos: prefer the full repo_stats projection (count = item total),
+  // otherwise derive from the loaded items.
   const stats = env.repo_stats;
-  if (stats && stats.length > 0) {
-    return stats
-      .map((repo) => ({
-        key: repoKey(repo.source_id, repo.project_path),
-        source_id: repo.source_id,
-        project_path: repo.project_path,
-        count: repo.items,
-      }))
-      .sort(
-        (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),
-      );
+  const itemRepos =
+    stats && stats.length > 0
+      ? stats.map((repo) => ({
+          key: repoKey(repo.source_id, repo.project_path),
+          source_id: repo.source_id,
+          project_path: repo.project_path,
+          count: repo.items,
+        }))
+      : deriveRepos(env.items);
+  for (const repo of itemRepos) byKey.set(repo.key, repo);
+  // Commit-only repos: present in repo_metrics (they have commit activity) but
+  // with no work-items, so absent from repo_stats. Surface them too — with a 0
+  // item count — so the global source filter lists every tracked repo that has
+  // items OR commits, and their commit activity stays visible and toggleable.
+  for (const metric of env.repo_metrics ?? []) {
+    const key = repoKey(metric.source_id, metric.project_path);
+    if (!byKey.has(key)) {
+      byKey.set(key, { key, source_id: metric.source_id, project_path: metric.project_path, count: 0 });
+    }
   }
-  return deriveRepos(env.items);
+  return [...byKey.values()].sort(
+    (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),
+  );
 }
 
 export function itemIsPrimaryWindow(item: ItemDTO): boolean {
