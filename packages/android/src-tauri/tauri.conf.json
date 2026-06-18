@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Symphony Board",
+  "version": "1.1.4",
+  "identifier": "com.sympoies.symphonyboard.android",
+  "build": {
+    "beforeDevCommand": "VITE_SYMPHONY_BOARD_CLIENT=android pnpm --dir ../.. --filter @symphony-board/ui dev -- --host 0.0.0.0 --port 5174",
+    "beforeBuildCommand": "VITE_SYMPHONY_BOARD_CLIENT=android pnpm --dir ../.. --filter @symphony-board/ui build",
+    "devUrl": "http://127.0.0.1:5174",
+    "frontendDist": "../../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Symphony Board",
+        "width": 390,
+        "height": 844,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "icon": ["icons/icon.png"],
+    "shortDescription": "Read-only Android client for Symphony Board.",
+    "longDescription": "An Android thin-client shell for the Symphony Board contract and UI. Sync, stores, tokens, and provider API access stay on the server.",
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

@@ -6,6 +6,8 @@ import {
   loadCollapsedColumns, saveCollapsedColumns,
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
+  loadTheme, saveTheme,
+  defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
 
@@ -84,6 +86,16 @@ test("default range preset falls back to this week and round-trips valid preset 
   assert.equal(loadDefaultRangePreset(), "this-week", "invalid value -> default");
 });
 
+test("theme is a device-local setting with night owl as the default", () => {
+  assert.equal(loadTheme(), "night-owl");
+  saveTheme("paper");
+  assert.equal(loadTheme(), "paper");
+  saveTheme("night-owl");
+  assert.equal(loadTheme(), "night-owl");
+  store._raw("symphony-board:theme", "unknown-theme");
+  assert.equal(loadTheme(), "night-owl", "invalid value -> default");
+});
+
 test("server base URL normalizes http/https roots and rejects unsafe schemes", () => {
   assert.equal(normalizeServerBaseUrl("http://localhost:8080"), "http://localhost:8080/");
   assert.equal(normalizeServerBaseUrl("https://board.example.com/app"), "https://board.example.com/app/");
@@ -100,6 +112,13 @@ test("server base URL persists as an optional setting", () => {
   assert.equal(loadServerBaseUrl(), null);
 });
 
+test("Tauri host defaults split desktop and Android shells", () => {
+  assert.equal(defaultServerBaseUrlForRuntime(null, false), null, "web stays same-origin by default");
+  assert.equal(defaultServerBaseUrlForRuntime(null, true), "http://localhost:8080/", "desktop shell keeps the local Docker default");
+  assert.equal(defaultServerBaseUrlForRuntime("desktop", true), "http://localhost:8080/", "explicit desktop keeps the local Docker default");
+  assert.equal(defaultServerBaseUrlForRuntime("android", true), null, "Android shell requires a configured or user-entered server URL");
+});
+
 test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () => {
   const boom = new Proxy({}, { get() { throw new Error("storage disabled"); } });
   (globalThis as { localStorage?: unknown }).localStorage = boom;
@@ -107,11 +126,13 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.deepEqual([...loadCollapsedColumns()], [], "collapsed columns degrade to empty");
   assert.equal(loadColorOverrides().size, 0, "load degrades to no overrides");
   assert.equal(loadDefaultRangePreset(), "this-week", "load degrades to default range");
+  assert.equal(loadTheme(), "night-owl", "theme load degrades to default");
   assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
   assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));
   assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
+  assert.doesNotThrow(() => saveTheme("paper"));
   assert.doesNotThrow(() => saveServerBaseUrl("http://localhost:8080"));
 });

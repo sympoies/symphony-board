@@ -5,6 +5,32 @@ import type { SyncState } from "../useSync.ts";
 
 const NO_HIDDEN_SOURCES: ReadonlySet<string> = new Set();
 
+function AppMarkIcon() {
+  return (
+    <svg className="brand-refresh-app-icon" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+      <rect className="app-mark-bg" x="0" y="0" width="1024" height="1024" rx="240" ry="240" />
+      <g className="app-mark-bars">
+        <rect x="134" y="414" width="92" height="196" rx="46" />
+        <rect x="280" y="299" width="116" height="426" rx="58" />
+        <rect x="450" y="212" width="124" height="600" rx="62" />
+        <rect x="628" y="299" width="116" height="426" rx="58" />
+        <rect x="798" y="414" width="92" height="196" rx="46" />
+      </g>
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg className="brand-refresh-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20 11a8 8 0 0 0-14.7-4.4L3 9" />
+      <path d="M3 4v5h5" />
+      <path d="M4 13a8 8 0 0 0 14.7 4.4L21 15" />
+      <path d="M16 15h5v5" />
+    </svg>
+  );
+}
+
 // Title + contract provenance + per-source health, so a viewer can immediately
 // see whether the data is fresh and whether any source last synced partial/error.
 // When the writer-owned control surface is available, the manual Sync action sits
@@ -14,10 +40,14 @@ export function Header({
   env,
   sync,
   hiddenSources = NO_HIDDEN_SOURCES,
+  refreshing = false,
+  onRefresh,
 }: {
   env: ContractEnvelope;
   sync?: SyncState;
   hiddenSources?: ReadonlySet<string>;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   const showSync = sync?.available ?? false;
   const running = showSync && isSyncRunActive(sync!.current);
@@ -26,7 +56,20 @@ export function Header({
   return (
     <header className="app-header">
       <div className="brand">
-        <h1>symphony-board</h1>
+        <div className="brand-main">
+          <button
+            type="button"
+            className={`brand-refresh${refreshing ? " refreshing" : ""}`}
+            disabled={refreshing}
+            aria-label="Refresh data"
+            aria-busy={refreshing}
+            title="Refresh data"
+            onClick={onRefresh}
+          >
+            {refreshing ? <RefreshIcon /> : <AppMarkIcon />}
+          </button>
+          <h1>Symphony Board</h1>
+        </div>
         <span className="muted">
           contract {env.contract_version} · {env.generator} · emitted {relativeTime(env.generated_at)}
         </span>

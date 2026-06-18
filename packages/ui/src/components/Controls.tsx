@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 
 // A single facet group the Controls bar renders. `mode` decides which values
 // show: "facet" lists every value (the usual multi-select chips, hidden when
@@ -61,6 +61,8 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
 }
 
 export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Props) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
@@ -74,13 +76,28 @@ export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Pro
         value={search}
         onChange={(e) => onSearch(e.target.value)}
       />
-      {groups.map((group) => (
-        <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
-      ))}
-      <label className="file-load">
-        load contract.json
-        <input type="file" accept="application/json,.json" onChange={onFile} />
-      </label>
+      <button
+        type="button"
+        className={`filter-disclosure toggle${activeFilterCount > 0 ? " toggle-on" : ""}`}
+        aria-expanded={filtersOpen}
+        aria-controls="facet-filter-groups"
+        aria-label={`${filtersOpen ? "Hide" : "Show"} filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ""}`}
+        onClick={() => setFiltersOpen((open) => !open)}
+      >
+        Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+      </button>
+      <div id="facet-filter-groups" className="filter-groups" data-open={filtersOpen}>
+        {groups.map((group) => (
+          <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
+        ))}
+      </div>
+      <details className="file-load">
+        <summary className="toggle file-load-summary">Local file</summary>
+        <label className="file-load-picker">
+          contract.json
+          <input type="file" accept="application/json,.json" onChange={onFile} />
+        </label>
+      </details>
     </div>
   );
 }

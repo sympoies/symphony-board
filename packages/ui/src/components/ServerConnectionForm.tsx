@@ -28,7 +28,7 @@ export function ServerConnectionForm({ serverBaseUrl, onServerBaseUrl }: Props) 
           className={`server-url-input${invalid ? " input-error" : ""}`}
           type="url"
           value={draft}
-          placeholder="http://localhost:8080/"
+          placeholder="https://board.tailnet.ts.net/"
           onChange={(e) => setDraft(e.target.value)}
         />
       </label>

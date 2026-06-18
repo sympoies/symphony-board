@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContract, fetchRangeContract, parseContract, majorOf, resolveEndpoint, SUPPORTED_MAJOR } from "./contract.ts";
 import {
@@ -62,9 +62,12 @@ import {
   saveColorOverrides,
   loadDefaultRangePreset,
   saveDefaultRangePreset,
+  loadTheme,
+  saveTheme,
   loadServerBaseUrl,
   saveServerBaseUrl,
   normalizeServerBaseUrl,
+  type ViewTheme,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
 import { useConfig } from "./useConfig.ts";
@@ -116,6 +119,7 @@ export function App() {
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingData, setRefreshingData] = useState(false);
   // Seed the search from the hash's "?q=" token if present; the URL is the source
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
@@ -126,10 +130,12 @@ export function App() {
   //   • hiddenSources — HIDDEN source_ids (an independent layer; see applyVisibility)
   //   • colorOverrides — repoKey -> hex, this viewer's per-repo highlight override
   //   • defaultRangePreset — which quick preset is used when the route has no from/to
+  //   • theme — DEVICE-LOCAL palette preference (per browser / Android WebView)
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
+  const [theme, setTheme] = useState<ViewTheme>(loadTheme);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
   // Board columns the viewer manually collapsed to a rail (persisted). Empty
   // columns auto-collapse without being stored here; `peekedColumns` is the
@@ -208,19 +214,31 @@ export function App() {
   // re-fetches the contract (and the range response for a custom range); the
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
-  const reloadData = useCallback(() => {
-    fetchContract(undefined, serverBaseUrl)
+  const reloadData = useCallback(async () => {
+    const pending: Promise<void>[] = [];
+    pending.push(fetchContract(undefined, serverBaseUrl)
       .then((e) => {
         setEnv(e);
         setError(null);
       })
-      .catch((err: unknown) => setError((err as Error).message));
+      .catch((err: unknown) => setError((err as Error).message)));
     if (needsRangeEnv && activeRange) {
-      fetchRangeContract(activeRange, serverBaseUrl)
-        .then((next) => setRangeEnv(next))
-        .catch((err: unknown) => setRangeError((err as Error).message));
+      setRangeLoading(true);
+      setRangeError(null);
+      pending.push(fetchRangeContract(activeRange, serverBaseUrl)
+        .then((next) => {
+          setRangeEnv(next);
+          setRangeError(null);
+        })
+        .catch((err: unknown) => setRangeError((err as Error).message))
+        .finally(() => setRangeLoading(false)));
     }
+    await Promise.all(pending);
   }, [needsRangeEnv, activeRange, serverBaseUrl]);
+  const refreshData = useCallback(() => {
+    setRefreshingData(true);
+    void reloadData().finally(() => setRefreshingData(false));
+  }, [reloadData]);
   const sync = useSync(reloadData, serverBaseUrl);
   const configState = useConfig(serverBaseUrl);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
@@ -253,11 +271,11 @@ export function App() {
       }
       if (!isRefreshShortcut(event)) return;
       event.preventDefault();
-      reloadData();
+      refreshData();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reloadData, toggleDebug]);
+  }, [refreshData, toggleDebug]);
 
   useEffect(() => {
     saveHidden(hidden);
@@ -272,8 +290,16 @@ export function App() {
     saveDefaultRangePreset(defaultRangePreset);
   }, [defaultRangePreset]);
   useEffect(() => {
+    saveTheme(theme);
+  }, [theme]);
+  useEffect(() => {
     saveCollapsedColumns(collapsedColumns);
   }, [collapsedColumns]);
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme === "paper" ? "light" : "dark";
+  }, [theme]);
 
   const applyServerBaseUrl = useCallback((nextRaw: string | null) => {
     saveServerBaseUrl(normalizeServerBaseUrl(nextRaw));
@@ -936,7 +962,7 @@ export function App() {
 
   return (
     <div className="app app-wide">
-      <Header env={env} sync={sync} hiddenSources={hiddenSources} />
+      <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
       <nav className="page-tabs">
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity
@@ -1021,6 +1047,8 @@ export function App() {
           onClearColor={clearColorOverride}
           defaultRangePreset={defaultRangePreset}
           onDefaultRangePreset={setDefaultRangePreset}
+          theme={theme}
+          onTheme={setTheme}
           serverBaseUrl={serverBaseUrl}
           onServerBaseUrl={applyServerBaseUrl}
           sync={sync}
@@ -1101,6 +1129,7 @@ export function App() {
               <EmptyState noun="relationships" total={env.edges.length} windowTotal={contentEnv.edges?.length ?? 0} {...emptyStateShared} />
             }
             onClearFilters={clearFilters}
+            theme={theme}
           />
         </Suspense>
       ) : (

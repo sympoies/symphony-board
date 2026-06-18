@@ -951,6 +951,7 @@ export function buildActivityTrend(
 }
 
 export const ACTIVITY_ROW_HEIGHT_PX = 96;
+export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 124;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
@@ -1005,7 +1006,12 @@ export function activityVirtualRange({
 // slice; this is the pure math, kept here so it is testable and beside its
 // fixed-height sibling.
 export const COMMIT_ROW_BODY_HEIGHT_PX = 70;
-export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
+// Narrow/portrait stacks the row (2-line clamped title, wrapped meta with a
+// branch chip on its own line, then the SHA + action buttons). Measured worst
+// case at a 384px-wide viewport is ~160px; the slot adds COMMIT_ROW_GAP_PX on
+// top, so this keeps the SHA/actions line inside the virtualized row instead of
+// letting the next row overlap it.
+export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 160;
 const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
 const COMMIT_ROW_GAP_PX = 8;
 const COMMIT_EXPANDED_PANEL_CHROME_PX = 18;
@@ -1774,10 +1780,11 @@ export interface GraphOverviewVisibility {
   drawnIds: Set<string>;
 }
 
-// Night Owl hexes duplicated here ONLY because the cytoscape canvas cannot read
-// CSS custom properties; keep in sync with styles.css :root.
-const NODE_FILL: Record<string, string> = { open: "#addb67", closed: "#c792ea", merged: "#7e57c2", unknown: "#637777" };
-const EDGE_STROKE: Record<string, string> = { declared: "#ffcb6b", fulfilled: "#addb67", broken: "#f78c6c", other: "#637777" };
+// Graph nodes/edges are styled inline by React Flow, but CSS custom properties
+// still resolve there. Keep these semantic so the selected UI theme owns the
+// actual palette.
+const NODE_FILL: Record<string, string> = { open: "var(--open)", closed: "var(--closed)", merged: "var(--merged)", unknown: "var(--muted)" };
+const EDGE_STROKE: Record<string, string> = { declared: "var(--declared)", fulfilled: "var(--fulfilled)", broken: "var(--broken)", other: "var(--muted)" };
 
 // ISO cutoff for "N days ago" (browser-side; now is injectable for tests).
 export function cutoffIso(days: number, now: number = Date.now()): string {
@@ -1864,8 +1871,8 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "#637777", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "#637777", demand: null, created_at: null, updated_at: null, untracked: true },
+          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
       );
     };
     ensure(re.from, re.edge.from);
@@ -1876,7 +1883,7 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
       target: re.edge.to,
       type: re.edge.type,
       lifecycle: re.edge.lifecycle ?? null,
-      color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "#637777",
+      color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "var(--muted)",
     });
   }
   return { nodes: [...nodes.values()], links };

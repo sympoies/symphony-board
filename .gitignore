@@ -32,6 +32,7 @@ dist-standalone/
 target/
 packages/desktop/src-tauri/gen/
 packages/desktop-standalone/src-tauri/gen/
+packages/android/src-tauri/gen/
 
 # Node runtime copied in as the standalone app's bundled sidecar.
 packages/desktop-standalone/src-tauri/binaries/

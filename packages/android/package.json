@@ -1,0 +1,19 @@
+{
+  "name": "@symphony-board/android",
+  "version": "1.1.4",
+  "private": true,
+  "description": "Android thin-client shell for the Symphony Board read-only UI.",
+  "type": "module",
+  "scripts": {
+    "prepare:generated": "node scripts/prepare-generated-android.mjs",
+    "init": "tauri android init --ci && pnpm run prepare:generated",
+    "dev": "pnpm run prepare:generated && tauri android dev",
+    "run": "pnpm run prepare:generated && tauri android run",
+    "build": "pnpm run prepare:generated && tauri android build --ci",
+    "build:apk": "pnpm run prepare:generated && tauri android build --apk --ci",
+    "info": "tauri info"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2"
+  }
+}

@@ -23,12 +23,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
 const HTTP_PORT = 4399;
 const CDP_PORT = 9333;
-const DEADLINE_MS = 30000;
+const DEADLINE_MS = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
 const ACTIVITY_SMOKE_ROWS = 1200;
 let rangeResponseDelayMs = 500;
+let contractResponseDelayMs = 0;
 
 // A minimal in-process mock of the board daemon's sync control surface, so the
 // headless render exercises the writer-owned manual-sync affordance (the static
@@ -37,6 +38,7 @@ let rangeResponseDelayMs = 500;
 const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 const syncMock = { current: null, last: null, seq: 0 };
 let cachedSyncSources = null;
+let contractRequestCount = 0;
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -83,6 +85,28 @@ function readBody(req) {
   });
 }
 
+function withSmokeHeaderSources(env) {
+  const sources = Array.isArray(env.sources) ? env.sources : [];
+  if (sources.length >= 3 || sources.some((s) => s?.source_id === "gitlab:gitlab.gamania.com")) return env;
+  const gitlab = sources.find((s) => s?.kind === "gitlab") ?? sources[0] ?? {};
+  return {
+    ...env,
+    sources: [
+      ...sources,
+      {
+        ...gitlab,
+        source_id: "gitlab:gitlab.gamania.com",
+        kind: "gitlab",
+        host: "gitlab.gamania.com",
+        display_name: "GitLab (Gamania)",
+        last_status: "ok",
+        last_success_at: env.generated_at ?? gitlab.last_success_at ?? null,
+        color: null,
+      },
+    ],
+  };
+}
+
 // A minimal mock of the writer-owned config control plane, so the headless
 // render exercises the Settings -> Sources editor (capability present, one
 // token set and one missing). PUTs adopt the submitted document like the real
@@ -116,8 +140,8 @@ function fail(msg) {
 }
 
 function inflateActivityContract(body) {
-  const env = JSON.parse(body.toString("utf8"));
-  if (!Array.isArray(env.activities) || env.activities.length === 0) return body;
+  const env = withSmokeHeaderSources(JSON.parse(body.toString("utf8")));
+  if (!Array.isArray(env.activities) || env.activities.length === 0) return JSON.stringify(env);
 
   const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
   const activities = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
@@ -133,7 +157,16 @@ function inflateActivityContract(body) {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
         ...(a.kind === "commit"
           ? {
-              refs: [i % 2 === 0 ? "refs/heads/main" : "refs/heads/release"],
+              // Every third commit carries a long branch name so the Commits page
+              // exercises a wide `commit-ref-chip` (regression guard for the chip
+              // wrapping past the fixed virtualized row height in portrait).
+              refs: [
+                i % 3 === 0
+                  ? "refs/heads/feat/android-thin-client-shell-portrait-overflow-guard"
+                  : i % 2 === 0
+                    ? "refs/heads/main"
+                    : "refs/heads/release",
+              ],
               ...(i % 3 === 0 ? { body: `Smoke body ${i}\n\nRendered commit body details.` } : {}),
             }
           : {}),
@@ -240,6 +273,10 @@ const server = createServer(async (req, res) => {
       res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
       return;
     }
+    if (p === "/__smoke/contract-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ contractRequests: contractRequestCount }));
+      return;
+    }
     if (p === "/api/sync-control") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, sources: await syncSources(), current: syncMock.current, last: syncMock.last, interval_seconds: 120, full_every: 30 }));
       return;
@@ -305,7 +342,10 @@ const server = createServer(async (req, res) => {
       return;
     }
     const rawBody = await readFile(file);
-    const body = file === join(DIST, "contract.json") ? inflateActivityContract(rawBody) : rawBody;
+    const isContract = file === join(DIST, "contract.json");
+    if (isContract) contractRequestCount += 1;
+    if (isContract && contractResponseDelayMs > 0) await sleep(contractResponseDelayMs);
+    const body = isContract ? inflateActivityContract(rawBody) : rawBody;
     const ext = file.slice(file.lastIndexOf("."));
     res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" }).end(body);
   } catch {
@@ -404,6 +444,12 @@ try {
   };
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  const contractRequests = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/contract-count').then((res) => res.json()).then((body) => body.contractRequests || 0)",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || 0;
   const rangeButtonLabels = async () =>
     (await send("Runtime.evaluate", {
       expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).map((el) => el.textContent?.trim() || '')",
@@ -437,6 +483,48 @@ try {
   })()`);
   rangeResponseDelayMs = 0;
   const defaultActivityHtml = await waitHtml("document.querySelector('.activity-page')");
+  const colorSchemeHints = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      colorScheme: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content') || '',
+      supportedColorSchemes: document.querySelector('meta[name="supported-color-schemes"]')?.getAttribute('content') || '',
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  const headerRefreshBefore = await contractRequests();
+  const headerRefreshHashBefore = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  contractResponseDelayMs = 250;
+  const headerRefresh = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.brand-refresh');
+      const idleIcon = btn?.querySelector('.brand-refresh-app-icon');
+      btn?.click();
+      return {
+        title: document.querySelector('.brand h1')?.textContent?.trim() || '',
+        hasButton: !!btn,
+        hasIdleAppIcon: !!idleIcon,
+        idleIconTag: idleIcon?.tagName?.toLowerCase() || '',
+        idleIconViewBox: idleIcon?.getAttribute('viewBox') || '',
+        label: btn?.getAttribute('aria-label') || '',
+        clicked: !!btn,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(80);
+  headerRefresh.hasBusyRefreshGlyph = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.brand-refresh .brand-refresh-glyph')",
+    returnByValue: true,
+  })).result.value === true;
+  await sleep(400);
+  contractResponseDelayMs = 0;
+  headerRefresh.requestsBefore = headerRefreshBefore;
+  headerRefresh.requestsAfter = await contractRequests();
+  headerRefresh.hashBefore = headerRefreshHashBefore;
+  headerRefresh.hashAfter = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  headerRefresh.restoredAppIcon = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.brand-refresh .brand-refresh-app-icon')",
+    returnByValue: true,
+  })).result.value === true;
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   // Page 1 — the full-bleed 7-column board.
@@ -898,6 +986,40 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  const themeBefore = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
+        Array.from(el.options || []).some((option) => option.value === 'paper')
+      );
+      return {
+        found: !!select,
+        before: document.documentElement.dataset.theme || '',
+        options: select ? Array.from(select.options).map((option) => option.value) : [],
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
+        Array.from(el.options || []).some((option) => option.value === 'paper')
+      );
+      if (!select) return false;
+      select.value = 'paper';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`,
+    returnByValue: true,
+  });
+  await sleep(150);
+  const themeAfter = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      root: document.documentElement.dataset.theme || '',
+      stored: localStorage.getItem('symphony-board:theme') || '',
+      bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
   // the graph ALREADY in that item's focus view (not the plain list); the canvas
   // shows the focus subgraph, so the global search bar stays EMPTY (it is a
@@ -1086,6 +1208,205 @@ try {
     expression: `(() => { const g = ${reviewGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null }; })()`,
     returnByValue: true,
   })).result.value || {};
+  const portraitPresets = [
+    { name: "phone-portrait", width: 384, height: 854, dpr: 3 },
+    { name: "tablet-portrait", width: 930, height: 1240, dpr: 2 },
+  ];
+  const portraitPages = [
+    { page: "board", hash: "#/board", selector: ".board-7" },
+    { page: "graph", hash: "#/graph", selector: ".graph-body" },
+    { page: "activity", hash: "#/activity", selector: ".activity-page" },
+    { page: "commits", hash: "#/commits", selector: ".commits-page" },
+    { page: "repo-analytics", hash: "#/repo-analytics", selector: ".repo-analytics-page" },
+    { page: "settings", hash: "#/settings", selector: ".settings-page" },
+    { page: "debug", hash: "#/debug", selector: ".debug-page" },
+  ];
+  const portraitResults = [];
+  for (const preset of portraitPresets) {
+    await send("Emulation.setDeviceMetricsOverride", { width: preset.width, height: preset.height, deviceScaleFactor: preset.dpr, mobile: true });
+    await sleep(150);
+    for (const page of portraitPages) {
+      await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(page.hash)}` });
+      await sleep(300);
+      await waitHtml(`document.querySelector(${JSON.stringify(page.selector)})`);
+      const result = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const doc = document.documentElement;
+          const root = document.querySelector(${JSON.stringify(page.selector)});
+          const boardSelector = document.querySelector('.board-mobile-selector');
+          const cols = Array.from(document.querySelectorAll('.board-7 .col'));
+          const graphBody = document.querySelector('.graph-body');
+          const repoTable = document.querySelector('.repo-table');
+          const controls = document.querySelector('.controls');
+          const filterToggle = controls?.querySelector('.filter-disclosure');
+          const filterGroups = controls?.querySelector('.filter-groups');
+          const localFile = controls?.querySelector('.file-load');
+          const localFileSummary = localFile?.querySelector('summary');
+          const localFileInput = localFile?.querySelector('input[type="file"]');
+          const localFileSummaryStyle = localFileSummary ? getComputedStyle(localFileSummary) : null;
+          const rangeControls = document.querySelector('.time-range-controls');
+          const activityHeatmap = document.querySelector('.activity-heatmap');
+          const heatmapScroll = activityHeatmap?.querySelector('.hm-calendar-scroll');
+          const activityList = document.querySelector('.activity-list');
+          const heatmapRect = activityHeatmap?.getBoundingClientRect();
+          const listRect = activityList?.getBoundingClientRect();
+          const activityRows = Array.from(document.querySelectorAll('.activity-row'));
+          const commitRows = Array.from(document.querySelectorAll('.commit-row'));
+          const commitRefChips = Array.from(document.querySelectorAll('.commit-ref-chip'));
+          const activityChips = document.querySelector('.activity-chips');
+          const activityChipsStyle = activityChips ? getComputedStyle(activityChips) : null;
+          const sources = document.querySelector('.app-header .sources');
+          const sourceChips = Array.from(document.querySelectorAll('.app-header .source-chip'));
+          const sourceChipTops = sourceChips.map((chip) => Math.round(chip.getBoundingClientRect().top));
+          const sourcesRect = sources?.getBoundingClientRect();
+          const heatmapMaxScroll = heatmapScroll ? Math.max(0, heatmapScroll.scrollWidth - heatmapScroll.clientWidth) : 0;
+          return {
+            ready: !!root,
+            overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            dpr: window.devicePixelRatio,
+            boardSelectorVisible: !!boardSelector && getComputedStyle(boardSelector).display !== 'none',
+            visibleBoardColumns: cols.filter((el) => getComputedStyle(el).display !== 'none').length,
+            graphStacked: !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
+            repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
+            filterButtonVisible: !controls || (!!filterToggle && getComputedStyle(filterToggle).display !== 'none'),
+            filterGroupsCollapsed: !controls || (!!filterGroups && getComputedStyle(filterGroups).display === 'none'),
+            fileDisclosureVisible: !controls || (!!localFileSummary && getComputedStyle(localFileSummary).display !== 'none'),
+            fileInputCollapsed: !controls || (!!localFileInput && getComputedStyle(localFileInput).display === 'none'),
+            fileDisclosureSingleLine: !controls || (!!localFileSummary && localFileSummaryStyle?.whiteSpace === 'nowrap' && localFileSummary.getBoundingClientRect().height <= 38),
+            rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
+            activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
+            activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
+            activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
+            activityChipsWrap: !activityChips || (activityChipsStyle?.whiteSpace === 'normal' && activityChipsStyle?.flexWrap === 'wrap'),
+            activityRowsNotClipped: activityRows.every((row) => row.scrollHeight <= row.clientHeight + 1),
+            commitRowsWithinSlot: commitRows.every((row) => {
+              const body = row.querySelector('.commit-row-body');
+              if (!body) return true;
+              return Math.round(body.getBoundingClientRect().height) <= Math.round(row.getBoundingClientRect().height) + 1;
+            }),
+            commitRefChipsSingleLine: commitRefChips.every((chip) => Math.round(chip.getBoundingClientRect().height) <= 24),
+            commitRowCount: commitRows.length,
+            commitMaxBodyHeight: Math.max(0, ...commitRows.map((row) => { const b = row.querySelector('.commit-row-body'); return b ? Math.round(b.getBoundingClientRect().height) : 0; })),
+            commitMinSlotHeight: commitRows.length ? Math.min(...commitRows.map((row) => Math.round(row.getBoundingClientRect().height))) : 0,
+            headerSourcesCount: sourceChips.length,
+            headerSourcesHeight: Math.round(sourcesRect?.height || 0),
+            headerSourcesOneLine: sourceChipTops.length > 0 && new Set(sourceChipTops).size === 1,
+          };
+        })()`,
+        returnByValue: true,
+      })).result.value || {};
+      portraitResults.push({ preset: preset.name, page: page.page, ...result });
+    }
+  }
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity?kind=commit'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.activity-page')");
+  const phoneActiveFilterDisclosureBefore = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const controls = document.querySelector('.controls');
+      const button = controls?.querySelector('.filter-disclosure');
+      const groups = controls?.querySelector('.filter-groups');
+      const activeChip = groups?.querySelector('.toggle.toggle-on');
+      return {
+        hasButton: !!button,
+        buttonVisible: !!button && getComputedStyle(button).display !== 'none',
+        buttonText: button?.textContent?.trim() || '',
+        groupsHidden: !!groups && getComputedStyle(groups).display === 'none',
+        rangeVisible: !!document.querySelector('.time-range-controls') && getComputedStyle(document.querySelector('.time-range-controls')).display !== 'none',
+        activeChipText: activeChip?.textContent?.trim() || null,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: "document.querySelector('.controls .filter-disclosure')?.click()",
+  });
+  await sleep(150);
+  const phoneActiveFilterDisclosureAfter = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const groups = document.querySelector('.controls .filter-groups');
+      const activeChip = groups?.querySelector('.toggle.toggle-on');
+      return {
+        groupsVisible: !!groups && getComputedStyle(groups).display !== 'none',
+        activeChipVisible: !!activeChip && getComputedStyle(activeChip).display !== 'none',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const phoneActiveFilterDisclosure = {
+    ...phoneActiveFilterDisclosureBefore,
+    ...phoneActiveFilterDisclosureAfter,
+  };
+  await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.repo-analytics-page')");
+  const phoneRepoAnalyticsLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = document.querySelector('.repo-table tbody tr');
+      const style = row ? getComputedStyle(row) : null;
+      const columns = (style?.gridTemplateColumns || '').split(' ').filter(Boolean);
+      const primary = Array.from(row?.querySelectorAll('.repo-metric-primary') || []);
+      const secondary = Array.from(row?.querySelectorAll('.repo-metric-secondary') || []);
+      const trendHeight = Math.round(row?.querySelector('.repo-trend-cell')?.getBoundingClientRect().height || 0);
+      const qualityCell = row?.querySelector('.repo-quality-cell');
+      const firstPrimaryTops = primary.slice(0, 4).map((cell) => Math.round(cell.getBoundingClientRect().top));
+      const secondaryWidths = secondary.map((cell) => Math.round(cell.getBoundingClientRect().width));
+      const primaryCentered = primary.length >= 4 && primary.every((cell) => {
+        const s = getComputedStyle(cell);
+        return s.alignItems === 'center' && s.justifyContent === 'center' && s.textAlign === 'center';
+      });
+      const secondaryGrouped = secondary.length >= 5 && secondary.every((cell) => {
+        const s = getComputedStyle(cell);
+        return s.justifyContent === 'center' && s.textAlign === 'center';
+      });
+      return {
+        found: !!row,
+        gridColumns: columns.length,
+        rowHeight: Math.round(row?.getBoundingClientRect().height || 0),
+        primaryCount: primary.length,
+        secondaryCount: secondary.length,
+        primarySameRow: firstPrimaryTops.length === 4 && new Set(firstPrimaryTops).size === 1,
+        primaryCentered,
+        secondaryCompact: secondary.length >= 5 && secondary.every((cell) => cell.getBoundingClientRect().height <= 38),
+        secondaryReadable: secondaryWidths.length >= 5 && Math.min(...secondaryWidths) >= 84,
+        secondaryTight: secondaryWidths.length >= 5 && Math.max(...secondaryWidths) <= 108,
+        secondaryMinWidth: secondaryWidths.length ? Math.min(...secondaryWidths) : 0,
+        secondaryMaxWidth: secondaryWidths.length ? Math.max(...secondaryWidths) : 0,
+        secondaryGrouped,
+        trendReadable: trendHeight >= 36 && trendHeight <= 48,
+        trendHeight,
+        actorsCompact: !row?.querySelector('.repo-actors-cell') || row.querySelector('.repo-actors-cell').getBoundingClientRect().height <= 42,
+        qualityInHeader: !!row?.querySelector('.repo-mobile-quality .badge'),
+        qualityCellHidden: !qualityCell || getComputedStyle(qualityCell).display === 'none',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const phoneRangeLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const controls = document.querySelector('.time-range-controls');
+      const labels = Array.from(controls?.querySelectorAll('.date-filter') || []);
+      const wraps = labels.map((label) => label.querySelector('.date-input-wrap'));
+      const controlRect = controls?.getBoundingClientRect();
+      const labelRects = labels.map((label) => label.getBoundingClientRect());
+      const wrapRects = wraps.map((wrap) => wrap?.getBoundingClientRect());
+      return {
+        found: labels.length === 2 && wraps.length === 2,
+        controlWidth: Math.round(controlRect?.width || 0),
+        labelWidths: labelRects.map((rect) => Math.round(rect.width)),
+        wrapWidths: wrapRects.map((rect) => Math.round(rect?.width || 0)),
+        labelLefts: labelRects.map((rect) => Math.round(rect.left)),
+        sameWrapWidth: wrapRects.length === 2 && Math.abs((wrapRects[0]?.width || 0) - (wrapRects[1]?.width || 0)) <= 1,
+        fullWidthRows: labelRects.length === 2 && labelRects.every((rect) => controlRect && rect.width >= controlRect.width - 2),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.clearDeviceMetricsOverride");
   ws.close();
 
   // --- assertions ---
@@ -1122,9 +1443,26 @@ try {
   const graphNarrowTotal = statTotal(graphNarrowStats, "nodes");
   const expectedRangeButtons = ["today", "yesterday", "this week", "last week", "1w", "1mo", "3mo", "6mo", "1y"];
   const sameRangeButtons = (labels) => JSON.stringify(labels) === JSON.stringify(expectedRangeButtons);
+  const portraitMissing = portraitResults.filter((r) => !r.ready);
+  const portraitOverflow = portraitResults.filter((r) => r.overflow > 2);
+  const phoneBoard = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "board") || {};
+  const tabletBoard = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "board") || {};
+  const portraitGraphs = portraitResults.filter((r) => r.page === "graph");
+  const portraitRepos = portraitResults.filter((r) => r.page === "repo-analytics");
+  const phoneFilterPages = portraitResults.filter((r) => r.preset === "phone-portrait" && !["commits", "settings", "debug"].includes(r.page));
+  const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
+  const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
+  const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
+  const portraitCommits = portraitResults.filter((r) => r.page === "commits");
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
+    [colorSchemeHints.colorScheme === "dark light" && colorSchemeHints.supportedColorSchemes === "dark light", `app: declares supported color schemes for mobile browsers (${JSON.stringify(colorSchemeHints)})`],
+    [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],
+    [headerRefresh.hasButton === true && headerRefresh.label === "Refresh data", `app: header exposes a touch refresh button (${JSON.stringify(headerRefresh)})`],
+    [headerRefresh.hasIdleAppIcon === true && headerRefresh.idleIconTag === "svg" && headerRefresh.idleIconViewBox === "0 0 1024 1024", `app: header refresh idles as the app SVG mark (${JSON.stringify(headerRefresh)})`],
+    [headerRefresh.hasBusyRefreshGlyph === true && headerRefresh.restoredAppIcon === true, `app: header refresh shows glyph while loading then restores app icon (${JSON.stringify(headerRefresh)})`],
+    [headerRefresh.clicked === true && headerRefresh.requestsAfter > headerRefresh.requestsBefore && headerRefresh.hashAfter === headerRefresh.hashBefore, `app: header refresh reloads data in place (${JSON.stringify(headerRefresh)})`],
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
     [has(boardHtml, "board-7"), "board: 7-column board rendered"],
@@ -1150,6 +1488,24 @@ try {
     [graphFacetCarry.hash.startsWith("#/graph") && /[?&]ikind=/.test(graphFacetCarry.hash || "") && graphFacetCarry.chipOn === true && graphFacetCarry.chipText === boardFacetInitial.value, `board: the shared item lens carries across the tab hop to graph (${graphFacetCarry.hash})`],
     [boardReviewInitial.hasGroup === true && (boardReviewInitial.chips || []).includes("unresolved") && (boardReviewInitial.chips || []).includes("has threads") && boardReviewInitial.anyOn === false && boardReviewInitial.hashHasIreview === false, `board: review-thread lens renders its chips, none active on a fresh board (${(boardReviewInitial.chips || []).join(", ")})`],
     [boardReviewOn.chipOn === true && boardReviewOn.chipText === "unresolved" && /[?&]ireview=unresolved/.test(boardReviewOn.hash || ""), `board: the 'unresolved' review chip lights up and writes ireview to the route (${boardReviewOn.hash})`],
+    [portraitMissing.length === 0, `portrait: all page roots render at phone/tablet presets (${portraitMissing.map((r) => `${r.preset}:${r.page}`).join(", ") || "ok"})`],
+    [portraitOverflow.length === 0, `portrait: app shell avoids page-level horizontal overflow (${portraitOverflow.map((r) => `${r.preset}:${r.page}+${r.overflow}px`).join(", ") || "ok"})`],
+    [phoneBoard.boardSelectorVisible === true && phoneBoard.visibleBoardColumns === 1, `portrait: phone board uses one selected lane (${phoneBoard.visibleBoardColumns || 0} visible, selector=${phoneBoard.boardSelectorVisible})`],
+    [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
+    [portraitGraphs.every((r) => r.graphStacked === true), "portrait: graph stacks list and canvas"],
+    [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
+    [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
+    [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
+    [phoneFilterPages.every((r) => r.fileDisclosureVisible === true && r.fileInputCollapsed === true), `portrait: phone local file loader is collapsed (${phoneFilterPages.map((r) => `${r.page}:disclosure=${r.fileDisclosureVisible},inputCollapsed=${r.fileInputCollapsed}`).join("; ")})`],
+    [phoneFilterPages.every((r) => r.fileDisclosureSingleLine === true), `portrait: phone local file disclosure stays single-line (${phoneFilterPages.map((r) => `${r.page}:singleLine=${r.fileDisclosureSingleLine}`).join("; ")})`],
+    [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32), `portrait: phone source health strip stays compact (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight}`).join("; ")})`],
+    [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
+    [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
+    [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /\b1\b/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
+    [phoneActivity.activityHeatmapAboveFeed === true && phoneActivity.activityListHeight > 0 && phoneActivity.activityListHeight <= Math.round(phoneActivity.viewportHeight * 0.55), `portrait: phone activity puts rhythm before a shorter feed (${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px)`],
+    [phoneActivity.activityHeatmapScrolledToLatest === true, "portrait: phone activity heatmap opens scrolled to the latest dates"],
+    [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
+    [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],
@@ -1318,6 +1674,8 @@ try {
     // settings: source hide toggle, the read-only source color swatch, and the
     // per-repo color picker (the new display controls)
     [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
+    [has(settingsHtml, "Theme") && themeBefore.found === true && themeBefore.before === "night-owl" && themeBefore.options.includes("night-owl") && themeBefore.options.includes("paper"), `settings: theme selector defaults to Night Owl (${JSON.stringify(themeBefore)})`],
+    [themeAfter.root === "paper" && themeAfter.stored === "paper" && themeAfter.bg === "#f4f3ed", `settings: Paper theme applies and persists (${JSON.stringify(themeAfter)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],

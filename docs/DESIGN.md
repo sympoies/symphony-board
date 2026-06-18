@@ -366,6 +366,19 @@ The UI is a read-only consumer in `packages/ui`. It imports contract types,
 fetches `./contract.json`, and never reaches into `src/db`, `src/sources`, the
 provider APIs, or the configured store.
 
+The same UI is packaged by two thin-client shells:
+
+- `packages/desktop`: macOS Tauri shell. It keeps the existing local Docker
+  default server URL (`http://localhost:8080/`) for same-machine use.
+- `packages/android`: Android Tauri shell. It has no local data store, provider
+  tokens, sync daemon, or backend sidecar, and it does not default to localhost;
+  a build-time `VITE_SYMPHONY_BOARD_SERVER_URL` or Settings -> Server supplies
+  the hosted URL.
+
+Both shells use the Tauri HTTP plugin only as a client-side transport bridge for
+HTTP(S) contract/API requests and the opener plugin for provider links. They do
+not alter the provider-read-only boundary.
+
 Pages:
 
 - **Board**: 7 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
@@ -446,6 +459,13 @@ and `web`. Its config template carries `db_url_env: "SYMPHONY_DB_URL"`; compose
 sets that URL to the internal Postgres service by default. The web and Postgres
 ports are loopback-only and separate from the default stack, so both deployments
 can run on the same host for validation.
+
+For Android thin-client use, keep those loopback bindings as the baseline and
+publish only the web surface into the tailnet. The preferred operator shape is
+Tailscale Serve on the Ubuntu host proxying compose-pg's loopback web port
+(`tailscale serve --bg 18080`). If Serve is unavailable, bind only the web port
+to the host's Tailscale IP with an operator-local compose override. Never expose
+Postgres, provider tokens, or config files to Android.
 
 The daemon writes `data/contract.json` inside its deployment's data volume. The
 API sidecar mounts config read-only, opens the configured store read-only

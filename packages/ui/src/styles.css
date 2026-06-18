@@ -1,4 +1,5 @@
-:root {
+:root,
+:root[data-theme="night-owl"] {
   /* === Night Owl theme ===
      Every colour the UI uses lives in this block; the rules below derive their
      tints, fills and borders from these tokens via color-mix(), so a palette
@@ -25,6 +26,10 @@
      SHA and branch chips so they read as one chip family */
   --chip-bg: rgba(139, 164, 164, 0.08);
   --chip-border: rgba(139, 164, 164, 0.24);
+  --hover-soft: rgba(255, 255, 255, 0.04);
+  --hover-strong: rgba(255, 255, 255, 0.06);
+  --shadow-popover: 0 16px 32px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 6px 18px rgba(1, 22, 39, 0.6);
 
   /* semantic hues */
   --open: #addb67;       /* green  — open / success                       */
@@ -34,6 +39,10 @@
   --declared: #ffcb6b;   /* gold   — in flight / pending                  */
   --broken: #f78c6c;     /* salmon — abandoned / error                    */
   --warn: #ffcb6b;       /* gold   — partial-source banner                */
+  --graph-grid: #1d3b53;
+  --graph-mention: #8aa0b6;
+  --brand-mark-bg: #030b22;
+  --brand-mark-bars: #24dae8;
 
   /* scroll surfaces */
   --scrollbar-size: 8px;
@@ -44,6 +53,54 @@
   --scrollbar-thumb-border: var(--scrollbar-track);
 
   font-synthesis: none;
+  color-scheme: dark;
+}
+
+:root[data-theme="paper"] {
+  /* === Paper theme ===
+     Device-local light palette for e-ink / e-paper readers: simple surfaces,
+     strong text contrast, restrained colour, and minimal shadow reliance. */
+
+  --bg: #f4f3ed;
+  --panel: #ffffff;
+  --panel-2: #ecefe8;
+  --line: #c7c9bf;
+
+  --text: #1f2520;
+  --muted: #5d645c;
+
+  --accent: #2457a7;
+  --accent-fg: #ffffff;
+  --link: #0c655b;
+  --iid: #73520f;
+
+  --chip-bg: rgba(31, 37, 32, 0.06);
+  --chip-border: rgba(31, 37, 32, 0.22);
+  --hover-soft: rgba(31, 37, 32, 0.06);
+  --hover-strong: rgba(31, 37, 32, 0.09);
+  --shadow-popover: 0 8px 18px rgba(31, 37, 32, 0.18);
+  --shadow-float: 0 4px 12px rgba(31, 37, 32, 0.22);
+
+  --open: #2d6c3f;
+  --fulfilled: #2d6c3f;
+  --closed: #5c4b86;
+  --merged: #49366f;
+  --declared: #855b00;
+  --broken: #a43c2e;
+  --warn: #855b00;
+  --graph-grid: #d6d9cf;
+  --graph-mention: #596b79;
+  --brand-mark-bg: #f8f8f3;
+  --brand-mark-bars: #1f2520;
+
+  --scrollbar-track: color-mix(in srgb, var(--bg) 84%, var(--panel));
+  --scrollbar-thumb: color-mix(in srgb, var(--line) 72%, var(--muted));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 34%, var(--line));
+  --scrollbar-thumb-active: color-mix(in srgb, var(--link) 40%, var(--line));
+  --scrollbar-thumb-border: var(--scrollbar-track);
+
+  font-synthesis: none;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -59,54 +116,107 @@ body {
   font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap) {
+/* Android edge-to-edge (targetSdk >= 35) makes the WebView fill the screen and
+   the system bars transparent, so page content scrolling past the top/bottom
+   padding would otherwise show through behind the status / navigation bars.
+   These fixed scrims paint the bar regions with the app background (matching the
+   page, theme-aware) so scrolled content stays hidden behind opaque bars. Heights
+   come from the safe-area bridge; they resolve to 0 in the browser and on desktop
+   (variable unset), so the scrims are invisible no-ops there. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  z-index: 60;
+  pointer-events: none;
+}
+body::before {
+  top: 0;
+  height: var(--android-safe-area-top, 0px);
+}
+body::after {
+  bottom: 0;
+  height: var(--android-safe-area-bottom, 0px);
+}
+
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-track {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-track-piece {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece {
   background: var(--scrollbar-track);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-thumb {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border: 2px solid var(--scrollbar-thumb-border);
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-thumb:hover {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-thumb:active {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap)::-webkit-scrollbar-corner {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
-:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap) {
+:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
   --scrollbar-track: color-mix(in srgb, var(--panel) 80%, var(--bg));
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
 
-.app { max-width: 1200px; margin: 0 auto; padding: 16px; }
-/* full-bleed page (the primary 7-column board), GitHub-Projects style */
-.app-wide { max-width: none; padding: 16px 20px; }
+/* The single app container, always rendered as `app app-wide` (full-bleed —
+   the primary 7-column board, GitHub-Projects style). Top/bottom padding folds
+   in the Android system-bar safe-area insets so content clears the status / nav
+   bars on edge-to-edge devices; the insets resolve to 0 in the browser and on
+   desktop. The narrower mobile padding is set in the @media block below. */
+.app-wide {
+  max-width: none;
+  margin: 0 auto;
+  padding:
+    calc(16px + var(--android-safe-area-top, 0px))
+    calc(20px + var(--android-safe-area-right, 0px))
+    calc(16px + var(--android-safe-area-bottom, 0px))
+    calc(20px + var(--android-safe-area-left, 0px));
+}
 
 /* page tabs (Board / Graph) */
-.page-tabs { display: flex; gap: 4px; margin: 12px 0 4px; border-bottom: 1px solid var(--line); }
+/* Primary nav is pinned to the top so it stays reachable while scrolling (web +
+   Android); the brand/source header above it scrolls away. On Android it sticks
+   just below the status bar via the safe-area inset (0 elsewhere), and the
+   opaque background keeps scrolled content hidden behind it. The top gap is
+   padding rather than margin so the sticky box has no outer margin that would
+   leave a content sliver above it when pinned. */
+.page-tabs {
+  position: sticky;
+  top: var(--android-safe-area-top, 0px);
+  z-index: 40;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding-top: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
 .tab { padding: 6px 12px; color: var(--muted); border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
 .tab:hover { color: var(--text); text-decoration: none; }
 .tab-on { color: var(--text); border-bottom-color: var(--accent); }
@@ -129,7 +239,66 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start;
   gap: 12px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
+.brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; min-width: 0; }
+.brand-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.brand-main h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.brand-refresh {
+  flex: none;
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.brand-refresh:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.brand-refresh:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.brand-refresh svg {
+  width: 22px;
+  height: 22px;
+}
+.brand-refresh .brand-refresh-glyph {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-refresh .brand-refresh-app-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
+}
+.brand-refresh .app-mark-bg {
+  fill: var(--brand-mark-bg);
+}
+.brand-refresh .app-mark-bars {
+  fill: var(--brand-mark-bars);
+}
+.brand-refresh.refreshing .brand-refresh-glyph {
+  animation: sync-spin 0.8s linear infinite;
+}
 /* The right cluster: chips + Sync on one row (fixed gap), the sync status on its
    own row below. Keeping the status off the chips/button row means its text width
    never changes the gap between the chips and the Sync button. */
@@ -165,7 +334,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 @keyframes sync-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .sync-running::before { display: none; }
+  .brand-refresh.refreshing .brand-refresh-glyph { animation: none; }
 }
+html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animation: none; }
 .sync-status { font-size: 12px; max-width: 360px; }
 .header-aside .sync-status { text-align: right; }
 .sync-status.sync-error { color: var(--warn); }
@@ -194,7 +365,34 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 }
 .toggle:hover { border-color: var(--accent); }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-.file-load { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.filter-disclosure { display: none; }
+.filter-groups { display: contents; }
+.file-load {
+  color: var(--muted);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.file-load-summary {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  list-style: none;
+  min-height: 30px;
+  white-space: nowrap;
+}
+.file-load-summary::-webkit-details-marker { display: none; }
+.file-load-summary::after {
+  content: "…";
+  margin-left: 2px;
+}
+.file-load[open] .file-load-summary::after { content: ""; }
+.file-load-picker {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.file-load:not([open]) input[type="file"] { display: none; }
 /* The bare control box plus its browser-rendered "Choose File" button: the box
    is styled directly, the button only through the ::file-selector-button
    pseudo-element (else it keeps the native light chrome). Shaped like .toggle. */
@@ -371,6 +569,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
    height via the same fixed .col height + internal scroll. Flex (not grid) so a single
    column can collapse to a slim fixed-width rail while the rest keep flexing. */
 .board-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 8px 0; }
+.board-mobile-selector { display: none; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.board-mobile-selector .toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; }
 .board-7 {
   display: flex;
   gap: 12px;
@@ -424,7 +624,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   cursor: pointer;
   border-radius: 10px;
 }
-.col-rail:hover { background: rgba(255, 255, 255, 0.04); }
+.col-rail:hover { background: var(--hover-soft); }
 .col-rail-count { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .col-rail-label {
   writing-mode: vertical-rl;
@@ -471,7 +671,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   padding: 0 2px;
   border-radius: 4px;
 }
-.col-collapse-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.col-collapse-btn:hover { color: var(--text); background: var(--hover-strong); }
 /* the column board uses one card per row, so let cards fill the column width */
 .board-7 .card { width: 100%; }
 
@@ -527,7 +727,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-popover);
 }
 .date-picker-head {
   display: flex;
@@ -1140,7 +1340,7 @@ a.rf-node-title:hover { color: var(--accent); }
   margin: 0; padding: 4px; list-style: none;
   max-height: 320px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-popover);
 }
 .repo-combobox-option {
   display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
@@ -1192,8 +1392,8 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .activity-chips span {
   flex: none; max-width: 280px; overflow: hidden; text-overflow: ellipsis;
-  border: 1px solid rgba(139, 164, 164, 0.24); border-radius: 999px;
-  padding: 1px 7px; background: rgba(139, 164, 164, 0.08);
+  border: 1px solid var(--chip-border); border-radius: 999px;
+  padding: 1px 7px; background: var(--chip-bg);
 }
 .activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 3px; }
 
@@ -1285,9 +1485,9 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .commit-body-panel {
   overflow: visible;
-  border: 1px solid rgba(139, 164, 164, 0.24);
+  border: 1px solid var(--chip-border);
   border-radius: 6px;
-  background: rgba(139, 164, 164, 0.08);
+  background: var(--chip-bg);
   padding: 8px 10px;
 }
 .commit-body-panel pre {
@@ -1308,6 +1508,13 @@ a.rf-node-title:hover { color: var(--accent); }
 .commit-ref-chip {
   flex: none;
   max-width: 150px;
+  /* Stay a single ellipsized line even where the meta row allows wrapping
+     (narrow/portrait sets `white-space: normal`). A long branch name wrapping to
+     two lines would push the row body past the fixed virtualized row height and
+     let the next row overlap the SHA/actions line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid var(--chip-border);
   border-radius: 999px;
   padding: 1px 7px;
@@ -1364,7 +1571,7 @@ a.rf-node-title:hover { color: var(--accent); }
   font: 600 12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 6px 18px rgba(1, 22, 39, 0.6);
+  box-shadow: var(--shadow-float);
   transform: translateX(-50%);
   animation: commit-copy-pop 1200ms ease forwards;
 }
@@ -1388,7 +1595,6 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (max-width: 760px) {
-  .app-wide { padding: 14px 12px; overflow-x: hidden; }
   .page-tabs {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1404,14 +1610,40 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .brand .muted, .activity-head .muted { overflow-wrap: anywhere; }
   .activity-head .muted { flex-basis: 100%; }
-  .time-range-controls { align-items: flex-start; gap: 8px; }
-  .time-range-controls .date-filter {
-    flex: 1 1 calc(50% - 8px);
-    min-width: 0;
+  .controls { align-items: stretch; gap: 8px; }
+  .controls .search { flex-basis: 100%; width: 100%; box-sizing: border-box; }
+  .filter-disclosure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+  }
+  .filter-groups {
+    display: none;
+    width: 100%;
+  }
+  .filter-groups[data-open="true"] {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 3px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .filter-groups .toggle-group {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .filter-groups .toggle-label { flex-basis: 100%; }
+  .time-range-controls { align-items: flex-start; gap: 8px; }
+  .time-range-controls > .muted:first-child { flex-basis: 100%; }
+  .time-range-controls .date-filter {
+    flex: 1 1 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
   }
   .time-range-controls .date-input-wrap { min-width: 0; width: 100%; margin-left: 0; }
   .time-range-controls .date-filter input { width: 100%; }
@@ -1423,6 +1655,22 @@ a.rf-node-title:hover { color: var(--accent); }
     gap: 5px;
   }
   .time-range-controls .toggle-label { flex-basis: 100%; }
+  .activity-layout { gap: 12px; }
+  .activity-heatmap { grid-row: 1; }
+  .activity-layout > .activity-list {
+    grid-row: 2;
+    max-height: 45vh;
+  }
+  .activity-chips {
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
+  }
+  .activity-chips span {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .commits-toolbar { align-items: stretch; flex-direction: column; }
   .commits-filter { flex: none; max-width: none; }
   .commits-filter-hint { align-self: flex-start; }
@@ -1508,21 +1756,28 @@ a.rf-node-title:hover { color: var(--accent); }
 .repo-table td:nth-child(11) { text-align: center; }
 /* Quality coverage pills: fixed to active + one character of breathing room on
    each side; longer rare states still fit, just with less padding. */
-.repo-table td:nth-child(11) .badge {
+.repo-table td:nth-child(12) .badge {
   box-sizing: border-box;
   inline-size: 8ch;
   padding-inline: 0;
   text-align: center;
 }
-.repo-table th:nth-child(12),
-.repo-table td:nth-child(12) { min-width: 240px; text-align: left; }
+.repo-table th:nth-child(13),
+.repo-table td:nth-child(13) { min-width: 240px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
 .repo-name-cell { overflow: hidden; }
+.repo-name-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .repo-name-main {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
   font-weight: 600;
 }
 .repo-name-main span {
@@ -1550,6 +1805,7 @@ a.rf-node-title:hover { color: var(--accent); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.repo-mobile-quality { display: none; }
 .repo-trend {
   height: 34px;
   display: grid;
@@ -1593,6 +1849,7 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--accent);
   text-decoration: underline;
 }
+.repo-actors-cell:empty { display: none; }
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }
@@ -1746,3 +2003,372 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .debug-log .log-warn { color: var(--warn); }
 .debug-log .log-error { color: var(--broken); }
+
+@media (max-width: 1180px) {
+  .board-7 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+  .col {
+    min-width: 0;
+    max-width: none;
+    height: min(68vh, 760px);
+  }
+  .col-collapsed {
+    width: auto;
+    min-width: 0;
+    height: auto;
+  }
+  .col-collapsed .col-rail {
+    flex-direction: row;
+    justify-content: flex-start;
+    height: 48px;
+    padding: 0 12px;
+  }
+  .col-rail-label {
+    writing-mode: horizontal-tb;
+    white-space: normal;
+  }
+
+  .graph-body { flex-direction: column; }
+  .graph-list {
+    width: 100%;
+    height: min(42vh, 420px);
+  }
+  .graph-canvas {
+    height: min(54vh, 620px);
+  }
+  .graph-legend > span:last-child { flex-basis: 100%; }
+
+  .repo-table-wrap {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+  }
+  .repo-table,
+  .repo-table tbody,
+  .repo-table tr,
+  .repo-table td {
+    display: block;
+  }
+  .repo-table {
+    min-width: 0;
+    width: 100%;
+    border-collapse: separate;
+  }
+  .repo-table colgroup,
+  .repo-table thead {
+    display: none;
+  }
+  .repo-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+  .repo-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .repo-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 8px 10px;
+    text-align: right;
+    white-space: normal;
+    border-bottom: 1px solid var(--line);
+  }
+  .repo-table tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+  .repo-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .repo-table td:first-child,
+  .repo-table td[data-label="Trend"],
+  .repo-table td[data-label="Actors"] {
+    grid-column: 1 / -1;
+  }
+  .repo-table td:first-child {
+    display: block;
+    text-align: left;
+  }
+  .repo-table td:first-child::before { display: none; }
+  .repo-table td[data-label="Trend"] .repo-trend {
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
+  .repo-table td[data-label="Actors"] {
+    justify-content: flex-start;
+  }
+  .repo-actors {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-wide {
+    /* Narrower mobile padding, still folding in the Android safe-area insets so
+       the header clears the status bar on edge-to-edge devices. */
+    padding:
+      calc(12px + var(--android-safe-area-top, 0px))
+      calc(12px + var(--android-safe-area-right, 0px))
+      calc(12px + var(--android-safe-area-bottom, 0px))
+      calc(12px + var(--android-safe-area-left, 0px));
+    /* `clip`, not `hidden`: hidden would force overflow-y to `auto`, making
+       .app-wide a scroll container and silently breaking the sticky .page-tabs.
+       clip stops horizontal overflow without establishing a scroll container. */
+    overflow-x: clip;
+  }
+  .app-header {
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+  .header-aside {
+    width: 100%;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .header-aside-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .sources {
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 5px;
+    overflow: hidden;
+  }
+  .source-chip {
+    box-sizing: border-box;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 28px;
+    gap: 4px;
+    padding: 2px 5px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .source-chip .badge {
+    flex: none;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+  .source-chip .source-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-chip > .muted {
+    display: none;
+  }
+  .sync-button {
+    min-height: 30px;
+    padding: 4px 10px;
+  }
+  .header-aside .sync-status {
+    max-width: none;
+    text-align: right;
+  }
+  .board-mobile-selector { display: flex; }
+  .board-7 {
+    display: block;
+    overflow-x: visible;
+  }
+  .board-7 .col {
+    display: none;
+    height: auto;
+    min-height: 0;
+  }
+  .board-7 .col-mobile-active {
+    display: flex;
+  }
+  .board-7 .col-collapsed.col-mobile-active {
+    min-height: 96px;
+  }
+  .col-head { position: static; }
+  .col-cards {
+    max-height: none;
+    overflow: visible;
+  }
+  .toggle,
+  .link-btn,
+  .settings-tab,
+  .date-picker-button {
+    min-height: 34px;
+  }
+  .graph-list {
+    height: min(48vh, 420px);
+  }
+  .graph-canvas {
+    height: min(50vh, 460px);
+  }
+  .repo-table tr {
+    position: relative;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+    overflow: visible;
+  }
+  .repo-table td {
+    border-bottom: 0;
+    padding: 0;
+  }
+  .repo-table tbody tr:last-child td { border-bottom: 0; }
+  .repo-table td:first-child {
+    grid-column: 1 / -1;
+    order: 1;
+  }
+  .repo-mobile-quality {
+    display: inline-flex;
+    flex: none;
+  }
+  .repo-table .repo-quality-cell { display: none; }
+  .repo-table .repo-metric-primary {
+    grid-column: span 3;
+    order: 2;
+    display: flex;
+    min-height: 46px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+  }
+  .repo-table .repo-metric-primary::before {
+    line-height: 1;
+    font-size: 10px;
+  }
+  .repo-table .repo-metric-primary .repo-metric-link { font-size: 16px; }
+  .repo-trend-cell {
+    grid-column: 1 / -1;
+    order: 3;
+    display: block;
+    padding: 0;
+  }
+  .repo-trend-cell::before { display: none; }
+  .repo-trend-cell .repo-trend {
+    height: 40px;
+    min-width: 0;
+    gap: 3px;
+  }
+  .repo-trend-bar { min-width: 3px; border-radius: 4px 4px 0 0; }
+  .repo-table .repo-metric-secondary {
+    grid-column: span 4;
+    order: 4;
+    display: flex;
+    box-sizing: border-box;
+    justify-self: center;
+    width: max-content;
+    min-width: 84px;
+    max-width: 100%;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 2px 10px;
+    border: 1px solid var(--chip-border);
+    border-radius: 999px;
+    background: var(--chip-bg);
+    font-size: 12px;
+    text-align: center;
+  }
+  .repo-table .repo-metric-secondary::before {
+    font-size: 10px;
+    line-height: 1;
+  }
+  .repo-actors-cell {
+    grid-column: 1 / -1;
+    order: 5;
+    display: flex;
+    min-height: 18px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .repo-actors-cell::before { display: none; }
+  .repo-actors {
+    max-height: 22px;
+    overflow: hidden;
+  }
+  .repo-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settings-page {
+    max-width: none;
+  }
+  .settings-pref {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-bulk,
+  .settings-source-actions,
+  .server-form,
+  .config-save,
+  .debug-head,
+  .debug-foot,
+  .debug-log-controls {
+    flex-wrap: wrap;
+  }
+  .server-form {
+    align-items: stretch;
+    width: 100%;
+  }
+  .server-url-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .server-url-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+  }
+  .server-url-status,
+  .settings-repo-name,
+  .config-input,
+  .debug-run-error {
+    overflow-wrap: anywhere;
+  }
+  .settings-source-actions {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .settings-repos li {
+    align-items: flex-start;
+  }
+  .settings-repo {
+    min-width: 0;
+  }
+  .config-source-head .config-display-name,
+  .config-token-input,
+  .config-add-project .config-input,
+  .config-add-source .config-input {
+    max-width: none;
+  }
+  .debug-card {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

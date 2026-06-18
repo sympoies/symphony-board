@@ -6,6 +6,7 @@ import {
   parseContract,
   fetchContract,
   resolveEndpoint,
+  endpointRequiresServerUrl,
   fetchSyncControl,
   fetchCurrentSyncRun,
   startSyncRun,
@@ -44,6 +45,19 @@ test("resolveEndpoint keeps web defaults relative and joins desktop server URLs"
     "https://board.example.com/app/api/range?from=2026-06-01&to=2026-06-09",
   );
   assert.equal(resolveEndpoint("https://x.example/contract.json", "http://localhost:8080/"), "https://x.example/contract.json");
+});
+
+test("Android client refuses the bundled relative contract until a server URL is configured", async () => {
+  assert.equal(endpointRequiresServerUrl("./contract.json", null, "android"), true);
+  assert.equal(endpointRequiresServerUrl("./api/range?from=2026-06-01&to=2026-06-09", null, "android"), true);
+  assert.equal(endpointRequiresServerUrl("./contract.json", "https://board.example.com/", "android"), false);
+  assert.equal(endpointRequiresServerUrl("https://board.example.com/contract.json", null, "android"), false);
+  assert.equal(endpointRequiresServerUrl("./contract.json", null, null), false);
+
+  await assert.rejects(
+    () => fetchContract("./contract.json", null, "android"),
+    /Android client requires a server URL/,
+  );
 });
 
 test("fetchContract parses the JSON on a 2xx and throws with the status on a non-ok response", async () => {

@@ -274,34 +274,39 @@ export function RepoAnalyticsPage({
                     className={accentColor ? "repo-row-accent" : ""}
                     style={{ "--repo-color": accentColor ?? undefined } as CSSProperties}
                   >
-                    <td className="repo-name-cell">
-                      <span className="repo-name-main">
-                        <SourceIcon kind={sourceKind.get(metric.source_id)} />
-                        {metric.repo_url ? (
-                          <a className="repo-provider-link" href={metric.repo_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${metric.project_path ?? "repo"} on provider`}>
-                            {metric.project_path ?? "(unknown repo)"}
-                          </a>
-                        ) : (
-                          <span>{metric.project_path ?? "(unknown repo)"}</span>
-                        )}
+                    <td className="repo-name-cell" data-label="Repo">
+                      <span className="repo-name-head">
+                        <span className="repo-name-main">
+                          <SourceIcon kind={sourceKind.get(metric.source_id)} />
+                          {metric.repo_url ? (
+                            <a className="repo-provider-link" href={metric.repo_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${metric.project_path ?? "repo"} on provider`}>
+                              {metric.project_path ?? "(unknown repo)"}
+                            </a>
+                          ) : (
+                            <span>{metric.project_path ?? "(unknown repo)"}</span>
+                          )}
+                        </span>
+                        <span className="repo-mobile-quality">
+                          <QualityBadge metric={metric} />
+                        </span>
                       </span>
                       <span className="repo-name-meta" title={`${metric.source_id}${activeLabel}`}>
                         {sourceDisplayName(metric.source_id)}
                         {activeLabel}
                       </span>
                     </td>
-                    <td><TrendBars metric={metric} /></td>
-                    <td><MetricValue value={displayScore(activityScore(metric.totals))} href={activityHref(metric, range, {}, lens)} label={`Open activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.commits} href={commitsHref(metric, range, lens)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" }, lens)} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" }, lens)} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" }, lens)} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" }, lens)} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" }, lens)} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" }, lens)} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td title="open review threads (resolvable, still unresolved)"><MetricValue value={metric.totals.unresolved_review_threads ?? 0} href={unresolvedThreadsHref(metric, range)} label={`Open the board filtered to unresolved review threads for ${metric.project_path ?? "repo"}`} /></td>
-                    <td><QualityBadge metric={metric} /></td>
-                    <td><TopActors metric={metric} /></td>
+                    <td className="repo-trend-cell" data-label="Trend"><TrendBars metric={metric} /></td>
+                    <td className="repo-metric-cell repo-metric-primary" data-label="Activity"><MetricValue value={displayScore(activityScore(metric.totals))} href={activityHref(metric, range, {}, lens)} label={`Open activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-primary" data-label="Commits"><MetricValue value={metric.totals.commits} href={commitsHref(metric, range, lens)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-secondary" data-label="Issues"><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" }, lens)} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-primary" data-label="PR/MRs"><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" }, lens)} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-secondary" data-label="Total"><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" }, lens)} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-secondary" data-label="Closed"><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" }, lens)} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-secondary" data-label="Merged"><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" }, lens)} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-secondary" data-label="Reviews" title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" }, lens)} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-primary" data-label="Threads" title="open review threads (resolvable, still unresolved)"><MetricValue value={metric.totals.unresolved_review_threads ?? 0} href={unresolvedThreadsHref(metric, range)} label={`Open the board filtered to unresolved review threads for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-quality-cell" data-label="Quality"><QualityBadge metric={metric} /></td>
+                    <td className="repo-actors-cell" data-label="Actors"><TopActors metric={metric} /></td>
                   </tr>
                 );
               })}

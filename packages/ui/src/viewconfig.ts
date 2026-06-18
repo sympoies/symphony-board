@@ -4,6 +4,7 @@
 //   • hidden sources — set of HIDDEN source_ids (an independent layer)
 //   • color overrides — repoKey -> hex, this viewer's per-repo highlight override
 //   • default range preset — one of the shared quick preset ids
+//   • theme — device-local palette choice (Night Owl by default, Paper for e-ink)
 //   • collapsed columns — board column kinds the viewer manually collapsed
 // We store what is HIDDEN (not what is visible) so a repo/source that first
 // appears in a later sync defaults to visible — "everything visible" stays the
@@ -20,12 +21,20 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 // JSON-string tuple, a valid object key); a repo absent here inherits from config.
 const COLORS_KEY = "symphony-board:repo-colors";
 const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
+const THEME_KEY = "symphony-board:theme";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
 // auto-collapse without being persisted (they re-open when an item lands), so
 // this set holds only explicit collapses of non-empty columns.
 const COLLAPSED_COLUMNS_KEY = "symphony-board:collapsed-columns";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
+export const ANDROID_CLIENT_KIND = "android";
+export const VIEW_THEMES = [
+  { id: "night-owl", label: "Night Owl" },
+  { id: "paper", label: "Paper" },
+] as const;
+export type ViewTheme = (typeof VIEW_THEMES)[number]["id"];
+export const DEFAULT_VIEW_THEME: ViewTheme = "night-owl";
 
 function loadStringSet(key: string): Set<string> {
   try {
@@ -97,6 +106,27 @@ export function saveDefaultRangePreset(preset: TimeRangePresetId): void {
   }
 }
 
+export function isViewTheme(value: unknown): value is ViewTheme {
+  return typeof value === "string" && VIEW_THEMES.some((theme) => theme.id === value);
+}
+
+export function loadTheme(): ViewTheme {
+  try {
+    const raw = localStorage.getItem(THEME_KEY);
+    return isViewTheme(raw) ? raw : DEFAULT_VIEW_THEME;
+  } catch {
+    return DEFAULT_VIEW_THEME;
+  }
+}
+
+export function saveTheme(theme: ViewTheme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
 export function normalizeServerBaseUrl(raw: string | null | undefined): string | null {
   const trimmed = raw?.trim() ?? "";
   if (!trimmed) return null;
@@ -117,6 +147,20 @@ function configuredServerBaseUrl(): string | null {
   return normalizeServerBaseUrl(env?.VITE_SYMPHONY_BOARD_SERVER_URL);
 }
 
+export function currentClientKind(): string | null {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  return env?.VITE_SYMPHONY_BOARD_CLIENT?.trim().toLowerCase() || null;
+}
+
+export function requiresConfiguredServerBaseUrl(clientKind: string | null): boolean {
+  return clientKind === ANDROID_CLIENT_KIND;
+}
+
+export function defaultServerBaseUrlForRuntime(clientKind: string | null, tauriRuntime: boolean): string | null {
+  if (!tauriRuntime) return null;
+  return requiresConfiguredServerBaseUrl(clientKind) ? null : DESKTOP_DEFAULT_SERVER_BASE_URL;
+}
+
 export function loadServerBaseUrl(): string | null {
   try {
     const stored = normalizeServerBaseUrl(localStorage.getItem(SERVER_BASE_URL_KEY));
@@ -124,7 +168,7 @@ export function loadServerBaseUrl(): string | null {
   } catch {
     /* storage unavailable — fall through to configured/default host */
   }
-  return configuredServerBaseUrl() ?? (isTauriRuntime() ? DESKTOP_DEFAULT_SERVER_BASE_URL : null);
+  return configuredServerBaseUrl() ?? defaultServerBaseUrlForRuntime(currentClientKind(), isTauriRuntime());
 }
 
 export function saveServerBaseUrl(baseUrl: string | null): void {

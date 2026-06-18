@@ -6,7 +6,7 @@
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo } from "./model.ts";
 import { appFetch } from "./runtime.ts";
-import { loadServerBaseUrl } from "./viewconfig.ts";
+import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl } from "./viewconfig.ts";
 
 // The major this UI understands. The contract versions independently; if a
 // future emit bumps the MAJOR, the UI should branch (or warn) rather than
@@ -24,6 +24,10 @@ export function resolveEndpoint(url: string, serverBaseUrl: string | null = load
   return new URL(path, serverBaseUrl).toString();
 }
 
+export function endpointRequiresServerUrl(url: string, serverBaseUrl: string | null, clientKind: string | null = currentClientKind()): boolean {
+  return !serverBaseUrl && requiresConfiguredServerBaseUrl(clientKind) && !/^[a-z][a-z\d+.-]*:\/\//i.test(url);
+}
+
 async function readJson(res: Response): Promise<unknown> {
   const body = (await res.json()) as unknown;
   return typeof body === "string" ? JSON.parse(body) : body;
@@ -39,7 +43,10 @@ function asContractEnvelope(body: unknown): ContractEnvelope {
 // Fetch the contract emitted alongside the app (the loop daemon writes
 // data/contract.json; deploy it next to index.html). Relative URL so it works
 // under any base path.
-export async function fetchContract(url = "./contract.json", serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ContractEnvelope> {
+export async function fetchContract(url = "./contract.json", serverBaseUrl: string | null = loadServerBaseUrl(), clientKind: string | null = currentClientKind()): Promise<ContractEnvelope> {
+  if (endpointRequiresServerUrl(url, serverBaseUrl, clientKind)) {
+    throw new Error("Android client requires a server URL. Set Settings -> Server to a reachable Symphony Board HTTP(S) surface.");
+  }
   const target = resolveEndpoint(url, serverBaseUrl);
   const res = await appFetch(target, { cache: "no-store" });
   if (!res.ok) throw new Error(`could not load ${target}: HTTP ${res.status}`);

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { AggregateDTO, EdgeDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
 import { ItemCard } from "./ItemCard.tsx";
 import type { ItemRouteFields } from "../nav.ts";
@@ -36,6 +36,7 @@ function Column({
   colorOf,
   relationCounts,
   lens,
+  mobileActive = false,
 }: {
   kind: string;
   label: string;
@@ -48,6 +49,7 @@ function Column({
   colorOf: ColorOf;
   relationCounts: Map<string, RelationCount>;
   lens?: ItemRouteFields;
+  mobileActive?: boolean;
 }) {
   // Collapsed: a slim, full-height rail — dot, count, vertical label — where the
   // whole rail is the expand button. Empty columns arrive here automatically (see
@@ -55,7 +57,7 @@ function Column({
   // signal on screen instead of dropping the column entirely.
   if (collapsed) {
     return (
-      <div className={`col col-${kind} col-collapsed`}>
+      <div className={`col col-${kind} col-collapsed${mobileActive ? " col-mobile-active" : ""}`}>
         <button
           type="button"
           className="col-rail"
@@ -73,7 +75,7 @@ function Column({
   const shown = cap != null ? items.slice(0, cap) : items;
   const hidden = items.length - shown.length;
   return (
-    <div className={`col col-${kind}`}>
+    <div className={`col col-${kind}${mobileActive ? " col-mobile-active" : ""}`}>
       <h3 className="col-head" title={sub}>
         <span className={`dot dot-${kind}`} />
         {label} <span className="count">{items.length}</span>
@@ -151,6 +153,7 @@ export function FullBoard({
   range: TimeRange;
   lens?: ItemRouteFields;
 }) {
+  const [mobileKind, setMobileKind] = useState<string>("open");
   const boardItems = items;
   const contractBoardStats = useMemo(
     () => findContractScopedStats(aggregates, { scope: "boardWindow", since: range.from }),
@@ -163,6 +166,10 @@ export function FullBoard({
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(boardItems);
+  const mobileColumns = [
+    ...STATUS_ORDER.map((kind) => ({ kind, label: STATUS_LABEL[kind], count: statusCols[kind].length })),
+    ...lanes.map(({ lane, items: laneItems }) => ({ kind: `lane-${lane.key}`, label: lane.label, count: laneItems.length })),
+  ];
   return (
     <>
       <div className="board-controls">
@@ -172,6 +179,19 @@ export function FullBoard({
         </span>
       </div>
       <StatsBar scoped={boardStats} />
+      <div className="board-mobile-selector" aria-label="Board lanes">
+        {mobileColumns.map((column) => (
+          <button
+            key={column.kind}
+            type="button"
+            className={`toggle${mobileKind === column.kind ? " toggle-on" : ""}`}
+            onClick={() => setMobileKind(column.kind)}
+          >
+            <span>{column.label}</span>
+            <span className="count">{column.count}</span>
+          </button>
+        ))}
+      </div>
       <section className="board-7">
         {STATUS_ORDER.map((s) => (
           <Column
@@ -187,6 +207,7 @@ export function FullBoard({
             colorOf={colorOf}
             relationCounts={relationCounts}
             lens={lens}
+            mobileActive={mobileKind === s}
           />
         ))}
         {lanes.map(({ lane, items: laneItems }) => {
@@ -205,6 +226,7 @@ export function FullBoard({
               colorOf={colorOf}
               relationCounts={relationCounts}
               lens={lens}
+              mobileActive={mobileKind === laneKind}
             />
           );
         })}

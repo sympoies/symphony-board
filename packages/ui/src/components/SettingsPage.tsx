@@ -14,6 +14,7 @@ import { SourcesEditor } from "./SourcesEditor.tsx";
 import { ServerConnectionForm } from "./ServerConnectionForm.tsx";
 import type { SyncState } from "../useSync.ts";
 import type { ConfigState } from "../useConfig.ts";
+import { VIEW_THEMES, isViewTheme, type ViewTheme } from "../viewconfig.ts";
 
 interface Props {
   sources: SourceDTO[]; // per-source health + configured color, read-only (from the contract)
@@ -29,6 +30,8 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
+  theme: ViewTheme;
+  onTheme: (theme: ViewTheme) => void;
   serverBaseUrl: string | null;
   onServerBaseUrl: (serverBaseUrl: string | null) => void;
   sync?: SyncState; // writer-owned manual sync, when the control surface is available
@@ -65,6 +68,7 @@ function toInputHex(color: string | null): string {
 //     source leaves its per-repo choices remembered);
 //   • give a repo a highlight color, overriding the config repo/source color.
 //   • choose the default shared date range when the URL has no explicit from/to.
+//   • choose the local UI theme for this browser / Android WebView.
 // Repos are grouped by source so each source's sync health sits next to its repos.
 export function SettingsPage({
   sources,
@@ -80,6 +84,8 @@ export function SettingsPage({
   onClearColor,
   defaultRangePreset,
   onDefaultRangePreset,
+  theme,
+  onTheme,
   serverBaseUrl,
   onServerBaseUrl,
   sync,
@@ -118,7 +124,7 @@ export function SettingsPage({
         <div>
           <h2>Display</h2>
           <p className="muted">
-            Choose which repos and sources appear, set the default shared date range, and give a repo a highlight color.
+            Choose which repos and sources appear, set the theme and default shared date range, and give a repo a highlight color.
             These are view-only preferences saved in your browser. The daemon keeps syncing every source.
           </p>
         </div>
@@ -133,6 +139,26 @@ export function SettingsPage({
             Hide all
           </button>
         </div>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Theme</h3>
+          <p className="muted">Saved on this device only. Paper is tuned for e-ink readability.</p>
+        </div>
+        <select
+          className="settings-select"
+          value={theme}
+          onChange={(e) => {
+            if (isViewTheme(e.target.value)) onTheme(e.target.value);
+          }}
+        >
+          {VIEW_THEMES.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="settings-pref">
