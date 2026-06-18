@@ -444,6 +444,15 @@ try {
   };
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  // The stat summary collapses behind a disclosure at narrow widths (incl. the
+  // headless default window), so expand it before reading its text.
+  const statsTextOf = async () => {
+    await send("Runtime.evaluate", {
+      expression: "(() => { const d = document.querySelector('.stats-disclosure'); if (d && getComputedStyle(d).display !== 'none' && d.getAttribute('aria-expanded') !== 'true') { d.click(); return 'expanded'; } return 'already-visible'; })()",
+    });
+    await sleep(60);
+    return textOf(".stats");
+  };
   const contractRequests = async () =>
     (await send("Runtime.evaluate", {
       expression: "fetch('/__smoke/contract-count').then((res) => res.json()).then((body) => body.contractRequests || 0)",
@@ -530,7 +539,7 @@ try {
   // Page 1 — the full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
   const boardRangeButtons = await rangeButtonLabels();
-  const boardInitialStats = await textOf(".stats");
+  const boardInitialStats = await statsTextOf();
   await send("Runtime.evaluate", {
     expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).find((el) => el.textContent?.trim() === 'this week')?.click()",
   });
@@ -546,7 +555,7 @@ try {
   })).result.value || {};
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-10");
   const boardNarrowHtml = await waitHtml("document.querySelector('.board-7 .card') && !document.body.innerText.includes('Loading range')");
-  const boardNarrowStats = await textOf(".stats");
+  const boardNarrowStats = await statsTextOf();
   // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
   // chunk loads without errors).
@@ -562,10 +571,10 @@ try {
   })).result.value ?? "null";
   const graphNodeOverflows = JSON.parse(graphNodeOverflow) ?? [];
   const graphRangeButtons = await rangeButtonLabels();
-  const graphInitialStats = await textOf(".stats");
+  const graphInitialStats = await statsTextOf();
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-10");
   await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
-  const graphNarrowStats = await textOf(".stats");
+  const graphNarrowStats = await statsTextOf();
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-03-01");
   await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
   // Graph side list: capture the (enriched) list cards, then click one to enter
@@ -575,7 +584,7 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   await sleep(400);
   const focusHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
-  const focusStats = await textOf(".stats");
+  const focusStats = await statsTextOf();
   // Re-click the focused (active) card to toggle focus OFF — it returns to the
   // searchable list, the same exit as "← all items". Then re-enter focus so the
   // back-button assertion below still exercises that path.
@@ -1264,6 +1273,9 @@ try {
           const rangeDateFilter = document.querySelector('.time-range-controls .date-filter');
           const commitsFilterDisclosure = document.querySelector('.commits-filter-disclosure');
           const commitsToolbar = document.querySelector('.commits-toolbar');
+          const statsDisclosure = document.querySelector('.stats-disclosure');
+          const statsBody = document.querySelector('.stats-body');
+          const tuckedGraphLegend = document.querySelector('.stats-body .graph-legend');
           const activityHeatmap = document.querySelector('.activity-heatmap');
           const heatmapScroll = activityHeatmap?.querySelector('.hm-calendar-scroll');
           const activityList = document.querySelector('.activity-list');
@@ -1306,6 +1318,11 @@ try {
             rangeFieldsCollapsed: !rangeDateFilter || getComputedStyle(rangeDateFilter).display === 'none',
             commitsFilterDisclosureVisible: !!commitsFilterDisclosure && getComputedStyle(commitsFilterDisclosure).display !== 'none',
             commitsToolbarCollapsed: !commitsToolbar || getComputedStyle(commitsToolbar).display === 'none',
+            // The read-only stat summary collapses behind a 'stats · …' disclosure on
+            // narrow so the data shows first; the graph legend rides inside it.
+            statsDisclosureVisible: !!statsDisclosure && getComputedStyle(statsDisclosure).display !== 'none',
+            statsBodyCollapsed: !!statsBody && getComputedStyle(statsBody).display === 'none',
+            graphLegendTucked: !!tuckedGraphLegend,
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
             activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
@@ -1486,6 +1503,9 @@ try {
   const portraitGraphs = portraitResults.filter((r) => r.page === "graph");
   const portraitRepos = portraitResults.filter((r) => r.page === "repo-analytics");
   const phoneFilterPages = portraitResults.filter((r) => r.preset === "phone-portrait" && !["commits", "settings", "debug"].includes(r.page));
+  // Board + Graph carry the read-only StatsBar; on a phone it collapses by default.
+  const phoneStatsPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["board", "graph"].includes(r.page));
+  const phoneGraph = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "graph") || {};
   const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   // Every content page (not Settings, not the chrome-less Debug page) renders the
@@ -1549,6 +1569,8 @@ try {
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     [phoneRangeCollapsePages.length > 0 && phoneRangeCollapsePages.every((r) => r.rangeDisclosureVisible === true && r.rangeFieldsCollapsed === true), `portrait: phone collapses the date range behind a disclosure on every content page (${phoneRangeCollapsePages.map((r) => `${r.page}:disclosure=${r.rangeDisclosureVisible},collapsed=${r.rangeFieldsCollapsed}`).join("; ")})`],
     [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.filterDisclosureUnified === true), `portrait: phone facet disclosure shares the unified full-width summary chrome (${phoneFilterPages.map((r) => `${r.page}:unified=${r.filterDisclosureUnified}`).join("; ")})`],
+    [phoneStatsPages.length > 0 && phoneStatsPages.every((r) => r.statsDisclosureVisible === true && r.statsBodyCollapsed === true), `portrait: phone collapses the read-only stat summary behind a disclosure by default (${phoneStatsPages.map((r) => `${r.page}:disclosure=${r.statsDisclosureVisible},collapsed=${r.statsBodyCollapsed}`).join("; ")})`],
+    [phoneGraph.graphLegendTucked === true && phoneGraph.statsBodyCollapsed === true, `portrait: phone graph tucks the legend + hint inside the collapsed stats disclosure (tucked=${phoneGraph.graphLegendTucked}, collapsed=${phoneGraph.statsBodyCollapsed})`],
     [phoneCommits.length > 0 && phoneCommits.every((r) => r.commitsFilterDisclosureVisible === true && r.commitsToolbarCollapsed === true), `portrait: phone commits collapses the repo + branch filters behind a disclosure by default (${phoneCommits.map((r) => `disclosure=${r.commitsFilterDisclosureVisible},collapsed=${r.commitsToolbarCollapsed}`).join("; ")})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
