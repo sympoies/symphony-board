@@ -955,11 +955,11 @@ export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 124;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
-// The narrow-viewport breakpoint for the Activity page: below it the feed uses
-// taller rows AND the page swaps its side-by-side feed/overview layout for a
-// segmented single-pane toggle. Shared so the row-height switch and the
-// layout switch can never disagree on where "mobile" begins.
-export const ACTIVITY_MOBILE_QUERY = "(max-width: 760px)";
+// The narrow-viewport breakpoint shared by the pages that swap a side-by-side
+// layout for a segmented single-pane toggle on mobile: the Activity page (feed
+// vs overview, and its taller feed rows) and the Graph page (list vs canvas).
+// Exported once so every consumer agrees on where "mobile" begins.
+export const MOBILE_VIEWPORT_QUERY = "(max-width: 760px)";
 
 export interface ActivityVirtualRange {
   start: number;

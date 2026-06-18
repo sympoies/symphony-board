@@ -931,11 +931,12 @@ a.rf-node-title:hover { color: var(--accent); }
   .activity-layout { grid-template-columns: minmax(0, 880px); }
 }
 
-/* Mobile-only segmented control choosing the single visible Activity pane
-   (Feed / Overview). Only rendered below the breakpoint; styled as a filled
-   segmented track so it reads as a distinct control from the underline page
-   tabs above it. */
-.activity-view-toggle {
+/* Mobile-only segmented control choosing the single visible pane: the Activity
+   page (Feed / Overview) and the Graph page (List / Graph) share this chrome.
+   Only rendered below the breakpoint; styled as a filled segmented track so it
+   reads as a distinct control from the underline page tabs above it. */
+.activity-view-toggle,
+.graph-view-toggle {
   display: flex;
   gap: 2px;
   margin: 0 0 12px;
@@ -945,7 +946,8 @@ a.rf-node-title:hover { color: var(--accent); }
   border: 1px solid var(--line);
   border-radius: 9px;
 }
-.activity-view-tab {
+.activity-view-tab,
+.graph-view-tab {
   flex: 1 1 0;
   appearance: none;
   background: none;
@@ -959,8 +961,10 @@ a.rf-node-title:hover { color: var(--accent); }
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
-.activity-view-tab:hover { color: var(--text); }
-.activity-view-tab-active { background: var(--accent); color: var(--accent-fg); }
+.activity-view-tab:hover,
+.graph-view-tab:hover { color: var(--text); }
+.activity-view-tab-active,
+.graph-view-tab-active { background: var(--accent); color: var(--accent-fg); }
 
 /* --- Activity heatmap (trailing 12 months) --- */
 .activity-heatmap {
@@ -2333,11 +2337,14 @@ a.rf-node-title:hover { color: var(--accent); }
   .date-picker-button {
     min-height: 34px;
   }
+  /* Only one pane renders at a time on phones (list OR canvas, via the segmented
+     toggle), so each reclaims most of the viewport instead of the ~48/50vh split
+     it took when both were stacked. */
   .graph-list {
-    height: min(48vh, 420px);
+    height: min(74vh, 560px);
   }
   .graph-canvas {
-    height: min(50vh, 460px);
+    height: min(74vh, 620px);
   }
   .repo-table tr {
     position: relative;

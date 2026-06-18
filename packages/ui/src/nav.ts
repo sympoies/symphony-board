@@ -123,6 +123,29 @@ export function activityViewTab(view: ActivityView): string | null {
   return view === "overview" ? "overview" : null;
 }
 
+// --- Graph view (mobile sub-tab) -------------------------------------------
+//
+// The same mobile single-pane pattern, for the Graph page's coupled list +
+// relationship canvas. Below the breakpoint the page shows EITHER the
+// searchable/focus LIST or the React Flow CANVAS, chosen by a segmented control
+// and route-backed via the shared `tab` field (`tab=graph`). The list is the
+// default: it browses items AND, once one is focused (route `focus=`), surfaces
+// that item's related issues/PRs inline — so selecting a node never forces the
+// hard-to-touch canvas, which stays opt-in. A top-nav hop drops `tab` and lands
+// back on the list. Wide viewports render both side by side and the view is
+// ignored.
+export type GraphView = "list" | "graph";
+
+export function graphView(route: Pick<HashRoute, "tab">): GraphView {
+  return route.tab === "graph" ? "graph" : "list";
+}
+
+// The `tab` route value for a view. The list is the default, so it maps to null
+// (no `tab` field) to keep the URL clean and let a top-nav hop reset to the list.
+export function graphViewTab(view: GraphView): string | null {
+  return view === "graph" ? "graph" : null;
+}
+
 // --- Item facets (board / graph / repo-analytics) --------------------------
 //
 // The shared work-item lens — source / state / kind of items. Unlike the
