@@ -736,25 +736,27 @@ test("buildCommitRows stacks date separators and expanded-body height into each 
     activity({ id: "c2", external_id: "c2", kind: "commit", occurred_at: "2026-06-10T02:00:00Z", details: { sha: "b".repeat(16), body: "Explain it" } }),
     activity({ id: "c3", external_id: "c3", kind: "commit", occurred_at: "2026-06-09T20:00:00Z", details: { sha: "c".repeat(16) } }),
   ];
-  // Expand c2 with a measured height (200), short-circuiting the estimate.
+  // Measured heights win for any row: c2 is expanded (measured 200) and c3 is a
+  // collapsed row measured at its natural content height (90), exercising the
+  // narrow per-row measurement path. c1 has no measurement -> fixed estimate.
   const { rows, totalHeightPx } = buildCommitRows({
     commits,
     rowBodyHeight: 70, // COMMIT_ROW_BODY_HEIGHT_PX
     expandedBodyId: "c2",
-    measuredExpandedBodyHeights: new Map([["c2", 200]]),
+    measuredBodyHeights: new Map([["c2", 200], ["c3", 90]]),
     timezone: "UTC",
   });
 
-  // height = bodyHeight + (showDate ? 22 : 0) + 8 gap. row1's body is measured 200.
+  // height = bodyHeight + (showDate ? 22 : 0) + 8 gap.
   assert.deepEqual(
     rows.map((r) => ({ index: r.index, offset: r.offset, height: r.height, showDate: r.showDate, expanded: r.expanded })),
     [
-      { index: 0, offset: 0, height: 100, showDate: true, expanded: false }, // 70 + 22 + 8
-      { index: 1, offset: 100, height: 208, showDate: false, expanded: true }, // 200 + 0 + 8
-      { index: 2, offset: 308, height: 100, showDate: true, expanded: false }, // 70 + 22 + 8
+      { index: 0, offset: 0, height: 100, showDate: true, expanded: false }, // 70 (estimate) + 22 + 8
+      { index: 1, offset: 100, height: 208, showDate: false, expanded: true }, // 200 (measured) + 0 + 8
+      { index: 2, offset: 308, height: 120, showDate: true, expanded: false }, // 90 (measured) + 22 + 8
     ],
   );
-  assert.equal(totalHeightPx, 408);
+  assert.equal(totalHeightPx, 428);
   assert.equal(rows[1]!.body, "Explain it");
   assert.equal(rows[0]!.body, null); // no details.body -> never expandable
 });

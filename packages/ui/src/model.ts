@@ -1006,12 +1006,12 @@ export function activityVirtualRange({
 // slice; this is the pure math, kept here so it is testable and beside its
 // fixed-height sibling.
 export const COMMIT_ROW_BODY_HEIGHT_PX = 70;
-// Narrow/portrait stacks the row (2-line clamped title, wrapped meta with a
-// branch chip on its own line, then the SHA + action buttons). Measured worst
-// case at a 384px-wide viewport is ~160px; the slot adds COMMIT_ROW_GAP_PX on
-// top, so this keeps the SHA/actions line inside the virtualized row instead of
-// letting the next row overlap it.
-export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 160;
+// Narrow/portrait stacks the row (1-2 line title, wrapped meta with a branch
+// chip, then the SHA + action buttons), so row height varies with content. The
+// timeline measures each rendered row and uses the real height; this constant is
+// only the estimate reserved for a narrow row until it is measured (a typical
+// single-line-title card), kept close to the common case to minimize reflow.
+export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 124;
 const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
 const COMMIT_ROW_GAP_PX = 8;
 const COMMIT_EXPANDED_PANEL_CHROME_PX = 18;
@@ -1050,13 +1050,19 @@ export function buildCommitRows({
   commits,
   rowBodyHeight,
   expandedBodyId,
-  measuredExpandedBodyHeights,
+  measuredBodyHeights,
   timezone,
 }: {
   commits: ActivityDTO[];
   rowBodyHeight: number;
   expandedBodyId: string | null;
-  measuredExpandedBodyHeights: ReadonlyMap<string, number>;
+  // Measured natural body height per commit id. The narrow/portrait layout
+  // stacks variable content (1-2 line title, wrapped meta, branch chip, actions),
+  // so the timeline measures each rendered row and feeds the real height back
+  // here; `rowBodyHeight` is only the estimate used until a row is measured.
+  // Desktop rows are uniform single-line, so the map stays empty there and the
+  // fixed `rowBodyHeight` is used as-is.
+  measuredBodyHeights: ReadonlyMap<string, number>;
   timezone: string;
 }): { rows: CommitVirtualRow[]; totalHeightPx: number } {
   const rows: CommitVirtualRow[] = [];
@@ -1069,10 +1075,14 @@ export function buildCommitRows({
     const showDate = previousDateKey === null || previousDateKey !== key;
     const body = commitBody(commit);
     const expanded = body !== null && commit.id === expandedBodyId;
-    const bodyHeight = expanded
-      ? measuredExpandedBodyHeights.get(commit.id) ??
-        rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
-      : rowBodyHeight;
+    // A measured height wins for any row (collapsed or expanded). Until a row is
+    // measured, estimate: expanded rows add the body panel; collapsed rows fall
+    // back to the per-layout row-body height.
+    const bodyHeight =
+      measuredBodyHeights.get(commit.id) ??
+      (expanded
+        ? rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
+        : rowBodyHeight);
     const height = bodyHeight + (showDate ? COMMIT_DATE_SLOT_HEIGHT_PX : 0) + COMMIT_ROW_GAP_PX;
     rows.push({ commit, index, offset, height, showDate, body, expanded });
     offset += height;

@@ -74,6 +74,7 @@ export function TimeRangeControls({
   loading,
   error,
   suspended,
+  collapsibleOnNarrow,
   onRange,
 }: {
   range: TimeRange;
@@ -88,15 +89,24 @@ export function TimeRangeControls({
   // disabled, so the user sees their range is remembered yet not in effect.
   // Clearing focus flips this back without losing the selection.
   suspended?: boolean;
+  // On narrow/portrait, collapse the range fields + quick presets behind a
+  // disclosure that summarizes the active range, so a long-feed page (Commits)
+  // doesn't spend the first screen on date controls. Desktop always shows them.
+  collapsibleOnNarrow?: boolean;
   onRange: (range: TimeRange, presetId?: TimeRangePresetId | null) => void;
 }) {
   const controlsRef = useRef<HTMLDivElement | null>(null);
   const [draftDisplay, setDraftDisplay] = useState<DisplayRange>(() => rangeToDisplay(range));
+  const [rangeOpen, setRangeOpen] = useState(false);
   const [openPicker, setOpenPicker] = useState<RangeField | null>(null);
   const [pickerMonth, setPickerMonth] = useState(() => monthStart(range.to));
   const generatedAtMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
   const presetOptions = TIME_RANGE_PRESETS.map((option) => ({ option, range: timeRangeForPreset(option.id, generatedAtMs, timezone) }));
   const activePresetId = activeTimeRangePresetId(range, generatedAtMs, preferredPresetId, timezone);
+  // Collapsed-state summary for the narrow disclosure: the active quick preset's
+  // label, else the explicit from–to range.
+  const activePresetLabel = presetOptions.find(({ option }) => option.id === activePresetId)?.option.label ?? null;
+  const rangeSummary = activePresetLabel ?? `${dateOnlyToDisplay(range.from)} – ${dateOnlyToDisplay(range.to)}`;
   useEffect(() => setDraftDisplay(rangeToDisplay(range)), [range.from, range.to]);
   useEffect(() => {
     if (!openPicker) return;
@@ -214,9 +224,22 @@ export function TimeRangeControls({
     <div
       ref={controlsRef}
       className={`time-range-controls${suspended ? " range-suspended" : ""}`}
+      data-range-collapsed={collapsibleOnNarrow && !rangeOpen ? "true" : undefined}
       title={suspended ? "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable." : undefined}
     >
-      <span className="muted">range</span>
+      {collapsibleOnNarrow ? (
+        <button
+          type="button"
+          className="range-disclosure"
+          aria-expanded={rangeOpen}
+          onClick={() => setRangeOpen((open) => !open)}
+        >
+          <span className="range-disclosure-label">range</span>
+          <span className="range-disclosure-summary">{rangeSummary}</span>
+          <span className="range-disclosure-caret" aria-hidden="true" />
+        </button>
+      ) : null}
+      <span className="muted time-range-label">range</span>
       <label className="date-filter">
         from
         <span className="date-input-wrap">

@@ -114,10 +114,13 @@ function CommitTimeline({
   timezone: string;
 }) {
   const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
-  const expandedRowBodyRef = useRef<HTMLDivElement | null>(null);
-  const [measuredExpandedBodyHeights, setMeasuredExpandedBodyHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [measuredBodyHeights, setMeasuredBodyHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [expandedBodyId, setExpandedBodyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Desktop rows are uniform single-line, so they keep the fixed row-body height
+  // and skip per-row measurement; the narrow/portrait layout stacks variable
+  // content and is measured so each card sizes to its content.
+  const narrow = rowBodyHeight > COMMIT_ROW_BODY_HEIGHT_PX;
 
   // Scroll position, viewport height, and the scroll-to-top reset are shared
   // with the Activity feed. The commit list also derives its row-body height
@@ -133,11 +136,13 @@ function CommitTimeline({
   // heights (the hook above handles the scroll reset on the same trigger).
   useEffect(() => {
     setExpandedBodyId(null);
-    setMeasuredExpandedBodyHeights(new Map());
+    setMeasuredBodyHeights(new Map());
   }, [commits]);
 
+  // Width breakpoint flips the row layout, so any heights measured at the old
+  // width no longer apply.
   useEffect(() => {
-    setMeasuredExpandedBodyHeights(new Map());
+    setMeasuredBodyHeights(new Map());
   }, [rowBodyHeight]);
 
   useEffect(() => {
@@ -146,35 +151,9 @@ function CommitTimeline({
     return () => window.clearTimeout(timeout);
   }, [copiedId]);
 
-  useLayoutEffect(() => {
-    const el = expandedRowBodyRef.current;
-    if (!el || !expandedBodyId) return;
-
-    const updateHeight = () => {
-      const height = Math.ceil(el.getBoundingClientRect().height);
-      if (height <= 0) return;
-      setMeasuredExpandedBodyHeights((previous) => {
-        if (previous.get(expandedBodyId) === height) return previous;
-        const next = new Map(previous);
-        next.set(expandedBodyId, height);
-        return next;
-      });
-    };
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateHeight);
-      return () => window.removeEventListener("resize", updateHeight);
-    }
-
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(el);
-    return () => resizeObserver.disconnect();
-  }, [expandedBodyId, rowBodyHeight]);
-
   const layout = useMemo(
-    () => buildCommitRows({ commits, rowBodyHeight, expandedBodyId, measuredExpandedBodyHeights, timezone }),
-    [commits, expandedBodyId, measuredExpandedBodyHeights, rowBodyHeight, timezone],
+    () => buildCommitRows({ commits, rowBodyHeight, expandedBodyId, measuredBodyHeights, timezone }),
+    [commits, expandedBodyId, measuredBodyHeights, rowBodyHeight, timezone],
   );
   const virtual = useMemo(
     () => commitVirtualRange({
@@ -186,6 +165,53 @@ function CommitTimeline({
     [layout, scrollTop, viewportHeight],
   );
   const visibleRows = useMemo(() => layout.rows.slice(virtual.start, virtual.end), [layout.rows, virtual.start, virtual.end]);
+
+  // Measure each rendered narrow row's natural body height and feed it back into
+  // the layout so cards size to content (no fixed blank space) while the list
+  // stays virtualized. Desktop keeps the fixed height. Measurement is driven by
+  // a ResizeObserver whose callback runs ASYNCHRONOUSLY — crucially decoupled
+  // from the render cycle, so updating heights never re-enters a layout effect
+  // and loops (React error #185). The functional update returns the previous map
+  // unchanged when nothing moved, so the observer goes quiet once it settles.
+  const measureObserverRef = useRef<ResizeObserver | null>(null);
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const list = listRef.current;
+      if (!list) return;
+      const bodies = list.querySelectorAll<HTMLElement>(".commit-row-body[data-commit-id]");
+      setMeasuredBodyHeights((previous) => {
+        let next: Map<string, number> | null = null;
+        bodies.forEach((el) => {
+          const id = el.dataset.commitId;
+          if (!id) return;
+          const height = Math.ceil(el.getBoundingClientRect().height);
+          if (height <= 0 || previous.get(id) === height) return;
+          if (!next) next = new Map(previous);
+          next.set(id, height);
+        });
+        return next ?? previous;
+      });
+    });
+    measureObserverRef.current = observer;
+    return () => {
+      observer.disconnect();
+      measureObserverRef.current = null;
+    };
+  }, [listRef]);
+
+  // (Re)observe the currently rendered row bodies whenever the visible set
+  // changes. This only sets up observation — it never calls setState — so it
+  // cannot feed back into itself; the observer's async callback owns the height
+  // updates. `disconnect()` first drops bodies that scrolled out (no leak).
+  useLayoutEffect(() => {
+    const observer = measureObserverRef.current;
+    const list = listRef.current;
+    if (!narrow || !observer || !list) return;
+    observer.disconnect();
+    list.querySelectorAll<HTMLElement>(".commit-row-body[data-commit-id]").forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [narrow, visibleRows, expandedBodyId, listRef]);
 
   if (commits.length === 0) return <>{empty ?? <p className="empty">No commits.</p>}</>;
 
@@ -231,7 +257,7 @@ function CommitTimeline({
                   <span>Commits on {dateLabel(commit.occurred_at, timezone)}</span>
                 </div>
               ) : null}
-              <div className="commit-row-body" ref={expanded ? expandedRowBodyRef : undefined}>
+              <div className="commit-row-body" data-commit-id={commit.id}>
                 <div className="commit-row-main">
                   <div className="commit-title-line">
                     {commit.url ? (
