@@ -1508,6 +1508,13 @@ a.rf-node-title:hover { color: var(--accent); }
 .commit-ref-chip {
   flex: none;
   max-width: 150px;
+  /* Stay a single ellipsized line even where the meta row allows wrapping
+     (narrow/portrait sets `white-space: normal`). A long branch name wrapping to
+     two lines would push the row body past the fixed virtualized row height and
+     let the next row overlap the SHA/actions line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid var(--chip-border);
   border-radius: 999px;
   padding: 1px 7px;

@@ -1006,7 +1006,12 @@ export function activityVirtualRange({
 // slice; this is the pure math, kept here so it is testable and beside its
 // fixed-height sibling.
 export const COMMIT_ROW_BODY_HEIGHT_PX = 70;
-export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 128;
+// Narrow/portrait stacks the row (2-line clamped title, wrapped meta with a
+// branch chip on its own line, then the SHA + action buttons). Measured worst
+// case at a 384px-wide viewport is ~160px; the slot adds COMMIT_ROW_GAP_PX on
+// top, so this keeps the SHA/actions line inside the virtualized row instead of
+// letting the next row overlap it.
+export const COMMIT_ROW_BODY_HEIGHT_NARROW_PX = 160;
 const COMMIT_DATE_SLOT_HEIGHT_PX = 22;
 const COMMIT_ROW_GAP_PX = 8;
 const COMMIT_EXPANDED_PANEL_CHROME_PX = 18;

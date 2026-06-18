@@ -157,7 +157,16 @@ function inflateActivityContract(body) {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
         ...(a.kind === "commit"
           ? {
-              refs: [i % 2 === 0 ? "refs/heads/main" : "refs/heads/release"],
+              // Every third commit carries a long branch name so the Commits page
+              // exercises a wide `commit-ref-chip` (regression guard for the chip
+              // wrapping past the fixed virtualized row height in portrait).
+              refs: [
+                i % 3 === 0
+                  ? "refs/heads/feat/android-thin-client-shell-portrait-overflow-guard"
+                  : i % 2 === 0
+                    ? "refs/heads/main"
+                    : "refs/heads/release",
+              ],
               ...(i % 3 === 0 ? { body: `Smoke body ${i}\n\nRendered commit body details.` } : {}),
             }
           : {}),
@@ -1242,6 +1251,8 @@ try {
           const heatmapRect = activityHeatmap?.getBoundingClientRect();
           const listRect = activityList?.getBoundingClientRect();
           const activityRows = Array.from(document.querySelectorAll('.activity-row'));
+          const commitRows = Array.from(document.querySelectorAll('.commit-row'));
+          const commitRefChips = Array.from(document.querySelectorAll('.commit-ref-chip'));
           const activityChips = document.querySelector('.activity-chips');
           const activityChipsStyle = activityChips ? getComputedStyle(activityChips) : null;
           const sources = document.querySelector('.app-header .sources');
@@ -1270,6 +1281,15 @@ try {
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
             activityChipsWrap: !activityChips || (activityChipsStyle?.whiteSpace === 'normal' && activityChipsStyle?.flexWrap === 'wrap'),
             activityRowsNotClipped: activityRows.every((row) => row.scrollHeight <= row.clientHeight + 1),
+            commitRowsWithinSlot: commitRows.every((row) => {
+              const body = row.querySelector('.commit-row-body');
+              if (!body) return true;
+              return Math.round(body.getBoundingClientRect().height) <= Math.round(row.getBoundingClientRect().height) + 1;
+            }),
+            commitRefChipsSingleLine: commitRefChips.every((chip) => Math.round(chip.getBoundingClientRect().height) <= 24),
+            commitRowCount: commitRows.length,
+            commitMaxBodyHeight: Math.max(0, ...commitRows.map((row) => { const b = row.querySelector('.commit-row-body'); return b ? Math.round(b.getBoundingClientRect().height) : 0; })),
+            commitMinSlotHeight: commitRows.length ? Math.min(...commitRows.map((row) => Math.round(row.getBoundingClientRect().height))) : 0,
             headerSourcesCount: sourceChips.length,
             headerSourcesHeight: Math.round(sourcesRect?.height || 0),
             headerSourcesOneLine: sourceChipTops.length > 0 && new Set(sourceChipTops).size === 1,
@@ -1433,6 +1453,7 @@ try {
   const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
+  const portraitCommits = portraitResults.filter((r) => r.page === "commits");
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
@@ -1484,6 +1505,7 @@ try {
     [phoneActivity.activityHeatmapAboveFeed === true && phoneActivity.activityListHeight > 0 && phoneActivity.activityListHeight <= Math.round(phoneActivity.viewportHeight * 0.55), `portrait: phone activity puts rhythm before a shorter feed (${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px)`],
     [phoneActivity.activityHeatmapScrolledToLatest === true, "portrait: phone activity heatmap opens scrolled to the latest dates"],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
+    [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],
