@@ -1495,18 +1495,35 @@ try {
       const branchSelect = sheet?.querySelector('.commit-branch-select select');
       const repoOptions = sheet?.querySelectorAll('.commit-filter-option[data-kind="repo"]').length || 0;
       const branchOptions = sheet?.querySelectorAll('.commit-filter-option[data-kind="branch"]').length || 0;
+      const activeTab = sheet?.querySelector('.commit-filter-sheet-tab[aria-selected="true"]');
       const primarySurface = document.querySelector('.commit-list');
       const primaryRect = primarySurface?.getBoundingClientRect();
       const sheetRect = sheet?.getBoundingClientRect();
+      const visibleRepoOptions = sheet && sheetRect ? Array.from(sheet.querySelectorAll('.commit-filter-option[data-kind="repo"]'))
+        .filter((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return style.display !== 'none' && rect.height >= 30 && rect.bottom > sheetRect.top && rect.top < sheetRect.bottom;
+        }).length : 0;
+      const visibleBranchOptions = sheet && sheetRect ? Array.from(sheet.querySelectorAll('.commit-filter-option[data-kind="branch"]'))
+        .filter((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return style.display !== 'none' && rect.height >= 30 && rect.bottom > sheetRect.top && rect.top < sheetRect.bottom;
+        }).length : 0;
       return {
         sheetVisible: !!sheet && getComputedStyle(sheet).display !== 'none',
         sheetCount: sheets.length,
         sheetTitle: sheetTitle?.textContent?.trim() || null,
+        activeTab: activeTab?.textContent?.trim() || null,
+        tabCount: sheet?.querySelectorAll('.commit-filter-sheet-tab').length || 0,
         repoInputVisible: !!repoInput && getComputedStyle(repoInput).display !== 'none',
         repoInputFocused: !!repoInput && document.activeElement === repoInput,
         branchSelectVisible: !!branchSelect && getComputedStyle(branchSelect).display !== 'none',
         repoOptions,
         branchOptions,
+        visibleRepoOptions,
+        visibleBranchOptions,
         sheetHeight: Math.round(sheetRect?.height || 0),
         viewportHeight: window.innerHeight,
         primaryTopAfter: Math.round(primaryRect?.top || 0),
@@ -1514,9 +1531,69 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const tab = Array.from(document.querySelectorAll('.mobile-control-sheet[data-panel="commits-filters"] .commit-filter-sheet-tab'))
+        .find((el) => el.textContent?.trim() === 'Branch');
+      tab?.click();
+    })()`,
+  });
+  await sleep(120);
+  const phoneCommitsBranchTab = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const sheet = document.querySelector('.mobile-control-sheet[data-panel="commits-filters"]');
+      const sheetRect = sheet?.getBoundingClientRect();
+      const visibleBranchOptions = sheet && sheetRect ? Array.from(sheet.querySelectorAll('.commit-filter-option[data-kind="branch"]'))
+        .filter((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return style.display !== 'none' && rect.height >= 30 && rect.bottom > sheetRect.top && rect.top < sheetRect.bottom;
+        }).length : 0;
+      return {
+        activeTab: sheet?.querySelector('.commit-filter-sheet-tab[aria-selected="true"]')?.textContent?.trim() || null,
+        visibleBranchOptions,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const tab = Array.from(document.querySelectorAll('.mobile-control-sheet[data-panel="commits-filters"] .commit-filter-sheet-tab'))
+        .find((el) => el.textContent?.trim() === 'Repo');
+      tab?.click();
+    })()`,
+  });
+  await sleep(120);
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const sheet = document.querySelector('.mobile-control-sheet[data-panel="commits-filters"]');
+      const sheetRect = sheet?.getBoundingClientRect();
+      const option = sheet && sheetRect ? Array.from(sheet.querySelectorAll('.commit-filter-option[data-kind="repo"]'))
+        .find((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return style.display !== 'none' && rect.height >= 30 && rect.bottom > sheetRect.top && rect.top < sheetRect.bottom;
+        }) : null;
+      option?.click();
+    })()`,
+  });
+  await sleep(150);
+  const phoneCommitsRepoPick = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      summary: document.querySelector('.commits-filter-disclosure .filter-summary-disclosure-summary')?.textContent?.trim() || null,
+      selectedRepoRows: document.querySelectorAll('.mobile-control-sheet[data-panel="commits-filters"] .commit-filter-option[data-kind="repo"].is-selected').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   const phoneCommitsFilterDisclosure = {
     ...phoneCommitsFilterDisclosureBefore,
     ...phoneCommitsFilterDisclosureAfter,
+    branchTabActive: phoneCommitsBranchTab.activeTab || null,
+    branchTabVisibleBranchOptions: phoneCommitsBranchTab.visibleBranchOptions || 0,
+    repoPickHashHasRepo: /[?&]repo=/.test(phoneCommitsRepoPick.hash || ""),
+    repoPickSelectedRows: phoneCommitsRepoPick.selectedRepoRows || 0,
+    repoPickSummary: phoneCommitsRepoPick.summary || null,
   };
   await send("Runtime.evaluate", { expression: "document.querySelector('.mobile-control-backdrop')?.click(); location.hash = '#/activity?kind=commit'" });
   await sleep(300);
@@ -1783,7 +1860,7 @@ try {
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === false && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone filters open without keeping search inline (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActiveFilterDisclosure.sheetVisible === true && phoneActiveFilterDisclosure.sheetCount === 1 && phoneActiveFilterDisclosure.sheetTitle === "Filters" && Math.abs((phoneActiveFilterDisclosure.primaryTopAfter || 0) - (phoneActiveFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile search/filter expansion opens one filter overlay sheet without pushing feed (${JSON.stringify(phoneActiveFilterDisclosure)})`],
-    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.branchOptions >= 3 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a self-styled overlay sheet without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
+    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.tabCount === 2 && phoneCommitsFilterDisclosure.activeTab === "Repo" && phoneCommitsFilterDisclosure.branchTabActive === "Branch" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.visibleRepoOptions >= 1 && phoneCommitsFilterDisclosure.branchTabVisibleBranchOptions >= 3 && phoneCommitsFilterDisclosure.visibleBranchOptions === 0 && phoneCommitsFilterDisclosure.repoPickHashHasRepo === true && phoneCommitsFilterDisclosure.repoPickSelectedRows === 1 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a repo-first sheet mode without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
     [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.6), `portrait: phone activity defaults to a tall records feed behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, heatmap=${phoneActivity.activityHeatmapPresent})`],
     [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],

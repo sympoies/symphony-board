@@ -364,6 +364,7 @@ export function CommitsPage({
   // collapse behind a summary disclosure (same pattern as the date range) and the
   // commit feed gets the first screen. Desktop always shows them.
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch">("repo");
   const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0);
   const filtersSummary =
     activeFilterCount === 0
@@ -403,95 +404,120 @@ export function CommitsPage({
       </label>
     </div>
   );
-  const filterSheetBody = () => (
-    <div className="commits-filter-sheet-body">
-      <div className="commit-filter-section">
-        <div className="commit-filter-section-head">
-          <strong>Repo</strong>
-          <span className="muted">
-            {repoOptions.length} {pluralize(repoOptions.length, "repo")}
-          </span>
-        </div>
-        <div className="commit-filter-option-list">
-          <button
-            type="button"
-            className={`commit-filter-option${selectedRepo ? "" : " is-selected"}`}
-            data-kind="repo-all"
-            aria-pressed={!selectedRepo}
-            onClick={() => onRepo(null)}
-          >
-            <span className="commit-filter-option-main">All repos</span>
-            <span className="commit-filter-option-meta">{windowTotal} {pluralize(windowTotal, "commit")}</span>
-          </button>
-          {repoOptions.map((option) => {
-            const key = `${option.source_id}|${option.project_path}`;
-            const selected = key === selectedRepoKey;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={`commit-filter-option${selected ? " is-selected" : ""}`}
-                data-kind="repo"
-                aria-pressed={selected}
-                onClick={() => onRepo(option)}
-              >
-                <span className="commit-filter-option-main">{option.project_path}</span>
-                <span className="commit-filter-option-meta">
-                  {option.count} {pluralize(option.count, "commit")} · {sourceKind.get(option.source_id) ?? option.source_id}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+  const repoFilterSection = () => (
+    <div className="commit-filter-section" data-panel="repo">
+      <div className="commit-filter-section-head">
+        <strong>Repo</strong>
+        <span className="muted">
+          {repoOptions.length} {pluralize(repoOptions.length, "repo")}
+        </span>
       </div>
-      <div className="commit-filter-section commit-filter-section-branch">
-        <div className="commit-filter-section-head">
-          <strong>Branch</strong>
-          <span className="muted">
-            {branchOptions.length} {pluralize(branchOptions.length, "branch", "branches")}
-          </span>
-        </div>
-        <div className="commit-filter-option-list">
-          <button
-            type="button"
-            className={`commit-filter-option${selectedBranch ? "" : " is-selected"}`}
-            data-kind="branch-all"
-            aria-pressed={!selectedBranch}
-            onClick={() => onBranch(null)}
-            disabled={branchOptions.length === 0}
-          >
-            <span className="commit-filter-option-main">All branches</span>
-            <span className="commit-filter-option-meta">{windowTotal} {pluralize(windowTotal, "commit")}</span>
-          </button>
-          {selectedBranch && !branchOptions.some((option) => option.branch === selectedBranch) ? (
+      <div className="commit-filter-option-list">
+        <button
+          type="button"
+          className={`commit-filter-option${selectedRepo ? "" : " is-selected"}`}
+          data-kind="repo-all"
+          aria-pressed={!selectedRepo}
+          onClick={() => onRepo(null)}
+        >
+          <span className="commit-filter-option-main">All repos</span>
+          <span className="commit-filter-option-meta">{windowTotal} {pluralize(windowTotal, "commit")}</span>
+        </button>
+        {repoOptions.map((option) => {
+          const key = `${option.source_id}|${option.project_path}`;
+          const selected = key === selectedRepoKey;
+          return (
             <button
+              key={key}
               type="button"
-              className="commit-filter-option is-selected"
-              data-kind="branch"
-              aria-pressed="true"
-              onClick={() => onBranch(selectedBranch)}
+              className={`commit-filter-option${selected ? " is-selected" : ""}`}
+              data-kind="repo"
+              aria-pressed={selected}
+              onClick={() => onRepo(option)}
             >
-              <span className="commit-filter-option-main">{selectedBranch}</span>
-              <span className="commit-filter-option-meta">selected</span>
-            </button>
-          ) : null}
-          {branchOptions.map((option) => (
-            <button
-              key={option.branch}
-              type="button"
-              className={`commit-filter-option${option.branch === selectedBranch ? " is-selected" : ""}`}
-              data-kind="branch"
-              aria-pressed={option.branch === selectedBranch}
-              onClick={() => onBranch(option.branch)}
-            >
-              <span className="commit-filter-option-main">{option.branch}</span>
+              <span className="commit-filter-option-main">{option.project_path}</span>
               <span className="commit-filter-option-meta">
-                {option.count} {pluralize(option.count, "commit")}
+                {option.count} {pluralize(option.count, "commit")} · {sourceKind.get(option.source_id) ?? option.source_id}
               </span>
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
+    </div>
+  );
+  const branchFilterSection = () => (
+    <div className="commit-filter-section commit-filter-section-branch" data-panel="branch">
+      <div className="commit-filter-section-head">
+        <strong>Branch</strong>
+        <span className="muted">
+          {branchOptions.length} {pluralize(branchOptions.length, "branch", "branches")}
+        </span>
+      </div>
+      <div className="commit-filter-option-list">
+        <button
+          type="button"
+          className={`commit-filter-option${selectedBranch ? "" : " is-selected"}`}
+          data-kind="branch-all"
+          aria-pressed={!selectedBranch}
+          onClick={() => onBranch(null)}
+          disabled={branchOptions.length === 0}
+        >
+          <span className="commit-filter-option-main">All branches</span>
+          <span className="commit-filter-option-meta">{windowTotal} {pluralize(windowTotal, "commit")}</span>
+        </button>
+        {selectedBranch && !branchOptions.some((option) => option.branch === selectedBranch) ? (
+          <button
+            type="button"
+            className="commit-filter-option is-selected"
+            data-kind="branch"
+            aria-pressed="true"
+            onClick={() => onBranch(selectedBranch)}
+          >
+            <span className="commit-filter-option-main">{selectedBranch}</span>
+            <span className="commit-filter-option-meta">selected</span>
+          </button>
+        ) : null}
+        {branchOptions.map((option) => (
+          <button
+            key={option.branch}
+            type="button"
+            className={`commit-filter-option${option.branch === selectedBranch ? " is-selected" : ""}`}
+            data-kind="branch"
+            aria-pressed={option.branch === selectedBranch}
+            onClick={() => onBranch(option.branch)}
+          >
+            <span className="commit-filter-option-main">{option.branch}</span>
+            <span className="commit-filter-option-meta">
+              {option.count} {pluralize(option.count, "commit")}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  const filterSheetBody = () => (
+    <div className="commits-filter-sheet-body" data-active-filter={filterSheetTab}>
+      <div className="commit-filter-sheet-tabs" role="tablist" aria-label="Commit filters">
+        <button
+          type="button"
+          className="commit-filter-sheet-tab"
+          role="tab"
+          aria-selected={filterSheetTab === "repo"}
+          onClick={() => setFilterSheetTab("repo")}
+        >
+          Repo
+        </button>
+        <button
+          type="button"
+          className="commit-filter-sheet-tab"
+          role="tab"
+          aria-selected={filterSheetTab === "branch"}
+          onClick={() => setFilterSheetTab("branch")}
+        >
+          Branch
+        </button>
+      </div>
+      {filterSheetTab === "repo" ? repoFilterSection() : branchFilterSection()}
     </div>
   );
 
@@ -509,7 +535,10 @@ export function CommitsPage({
         className="filter-summary-disclosure commits-filter-disclosure"
         aria-expanded={filtersOpen}
         aria-controls="mobile-commits-filter-panel"
-        onClick={() => setFiltersOpen((open) => !open)}
+        onClick={() => setFiltersOpen((open) => {
+          if (!open) setFilterSheetTab("repo");
+          return !open;
+        })}
       >
         <span className="filter-summary-disclosure-label">filters</span>
         <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
