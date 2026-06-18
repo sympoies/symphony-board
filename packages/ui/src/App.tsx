@@ -1020,9 +1020,12 @@ export function App() {
             // so the range is visibly suspended there — selection kept, dimmed,
             // interaction off. Route-backed (?focus=), so reload/back agree.
             suspended={page === "graph" && route.focus != null}
-            // Commits is a long SCM feed; collapse the date controls on narrow so
-            // the first screen shows commits, not range pickers.
-            collapsibleOnNarrow={page === "commits"}
+            // On narrow/portrait, collapse the date controls behind a summary
+            // disclosure on every page that shows them — the first screen should
+            // be content (the feed, board, graph, …), not a tall stack of date
+            // pickers. This block only renders for non-Settings pages, so the
+            // range always collapses on a phone; desktop always shows it inline.
+            collapsibleOnNarrow
             onRange={setRouteRange}
           />
         </>
