@@ -111,11 +111,12 @@ class MainActivity : TauriActivity() {
 // Adaptive launcher icon, authored entirely from vectors so the script stays
 // self-contained (no committed PNGs, no `tauri icon` at build time). The five
 // cyan equalizer bars are the foreground; a solid brand-navy fill is the
-// background. The launcher masks the layers to its own shape (circle / squircle)
-// and shows only the central safe zone of the foreground, which zooms it — so the
-// bars are scaled to ~0.66 (see below) to sit with the same padding as icon.png
-// instead of coming out oversized/edge-touching. Reads as the brand mark
-// everywhere — launcher, recents, themed icons.
+// background; a single-color bar silhouette is the <monochrome> layer the system
+// tints for Android 13+ themed icons. The launcher masks the layers to its own
+// shape (circle / squircle) and shows only the central safe zone of the
+// foreground, which zooms it — so the bars are scaled to ~0.66 (see below) to sit
+// with the same padding as icon.png instead of coming out oversized/edge-touching.
+// Reads as the brand mark everywhere — launcher, recents, themed icons.
 const NAVY = "#030B22";
 const CYAN = "#24DAE8";
 const BAR_PATHS = [
@@ -125,10 +126,27 @@ const BAR_PATHS = [
   "M72.01,31.53 H72.36 C75.74,31.53 78.48,34.27 78.48,37.65 V70.34 C78.48,73.72 75.74,76.46 72.36,76.46 H72.01 C68.63,76.46 65.89,73.72 65.89,70.34 V37.65 C65.89,34.27 68.63,31.53 72.01,31.53 Z",
   "M86.02,43.66 H89.02 C91.7,43.66 93.87,45.83 93.87,48.51 V59.48 C93.87,62.16 91.7,64.33 89.02,64.33 H86.02 C83.34,64.33 81.17,62.16 81.17,59.48 V48.51 C81.17,45.83 83.34,43.66 86.02,43.66 Z",
 ];
+// The equalizer bars as a standalone vector, scaled around the 108-canvas centre.
+// Reused for the adaptive foreground (0.66 safe-zone padding), the themed-icon
+// monochrome silhouette (same geometry; the system supplies the tint, so the fill
+// colour is irrelevant), and the Android-12 splash icon (0.55).
+const barsVector = (scale, fillColor) => `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:scaleX="${scale}" android:scaleY="${scale}" android:pivotX="54" android:pivotY="54">
+${BAR_PATHS.map((d) => `        <path\n            android:fillColor="${fillColor}"\n            android:pathData="${d}" />`).join("\n")}
+    </group>
+</vector>
+`;
+
 const adaptiveIcon = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>
 `;
 
@@ -138,20 +156,12 @@ const writeRes = (relPath, contents) => {
   writeFileSync(target, contents);
 };
 
-writeRes(
-  "drawable/ic_launcher_foreground.xml",
-  `<?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <group android:scaleX="0.66" android:scaleY="0.66" android:pivotX="54" android:pivotY="54">
-${BAR_PATHS.map((d) => `        <path\n            android:fillColor="${CYAN}"\n            android:pathData="${d}" />`).join("\n")}
-    </group>
-</vector>
-`,
-);
+writeRes("drawable/ic_launcher_foreground.xml", barsVector("0.66", CYAN));
+// Themed-icon monochrome layer (Android 13+): launchers tint a single-color
+// silhouette, so this is the same bars at the same safe-zone scale as the
+// foreground, painted one flat colour (the system supplies the tint). Without it,
+// themed-icon launchers drop our mark and tint the framework default instead.
+writeRes("drawable/ic_launcher_monochrome.xml", barsVector("0.66", "#FFFFFF"));
 writeRes(
   "values/ic_launcher_background.xml",
   `<?xml version="1.0" encoding="utf-8"?>
@@ -163,26 +173,42 @@ writeRes(
 writeRes("mipmap-anydpi-v26/ic_launcher.xml", adaptiveIcon);
 writeRes("mipmap-anydpi-v26/ic_launcher_round.xml", adaptiveIcon);
 
+// Pre-API-26 launcher fallback. Adaptive icons (`mipmap-anydpi-v26`) only apply on
+// API 26+. On API 24-25 the launcher resolves `@mipmap/ic_launcher` to a raster —
+// and `tauri android init` lays down per-density `ic_launcher*.png` from its OWN
+// default template (the Tauri logo), NOT from bundle.icon, so the brand mark would
+// be replaced by Tauri's there. Author the fallback as a full-icon vector instead
+// (PNG-free, matching the rest of this script): a navy tile plus the bars at full
+// size — no safe-zone crop applies off-adaptive, so scale 1.0 reproduces icon.png's
+// proportions. An unversioned `mipmap-anydpi` resource outranks the density rasters
+// on every API level (anydpi precedence) yet is itself outranked by
+// `mipmap-anydpi-v26` on API 26+, so it renders only on API 24-25 while the adaptive
+// icon still owns API 26+. The square launcher gets a rounded tile; the round
+// launcher (roundIcon, API 25+) a circle.
+const ROUNDED_TILE = "M22,0 H86 A22,22 0 0 1 108,22 V86 A22,22 0 0 1 86,108 H22 A22,22 0 0 1 0,86 V22 A22,22 0 0 1 22,0 Z";
+const CIRCLE_TILE = "M0,54 A54,54 0 1 0 108,54 A54,54 0 1 0 0,54 Z";
+const fallbackIcon = (tilePath) => `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="${NAVY}"
+        android:pathData="${tilePath}" />
+${BAR_PATHS.map((d) => `    <path\n        android:fillColor="${CYAN}"\n        android:pathData="${d}" />`).join("\n")}
+</vector>
+`;
+writeRes("mipmap-anydpi/ic_launcher.xml", fallbackIcon(ROUNDED_TILE));
+writeRes("mipmap-anydpi/ic_launcher_round.xml", fallbackIcon(CIRCLE_TILE));
+
 // Dedicated icon for the Android 12+ system splash (windowSplashScreenAnimatedIcon
 // below). The splash draws only the icon's foreground, scaled to the splash icon
 // slot — so the launcher foreground (bars sized to fill the adaptive canvas) comes
 // out oversized there. This splash icon is the same bars padded down to the
 // splash's safe size, centered, so they read as a tasteful logo on the navy
 // splash background instead of giant bars.
-writeRes(
-  "drawable/ic_splash.xml",
-  `<?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <group android:scaleX="0.55" android:scaleY="0.55" android:pivotX="54" android:pivotY="54">
-${BAR_PATHS.map((d) => `        <path\n            android:fillColor="${CYAN}"\n            android:pathData="${d}" />`).join("\n")}
-    </group>
-</vector>
-`,
-);
+writeRes("drawable/ic_splash.xml", barsVector("0.55", CYAN));
 
 // Drop the legacy plain-vector launcher icon from earlier versions of this
 // script — it is no longer referenced (the manifest now uses @mipmap) and a
@@ -196,23 +222,39 @@ rmSync(join(mainDir, "res", "drawable", "ic_launcher.xml"), { force: true });
 // OUTRANKS our unqualified `drawable/ic_launcher_foreground.xml`, so the launcher
 // renders Tauri's mark — or, when that foreground fails to inflate, the framework
 // default (bugdroid) icon — instead of our bars. Strip every ic_launcher_foreground
-// / drawable ic_launcher_background variant EXCEPT the two we authored above, so the
-// adaptive icon resolves only to our bars-on-navy mark. (The full-bleed
-// `mipmap-*/ic_launcher{,_round}` rasters stay as the pre-API-26 fallback.)
+// / ic_launcher_monochrome / drawable ic_launcher_background variant EXCEPT the ones
+// we authored above, so the adaptive icon resolves only to our bars-on-navy mark and
+// its themed-icon silhouette.
 const resDir = join(mainDir, "res");
-const keepForeground = join(resDir, "drawable", "ic_launcher_foreground.xml");
+const keepDrawables = new Set([
+  join(resDir, "drawable", "ic_launcher_foreground.xml"),
+  join(resDir, "drawable", "ic_launcher_monochrome.xml"),
+]);
 for (const entry of readdirSync(resDir)) {
   const dir = join(resDir, entry);
   if (!statSync(dir).isDirectory()) continue;
   for (const file of readdirSync(dir)) {
     const full = join(dir, file);
-    if (full === keepForeground) continue;
-    const isForeground = /^ic_launcher_foreground\.(xml|png|webp)$/.test(file);
+    if (keepDrawables.has(full)) continue;
+    const isLayer = /^ic_launcher_(foreground|monochrome)\.(xml|png|webp)$/.test(file);
     // Our `values/ic_launcher_background.xml` is the <color> we reference and keep;
     // only the drawable-typed background Tauri ships needs to go.
     const isDrawableBackground =
       entry.startsWith("drawable") && /^ic_launcher_background\.(xml|png|webp)$/.test(file);
-    if (isForeground || isDrawableBackground) rmSync(full, { force: true });
+    if (isLayer || isDrawableBackground) rmSync(full, { force: true });
+  }
+}
+
+// `tauri android init` likewise generates per-density `mipmap-*/ic_launcher{,_round}.png`
+// rasters from its own default template (the Tauri logo), not from bundle.icon. The
+// `mipmap-anydpi/` brand fallback authored above outranks them on every API level, so
+// they are both off-brand and unreferenced — drop them so the APK ships no Tauri mark.
+for (const entry of readdirSync(resDir)) {
+  if (!entry.startsWith("mipmap-") || entry.includes("anydpi")) continue;
+  const dir = join(resDir, entry);
+  if (!statSync(dir).isDirectory()) continue;
+  for (const file of readdirSync(dir)) {
+    if (/^ic_launcher(_round)?\.(png|webp)$/.test(file)) rmSync(join(dir, file), { force: true });
   }
 }
 
