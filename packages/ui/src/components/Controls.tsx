@@ -63,6 +63,10 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
 export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Props) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
+  // Collapsed-state summary for the narrow disclosure: "all" when nothing narrows
+  // the view, else the active facet count. Mirrors the range / commits filter
+  // disclosures so every page's filter chrome reads the same on a phone.
+  const filtersSummary = activeFilterCount === 0 ? "all" : `${activeFilterCount} active`;
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
@@ -78,13 +82,15 @@ export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Pro
       />
       <button
         type="button"
-        className={`filter-disclosure toggle${activeFilterCount > 0 ? " toggle-on" : ""}`}
+        className="filter-summary-disclosure filter-disclosure"
         aria-expanded={filtersOpen}
         aria-controls="facet-filter-groups"
         aria-label={`${filtersOpen ? "Hide" : "Show"} filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ""}`}
         onClick={() => setFiltersOpen((open) => !open)}
       >
-        Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+        <span className="filter-summary-disclosure-label">filters</span>
+        <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
+        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
       </button>
       <div id="facet-filter-groups" className="filter-groups" data-open={filtersOpen}>
         {groups.map((group) => (

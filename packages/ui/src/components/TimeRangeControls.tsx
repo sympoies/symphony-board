@@ -230,13 +230,13 @@ export function TimeRangeControls({
       {collapsibleOnNarrow ? (
         <button
           type="button"
-          className="range-disclosure"
+          className="filter-summary-disclosure range-disclosure"
           aria-expanded={rangeOpen}
           onClick={() => setRangeOpen((open) => !open)}
         >
-          <span className="range-disclosure-label">range</span>
-          <span className="range-disclosure-summary">{rangeSummary}</span>
-          <span className="range-disclosure-caret" aria-hidden="true" />
+          <span className="filter-summary-disclosure-label">range</span>
+          <span className="filter-summary-disclosure-summary">{rangeSummary}</span>
+          <span className="filter-summary-disclosure-caret" aria-hidden="true" />
         </button>
       ) : null}
       <span className="muted time-range-label">range</span>

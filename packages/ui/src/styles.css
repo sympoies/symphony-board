@@ -374,12 +374,12 @@ html[data-theme="paper"] .toggle-on {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
-.filter-disclosure { display: none; }
 .filter-groups { display: contents; }
-/* Shown only on narrow when a page opts into collapsing the date range (Commits). */
-.range-disclosure { display: none; }
-/* Commits repo + branch filters collapse behind this on narrow (same pattern). */
-.commits-filter-disclosure { display: none; }
+/* The facet filters, the date range, and the Commits repo/branch filters each
+   collapse behind this same full-width summary disclosure on narrow/portrait —
+   one shared chrome so every page's filters read identically. Desktop shows the
+   real controls inline and keeps the disclosure hidden. */
+.filter-summary-disclosure { display: none; }
 .file-load {
   color: var(--muted);
   display: inline-flex;
@@ -1639,11 +1639,44 @@ a.rf-node-title:hover { color: var(--accent); }
   .activity-head .muted { flex-basis: 100%; }
   .controls { align-items: stretch; gap: 8px; }
   .controls .search { flex-basis: 100%; width: 100%; box-sizing: border-box; }
-  .filter-disclosure {
+  /* Shared collapsed-filter chrome: a full-width "label · summary · caret" bar
+     used by the facet filters, the date range, and the Commits repo/branch
+     filters so every page's filters look and behave the same on a phone. */
+  .filter-summary-disclosure {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    min-height: 34px;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 36px;
+    padding: 7px 12px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .filter-summary-disclosure-label { color: var(--muted); flex: none; }
+  .filter-summary-disclosure-summary {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .filter-summary-disclosure-caret {
+    margin-left: auto;
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+    /* collapsed: points up (chevron ▴); expanded flips it down. */
+    transform: translateY(1px) rotate(-135deg);
+  }
+  .filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
+    transform: translateY(-2px) rotate(45deg);
   }
   .filter-groups {
     display: none;
@@ -1664,36 +1697,8 @@ a.rf-node-title:hover { color: var(--accent); }
   .filter-groups .toggle-label { flex-basis: 100%; }
   .time-range-controls { align-items: flex-start; gap: 8px; }
   .time-range-controls .time-range-label { flex-basis: 100%; }
-  /* Commits opts into a collapsed range: a full-width summary toggle, with the
-     range label, date inputs, and quick presets hidden until expanded. */
-  .time-range-controls .range-disclosure {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 36px;
-    padding: 7px 12px;
-    color: var(--text);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .time-range-controls .range-disclosure-label { color: var(--muted); }
-  .time-range-controls .range-disclosure-summary { font-weight: 600; }
-  .time-range-controls .range-disclosure-caret {
-    margin-left: auto;
-    width: 7px;
-    height: 7px;
-    border-right: 1.5px solid var(--muted);
-    border-bottom: 1.5px solid var(--muted);
-    transform: translateY(-2px) rotate(45deg);
-  }
-  .time-range-controls[data-range-collapsed="true"] .range-disclosure-caret {
-    transform: translateY(1px) rotate(-135deg);
-  }
+  /* When the range is collapsed, hide the label, date inputs, and quick presets —
+     the shared `.range-disclosure` summary bar stands in until expanded. */
   .time-range-controls[data-range-collapsed="true"] > .time-range-label,
   .time-range-controls[data-range-collapsed="true"] > .date-filter,
   .time-range-controls[data-range-collapsed="true"] > .toggle-group {
@@ -1739,43 +1744,9 @@ a.rf-node-title:hover { color: var(--accent); }
   .repo-combobox { flex: none; width: 100%; }
   .commit-branch-select { width: 100%; box-sizing: border-box; }
   .commit-branch-select select { max-width: none; flex: 1; }
-  /* Repo + branch collapse behind a summary toggle on narrow; expand on demand. */
-  .commits-filter-disclosure {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 36px;
-    margin: 0 0 8px;
-    padding: 7px 12px;
-    color: var(--text);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .commits-filter-disclosure-label { color: var(--muted); flex: none; }
-  .commits-filter-disclosure-summary {
-    font-weight: 600;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .commits-filter-disclosure-caret {
-    margin-left: auto;
-    flex: none;
-    width: 7px;
-    height: 7px;
-    border-right: 1.5px solid var(--muted);
-    border-bottom: 1.5px solid var(--muted);
-    transform: translateY(1px) rotate(-135deg);
-  }
-  .commits-filter-disclosure[aria-expanded="true"] .commits-filter-disclosure-caret {
-    transform: translateY(-2px) rotate(45deg);
-  }
+  /* Repo + branch collapse behind the shared summary disclosure on narrow; it
+     sits outside a gap-flex parent, so it owns its spacing below. */
+  .commits-filter-disclosure { margin: 0 0 8px; }
   .commits-toolbar[data-filters-collapsed="true"] { display: none; }
   .commit-row-body {
     align-items: stretch;

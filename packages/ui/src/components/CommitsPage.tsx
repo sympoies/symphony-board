@@ -381,13 +381,13 @@ export function CommitsPage({
       </div>
       <button
         type="button"
-        className="commits-filter-disclosure"
+        className="filter-summary-disclosure commits-filter-disclosure"
         aria-expanded={filtersOpen}
         onClick={() => setFiltersOpen((open) => !open)}
       >
-        <span className="commits-filter-disclosure-label">filters</span>
-        <span className="commits-filter-disclosure-summary">{filtersSummary}</span>
-        <span className="commits-filter-disclosure-caret" aria-hidden="true" />
+        <span className="filter-summary-disclosure-label">filters</span>
+        <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
+        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
       </button>
       <div className="commits-toolbar" data-filters-collapsed={filtersOpen ? undefined : "true"}>
         <div className="commits-filter">
