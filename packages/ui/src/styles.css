@@ -931,6 +931,37 @@ a.rf-node-title:hover { color: var(--accent); }
   .activity-layout { grid-template-columns: minmax(0, 880px); }
 }
 
+/* Mobile-only segmented control choosing the single visible Activity pane
+   (Feed / Overview). Only rendered below the breakpoint; styled as a filled
+   segmented track so it reads as a distinct control from the underline page
+   tabs above it. */
+.activity-view-toggle {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 12px;
+  padding: 3px;
+  max-width: 880px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.activity-view-tab {
+  flex: 1 1 0;
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.activity-view-tab:hover { color: var(--text); }
+.activity-view-tab-active { background: var(--accent); color: var(--accent-fg); }
+
 /* --- Activity heatmap (trailing 12 months) --- */
 .activity-heatmap {
   --hm-cell: 9px;
@@ -1730,11 +1761,10 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .time-range-controls .toggle-label { flex-basis: 100%; }
   .activity-layout { gap: 12px; }
-  .activity-heatmap { grid-row: 1; }
-  .activity-layout > .activity-list {
-    grid-row: 2;
-    max-height: 45vh;
-  }
+  /* Only one pane renders at a time on narrow viewports — the records feed OR the
+     overview, picked by the segmented toggle. The feed therefore reclaims its base
+     74vh scroll height (matching the Commits / Board lists) instead of the 45vh
+     slice it needed back when the charts were always stacked above it. */
   .activity-chips {
     flex-wrap: wrap;
     overflow: visible;

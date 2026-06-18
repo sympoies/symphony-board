@@ -46,8 +46,11 @@ import {
   toggleItemFacet,
   itemFacetFields,
   tabHref,
+  activityView,
+  activityViewTab,
   ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
+  type ActivityView,
   type ItemFacetDim,
   type Page,
 } from "./nav.ts";
@@ -248,6 +251,15 @@ export function App() {
     const current = parseHashRoute(readHash());
     const next = buildHashRoute({ ...current, page: "settings", tab: tab === "sources" ? "sources" : null });
     if (readHash() !== next) window.location.hash = next;
+  }, []);
+  // Activity mobile sub-view (Feed default / Overview), URL-backed through the
+  // same `tab` field so reload and share links agree; a top-nav hop drops `tab`
+  // and lands back on the feed.
+  const activityViewValue = activityView(route);
+  const setActivityView = useCallback((next: ActivityView) => {
+    const current = parseHashRoute(readHash());
+    const nextHash = buildHashRoute({ ...current, page: "activity", tab: activityViewTab(next) });
+    if (readHash() !== nextHash) window.location.hash = nextHash;
   }, []);
 
   // Where Cmd+/ returns to when leaving the Diagnostics page: the last
@@ -1073,6 +1085,8 @@ export function App() {
           sourceKind={sourceKind}
           colorOf={colorOf}
           itemsById={activityItemsById}
+          view={activityViewValue}
+          onView={setActivityView}
           emptyState={
             <EmptyState noun="activity" total={env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
           }

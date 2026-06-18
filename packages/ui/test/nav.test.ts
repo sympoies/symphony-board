@@ -19,6 +19,8 @@ import {
   boardReviewsHref,
   tabHref,
   graphFocusHref,
+  activityView,
+  activityViewTab,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -226,4 +228,26 @@ test("graphFocusHref is re-exported from nav and builds a graph focus link", () 
   const route = parseHashRoute(graphFocusHref({ id: "github:github.com|42" } as unknown as ItemDTO));
   assert.equal(route.page, "graph");
   assert.equal(route.focus, "github:github.com|42");
+});
+
+// The Activity tab's mobile sub-view: the records feed (default) or the summary
+// "overview" panel. Route-backed via the shared `tab` field so reload and share
+// links agree, and — because a top-nav tab hop drops `tab` — a fresh visit always
+// lands on the feed (the latest records), which is the whole point of the toggle.
+test("activityView defaults to the feed and reads `overview` from the route", () => {
+  assert.equal(activityView({ tab: null }), "feed", "no tab -> the records feed by default");
+  assert.equal(activityView({ tab: "overview" }), "overview");
+  assert.equal(activityView({ tab: "sources" }), "feed", "an unrelated tab value falls back to the feed");
+});
+
+test("activityViewTab maps the view to a `tab` value; the feed is the clean default (null)", () => {
+  assert.equal(activityViewTab("feed"), null, "feed is the default -> no tab field, so the URL stays clean");
+  assert.equal(activityViewTab("overview"), "overview");
+});
+
+test("Activity view round-trips through the hash, and a fresh tab hop resets to the feed", () => {
+  const overview = buildHashRoute({ page: "activity", tab: activityViewTab("overview") });
+  assert.equal(activityView(parseHashRoute(overview)), "overview", "overview survives reload / a shared link");
+  // a top-nav hop drops page-local `tab` -> back to the feed (default = latest records)
+  assert.equal(activityView(parseHashRoute(tabHref("activity", {}))), "feed");
 });
