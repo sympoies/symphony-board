@@ -1448,6 +1448,37 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 12px;
   min-height: 0;
 }
+.commit-filter-sheet-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.commit-filter-sheet-tab {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.commit-filter-sheet-tab[aria-selected="true"] {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.commit-filter-sheet-tab:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
 .commit-filter-section {
   display: flex;
   flex-direction: column;
@@ -2038,14 +2069,13 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .mobile-control-sheet[data-panel="commits-filters"] .commits-filter-sheet-body {
     flex: 1 1 auto;
+    overflow: hidden;
   }
-  .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-section:first-child .commit-filter-option-list {
-    max-height: min(24vh, 220px);
-  }
-  .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-section-branch {
+  .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-section {
     flex: 1 1 auto;
+    overflow: hidden;
   }
-  .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-section-branch .commit-filter-option-list {
+  .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-option-list {
     flex: 1 1 auto;
   }
   /* Repo + branch collapse behind the shared summary disclosure on narrow; it
