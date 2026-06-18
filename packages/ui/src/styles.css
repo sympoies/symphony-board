@@ -1709,7 +1709,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .view-chrome {
     display: flex;
     flex-wrap: wrap;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 8px;
     margin: 8px 0 10px;
   }
@@ -1725,7 +1725,8 @@ a.rf-node-title:hover { color: var(--accent); }
     flex: 1 1 104px;
     min-width: 104px;
     margin: 0;
-    align-items: stretch;
+    align-self: flex-start;
+    align-items: flex-start;
     gap: 8px;
   }
   .view-chrome > .time-range-controls:first-child:last-child,
