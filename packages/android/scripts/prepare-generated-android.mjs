@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -112,7 +112,9 @@ class MainActivity : TauriActivity() {
 // self-contained (no committed PNGs, no `tauri icon` at build time). The five
 // cyan equalizer bars are the foreground; a solid brand-navy fill is the
 // background. The launcher masks the layers to its own shape (circle / squircle)
-// and the bars keep their full `icon.png` size, so it reads as the brand mark
+// and shows only the central safe zone of the foreground, which zooms it — so the
+// bars are scaled to ~0.66 (see below) to sit with the same padding as icon.png
+// instead of coming out oversized/edge-touching. Reads as the brand mark
 // everywhere — launcher, recents, themed icons.
 const NAVY = "#030B22";
 const CYAN = "#24DAE8";
@@ -144,7 +146,9 @@ writeRes(
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-${BAR_PATHS.map((d) => `    <path\n        android:fillColor="${CYAN}"\n        android:pathData="${d}" />`).join("\n")}
+    <group android:scaleX="0.66" android:scaleY="0.66" android:pivotX="54" android:pivotY="54">
+${BAR_PATHS.map((d) => `        <path\n            android:fillColor="${CYAN}"\n            android:pathData="${d}" />`).join("\n")}
+    </group>
 </vector>
 `,
 );
@@ -185,6 +189,32 @@ ${BAR_PATHS.map((d) => `        <path\n            android:fillColor="${CYAN}"\n
 // non-adaptive @drawable launcher icon is exactly what failed to render in the
 // recents list.
 rmSync(join(mainDir, "res", "drawable", "ic_launcher.xml"), { force: true });
+
+// `tauri android init` also lays down its OWN default adaptive-icon resources: a
+// gradient foreground vector under `drawable-v24/`, a `drawable/` background, and
+// per-density foreground rasters. On API 24+ the `-v24`-qualified foreground
+// OUTRANKS our unqualified `drawable/ic_launcher_foreground.xml`, so the launcher
+// renders Tauri's mark — or, when that foreground fails to inflate, the framework
+// default (bugdroid) icon — instead of our bars. Strip every ic_launcher_foreground
+// / drawable ic_launcher_background variant EXCEPT the two we authored above, so the
+// adaptive icon resolves only to our bars-on-navy mark. (The full-bleed
+// `mipmap-*/ic_launcher{,_round}` rasters stay as the pre-API-26 fallback.)
+const resDir = join(mainDir, "res");
+const keepForeground = join(resDir, "drawable", "ic_launcher_foreground.xml");
+for (const entry of readdirSync(resDir)) {
+  const dir = join(resDir, entry);
+  if (!statSync(dir).isDirectory()) continue;
+  for (const file of readdirSync(dir)) {
+    const full = join(dir, file);
+    if (full === keepForeground) continue;
+    const isForeground = /^ic_launcher_foreground\.(xml|png|webp)$/.test(file);
+    // Our `values/ic_launcher_background.xml` is the <color> we reference and keep;
+    // only the drawable-typed background Tauri ships needs to go.
+    const isDrawableBackground =
+      entry.startsWith("drawable") && /^ic_launcher_background\.(xml|png|webp)$/.test(file);
+    if (isForeground || isDrawableBackground) rmSync(full, { force: true });
+  }
+}
 
 for (const themePath of [
   join(mainDir, "res", "values", "themes.xml"),
