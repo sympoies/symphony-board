@@ -1426,16 +1426,21 @@ try {
     returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", {
-    expression: "document.querySelector('.controls .filter-disclosure')?.click()",
+    expression: "document.querySelector('.controls .search-disclosure')?.click(); document.querySelector('.controls .filter-disclosure')?.click();",
   });
   await sleep(150);
   const phoneActiveFilterDisclosureAfter = (await send("Runtime.evaluate", {
     expression: `(() => {
       const groups = document.querySelector('.controls .filter-groups');
       const activeChip = groups?.querySelector('.toggle.toggle-on');
+      const search = document.querySelector('.controls .search');
+      const rangeDisclosure = document.querySelector('.time-range-controls .range-disclosure');
+      const rangeRect = rangeDisclosure?.getBoundingClientRect();
       return {
         groupsVisible: !!groups && getComputedStyle(groups).display !== 'none',
         activeChipVisible: !!activeChip && getComputedStyle(activeChip).display !== 'none',
+        searchVisible: !!search && getComputedStyle(search).display !== 'none',
+        rangeDisclosureHeight: Math.round(rangeRect?.height || 0),
       };
     })()`,
     returnByValue: true,
@@ -1702,7 +1707,7 @@ try {
     [phoneContentPages.every((r) => r.primarySurfaceTop > 0 && r.primarySurfaceTop <= 360), `portrait: phone primary content starts in the first screen (${phoneContentPages.map((r) => `${r.page}:top=${r.primarySurfaceTop}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
-    [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
+    [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone search/filter expansion keeps range as a compact chip (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.6), `portrait: phone activity defaults to a tall records feed behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, heatmap=${phoneActivity.activityHeatmapPresent})`],
     [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
