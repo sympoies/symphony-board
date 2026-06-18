@@ -78,6 +78,138 @@ test("fetchContract parses the JSON on a 2xx and throws with the status on a non
   }
 });
 
+// --- contract-load resilience: bounded per-attempt timeout + backoff retry ---
+// A remote board can be briefly unreachable or slow; the load must not hang
+// forever on a single stalled request, nor turn one transient blip into a board
+// that never recovers without an app restart. Transient failures (network throw,
+// abort/timeout, 5xx) retry with backoff; a definitive answer (4xx, or a 200
+// whose body is not a contract) surfaces immediately without spinning.
+
+test("fetchContract retries a transient failure and then succeeds", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls < 3) throw new Error("connection reset");
+      return { ok: true, status: 200, json: async () => ({ contract_version: "3.0.0", items: [] }) };
+    }) as unknown as typeof fetch;
+    const env = await fetchContract("./x.json", null, null, { retries: 3, retryBaseDelayMs: 0, sleep: async () => {} });
+    assert.equal(env.contract_version, "3.0.0");
+    assert.equal(calls, 3, "two failures then a success");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract gives up after exhausting its retries", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    await assert.rejects(
+      () => fetchContract("./x.json", null, null, { retries: 2, retryBaseDelayMs: 0, sleep: async () => {} }),
+      /offline/,
+    );
+    assert.equal(calls, 3, "one initial attempt plus two retries");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract retries a 5xx but never a 4xx", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    // 503 is transient: retried, then a success is returned.
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ contract_version: "3.0.0", items: [] }) };
+    }) as unknown as typeof fetch;
+    const env = await fetchContract("./x.json", null, null, { retries: 3, retryBaseDelayMs: 0, sleep: async () => {} });
+    assert.equal(env.contract_version, "3.0.0");
+    assert.equal(calls, 2, "the 503 is retried once");
+
+    // 404 ("no contract emitted yet") is definitive: it is not retried.
+    let calls4xx = 0;
+    globalThis.fetch = (async () => {
+      calls4xx++;
+      return { ok: false, status: 404, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+    await assert.rejects(
+      () => fetchContract("./missing.json", null, null, { retries: 3, retryBaseDelayMs: 0, sleep: async () => {} }),
+      /HTTP 404/,
+    );
+    assert.equal(calls4xx, 1, "a 4xx is not retried");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract does not retry a 200 whose body is not a contract", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return { ok: true, status: 200, json: async () => ({ nope: true }) };
+    }) as unknown as typeof fetch;
+    await assert.rejects(
+      () => fetchContract("./bad.json", null, null, { retries: 3, retryBaseDelayMs: 0, sleep: async () => {} }),
+      /not a symphony-board contract/,
+    );
+    assert.equal(calls, 1, "a definitive bad body is not retried");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract aborts a stalled request via the per-attempt timeout", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let aborted = false;
+    globalThis.fetch = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const signal = init.signal;
+        if (!signal) {
+          reject(new Error("no signal provided"));
+          return;
+        }
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          reject(signal.reason ?? new Error("aborted"));
+        });
+      })) as unknown as typeof fetch;
+    await assert.rejects(() =>
+      fetchContract("./hang.json", null, null, { retries: 0, requestTimeoutMs: 10, sleep: async () => {} }),
+    );
+    assert.equal(aborted, true, "the per-attempt timeout aborts the underlying request");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContract bounds each attempt with an abort signal and a connect timeout", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let seenInit: (RequestInit & { connectTimeout?: number }) | undefined;
+    globalThis.fetch = (async (_url: string, init: RequestInit & { connectTimeout?: number }) => {
+      seenInit = init;
+      return { ok: true, status: 200, json: async () => ({ contract_version: "3.0.0", items: [] }) };
+    }) as unknown as typeof fetch;
+    await fetchContract("./x.json", null, null, { requestTimeoutMs: 5000, connectTimeoutMs: 1000 });
+    assert.ok(seenInit?.signal instanceof AbortSignal, "an abort signal bounds the attempt");
+    assert.equal(seenInit?.connectTimeout, 1000, "the desktop connect timeout is plumbed through");
+    assert.equal(seenInit?.cache, "no-store", "the contract is still fetched no-store");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("fetchContract accepts a JSON string body and rejects a non-contract body", async () => {
   const realFetch = globalThis.fetch;
   try {
