@@ -40,22 +40,105 @@ function asContractEnvelope(body: unknown): ContractEnvelope {
   return body as ContractEnvelope;
 }
 
+// --- contract-load resilience -------------------------------------------------
+// The contract is fetched from a possibly-remote board over a link that can be
+// slow or briefly unreachable: the server may be restarting, the connection may
+// stall, or a large payload may arrive over a degraded path. A bare one-shot
+// fetch with no time bound leaves the UI's "Loading contract…" hanging forever
+// with no recovery but an app restart; a single try with no retry turns a
+// momentary blip into a board that only a restart clears. So the load gets a
+// bounded per-attempt timeout plus a few backoff retries on transient failures.
+//
+// `connectTimeout` bounds connection setup on the desktop client WITHOUT
+// aborting an in-progress transfer (so a legitimately slow but progressing
+// download still completes); `AbortSignal.timeout` is the overall per-attempt
+// ceiling and also covers the browser, which ignores `connectTimeout`. Transient
+// failures (a thrown fetch — network error / abort / timeout — or a 5xx) retry
+// with exponential backoff; a definitive answer (a 4xx, or a 200 whose body is
+// not a contract) is surfaced immediately rather than retried.
+export const CONTRACT_CONNECT_TIMEOUT_MS = 10_000;
+export const CONTRACT_REQUEST_TIMEOUT_MS = 30_000;
+export const CONTRACT_LOAD_RETRIES = 2;
+export const CONTRACT_RETRY_BASE_DELAY_MS = 1_000;
+const CONTRACT_RETRY_MAX_DELAY_MS = 8_000;
+
+export interface ContractLoadOptions {
+  retries?: number; // extra attempts after the first
+  retryBaseDelayMs?: number; // exponential-backoff base
+  requestTimeoutMs?: number; // per-attempt overall ceiling (browser + desktop)
+  connectTimeoutMs?: number; // per-attempt connect bound (desktop only)
+  sleep?: (ms: number) => Promise<void>; // injectable for tests
+}
+
+interface TaggedError extends Error {
+  transient?: boolean;
+  status?: number;
+}
+
+const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransient(err: unknown): boolean {
+  return !!(err && typeof err === "object" && (err as TaggedError).transient === true);
+}
+
+async function loadContractAttempt(target: string, requestTimeoutMs: number, connectTimeoutMs: number): Promise<ContractEnvelope> {
+  let res: Response;
+  try {
+    res = await appFetch(target, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(requestTimeoutMs),
+      connectTimeout: connectTimeoutMs,
+    });
+  } catch (err) {
+    // A thrown fetch — a network error, or an abort from the per-attempt timeout
+    // — is transient and worth a retry.
+    const tagged = (err instanceof Error ? err : new Error(String(err))) as TaggedError;
+    tagged.transient = true;
+    throw tagged;
+  }
+  if (!res.ok) {
+    const tagged: TaggedError = new Error(`could not load ${target}: HTTP ${res.status}`);
+    tagged.status = res.status;
+    tagged.transient = res.status >= 500; // 5xx is transient; a 4xx is definitive
+    throw tagged;
+  }
+  // A 200 with an unparseable / non-contract body is a definitive content error,
+  // not a transient one: asContractEnvelope / JSON.parse throw plain (untagged)
+  // errors, so they surface immediately without spinning.
+  return asContractEnvelope(await readJson(res));
+}
+
 // Fetch the contract emitted alongside the app (the loop daemon writes
 // data/contract.json; deploy it next to index.html). Relative URL so it works
 // under any base path.
-export async function fetchContract(url = "./contract.json", serverBaseUrl: string | null = loadServerBaseUrl(), clientKind: string | null = currentClientKind()): Promise<ContractEnvelope> {
+export async function fetchContract(
+  url = "./contract.json",
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  clientKind: string | null = currentClientKind(),
+  opts: ContractLoadOptions = {},
+): Promise<ContractEnvelope> {
   if (endpointRequiresServerUrl(url, serverBaseUrl, clientKind)) {
     throw new Error("Android client requires a server URL. Set Settings -> Server to a reachable Symphony Board HTTP(S) surface.");
   }
   const target = resolveEndpoint(url, serverBaseUrl);
-  const res = await appFetch(target, { cache: "no-store" });
-  if (!res.ok) throw new Error(`could not load ${target}: HTTP ${res.status}`);
-  return asContractEnvelope(await readJson(res));
+  const retries = opts.retries ?? CONTRACT_LOAD_RETRIES;
+  const baseDelay = opts.retryBaseDelayMs ?? CONTRACT_RETRY_BASE_DELAY_MS;
+  const requestTimeoutMs = opts.requestTimeoutMs ?? CONTRACT_REQUEST_TIMEOUT_MS;
+  const connectTimeoutMs = opts.connectTimeoutMs ?? CONTRACT_CONNECT_TIMEOUT_MS;
+  const sleep = opts.sleep ?? defaultSleep;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await loadContractAttempt(target, requestTimeoutMs, connectTimeoutMs);
+    } catch (err) {
+      if (attempt >= retries || !isTransient(err)) throw err;
+      await sleep(Math.min(baseDelay * 2 ** attempt, CONTRACT_RETRY_MAX_DELAY_MS));
+    }
+  }
 }
 
-export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ContractEnvelope> {
+export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<ContractEnvelope> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
-  return fetchContract(`./api/range?${params.toString()}`, serverBaseUrl);
+  return fetchContract(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
 }
 
 // --- UI-triggered manual sync control plane client ---

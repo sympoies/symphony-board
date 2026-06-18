@@ -93,12 +93,20 @@ export function shouldOpenExternalHttpHref(rawHref: string | null, resolvedHref:
   return isHttpUrl(resolvedHref);
 }
 
-export async function appFetch(url: string, init?: RequestInit): Promise<Response> {
+// Standard fetch init plus the one plugin-http ClientOptions key we use.
+// `connectTimeout` bounds connection establishment on the Tauri desktop client
+// without aborting an in-progress body transfer; the browser fetch ignores the
+// extra key (a stalled connect is bounded there by `signal` instead).
+export interface AppFetchInit extends RequestInit {
+  connectTimeout?: number;
+}
+
+export async function appFetch(url: string, init?: AppFetchInit): Promise<Response> {
   if (isTauriRuntime() && isHttpUrl(url)) {
     const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
     return tauriFetch(url, init);
   }
-  return fetch(url, init);
+  return fetch(url, init as RequestInit);
 }
 
 export async function openExternalUrl(url: string): Promise<boolean> {

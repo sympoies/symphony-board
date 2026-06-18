@@ -10,5 +10,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-http = "2"
+# `gzip` enables reqwest gzip negotiation + transparent decompression, so this
+# client sends Accept-Encoding: gzip and decodes the compressed contract the UI
+# sidecar serves (see docker/ui-nginx.conf). Without it the desktop client would
+# fetch the contract uncompressed even when the server offers gzip.
+tauri-plugin-http = { version = "2", features = ["gzip"] }
 tauri-plugin-opener = "2"
