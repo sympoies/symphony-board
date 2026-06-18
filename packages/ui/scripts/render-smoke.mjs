@@ -1402,6 +1402,7 @@ try {
             headerSourcesCount: sourceChips.length,
             headerSourcesHeight: Math.round(sourcesRect?.height || 0),
             headerSourcesOneLine: sourceChipTops.length > 0 && new Set(sourceChipTops).size === 1,
+            headerSourceChipFlexGrow: sourceChips[0] ? getComputedStyle(sourceChips[0]).flexGrow : null,
           };
         })()`,
         returnByValue: true,
@@ -1859,7 +1860,7 @@ try {
     [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
     [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.fileLoadHidden === true), `portrait: phone hides the rarely-used local file loader (${phoneFilterPages.map((r) => `${r.page}:hidden=${r.fileLoadHidden}`).join("; ")})`],
-    [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32), `portrait: phone source health strip stays compact (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight}`).join("; ")})`],
+    [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32 && r.headerSourceChipFlexGrow === "0"), `portrait: phone source health strip stays compact and content-sized (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight},grow=${r.headerSourceChipFlexGrow}`).join("; ")})`],
     [phoneContentPages.every((r) => r.primarySurfaceTop > 0 && r.primarySurfaceTop <= 360), `portrait: phone primary content starts in the first screen (${phoneContentPages.map((r) => `${r.page}:top=${r.primarySurfaceTop}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],

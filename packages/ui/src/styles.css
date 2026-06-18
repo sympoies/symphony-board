@@ -2573,8 +2573,9 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .source-chip {
     box-sizing: border-box;
-    flex: 1 1 0;
+    flex: 0 1 auto;
     min-width: 0;
+    max-width: min(50vw, 190px);
     height: 28px;
     gap: 4px;
     padding: 2px 5px;
