@@ -51,6 +51,13 @@ export function ActivityPage({
   const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   const showFeed = !isMobile || view === "feed";
   const showOverview = !isMobile || view === "overview";
+  // On a phone showing ONLY the Overview pane, the feed (which renders emptyState
+  // when nothing matches) is unmounted, and ActivityHeatmap returns null when its
+  // trailing-window total is zero — so an activity-less board would show just the
+  // header and a blank body. Surface the shared empty state in the overview slot
+  // instead. (When the feed is also shown — desktop, or the Feed sub-view — the
+  // feed already owns the empty state, so this never double-renders it.)
+  const overviewOnlyEmpty = showOverview && !showFeed && allActivities.length === 0;
   const countLabel =
     activities.length === windowTotal
       ? `${activities.length} in range`
@@ -95,13 +102,17 @@ export function ActivityPage({
           <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} itemsById={itemsById} />
         ) : null}
         {showOverview ? (
-          <ActivityHeatmap
-            activities={allActivities}
-            trendActivities={activities}
-            timezone={timezone}
-            range={range}
-            panelRef={heatmapPanelRef}
-          />
+          overviewOnlyEmpty ? (
+            (emptyState ?? null)
+          ) : (
+            <ActivityHeatmap
+              activities={allActivities}
+              trendActivities={activities}
+              timezone={timezone}
+              range={range}
+              panelRef={heatmapPanelRef}
+            />
+          )
         ) : null}
       </div>
     </main>
