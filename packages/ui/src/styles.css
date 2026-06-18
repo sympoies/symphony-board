@@ -581,6 +581,16 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   flex: 1 1 auto; min-width: 0; height: 74vh; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
+/* Overview canvas empty state — a centered card that names the edge filter
+   hiding the side-list candidates and offers the one-click flip to draw them,
+   instead of a bare top-left "nothing drawn" line. */
+.graph-empty {
+  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 24px; text-align: center;
+}
+.graph-empty-title { font-size: 14px; color: var(--text); }
+.graph-empty-body { font-size: 13px; color: var(--muted); max-width: 42ch; line-height: 1.5; margin: 0; }
+.graph-empty-action { margin-top: 4px; }
 /* side list — searchable, scrolls independently, same height as the canvas. Its
    width tracks ONE board column at any resolution so the detailed cards stay as
    roomy as the board: the board is 7 flex columns with a 300px basis inside

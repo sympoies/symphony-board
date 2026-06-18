@@ -27,7 +27,7 @@ import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contr
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
-import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
+import { buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
 // repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
@@ -660,6 +660,51 @@ function GraphSideList({
   );
 }
 
+// The overview canvas empty state. A bare "nothing drawn" line is a dead-end:
+// the user sees items in the side list but a blank canvas. When those items are
+// hidden by an edge filter (graphCanvasEmptyReason), name the filter and offer
+// the one-click flip that brings them onto the canvas.
+function GraphCanvasEmptyState({
+  reason,
+  onShowMentions,
+  onShowAllMentions,
+}: {
+  reason: GraphCanvasEmptyReason | null;
+  onShowMentions: () => void;
+  onShowAllMentions: () => void;
+}) {
+  if (!reason || reason.kind === "filtered") {
+    return <p className="empty">No relationships are drawn with the current edge filter.</p>;
+  }
+  if (reason.kind === "mentions-hidden") {
+    const noun = pluralize(reason.hiddenLinks, "mention link");
+    return (
+      <div className="graph-empty">
+        <p className="graph-empty-title">Nothing drawn yet</p>
+        <p className="graph-empty-body">
+          {reason.hiddenLinks} {noun} {reason.hiddenLinks === 1 ? "is" : "are"} hidden here — mentions are off by default to keep the canvas uncluttered.
+        </p>
+        <button type="button" className="toggle toggle-on graph-empty-action" onClick={onShowMentions}>
+          Show mentions
+        </button>
+      </div>
+    );
+  }
+  const target = reason.mentionTarget === "issue" ? "issues" : "PRs";
+  const noun = pluralize(reason.hiddenLinks, "mention link");
+  return (
+    <div className="graph-empty">
+      <p className="graph-empty-title">Nothing drawn yet</p>
+      <p className="graph-empty-body">
+        Mentions are filtered to {target}; the {reason.hiddenLinks} {noun} in range {reason.hiddenLinks === 1 ? "points" : "point"} elsewhere.
+      </p>
+      <button type="button" className="toggle toggle-on graph-empty-action" onClick={onShowAllMentions}>
+        Show all mentions
+      </button>
+    </div>
+  );
+}
+
 export function GraphPage({
   edges,
   focusEdges,
@@ -927,7 +972,14 @@ export function GraphPage({
               {/* Re-clicking the focused node clears focus — the same toggle
                   exit as the side list's active card. */}
               {view.links.length === 0 ? (
-                <p className="empty">No relationships are drawn with the current edge filter.</p>
+                <GraphCanvasEmptyState
+                  reason={inFocus ? null : graphCanvasEmptyReason(overview, { showMentions, mentionTarget })}
+                  onShowMentions={() => {
+                    setMentionTarget("all");
+                    setShowMentions(true);
+                  }}
+                  onShowAllMentions={() => setMentionTarget("all")}
+                />
               ) : (
                 <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} />
               )}
