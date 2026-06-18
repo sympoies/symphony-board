@@ -1245,6 +1245,8 @@ try {
           const localFileInput = localFile?.querySelector('input[type="file"]');
           const localFileSummaryStyle = localFileSummary ? getComputedStyle(localFileSummary) : null;
           const rangeControls = document.querySelector('.time-range-controls');
+          const rangeDisclosure = document.querySelector('.time-range-controls .range-disclosure');
+          const rangeDateFilter = document.querySelector('.time-range-controls .date-filter');
           const activityHeatmap = document.querySelector('.activity-heatmap');
           const heatmapScroll = activityHeatmap?.querySelector('.hm-calendar-scroll');
           const activityList = document.querySelector('.activity-list');
@@ -1276,6 +1278,8 @@ try {
             fileInputCollapsed: !controls || (!!localFileInput && getComputedStyle(localFileInput).display === 'none'),
             fileDisclosureSingleLine: !controls || (!!localFileSummary && localFileSummaryStyle?.whiteSpace === 'nowrap' && localFileSummary.getBoundingClientRect().height <= 38),
             rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
+            rangeDisclosureVisible: !!rangeDisclosure && getComputedStyle(rangeDisclosure).display !== 'none',
+            rangeFieldsCollapsed: !rangeDateFilter || getComputedStyle(rangeDateFilter).display === 'none',
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
             activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
@@ -1454,6 +1458,7 @@ try {
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
   const portraitCommits = portraitResults.filter((r) => r.page === "commits");
+  const phoneCommits = portraitCommits.filter((r) => r.preset === "phone-portrait");
   const checks = [
     // default entry: opening the app with no hash lands on Activity.
     [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
@@ -1506,6 +1511,7 @@ try {
     [phoneActivity.activityHeatmapScrolledToLatest === true, "portrait: phone activity heatmap opens scrolled to the latest dates"],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
+    [phoneCommits.length > 0 && phoneCommits.every((r) => r.rangeDisclosureVisible === true && r.rangeFieldsCollapsed === true), `portrait: phone commits collapses the date range behind a disclosure by default (${phoneCommits.map((r) => `disclosure=${r.rangeDisclosureVisible},collapsed=${r.rangeFieldsCollapsed}`).join("; ")})`],
     // page 2: the relationship graph mounts and the lazy chunk loads
     [has(graphHtml, "graph-page"), "graph: page rendered"],
     [/showing \d+ nodes/.test(graphHtml), "graph: node/link count shown"],

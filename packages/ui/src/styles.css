@@ -376,6 +376,8 @@ html[data-theme="paper"] .toggle-on {
 }
 .filter-disclosure { display: none; }
 .filter-groups { display: contents; }
+/* Shown only on narrow when a page opts into collapsing the date range (Commits). */
+.range-disclosure { display: none; }
 .file-load {
   color: var(--muted);
   display: inline-flex;
@@ -1645,7 +1647,42 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .filter-groups .toggle-label { flex-basis: 100%; }
   .time-range-controls { align-items: flex-start; gap: 8px; }
-  .time-range-controls > .muted:first-child { flex-basis: 100%; }
+  .time-range-controls .time-range-label { flex-basis: 100%; }
+  /* Commits opts into a collapsed range: a full-width summary toggle, with the
+     range label, date inputs, and quick presets hidden until expanded. */
+  .time-range-controls .range-disclosure {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 36px;
+    padding: 7px 12px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .time-range-controls .range-disclosure-label { color: var(--muted); }
+  .time-range-controls .range-disclosure-summary { font-weight: 600; }
+  .time-range-controls .range-disclosure-caret {
+    margin-left: auto;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+    transform: translateY(-2px) rotate(45deg);
+  }
+  .time-range-controls[data-range-collapsed="true"] .range-disclosure-caret {
+    transform: translateY(1px) rotate(-135deg);
+  }
+  .time-range-controls[data-range-collapsed="true"] > .time-range-label,
+  .time-range-controls[data-range-collapsed="true"] > .date-filter,
+  .time-range-controls[data-range-collapsed="true"] > .toggle-group {
+    display: none;
+  }
   .time-range-controls .date-filter {
     flex: 1 1 100%;
     min-width: 0;
@@ -1689,7 +1726,10 @@ a.rf-node-title:hover { color: var(--accent); }
   .commit-row-body {
     align-items: stretch;
     flex-direction: column;
-    min-height: var(--commit-row-body-height);
+    /* Size to content: the timeline measures this height and reserves the slot
+       to match, so cards are as tall as their content with no fixed blank space.
+       (Desktop keeps the fixed `--commit-row-body-height` from the base rule.) */
+    min-height: 0;
   }
   .commit-row-actions { align-self: flex-start; margin-top: 0; }
   .commit-row-meta { flex-wrap: wrap; white-space: normal; }
