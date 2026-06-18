@@ -1774,6 +1774,31 @@ export function graphOverviewVisibility(
   };
 }
 
+// Why the OVERVIEW canvas is empty while the side list still lists candidates —
+// the diagnosis that turns the dead-end "No relationships are drawn" message
+// into a one-click recovery. `hiddenLinks` is how many in-range relationships
+// the edge filter is currently suppressing.
+export type GraphCanvasEmptyReason =
+  | { kind: "mentions-hidden"; hiddenLinks: number } // mentions toggle off, every candidate is a mention
+  | { kind: "mention-target-filtered"; mentionTarget: Exclude<GraphMentionTarget, "all">; hiddenLinks: number } // mentions on, but the target filter drops them all (never "all" — that draws every candidate)
+  | { kind: "filtered"; hiddenLinks: number }; // suppressed for some other filter combination (defensive fallback)
+
+// Returns null when there is nothing actionable to explain: the canvas already
+// has edges to draw, or there are no candidates at all (the outer "No
+// relationships in this range." state owns the latter). Only meaningful for the
+// overview canvas — a focus subgraph draws every edge type regardless.
+export function graphCanvasEmptyReason(
+  overview: GraphOverviewVisibility,
+  opts: { showMentions: boolean; mentionTarget: GraphMentionTarget },
+): GraphCanvasEmptyReason | null {
+  if (overview.drawnEdges.length > 0) return null; // canvas has content
+  if (overview.candidateEdges.length === 0) return null; // outer empty state
+  const hiddenLinks = overview.candidateEdges.length;
+  if (!opts.showMentions) return { kind: "mentions-hidden", hiddenLinks };
+  if (opts.mentionTarget !== "all") return { kind: "mention-target-filtered", mentionTarget: opts.mentionTarget, hiddenLinks };
+  return { kind: "filtered", hiddenLinks };
+}
+
 // Build a relationship graph from already-windowed resolved edges, keeping only
 // nodes that take part in an edge (no isolated-dot sea).
 export function buildGraph(edges: ResolvedEdge[]): GraphData {

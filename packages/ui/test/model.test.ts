@@ -89,6 +89,7 @@ import {
   relationCountOf,
   graphWindowEdgesInRange,
   graphOverviewVisibility,
+  graphCanvasEmptyReason,
   isSyncRunActive,
   syncProducedFreshData,
   liveSourceStatus,
@@ -982,6 +983,70 @@ test("graphOverviewVisibility keeps mention-only nodes discoverable while the ov
 
   const withMentions = graphOverviewVisibility(resolved, { from: "2026-06-14", to: "2026-06-14" }, "UTC", { showMentions: true, mentionTarget: "all" });
   assert.equal(withMentions.drawnIds.has("issue-345"), true, "enabling mentions promotes the same item onto the canvas");
+});
+
+test("graphCanvasEmptyReason diagnoses why the overview canvas is empty so the empty state can offer a one-click recovery", () => {
+  const issue = item({ id: "issue-345", kind: "issue", state: "closed", iid: 345, updated_at: "2026-06-14T05:28:48Z" });
+  const mentionedPr = item({ id: "pr-343", kind: "change_request", state: "merged", iid: 343, updated_at: "2026-06-14T05:27:16Z" });
+  const otherIssue = item({ id: "issue-200", kind: "issue", state: "closed", iid: 200, updated_at: "2026-06-14T05:20:00Z" });
+  // Two mention edges, one to a PR and one to an issue — the screenshot scenario:
+  // in-range candidates exist, but they are all mentions, hidden by default.
+  const mentionOnly: ResolvedEdge[] = [
+    { edge: edge("issue-345", "pr-343", null, "mentions"), from: issue, to: mentionedPr },
+    { edge: edge("issue-345", "issue-200", null, "mentions"), from: issue, to: otherIssue },
+  ];
+  const range = { from: "2026-06-14", to: "2026-06-14" };
+
+  // Default (mentions off): all candidates are mention links -> tell the user and
+  // offer to enable mentions.
+  const hidden = graphOverviewVisibility(mentionOnly, range, "UTC", { showMentions: false, mentionTarget: "all" });
+  assert.deepEqual(graphCanvasEmptyReason(hidden, { showMentions: false, mentionTarget: "all" }), { kind: "mentions-hidden", hiddenLinks: 2 }, "mentions-off + only mention candidates -> mentions-hidden with the hidden count");
+
+  // Mentions on but filtered to PRs: the two issue-targeted mentions drop out ->
+  // tell the user the target filter is hiding them.
+  const filtered = graphOverviewVisibility(
+    [{ edge: edge("issue-345", "issue-200", null, "mentions"), from: issue, to: otherIssue }],
+    range,
+    "UTC",
+    { showMentions: true, mentionTarget: "change_request" },
+  );
+  assert.deepEqual(
+    graphCanvasEmptyReason(filtered, { showMentions: true, mentionTarget: "change_request" }),
+    { kind: "mention-target-filtered", mentionTarget: "change_request", hiddenLinks: 1 },
+    "mentions-on but every candidate filtered by target -> mention-target-filtered",
+  );
+
+  // The other target arm: with only a PR-targeted mention in range, filtering to
+  // issues drops it -> the same diagnosis, carrying the "issue" target.
+  const prMention: ResolvedEdge[] = [{ edge: edge("issue-345", "pr-343", null, "mentions"), from: issue, to: mentionedPr }];
+  const issueFiltered = graphOverviewVisibility(prMention, range, "UTC", { showMentions: true, mentionTarget: "issue" });
+  assert.deepEqual(
+    graphCanvasEmptyReason(issueFiltered, { showMentions: true, mentionTarget: "issue" }),
+    { kind: "mention-target-filtered", mentionTarget: "issue", hiddenLinks: 1 },
+    "filtering to issues hides the PR-targeted mention",
+  );
+
+  // Defensive `filtered` fallback — a non-mention candidate that is somehow not
+  // drawn with mentions on + target all. Unreachable through
+  // graphOverviewVisibility, so build the visibility shape directly.
+  const fallback = graphCanvasEmptyReason(
+    { candidateEdges: [{ edge: edge("a", "b", null, "closes"), from: null, to: null }], drawnEdges: [], candidateIds: new Set(["a", "b"]), drawnIds: new Set() },
+    { showMentions: true, mentionTarget: "all" },
+  );
+  assert.deepEqual(fallback, { kind: "filtered", hiddenLinks: 1 }, "showMentions + target all + no drawn edges -> filtered fallback");
+
+  // Canvas has drawn edges -> no empty reason (the Flow renders).
+  const drawn = graphOverviewVisibility(
+    [{ edge: edge("pr-339", "issue-341", "fulfilled", "closes"), from: mentionedPr, to: issue }],
+    range,
+    "UTC",
+    { showMentions: false, mentionTarget: "all" },
+  );
+  assert.equal(graphCanvasEmptyReason(drawn, { showMentions: false, mentionTarget: "all" }), null, "a non-empty canvas has no empty reason");
+
+  // No candidates at all -> null (the outer "No relationships in this range." owns that).
+  const none = graphOverviewVisibility([], range, "UTC", { showMentions: false, mentionTarget: "all" });
+  assert.equal(graphCanvasEmptyReason(none, { showMentions: false, mentionTarget: "all" }), null, "no candidates -> outer empty state, not this one");
 });
 
 test("buildGraph keeps only edge-connected nodes and flags untracked ends", () => {
