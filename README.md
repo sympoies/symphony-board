@@ -5,11 +5,11 @@
 
 [![activity](docs/assets/readme-activity.png)](docs/assets/readme-activity.png)
 
-Provider-agnostic work-item board for GitHub and GitLab. It syncs issues and
-pull/merge requests from configured projects into a canonical store (SQLite by
-default, Postgres by opt-in compose), derives typed relationships between them,
-emits a versioned JSON contract, and serves a read-only web UI from that
-contract.
+Read-only cross-provider workflow board for GitHub and GitLab. `symphony-board`
+coordinates issues, pull requests, merge requests, activity, and typed
+relationships from configured projects into a canonical store (SQLite by
+default, Postgres by opt-in compose), emits a versioned JSON contract, and serves
+a web UI from that contract.
 
 The product surface is the contract plus UI. The database is an implementation
 store, not the consumer API.
