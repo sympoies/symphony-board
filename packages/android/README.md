@@ -48,14 +48,26 @@ generated app uses the Symphony Board launcher mark and applies Android
 system-bar insets to the WebView, avoiding status/navigation bar overlap on
 edge-to-edge devices.
 
-The launcher mark is written as an **adaptive icon under `mipmap/`** (a navy
-background plus the cyan equalizer foreground, all vectors) and the manifest
-points at `@mipmap/ic_launcher`. A plain `@drawable` vector renders on the home
-screen but is ignored by the recents/running-apps list and themed-icon surfaces,
-which fall back to the framework default — so the icon must be an adaptive
-`mipmap` resource. Note Android caches launcher icons aggressively: after an
-icon change, a full uninstall + reinstall (or reboot) is needed to see it, since
-`adb install -r` does not bust the cache.
+The launcher mark is written as an **adaptive icon under `mipmap-anydpi-v26/`**
+(a navy background, the cyan equalizer foreground, and a `<monochrome>` bar
+silhouette, all vectors) and the manifest points at `@mipmap/ic_launcher`. A
+plain `@drawable` vector renders on the home screen but is ignored by the
+recents/running-apps list and themed-icon surfaces, which fall back to the
+framework default — so the icon must be an adaptive `mipmap` resource. The
+`<monochrome>` layer is what Android 13+ themed-icon mode tints; without it the
+launcher themes the framework default instead of our mark.
+
+Adaptive icons only apply on API 26+. For the API 24–25 fallback the script
+writes a full-icon brand vector (navy tile + bars) to **`mipmap-anydpi/`**, which
+outranks any per-density raster on every API level yet is itself outranked by
+`mipmap-anydpi-v26` on API 26+ — so it renders only on API 24–25. `tauri android
+init`'s own per-density `mipmap-*/ic_launcher*.png` rasters are the **Tauri**
+logo (generated from its template, not `bundle.icon`), so the script deletes them
+rather than shipping an off-brand pre-v26 icon.
+
+Note Android caches launcher icons aggressively: after an icon change, a full
+uninstall + reinstall (or reboot) is needed to see it, since `adb install -r`
+does not bust the cache.
 
 ## Server Shape
 
