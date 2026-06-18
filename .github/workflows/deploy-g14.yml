@@ -40,7 +40,13 @@ jobs:
           set -euo pipefail
           infra="$HOME/Project/graysurf/g14-infra"
           test -d "$infra/.git" || { echo "g14-infra checkout missing at $infra" >&2; exit 1; }
-          git -C "$infra" pull --ff-only
+          # The g14-infra checkout is DEPLOY-ONLY: force it to match origin/main
+          # with a hard reset rather than `pull --ff-only`, so the deploy never
+          # aborts on local drift to tracked files. Gitignored host .env files
+          # and untracked paths are left untouched. Edit stacks via a PR to
+          # g14-infra — never by hand on this checkout.
+          git -C "$infra" fetch --quiet origin main
+          git -C "$infra" reset --hard origin/main
           cd "$infra/stacks/symphony-board"
           # Pull the freshly published :latest image and reconcile the stack.
           # Reuses the existing named volumes (postgres-data / contract-data).
