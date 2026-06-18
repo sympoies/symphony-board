@@ -225,6 +225,22 @@ jobs:
             verify_ref "$image_ref"
           done
 
+      # Hand the prerelease flag to the deploy-g14 workflow. It triggers off this
+      # workflow's run via `workflow_run`, which carries no release payload, so it
+      # cannot otherwise tell a prerelease publish (where `:latest` is NOT moved)
+      # from a stable one. The gate job in deploy-g14 reads this artifact.
+      - name: Record deploy metadata
+        run: |
+          mkdir -p deploy-meta
+          printf '%s\n' '${{ github.event.release.prerelease }}' > deploy-meta/prerelease
+
+      - name: Upload deploy metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-meta
+          path: deploy-meta/prerelease
+          retention-days: 1
+
   desktop:
     name: build unsigned macOS apps (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}

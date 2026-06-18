@@ -13,6 +13,13 @@ name: deploy-g14
 # the one path that would let a fork's PR execute code on the g14 runner. The
 # job also does not check out this repo; it only pulls the trusted, private
 # g14-infra checkout and runs `docker compose`, so no PR-provided code runs here.
+#
+# A `gate` job (on ubuntu-latest, NOT g14) decides whether the trigger should
+# actually redeploy. publish-image runs for prereleases too but only moves the
+# `:latest` tag for stable releases, and the workflow_run event carries no
+# prerelease flag — so publish-image records it in a `deploy-meta` artifact the
+# gate reads. The g14 deploy job runs only when the gate says deploy; this keeps
+# the artifact fetch off the self-hosted runner.
 
 on:
   workflow_run:
@@ -28,10 +35,45 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: pull + redeploy on g14
+  gate:
+    name: decide whether to deploy
+    runs-on: ubuntu-latest
     # Manual dispatch always; workflow_run only when publish-image succeeded.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+    steps:
+      - name: Fetch publish metadata from the triggering run
+        if: ${{ github.event_name == 'workflow_run' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-meta
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: deploy-meta
+      - name: Decide whether this trigger should redeploy
+        id: decide
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif [ "$(cat deploy-meta/prerelease 2>/dev/null || echo missing)" = "false" ]; then
+            echo "Stable release publish — :latest was updated; deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Prerelease publish (or missing metadata) — :latest was not moved; skipping the g14 redeploy."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: pull + redeploy on g14
+    needs: gate
+    if: ${{ needs.gate.outputs.deploy == 'true' }}
     runs-on: [self-hosted, g14, deploy]
     timeout-minutes: 15
     steps:
