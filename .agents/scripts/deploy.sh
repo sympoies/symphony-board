@@ -10,5 +10,16 @@ cd "$repo_root"
 # opt-in Postgres stack; sqlite or unset -> the default SQLite stack.
 compose_file="$(node "$repo_root/scripts/active-compose-file.mjs")"
 
+# Load the repo-root .env for variable interpolation. Compose anchors its
+# project directory to the compose file's folder (docker/), so its automatic
+# .env lookup would target docker/.env (which we do not ship) and silently drop
+# operator overrides like SYMPHONY_PG_WEB_BIND -- leaving the web UI on its
+# 127.0.0.1 default instead of the configured host interface. Pass the file
+# explicitly so deploys honor it; skip cleanly when there is no .env.
+compose_args=(-f "$compose_file")
+if [ -f "$repo_root/.env" ]; then
+  compose_args+=(--env-file "$repo_root/.env")
+fi
+
 echo "deploy: SYMPHONY_BOARD_ENV=${SYMPHONY_BOARD_ENV:-<from .env / unset>} -> $compose_file" >&2
-exec docker compose -f "$compose_file" up -d --build "$@"
+exec docker compose "${compose_args[@]}" up -d --build "$@"
