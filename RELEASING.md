@@ -35,6 +35,17 @@ version is the default app version. The emitted contract version is independent:
 consumers branch on `contract_version` in the JSON envelope, not on the app or
 image tag.
 
+The Tauri apps each carry their own version metadata that must be bumped in
+lockstep with the root version. For `app` in `desktop`, `desktop-standalone`,
+and `android`, bump all four of `packages/<app>/package.json`,
+`packages/<app>/src-tauri/Cargo.toml`, `packages/<app>/src-tauri/Cargo.lock`
+(the `symphony-board-<app>` entry), and
+`packages/<app>/src-tauri/tauri.conf.json`. `scripts/check-app-versions.sh` —
+the CI `check` gate, also `pnpm run check:app-versions` — fails the build if any
+drifts, so a forgotten file is caught before release. `packages/ui` (a shared
+library pinned at `0.1.0`) and `packages/contract` (its own version) are
+intentionally excluded.
+
 Published image tags:
 
 | Image | Version tag | Rolling tag |
