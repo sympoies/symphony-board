@@ -101,6 +101,28 @@ export function toggleActivityFacet(facets: ActivityFacets, dim: ActivityFacetDi
   return next;
 }
 
+// --- Activity view (mobile sub-tab) ----------------------------------------
+//
+// On narrow viewports the Activity page shows EITHER the records feed OR the
+// summary "overview" panel (overview + rhythm + trend), chosen by a segmented
+// control, instead of stacking both. The choice is route-backed via the shared
+// `tab` field — the same field Settings uses for its sub-tab — so a reload or a
+// shared link reopens the same view. Because `tabHref` drops `tab` on a top-nav
+// hop, a fresh visit to Activity always lands on the feed (the latest records),
+// which is exactly the default the toggle exists to restore. On wide viewports
+// both panes render side by side and the view is ignored.
+export type ActivityView = "feed" | "overview";
+
+export function activityView(route: Pick<HashRoute, "tab">): ActivityView {
+  return route.tab === "overview" ? "overview" : "feed";
+}
+
+// The `tab` route value for a view. The feed is the default, so it maps to null
+// (no `tab` field) to keep the URL clean and let a top-nav hop reset to the feed.
+export function activityViewTab(view: ActivityView): string | null {
+  return view === "overview" ? "overview" : null;
+}
+
 // --- Item facets (board / graph / repo-analytics) --------------------------
 //
 // The shared work-item lens — source / state / kind of items. Unlike the

@@ -1326,6 +1326,12 @@ try {
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
             activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
+            // The narrow-viewport Feed/Overview segmented toggle and which single
+            // pane it currently shows (default: the records feed, heatmap absent).
+            activityViewTogglePresent: !!document.querySelector('.activity-view-toggle'),
+            activityViewActiveTab: (document.querySelector('.activity-view-toggle [role="tab"][aria-selected="true"]')?.textContent || '').trim() || null,
+            activityHeatmapPresent: !!activityHeatmap,
+            activityListPresent: !!activityList,
             activityChipsWrap: !activityChips || (activityChipsStyle?.whiteSpace === 'normal' && activityChipsStyle?.flexWrap === 'wrap'),
             activityRowsNotClipped: activityRows.every((row) => row.scrollHeight <= row.clientHeight + 1),
             commitRowsWithinSlot: commitRows.every((row) => {
@@ -1388,6 +1394,34 @@ try {
     ...phoneActiveFilterDisclosureBefore,
     ...phoneActiveFilterDisclosureAfter,
   };
+  // Flip the mobile toggle to Overview and confirm the single visible pane swaps
+  // from the feed to the rhythm heatmap (which now only mounts in this view) and
+  // that it still opens scrolled to the latest dates.
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const tab = Array.from(document.querySelectorAll('.activity-view-tab')).find((b) => b.textContent.trim() === 'Overview');
+      tab?.click();
+    })()`,
+  });
+  await sleep(300);
+  await waitHtml("document.querySelector('.activity-heatmap')");
+  const phoneActivityOverview = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const active = document.querySelector('.activity-view-toggle [role="tab"][aria-selected="true"]');
+      const heatmap = document.querySelector('.activity-heatmap');
+      const heatmapScroll = heatmap?.querySelector('.hm-calendar-scroll');
+      const list = document.querySelector('.activity-list');
+      const maxScroll = heatmapScroll ? Math.max(0, heatmapScroll.scrollWidth - heatmapScroll.clientWidth) : 0;
+      return {
+        activeTab: (active?.textContent || '').trim() || null,
+        heatmapPresent: !!heatmap,
+        listPresent: !!list,
+        heatmapScrolledToLatest: !heatmapScroll || maxScroll === 0 || Math.abs(maxScroll - heatmapScroll.scrollLeft) <= 2,
+        hashHasOverview: /[?&]tab=overview/.test(location.hash),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
   await sleep(300);
   await waitHtml("document.querySelector('.repo-analytics-page')");
@@ -1563,8 +1597,8 @@ try {
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true, `portrait: active phone filters show a count and can expand without hiding range controls (${JSON.stringify(phoneActiveFilterDisclosure)})`],
-    [phoneActivity.activityHeatmapAboveFeed === true && phoneActivity.activityListHeight > 0 && phoneActivity.activityListHeight <= Math.round(phoneActivity.viewportHeight * 0.55), `portrait: phone activity puts rhythm before a shorter feed (${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px)`],
-    [phoneActivity.activityHeatmapScrolledToLatest === true, "portrait: phone activity heatmap opens scrolled to the latest dates"],
+    [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.6), `portrait: phone activity defaults to a tall records feed behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, heatmap=${phoneActivity.activityHeatmapPresent})`],
+    [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     [phoneRangeCollapsePages.length > 0 && phoneRangeCollapsePages.every((r) => r.rangeDisclosureVisible === true && r.rangeFieldsCollapsed === true), `portrait: phone collapses the date range behind a disclosure on every content page (${phoneRangeCollapsePages.map((r) => `${r.page}:disclosure=${r.rangeDisclosureVisible},collapsed=${r.rangeFieldsCollapsed}`).join("; ")})`],

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { useListViewport } from "../useListViewport.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
+  ACTIVITY_MOBILE_QUERY,
   ACTIVITY_MOBILE_ROW_HEIGHT_PX,
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
@@ -38,12 +40,6 @@ export const ACTION_KIND: Record<string, string> = {
   dismissed: "status-idle",
 };
 
-const ACTIVITY_MOBILE_QUERY = "(max-width: 760px)";
-
-function mobileActivityRows(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(ACTIVITY_MOBILE_QUERY).matches;
-}
-
 // The scrollable, virtualized activity list. Rows render a clickable title when
 // the record carries a `url` (e.g. a commit links straight to its GitHub/GitLab
 // page), while the dedicated Commits page uses its own SCM-style renderer.
@@ -64,16 +60,7 @@ export function ActivityFeed({
   // callers without it simply render no review-resolution chip.
   itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
-  const [mobileRows, setMobileRows] = useState(mobileActivityRows);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const query = window.matchMedia(ACTIVITY_MOBILE_QUERY);
-    const onChange = () => setMobileRows(query.matches);
-    onChange();
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
+  const mobileRows = useMediaQuery(ACTIVITY_MOBILE_QUERY);
   const rowHeight = mobileRows ? ACTIVITY_MOBILE_ROW_HEIGHT_PX : ACTIVITY_ROW_HEIGHT_PX;
   const rowStride = rowHeight + ACTIVITY_ROW_GAP_PX;
 
