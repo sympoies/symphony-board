@@ -158,7 +158,17 @@ function QualityBadge({ metric }: { metric: RepoMetricDTO }) {
 
 function TopActors({ metric }: { metric: RepoMetricDTO }) {
   const actors = (metric.top_actors ?? []).slice(0, 3);
-  if (actors.length === 0) return null;
+  // An idle repo (no ranked actors) still draws a muted em-dash placeholder so
+  // the Actors column reads as an intentional "no data" cell rather than a blank
+  // gap — matching the 0s the metric columns show and the flat baseline the
+  // TREND column draws for the same idle rows. Theme-agnostic (uses --muted).
+  if (actors.length === 0) {
+    return (
+      <span className="repo-actors repo-actors-empty" title="no actors in range" aria-label="no actors in range">
+        —
+      </span>
+    );
+  }
   return (
     <span className="repo-actors">
       {actors.map((actor) => {

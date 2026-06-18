@@ -1899,6 +1899,10 @@ a.rf-node-title:hover { color: var(--accent); }
   text-decoration: underline;
 }
 .repo-actors-cell:empty { display: none; }
+/* Idle repos (no ranked actors): a muted em-dash placeholder so the Actors cell
+   reads as an intentional "no data" marker instead of a blank gap. Slightly
+   faint so it never competes with real actor names; theme-agnostic via --muted. */
+.repo-actors-empty { opacity: 0.55; }
 
 /* settings page (persistent repo display filter) */
 .settings-page { margin: 12px 0; max-width: 720px; }
@@ -2358,6 +2362,9 @@ a.rf-node-title:hover { color: var(--accent); }
     font-size: 12px;
   }
   .repo-actors-cell::before { display: none; }
+  /* On the compact card layout an idle repo drops the Actors row entirely rather
+     than spending a full-width row on a lone placeholder dash. */
+  .repo-actors-cell:has(> .repo-actors-empty) { display: none; }
   .repo-actors {
     max-height: 22px;
     overflow: hidden;
