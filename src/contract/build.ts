@@ -33,7 +33,7 @@ import { refOf } from "../model/ref.ts";
 import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/actor.ts";
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
-import { zonedDayStartIso, zonedDateOnly, shiftDateOnly } from "../lib/tz.ts";
+import { zonedDayStartIso, zonedHourStartIso, zonedDateOnly, shiftDateOnly } from "../lib/tz.ts";
 import { providerProfileUrl, providerRepoUrl, type ProviderLinkSource } from "../provider-links.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
@@ -336,8 +336,18 @@ function windowDays(range: TimeRangeDTO): number {
   return Math.ceil((toMs - fromMs + 1) / 86_400_000);
 }
 
+// Sub-day bucket widths (in hours) and the day-count threshold that selects each.
+// All three divide 24, so a single local day tiles into a whole number of buckets
+// (12, 12, 12) aligned to the zone's local clock. The thresholds keep a 1-3 day
+// window at ~12 bars instead of degenerating to 1-3 flat ones, which fits the UI's
+// 16-bar TREND budget without truncation (see packages/ui/src/model.ts repoTrend).
+const SUBDAY_BUCKET_HOURS: Partial<Record<RepoMetricBucket, number>> = { "2h": 2, "4h": 4, "6h": 6 };
+
 function repoMetricBucket(range: TimeRangeDTO): RepoMetricBucket {
   const days = windowDays(range);
+  if (days <= 1) return "2h";
+  if (days <= 2) return "4h";
+  if (days <= 3) return "6h";
   if (days <= 31) return "day";
   if (days <= 180) return "week";
   return "month";
@@ -358,7 +368,32 @@ function advanceBucketDate(dateStr: string, bucket: RepoMetricBucket): string {
 // days (so e.g. one local day is exactly one "day" bucket). The boundary day
 // starts are resolved at the zone's local midnight; `tz === "UTC"` reduces to
 // the original UTC-day alignment.
+// Tile a range into fixed-width sub-day buckets (`stepHours` divides 24) aligned
+// to the zone's local clock, so each bucket boundary is a local wall-clock hour
+// (00:00, 02:00, …) resolved to its UTC instant. The first/last buckets clip to
+// the range; boundaries are resolved per-hour (not by adding a fixed ms step) so
+// a DST shift moves the grid with the local clock instead of drifting.
+function subDayBucketRanges(range: TimeRangeDTO, stepHours: number, tz: string): TimeRangeDTO[] {
+  const { fromMs, toMs } = rangeMs(range);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return [];
+  const buckets: TimeRangeDTO[] = [];
+  let cursorDate = zonedDateOnly(fromMs, tz);
+  for (;;) {
+    for (let hour = 0; hour < 24; hour += stepHours) {
+      const startMs = Date.parse(zonedHourStartIso(cursorDate, hour, tz));
+      if (startMs > toMs) return buckets;
+      const nextMs = Date.parse(zonedHourStartIso(cursorDate, hour + stepHours, tz));
+      const start = Math.max(startMs, fromMs);
+      const end = Math.min(nextMs - 1, toMs);
+      if (start <= end) buckets.push({ from: new Date(start).toISOString(), to: new Date(end).toISOString() });
+    }
+    cursorDate = shiftDateOnly(cursorDate, 1);
+  }
+}
+
 function bucketRanges(range: TimeRangeDTO, bucket: RepoMetricBucket, tz: string): TimeRangeDTO[] {
+  const stepHours = SUBDAY_BUCKET_HOURS[bucket];
+  if (stepHours !== undefined) return subDayBucketRanges(range, stepHours, tz);
   const { fromMs, toMs } = rangeMs(range);
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return [];
   const buckets: TimeRangeDTO[] = [];

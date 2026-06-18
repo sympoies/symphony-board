@@ -239,7 +239,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v3. Current emitted version: `3.4.0`.
+Current major: v3. Current emitted version: `3.5.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -339,6 +339,13 @@ previously reserved `details.branches` / `details.refs` membership lists when a
 commit is reachable from more than one branch, and `details.branch` /
 `details.ref` become the commit's primary branch instead of always the default
 branch. No shape change.
+
+Version `3.5.0` adds sub-day `repo_metrics[].window.bucket` widths (`2h`/`4h`/`6h`)
+so a 1-3 day Repo Analytics window resolves its TREND sparkline at intraday
+granularity (12 bars) instead of 1-3 flat buckets. It is additive: a new enum
+member on the existing `bucket` field, with the `series[]` shape unchanged. The
+bucket selection lives in `repoMetricBucket` and the tiling in `bucketRanges`
+(both in `src/contract/build.ts`), aligned to the configured zone's local clock.
 
 Version `3.4.0` adds optional `repo_metrics[].top_actors[].profile_url`, the
 per-actor counterpart to `repo_url`. The same producer-owned provider-link layer

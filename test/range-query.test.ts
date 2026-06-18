@@ -194,29 +194,60 @@ test("buildRangeContract carries the configured timezone onto the envelope and r
   assert.deepEqual(validateContract(env), []);
 });
 
-test("repo-metric series buckets align to the configured timezone", () => {
+test("repo-metric sub-day series tiles a single local day into 12 two-hour buckets aligned to the zone", () => {
   const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
   // One Taipei calendar day (2026-06-09), expanded at +08:00 by the range API:
-  // 2026-06-08T16:00Z .. 2026-06-09T15:59:59.999Z. It straddles two UTC days.
+  // 2026-06-08T16:00Z .. 2026-06-09T15:59:59.999Z. A single day now resolves the
+  // TREND sparkline at 2-hour granularity (12 bars) instead of one flat bucket.
   const range = { from: "2026-06-08T16:00:00.000Z", to: "2026-06-09T15:59:59.999Z" };
-  const common = {
+  const tpe = buildRangeContract({
     sources: [source],
     items: [itemRow({ item_id: 1, updated_at: "2026-06-09T02:00:00Z" })],
     labels: [],
     edges: [],
-    activities: [activityRow({ occurred_at: "2026-06-09T02:00:00Z" })],
+    // Taipei 10:00 (UTC 02:00) -> the 10:00-12:00 local bucket (index 5).
+    activities: [activityRow({ occurred_at: "2026-06-09T02:00:00Z", kind: "commit", action: "committed" })],
     generatedAt: "2026-06-09T18:00:00Z",
+    timezone: "Asia/Taipei",
     range,
-  };
+  });
+  const metric = tpe.repo_metrics?.[0];
+  assert.deepEqual(validateContract(tpe), []);
+  assert.equal(metric?.window.bucket, "2h");
+  const series = metric?.series ?? [];
+  assert.equal(series.length, 12, "one local day tiles into 12 two-hour buckets");
+  assert.equal(series[0]?.bucket_start, "2026-06-08T16:00:00.000Z", "first bucket starts at the local day start");
+  assert.equal(series[11]?.bucket_end, "2026-06-09T15:59:59.999Z", "last bucket ends at the local day end");
+  // Each 2h bucket starts exactly 1ms after the previous ends (no fence-post drift).
+  for (let i = 1; i < series.length; i++) {
+    assert.equal(Date.parse(series[i]!.bucket_start), Date.parse(series[i - 1]!.bucket_end) + 1, `bucket ${i} is contiguous`);
+  }
+  // The single commit lands in exactly one bucket (Taipei 10:00 -> index 5); the rest are zero.
+  series.forEach((p, i) => assert.equal(p.stats.commits, i === 5 ? 1 : 0, `commits in bucket ${i}`));
+});
 
-  const tpe = buildRangeContract({ ...common, timezone: "Asia/Taipei" });
-  const tpeSeries = tpe.repo_metrics?.[0]?.series ?? [];
-  assert.equal(tpeSeries.length, 1, "one local day is exactly one day bucket");
-  assert.equal(tpeSeries[0]?.bucket_start, "2026-06-08T16:00:00.000Z");
-  assert.equal(tpeSeries[0]?.bucket_end, "2026-06-09T15:59:59.999Z");
+test("repo-metric sub-day buckets widen with the range: 2 days -> 4h, 3 days -> 6h, 4 days -> day", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  // One item is enough to materialize a repo row; series length is range-driven,
+  // not data-driven, so the exact item instant does not matter here.
+  const common = { sources: [source], items: [itemRow({ item_id: 1, updated_at: "2026-06-10T05:00:00Z" })], labels: [], edges: [], activities: [], generatedAt: "2026-06-14T00:00:00Z", timezone: "UTC" };
 
-  const utc = buildRangeContract({ ...common, timezone: "UTC" });
-  assert.equal(utc.repo_metrics?.[0]?.series.length, 2, "the same instants straddle two UTC days");
+  // 2 UTC days (48h) -> 4-hour buckets -> 12 bars.
+  const twoDay = buildRangeContract({ ...common, range: { from: "2026-06-10T00:00:00.000Z", to: "2026-06-11T23:59:59.999Z" } });
+  assert.deepEqual(validateContract(twoDay), []);
+  assert.equal(twoDay.repo_metrics?.[0]?.window.bucket, "4h");
+  assert.equal(twoDay.repo_metrics?.[0]?.series.length, 12);
+
+  // 3 UTC days (72h) -> 6-hour buckets -> 12 bars.
+  const threeDay = buildRangeContract({ ...common, range: { from: "2026-06-10T00:00:00.000Z", to: "2026-06-12T23:59:59.999Z" } });
+  assert.deepEqual(validateContract(threeDay), []);
+  assert.equal(threeDay.repo_metrics?.[0]?.window.bucket, "6h");
+  assert.equal(threeDay.repo_metrics?.[0]?.series.length, 12);
+
+  // 4 days falls back to whole-day buckets (the prior behavior, capped to 16 bars in the UI).
+  const fourDay = buildRangeContract({ ...common, range: { from: "2026-06-10T00:00:00.000Z", to: "2026-06-13T23:59:59.999Z" } });
+  assert.equal(fourDay.repo_metrics?.[0]?.window.bucket, "day");
+  assert.equal(fourDay.repo_metrics?.[0]?.series.length, 4);
 });
 
 test("openSqliteStoreReadOnly can read but cannot write or migrate", async () => {

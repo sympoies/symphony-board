@@ -81,6 +81,20 @@ export function zonedDayStartIso(dateStr: string, tz: string): string {
   return new Date(zonedWallToInstantMs(y, m, d, 0, 0, 0, 0, tz)).toISOString();
 }
 
+// UTC ISO instant for local day `dateStr` at `hour:00:00.000` in `tz`. `hour`
+// may be 0..24; 24 resolves to the next day's local midnight, so it doubles as a
+// bucket's exclusive end boundary. Used to tile a single day into sub-day
+// (e.g. 2-hour) series buckets aligned to the zone's local clock.
+export function zonedHourStartIso(dateStr: string, hour: number, tz: string): string {
+  if (hour >= 24) return zonedDayStartIso(shiftDateOnly(dateStr, 1), tz);
+  if (tz === "UTC") return `${dateStr}T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  const parts = dateStr.split("-");
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  return new Date(zonedWallToInstantMs(y, m, d, hour, 0, 0, 0, tz)).toISOString();
+}
+
 // UTC ISO instant for the END of local day `dateStr` (23:59:59.999) in `tz`.
 export function zonedDayEndIso(dateStr: string, tz: string): string {
   if (tz === "UTC") return `${dateStr}T23:59:59.999Z`;

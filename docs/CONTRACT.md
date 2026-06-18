@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.4.0`.
+Current emitted version: `3.5.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "3.4.0",
+  "contract_version": "3.5.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -503,9 +503,11 @@ This is the zone the calendar-day boundaries are bucketed in:
 - `GET /api/range` expands the `from` / `to` date query at this zone's day
   boundaries (00:00 / 23:59:59.999 local), so server-side windowing matches the
   zoned preset the UI computed;
-- `repo_metrics[].series` day / week / month buckets align to this zone's
-  calendar days (added in `3.1.1`), so one local day is exactly one `day` bucket
-  rather than straddling two UTC days.
+- `repo_metrics[].series` buckets align to this zone's calendar days (added in
+  `3.1.1`): a `day`/`week`/`month` bucket starts at a local midnight, and the
+  sub-day `2h`/`4h`/`6h` widths (added in `3.5.0`) start at the zone's local
+  even-hour boundaries (00:00, 02:00, …), so intraday buckets follow the viewer's
+  clock rather than straddling UTC hours.
 
 `3.1.0` is a **minor** bump: `timezone` is a new optional top-level field old
 consumers ignore, and the `range_query.timezone` relaxation breaks no consumer
@@ -545,7 +547,8 @@ Each row contains:
   project paths. Use it as a display/navigation convenience, not as identity.
 - `window`: `active_since` for static emits or `time_range` for `/api/range`,
   always with `basis: "repo_activity"`, inclusive UTC `from` / `to`, and an
-  explicit bucket width (`day`, `week`, or `month`).
+  explicit bucket width (`2h`, `4h`, `6h`, `day`, `week`, or `month`; the sub-day
+  widths cover 1-3 day windows — see Version `3.5.0`).
 - `totals`: selected-window counts for active/opened/closed items, opened /
   closed / merged change requests, activity event categories, activity score,
   edge lifecycle, and open-vocabulary breakdown maps.
@@ -658,6 +661,17 @@ against the metric's window (no producer-side enum): `no activity` when
 window (real dormancy, not a data gap); `partial` when `observed_since` falls
 inside the window (earlier counts are missing, not zero); otherwise `active`.
 This is a major bump because removing a field is breaking per the rules below.
+
+Version `3.5.0` added sub-day `repo_metrics[].window.bucket` widths (`2h`, `4h`,
+`6h`) for short windows. A 1-, 2-, or 3-day range now tiles its `series[]` into
+12 fixed-width points (12 × 2h / 4h / 6h) aligned to the zone's local clock,
+instead of collapsing into 1-3 flat buckets, so the Repo Analytics TREND
+sparkline shows an intraday shape (the UI caps the sparkline at 16 bars, so 12
+fits without truncation). Windows of 4+ days are unchanged (`day`/`week`/`month`).
+It is additive within contract major v3 — a new enum member on the existing
+`bucket` field; the `series[]` shape is unchanged. Consumers that branch on
+`bucket` should treat an unrecognized width as an opaque series point rather than
+rejecting it.
 
 Version `3.2.0` added optional nullable `repo_metrics[].repo_url` so consumers can
 link a Repo Analytics row back to its provider repository without reconstructing

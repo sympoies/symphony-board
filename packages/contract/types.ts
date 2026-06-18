@@ -104,7 +104,9 @@ export interface RepoStatsDTO {
 
 export type RepoMetricWindowKind = "time_range" | "active_since";
 export type RepoMetricBasis = "repo_activity";
-export type RepoMetricBucket = "day" | "week" | "month";
+// Sub-day widths (`2h`/`4h`/`6h`, added in 3.5.0) tile a 1-3 day window for the
+// Repo Analytics TREND sparkline; `day`/`week`/`month` cover longer windows.
+export type RepoMetricBucket = "2h" | "4h" | "6h" | "day" | "week" | "month";
 
 export interface RepoMetricWindowDTO {
   kind: RepoMetricWindowKind;
