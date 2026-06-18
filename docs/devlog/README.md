@@ -21,6 +21,11 @@ signal, not a changelog. Not every session earns an entry.
 
 - **One file per month**: `docs/devlog/YYYY-MM.md`. **Newest entry on top.**
 - **English**, like all repo content.
+- **Public repo — no personal records.** Never write personal identifiers (real
+  names, personal handles, emails), internal hostnames (e.g. a company GitLab
+  host), or personal deploy topology (specific machines, Tailscale/tailnet
+  names, private IPs). Use neutral placeholders (`dev-a`, `gitlab.internal`, "a
+  dedicated host") and keep the engineering signal, not the personal specifics.
 - Commit each entry on its own: `docs(devlog): <month> — <subject>`.
 - Search past entries with `scripts/devlog-search.sh <term> [YYYY-MM]`.
 

@@ -49,6 +49,9 @@ Failure modes:
   an error.
 - The entry would only duplicate `docs/DESIGN.md` (decisions) or a commit
   message (what changed) without adding *why* / context / links — trim or skip.
+- The entry leaks personal or private identifiers (real names, personal
+  handles/emails, internal hostnames, machine/tailnet names, private IPs) — this
+  is a public repo; anonymize with neutral placeholders before committing.
 
 ## Scripts
 
@@ -69,7 +72,14 @@ Failure modes:
    the file header. Never rewrite existing entries — the log is append-only.
 5. Keep it English. Capture the *why* and the *links*; do not restate the diff
    or the decision record.
-6. Commit only the devlog file(s) on their own via the semantic-commit skill:
+6. **Public repo — no personal records.** This repository is public: never write
+   personal identifiers (real names, personal usernames/handles, emails),
+   internal hostnames (e.g. a company GitLab host), or personal deploy topology
+   (specific machine names, Tailscale/tailnet names, private IPs) into an entry.
+   Use neutral placeholders instead (`dev-a`, `gitlab.internal`, "a dedicated
+   host", "the self-hosted GitLab") — keep the engineering signal, drop the
+   personal specifics. Scan the drafted entry for these before committing.
+7. Commit only the devlog file(s) on their own via the semantic-commit skill:
    `docs(devlog): <YYYY-MM> — <subject>`. Push per the repo's normal flow.
 
 ## Boundary
