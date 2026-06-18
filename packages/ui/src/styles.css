@@ -1643,6 +1643,9 @@ a.rf-node-title:hover { color: var(--accent); }
   .activity-head .muted { flex-basis: 100%; }
   .controls { align-items: stretch; gap: 8px; }
   .controls .search { flex-basis: 100%; width: 100%; box-sizing: border-box; }
+  /* The local-file contract loader is a desktop dev affordance, never used on a
+     phone — hide it so it doesn't spend a row of the filter bar. */
+  .file-load { display: none; }
   /* Shared collapsed-filter chrome: a full-width "label · summary · caret" bar
      used by the facet filters, the date range, and the Commits repo/branch
      filters so every page's filters look and behave the same on a phone. */

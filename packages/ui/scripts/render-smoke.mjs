@@ -1310,9 +1310,9 @@ try {
               && filterToggle.classList.contains('filter-summary-disclosure')
               && !!filterToggleSummary
               && (filterToggleRect?.width ?? 0) >= window.innerWidth * 0.9),
-            fileDisclosureVisible: !controls || (!!localFileSummary && getComputedStyle(localFileSummary).display !== 'none'),
-            fileInputCollapsed: !controls || (!!localFileInput && getComputedStyle(localFileInput).display === 'none'),
-            fileDisclosureSingleLine: !controls || (!!localFileSummary && localFileSummaryStyle?.whiteSpace === 'nowrap' && localFileSummary.getBoundingClientRect().height <= 38),
+            // The local-file contract loader is a desktop dev affordance; on a
+            // phone it is hidden entirely so it doesn't spend a row.
+            fileLoadHidden: !controls || !localFile || getComputedStyle(localFile).display === 'none',
             rangeControlsVisible: !rangeControls || getComputedStyle(rangeControls).display !== 'none',
             rangeDisclosureVisible: !!rangeDisclosure && getComputedStyle(rangeDisclosure).display !== 'none',
             rangeFieldsCollapsed: !rangeDateFilter || getComputedStyle(rangeDateFilter).display === 'none',
@@ -1557,8 +1557,7 @@ try {
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
     [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
-    [phoneFilterPages.every((r) => r.fileDisclosureVisible === true && r.fileInputCollapsed === true), `portrait: phone local file loader is collapsed (${phoneFilterPages.map((r) => `${r.page}:disclosure=${r.fileDisclosureVisible},inputCollapsed=${r.fileInputCollapsed}`).join("; ")})`],
-    [phoneFilterPages.every((r) => r.fileDisclosureSingleLine === true), `portrait: phone local file disclosure stays single-line (${phoneFilterPages.map((r) => `${r.page}:singleLine=${r.fileDisclosureSingleLine}`).join("; ")})`],
+    [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.fileLoadHidden === true), `portrait: phone hides the rarely-used local file loader (${phoneFilterPages.map((r) => `${r.page}:hidden=${r.fileLoadHidden}`).join("; ")})`],
     [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32), `portrait: phone source health strip stays compact (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
