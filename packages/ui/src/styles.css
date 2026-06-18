@@ -1849,8 +1849,13 @@ a.rf-node-title:hover { color: var(--accent); }
     align-items: flex-start;
     gap: 8px;
   }
-  .view-chrome > .time-range-controls:first-child:last-child,
-  .view-chrome .time-range-controls:not([data-range-collapsed="true"]) {
+  /* The range controls span the full row only when they are the sole control.
+     On a phone the expanded range lives in a fixed `.mobile-control-sheet`
+     overlay (`.time-range-inline` is `display: none` here), so opening it must
+     not widen the toolbar chip. Keying full width to `:not([data-range-collapsed])`
+     used to fire while the sheet was open and wrapped the chip onto its own row,
+     pushing the feed/board down. */
+  .view-chrome > .time-range-controls:first-child:last-child {
     flex-basis: 100%;
   }
   .controls .search-disclosure { display: inline-flex; }
