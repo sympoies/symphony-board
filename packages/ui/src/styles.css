@@ -290,6 +290,20 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
 .count { color: var(--muted); font-weight: 400; }
 .empty { color: var(--muted); padding: 24px 0; }
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  text-align: center; padding: 48px 16px;
+}
+.empty-state-title { margin: 0; color: var(--text); font-weight: 500; }
+.empty-state-body { margin: 0; color: var(--muted); font-size: 13px; }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+.empty-action {
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  border-radius: 999px; padding: 4px 14px; cursor: pointer; font: inherit;
+}
+.empty-action:hover { border-color: var(--accent); }
+.empty-action.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.empty-action:disabled { opacity: 0.6; cursor: not-allowed; border-color: var(--line); }
 
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;

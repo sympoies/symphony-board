@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -46,13 +46,14 @@ export function ActivityFeed({
   activities,
   sourceKind,
   colorOf,
-  emptyMessage,
+  empty,
   itemsById,
 }: {
   activities: ActivityDTO[];
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
-  emptyMessage: string;
+  // Empty-state node rendered when there are no rows; falls back to a plain line.
+  empty?: ReactNode;
   // Item index by ref, so a `review` row can resolve its `target_ref` to the
   // change_request and show that PR/MR's current open-thread count. Optional:
   // callers without it simply render no review-resolution chip.
@@ -75,7 +76,7 @@ export function ActivityFeed({
     [activities, virtual.start, virtual.end],
   );
 
-  if (activities.length === 0) return <p className="empty">{emptyMessage}</p>;
+  if (activities.length === 0) return <>{empty ?? <p className="empty">No activity.</p>}</>;
 
   return (
     <div

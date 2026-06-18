@@ -10,6 +10,8 @@ import {
   commitBranchOptions,
   preferredDefaultTimeRange,
   staticContractTimeRange,
+  activityOccurredExtent,
+  isCommitActivity,
   filterActivitiesByRange,
   indexItems,
   mergeActivityIndex,
@@ -78,6 +80,7 @@ import { CommitsPage } from "./components/CommitsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { DebugPage } from "./components/DebugPage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
+import { EmptyState } from "./components/EmptyState.tsx";
 import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
@@ -182,6 +185,19 @@ export function App() {
   // match the configured timezone.
   const tz = env?.timezone ?? "UTC";
   const staticRange = useMemo(() => (env ? staticContractTimeRange(env) : null), [env]);
+  // True data extents for the UNWINDOWED Activity / Commits feeds (staticRange is
+  // only the 90-day item window, so it would understate older history and make
+  // "Show all" / the extent copy overpromise). Board / Graph / Repo stay on
+  // staticRange since their data is item-windowed. Fall back to staticRange when
+  // there are no activities to measure.
+  const activityDataExtent = useMemo(
+    () => (env ? (activityOccurredExtent(env.activities ?? [], tz) ?? staticRange) : null),
+    [env, tz, staticRange],
+  );
+  const commitDataExtent = useMemo(
+    () => (env ? (activityOccurredExtent(env.activities ?? [], tz, isCommitActivity) ?? staticRange) : null),
+    [env, tz, staticRange],
+  );
   const defaultRange = useMemo(() => (env ? preferredDefaultTimeRange(env, defaultRangePreset) : null), [env, defaultRangePreset]);
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
@@ -560,6 +576,33 @@ export function App() {
     if (readHash() !== next) window.location.hash = next;
   }
 
+  // Drop every search / facet / SCM filter for the current page in one step,
+  // keeping the page, the graph focus, and the active time range. Wired into the
+  // empty-state "Clear filters" escape hatch (the route is the single source of
+  // truth, so the chips and views follow).
+  function clearFilters() {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    const next = buildHashRoute({
+      page,
+      focus: page === "graph" ? current.focus : null,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  // The board-empty CTA: jump straight to the Sources editor (where a user adds a
+  // source + token), not the default Display tab. `tab=sources` is a no-op when
+  // the config capability is unavailable, so a read-only deploy still lands on
+  // Settings cleanly.
+  function openSettings() {
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({ page: "settings", tab: "sources" });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
   // Toggle one Activity facet value in the URL. Reads the live hash, flips the
   // value via nav.ts, and re-encodes — keeping the route the single source of
   // truth, so the chip state, the feed, and a shared link can never disagree.
@@ -866,6 +909,31 @@ export function App() {
   const rangeContentPending = needsRangeEnv && rangeLoading && !rangeEnv;
   const rangeContentError = needsRangeEnv && !!rangeError && !rangeEnv;
 
+  // The whole board has no data at all (fresh install / not yet synced) — drives
+  // the board-empty treatment instead of a misleading "nothing in this range".
+  // `activities` is the UNWINDOWED full set and every item yields >=1 transition
+  // activity, so activities === 0 already implies no items ever; items === 0 is a
+  // belt-and-braces guard (and `items` is only the 90-day window).
+  const boardEmpty = env.items.length === 0 && (env.activities?.length ?? 0) === 0;
+  // Props shared by every page's empty state; the per-page noun + counts are
+  // filled in at each render site below. `total` is the full-contract count
+  // (board-wide) and `windowTotal` the in-range count, so emptyStateKind can
+  // tell "this entity isn't on the board" from "not in this range". Visibility
+  // hidden via Settings collapses windowTotal but not total; that rare
+  // hide-everything case reads as range-empty, where the widen buttons are a
+  // harmless no-help rather than wrong.
+  const emptyStateShared = {
+    boardEmpty,
+    range: activeRange,
+    dataExtent: staticRange,
+    generatedAt: env.generated_at,
+    timezone: tz,
+    onRange: setRouteRange,
+    onClearFilters: clearFilters,
+    onOpenSettings: openSettings,
+    sync,
+  };
+
   return (
     <div className="app app-wide">
       <Header env={env} sync={sync} hiddenSources={hiddenSources} />
@@ -971,6 +1039,9 @@ export function App() {
           sourceKind={sourceKind}
           colorOf={colorOf}
           itemsById={activityItemsById}
+          emptyState={
+            <EmptyState noun="activity" total={env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
+          }
         />
       ) : page === "commits" ? (
         <CommitsPage
@@ -988,6 +1059,9 @@ export function App() {
           timezone={tz}
           sourceKind={sourceKind}
           colorOf={colorOf}
+          emptyState={
+            <EmptyState noun="commits" total={totalCommits} windowTotal={windowCommits.length} {...emptyStateShared} dataExtent={commitDataExtent} />
+          }
         />
       ) : page === "repo-analytics" ? (
         <RepoAnalyticsPage
@@ -997,6 +1071,14 @@ export function App() {
           sourceKind={sourceKind}
           colorOf={colorOf}
           lens={itemFacetFields(itemFacetState)}
+          emptyState={
+            <EmptyState
+              noun="repo metrics"
+              total={env.repo_metrics?.length ?? 0}
+              windowTotal={visibleEnv.repo_metrics?.length ?? 0}
+              {...emptyStateShared}
+            />
+          }
         />
       ) : page === "graph" ? (
         <Suspense fallback={<div className="state-msg">Loading graph…</div>}>
@@ -1015,6 +1097,10 @@ export function App() {
             itemWindow={contentEnv.item_window}
             range={activeRange}
             timezone={tz}
+            emptyState={
+              <EmptyState noun="relationships" total={env.edges.length} windowTotal={contentEnv.edges?.length ?? 0} {...emptyStateShared} />
+            }
+            onClearFilters={clearFilters}
           />
         </Suspense>
       ) : (

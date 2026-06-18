@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -719,6 +719,8 @@ export function GraphPage({
   itemWindow,
   range,
   timezone,
+  emptyState,
+  onClearFilters,
 }: {
   edges: ResolvedEdge[];
   // The FOCUS-path edge set: same visibility + facet filters as `edges`, but
@@ -742,6 +744,13 @@ export function GraphPage({
   itemWindow?: ItemWindowDTO;
   range: TimeRange;
   timezone: string;
+  // Shared empty-state node for the no-relationships case in the overview (not
+  // while focused — the focus view has its own escape hatches below).
+  emptyState?: ReactNode;
+  // Clears search / facet filters; offered in the focused-empty state because a
+  // facet filter can hide a focused item's edges, which would otherwise read as
+  // "no relationships" with no way out.
+  onClearFilters?: () => void;
 }) {
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
   const [showMentions, setShowMentions] = useState(() => !!focusRef);
@@ -952,8 +961,32 @@ export function GraphPage({
         </div>
       </div>
       <StatsBar scoped={scopedStats} totalLabel="nodes" edgeLabel="links" />
-      {listGraph.links.length === 0 ? (
-        <p className="empty">No relationships in this range.</p>
+      {/* Empty when the overview window has no links AND we are not showing a
+          focus subgraph. `!inFocus` keeps a deep-linked focus whose neighbourhood
+          lives outside the current window renderable (its canvas is `view`, the
+          full-payload focus subgraph), and makes the focus message accurate: it
+          only shows when the focused item genuinely has no edges (view fell back
+          to the empty overview). */}
+      {listGraph.links.length === 0 && !inFocus ? (
+        focusId ? (
+          // A facet/search filter can hide the focused item's edges, so don't
+          // claim it has none — offer the escapes (clear filters, leave focus).
+          <div className="empty empty-state">
+            <p className="empty-state-title">No relationships to show for the focused item.</p>
+            <div className="empty-actions">
+              <button type="button" className="empty-action primary" onClick={() => onFocusChange(null)}>
+                Back to all items
+              </button>
+              {onClearFilters ? (
+                <button type="button" className="empty-action" onClick={onClearFilters}>
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          emptyState ?? <p className="empty">No relationships in this range.</p>
+        )
       ) : (
         // One shared ReactFlowProvider wraps the side list + canvas; remounting
         // <Flow> on a focus change (flowKey) is what reframes the camera now.

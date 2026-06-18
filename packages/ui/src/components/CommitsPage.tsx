@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -103,13 +103,14 @@ function CommitTimeline({
   commits,
   sourceKind,
   colorOf,
-  emptyMessage,
+  empty,
   timezone,
 }: {
   commits: ActivityDTO[];
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
-  emptyMessage: string;
+  // Empty-state node rendered when there are no rows; falls back to a plain line.
+  empty?: ReactNode;
   timezone: string;
 }) {
   const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
@@ -186,7 +187,7 @@ function CommitTimeline({
   );
   const visibleRows = useMemo(() => layout.rows.slice(virtual.start, virtual.end), [layout.rows, virtual.start, virtual.end]);
 
-  if (commits.length === 0) return <p className="empty">{emptyMessage}</p>;
+  if (commits.length === 0) return <>{empty ?? <p className="empty">No commits.</p>}</>;
 
   return (
     <div
@@ -311,6 +312,7 @@ export function CommitsPage({
   timezone,
   sourceKind,
   colorOf,
+  emptyState,
 }: {
   commits: ActivityDTO[];
   windowTotal: number;
@@ -326,13 +328,11 @@ export function CommitsPage({
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
+  // Shared empty-state node, rendered in place of the timeline when empty.
+  emptyState?: ReactNode;
 }) {
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
-  const emptyMessage =
-    windowTotal === 0
-      ? "No commits in this range."
-      : `No commits for ${selectedRepo ? `${selectedSource ? `${selectedSource} / ` : ""}${selectedRepo}` : "this repo"} in this range.`;
 
   return (
     <main className="commits-page">
@@ -371,7 +371,7 @@ export function CommitsPage({
           </select>
         </label>
       </div>
-      <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} timezone={timezone} />
+      <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} timezone={timezone} />
     </main>
   );
 }

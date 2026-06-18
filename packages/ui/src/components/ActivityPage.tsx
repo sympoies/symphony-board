@@ -1,5 +1,5 @@
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ActivityFeed } from "./ActivityFeed.tsx";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
 import type { ColorOf, TimeRange } from "../model.ts";
@@ -14,6 +14,7 @@ export function ActivityPage({
   sourceKind,
   colorOf,
   itemsById,
+  emptyState,
 }: {
   activities: ActivityDTO[];
   // The full, range-independent activity set powering the trailing-12-month
@@ -28,6 +29,8 @@ export function ActivityPage({
   // Item index by ref; passed to the feed so review rows can show their target
   // change_request's open-thread count.
   itemsById?: ReadonlyMap<string, ItemDTO>;
+  // Shared empty-state node, rendered in place of the feed when nothing matches.
+  emptyState?: ReactNode;
 }) {
   const [heatmapPanel, setHeatmapPanel] = useState<HTMLElement | null>(null);
   const [heatmapHeight, setHeatmapHeight] = useState(0);
@@ -36,8 +39,6 @@ export function ActivityPage({
     activities.length === windowTotal
       ? `${activities.length} in range`
       : `${activities.length} matches`;
-  const emptyMessage =
-    windowTotal === 0 ? "No activity in this range." : "No activity matches the current filters.";
   const layoutStyle =
     heatmapHeight > 0
       ? ({
@@ -73,7 +74,7 @@ export function ActivityPage({
         </span>
       </div>
       <div className="activity-layout" style={layoutStyle}>
-        <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} emptyMessage={emptyMessage} itemsById={itemsById} />
+        <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} itemsById={itemsById} />
         <ActivityHeatmap
           activities={allActivities}
           trendActivities={activities}
