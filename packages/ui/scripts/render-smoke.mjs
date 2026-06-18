@@ -1290,6 +1290,7 @@ try {
           const boardSelector = document.querySelector('.board-mobile-selector');
           const cols = Array.from(document.querySelectorAll('.board-7 .col'));
           const graphBody = document.querySelector('.graph-body');
+          const graphKindToggles = Array.from(document.querySelectorAll('.graph-list-kinds .toggle'));
           const repoTable = document.querySelector('.repo-table');
           const controls = document.querySelector('.controls');
           const filterToggle = controls?.querySelector('.filter-disclosure');
@@ -1352,6 +1353,9 @@ try {
             graphViewActiveTab: (document.querySelector('.graph-view-toggle [role="tab"][aria-selected="true"]')?.textContent || '').trim() || null,
             graphCanvasPresent: !!document.querySelector('.graph-canvas'),
             graphListPresent: !!document.querySelector('.graph-list'),
+            graphKindToggleCount: graphKindToggles.length,
+            graphKindToggleMaxHeight: Math.max(0, ...graphKindToggles.map((el) => Math.round(el.getBoundingClientRect().height))),
+            graphKindToggleMaxWidth: Math.max(0, ...graphKindToggles.map((el) => Math.round(el.getBoundingClientRect().width))),
             repoCompact: !repoTable || getComputedStyle(repoTable).display === 'block',
             filterButtonVisible: !controls || (!!filterToggle && getComputedStyle(filterToggle).display !== 'none'),
             filterGroupsCollapsed: !controls || (!!filterGroups && getComputedStyle(filterGroups).display === 'none'),
@@ -1848,6 +1852,7 @@ try {
     [tabletBoard.boardSelectorVisible === false && tabletBoard.visibleBoardColumns >= 4, `portrait: tablet board keeps multi-lane access without the phone selector (${tabletBoard.visibleBoardColumns || 0} columns)`],
     [tabletGraph.graphStacked === true && tabletGraph.graphListPresent === true && tabletGraph.graphCanvasPresent === true, `portrait: tablet graph stacks both the list and the canvas (stacked=${tabletGraph.graphStacked}, list=${tabletGraph.graphListPresent}, canvas=${tabletGraph.graphCanvasPresent})`],
     [phoneGraph.graphViewTogglePresent === true && phoneGraph.graphViewActiveTab === "List" && phoneGraph.graphListPresent === true && phoneGraph.graphCanvasPresent === false, `portrait: phone graph defaults to the list behind a List/Graph toggle (active=${phoneGraph.graphViewActiveTab}, list=${phoneGraph.graphListPresent}, canvas=${phoneGraph.graphCanvasPresent})`],
+    [phoneGraph.graphKindToggleCount === 3 && phoneGraph.graphKindToggleMaxHeight > 0 && phoneGraph.graphKindToggleMaxHeight <= 31, `portrait: phone graph side-list kind toggles stay compact (${JSON.stringify({ count: phoneGraph.graphKindToggleCount, height: phoneGraph.graphKindToggleMaxHeight, width: phoneGraph.graphKindToggleMaxWidth })})`],
     [phoneGraphCanvas.activeTab === "Graph" && phoneGraphCanvas.canvasPresent === true && phoneGraphCanvas.listPresent === false && phoneGraphCanvas.hashHasGraph === true, `portrait: phone graph Graph tab swaps in the canvas and drops the list (${JSON.stringify(phoneGraphCanvas)})`],
     [phoneGraphFocusInList.activeTab === "List" && phoneGraphFocusInList.inFocusView === true && phoneGraphFocusInList.relatedShown === true && phoneGraphFocusInList.canvasPresent === false && phoneGraphFocusInList.hashHasFocus === true, `portrait: phone graph focusing an item stays in the list's focus view, no auto-switch to canvas (${JSON.stringify(phoneGraphFocusInList)})`],
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],

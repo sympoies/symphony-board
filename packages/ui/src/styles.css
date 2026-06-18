@@ -2636,6 +2636,16 @@ a.rf-node-title:hover { color: var(--accent); }
     min-height: 30px;
     padding: 2px 8px;
   }
+  .graph-list-kinds {
+    gap: 5px;
+    margin: 8px 8px 4px;
+  }
+  .graph-list-kinds .toggle {
+    min-height: 28px;
+    padding: 1px 8px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
   .board-7 {
     display: block;
     overflow-x: visible;
