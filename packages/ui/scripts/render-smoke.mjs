@@ -1597,7 +1597,6 @@ try {
   const portraitOverflow = portraitResults.filter((r) => r.overflow > 2);
   const phoneBoard = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "board") || {};
   const tabletBoard = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "board") || {};
-  const portraitGraphs = portraitResults.filter((r) => r.page === "graph");
   const portraitRepos = portraitResults.filter((r) => r.page === "repo-analytics");
   const phoneFilterPages = portraitResults.filter((r) => r.preset === "phone-portrait" && !["commits", "settings", "debug"].includes(r.page));
   // Board + Graph carry the read-only StatsBar; on a phone it collapses by default.
