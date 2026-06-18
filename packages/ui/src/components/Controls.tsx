@@ -62,18 +62,31 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
 
 export function Controls({ search, groups, onSearch, onToggle, onLoadFile }: Props) {
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
   // Collapsed-state summary for the narrow disclosure: "all" when nothing narrows
   // the view, else the active facet count. Mirrors the range / commits filter
   // disclosures so every page's filter chrome reads the same on a phone.
   const filtersSummary = activeFilterCount === 0 ? "all" : `${activeFilterCount} active`;
+  const searchSummary = search.trim() === "" ? "search" : "search active";
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
   };
   return (
-    <div className="controls">
+    <div className="controls" data-search-open={searchOpen}>
+      <button
+        type="button"
+        className="filter-summary-disclosure search-disclosure"
+        aria-expanded={searchOpen}
+        aria-controls="global-search"
+        aria-label={`${searchOpen ? "Hide" : "Show"} search`}
+        onClick={() => setSearchOpen((open) => !open)}
+      >
+        <span className="filter-summary-disclosure-summary">{searchSummary}</span>
+      </button>
       <input
+        id="global-search"
         className="search"
         type="search"
         placeholder="Search title / author / repo / label…"
