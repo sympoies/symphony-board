@@ -16,11 +16,13 @@ config/sources.pg.json
 config/secrets.env
 config/certs/
 
-# Operator-local Docker Compose overrides (never committed).
-docker/compose.override.yaml
-docker/compose.override.yml
-compose.override.yaml
-docker-compose.override.yml
+# Operator-local Docker Compose overrides (never committed). Docker accepts both
+# the `compose.*` and `docker-compose.*` names and both the `.yaml` and `.yml`
+# spellings, at the repo root or under docker/ — the leading `*` (and no leading
+# slash) covers every variant in every directory so an override using any
+# supported filename can never be staged with secrets or bind addresses.
+*compose.override.yaml
+*compose.override.yml
 
 # Emitted contract artifacts (regenerate from the DB).
 out/
