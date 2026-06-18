@@ -449,6 +449,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
 /* stats */
 .stats { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 0; }
+/* The stats summary is read-only context. On desktop these wrappers are
+   transparent (display:contents) so the bar renders inline exactly as before;
+   on narrow they become a collapsible block behind the shared disclosure. */
+.stats-block, .stats-body { display: contents; }
 .stat { display: inline-flex; align-items: center; gap: 6px; }
 .stat-label { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
 .stat-pill { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
@@ -1748,6 +1752,13 @@ a.rf-node-title:hover { color: var(--accent); }
      sits outside a gap-flex parent, so it owns its spacing below. */
   .commits-filter-disclosure { margin: 0 0 8px; }
   .commits-toolbar[data-filters-collapsed="true"] { display: none; }
+  /* Read-only stat summary (Board + Graph): collapse behind the shared
+     'stats · …' disclosure so the data shows first. The graph legend rides in
+     the body's footer, so it tucks away with the stats. */
+  .stats-block { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
+  .stats-body { display: block; }
+  .stats-body[data-stats-collapsed="true"] { display: none; }
+  .stats { padding: 0; }
   .commit-row-body {
     align-items: stretch;
     flex-direction: column;

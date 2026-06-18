@@ -952,17 +952,26 @@ export function GraphPage({
             ))}
           </div>
         )}
-        <div className="graph-legend">
-          {NODE_LEGEND.map((x) => (
-            <span key={x.t}>
-              <span className="dot" style={{ background: x.c }} />
-              {x.t}
-            </span>
-          ))}
-          <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to highlight · click to focus · title → provider</span>
-        </div>
       </div>
-      <StatsBar scoped={scopedStats} totalLabel="nodes" edgeLabel="links" />
+      {/* The legend + hint is read-only orientation, so it rides inside the
+          StatsBar's collapsible region — tucked away with the stats on narrow,
+          shown after the stats on desktop. */}
+      <StatsBar
+        scoped={scopedStats}
+        totalLabel="nodes"
+        edgeLabel="links"
+        footer={
+          <div className="graph-legend">
+            {NODE_LEGEND.map((x) => (
+              <span key={x.t}>
+                <span className="dot" style={{ background: x.c }} />
+                {x.t}
+              </span>
+            ))}
+            <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to highlight · click to focus · title → provider</span>
+          </div>
+        }
+      />
       {/* Empty when the overview window has no links AND we are not showing a
           focus subgraph. `!inFocus` keeps a deep-linked focus whose neighbourhood
           lives outside the current window renderable (its canvas is `view`, the
