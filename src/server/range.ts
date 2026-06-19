@@ -60,7 +60,10 @@ export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractE
       items: await store.listLiveItems(),
       labels: await store.listLabels(),
       edges: await store.listLiveEdges(),
-      activities: await store.listActivities(),
+      // Date-bounded at the SQL layer (not listActivities() + JS filter): a range
+      // request no longer reads the whole activity table. buildRangeContract
+      // still applies its precise projection, so the emitted rows are identical.
+      activities: await store.listActivitiesInRange(range.from, range.to),
       generatedAt: new Date().toISOString(),
       sourceColors,
       repoColors,

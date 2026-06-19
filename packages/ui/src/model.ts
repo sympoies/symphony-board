@@ -3,6 +3,7 @@
 
 import type {
   ActivityDTO,
+  ActivityDailyDTO,
   AggregateDTO,
   AggregateEdgeFilter,
   AggregateScope,
@@ -409,6 +410,24 @@ export function preferredDefaultTimeRange(env: ContractEnvelope, presetId: TimeR
   return timeRangeForPreset(presetId, generatedAtMs(env), env.timezone ?? DEFAULT_TIMEZONE);
 }
 
+// The calendar-day span the `activity_daily` aggregate covers, optionally
+// restricted to days carrying a given activity `kind`. Replaces measuring the
+// raw `activities[]` extent now that the static contract windows it to 30 days:
+// activity_daily spans the full history, so "Show all" / extent copy stays
+// truthful. Days are ascending, so the first/last MATCHING day are the bounds.
+// Returns null when no (matching) day has activity.
+export function activityDailyExtent(daily: ActivityDailyDTO, kind?: string): TimeRange | null {
+  const has = (d: ActivityDailyDTO["days"][number]) => (kind ? (d.by_kind[kind] ?? 0) > 0 : d.count > 0);
+  let from: string | null = null;
+  let to: string | null = null;
+  for (const day of daily.days) {
+    if (!has(day)) continue;
+    if (from === null) from = day.date;
+    to = day.date;
+  }
+  return from !== null && to !== null ? { from, to } : null;
+}
+
 export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
   const generatedAt = generatedAtMs(env);
   const tz = env.timezone ?? DEFAULT_TIMEZONE;
@@ -657,32 +676,16 @@ function heatmapLevelFn(counts: number[]): (count: number) => HeatmapCell["level
   };
 }
 
-export function buildActivityHeatmap(
-  activities: readonly ActivityDTO[],
-  now: number = Date.now(),
-  tz: string = DEFAULT_TIMEZONE,
+// Assemble the 53-week grid, month labels, busiest cell, and by-kind totals from
+// per-day counts already restricted to [startKey, today]. Shared by the
+// raw-activity builder and the activity_daily builder so the two stay identical.
+function assembleHeatmap(
+  countByDay: Map<string, number>,
+  kindCounts: Map<string, number>,
+  total: number,
+  startKey: string,
+  today: string,
 ): ActivityHeatmap {
-  // Work in local calendar-date space so the grid and buckets honor `tz` (and
-  // stay DST-immune): today's local date, its weekday, and whole-day shifts.
-  const today = zonedDateOnly(now, tz);
-  const endWeekday = zonedWeekday(now, tz); // 0 = Sunday
-  // Last column is the week containing today; back up 52 further weeks → 53 cols.
-  const startKey = shiftDateOnly(today, -(endWeekday + (HEATMAP_WEEKS - 1) * 7));
-
-  const countByDay = new Map<string, number>();
-  const kindCounts = new Map<string, number>();
-  let total = 0;
-  for (const a of activities) {
-    const ms = timestampMs(a.occurred_at);
-    if (ms === null) continue;
-    const key = zonedDateOnly(ms, tz);
-    // String compare is safe for fixed-width YYYY-MM-DD keys.
-    if (key < startKey || key > today) continue;
-    countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
-    kindCounts.set(a.kind, (kindCounts.get(a.kind) ?? 0) + 1);
-    total += 1;
-  }
-
   const level = heatmapLevelFn([...countByDay.values()]);
   const activeDays = [...countByDay.values()].filter((count) => count > 0).length;
   const dayCount = daysBetween(startKey, today) + 1;
@@ -723,6 +726,65 @@ export function buildActivityHeatmap(
     .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
 
   return { weeks, monthLabels, from: startKey, to: today, total, activeDays, dayCount, maxCount, busiest, byKind };
+}
+
+export function buildActivityHeatmap(
+  activities: readonly ActivityDTO[],
+  now: number = Date.now(),
+  tz: string = DEFAULT_TIMEZONE,
+): ActivityHeatmap {
+  // Work in local calendar-date space so the grid and buckets honor `tz` (and
+  // stay DST-immune): today's local date, its weekday, and whole-day shifts.
+  const today = zonedDateOnly(now, tz);
+  const endWeekday = zonedWeekday(now, tz); // 0 = Sunday
+  // Last column is the week containing today; back up 52 further weeks → 53 cols.
+  const startKey = shiftDateOnly(today, -(endWeekday + (HEATMAP_WEEKS - 1) * 7));
+
+  const countByDay = new Map<string, number>();
+  const kindCounts = new Map<string, number>();
+  let total = 0;
+  for (const a of activities) {
+    const ms = timestampMs(a.occurred_at);
+    if (ms === null) continue;
+    const key = zonedDateOnly(ms, tz);
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (key < startKey || key > today) continue;
+    countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
+    kindCounts.set(a.kind, (kindCounts.get(a.kind) ?? 0) + 1);
+    total += 1;
+  }
+
+  return assembleHeatmap(countByDay, kindCounts, total, startKey, today);
+}
+
+// Build the trailing-12-month heatmap from the pre-computed `activity_daily`
+// aggregate (contract 4.0.0+) instead of the raw `activities[]` feed, which the
+// static contract now windows to 30 days. Anchored at the aggregate's `to` (the
+// contract `generated_at` calendar day) rather than the UI clock, so the window
+// matches what the producer counted. Output shape is identical to
+// buildActivityHeatmap. The per-day buckets carry the date directly (already
+// bucketed in the contract timezone), so no `tz` is needed here.
+export function buildActivityHeatmapFromDaily(daily: ActivityDailyDTO): ActivityHeatmap {
+  const today = daily.to;
+  // A fixed calendar date's weekday is zone-independent (the date is already
+  // zoned by the producer), so read it from the date's UTC midnight.
+  const endWeekday = new Date(dateOnlyUtcMs(today)).getUTCDay(); // 0 = Sunday
+  const startKey = shiftDateOnly(today, -(endWeekday + (HEATMAP_WEEKS - 1) * 7));
+
+  const countByDay = new Map<string, number>();
+  const kindCounts = new Map<string, number>();
+  let total = 0;
+  for (const bucket of daily.days) {
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (bucket.date < startKey || bucket.date > today) continue;
+    countByDay.set(bucket.date, (countByDay.get(bucket.date) ?? 0) + bucket.count);
+    for (const [kind, count] of Object.entries(bucket.by_kind)) {
+      kindCounts.set(kind, (kindCounts.get(kind) ?? 0) + count);
+    }
+    total += bucket.count;
+  }
+
+  return assembleHeatmap(countByDay, kindCounts, total, startKey, today);
 }
 
 function dateOnlyUtcMs(date: string): number {

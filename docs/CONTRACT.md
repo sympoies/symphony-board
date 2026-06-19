@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `3.5.0`.
+Current emitted version: `4.0.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "3.5.0",
+  "contract_version": "4.0.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -68,6 +68,16 @@ package version, to decide compatibility.
   ],
   "edges": [],
   "activities": [],
+  "activity_daily": {
+    "timezone": "UTC",
+    "from": "2025-02-01",
+    "to": "2026-06-08",
+    "total": 13781,
+    "by_kind": { "commit": 9200, "change_request": 1800, "review": 1400, "issue": 1381 },
+    "days": [
+      { "date": "2025-02-01", "count": 12, "by_kind": { "commit": 9, "review": 3 } }
+    ]
+  },
   "repos": [
     {
       "source_id": "github:github.com",
@@ -204,7 +214,11 @@ Top-level fields:
 - `items`: windowed normalized work items in contract v2.
 - `edges`: typed relationships whose endpoints are resolved by the v2 item
   window whenever the endpoint belongs to a tracked item.
-- `activities`: optional developer-significant event feed, added in `1.2.0`.
+- `activities`: optional developer-significant event feed, added in `1.2.0`. As
+  of `4.0.0` the static contract windows it to the last 30 days (see Activities).
+- `activity_daily`: optional pre-computed per-day/per-kind activity counts over
+  the full canonical history, added in `4.0.0` (see Activity Daily). The static
+  contract always emits it; `/api/range` omits it.
 - `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
 - `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 - `item_window`: required v2 metadata describing the primary loaded item window.
@@ -382,6 +396,52 @@ each sync, distinct from the per-event `review` activity above:
 
 The window-scoped `unresolved_review_threads` repo metric sums `review_threads.open`
 across active change_requests (see Repo Metrics).
+
+Version `4.0.0` **windows the static contract's `activities[]` to the last 30
+days** (anchored to `generated_at`), down from the full ~16-month history. This
+is a breaking narrowing of an emitted row collection — the same kind of change as
+the `2.0.0` `items[]` windowing — so it is a major bump: a consumer can no longer
+read full activity history or trailing-12-month activity stats from `activities[]`.
+Two surfaces replace that:
+
+- the new top-level `activity_daily` aggregate (below) for the trailing-12-month
+  Activity Overview (heatmap, by-kind totals, busiest day, active days); and
+- `GET /api/range`, which is **not** windowed and returns the full requested span
+  of `activities[]` for any explicit date range.
+
+The `id` and `summary` activity fields are unchanged in `4.0.0`.
+
+## Activity Daily
+
+Version `4.0.0` added the optional top-level `activity_daily` aggregate:
+pre-computed per-day / per-kind activity counts spanning the **full** canonical
+activity history. It exists so the Activity Overview (the fixed trailing-12-month
+heatmap, by-kind totals, busiest day, active days) renders without the raw
+`activities[]` feed, which `4.0.0` windows to 30 days.
+
+The static `contract.json` always emits it; the `/api/range` projection omits it
+(a range response carries the full raw `activities[]` for its window instead).
+
+Fields:
+
+- `timezone`: the IANA zone the days are bucketed in (equals the envelope
+  `timezone`; `"UTC"` when unset).
+- `from` / `to`: the earliest and latest covered calendar days as `YYYY-MM-DD`.
+  `to` is the `generated_at` calendar day in `timezone`; `from` is the earliest
+  day carrying activity (equal to `to` when there is no activity at all).
+- `total`: total events across every bucket. It **reconciles with the full
+  canonical activity count**, so the Overview numbers are unchanged by the
+  raw-activity windowing.
+- `by_kind`: aggregate per-`kind` totals across every bucket (open vocabulary;
+  equals the sum of `days[].by_kind`).
+- `days[]`: ascending by `date`, **sparse** — only days with at least one event
+  appear, so a consumer fills gaps with zero. Each bucket carries `date`
+  (`YYYY-MM-DD` in `timezone`), `count` (the day's total, equal to the sum of its
+  `by_kind`), and `by_kind` (per-`kind` counts for that day).
+
+A consumer aligns its trailing-window rendering to the contract `generated_at`
+(via `to`), not the viewer's wall clock, so the buckets and the rendered window
+agree.
 
 ## Aggregates
 
@@ -792,7 +852,7 @@ pnpm run validate --in data/contract.json
 ```
 
 For a major bump, plan a transition. The UI currently supports contract major
-v3 and warns on any other major.
+v4 and warns on any other major.
 
 ## Validation
 
