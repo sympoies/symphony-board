@@ -77,18 +77,26 @@ jobs:
     runs-on: [self-hosted, g14, deploy]
     timeout-minutes: 15
     steps:
-      - name: Pull g14-infra and redeploy the symphony-board stack
+      - name: Render secrets, pull g14-infra, and redeploy the symphony-board stack
         run: |
           set -euo pipefail
           infra="$HOME/Project/graysurf/g14-infra"
-          test -d "$infra/.git" || { echo "g14-infra checkout missing at $infra" >&2; exit 1; }
-          # The g14-infra checkout is DEPLOY-ONLY: force it to match origin/main
-          # with a hard reset rather than `pull --ff-only`, so the deploy never
-          # aborts on local drift to tracked files. Gitignored host .env files
-          # and untracked paths are left untouched. Edit stacks via a PR to
-          # g14-infra — never by hand on this checkout.
-          git -C "$infra" fetch --quiet origin main
-          git -C "$infra" reset --hard origin/main
+          secrets="$HOME/Project/graysurf/secrets"
+          test -d "$infra/.git"   || { echo "g14-infra checkout missing at $infra" >&2; exit 1; }
+          test -d "$secrets/.git" || { echo "secrets checkout missing at $secrets" >&2; exit 1; }
+          # Both are DEPLOY-ONLY checkouts: force them to match origin/main with a
+          # hard reset rather than `pull --ff-only`, so the deploy never aborts on
+          # local drift to tracked files. Gitignored host .env files and untracked
+          # paths are left untouched. Edit via PRs to each repo — never by hand on
+          # these checkouts.
+          git -C "$infra"   fetch --quiet origin main && git -C "$infra"   reset --hard origin/main
+          git -C "$secrets" fetch --quiet origin main && git -C "$secrets" reset --hard origin/main
+          # Decrypt the central SOPS/age store into the stack's gitignored .env so a
+          # token rotation in graysurf/secrets reaches this deploy. The runner user
+          # holds the g14 age key at ~/.config/sops/age/keys.txt; it never enters
+          # the repo or workflow env. A render failure aborts here (set -e), before
+          # compose, so a bad rotation can never deploy a broken stack.
+          "$secrets/bin/render.sh" symphony-board "$infra/stacks/symphony-board/.env"
           cd "$infra/stacks/symphony-board"
           # Pull the freshly published :latest image and reconcile the stack.
           # Reuses the existing named volumes (postgres-data / contract-data).
