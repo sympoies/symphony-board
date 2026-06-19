@@ -5,6 +5,7 @@ import {
   majorOf,
   parseContract,
   fetchContract,
+  fetchContractWithMetadata,
   resolveEndpoint,
   endpointRequiresServerUrl,
   fetchSyncControl,
@@ -73,6 +74,29 @@ test("fetchContract parses the JSON on a 2xx and throws with the status on a non
 
     globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
     await assert.rejects(() => fetchContract("./missing.json", null), /could not load .* HTTP 404/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContractWithMetadata reports the resolved URL, decoded byte size, and load timing", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    const raw = JSON.stringify({ contract_version: "4.0.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
+    let seenUrl: string | undefined;
+    globalThis.fetch = (async (url: string) => {
+      seenUrl = url;
+      return { ok: true, status: 200, text: async () => raw };
+    }) as unknown as typeof fetch;
+    const loaded = await fetchContractWithMetadata("./contract.json", "https://board.example/app/", null, { retries: 0 });
+
+    assert.equal(seenUrl, "https://board.example/app/contract.json");
+    assert.equal(loaded.env.contract_version, "4.0.0");
+    assert.equal(loaded.meta.source, "network");
+    assert.equal(loaded.meta.url, "https://board.example/app/contract.json");
+    assert.equal(loaded.meta.bytes, new TextEncoder().encode(raw).length);
+    assert.match(loaded.meta.loadedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.ok(loaded.meta.durationMs >= 0);
   } finally {
     globalThis.fetch = realFetch;
   }
