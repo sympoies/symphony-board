@@ -39,6 +39,7 @@ import type { Sql, TransactionSql } from "postgres";
 import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
+import { activityRangeBounds } from "./activity-range.ts";
 import type {
   ActivityRow,
   CiRefreshCandidateRow,
@@ -405,6 +406,23 @@ export class PgStore implements Store {
              target_source_id, target_external_id, target_iid, title, url, actor,
              actor_key, occurred_at, summary, details, first_seen_at, last_seen_at
       FROM activity
+      ORDER BY occurred_at::timestamptz DESC, activity_id DESC`;
+    return rows as unknown as ActivityRow[];
+  }
+
+  async listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]> {
+    const { coarseFrom, coarseTo, from, to } = activityRangeBounds(fromIso, toIso);
+    // coarse text band first: a range scan on activity_by_time(occurred_at)
+    // avoids reading the whole table; then ::timestamptz trims to the exact
+    // instant window (text alone is offset-sensitive). See activity-range.ts.
+    const rows = await this.#q`
+      SELECT source_id, external_id, kind, action, project_path, target_kind,
+             target_source_id, target_external_id, target_iid, title, url, actor,
+             actor_key, occurred_at, summary, details, first_seen_at, last_seen_at
+      FROM activity
+      WHERE occurred_at >= ${coarseFrom} AND occurred_at <= ${coarseTo}
+        AND occurred_at::timestamptz >= ${from}::timestamptz
+        AND occurred_at::timestamptz <= ${to}::timestamptz
       ORDER BY occurred_at::timestamptz DESC, activity_id DESC`;
     return rows as unknown as ActivityRow[];
   }

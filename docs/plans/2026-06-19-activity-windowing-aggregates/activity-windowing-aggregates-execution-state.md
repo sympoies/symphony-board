@@ -50,8 +50,8 @@
 
 | ID | Status | Task | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | todo | gzip the standalone app-server contract response | pending | Independent; no contract change. |
-| 1.2 | todo | Date-bound the range activity query in both drivers | pending | Touches the `Store` seam; Postgres gates required. |
+| 1.1 | done | gzip the standalone app-server contract response | pending; test/app-server.test.ts gzip+cache test green; serveContract gzips on Accept-Encoding w/ mtime-keyed cache (src/cli/app-server.ts) | Independent; no contract change. |
+| 1.2 | done | Date-bound the range activity query in both drivers | pending; listActivitiesInRange added to Store + sqlite + postgres (coarse text band on activity_by_time + precise instant filter); range.ts uses it; conformance test green; EXPLAIN QUERY PLAN shows SEARCH USING INDEX activity_by_time (no full scan) -> no new migration needed | Touches the `Store` seam; Postgres gates required. |
 | 2.1 | todo | Add the `activity_daily` aggregate to the contract | pending | DTO + schema + tests + `docs/CONTRACT.md`. |
 | 2.2 | todo | Compute `activity_daily` and window emitted activities at emit | pending | Contract major bump (3.5.0 -> 4.0.0). |
 | 2.3 | todo | Rewire the Activity Overview to read `activity_daily` | pending | Anchor to `generated_at`, not the UI clock. |
