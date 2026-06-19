@@ -35,8 +35,9 @@ fi
 
 command -v jq >/dev/null 2>&1 || die "required command not found: jq"
 pkg_version="$(jq -r '.version' package.json)"
-[ -n "$pkg_version" ] && [ "$pkg_version" != "null" ] ||
+if [ -z "$pkg_version" ] || [ "$pkg_version" = "null" ]; then
   die "could not read .version from root package.json"
+fi
 
 # (1) per-app version files vs root package.json.
 bash "$repo_root/scripts/check-app-versions.sh"
