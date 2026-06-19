@@ -9,18 +9,18 @@
 // page shares this data, and it must render with no contract loaded — that is
 // exactly when it is needed.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { ContractLoadMetadata } from "../contract.ts";
 import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, runDuration } from "../model.ts";
 import { useStoreStats, useDaemonLogs } from "../useDebug.ts";
 import { Badge } from "./Badge.tsx";
-import { StatTile } from "./StatTile.tsx";
 
 interface Props {
   serverBaseUrl: string | null;
   env: ContractEnvelope | null;
   contractMeta: ContractLoadMetadata | null;
+  onRefreshData: () => Promise<boolean>;
   onClose: () => void;
 }
 
@@ -41,6 +41,42 @@ function CountsTable({ title, counts }: { title: string; counts: Record<string, 
             <tr key={key}>
               <td>{key}</td>
               <td className="num">{n.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, children, title }: { label: string; children: ReactNode; title?: string }) {
+  return (
+    <div className="debug-summary-metric">
+      <span className="debug-summary-label">{label}</span>
+      <b className="debug-summary-value" title={title}>
+        {children}
+      </b>
+    </div>
+  );
+}
+
+function DetailTable({ title, rows }: { title: string; rows: Array<{ label: string; value: ReactNode; title?: string }> }) {
+  return (
+    <div className="debug-card">
+      <table className="debug-table">
+        <thead>
+          <tr>
+            <th>{title}</th>
+            <th>value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              <td className="debug-value-cell" title={row.title}>
+                {row.value}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -82,6 +118,29 @@ function sourceLabel(meta: ContractLoadMetadata | null): string {
 function statusSummary(counts: Record<string, number>): string {
   const parts = Object.entries(counts).map(([status, n]) => `${status} ${n}`);
   return parts.length > 0 ? parts.join(" · ") : "none";
+}
+
+function transferSummary(meta: ContractLoadMetadata | null): ReactNode {
+  const bytes = meta?.transferBytes ?? meta?.encodedBytes;
+  return (
+    <>
+      {formatOptionalBytes(bytes)}
+      {encodingLabel(meta) ? <span className="muted"> · {encodingLabel(meta)}</span> : null}
+    </>
+  );
+}
+
+function transferTotal(meta: ContractLoadMetadata | null): ReactNode {
+  if (meta?.transferBytes != null) return formatBytes(meta.transferBytes);
+  if (meta?.encodedBytes != null) {
+    return (
+      <>
+        {formatBytes(meta.encodedBytes)}
+        <span className="muted"> · body</span>
+      </>
+    );
+  }
+  return "unknown";
 }
 
 function SectionSizesTable({ env }: { env: ContractEnvelope }) {
@@ -147,47 +206,61 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
   );
 }
 
-function SourceHealthTable({ env }: { env: ContractEnvelope }) {
-  if (env.sources.length === 0) return null;
-  return (
-    <div className="debug-card">
-      <table className="debug-table">
-        <thead>
-          <tr>
-            <th>source health</th>
-            <th>status</th>
-            <th>last success</th>
-          </tr>
-        </thead>
-        <tbody>
-          {env.sources.map((source) => {
-            const status = source.last_status ?? "unknown";
-            return (
-              <tr key={source.source_id}>
-                <td>{source.display_name ?? source.source_id}</td>
-                <td>
-                  <Badge text={status} kind={status === "unknown" ? undefined : `status-${status}`} />
-                </td>
-                <td title={source.last_success_at ?? undefined}>{relativeTime(source.last_success_at)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-export function DebugPage({ serverBaseUrl, env, contractMeta, onClose }: Props) {
+export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onClose }: Props) {
   const { stats, loading, refresh } = useStoreStats(serverBaseUrl);
   const logs = useDaemonLogs(serverBaseUrl);
   const [follow, setFollow] = useState(true);
+  const [refreshingDiagnostics, setRefreshingDiagnostics] = useState(false);
   const logRef = useRef<HTMLPreElement | null>(null);
+  const observedContractLoadRef = useRef(contractMeta?.loadedAt ?? null);
   const dbSize = stats?.db.size_bytes;
   const walSize = stats?.db.wal_size_bytes;
   const contractCounts = env ? contractTopLevelCounts(env) : null;
   const sourceHealth = env ? contractSourceHealth(env) : null;
   const itemWindow = env?.item_window;
+  const encodedLabel = encodingLabel(contractMeta);
+  const payloadRows = [
+    { label: "decoded json", value: contractMeta ? formatBytes(contractMeta.bytes) : "unknown" },
+    {
+      label: "compressed payload",
+      value: (
+        <>
+          {formatOptionalBytes(contractMeta?.encodedBytes)}
+          {encodedLabel ? <span className="muted"> · {encodedLabel}</span> : null}
+        </>
+      ),
+    },
+    { label: "transfer total", value: transferTotal(contractMeta) },
+    { label: "compression", value: compressionRatio(contractMeta) },
+    { label: "load time", value: contractMeta ? formatLoadDuration(contractMeta.durationMs) : "unknown" },
+    {
+      label: "source url",
+      value: (
+        <span className="debug-value-text" title={contractMeta?.url ?? undefined}>
+          {sourceLabel(contractMeta)}
+        </span>
+      ),
+      title: contractMeta?.url,
+    },
+  ];
+  const contractRows = env
+    ? [
+        { label: "generated", value: relativeTime(env.generated_at), title: env.generated_at },
+        { label: "loaded", value: contractMeta ? relativeTime(contractMeta.loadedAt) : "unknown", title: contractMeta?.loadedAt },
+        { label: "contract", value: `v${env.contract_version}` },
+        {
+          label: "generator",
+          value: (
+            <span className="debug-value-text" title={env.generator}>
+              {env.generator}
+            </span>
+          ),
+          title: env.generator,
+        },
+        { label: "timezone", value: env.timezone ?? "UTC" },
+        { label: "windowed", value: itemWindow ? (itemWindow.truncated ? "truncated" : "complete") : "unknown" },
+      ]
+    : [];
 
   // Tail behavior: keep the newest line in view while "follow" is on; turning
   // it off freezes the scroll position for reading while lines keep arriving.
@@ -195,15 +268,51 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onClose }: Props) 
     if (follow && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs.entries, follow]);
 
+  // The log tail polls independently, but the payload/store surfaces are tied
+  // to contract loads. When a manual refresh or sync reloads the contract while
+  // Diagnostics is open, refresh the store stats once. No periodic polling.
+  useEffect(() => {
+    const loadedAt = contractMeta?.loadedAt ?? null;
+    if (!loadedAt || observedContractLoadRef.current === loadedAt) return;
+    observedContractLoadRef.current = loadedAt;
+    refresh();
+  }, [contractMeta?.loadedAt, refresh]);
+
+  const refreshDiagnostics = async () => {
+    if (refreshingDiagnostics) return;
+    setRefreshingDiagnostics(true);
+    let loadedContract = false;
+    try {
+      loadedContract = await onRefreshData();
+    } finally {
+      if (!loadedContract) refresh();
+      setRefreshingDiagnostics(false);
+    }
+  };
+
   return (
     <main className="debug-page">
       <div className="debug-head">
         <h2>Diagnostics</h2>
         <span className="muted">hidden page — toggle with ⌘/ (Ctrl+/)</span>
+        <button type="button" className="toggle" onClick={refreshDiagnostics} disabled={refreshingDiagnostics}>
+          {refreshingDiagnostics ? "Refreshing…" : "Refresh"}
+        </button>
         <button type="button" className="toggle debug-close" onClick={onClose}>
           Close
         </button>
       </div>
+
+      {env ? (
+        <section className="debug-summary-strip" aria-label="Diagnostics summary">
+          <SummaryMetric label="Sources">{sourceHealth ? statusSummary(sourceHealth.statusCounts) : "unknown"}</SummaryMetric>
+          <SummaryMetric label="Decoded JSON">{contractMeta ? formatBytes(contractMeta.bytes) : "unknown"}</SummaryMetric>
+          <SummaryMetric label="Transfer">{transferSummary(contractMeta)}</SummaryMetric>
+          <SummaryMetric label="Compression">{compressionRatio(contractMeta)}</SummaryMetric>
+          <SummaryMetric label="Loaded">{contractMeta ? relativeTime(contractMeta.loadedAt) : "unknown"}</SummaryMetric>
+          <SummaryMetric label="Store">{stats ? (stats.db.driver ?? "sqlite").toUpperCase() : loading ? "loading" : "unavailable"}</SummaryMetric>
+        </section>
+      ) : null}
 
       <section className="debug-section">
         <h3>Contract payload</h3>
@@ -211,40 +320,43 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onClose }: Props) 
           <p className="empty">No contract loaded.</p>
         ) : (
           <>
-            <div className="debug-stat-grid">
-              <StatTile label="Decoded JSON">{contractMeta ? formatBytes(contractMeta.bytes) : "unknown"}</StatTile>
-              <StatTile label="Compressed payload">
-                {formatOptionalBytes(contractMeta?.encodedBytes)}
-                {encodingLabel(contractMeta) ? <span className="muted"> · {encodingLabel(contractMeta)}</span> : null}
-              </StatTile>
-              <StatTile label="Transfer total">{formatOptionalBytes(contractMeta?.transferBytes)}</StatTile>
-              <StatTile label="Compression">{compressionRatio(contractMeta)}</StatTile>
-              <StatTile label="Loaded from">
-                <span className="debug-value-text" title={contractMeta?.url ?? undefined}>
-                  {sourceLabel(contractMeta)}
-                </span>
-              </StatTile>
-              <StatTile label="Generated">{relativeTime(env.generated_at)}</StatTile>
-              <StatTile label="Loaded">{contractMeta ? relativeTime(contractMeta.loadedAt) : "unknown"}</StatTile>
-              <StatTile label="Load time">{contractMeta ? formatLoadDuration(contractMeta.durationMs) : "unknown"}</StatTile>
-              <StatTile label="Contract">v{env.contract_version}</StatTile>
-              <StatTile label="Generator">
-                <span className="debug-value-text" title={env.generator}>
-                  {env.generator}
-                </span>
-              </StatTile>
-              <StatTile label="Timezone">{env.timezone ?? "UTC"}</StatTile>
-              <StatTile label="Windowed">{itemWindow ? (itemWindow.truncated ? "truncated" : "complete") : "unknown"}</StatTile>
-              <StatTile label="Source status">{sourceHealth ? statusSummary(sourceHealth.statusCounts) : "unknown"}</StatTile>
-              <StatTile label="Oldest success">{sourceHealth ? relativeTime(sourceHealth.oldestSuccessAt) : "unknown"}</StatTile>
-              <StatTile label="Latest success">{sourceHealth ? relativeTime(sourceHealth.latestSuccessAt) : "unknown"}</StatTile>
+            <div className="debug-detail-grid debug-detail-grid-primary">
+              <DetailTable title="payload transfer" rows={payloadRows} />
+              <DetailTable title="contract metadata" rows={contractRows} />
+              <div className="debug-card debug-card-wide">
+                <table className="debug-table">
+                  <thead>
+                    <tr>
+                      <th>source health</th>
+                      <th>status</th>
+                      <th>last success</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {env.sources.map((source) => {
+                      const status = source.last_status ?? "unknown";
+                      return (
+                        <tr key={source.source_id}>
+                          <td>{source.display_name ?? source.source_id}</td>
+                          <td>
+                            <Badge text={status} kind={status === "unknown" ? undefined : `status-${status}`} />
+                          </td>
+                          <td title={source.last_success_at ?? undefined}>{relativeTime(source.last_success_at)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="debug-grid">
-              {contractCounts ? <CountsTable title="top-level rows" counts={contractCounts} /> : null}
-              <SectionSizesTable env={env} />
-              <ItemWindowTable env={env} />
-              <CountsTable title="source status" counts={sourceHealth?.statusCounts ?? {}} />
-              <SourceHealthTable env={env} />
+            <div className="debug-subsection">
+              <h4>Contract shape</h4>
+              <div className="debug-grid">
+                {contractCounts ? <CountsTable title="top-level rows" counts={contractCounts} /> : null}
+                <SectionSizesTable env={env} />
+                <ItemWindowTable env={env} />
+                <CountsTable title="source status" counts={sourceHealth?.statusCounts ?? {}} />
+              </div>
             </div>
           </>
         )}
@@ -260,31 +372,34 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onClose }: Props) 
           <p className="empty">Store stats unavailable: no /api/stats endpoint on this deployment, or no store yet (run a sync first).</p>
         ) : (
           <>
-            <div className="debug-stat-grid">
-              <StatTile label="Store">
+            <section className="debug-summary-strip debug-section-summary" aria-label="Store summary">
+              <SummaryMetric label="Store">
                 {(stats.db.driver ?? "sqlite").toUpperCase()}
                 {stats.db.driver === "postgres" && stats.db.schema ? <span className="muted"> · {stats.db.schema}</span> : null}
-              </StatTile>
-              <StatTile label="DB size">
+              </SummaryMetric>
+              <SummaryMetric label="DB size">
                 {typeof dbSize === "number" ? formatBytes(dbSize) : "n/a"}
                 {typeof walSize === "number" && walSize > 0 ? <span className="muted"> +{formatBytes(walSize)} WAL</span> : null}
-              </StatTile>
-              <StatTile label="Live items">{stats.items.live.toLocaleString()}</StatTile>
-              <StatTile label="Live edges">{stats.edges.live.toLocaleString()}</StatTile>
-              <StatTile label="Activities">{stats.activities.total.toLocaleString()}</StatTile>
-              <StatTile label="Tombstoned">
+              </SummaryMetric>
+              <SummaryMetric label="Live items">{stats.items.live.toLocaleString()}</SummaryMetric>
+              <SummaryMetric label="Live edges">{stats.edges.live.toLocaleString()}</SummaryMetric>
+              <SummaryMetric label="Activities">{stats.activities.total.toLocaleString()}</SummaryMetric>
+              <SummaryMetric label="Tombstoned">
                 {stats.items.tombstoned.toLocaleString()} <span className="muted">/ {stats.edges.tombstoned.toLocaleString()} edges</span>
-              </StatTile>
-              <StatTile label="Schema">v{stats.db.schema_version}</StatTile>
-            </div>
-            <div className="debug-grid">
-              <CountsTable title="table rows" counts={stats.tables} />
-              <CountsTable title="items by kind" counts={stats.items.by_kind} />
-              <CountsTable title="items by state" counts={stats.items.by_state} />
-              <CountsTable title="items by source" counts={stats.items.by_source} />
-              <CountsTable title="edges by type" counts={stats.edges.by_type} />
-              <CountsTable title="edges by lifecycle" counts={stats.edges.by_lifecycle} />
-              <CountsTable title="activities by kind" counts={stats.activities.by_kind} />
+              </SummaryMetric>
+              <SummaryMetric label="Schema">v{stats.db.schema_version}</SummaryMetric>
+            </section>
+            <div className="debug-subsection">
+              <h4>Store breakdown</h4>
+              <div className="debug-grid">
+                <CountsTable title="table rows" counts={stats.tables} />
+                <CountsTable title="items by kind" counts={stats.items.by_kind} />
+                <CountsTable title="items by state" counts={stats.items.by_state} />
+                <CountsTable title="items by source" counts={stats.items.by_source} />
+                <CountsTable title="edges by type" counts={stats.edges.by_type} />
+                <CountsTable title="edges by lifecycle" counts={stats.edges.by_lifecycle} />
+                <CountsTable title="activities by kind" counts={stats.activities.by_kind} />
+              </div>
             </div>
             <p className="muted debug-foot">
               <button type="button" className="toggle" onClick={refresh}>

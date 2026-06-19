@@ -1,5 +1,5 @@
 // UI client state for the hidden Diagnostics page (#/debug): store statistics
-// (GET /api/stats, fetched on mount + manual refresh) and the writer daemon's
+// (GET /api/stats, fetched on mount + manual/contract refresh) and the writer daemon's
 // recent-log tail (GET /api/logs, polled with the last-seen seq so each tick
 // ships only deltas). Both hooks live only while the page is mounted — the
 // page is hidden, so nothing polls in normal use.
