@@ -258,7 +258,7 @@ jobs:
           printf '%s\n' '${{ github.event.release.prerelease }}' > deploy-meta/prerelease
 
       - name: Upload deploy metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deploy-meta
           path: deploy-meta/prerelease

@@ -115,6 +115,10 @@ function sourceLabel(meta: ContractLoadMetadata | null): string {
   return meta.source === "file" ? `file: ${meta.url}` : meta.url;
 }
 
+function InlineNote({ children }: { children: ReactNode }) {
+  return <span className="muted debug-inline-note">  {children}</span>;
+}
+
 function sourceSummary(counts: Record<string, number>): ReactNode {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   const detail = Object.entries(counts)
@@ -145,7 +149,7 @@ function transferSummary(meta: ContractLoadMetadata | null): ReactNode {
   return (
     <>
       {formatOptionalBytes(bytes)}
-      {encodingLabel(meta) ? <span className="muted"> {encodingLabel(meta)}</span> : null}
+      {encodingLabel(meta) ? <InlineNote>{encodingLabel(meta)}</InlineNote> : null}
     </>
   );
 }
@@ -156,7 +160,7 @@ function transferTotal(meta: ContractLoadMetadata | null): ReactNode {
     return (
       <>
         {formatBytes(meta.encodedBytes)}
-        <span className="muted"> body</span>
+        <InlineNote>body</InlineNote>
       </>
     );
   }
@@ -246,7 +250,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
       value: (
         <>
           {formatOptionalBytes(contractMeta?.encodedBytes)}
-          {encodedLabel ? <span className="muted"> {encodedLabel}</span> : null}
+          {encodedLabel ? <InlineNote>{encodedLabel}</InlineNote> : null}
         </>
       ),
     },
@@ -394,7 +398,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
             <section className="debug-summary-strip debug-section-summary" aria-label="Store summary">
               <SummaryMetric label="Store">
                 {(stats.db.driver ?? "sqlite").toUpperCase()}
-                {stats.db.driver === "postgres" && stats.db.schema ? <span className="muted"> {stats.db.schema}</span> : null}
+                {stats.db.driver === "postgres" && stats.db.schema ? <InlineNote>{stats.db.schema}</InlineNote> : null}
               </SummaryMetric>
               <SummaryMetric label="DB size">
                 {typeof dbSize === "number" ? formatBytes(dbSize) : "n/a"}

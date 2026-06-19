@@ -2427,6 +2427,7 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 8px;
   min-width: 0;
 }
+.debug-inline-note { white-space: pre; }
 .debug-section { margin-top: 12px; }
 .debug-section h3 { margin: 0 0 8px; }
 .debug-subsection { margin-top: 12px; }
