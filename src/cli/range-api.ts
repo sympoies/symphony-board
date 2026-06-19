@@ -67,7 +67,7 @@ const server = createServer((req, res) => {
     json(res, 404, { error: "not_found" });
     return;
   }
-  void handleRangeRequest(cfg, url, res);
+  void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
 });
 
 server.listen(args.port, args.host, () => {
