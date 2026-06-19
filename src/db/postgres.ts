@@ -67,6 +67,11 @@ interface Migration {
   file: string;
 }
 
+interface ActivityInstantRow {
+  activity_id: number;
+  occurred_at: string;
+}
+
 // Ordered list of migrations. Append future ones; never edit an applied file.
 const MIGRATIONS: Migration[] = [
   { version: 1, file: "0001_init.sql" },
@@ -78,6 +83,26 @@ const MIGRATIONS: Migration[] = [
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
 const nz = <T>(v: T | null | undefined): T | null => (v === undefined ? null : v);
+
+function repoActivityBoundsFromRows(rows: ActivityInstantRow[]): { observedSince: string; lastActivityAt: string } | null {
+  let observedSince: { ms: number; id: number; value: string } | null = null;
+  let lastActivityAt: { ms: number; id: number; value: string } | null = null;
+
+  for (const row of rows) {
+    const ms = Date.parse(row.occurred_at);
+    if (!Number.isFinite(ms)) continue;
+    const id = Number(row.activity_id);
+    if (!observedSince || ms < observedSince.ms || (ms === observedSince.ms && id < observedSince.id)) {
+      observedSince = { ms, id, value: row.occurred_at };
+    }
+    if (!lastActivityAt || ms > lastActivityAt.ms || (ms === lastActivityAt.ms && id > lastActivityAt.id)) {
+      lastActivityAt = { ms, id, value: row.occurred_at };
+    }
+  }
+
+  if (!observedSince || !lastActivityAt) return null;
+  return { observedSince: observedSince.value, lastActivityAt: lastActivityAt.value };
+}
 
 export interface PgOpenOptions {
   // Postgres schema to hold the store's tables (created when missing). Unset
@@ -325,37 +350,18 @@ export class PgStore implements Store {
   async #refreshRepoActivityBounds(bucket: RepoActivityBoundsBucket): Promise<void> {
     const rows = bucket.projectPath === null
       ? await this.#q`
-          SELECT observed_since, last_activity_at
-          FROM (
-            SELECT
-              FIRST_VALUE(occurred_at) OVER (
-                ORDER BY occurred_at::timestamptz ASC, activity_id ASC
-              ) AS observed_since,
-              FIRST_VALUE(occurred_at) OVER (
-                ORDER BY occurred_at::timestamptz DESC, activity_id DESC
-              ) AS last_activity_at
-            FROM activity
-            WHERE source_id = ${bucket.sourceId}
-              AND project_path IS NULL
-          ) bounds
-          LIMIT 1`
+          SELECT activity_id, occurred_at
+          FROM activity
+          WHERE source_id = ${bucket.sourceId}
+            AND project_path IS NULL`
       : await this.#q`
-          SELECT observed_since, last_activity_at
-          FROM (
-            SELECT
-              FIRST_VALUE(occurred_at) OVER (
-                ORDER BY occurred_at::timestamptz ASC, activity_id ASC
-              ) AS observed_since,
-              FIRST_VALUE(occurred_at) OVER (
-                ORDER BY occurred_at::timestamptz DESC, activity_id DESC
-              ) AS last_activity_at
-            FROM activity
-            WHERE source_id = ${bucket.sourceId}
-              AND project_path = ${bucket.projectPath}
-          ) bounds
-          LIMIT 1`;
+          SELECT activity_id, occurred_at
+          FROM activity
+          WHERE source_id = ${bucket.sourceId}
+            AND project_path = ${bucket.projectPath}`;
+    const bounds = repoActivityBoundsFromRows(rows as unknown as ActivityInstantRow[]);
 
-    if (rows.length === 0) {
+    if (!bounds) {
       await this.#q`
         DELETE FROM repo_activity_bounds
         WHERE source_id = ${bucket.sourceId} AND project_key = ${bucket.projectKey}`;
@@ -367,7 +373,7 @@ export class PgStore implements Store {
         source_id, project_path, project_key, observed_since, last_activity_at, updated_at
       ) VALUES (
         ${bucket.sourceId}, ${bucket.projectPath}, ${bucket.projectKey},
-        ${rows[0]!.observed_since as string | null}, ${rows[0]!.last_activity_at as string | null}, ${bucket.updatedAt}
+        ${bounds.observedSince}, ${bounds.lastActivityAt}, ${bucket.updatedAt}
       )
       ON CONFLICT (source_id, project_key) DO UPDATE SET
         project_path = excluded.project_path,

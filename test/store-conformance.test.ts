@@ -358,6 +358,21 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("listRepoActivityBounds skips unparsable activity timestamps", async () => {
+    const store = await fresh();
+    try {
+      await store.upsertActivity(fixtureActivity({ externalId: "good", projectPath: "dev-a/repo", occurredAt: "2026-05-16T12:00:00Z" }), "2026-06-01T00:00:00Z");
+      await store.upsertActivity(fixtureActivity({ externalId: "bad", projectPath: "dev-a/repo", occurredAt: "not-a-timestamp" }), "2026-06-01T00:00:00Z");
+
+      const bounds = await store.listRepoActivityBounds();
+      assert.equal(bounds.length, 1, "one row for the repo with parseable activity");
+      assert.equal(bounds[0]?.observed_since, "2026-05-16T12:00:00Z", "unparsable rows are skipped");
+      assert.equal(bounds[0]?.last_activity_at, "2026-05-16T12:00:00Z", "unparsable rows do not break latest bound refresh");
+    } finally {
+      await store.close();
+    }
+  });
+
   t("listRepoActivityBounds recomputes cached bounds when a boundary activity changes", async () => {
     const store = await fresh();
     await store.upsertActivity(fixtureActivity({ externalId: "earliest", projectPath: "dev-a/repo", occurredAt: "2026-01-01T00:00:00.000Z" }), "2026-01-01T00:00:00Z");
