@@ -10,6 +10,7 @@ import type { AppConfig } from "../config.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { buildRangeContract } from "../contract/build.ts";
 import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
+import { sendJsonMaybeGzip } from "./http.ts";
 
 export interface ConfigColors {
   sourceColors: Record<string, string>;
@@ -77,22 +78,22 @@ export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractE
   }
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-store",
-  });
-  res.end(JSON.stringify(body) + "\n");
-}
-
 // Serve one GET /api/range request, mapping validation failures to 400 and
 // everything else to 500 — the same surface the Docker api sidecar exposes.
-export async function handleRangeRequest(cfg: AppConfig, url: URL, res: ServerResponse): Promise<void> {
+// The 200 envelope is the large dynamic response (6mo/1yr selections), so it is
+// gzipped when the client accepts it, matching the nginx-fronted compose path;
+// callers pass the request's Accept-Encoding header.
+export async function handleRangeRequest(
+  cfg: AppConfig,
+  url: URL,
+  res: ServerResponse,
+  acceptEncoding?: string | string[] | undefined,
+): Promise<void> {
   try {
-    json(res, 200, await rangeEnvelope(cfg, url));
+    sendJsonMaybeGzip(res, 200, await rangeEnvelope(cfg, url), acceptEncoding);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.includes("must be") || message.includes("valid date") ? 400 : 500;
-    json(res, status, { error: status === 400 ? "bad_request" : "internal_error", message });
+    sendJsonMaybeGzip(res, status, { error: status === 400 ? "bad_request" : "internal_error", message }, acceptEncoding);
   }
 }

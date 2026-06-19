@@ -243,6 +243,36 @@ test("app-server gzips /contract.json for Accept-Encoding: gzip, serves raw othe
   }
 });
 
+test("app-server gzips /api/range for Accept-Encoding: gzip and serves raw otherwise", async () => {
+  const { dir, opts } = await sandbox();
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createAppServer(controller, opts);
+  const base = await listen(server);
+  try {
+    // /api/range is the large dynamic envelope (6mo/1yr selections); the
+    // standalone server must gzip it when accepted, matching the nginx-fronted
+    // compose path that already compresses the same route.
+    const gz = await getRaw(base, "/api/range?from=2026-01-01&to=2026-01-02", { "Accept-Encoding": "gzip" });
+    assert.equal(gz.status, 200);
+    assert.equal(gz.headers["content-encoding"], "gzip");
+    assert.equal(gz.headers["content-type"], "application/json");
+    assert.equal(gz.headers["cache-control"], "no-store");
+    assert.match(String(gz.headers["vary"] ?? ""), /accept-encoding/i);
+    const envelope = JSON.parse(gunzipSync(gz.body).toString("utf8"));
+    assert.equal(typeof envelope.contract_version, "string");
+    assert.equal(envelope.range_query.from, "2026-01-01T00:00:00.000Z");
+
+    // no gzip requested: raw bytes, no Content-Encoding.
+    const raw = await getRaw(base, "/api/range?from=2026-01-01&to=2026-01-02", { "Accept-Encoding": "identity" });
+    assert.equal(raw.status, 200);
+    assert.equal(raw.headers["content-encoding"], undefined);
+    assert.equal(JSON.parse(raw.body.toString("utf8")).range_query.from, "2026-01-01T00:00:00.000Z");
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("app-server degrades cleanly when the config is missing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "app-server-test-"));
   const opts: AppServerOptions = {

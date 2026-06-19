@@ -47,6 +47,7 @@ import {
 import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
+import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -61,13 +62,6 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 // process. nginx already gzips this route in the Docker stack; this brings the
 // standalone server — the only un-gzipped path — to parity.
 const contractGzipCache = new Map<string, { mtimeMs: number; gz: Buffer }>();
-
-// Coarse Accept-Encoding check: real clients send `gzip` or `gzip, deflate, br`.
-// We do not honor `q=0` refusals (no client we serve sends one), only presence.
-function acceptsGzip(acceptEncoding: string | string[] | undefined): boolean {
-  const header = Array.isArray(acceptEncoding) ? acceptEncoding.join(",") : acceptEncoding;
-  return !!header && /(^|,)\s*gzip\b/i.test(header);
-}
 
 // Serve the daemon-emitted contract file (the nginx `location = /contract.json`
 // role). 404 until the first emit — the UI shows its load error and the user can
@@ -160,7 +154,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       }
       if (path === "/api/stats") await handleStatsRequest(cfg, url, res);
       else if (path === "/api/review-candidates") await handleReviewCandidatesRequest(cfg, url, res);
-      else await handleRangeRequest(cfg, url, res);
+      else await handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
       return;
     }
 
