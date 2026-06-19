@@ -40,11 +40,12 @@ function getRaw(
   base: string,
   path: string,
   headers: Record<string, string>,
+  method = "GET",
 ): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }> {
   const url = new URL(path, base);
   return new Promise((resolve, reject) => {
     const req = httpRequest(
-      { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method: "GET", headers },
+      { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers },
       (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
@@ -221,6 +222,23 @@ test("app-server gzips /contract.json for Accept-Encoding: gzip, serves raw othe
     assert.match(String(gz.headers["vary"] ?? ""), /accept-encoding/i);
     assert.equal(JSON.parse(gunzipSync(gz.body).toString("utf8")).contract_version, "4.0.0");
     assert.ok(gz.body.length < Buffer.byteLength(payloadA), "gzip body is smaller than raw");
+
+    // The thin desktop app cannot observe the encoded /contract.json headers
+    // after Tauri's native HTTP layer transparently decompresses the response,
+    // so Diagnostics also needs a raw precompressed endpoint for metadata.
+    const rawGz = await getRaw(base, "/contract.json.gz", { "Accept-Encoding": "identity" });
+    assert.equal(rawGz.status, 200);
+    assert.equal(rawGz.headers["content-encoding"], undefined);
+    assert.equal(rawGz.headers["content-type"], "application/gzip");
+    assert.equal(rawGz.headers["cache-control"], "no-store");
+    assert.equal(Number(rawGz.headers["content-length"]), rawGz.body.length);
+    assert.equal(JSON.parse(gunzipSync(rawGz.body).toString("utf8")).contract_version, "4.0.0");
+
+    const headGz = await getRaw(base, "/contract.json.gz", { "Accept-Encoding": "identity" }, "HEAD");
+    assert.equal(headGz.status, 200);
+    assert.equal(headGz.body.length, 0);
+    assert.equal(headGz.headers["content-type"], "application/gzip");
+    assert.equal(Number(headGz.headers["content-length"]), rawGz.body.length);
 
     // no gzip requested: raw bytes, no Content-Encoding.
     const raw = await getRaw(base, "/contract.json", { "Accept-Encoding": "identity" });

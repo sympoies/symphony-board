@@ -150,6 +150,83 @@ test("fetchContractWithMetadata prefers Resource Timing transfer sizes when avai
   }
 });
 
+test("fetchContractWithMetadata probes the precompressed contract when native fetch hides transfer headers", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    const raw = JSON.stringify({ contract_version: "4.0.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
+    const calls: Array<{ url: string; method: string }> = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (String(url).endsWith("/contract.json.gz")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers([
+            ["content-length", "37"],
+            ["content-type", "application/gzip"],
+          ]),
+          arrayBuffer: async () => new Uint8Array(37).buffer,
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        headers: new Headers(),
+        text: async () => raw,
+      };
+    }) as unknown as typeof fetch;
+
+    const loaded = await fetchContractWithMetadata("./contract.json", "https://board.example/app/", null, { retries: 0 });
+
+    assert.deepEqual(calls, [
+      { url: "https://board.example/app/contract.json", method: "GET" },
+      { url: "https://board.example/app/contract.json.gz", method: "HEAD" },
+    ]);
+    assert.equal(loaded.meta.encodedBytes, 37);
+    assert.equal(loaded.meta.contentEncoding, "gzip");
+    assert.equal(loaded.meta.encodedBytesSource, "precompressed-content-length");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContractWithMetadata ignores SPA fallbacks when probing the precompressed contract", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    const raw = JSON.stringify({ contract_version: "4.0.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/contract.json.gz")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers([
+            ["content-length", "781"],
+            ["content-type", "text/html"],
+          ]),
+          arrayBuffer: async () => new TextEncoder().encode("<!doctype html>").buffer,
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        headers: new Headers(),
+        text: async () => raw,
+      };
+    }) as unknown as typeof fetch;
+
+    const loaded = await fetchContractWithMetadata("./contract.json", "https://board.example/app/", null, { retries: 0 });
+
+    assert.equal(loaded.meta.encodedBytes, null);
+    assert.equal(loaded.meta.contentEncoding, null);
+    assert.equal(loaded.meta.encodedBytesSource, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // --- contract-load resilience: bounded per-attempt timeout + backoff retry ---
 // A remote board can be briefly unreachable or slow; the load must not hang
 // forever on a single stalled request, nor turn one transient blip into a board

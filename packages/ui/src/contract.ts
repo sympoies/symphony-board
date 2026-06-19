@@ -114,7 +114,10 @@ function readResourceTimingBytes(target: string, responseUrl: string | null): Pi
   return { encodedBytes: null, transferBytes: null, encodedBytesSource: null };
 }
 
-function readTransferMetadata(target: string, res: Response): Pick<ContractLoadMetadata, "encodedBytes" | "transferBytes" | "contentEncoding" | "encodedBytesSource"> {
+type EncodedBytesSource = "resource-timing" | "content-length" | "precompressed-content-length" | "precompressed-body";
+type TransferMetadata = Pick<ContractLoadMetadata, "encodedBytes" | "transferBytes" | "contentEncoding" | "encodedBytesSource">;
+
+function readTransferMetadata(target: string, res: Response): TransferMetadata {
   const contentEncoding = headerValue(res, "content-encoding");
   const resourceTiming = readResourceTimingBytes(target, typeof res.url === "string" && res.url ? res.url : null);
   if (resourceTiming.encodedBytes != null) {
@@ -130,6 +133,76 @@ function readTransferMetadata(target: string, res: Response): Pick<ContractLoadM
     contentEncoding,
     encodedBytesSource: contentLength == null ? null : "content-length",
   };
+}
+
+function precompressedContractUrl(target: string): string | null {
+  try {
+    const base = typeof window !== "undefined" ? window.location.href : undefined;
+    const resolved = new URL(target, base);
+    if (!resolved.pathname.endsWith("/contract.json")) return null;
+    resolved.pathname = `${resolved.pathname}.gz`;
+    return resolved.toString();
+  } catch {
+    return target.endsWith("contract.json") ? `${target}.gz` : null;
+  }
+}
+
+function isPrecompressedContentType(res: Response): boolean {
+  const contentType = headerValue(res, "content-type")?.toLowerCase() ?? "";
+  return contentType.includes("gzip") || contentType.includes("application/octet-stream");
+}
+
+function looksLikeGzip(body: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(body);
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+function precompressedMetadataFromLength(res: Response): TransferMetadata | null {
+  if (!isPrecompressedContentType(res)) return null;
+  const contentLength = parseByteHeader(headerValue(res, "content-length"));
+  if (contentLength == null) return null;
+  return {
+    encodedBytes: contentLength,
+    transferBytes: null,
+    contentEncoding: "gzip",
+    encodedBytesSource: "precompressed-content-length",
+  };
+}
+
+async function probePrecompressedContractMetadata(target: string, signal: AbortSignal, connectTimeoutMs: number): Promise<TransferMetadata | null> {
+  const gzUrl = precompressedContractUrl(target);
+  if (!gzUrl) return null;
+
+  const requestInit = {
+    cache: "no-store" as RequestCache,
+    headers: { "Accept-Encoding": "identity" },
+    signal,
+    connectTimeout: connectTimeoutMs,
+  };
+
+  try {
+    const head = await appFetch(gzUrl, { ...requestInit, method: "HEAD" });
+    if (head.ok) {
+      const metadata = precompressedMetadataFromLength(head);
+      if (metadata) return metadata;
+    }
+
+    const res = await appFetch(gzUrl, { ...requestInit, method: "GET" });
+    if (!res.ok) return null;
+    const metadata = precompressedMetadataFromLength(res);
+    if (metadata) return metadata;
+    if (typeof res.arrayBuffer !== "function") return null;
+    const body = await res.arrayBuffer();
+    if (!looksLikeGzip(body)) return null;
+    return {
+      encodedBytes: body.byteLength,
+      transferBytes: null,
+      contentEncoding: "gzip",
+      encodedBytesSource: "precompressed-body",
+    };
+  } catch {
+    return null;
+  }
 }
 
 function asContractEnvelope(body: unknown): ContractEnvelope {
@@ -151,7 +224,7 @@ export interface ContractLoadMetadata {
   // Total HTTP transfer bytes including headers when Resource Timing exposes it.
   transferBytes: number | null;
   contentEncoding: string | null;
-  encodedBytesSource: "resource-timing" | "content-length" | null;
+  encodedBytesSource: EncodedBytesSource | null;
   loadedAt: string;
   durationMs: number;
 }
@@ -251,7 +324,16 @@ async function loadContractAttempt(target: string, requestTimeoutMs: number, con
     tagged.transient = signal.aborted || !(err instanceof SyntaxError);
     throw tagged;
   }
-  const transferMetadata = readTransferMetadata(target, res);
+  let transferMetadata = readTransferMetadata(target, res);
+  if (transferMetadata.encodedBytes == null) {
+    const precompressedMetadata = await probePrecompressedContractMetadata(target, signal, connectTimeoutMs);
+    if (precompressedMetadata) {
+      transferMetadata = {
+        ...precompressedMetadata,
+        transferBytes: transferMetadata.transferBytes,
+      };
+    }
+  }
   // A well-formed but non-contract body is definitive: asContractEnvelope throws a
   // plain (untagged) error, so it surfaces immediately without spinning.
   return { env: asContractEnvelope(payload.body), bytes: payload.bytes, ...transferMetadata };
