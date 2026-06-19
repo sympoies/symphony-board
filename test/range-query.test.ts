@@ -308,3 +308,28 @@ test("openSqliteStoreReadOnly can read but cannot write or migrate", async () =>
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("listRepoActivityBounds skips activity rows whose occurred_at does not parse (SQLite)", async () => {
+  // occurred_at is stored as TEXT and upsertActivity does not validate it. An
+  // unparsable instant makes julianday() NULL, which SQLite would sort FIRST for
+  // the ascending bound — so the bad string could surface as observed_since. The
+  // bounds query must skip such rows, matching the prior JS coverage helper.
+  const dir = mkdtempSync(join(tmpdir(), "sb-bounds-"));
+  const dbPath = join(dir, "store.db");
+  try {
+    const db = await openSqliteStore(dbPath);
+    await db.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+    await db.upsertActivity(activity({ externalId: "good", occurredAt: "2026-05-16T12:00:00Z" }), "2026-06-01T00:00:00Z");
+    await db.upsertActivity(activity({ externalId: "bad", occurredAt: "not-a-timestamp" }), "2026-06-01T00:00:00Z");
+    await db.close();
+
+    const ro = await openSqliteStoreReadOnly(dbPath);
+    const bounds = await ro.listRepoActivityBounds();
+    assert.equal(bounds.length, 1, "one repo row");
+    assert.equal(bounds[0]?.observed_since, "2026-05-16T12:00:00Z", "the unparsable row is skipped, not surfaced as the earliest bound");
+    assert.equal(bounds[0]?.last_activity_at, "2026-05-16T12:00:00Z");
+    await ro.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

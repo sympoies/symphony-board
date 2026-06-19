@@ -449,7 +449,13 @@ export class SqliteStore implements Store {
                 FIRST_VALUE(occurred_at) OVER (
                   PARTITION BY source_id, project_path
                   ORDER BY julianday(occurred_at) DESC, activity_id DESC) AS last_activity_at
-         FROM activity`,
+         -- Skip rows whose timestamp does not parse (julianday -> NULL, which
+         -- SQLite sorts FIRST for the ascending bound and would otherwise
+         -- surface as observed_since). Matches the prior JS coverage helper,
+         -- which skipped unparsable instants. Postgres ::timestamptz fails loud
+         -- on bad input, like its sibling activity queries, so it needs no guard.
+         FROM activity
+         WHERE julianday(occurred_at) IS NOT NULL`,
       )
       .all() as unknown as RepoActivityBoundsRow[];
   }
