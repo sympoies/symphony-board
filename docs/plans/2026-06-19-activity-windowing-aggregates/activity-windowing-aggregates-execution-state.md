@@ -17,7 +17,7 @@
 - Source document: `docs/plans/2026-06-19-activity-windowing-aggregates/activity-windowing-aggregates-discussion-source.md`
 - Plan document: `docs/plans/2026-06-19-activity-windowing-aggregates/activity-windowing-aggregates-plan.md`
 - Direct source-doc execution waiver: not applicable
-- Tracking issue: pending — assigned by `create-plan-tracking-issue` at open.
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/279>
 - Source snapshot: pending — posted by `create-plan-tracking-issue` at issue open.
 - Plan snapshot: pending — posted by `create-plan-tracking-issue` at issue open.
 - Initial state snapshot: pending — posted by `create-plan-tracking-issue` at
@@ -45,3 +45,15 @@
 - Range model:
   - Network capture on 1w / 1mo (expect no `/api/range`) and 6mo / 1yr (expect
     `/api/range`).
+
+## Task Ledger
+
+| ID | Status | Task | Evidence | Notes |
+| --- | --- | --- | --- | --- |
+| 1.1 | todo | gzip the standalone app-server contract response | pending | Independent; no contract change. |
+| 1.2 | todo | Date-bound the range activity query in both drivers | pending | Touches the `Store` seam; Postgres gates required. |
+| 2.1 | todo | Add the `activity_daily` aggregate to the contract | pending | DTO + schema + tests + `docs/CONTRACT.md`. |
+| 2.2 | todo | Compute `activity_daily` and window emitted activities at emit | pending | Contract major bump (3.5.0 -> 4.0.0). |
+| 2.3 | todo | Rewire the Activity Overview to read `activity_daily` | pending | Anchor to `generated_at`, not the UI clock. |
+| 2.4 | deferred | Drop redundant `id` and `summary` (optional rider) | pending | Off by default; fold into the 2.2 major bump only if opted in. |
+| 3.1 | todo | Narrow-local / wide-fetch range threshold | pending | 1w/1mo local, 6mo/1yr via `/api/range`. |
