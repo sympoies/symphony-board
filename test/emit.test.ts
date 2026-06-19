@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { ItemRow, SourceRow, Store } from "../src/db/store.ts";
 import type { AppConfig } from "../src/config.ts";
 import {
@@ -122,8 +123,23 @@ test("emitContractToFile writes a validated contract atomically and reports coun
     const env = JSON.parse(text) as { items: unknown[]; contract_version: string };
     assert.equal(env.items.length, 1);
     assert.ok(env.contract_version);
-    // tmp+rename: the only thing left in the directory is the finished file.
-    assert.deepEqual(readdirSync(dir), ["contract.json"], "no temp artifact survives a successful emit");
+    // tmp+rename: only the finished raw and precompressed artifacts remain.
+    assert.deepEqual(readdirSync(dir).sort(), ["contract.json", "contract.json.gz"], "no temp artifact survives a successful emit");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("emitContractToFile writes a precompressed contract beside the JSON", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "emit-test-"));
+  try {
+    const out = join(dir, "contract.json");
+    await emitContractToFile(fakeStore([itemRow()]), appConfig(), out, "2026-06-08T00:00:00.000Z");
+    const text = readFileSync(out, "utf8");
+    const gz = readFileSync(`${out}.gz`);
+    assert.equal(gunzipSync(gz).toString("utf8"), text, "the gzip artifact matches the emitted JSON exactly");
+    assert.ok(gz.length < Buffer.byteLength(text), "the gzip artifact is the compressed transfer body");
+    assert.deepEqual(readdirSync(dir).sort(), ["contract.json", "contract.json.gz"], "only finished artifacts survive");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -144,6 +160,7 @@ test("a contract that fails producer validation never lands on disk", async () =
       },
     );
     assert.equal(existsSync(out), false, "a rejected contract must not land on disk");
+    assert.equal(existsSync(`${out}.gz`), false, "a rejected contract must not land a gzip artifact");
     assert.deepEqual(readdirSync(dir), [], "no temp artifact survives a rejected emit");
   } finally {
     rmSync(dir, { recursive: true, force: true });

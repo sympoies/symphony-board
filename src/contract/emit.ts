@@ -7,7 +7,8 @@
 // the only emit-time, config-derived metadata, so they are resolved here and
 // never stored in the DB.
 
-import { renameSync, writeFileSync } from "node:fs";
+import { rmSync, renameSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
 import type { Store } from "../db/store.ts";
@@ -91,9 +92,15 @@ export async function emitContractToFile(
   }
   // Write-then-rename: readers of outPath (the web sidecar serves the emitted
   // file directly) must never observe a torn, half-written contract.
+  const text = JSON.stringify(envelope, null, 2) + "\n";
   const tmpPath = `${outPath}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(envelope, null, 2) + "\n");
+  const gzipPath = `${outPath}.gz`;
+  const tmpGzipPath = `${gzipPath}.tmp`;
+  writeFileSync(tmpPath, text);
+  writeFileSync(tmpGzipPath, gzipSync(text));
+  rmSync(gzipPath, { force: true });
   renameSync(tmpPath, outPath);
+  renameSync(tmpGzipPath, gzipPath);
   return {
     items: envelope.items.length,
     totalItems: envelope.item_window?.total_items ?? envelope.items.length,

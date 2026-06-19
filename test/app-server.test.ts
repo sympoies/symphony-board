@@ -217,6 +217,7 @@ test("app-server gzips /contract.json for Accept-Encoding: gzip, serves raw othe
     assert.equal(gz.headers["content-encoding"], "gzip");
     assert.equal(gz.headers["content-type"], "application/json");
     assert.equal(gz.headers["cache-control"], "no-store");
+    assert.equal(Number(gz.headers["content-length"]), gz.body.length, "compressed responses expose their encoded size");
     assert.match(String(gz.headers["vary"] ?? ""), /accept-encoding/i);
     assert.equal(JSON.parse(gunzipSync(gz.body).toString("utf8")).contract_version, "4.0.0");
     assert.ok(gz.body.length < Buffer.byteLength(payloadA), "gzip body is smaller than raw");

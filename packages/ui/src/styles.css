@@ -2118,7 +2118,8 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 8px;
   margin: 10px 0 12px;
 }
-/* Shared StatTile (repo analytics totals + diagnostics DB stats). */
+/* Shared StatTile for Repo Analytics totals. Diagnostics uses its own compact
+   summary strip so Store and payload summaries share the same chrome. */
 .stat-tile {
   min-height: 56px;
   background: var(--panel);
@@ -2379,36 +2380,88 @@ a.rf-node-title:hover { color: var(--accent); }
 .settings-tab:hover { color: var(--text); }
 .settings-tab-active { color: var(--text); border-bottom-color: var(--accent, #58a6ff); font-weight: 600; }
 
-/* Diagnostics (the hidden #/debug page, toggled with Cmd+/ or Ctrl+/). The
-   visual language deliberately mirrors Repo Analytics: stat tiles for the
-   headline numbers, panel cards for the breakdown tables, and the same
-   panel-2 uppercase table headers — so the operator page reads as this app. */
+/* Diagnostics (the hidden #/debug page, toggled with Cmd+/ or Ctrl+/). Keep it
+   operational: a compact summary strip first, grouped key/value tables next,
+   and raw breakdowns below for drill-down. */
 .debug-page { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
 .debug-head { display: flex; align-items: baseline; gap: 12px; }
 .debug-head h2 { margin: 0; }
 .debug-close { margin-left: auto; }
+.debug-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.debug-section-summary { margin-bottom: 12px; }
+.debug-summary-metric {
+  min-width: 0;
+  padding: 9px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.debug-summary-metric:last-child { border-right: none; }
+.debug-summary-label {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.debug-summary-value {
+  display: block;
+  color: var(--accent);
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
 .debug-section { margin-top: 12px; }
 .debug-section h3 { margin: 0 0 8px; }
-.debug-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-  margin: 0 0 12px;
+.debug-subsection { margin-top: 12px; }
+.debug-subsection h4 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
 }
-.debug-page .stat-tile b { overflow-wrap: anywhere; }
 .debug-value-text { display: block; color: var(--accent); font-size: 12px; line-height: 1.25; }
+.debug-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, max-content));
+  gap: 8px 12px;
+  align-items: start;
+}
+.debug-detail-grid-primary {
+  grid-template-columns: minmax(320px, max-content) minmax(260px, max-content) minmax(300px, max-content);
+}
 .debug-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; }
 .debug-card {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 2px 10px;
+  min-width: 0;
+}
+.debug-card-wide {
+  min-width: 300px;
 }
 .debug-table { border-collapse: collapse; font-size: 13px; }
 .debug-table th, .debug-table td { text-align: left; padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line); }
 .debug-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .debug-table th.num, .debug-table td.num { text-align: right; }
 .debug-table tbody tr:last-child td { border-bottom: none; }
+.debug-value-cell {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
 .debug-runs-wrap {
   overflow-x: auto;
   background: var(--panel);
@@ -2868,5 +2921,9 @@ a.rf-node-title:hover { color: var(--accent); }
   .debug-card {
     max-width: 100%;
     overflow-x: auto;
+  }
+  .debug-detail-grid,
+  .debug-detail-grid-primary {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
