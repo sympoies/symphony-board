@@ -11,7 +11,7 @@ import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl }
 // The major this UI understands. The contract versions independently; if a
 // future emit bumps the MAJOR, the UI should branch (or warn) rather than
 // silently mis-render. Minor/patch are backward compatible by contract rule.
-export const SUPPORTED_MAJOR = 3;
+export const SUPPORTED_MAJOR = 4;
 
 export function majorOf(version: string): number {
   return Number(version.split(".")[0] ?? "0");

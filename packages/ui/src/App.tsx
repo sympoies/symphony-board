@@ -10,6 +10,7 @@ import {
   commitBranchOptions,
   preferredDefaultTimeRange,
   staticContractTimeRange,
+  activityDailyExtent,
   activityOccurredExtent,
   isCommitActivity,
   filterActivitiesByRange,
@@ -212,12 +213,24 @@ export function App() {
   // "Show all" / the extent copy overpromise). Board / Graph / Repo stay on
   // staticRange since their data is item-windowed. Fall back to staticRange when
   // there are no activities to measure.
+  // Measure the true activity span from activity_daily (full history) rather than
+  // the raw activities[] feed, which 4.0.0 windows to 30 days — otherwise
+  // "Show all" / the extent copy would understate older history. Fall back to the
+  // raw feed for a pre-4.0.0 contract that carries no activity_daily.
   const activityDataExtent = useMemo(
-    () => (env ? (activityOccurredExtent(env.activities ?? [], tz) ?? staticRange) : null),
+    () =>
+      env
+        ? (env.activity_daily ? activityDailyExtent(env.activity_daily) : activityOccurredExtent(env.activities ?? [], tz)) ?? staticRange
+        : null,
     [env, tz, staticRange],
   );
   const commitDataExtent = useMemo(
-    () => (env ? (activityOccurredExtent(env.activities ?? [], tz, isCommitActivity) ?? staticRange) : null),
+    () =>
+      env
+        ? (env.activity_daily
+            ? activityDailyExtent(env.activity_daily, "commit")
+            : activityOccurredExtent(env.activities ?? [], tz, isCommitActivity)) ?? staticRange
+        : null,
     [env, tz, staticRange],
   );
   const defaultRange = useMemo(() => (env ? preferredDefaultTimeRange(env, defaultRangePreset) : null), [env, defaultRangePreset]);
@@ -1115,8 +1128,10 @@ export function App() {
         <ActivityPage
           activities={filteredActivities}
           allActivities={env.activities ?? activeEnv.activities ?? []}
+          activityDaily={env.activity_daily ?? null}
+          generatedAt={env.generated_at}
           windowTotal={windowedActivities.length}
-          totalActivities={env.activities?.length ?? activeEnv.activities?.length ?? 0}
+          totalActivities={env.activity_daily?.total ?? env.activities?.length ?? activeEnv.activities?.length ?? 0}
           range={activeRange}
           timezone={tz}
           sourceKind={sourceKind}
@@ -1125,7 +1140,7 @@ export function App() {
           view={activityViewValue}
           onView={setActivityView}
           emptyState={
-            <EmptyState noun="activity" total={env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
+            <EmptyState noun="activity" total={env.activity_daily?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
           }
         />
       ) : page === "commits" ? (

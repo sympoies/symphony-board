@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.4.0",
+  "contract_version": "4.0.0",
   "generated_at": "2026-06-10T09:00:00Z",
   "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
@@ -524,6 +524,52 @@
       "last_seen_at": "2026-06-10T07:40:00Z"
     }
   ],
+  "activity_daily": {
+    "timezone": "UTC",
+    "from": "2026-06-05",
+    "to": "2026-06-10",
+    "total": 7,
+    "by_kind": {
+      "commit": 2,
+      "change_request": 1,
+      "review": 1,
+      "issue": 2,
+      "branch": 1
+    },
+    "days": [
+      {
+        "date": "2026-06-05",
+        "count": 1,
+        "by_kind": {
+          "issue": 1
+        }
+      },
+      {
+        "date": "2026-06-08",
+        "count": 1,
+        "by_kind": {
+          "commit": 1
+        }
+      },
+      {
+        "date": "2026-06-09",
+        "count": 4,
+        "by_kind": {
+          "change_request": 1,
+          "review": 1,
+          "issue": 1,
+          "branch": 1
+        }
+      },
+      {
+        "date": "2026-06-10",
+        "count": 1,
+        "by_kind": {
+          "commit": 1
+        }
+      }
+    ]
+  },
   "repos": [
     {
       "source_id": "gitlab:gitlab.com",

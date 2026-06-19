@@ -2,7 +2,7 @@
 
 This is the current design record for `symphony-board`. It records the stable
 architecture and operating decisions of the shipped product: GitHub/GitLab
-sources, canonical SQLite/Postgres store drivers, contract major v3, a UI that
+sources, canonical SQLite/Postgres store drivers, contract major v4, a UI that
 is read-only toward providers (with writer-owned sync and config control
 planes), and Docker writer/reader plus standalone single-machine deployments.
 
@@ -239,7 +239,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v3. Current emitted version: `3.5.0`.
+Current major: v4. Current emitted version: `4.0.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -281,6 +281,17 @@ the same v2 envelope shape but projects items, edges, and activities to an
 explicit date range, with endpoint closure for relationships. The range's day
 boundaries are expanded in the configured `timezone` (default UTC; see
 `range_query.timezone`, relaxed from the `"UTC"` literal in `3.1.0`).
+
+Version `4.0.0` applies the same windowing precedent to `activities[]`: the
+static contract now ships only the trailing 30 days of raw activity rows (the
+full ~16-month history inlined ~87% of the payload). The Activity Overview's
+trailing-12-month heatmap/stats move to a new pre-computed `activity_daily`
+aggregate (per-day/per-kind counts over the full history, anchored to
+`generated_at`, totals reconciling with the canonical set), and any wider raw
+feed is served by the un-windowed `/api/range`. Narrowing an emitted row
+collection is breaking, like the `2.0.0` `items[]` change, so it bumps the major;
+`activity_daily` itself is additive and rides in the same bump. See
+[docs/CONTRACT.md](CONTRACT.md) for the field-level contract.
 
 Version `2.2.0` added optional `repo_metrics[]`. These rows are grouped by
 `(source_id, project_path)` for display and expose per-repo totals, bucketed
@@ -444,7 +455,7 @@ Pages:
   `from` / `to`, new browsers default to `this week`, calculated from Sunday in
   the contract's configured `timezone` (default UTC).
 
-The UI supports contract major v3. It warns when a different major is loaded.
+The UI supports contract major v4. It warns when a different major is loaded.
 
 ## Docker Operation
 

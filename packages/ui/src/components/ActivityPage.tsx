@@ -1,4 +1,4 @@
-import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ActivityFeed } from "./ActivityFeed.tsx";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
@@ -9,6 +9,8 @@ import type { ActivityView } from "../nav.ts";
 export function ActivityPage({
   activities,
   allActivities,
+  activityDaily,
+  generatedAt,
   windowTotal,
   totalActivities,
   range,
@@ -21,9 +23,14 @@ export function ActivityPage({
   onView,
 }: {
   activities: ActivityDTO[];
-  // The full, range-independent activity set powering the trailing-12-month
-  // heatmap; `activities` above is the range-filtered feed.
+  // Raw fallback for the trailing-12-month heatmap when `activityDaily` is
+  // absent (pre-4.0.0 contract); `activities` above is the range-filtered feed.
   allActivities: ActivityDTO[];
+  // Pre-computed per-day/per-kind counts (4.0.0+) powering the trailing-12-month
+  // heatmap, since the static `activities[]` is now windowed to 30 days.
+  activityDaily: ActivityDailyDTO | null;
+  // Contract emit instant — the heatmap's anchor (not the UI clock).
+  generatedAt: string;
   windowTotal: number;
   totalActivities: number;
   range: TimeRange;
@@ -57,7 +64,10 @@ export function ActivityPage({
   // header and a blank body. Surface the shared empty state in the overview slot
   // instead. (When the feed is also shown — desktop, or the Feed sub-view — the
   // feed already owns the empty state, so this never double-renders it.)
-  const overviewOnlyEmpty = showOverview && !showFeed && allActivities.length === 0;
+  // "Empty overview" means no trailing-12-month activity to chart: with the
+  // aggregate present that is its total; otherwise fall back to the raw set.
+  const overviewIsEmpty = activityDaily ? activityDaily.total === 0 : allActivities.length === 0;
+  const overviewOnlyEmpty = showOverview && !showFeed && overviewIsEmpty;
   const countLabel =
     activities.length === windowTotal
       ? `${activities.length} in range`
@@ -107,6 +117,8 @@ export function ActivityPage({
           ) : (
             <ActivityHeatmap
               activities={allActivities}
+              activityDaily={activityDaily}
+              generatedAt={generatedAt}
               trendActivities={activities}
               timezone={timezone}
               range={range}

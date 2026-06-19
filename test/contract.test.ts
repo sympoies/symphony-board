@@ -148,7 +148,9 @@ test("buildContract emits activity records with refs and parsed details", () => 
     items: [],
     labels: [],
     edges: [],
-    activities: [activityRow()],
+    // In the 30-day emit window (default activityRow occurred_at is months old,
+    // which 4.0.0 windows out of the emitted activities[]).
+    activities: [activityRow({ occurred_at: "2026-06-01T00:00:00Z" })],
     generatedAt: "2026-06-02T00:00:00Z",
   });
   assert.equal(env.activities?.length, 1);
@@ -171,6 +173,63 @@ test("buildContract orders activities by instant across timezone offsets", () =>
   });
 
   assert.deepEqual(env.activities?.map((activity) => activity.external_id), ["github-utc", "gitlab-local"]);
+});
+
+test("buildContract windows emitted activities to 30 days while activity_daily covers the full history (4.0.0)", () => {
+  const generatedAt = "2026-06-08T00:00:00.000Z";
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "recent-1", kind: "commit", occurred_at: "2026-06-07T10:00:00Z" }), // in window
+    activityRow({ external_id: "recent-2", kind: "review", occurred_at: "2026-05-20T10:00:00Z" }), // in window (19d)
+    activityRow({ external_id: "old-1", kind: "commit", occurred_at: "2026-03-01T10:00:00Z" }), // out of window
+    activityRow({ external_id: "old-2", kind: "issue", occurred_at: "2025-08-01T10:00:00Z" }), // far out of window
+  ];
+  const env = buildContract({ sources: [], items: [], labels: [], edges: [], activities, generatedAt });
+  assert.deepEqual(validateContract(env), []);
+
+  // Emitted activities[] is windowed to the trailing 30 days, anchored to generated_at.
+  const emitted = new Set(env.activities?.map((a) => a.external_id));
+  assert.deepEqual([...emitted].sort(), ["recent-1", "recent-2"], "only the last 30 days are emitted");
+
+  // activity_daily reconciles with the FULL canonical set, by kind (acceptance 2.2).
+  const daily = env.activity_daily!;
+  assert.equal(daily.total, activities.length);
+  assert.deepEqual(daily.by_kind, { commit: 2, review: 1, issue: 1 });
+  let dayCountSum = 0;
+  const dayKindSum: Record<string, number> = {};
+  for (const d of daily.days) {
+    dayCountSum += d.count;
+    assert.equal(d.count, Object.values(d.by_kind).reduce((a, b) => a + b, 0), "bucket count == sum of its by_kind");
+    for (const [k, n] of Object.entries(d.by_kind)) dayKindSum[k] = (dayKindSum[k] ?? 0) + n;
+  }
+  assert.equal(dayCountSum, daily.total, "sum of day counts == total");
+  assert.deepEqual(dayKindSum, daily.by_kind, "sum of per-day by_kind == aggregate by_kind");
+
+  // Anchored to generated_at; sparse, ascending days.
+  assert.equal(daily.to, "2026-06-08");
+  assert.equal(daily.from, daily.days[0]!.date);
+  const dates = daily.days.map((d) => d.date);
+  assert.deepEqual([...dates].sort(), dates, "days are ascending by date");
+  assert.equal(daily.days.length, 4, "one bucket per distinct active day (sparse)");
+});
+
+test("activity_daily buckets by the contract timezone and is empty-safe", () => {
+  // A late-UTC commit lands on the next LOCAL day in Asia/Taipei (+08:00).
+  const env = buildContract({
+    sources: [],
+    items: [],
+    labels: [],
+    edges: [],
+    activities: [activityRow({ external_id: "late", kind: "commit", occurred_at: "2026-06-07T17:00:00Z" })],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+    timezone: "Asia/Taipei",
+  });
+  assert.deepEqual(validateContract(env), []);
+  assert.equal(env.activity_daily?.timezone, "Asia/Taipei");
+  assert.deepEqual(env.activity_daily?.days.map((d) => d.date), ["2026-06-08"]);
+
+  // No activity at all: activity_daily is still present, empty, from == to == generated_at day.
+  const empty = buildContract({ sources: [], items: [], labels: [], edges: [], activities: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(empty.activity_daily, { timezone: "UTC", from: "2026-06-08", to: "2026-06-08", total: 0, by_kind: {}, days: [] });
 });
 
 test("buildContract emits scoped full and active-since aggregates", () => {
@@ -298,7 +357,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "3.5.0");
+  assert.equal(env.contract_version, "4.0.0");
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -696,7 +755,10 @@ test("malformed or non-object activity details degrade to null (and the envelope
     activityRow({ external_id: "a-null", details: null }),
     activityRow({ external_id: "a-ok", details: "{\"sha\":\"abc1234\"}" }),
   ];
-  const env = buildContract({ sources, items: [], labels: [], edges: [], activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+  // generatedAt kept near the default activityRow occurred_at (2026-01-01) so all
+  // rows stay inside the 30-day emit window — this test is about details, not the
+  // 4.0.0 windowing.
+  const env = buildContract({ sources, items: [], labels: [], edges: [], activities, generatedAt: "2026-01-15T00:00:00.000Z" });
   const details = new Map(env.activities?.map((a) => [a.external_id, a.details]));
   assert.equal(details.get("a-bad"), null, "unparseable JSON degrades to null");
   assert.equal(details.get("a-array"), null, "a JSON array is not an object map");
