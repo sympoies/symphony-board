@@ -375,6 +375,19 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
   assert.equal(activityMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
 });
 
+test("activityMatches search includes the structured action and kind (4.0.0 dropped summary)", () => {
+  // 4.0.0 dropped `summary`, which used to carry action prose. Action-only terms
+  // must still match via the structured action/kind fields.
+  const approved = activity({ external_id: "AP", action: "approved", kind: "review", title: "PR five update", target_kind: null, target_ref: null, details: null });
+  const forcePush = activity({ external_id: "FP", action: "force_pushed", kind: "push", title: "branch main updated", target_kind: null, target_ref: null, details: null });
+  const f = (search: string) => ({ ...emptyFilters(), search });
+
+  assert.equal(activityMatches(approved, f("approved")), true, "action term matches when absent from title/details");
+  assert.equal(activityMatches(approved, f("review")), true, "kind term matches");
+  assert.equal(activityMatches(forcePush, f("force pushed")), true, "multi-word action matches term-by-term via force_pushed");
+  assert.equal(activityMatches(approved, f("merged")), false, "an unrelated action term still does not match");
+});
+
 test("activityRouteMatches applies source-aware repo, kind, and action filters", () => {
   const row = activity({ source_id: "gitlab:gitlab.com", project_path: "group/project", kind: "change_request", action: "merged" });
   const route = {

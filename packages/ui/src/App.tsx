@@ -12,6 +12,8 @@ import {
   staticContractTimeRange,
   activityDailyExtent,
   activityOccurredExtent,
+  boardCommitTotal,
+  isBoardEmpty,
   isCommitActivity,
   filterActivitiesByRange,
   indexItems,
@@ -580,10 +582,9 @@ export function App() {
   const commits = useMemo(() => filterCommits(windowedActivities, route.repo, route.branch, route.source), [windowedActivities, route.repo, route.branch, route.source]);
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
-  const totalCommits = useMemo(
-    () => (env?.activities ?? activeEnv?.activities ?? []).filter((a) => a.kind === "commit").length,
-    [env, activeEnv],
-  );
+  // Board-wide commit total from the full-history aggregate (4.0.0 windows
+  // env.activities to ~30 days; counting commits there under-reports).
+  const totalCommits = useMemo(() => boardCommitTotal(env ?? activeEnv), [env, activeEnv]);
 
   const filteredEdges = useMemo(() => {
     if (!visibleEnv) return [];
@@ -995,10 +996,10 @@ export function App() {
 
   // The whole board has no data at all (fresh install / not yet synced) — drives
   // the board-empty treatment instead of a misleading "nothing in this range".
-  // `activities` is the UNWINDOWED full set and every item yields >=1 transition
-  // activity, so activities === 0 already implies no items ever; items === 0 is a
-  // belt-and-braces guard (and `items` is only the 90-day window).
-  const boardEmpty = env.items.length === 0 && (env.activities?.length ?? 0) === 0;
+  // 4.0.0 windows `activities` to ~30 days, so isBoardEmpty also consults the
+  // full-history `activity_daily.total`: a dormant board can have an empty
+  // windowed `activities` array yet real history (items long since aged out).
+  const boardEmpty = isBoardEmpty(env);
   // Props shared by every page's empty state; the per-page noun + counts are
   // filled in at each render site below. `total` is the full-contract count
   // (board-wide) and `windowTotal` the in-range count, so emptyStateKind can
