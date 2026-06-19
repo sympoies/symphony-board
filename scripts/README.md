@@ -11,6 +11,7 @@ coverage scripts write only their declared coverage/badge outputs.
 | `contract-summary.sh [contract.json]` | Counts sources, items by kind/state, edges by type/lifecycle, and activity by kind/action from an emitted contract. Defaults to `data/contract.json`; requires `jq`. |
 | `db-summary.sh [db_path]` | Summarizes sources, live/tombstoned items and edges, and latest sync runs with activity counts from the canonical SQLite store. Defaults to `data/symphony.db`; opens with `PRAGMA query_only`; requires `sqlite3`. |
 | `check-app-versions.sh` | Fails if any release-shipped app (`packages/{desktop,desktop-standalone,android}`) drifts from the root `package.json` version across its `package.json` and `src-tauri/{Cargo.toml,Cargo.lock,tauri.conf.json}`. `packages/ui` (pinned `0.1.0`) and `packages/contract` (own version) are intentionally excluded. Read-only; requires `jq`. Run by the CI `check` job and `pnpm run check:app-versions`. |
+| `check-release-version.sh <tag>` | Gates a release tag before any artifact is published: runs `check-app-versions.sh` (per-app vs root `package.json`) **and** asserts the tag matches root `package.json`, closing the chain `tag == package.json == per-app == bundled .app`. Read-only; requires `jq`. Run by the `publish-image.yml` `version-gate` job (a prerequisite of both `publish` and `desktop`) and re-asserted by `package-desktop-release.sh` when `--version` is given. |
 
 Examples:
 
