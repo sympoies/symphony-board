@@ -89,6 +89,7 @@ function serveContract(res: ServerResponse, contractPath: string, acceptEncoding
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "Content-Encoding": "gzip",
+      "Content-Length": cached.gz.length,
       Vary: "Accept-Encoding",
     });
     res.end(cached.gz);

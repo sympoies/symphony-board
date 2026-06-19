@@ -246,13 +246,15 @@ export function App() {
   // re-fetches the contract (and the range response for a custom range); the
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
-  const reloadData = useCallback(async () => {
+  const reloadData = useCallback(async (): Promise<boolean> => {
     const pending: Promise<void>[] = [];
+    let loadedContract = false;
     pending.push(fetchContractWithMetadata(undefined, serverBaseUrl)
       .then((loaded) => {
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
         setError(null);
+        loadedContract = true;
       })
       .catch((err: unknown) => setError((err as Error).message)));
     if (needsRangeEnv && activeRange) {
@@ -267,12 +269,16 @@ export function App() {
         .finally(() => setRangeLoading(false)));
     }
     await Promise.all(pending);
+    return loadedContract;
   }, [needsRangeEnv, activeRange, serverBaseUrl]);
+  const reloadDataAfterSync = useCallback(async () => {
+    await reloadData();
+  }, [reloadData]);
   const refreshData = useCallback(() => {
     setRefreshingData(true);
     void reloadData().finally(() => setRefreshingData(false));
   }, [reloadData]);
-  const sync = useSync(reloadData, serverBaseUrl);
+  const sync = useSync(reloadDataAfterSync, serverBaseUrl);
   const configState = useConfig(serverBaseUrl);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
   // "sources" value is meaningful; anything else renders the Display tab.
@@ -946,7 +952,7 @@ export function App() {
   if (route.page === "debug") {
     return (
       <div className="app app-wide">
-        <DebugPage serverBaseUrl={serverBaseUrl} env={env} contractMeta={contractMeta} onClose={toggleDebug} />
+        <DebugPage serverBaseUrl={serverBaseUrl} env={env} contractMeta={contractMeta} onRefreshData={reloadData} onClose={toggleDebug} />
       </div>
     );
   }

@@ -82,6 +82,8 @@ export SYMPHONY_PG_PORT="$PG_PORT"
 
 base="http://127.0.0.1:$WEB_PORT"
 contract="$WORKDIR/contract.json"
+contract_gzip="$WORKDIR/contract.json.gz"
+contract_gzip_headers="$WORKDIR/contract.gzip.headers"
 stats="$WORKDIR/stats.json"
 config_probe="$WORKDIR/config-probe.json"
 config_next="$WORKDIR/config-next.json"
@@ -89,6 +91,35 @@ secrets_probe="$WORKDIR/secrets-probe.json"
 
 curl -fsS "$base/contract.json" >"$contract"
 node --disable-warning=ExperimentalWarning src/cli/validate-contract.ts --in "$contract"
+
+curl -fsS -H "Accept-Encoding: gzip" -D "$contract_gzip_headers" "$base/contract.json" >"$contract_gzip"
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
+node -e '
+const fs = require("fs");
+const zlib = require("zlib");
+const headers = fs.readFileSync(process.argv[1], "utf8").toLowerCase();
+const encoded = fs.readFileSync(process.argv[2]);
+const decoded = zlib.gunzipSync(encoded);
+const plain = fs.readFileSync(process.argv[3]);
+if (!headers.includes("content-encoding: gzip")) {
+  console.error("expected gzip-encoded contract response");
+  process.exit(1);
+}
+const contentLength = headers.match(/content-length:\s*(\d+)/);
+if (!contentLength) {
+  console.error("expected gzip contract response to include content-length");
+  process.exit(1);
+}
+if (Number(contentLength[1]) !== encoded.length) {
+  console.error(`expected gzip content-length ${encoded.length}, got ${contentLength[1]}`);
+  process.exit(1);
+}
+if (!decoded.equals(plain)) {
+  console.error("expected gzip contract body to decode to the plain contract");
+  process.exit(1);
+}
+' "$contract_gzip_headers" "$contract_gzip" "$contract"
 
 curl -fsS "$base/api/stats" >"$stats"
 # Node reads process.argv; shell expansion is not wanted in the inline JS.
