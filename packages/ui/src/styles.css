@@ -2618,6 +2618,15 @@ a.rf-node-title:hover { color: var(--accent); }
     margin: 4px 0 6px;
     overflow-x: auto;
     scrollbar-width: none;
+    /* Pin the lane chips just under the sticky page-tabs so the active-lane
+       switch (open / in progress / …) stays reachable while the cards scroll
+       inside the bounded column below. The 44px offset clears the mobile tab
+       bar; the opaque background hides cards scrolling beneath. */
+    position: sticky;
+    top: calc(var(--android-safe-area-top, 0px) + 44px);
+    z-index: 30;
+    background: var(--bg);
+    padding: 4px 0;
   }
   .board-mobile-selector::-webkit-scrollbar { display: none; }
   .board-mobile-selector .toggle {
@@ -2661,17 +2670,24 @@ a.rf-node-title:hover { color: var(--accent); }
     height: auto;
     min-height: 0;
   }
+  /* The one visible lane fills the rest of the viewport and scrolls its cards
+     internally (mirroring the Graph page's bounded pane), so the page itself no
+     longer grows without bound — the pinned chips and the column header stay in
+     place while only the cards move. dvh tracks the mobile browser's collapsing
+     toolbar; the 640px cap keeps it from over-stretching on tall screens. */
   .board-7 .col-mobile-active {
     display: flex;
+    height: min(74dvh, 640px);
   }
+  /* A collapsed active lane is just a short rail — don't stretch it to full
+     pane height. */
   .board-7 .col-collapsed.col-mobile-active {
+    height: auto;
     min-height: 96px;
   }
+  /* The header sits above the internal .col-cards scroller (not inside it), so
+     it stays put without needing sticky on a phone. */
   .col-head { position: static; }
-  .col-cards {
-    max-height: none;
-    overflow: visible;
-  }
   .toggle,
   .link-btn,
   .settings-tab,
