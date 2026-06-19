@@ -154,7 +154,12 @@ test("buildContract emits activity records with refs and parsed details", () => 
     generatedAt: "2026-06-02T00:00:00Z",
   });
   assert.equal(env.activities?.length, 1);
-  assert.equal(env.activities![0]!.id, "github:github.com|activity-1");
+  // 4.0.0 dropped the redundant `id`/`summary`; identity is source_id|external_id.
+  assert.equal(env.activities![0]!.source_id, "github:github.com");
+  assert.equal(env.activities![0]!.external_id, "activity-1");
+  const firstActivity = env.activities![0]! as unknown as Record<string, unknown>;
+  assert.equal("id" in firstActivity, false, "id is no longer emitted");
+  assert.equal("summary" in firstActivity, false, "summary is no longer emitted");
   assert.equal(env.activities![0]!.target_ref, "github:github.com|ISSUE_abc");
   assert.deepEqual(env.activities![0]!.details, { source: "test" });
 });

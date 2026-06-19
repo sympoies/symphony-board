@@ -135,11 +135,12 @@ const edge = (from: string, to: string, lifecycle: EdgeDTO["lifecycle"] = null, 
 });
 
 function activity(over: Partial<ActivityDTO> = {}): ActivityDTO {
+  // 4.0.0 dropped `id`/`summary`; identity is source_id|external_id (see activityKey).
   return {
-    id: "github:github.com|A1", source_id: "github:github.com", external_id: "A1", kind: "issue",
+    source_id: "github:github.com", external_id: "A1", kind: "issue",
     action: "closed", project_path: "o/r", target_kind: "issue", target_ref: "github:github.com|X",
     target_iid: 13, title: "Closed issue", url: "https://x", actor: "dev-a",
-    occurred_at: "2026-06-07T00:00:00Z", summary: "Closed issue #13", details: { sha: "abc1234" },
+    occurred_at: "2026-06-07T00:00:00Z", details: { sha: "abc1234" },
     first_seen_at: "2026-06-07T00:00:00Z", last_seen_at: "2026-06-07T00:00:00Z", ...over,
   };
 }
@@ -357,15 +358,17 @@ test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one
 });
 
 test("activityMatches applies source/kind/search filters with exact target #iid", () => {
-  const a13 = activity({ project_path: "owner/repo", target_iid: 13, summary: "Merged change request #13" });
-  const a130 = activity({ id: "github:github.com|A130", external_id: "A130", project_path: "owner/repo", target_iid: 130 });
-  const otherRepo = activity({ id: "github:github.com|B13", external_id: "B13", project_path: "owner/other", target_iid: 13 });
+  const a13 = activity({ project_path: "owner/repo", target_iid: 13, title: "Closed issue" });
+  const a130 = activity({ external_id: "A130", project_path: "owner/repo", target_iid: 130 });
+  const otherRepo = activity({ external_id: "B13", project_path: "owner/other", target_iid: 13 });
   const f = (search: string) => ({ ...emptyFilters(), search });
 
   assert.equal(activityMatches(a13, emptyFilters()), true);
   assert.equal(activityMatches(a13, { ...emptyFilters(), sources: new Set(["gitlab:gitlab.com"]) }), false);
   assert.equal(activityMatches(a13, { ...emptyFilters(), kinds: new Set(["issue"]) }), true);
-  assert.equal(activityMatches(a13, f("merged owner/repo")), true, "activity search is multi-term AND");
+  // search is multi-term AND over title/actor/project/target/details (4.0.0
+  // dropped `summary`, so the haystack no longer includes producer prose).
+  assert.equal(activityMatches(a13, f("closed owner/repo")), true, "activity search is multi-term AND");
   assert.equal(activityMatches(a13, f("abc1234")), true, "search includes provider details");
   assert.equal(activityMatches(a13, f("#13")), true);
   assert.equal(activityMatches(a130, f("#13")), false, "#13 must not match #130");
@@ -734,18 +737,19 @@ test("buildCommitRows stacks date separators and expanded-body height into each 
   // Two commits on one UTC day then one on the previous day, so the first and
   // third rows carry a "Commits on <date>" separator and the second does not.
   const commits = [
-    activity({ id: "c1", external_id: "c1", kind: "commit", occurred_at: "2026-06-10T10:00:00Z", details: { sha: "a".repeat(16) } }),
-    activity({ id: "c2", external_id: "c2", kind: "commit", occurred_at: "2026-06-10T02:00:00Z", details: { sha: "b".repeat(16), body: "Explain it" } }),
-    activity({ id: "c3", external_id: "c3", kind: "commit", occurred_at: "2026-06-09T20:00:00Z", details: { sha: "c".repeat(16) } }),
+    activity({ external_id: "c1", kind: "commit", occurred_at: "2026-06-10T10:00:00Z", details: { sha: "a".repeat(16) } }),
+    activity({ external_id: "c2", kind: "commit", occurred_at: "2026-06-10T02:00:00Z", details: { sha: "b".repeat(16), body: "Explain it" } }),
+    activity({ external_id: "c3", kind: "commit", occurred_at: "2026-06-09T20:00:00Z", details: { sha: "c".repeat(16) } }),
   ];
+  // Rows are keyed on activityKey = source_id|external_id (4.0.0 dropped `id`).
   // Measured heights win for any row: c2 is expanded (measured 200) and c3 is a
   // collapsed row measured at its natural content height (90), exercising the
   // narrow per-row measurement path. c1 has no measurement -> fixed estimate.
   const { rows, totalHeightPx } = buildCommitRows({
     commits,
     rowBodyHeight: 70, // COMMIT_ROW_BODY_HEIGHT_PX
-    expandedBodyId: "c2",
-    measuredBodyHeights: new Map([["c2", 200], ["c3", 90]]),
+    expandedBodyId: "github:github.com|c2",
+    measuredBodyHeights: new Map([["github:github.com|c2", 200], ["github:github.com|c3", 90]]),
     timezone: "UTC",
   });
 

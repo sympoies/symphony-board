@@ -116,8 +116,11 @@ function toActivityDTO(row: ActivityRow): ActivityDTO {
     row.target_source_id && row.target_external_id
       ? refOf(row.target_source_id, row.target_external_id)
       : null;
+  // 4.0.0: `id` (= source_id|external_id) and `summary` (producer display prose)
+  // are no longer emitted — both are derivable by the consumer. `activityActorKeyMap`
+  // still keys repo-metric actors on refOf(source_id, external_id) internally; that
+  // is build-internal and unaffected by dropping the emitted field.
   return {
-    id: refOf(row.source_id, row.external_id),
     source_id: row.source_id,
     external_id: row.external_id,
     kind: row.kind,
@@ -130,7 +133,6 @@ function toActivityDTO(row: ActivityRow): ActivityDTO {
     url: row.url,
     actor: row.actor,
     occurred_at: row.occurred_at,
-    summary: row.summary,
     details: parseDetails(row.details),
     first_seen_at: row.first_seen_at,
     last_seen_at: row.last_seen_at,
@@ -779,7 +781,9 @@ function computeRepoMetricStats(
     stats.activities += 1;
     inc(stats.by_activity_kind, activity.kind);
     inc(stats.by_activity_action, activity.action);
-    const actor = actors ? recordActor(actors, actorKeys?.get(activity.id) ?? null, activity.actor) : null;
+    // Key on refOf(source_id, external_id) — the activity `id` is no longer an
+    // emitted field (dropped in 4.0.0), but it equalled exactly this.
+    const actor = actors ? recordActor(actors, actorKeys?.get(refOf(activity.source_id, activity.external_id)) ?? null, activity.actor) : null;
     if (actor) actor.activities += 1;
 
     if (isCommitActivity(activity)) {
