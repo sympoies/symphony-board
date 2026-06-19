@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, SourceDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, SourceDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
   DEFAULT_TIME_RANGE_PRESET_ID,
@@ -29,6 +29,8 @@ import {
   commitVirtualRange,
   filterActivitiesByRange,
   buildActivityHeatmap,
+  buildActivityHeatmapFromDaily,
+  activityDailyExtent,
   buildActivityTrend,
   activitySummaryKindCounts,
   ACTIVITY_SUMMARY_KINDS,
@@ -1829,6 +1831,66 @@ test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid",
   const quiet = byDate.get("2026-06-01");
   assert.ok((busy?.level ?? 0) > (quiet?.level ?? 0), "denser day gets a higher level");
   assert.equal(byDate.get("2026-05-15")?.level, 0, "an empty day is level 0");
+});
+
+test("buildActivityHeatmapFromDaily mirrors the raw builder, anchored at the aggregate `to`", () => {
+  // Same shape as the raw-activity heatmap test, but expressed as per-day buckets
+  // and anchored at `to` (the contract generated_at day), not a UI clock.
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2024-01-01",
+    to: "2026-06-08",
+    total: 6,
+    by_kind: { commit: 5, issue: 1 },
+    days: [
+      { date: "2024-01-01", count: 1, by_kind: { commit: 1 } }, // before the trailing window
+      { date: "2026-06-01", count: 1, by_kind: { commit: 1 } },
+      { date: "2026-06-08", count: 3, by_kind: { commit: 2, issue: 1 } },
+      { date: "2026-06-30", count: 1, by_kind: { commit: 1 } }, // after `to`
+    ],
+  };
+
+  const hm = buildActivityHeatmapFromDaily(daily);
+  assert.equal(hm.weeks.length, 53, "53 week columns");
+  assert.equal(hm.to, "2026-06-08");
+  const byDate = new Map(
+    hm.weeks.flat().filter((c): c is NonNullable<typeof c> => c !== null).map((c) => [c.date, c]),
+  );
+  assert.equal(byDate.get("2026-06-08")?.count, 3);
+  assert.equal(byDate.get("2026-06-01")?.count, 1);
+  assert.equal(byDate.get("2024-01-01"), undefined, "pre-window day excluded");
+  assert.equal(byDate.get("2026-06-30"), undefined, "day after `to` excluded");
+  assert.equal(hm.total, 4, "only in-window buckets count");
+  assert.equal(hm.activeDays, 2);
+  assert.equal(hm.maxCount, 3);
+  assert.equal(hm.busiest?.date, "2026-06-08");
+  assert.deepEqual(hm.byKind, [
+    { kind: "commit", count: 3 },
+    { kind: "issue", count: 1 },
+  ]);
+});
+
+test("activityDailyExtent returns the first/last day with activity, optionally per kind", () => {
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2025-02-01",
+    to: "2026-06-08",
+    total: 4,
+    by_kind: { commit: 3, review: 1 },
+    days: [
+      { date: "2025-02-01", count: 1, by_kind: { review: 1 } },
+      { date: "2025-08-01", count: 2, by_kind: { commit: 2 } },
+      { date: "2026-06-08", count: 1, by_kind: { commit: 1 } },
+    ],
+  };
+  assert.deepEqual(activityDailyExtent(daily), { from: "2025-02-01", to: "2026-06-08" });
+  assert.deepEqual(activityDailyExtent(daily, "commit"), { from: "2025-08-01", to: "2026-06-08" });
+  assert.equal(activityDailyExtent(daily, "push"), null, "no day matches the kind");
+  assert.equal(
+    activityDailyExtent({ timezone: "UTC", from: "2026-06-08", to: "2026-06-08", total: 0, by_kind: {}, days: [] }),
+    null,
+    "no activity at all",
+  );
 });
 
 test("activitySummaryKindCounts projects byKind onto the curated kinds in a fixed, aligned order", () => {

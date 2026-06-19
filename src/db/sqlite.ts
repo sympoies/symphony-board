@@ -28,6 +28,7 @@ import { dirname, resolve } from "node:path";
 import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
+import { activityRangeBounds } from "./activity-range.ts";
 import type {
   ActivityRow,
   CiRefreshCandidateRow,
@@ -412,6 +413,25 @@ export class SqliteStore implements Store {
          ORDER BY julianday(occurred_at) DESC, activity_id DESC`,
       )
       .all() as unknown as ActivityRow[];
+  }
+
+  async listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]> {
+    const { coarseFrom, coarseTo, from, to } = activityRangeBounds(fromIso, toIso);
+    return this.#db
+      .prepare(
+        `SELECT source_id, external_id, kind, action, project_path, target_kind,
+                target_source_id, target_external_id, target_iid, title, url, actor,
+                actor_key, occurred_at, summary, details, first_seen_at, last_seen_at
+         FROM activity
+         -- coarse text band first: a range scan on activity_by_time(occurred_at)
+         -- avoids reading the whole table; then julianday() trims to the exact
+         -- instant window (text alone is offset-sensitive). See activity-range.ts.
+         WHERE occurred_at >= ? AND occurred_at <= ?
+           AND julianday(occurred_at) >= julianday(?)
+           AND julianday(occurred_at) <= julianday(?)
+         ORDER BY julianday(occurred_at) DESC, activity_id DESC`,
+      )
+      .all(coarseFrom, coarseTo, from, to) as unknown as ActivityRow[];
   }
 
   async listLabels(): Promise<LabelRow[]> {

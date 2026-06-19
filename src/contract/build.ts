@@ -5,6 +5,7 @@
 import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../db/store.ts";
 import type {
   ActivityDTO,
+  ActivityDailyDTO,
   ContractEnvelope,
   ItemDTO,
   EdgeDTO,
@@ -40,6 +41,10 @@ const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
 const ACTIVE_WINDOW_DAYS = [7, 14, 30, 90] as const;
 const CONTRACT_ITEM_WINDOW_DAYS = 90;
+// Raw emitted `activities[]` are windowed to this many trailing days in the
+// static contract (4.0.0). The Activity Overview reads `activity_daily` for the
+// trailing-12-month view; a wider raw feed comes from `/api/range`.
+const CONTRACT_ACTIVITY_WINDOW_DAYS = 30;
 const MAX_REPO_METRIC_ACTORS = 5;
 
 function toLabelDTO(l: LabelRow): LabelDTO {
@@ -1093,6 +1098,38 @@ function activityActorKeyMap(rows: ActivityRow[] | undefined): Map<string, strin
   return map;
 }
 
+// Pre-compute per-day / per-kind activity counts over the FULL activity set
+// (not the windowed emit), bucketed by the contract timezone's calendar day and
+// anchored to `generatedAt`. Sparse: only days with at least one event appear.
+// Totals reconcile with the full canonical activity set, so the Activity
+// Overview renders identical numbers once the emitted `activities[]` is windowed.
+function buildActivityDaily(activities: ActivityDTO[], generatedAt: string, timezone: string): ActivityDailyDTO {
+  const toDate = zonedDateOnly(Date.parse(generatedAt), timezone);
+  const byDay = new Map<string, { count: number; by_kind: Record<string, number> }>();
+  const by_kind: Record<string, number> = {};
+  let total = 0;
+  let from = toDate;
+  for (const activity of activities) {
+    const ms = timestampMs(activity.occurred_at);
+    if (ms === null) continue;
+    const day = zonedDateOnly(ms, timezone);
+    let bucket = byDay.get(day);
+    if (!bucket) {
+      bucket = { count: 0, by_kind: {} };
+      byDay.set(day, bucket);
+    }
+    bucket.count += 1;
+    inc(bucket.by_kind, activity.kind);
+    inc(by_kind, activity.kind);
+    total += 1;
+    if (day < from) from = day; // YYYY-MM-DD string order == calendar order
+  }
+  const days = [...byDay.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([date, b]) => ({ date, count: b.count, by_kind: b.by_kind }));
+  return { timezone, from, to: toDate, total, by_kind, days };
+}
+
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
   const sourcesById = sourceLinkMap(input.sources);
@@ -1108,20 +1145,29 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     to: input.generatedAt,
   };
   const repoMetricWindow = buildRepoMetricWindow("active_since", repoMetricRange);
+  const timezone = input.timezone ?? "UTC";
+  // activity_daily is computed over the FULL activity set; the emitted activities[]
+  // is then windowed to the trailing 30 days. repo_metrics still reads the full
+  // mapped.activities (its own window/observed_since logic), so only the emitted
+  // row collection narrows.
+  const activityDaily = buildActivityDaily(mapped.activities, input.generatedAt, timezone);
+  const activityWindowSince = cutoffIso(CONTRACT_ACTIVITY_WINDOW_DAYS, input.generatedAt);
+  const windowedActivities = mapped.activities.filter((a) => timestampAtOrAfter(a.occurred_at, activityWindowSince));
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
     generator: GENERATOR,
-    timezone: input.timezone ?? "UTC",
+    timezone,
     sources: mapped.sources,
     items: windowed.items,
     edges: windowed.edges,
-    activities: mapped.activities,
+    activities: windowedActivities,
+    activity_daily: activityDaily,
     repos: mapped.repos,
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, timezone),
   };
 }
 

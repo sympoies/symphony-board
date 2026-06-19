@@ -317,6 +317,41 @@ export interface ActivityDTO {
   last_seen_at: string | null;
 }
 
+// One calendar day's activity counts (LAYER 3). Part of activity_daily.
+export interface ActivityDailyBucketDTO {
+  // Calendar day "YYYY-MM-DD" in the envelope `timezone`.
+  date: string;
+  // Total activity events on this day (== sum of by_kind values).
+  count: number;
+  // Per activity `kind` counts for this day (open vocabulary: commit, review, …).
+  by_kind: Record<string, number>;
+}
+
+// Pre-computed per-day / per-kind activity counts spanning the FULL canonical
+// activity history (added in 4.0.0). The Activity Overview (trailing-12-month
+// block, heatmap, by-kind totals, busiest day, active days) reads this instead
+// of the raw `activities[]` feed, which 4.0.0 windows to 30 days. Anchored to
+// the contract `generated_at`: `to` is its calendar day in `timezone`, and the
+// bucket totals reconcile with the full canonical activity set (so the overview
+// numbers are unchanged by the raw-activity windowing). Optional: the static
+// `contract.json` always emits it, but the `/api/range` projection does not.
+export interface ActivityDailyDTO {
+  // IANA timezone the days are bucketed in (equals the envelope `timezone`).
+  timezone: string;
+  // Earliest and latest covered calendar days, "YYYY-MM-DD". `to` is the
+  // `generated_at` calendar day; `from` is the earliest day with activity (==
+  // `to` when there is no activity at all).
+  from: string;
+  to: string;
+  // Total events across every bucket; reconciles with the full canonical count.
+  total: number;
+  // Aggregate per-kind totals across every bucket (== sum of days[].by_kind).
+  by_kind: Record<string, number>;
+  // Ascending by date, SPARSE: only days with at least one event appear, so a
+  // consumer fills gaps with zero. Keeps the payload small (the whole point).
+  days: ActivityDailyBucketDTO[];
+}
+
 export interface ContractEnvelope {
   contract_version: string;
   generated_at: string;
@@ -333,8 +368,18 @@ export interface ContractEnvelope {
   items: ItemDTO[];
   edges: EdgeDTO[];
   // Developer-significant activity records. Optional so pre-1.2.0 v1 contracts
-  // remain readable; consumers should read it as `env.activities ?? []`.
+  // remain readable; consumers should read it as `env.activities ?? []`. As of
+  // 4.0.0 the static `contract.json` WINDOWS this to the last 30 days (anchored
+  // to `generated_at`) — a breaking narrowing of an emitted row collection, like
+  // the 2.0.0 `items[]` windowing. For trailing-12-month activity views read
+  // `activity_daily`; for a wider raw feed fetch `/api/range` (which is NOT
+  // windowed). The range API still returns the full requested span here.
   activities?: ActivityDTO[];
+  // Pre-computed per-day / per-kind activity counts over the FULL canonical
+  // activity history (added in 4.0.0), so the Activity Overview no longer needs
+  // the full raw `activities[]`. Optional: the static `contract.json` always
+  // emits it; the `/api/range` projection omits it. Read as `env.activity_daily`.
+  activity_daily?: ActivityDailyDTO;
   // Per-repo display metadata (currently: highlight color). Sparse — only
   // configured repos appear. The producer always emits it (possibly empty);
   // OPTIONAL in the type so a consumer reading a pre-1.1.0 contract (no `repos`

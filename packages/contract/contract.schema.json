@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sympoies.dev/symphony-board/contract/v3.json",
+  "$id": "https://sympoies.dev/symphony-board/contract/v4.json",
   "title": "symphony-board contract envelope",
   "description": "LAYER 3: the versioned projection of the canonical store, serialized for consumers (UI, external tools). Derived from the DB; never the DB schema itself. Versioning rules: additive-by-default within a major (new fields optional/nullable, never repurpose/remove); breaking changes bump `contract_version` major. Producers validate strictly against this schema; CONSUMERS MUST ignore unknown fields (be liberal in what you accept) so a minor addition never breaks an old reader.",
   "type": "object",
@@ -42,8 +42,11 @@
     },
     "activities": {
       "type": "array",
-      "description": "Developer-significant activity records, sorted newest first. Optional (added in 1.2.0); old v1 consumers ignore it.",
+      "description": "Developer-significant activity records, sorted newest first. Optional (added in 1.2.0). As of 4.0.0 the static contract WINDOWS this to the last 30 days (anchored to generated_at) — read activity_daily for trailing-12-month views, or /api/range for a wider raw feed. The range API returns the full requested span.",
       "items": { "$ref": "#/$defs/activity" }
+    },
+    "activity_daily": {
+      "$ref": "#/$defs/activityDaily"
     },
     "repos": {
       "type": "array",
@@ -254,6 +257,34 @@
       "type": "object",
       "description": "Open string-keyed count map. Keys are contract vocabulary values such as item states, item kinds, or edge lifecycles; values are non-negative counts.",
       "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "activityDailyBucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "count", "by_kind"],
+      "properties": {
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Calendar day (YYYY-MM-DD) in the activity_daily `timezone`." },
+        "count": { "type": "integer", "minimum": 0, "description": "Total activity events on this day (== sum of by_kind values)." },
+        "by_kind": { "$ref": "#/$defs/countMap" }
+      }
+    },
+    "activityDaily": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pre-computed per-day/per-kind activity counts over the full canonical activity history (added in 4.0.0). The Activity Overview reads it instead of the windowed activities[]. Anchored to generated_at; bucket totals reconcile with the full canonical activity set.",
+      "required": ["timezone", "from", "to", "total", "by_kind", "days"],
+      "properties": {
+        "timezone": { "type": "string", "description": "IANA zone the days are bucketed in (equals the envelope `timezone`)." },
+        "from": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest covered calendar day (== `to` when there is no activity)." },
+        "to": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Latest covered calendar day; the generated_at calendar day in `timezone`." },
+        "total": { "type": "integer", "minimum": 0, "description": "Total events across every bucket; reconciles with the full canonical activity count." },
+        "by_kind": { "$ref": "#/$defs/countMap" },
+        "days": {
+          "type": "array",
+          "description": "Ascending by date, sparse: only days with at least one event appear; consumers fill gaps with zero.",
+          "items": { "$ref": "#/$defs/activityDailyBucket" }
+        }
+      }
     },
     "aggregateStats": {
       "type": "object",

@@ -31,7 +31,8 @@
 // at the data dir's secrets.env).
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 import type { AppConfig } from "../config.ts";
 import { loadConfig, resolveConfigPath, resolveSecretsPath } from "../config.ts";
@@ -53,18 +54,53 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body) + "\n");
 }
 
+// gzipped-contract cache keyed on (path, emitted-file mtime). The contract is
+// the largest, hottest response (every UI load) and only changes when the
+// writer emits a new one, so compress once per emit instead of once per request.
+// Keyed by path too: tests (and any multi-store host) run several servers in one
+// process. nginx already gzips this route in the Docker stack; this brings the
+// standalone server — the only un-gzipped path — to parity.
+const contractGzipCache = new Map<string, { mtimeMs: number; gz: Buffer }>();
+
+// Coarse Accept-Encoding check: real clients send `gzip` or `gzip, deflate, br`.
+// We do not honor `q=0` refusals (no client we serve sends one), only presence.
+function acceptsGzip(acceptEncoding: string | string[] | undefined): boolean {
+  const header = Array.isArray(acceptEncoding) ? acceptEncoding.join(",") : acceptEncoding;
+  return !!header && /(^|,)\s*gzip\b/i.test(header);
+}
+
 // Serve the daemon-emitted contract file (the nginx `location = /contract.json`
 // role). 404 until the first emit — the UI shows its load error and the user can
-// trigger or await a sync.
-function serveContract(res: ServerResponse, contractPath: string): void {
+// trigger or await a sync. Compresses when the client accepts gzip, serving the
+// mtime-cached buffer; plain clients still get the raw bytes.
+function serveContract(res: ServerResponse, contractPath: string, acceptEncoding: string | string[] | undefined): void {
   let body: Buffer;
+  let mtimeMs: number;
   try {
+    // stat before read so a concurrent emit can only ever leave the cache one
+    // request stale: the next request sees the newer mtime and recompresses.
+    mtimeMs = statSync(contractPath).mtimeMs;
     body = readFileSync(contractPath);
   } catch {
     sendJson(res, 404, { error: "no_contract", message: "no contract emitted yet" });
     return;
   }
-  res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  if (acceptsGzip(acceptEncoding)) {
+    let cached = contractGzipCache.get(contractPath);
+    if (!cached || cached.mtimeMs !== mtimeMs) {
+      cached = { mtimeMs, gz: gzipSync(body) };
+      contractGzipCache.set(contractPath, cached);
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "Content-Encoding": "gzip",
+      Vary: "Accept-Encoding",
+    });
+    res.end(cached.gz);
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store", Vary: "Accept-Encoding" });
   res.end(body);
 }
 
@@ -110,7 +146,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
     const path = url.pathname;
 
     if (method === "GET" && path === "/contract.json") {
-      serveContract(res, opts.contractOut);
+      serveContract(res, opts.contractOut, req.headers["accept-encoding"]);
       return;
     }
 

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
-import type { ActivityDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import {
   ACTIVITY_SUMMARY_KINDS,
   activitySummaryKindCounts,
   buildActivityHeatmap,
+  buildActivityHeatmapFromDaily,
   buildActivityTrend,
   pluralize,
   sourceDisplayName,
@@ -408,18 +409,33 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
 
 export function ActivityHeatmap({
   activities,
+  activityDaily,
+  generatedAt,
   trendActivities,
   timezone,
   range,
   panelRef,
 }: {
+  // Raw fallback source for the trailing-12-month heatmap, used only when
+  // `activityDaily` is absent (a pre-4.0.0 contract or hand-loaded payload).
   activities: ActivityDTO[];
+  // Pre-computed per-day/per-kind counts over the full history (4.0.0+). When
+  // present it powers the heatmap, since the static `activities[]` is windowed
+  // to 30 days and can no longer cover 12 months.
+  activityDaily: ActivityDailyDTO | null;
+  // Contract emit instant, the heatmap anchor for the raw fallback (not the UI
+  // clock). The activity_daily path anchors at its own `to` instead.
+  generatedAt: string;
   trendActivities: ActivityDTO[];
   timezone: string;
   range: TimeRange;
   panelRef?: Ref<HTMLElement>;
 }) {
-  const hm = useMemo(() => buildActivityHeatmap(activities, Date.now(), timezone), [activities, timezone]);
+  const hm = useMemo(() => {
+    if (activityDaily) return buildActivityHeatmapFromDaily(activityDaily);
+    const anchor = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
+    return buildActivityHeatmap(activities, anchor, timezone);
+  }, [activityDaily, activities, generatedAt, timezone]);
   const trend = useMemo(
     () => buildActivityTrend(trendActivities, range, timezone),
     [trendActivities, range, timezone],

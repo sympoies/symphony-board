@@ -218,6 +218,12 @@ export interface Store {
   // provider's original UTC offset (GitLab emits +08:00 and friends), so a
   // driver must order by the parsed instant, not by string comparison.
   listActivities(): Promise<ActivityRow[]>;
+  // Activities whose occurred_at INSTANT is within [fromIso, toIso] inclusive,
+  // newest-first by instant. Bounded at the SQL layer so a range request does
+  // not read the whole activity table (the /api/range hot path). Membership is
+  // by parsed instant, identical to a JS `from <= t <= to` filter — NOT by raw
+  // text, which is offset-sensitive. See src/db/activity-range.ts.
+  listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]>;
   listLabels(): Promise<LabelRow[]>;
   listLiveEdges(): Promise<EdgeRow[]>;
   listSources(): Promise<SourceRow[]>;

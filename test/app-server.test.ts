@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
-import type { Server } from "node:http";
+import { request as httpRequest, type Server } from "node:http";
+import { gunzipSync } from "node:zlib";
 import { SyncController, SYNC_CONTROL_HEADER } from "../src/cli/sync-daemon.ts";
 import { createAppServer, type AppServerOptions } from "../src/cli/app-server.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
@@ -31,6 +32,28 @@ function close(server: Server): Promise<void> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function json(res: Response): Promise<any> {
   return (await res.json()) as any;
+}
+
+// Raw GET that does NOT auto-decode Content-Encoding (Node's fetch transparently
+// gunzips), so a gzip test can inspect the wire bytes and headers directly.
+function getRaw(
+  base: string,
+  path: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }> {
+  const url = new URL(path, base);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method: "GET", headers },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 // A sandbox dir holding a valid config, a migrated empty DB, and room for a
@@ -171,6 +194,49 @@ test("app-server serves health, contract, range, and the sync control surface", 
     // unknown routes 404
     const nope = await fetch(`${base}/api/nope`);
     assert.equal(nope.status, 404);
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("app-server gzips /contract.json for Accept-Encoding: gzip, serves raw otherwise, and re-compresses on file change", async () => {
+  const { dir, opts } = await sandbox();
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createAppServer(controller, opts);
+  const base = await listen(server);
+  try {
+    // A body large enough that gzip is unambiguously smaller than the raw bytes.
+    const payloadA = JSON.stringify({ contract_version: "4.0.0", items: [], activities: Array.from({ length: 200 }, (_, i) => ({ id: `a-${i}`, kind: "commit" })) });
+    writeFileSync(opts.contractOut, payloadA);
+
+    // gzip negotiated: Content-Encoding header + a valid gzip body that decodes
+    // to the contract, Vary so a shared cache keys on Accept-Encoding.
+    const gz = await getRaw(base, "/contract.json", { "Accept-Encoding": "gzip" });
+    assert.equal(gz.status, 200);
+    assert.equal(gz.headers["content-encoding"], "gzip");
+    assert.equal(gz.headers["content-type"], "application/json");
+    assert.equal(gz.headers["cache-control"], "no-store");
+    assert.match(String(gz.headers["vary"] ?? ""), /accept-encoding/i);
+    assert.equal(JSON.parse(gunzipSync(gz.body).toString("utf8")).contract_version, "4.0.0");
+    assert.ok(gz.body.length < Buffer.byteLength(payloadA), "gzip body is smaller than raw");
+
+    // no gzip requested: raw bytes, no Content-Encoding.
+    const raw = await getRaw(base, "/contract.json", { "Accept-Encoding": "identity" });
+    assert.equal(raw.status, 200);
+    assert.equal(raw.headers["content-encoding"], undefined);
+    assert.equal(raw.body.toString("utf8"), payloadA);
+
+    // cache invalidates on file change: a new emit (bumped mtime) must serve the
+    // new content, not the stale compressed buffer.
+    const payloadB = JSON.stringify({ contract_version: "4.0.0", items: [], activities: Array.from({ length: 200 }, (_, i) => ({ id: `b-${i}`, kind: "review" })) });
+    writeFileSync(opts.contractOut, payloadB);
+    const future = new Date(Date.now() + 5000);
+    utimesSync(opts.contractOut, future, future);
+    const gz2 = await getRaw(base, "/contract.json", { "Accept-Encoding": "gzip" });
+    assert.equal(gz2.headers["content-encoding"], "gzip");
+    const decodedB = JSON.parse(gunzipSync(gz2.body).toString("utf8"));
+    assert.equal(decodedB.activities[0].id, "b-0", "re-compressed after the contract file changed");
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

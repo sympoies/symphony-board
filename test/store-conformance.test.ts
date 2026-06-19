@@ -298,6 +298,36 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("listActivitiesInRange bounds by instant across offsets, inclusive of both ends, newest-first", async () => {
+    // The range query must filter by the parsed instant, not the raw text, since
+    // occurred_at keeps the provider's UTC offset. A +08:00 row whose instant
+    // falls inside a UTC range must be returned; one whose instant falls outside
+    // must not — even when its wall-clock text looks in-range.
+    const store = await fresh();
+    await store.upsertActivity(fixtureActivity({ externalId: "in-utc", occurredAt: "2026-05-10T00:00:00Z" }), "2026-05-10T00:00:00Z");
+    // GitLab local time: 2026-05-20T07:00+08:00 == 2026-05-19T23:00Z (in range).
+    await store.upsertActivity(fixtureActivity({ externalId: "in-local", occurredAt: "2026-05-20T07:00:00.000+08:00" }), "2026-05-20T00:00:00Z");
+    // Boundary rows: exactly at from and at to must be included (inclusive).
+    await store.upsertActivity(fixtureActivity({ externalId: "at-from", occurredAt: "2026-05-01T00:00:00.000Z" }), "2026-05-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "at-to", occurredAt: "2026-05-31T23:59:59.999Z" }), "2026-05-31T23:59:59Z");
+    // Just outside: 1ms before from and at the day after to.
+    await store.upsertActivity(fixtureActivity({ externalId: "before", occurredAt: "2026-04-30T23:59:59.999Z" }), "2026-04-30T23:59:59Z");
+    // GitLab local 2026-06-01T07:30+08:00 == 2026-05-31T23:30Z is IN range, but
+    // its TEXT ("2026-06-01...") would be excluded by a naive text upper bound —
+    // proves the instant filter, not text, decides membership.
+    await store.upsertActivity(fixtureActivity({ externalId: "in-local-edge", occurredAt: "2026-06-01T07:30:00.000+08:00" }), "2026-06-01T00:00:00Z");
+    // After: clearly outside.
+    await store.upsertActivity(fixtureActivity({ externalId: "after", occurredAt: "2026-06-10T00:00:00Z" }), "2026-06-10T00:00:00Z");
+
+    const rows = await store.listActivitiesInRange("2026-05-01T00:00:00.000Z", "2026-05-31T23:59:59.999Z");
+    assert.deepEqual(
+      rows.map((r) => r.external_id),
+      ["at-to", "in-local-edge", "in-local", "in-utc", "at-from"],
+      "in-instant-range rows only, ordered newest-first by instant",
+    );
+    await store.close();
+  });
+
   t("CI refresh candidates include unresolved or recently active change requests", async () => {
     const store = await fresh();
     await store.upsertItem(fixtureItem({ externalId: "PR_PENDING", kind: "change_request", iid: 1, state: "merged", ciState: "pending", updatedAt: "2026-06-08T00:00:00Z", mergedAt: "2026-06-08T00:00:00Z" }), "github/pr-pending", "2026-06-08T00:00:00Z");

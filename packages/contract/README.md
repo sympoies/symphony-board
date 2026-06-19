@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `3.5.0`.
+Current contract version emitted by the backend: `4.0.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `3.5.0`. Important compatibility milestones:
+The current emitted contract is `4.0.0`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -80,6 +80,12 @@ The current emitted contract is `3.5.0`. Important compatibility milestones:
   window tiles its `series[]` into ~12 intraday points; a new enum member on the
   existing `bucket` field, `series[]` shape unchanged. Treat an unknown width as
   an opaque series point.
+- 4.0.0 (major) windows the static contract's `activities[]` to the trailing 30
+  days and adds the optional top-level `ActivityDailyDTO` (`activity_daily`):
+  pre-computed per-day/per-kind counts over the full history, anchored to
+  `generated_at`, that the Activity Overview reads instead of the raw feed.
+  Narrowing an emitted row collection is breaking (like the v2 `items[]`
+  windowing); `/api/range` stays un-windowed for wider raw feeds.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,
