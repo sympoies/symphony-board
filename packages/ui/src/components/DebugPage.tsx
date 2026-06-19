@@ -1,6 +1,7 @@
 // The hidden Diagnostics page (#/debug, toggled with Cmd+/ / Ctrl+/). Not in
 // the page-tabs nav on purpose: it is an operator surface, not a product page.
-// Three sections, each degrading independently to "unavailable":
+// Sections degrade independently where their backing data is unavailable:
+//   • Contract payload — loaded contract size, shape, windowing, source health
 //   • Store — sizes, row counts, and breakdowns from GET /api/stats
 //   • Sync runs — the recent sync_run history (status / totals / error)
 //   • Daemon log — the writer's in-memory recent-log tail from GET /api/logs
@@ -10,7 +11,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { formatBytes, relativeTime, runDuration } from "../model.ts";
+import type { ContractLoadMetadata } from "../contract.ts";
+import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, runDuration } from "../model.ts";
 import { useStoreStats, useDaemonLogs } from "../useDebug.ts";
 import { Badge } from "./Badge.tsx";
 import { StatTile } from "./StatTile.tsx";
@@ -18,6 +20,7 @@ import { StatTile } from "./StatTile.tsx";
 interface Props {
   serverBaseUrl: string | null;
   env: ContractEnvelope | null;
+  contractMeta: ContractLoadMetadata | null;
   onClose: () => void;
 }
 
@@ -51,13 +54,125 @@ function storeLabel(db: { driver?: string; path?: string; database?: string; sch
   return db.path ?? db.driver ?? "store";
 }
 
-export function DebugPage({ serverBaseUrl, env, onClose }: Props) {
+function formatLoadDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function sourceLabel(meta: ContractLoadMetadata | null): string {
+  if (!meta) return "unknown";
+  return meta.source === "file" ? `file: ${meta.url}` : meta.url;
+}
+
+function statusSummary(counts: Record<string, number>): string {
+  const parts = Object.entries(counts).map(([status, n]) => `${status} ${n}`);
+  return parts.length > 0 ? parts.join(" · ") : "none";
+}
+
+function SectionSizesTable({ env }: { env: ContractEnvelope }) {
+  const sections = contractSectionSizes(env);
+  return (
+    <div className="debug-card">
+      <table className="debug-table">
+        <thead>
+          <tr>
+            <th>section bytes</th>
+            <th className="num">rows</th>
+            <th className="num">size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sections.map((section) => (
+            <tr key={section.key}>
+              <td>{section.label}</td>
+              <td className="num">{section.rows == null ? "—" : section.rows.toLocaleString()}</td>
+              <td className="num">{formatBytes(section.bytes)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ItemWindowTable({ env }: { env: ContractEnvelope }) {
+  const itemWindow = env.item_window;
+  if (!itemWindow) return null;
+  const rows = [
+    ["scope", itemWindow.scope],
+    ["window", itemWindow.window.kind],
+    ["basis", itemWindow.window.basis],
+    ["since", itemWindow.window.since ?? "—"],
+    ["days", itemWindow.window.days == null ? "—" : itemWindow.window.days.toLocaleString()],
+    ["edge filter", itemWindow.window.edge_filter ?? "—"],
+    ["primary items", itemWindow.primary_items.toLocaleString()],
+    ["edge endpoints", itemWindow.edge_endpoint_items.toLocaleString()],
+    ["total items", itemWindow.total_items.toLocaleString()],
+    ["truncated", itemWindow.truncated ? "yes" : "no"],
+  ];
+  return (
+    <div className="debug-card">
+      <table className="debug-table">
+        <thead>
+          <tr>
+            <th>item window</th>
+            <th>value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([key, value]) => (
+            <tr key={key}>
+              <td>{key}</td>
+              <td>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SourceHealthTable({ env }: { env: ContractEnvelope }) {
+  if (env.sources.length === 0) return null;
+  return (
+    <div className="debug-card">
+      <table className="debug-table">
+        <thead>
+          <tr>
+            <th>source health</th>
+            <th>status</th>
+            <th>last success</th>
+          </tr>
+        </thead>
+        <tbody>
+          {env.sources.map((source) => {
+            const status = source.last_status ?? "unknown";
+            return (
+              <tr key={source.source_id}>
+                <td>{source.display_name ?? source.source_id}</td>
+                <td>
+                  <Badge text={status} kind={status === "unknown" ? undefined : `status-${status}`} />
+                </td>
+                <td title={source.last_success_at ?? undefined}>{relativeTime(source.last_success_at)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function DebugPage({ serverBaseUrl, env, contractMeta, onClose }: Props) {
   const { stats, loading, refresh } = useStoreStats(serverBaseUrl);
   const logs = useDaemonLogs(serverBaseUrl);
   const [follow, setFollow] = useState(true);
   const logRef = useRef<HTMLPreElement | null>(null);
   const dbSize = stats?.db.size_bytes;
   const walSize = stats?.db.wal_size_bytes;
+  const contractCounts = env ? contractTopLevelCounts(env) : null;
+  const sourceHealth = env ? contractSourceHealth(env) : null;
+  const itemWindow = env?.item_window;
 
   // Tail behavior: keep the newest line in view while "follow" is on; turning
   // it off freezes the scroll position for reading while lines keep arriving.
@@ -75,13 +190,44 @@ export function DebugPage({ serverBaseUrl, env, onClose }: Props) {
         </button>
       </div>
 
-      <p className="muted">
-        {env
-          ? `Contract ${env.contract_version} · generated ${relativeTime(env.generated_at)} · ` +
-            `${env.items.length.toLocaleString()} items · ${env.edges.length.toLocaleString()} edges · ` +
-            `${(env.activities?.length ?? 0).toLocaleString()} activities`
-          : "No contract loaded."}
-      </p>
+      <section className="debug-section">
+        <h3>Contract payload</h3>
+        {!env ? (
+          <p className="empty">No contract loaded.</p>
+        ) : (
+          <>
+            <div className="debug-stat-grid">
+              <StatTile label="Payload size">{contractMeta ? formatBytes(contractMeta.bytes) : "unknown"}</StatTile>
+              <StatTile label="Loaded from">
+                <span className="debug-value-text" title={contractMeta?.url ?? undefined}>
+                  {sourceLabel(contractMeta)}
+                </span>
+              </StatTile>
+              <StatTile label="Generated">{relativeTime(env.generated_at)}</StatTile>
+              <StatTile label="Loaded">{contractMeta ? relativeTime(contractMeta.loadedAt) : "unknown"}</StatTile>
+              <StatTile label="Load time">{contractMeta ? formatLoadDuration(contractMeta.durationMs) : "unknown"}</StatTile>
+              <StatTile label="Contract">v{env.contract_version}</StatTile>
+              <StatTile label="Generator">
+                <span className="debug-value-text" title={env.generator}>
+                  {env.generator}
+                </span>
+              </StatTile>
+              <StatTile label="Timezone">{env.timezone ?? "UTC"}</StatTile>
+              <StatTile label="Windowed">{itemWindow ? (itemWindow.truncated ? "truncated" : "complete") : "unknown"}</StatTile>
+              <StatTile label="Source status">{sourceHealth ? statusSummary(sourceHealth.statusCounts) : "unknown"}</StatTile>
+              <StatTile label="Oldest success">{sourceHealth ? relativeTime(sourceHealth.oldestSuccessAt) : "unknown"}</StatTile>
+              <StatTile label="Latest success">{sourceHealth ? relativeTime(sourceHealth.latestSuccessAt) : "unknown"}</StatTile>
+            </div>
+            <div className="debug-grid">
+              {contractCounts ? <CountsTable title="top-level rows" counts={contractCounts} /> : null}
+              <SectionSizesTable env={env} />
+              <ItemWindowTable env={env} />
+              <CountsTable title="source status" counts={sourceHealth?.statusCounts ?? {}} />
+              <SourceHealthTable env={env} />
+            </div>
+          </>
+        )}
+      </section>
 
       <section className="debug-section">
         <h3>

@@ -2475,6 +2475,81 @@ export interface DaemonLogsInfo {
   capacity: number;
 }
 
+const diagnosticsTextEncoder = new TextEncoder();
+
+function jsonValueBytes(value: unknown): number {
+  const text = JSON.stringify(value);
+  return typeof text === "string" ? diagnosticsTextEncoder.encode(text).length : 0;
+}
+
+export function contractTopLevelCounts(env: ContractEnvelope): Record<string, number> {
+  return {
+    sources: env.sources.length,
+    items: env.items.length,
+    edges: env.edges.length,
+    activities: (env.activities ?? []).length,
+    activity_daily_days: env.activity_daily?.days.length ?? 0,
+    repos: (env.repos ?? []).length,
+    aggregates: (env.aggregates ?? []).length,
+    repo_stats: (env.repo_stats ?? []).length,
+    repo_metrics: (env.repo_metrics ?? []).length,
+  };
+}
+
+export interface ContractSectionSize {
+  key: string;
+  label: string;
+  bytes: number;
+  rows: number | null;
+}
+
+export function contractSectionSizes(env: ContractEnvelope): ContractSectionSize[] {
+  const sections: Array<{ key: string; label: string; value: unknown; rows: number | null }> = [
+    { key: "sources", label: "sources", value: env.sources, rows: env.sources.length },
+    { key: "items", label: "items", value: env.items, rows: env.items.length },
+    { key: "edges", label: "edges", value: env.edges, rows: env.edges.length },
+    { key: "activities", label: "activities", value: env.activities ?? [], rows: (env.activities ?? []).length },
+    { key: "activity_daily", label: "activity daily", value: env.activity_daily, rows: env.activity_daily?.days.length ?? null },
+    { key: "repos", label: "repos", value: env.repos ?? [], rows: (env.repos ?? []).length },
+    { key: "aggregates", label: "aggregates", value: env.aggregates ?? [], rows: (env.aggregates ?? []).length },
+    { key: "item_window", label: "item window", value: env.item_window, rows: null },
+    { key: "repo_stats", label: "repo stats", value: env.repo_stats ?? [], rows: (env.repo_stats ?? []).length },
+    { key: "repo_metrics", label: "repo metrics", value: env.repo_metrics ?? [], rows: (env.repo_metrics ?? []).length },
+    { key: "range_query", label: "range query", value: env.range_query, rows: null },
+  ];
+  return sections
+    .filter((section) => section.value !== undefined)
+    .map((section) => ({
+      key: section.key,
+      label: section.label,
+      bytes: jsonValueBytes(section.value),
+      rows: section.rows,
+    }))
+    .sort((a, b) => b.bytes - a.bytes || a.label.localeCompare(b.label));
+}
+
+export interface ContractSourceHealth {
+  statusCounts: Record<string, number>;
+  oldestSuccessAt: string | null;
+  latestSuccessAt: string | null;
+}
+
+export function contractSourceHealth(env: ContractEnvelope): ContractSourceHealth {
+  const statusCounts = new Map<string, number>();
+  const successTimes: string[] = [];
+  for (const source of env.sources) {
+    const status = source.last_status ?? "unknown";
+    statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1);
+    if (source.last_success_at) successTimes.push(source.last_success_at);
+  }
+  successTimes.sort();
+  return {
+    statusCounts: Object.fromEntries([...statusCounts].sort(([a], [b]) => a.localeCompare(b))),
+    oldestSuccessAt: successTimes[0] ?? null,
+    latestSuccessAt: successTimes.at(-1) ?? null,
+  };
+}
+
 // "53.2 MiB" from a byte count, for the Diagnostics store-size pills.
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";

@@ -2391,10 +2391,12 @@ a.rf-node-title:hover { color: var(--accent); }
 .debug-section h3 { margin: 0 0 8px; }
 .debug-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
   margin: 0 0 12px;
 }
+.debug-page .stat-tile b { overflow-wrap: anywhere; }
+.debug-value-text { display: block; color: var(--accent); font-size: 12px; line-height: 1.25; }
 .debug-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; }
 .debug-card {
   background: var(--panel);
