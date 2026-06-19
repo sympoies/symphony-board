@@ -59,6 +59,21 @@ function formatLoadDuration(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatOptionalBytes(n: number | null | undefined): string {
+  return typeof n === "number" ? formatBytes(n) : "unknown";
+}
+
+function compressionRatio(meta: ContractLoadMetadata | null): string {
+  if (!meta || !meta.encodedBytes || meta.encodedBytes <= 0 || meta.bytes <= 0) return "unknown";
+  return `${(meta.bytes / meta.encodedBytes).toFixed(1)}x`;
+}
+
+function encodingLabel(meta: ContractLoadMetadata | null): string | null {
+  if (!meta) return null;
+  if (meta.contentEncoding) return meta.contentEncoding;
+  return meta.encodedBytes == null ? null : "identity";
+}
+
 function sourceLabel(meta: ContractLoadMetadata | null): string {
   if (!meta) return "unknown";
   return meta.source === "file" ? `file: ${meta.url}` : meta.url;
@@ -197,7 +212,13 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onClose }: Props) 
         ) : (
           <>
             <div className="debug-stat-grid">
-              <StatTile label="Payload size">{contractMeta ? formatBytes(contractMeta.bytes) : "unknown"}</StatTile>
+              <StatTile label="Decoded JSON">{contractMeta ? formatBytes(contractMeta.bytes) : "unknown"}</StatTile>
+              <StatTile label="Compressed payload">
+                {formatOptionalBytes(contractMeta?.encodedBytes)}
+                {encodingLabel(contractMeta) ? <span className="muted"> · {encodingLabel(contractMeta)}</span> : null}
+              </StatTile>
+              <StatTile label="Transfer total">{formatOptionalBytes(contractMeta?.transferBytes)}</StatTile>
+              <StatTile label="Compression">{compressionRatio(contractMeta)}</StatTile>
               <StatTile label="Loaded from">
                 <span className="debug-value-text" title={contractMeta?.url ?? undefined}>
                   {sourceLabel(contractMeta)}
