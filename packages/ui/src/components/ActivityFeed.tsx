@@ -11,6 +11,7 @@ import {
   ACTIVITY_ROW_GAP_PX,
   ACTIVITY_ROW_HEIGHT_PX,
   activityDisplay,
+  activityKey,
   activityVirtualRange,
   relativeTime,
   type ColorOf,
@@ -105,7 +106,7 @@ export function ActivityFeed({
           const display = activityDisplay(a, { reviewThreads });
           return (
             <article
-              key={a.id}
+              key={activityKey(a)}
               className={`activity-row${accentColor ? " card-accent" : ""}`}
               role="listitem"
               aria-posinset={index + 1}

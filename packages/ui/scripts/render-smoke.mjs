@@ -146,13 +146,13 @@ function inflateActivityContract(body) {
   const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
   const activities = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
     const a = env.activities[i % env.activities.length];
-    const summary = a.summary || a.title || `${a.action} ${a.kind}`;
+    // 4.0.0 dropped activity `id`/`summary`; rows are keyed on source_id|external_id
+    // (external_id made unique per synthetic row) and titled from the structured fields.
     return {
       ...a,
-      id: `${a.id}|smoke-${i}`,
       external_id: `${a.external_id}:smoke:${i}`,
+      title: `${a.title || `${a.action} ${a.kind}`} smoke ${i}`,
       occurred_at: new Date(baseTime - i * 60_000).toISOString(),
-      summary: `${summary} smoke ${i}`,
       details: {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
         ...(a.kind === "commit"

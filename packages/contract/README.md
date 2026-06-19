@@ -85,7 +85,9 @@ The current emitted contract is `4.0.0`. Important compatibility milestones:
   pre-computed per-day/per-kind counts over the full history, anchored to
   `generated_at`, that the Activity Overview reads instead of the raw feed.
   Narrowing an emitted row collection is breaking (like the v2 `items[]`
-  windowing); `/api/range` stays un-windowed for wider raw feeds.
+  windowing); `/api/range` stays un-windowed for wider raw feeds. 4.0.0 also
+  drops the redundant activity `id` (= `source_id|external_id`) and `summary`
+  (producer prose the UI rebuilds from the structured fields).
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

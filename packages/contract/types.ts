@@ -297,8 +297,13 @@ export interface EdgeDTO {
   lifecycle: EdgeLifecycle | null;
 }
 
+// Dropped in 4.0.0: the activity `id` (always `source_id|external_id`, a pure
+// duplicate of those two fields — reconstruct with refOf/`${source_id}|${external_id}`
+// when a composite key is needed) and `summary` (producer-authored display prose
+// that the UI rebuilds from action/kind/target/title/details, so it carried no
+// information the consumer cannot derive). Both removals fold into the 4.0.0
+// reshape rather than a later major.
 export interface ActivityDTO {
-  id: Ref;
   source_id: string;
   external_id: string;
   kind: string;
@@ -311,7 +316,6 @@ export interface ActivityDTO {
   url: string | null;
   actor: string | null;
   occurred_at: string;
-  summary: string | null;
   details: Record<string, unknown> | null;
   first_seen_at: string | null;
   last_seen_at: string | null;

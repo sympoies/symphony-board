@@ -90,7 +90,6 @@ function reviewActivity(over: Partial<ActivityDTO> = {}): ActivityDTO {
   const targetIid = over.target_iid ?? 100;
   const targetRef = over.target_ref ?? `github:github.com|PR_${targetIid}`;
   return {
-    id: "github:github.com|REV_x",
     source_id: "github:github.com",
     external_id: "REV_x",
     kind: "review",
@@ -103,7 +102,6 @@ function reviewActivity(over: Partial<ActivityDTO> = {}): ActivityDTO {
     url: "https://github.com/dev-a/repo/pull/100#review",
     actor: "chatgpt-codex-connector",
     occurred_at: "2026-06-12T00:00:00Z",
-    summary: null,
     details: { state: "COMMENTED" },
     first_seen_at: null,
     last_seen_at: null,
@@ -281,7 +279,6 @@ test("ordering: open-thread candidates first (most open threads first), enrichme
     activities: [
       // late review on 112 -> a candidate with no open threads, sorts last
       reviewActivity({
-        id: "github:github.com|REV_112",
         external_id: "REV_112",
         target_iid: 112,
         occurred_at: "2026-06-13T00:00:00Z",
@@ -344,7 +341,6 @@ test("Pass 2: a late review still matches its item across a repo rename (immutab
     ],
     activities: [
       reviewActivity({
-        id: "github:github.com|REV_renamed",
         external_id: "REV_renamed",
         project_path: "dev-a/repo-old", // stale: pre-rename path
         target_ref: "github:github.com|PR_renamed", // immutable
@@ -380,7 +376,6 @@ test("focused --repo discovery finds a renamed PR's late review (filter the reso
     ],
     activities: [
       reviewActivity({
-        id: "github:github.com|REV_renamed",
         external_id: "REV_renamed",
         project_path: "dev-a/repo-old", // stale: pre-rename path
         target_ref: "github:github.com|PR_renamed",
