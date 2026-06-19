@@ -309,10 +309,11 @@ payload, while their full lifecycle counts remain available through
 separate from `items[]`: an item is current state, while an activity row is
 something that happened.
 
-Important fields:
+Important fields (note: `4.0.0` dropped the activity `id` and `summary` — see
+below):
 
-- `id`: composite ref for this activity record.
-- `source_id` / `external_id`: stable source identity for the record.
+- `source_id` / `external_id`: stable source identity for the record. The
+  composite ref `source_id|external_id` is the row's identity (the dropped `id`).
 - `kind`: open string such as `issue`, `change_request`, `commit`, `branch`,
   `tag`, `repository`, or `review`.
 - `action`: open string such as `opened`, `closed`, `merged`, `committed`,
@@ -323,7 +324,6 @@ Important fields:
   `target_ref` when the producer can identify the tracked item by provider
   immutable id.
 - `occurred_at`: provider event timestamp.
-- `summary`: producer-readable text for UI display.
 - `url`: optional primary provider link for the activity row. Current producers
   fill it only when the target is reliable: issue / change-request pages,
   commit pages, repository pages, branch/tag ref pages, or push compare /
@@ -409,7 +409,13 @@ Two surfaces replace that:
 - `GET /api/range`, which is **not** windowed and returns the full requested span
   of `activities[]` for any explicit date range.
 
-The `id` and `summary` activity fields are unchanged in `4.0.0`.
+`4.0.0` also **removes the activity `id` and `summary` fields**. `id` was always
+`source_id|external_id` — a pure duplicate of two existing fields, so a consumer
+reconstructs the composite ref when it needs one. `summary` was producer-authored
+display prose; the UI already builds its row label from the structured fields
+(`target_ref`/`target_iid`, `kind`, `action`, `title`, `details.sha`/`details.ref`),
+so the field carried nothing a consumer cannot derive. Removing fields is breaking,
+so it rides in this same `4.0.0` major rather than a later one.
 
 ## Activity Daily
 

@@ -5,6 +5,7 @@ import { SourceRepo } from "./SourceRepo.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import {
   buildCommitRows,
+  activityKey,
   commitBranches,
   commitMessage,
   commitSha,
@@ -233,13 +234,16 @@ function CommitTimeline({
           const { commit, index, showDate, body, expanded } = row;
           const sha = commitSha(commit);
           const short = commitShortSha(commit);
-          const copied = copiedId === commit.id;
+          // Stable identity for this commit row (the contract dropped the redundant
+          // activity `id` in 4.0.0; reconstruct it from source_id|external_id).
+          const rowKey = activityKey(commit);
+          const copied = copiedId === rowKey;
           const branches = commitBranches(commit);
           const accentColor = colorOf(commit.source_id, commit.project_path);
           const actor = commit.actor ? `@${commit.actor}` : "unknown author";
           return (
             <article
-              key={commit.id}
+              key={rowKey}
               className={`commit-row${showDate ? " commit-row-has-date" : ""}${expanded ? " commit-row-expanded" : ""}${accentColor ? " commit-row-accent" : ""}`}
               role="listitem"
               aria-posinset={index + 1}
@@ -257,7 +261,7 @@ function CommitTimeline({
                   <span>Commits on {dateLabel(commit.occurred_at, timezone)}</span>
                 </div>
               ) : null}
-              <div className="commit-row-body" data-commit-id={commit.id}>
+              <div className="commit-row-body" data-commit-id={rowKey}>
                 <div className="commit-row-main">
                   <div className="commit-title-line">
                     {commit.url ? (
@@ -273,7 +277,7 @@ function CommitTimeline({
                         className="commit-body-toggle"
                         aria-label={`${expanded ? "Hide" : "Show"} commit body ${short ?? index + 1}`}
                         aria-expanded={expanded}
-                        onClick={() => setExpandedBodyId(expanded ? null : commit.id)}
+                        onClick={() => setExpandedBodyId(expanded ? null : rowKey)}
                       >
                         <EllipsisIcon />
                       </button>
@@ -302,7 +306,7 @@ function CommitTimeline({
                     disabled={!sha}
                     onClick={() => {
                       if (!sha) return;
-                      void copyToClipboard(sha).then(() => setCopiedId(commit.id));
+                      void copyToClipboard(sha).then(() => setCopiedId(rowKey));
                     }}
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}

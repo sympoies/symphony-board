@@ -1141,12 +1141,12 @@ export function buildCommitRows({
     const key = commitDateKey(commit.occurred_at, timezone);
     const showDate = previousDateKey === null || previousDateKey !== key;
     const body = commitBody(commit);
-    const expanded = body !== null && commit.id === expandedBodyId;
+    const expanded = body !== null && activityKey(commit) === expandedBodyId;
     // A measured height wins for any row (collapsed or expanded). Until a row is
     // measured, estimate: expanded rows add the body panel; collapsed rows fall
     // back to the per-layout row-body height.
     const bodyHeight =
-      measuredBodyHeights.get(commit.id) ??
+      measuredBodyHeights.get(activityKey(commit)) ??
       (expanded
         ? rowBodyHeight + estimateCommitBodyPanelHeight(body, narrow) + COMMIT_EXPANDED_PANEL_MAIN_GAP_PX
         : rowBodyHeight);
@@ -1278,6 +1278,14 @@ export function reviewThreadsLabel(threads: ReviewThreadsDTO | null | undefined)
   return threads.open > 0 ? `${threads.open} open thread${threads.open === 1 ? "" : "s"}` : "threads resolved";
 }
 
+// Stable composite key for an activity row (React keys, expanded-row tracking).
+// Reconstructs the `source_id|external_id` identity that the contract dropped as
+// a redundant `id` field in 4.0.0 (source_id never contains '|', external_id is
+// unique per source — so the pair is globally unique).
+export function activityKey(a: Pick<ActivityDTO, "source_id" | "external_id">): string {
+  return `${a.source_id}|${a.external_id}`;
+}
+
 export function activityDisplay(
   activity: ActivityDTO,
   // The target change_request's review threads, when the caller resolved
@@ -1286,7 +1294,11 @@ export function activityDisplay(
   opts: { reviewThreads?: ReviewThreadsDTO | null } = {},
 ): ActivityDisplay {
   const title = cleanText(activity.title);
-  const summary = cleanText(activity.summary);
+  // 4.0.0 dropped the producer `summary`; the title is built entirely from the
+  // structured fields below (target / commit sha / ref / action+kind), which is
+  // what activityDisplay already used as the primary label — `summary` was only
+  // a rarely-hit final fallback. `${action} ${kind}` is the last-resort label.
+  const actionKind = `${activity.action.replace(/_/g, " ")} ${activity.kind}`.trim();
   // repo is pulled out of `meta` so the feed can render it with the .card-repo
   // accent (teal), matching the board / commits cards; the rest stays muted.
   const repo = cleanText(activity.project_path);
@@ -1313,20 +1325,20 @@ export function activityDisplay(
   }
 
   const target = workItemTargetLabel(activity);
-  if (target) return { title: joinDistinct([target, title ?? summary]), repo, meta, chips };
+  if (target) return { title: joinDistinct([target, title]) || actionKind, repo, meta, chips };
 
   if (activity.kind === "commit" || activity.target_kind === "commit") {
     const commitLabel = sha ? `commit ${sha}` : "commit";
-    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message") ?? summary]), repo, meta, chips };
+    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message")]), repo, meta, chips };
   }
 
   if (activity.kind === "push" || activity.kind === "branch" || activity.kind === "tag" || ref) {
     const kind = activityRefKind(activity, rawRef);
-    return { title: ref ? `${kind} ${ref}` : (summary ?? title ?? `${activity.action} ${activity.kind}`), repo, meta, chips };
+    return { title: ref ? `${kind} ${ref}` : (title ?? actionKind), repo, meta, chips };
   }
 
   const kind = displayKind(activity.kind);
-  return { title: joinDistinct([kind, title ?? summary]) || `${activity.action} ${activity.kind}`, repo, meta, chips };
+  return { title: joinDistinct([kind, title]) || actionKind, repo, meta, chips };
 }
 
 // Does an item satisfy the review-thread lens? "threads" = has any resolvable
@@ -1390,7 +1402,7 @@ export function activityMatches(a: ActivityDTO, f: Filters): boolean {
   const q = f.search.trim().toLowerCase();
   if (q) {
     const details = a.details ? JSON.stringify(a.details) : "";
-    const hay = [a.title, a.summary, a.actor, a.project_path, a.target_kind, a.target_ref, details]
+    const hay = [a.title, a.actor, a.project_path, a.target_kind, a.target_ref, details]
       .filter((s): s is string => !!s)
       .join(" ")
       .toLowerCase();
@@ -1444,7 +1456,7 @@ export function commitShortSha(activity: ActivityDTO): string | null {
 }
 
 export function commitMessage(activity: ActivityDTO): string {
-  return cleanText(activity.title) ?? detailText(activity.details, "message") ?? cleanText(activity.summary) ?? "Untitled commit";
+  return cleanText(activity.title) ?? detailText(activity.details, "message") ?? "Untitled commit";
 }
 
 export function commitBody(activity: ActivityDTO): string | null {

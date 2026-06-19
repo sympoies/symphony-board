@@ -141,7 +141,6 @@ test("activity records validate and reject malformed timestamps", () => {
   const env: any = validEnvelope();
   env.activities = [
     {
-      id: "github:github.com|activity-1",
       source_id: "github:github.com",
       external_id: "activity-1",
       kind: "issue",
@@ -154,7 +153,6 @@ test("activity records validate and reject malformed timestamps", () => {
       url: "https://github.com/dev-a/repo/issues/7",
       actor: "dev-a",
       occurred_at: "2026-01-01T00:00:00Z",
-      summary: "Opened issue #7",
       details: { source: "test" },
       first_seen_at: "2026-06-01T00:00:00Z",
       last_seen_at: "2026-06-01T00:00:00Z",

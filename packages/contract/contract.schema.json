@@ -228,9 +228,8 @@
     "activity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "source_id", "external_id", "kind", "action", "occurred_at"],
+      "required": ["source_id", "external_id", "kind", "action", "occurred_at"],
       "properties": {
-        "id": { "$ref": "#/$defs/ref" },
         "source_id": { "type": "string" },
         "external_id": { "type": "string", "description": "Provider event id, or a producer-stable derived event id." },
         "kind": { "type": "string", "description": "issue | change_request | commit | push | branch | tag | review | comment | ... (open vocabulary)." },
@@ -247,7 +246,6 @@
         "url": { "type": ["string", "null"] },
         "actor": { "type": ["string", "null"] },
         "occurred_at": { "type": "string", "format": "date-time" },
-        "summary": { "type": ["string", "null"] },
         "details": { "type": ["object", "null"] },
         "first_seen_at": { "type": ["string", "null"], "format": "date-time" },
         "last_seen_at": { "type": ["string", "null"], "format": "date-time" }

@@ -378,7 +378,6 @@
   ],
   "activities": [
     {
-      "id": "github:github.com|commit:sympoies%2Fsymphony-board:abc1234",
       "source_id": "github:github.com",
       "external_id": "commit:sympoies%2Fsymphony-board:abc1234",
       "kind": "commit",
@@ -391,7 +390,6 @@
       "url": "https://github.com/sympoies/symphony-board/commit/abc1234",
       "actor": "reviewer",
       "occurred_at": "2026-06-10T08:50:00Z",
-      "summary": "Committed abc1234 in sympoies/symphony-board",
       "details": {
         "sha": "abc1234",
         "message": "Ship activity feed"
@@ -400,7 +398,6 @@
       "last_seen_at": "2026-06-10T08:58:00Z"
     },
     {
-      "id": "gitlab:gitlab.com|commit:example-group%2Fsymphony-board-fixture:def5678",
       "source_id": "gitlab:gitlab.com",
       "external_id": "commit:example-group%2Fsymphony-board-fixture:def5678",
       "kind": "commit",
@@ -413,7 +410,6 @@
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/def5678",
       "actor": "gitlab-user",
       "occurred_at": "2026-06-08T11:20:00Z",
-      "summary": "Committed def5678 in example-group/symphony-board-fixture",
       "details": {
         "sha": "def5678",
         "message": "Wire scoped-label parsing"
@@ -422,7 +418,6 @@
       "last_seen_at": "2026-06-10T07:40:00Z"
     },
     {
-      "id": "github:github.com|item:PR_b:merged:2026-06-06T18%3A00%3A00Z",
       "source_id": "github:github.com",
       "external_id": "item:PR_b:merged:2026-06-06T18%3A00%3A00Z",
       "kind": "change_request",
@@ -435,13 +430,11 @@
       "url": "https://github.com/sympoies/symphony-board/pull/13",
       "actor": "reviewer",
       "occurred_at": "2026-06-09T18:00:00Z",
-      "summary": "Merged change request #13",
       "details": null,
       "first_seen_at": "2026-06-10T08:58:00Z",
       "last_seen_at": "2026-06-10T08:58:00Z"
     },
     {
-      "id": "github:github.com|review:PR_b:R1",
       "source_id": "github:github.com",
       "external_id": "review:PR_b:R1",
       "kind": "review",
@@ -454,7 +447,6 @@
       "url": "https://github.com/sympoies/symphony-board/pull/13",
       "actor": "reviewer",
       "occurred_at": "2026-06-09T17:55:00Z",
-      "summary": "Approved change request #13",
       "details": {
         "state": "APPROVED"
       },
@@ -462,7 +454,6 @@
       "last_seen_at": "2026-06-10T08:58:00Z"
     },
     {
-      "id": "github:github.com|item:ISSUE_a:closed:2026-06-06T18%3A00%3A00Z",
       "source_id": "github:github.com",
       "external_id": "item:ISSUE_a:closed:2026-06-06T18%3A00%3A00Z",
       "kind": "issue",
@@ -475,13 +466,11 @@
       "url": "https://github.com/sympoies/symphony-board/issues/12",
       "actor": "maintainer",
       "occurred_at": "2026-06-09T18:00:00Z",
-      "summary": "Closed issue #12",
       "details": null,
       "first_seen_at": "2026-06-10T08:58:00Z",
       "last_seen_at": "2026-06-10T08:58:00Z"
     },
     {
-      "id": "github:github.com|repo-activity:sympoies%2Fsymphony-board:normal:refs%2Fheads%2Fmain:111:222:2026-06-06T17%3A40%3A00Z",
       "source_id": "github:github.com",
       "external_id": "repo-activity:sympoies%2Fsymphony-board:normal:refs%2Fheads%2Fmain:111:222:2026-06-06T17%3A40%3A00Z",
       "kind": "branch",
@@ -494,7 +483,6 @@
       "url": null,
       "actor": "maintainer",
       "occurred_at": "2026-06-09T17:40:00Z",
-      "summary": "Pushed main in sympoies/symphony-board",
       "details": {
         "ref": "refs/heads/main",
         "before": "111",
@@ -505,7 +493,6 @@
       "last_seen_at": "2026-06-10T08:58:00Z"
     },
     {
-      "id": "gitlab:gitlab.com|item:gid%3A%2F%2Fgitlab%2FIssue%2F101:opened:2026-06-02T00%3A00%3A00Z",
       "source_id": "gitlab:gitlab.com",
       "external_id": "item:gid%3A%2F%2Fgitlab%2FIssue%2F101:opened:2026-06-02T00%3A00%3A00Z",
       "kind": "issue",
@@ -518,7 +505,6 @@
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/issues/3",
       "actor": "gitlab-user",
       "occurred_at": "2026-06-05T00:00:00Z",
-      "summary": "Opened issue #3",
       "details": null,
       "first_seen_at": "2026-06-10T07:40:00Z",
       "last_seen_at": "2026-06-10T07:40:00Z"
