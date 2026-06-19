@@ -1435,6 +1435,31 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.controls .search-disclosure')?.click();" });
+  await sleep(150);
+  const phoneSearchDisclosure = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const sheet = document.querySelector('.mobile-control-sheet[data-panel="search"]');
+      const input = sheet?.querySelector('.mobile-control-search');
+      const sheetTitle = sheet?.querySelector('.mobile-control-sheet-title');
+      const sheetRect = sheet?.getBoundingClientRect();
+      const inputRect = input?.getBoundingClientRect();
+      const primarySurface = document.querySelector('.activity-list');
+      const primaryRect = primarySurface?.getBoundingClientRect();
+      return {
+        sheetVisible: !!sheet && getComputedStyle(sheet).display !== 'none',
+        sheetTitle: sheetTitle?.textContent?.trim() || null,
+        inputVisible: !!input && getComputedStyle(input).display !== 'none',
+        inputHeight: Math.round(inputRect?.height || 0),
+        inputWidth: Math.round(inputRect?.width || 0),
+        sheetHeight: Math.round(sheetRect?.height || 0),
+        primaryTopDuring: Math.round(primaryRect?.top || 0),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.mobile-control-backdrop')?.click()" });
+  await sleep(100);
   await send("Runtime.evaluate", {
     expression: "document.querySelector('.controls .search-disclosure')?.click(); document.querySelector('.controls .filter-disclosure')?.click();",
   });
@@ -1864,6 +1889,7 @@ try {
     [phoneContentPages.every((r) => r.primarySurfaceTop > 0 && r.primarySurfaceTop <= 360), `portrait: phone primary content starts in the first screen (${phoneContentPages.map((r) => `${r.page}:top=${r.primarySurfaceTop}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
+    [phoneSearchDisclosure.sheetVisible === true && phoneSearchDisclosure.sheetTitle === "Search" && phoneSearchDisclosure.inputVisible === true && phoneSearchDisclosure.inputHeight >= 34 && phoneSearchDisclosure.inputHeight <= 52 && phoneSearchDisclosure.sheetHeight <= 150 && Math.abs((phoneSearchDisclosure.primaryTopDuring || 0) - (phoneActiveFilterDisclosureBefore.primaryTopBefore || 0)) <= 4, `portrait: mobile search sheet uses one compact input without pushing feed (${JSON.stringify(phoneSearchDisclosure)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === false && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone filters open without keeping search inline (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActiveFilterDisclosure.sheetVisible === true && phoneActiveFilterDisclosure.sheetCount === 1 && phoneActiveFilterDisclosure.sheetTitle === "Filters" && Math.abs((phoneActiveFilterDisclosure.primaryTopAfter || 0) - (phoneActiveFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile search/filter expansion opens one filter overlay sheet without pushing feed (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.tabCount === 2 && phoneCommitsFilterDisclosure.activeTab === "Repo" && phoneCommitsFilterDisclosure.branchTabActive === "Branch" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.visibleRepoOptions >= 1 && phoneCommitsFilterDisclosure.branchTabVisibleBranchOptions >= 3 && phoneCommitsFilterDisclosure.visibleBranchOptions === 0 && phoneCommitsFilterDisclosure.repoPickHashHasRepo === true && phoneCommitsFilterDisclosure.repoPickSelectedRows === 1 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a repo-first sheet mode without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
