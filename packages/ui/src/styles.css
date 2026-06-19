@@ -1981,6 +1981,10 @@ a.rf-node-title:hover { color: var(--accent); }
     width: 100%;
     box-sizing: border-box;
   }
+  .mobile-control-sheet[data-panel="search"] .mobile-control-search {
+    flex: none;
+    min-height: 38px;
+  }
   .mobile-control-sheet .filter-groups {
     display: flex;
     flex-wrap: wrap;
