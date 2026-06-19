@@ -40,6 +40,11 @@ import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 import { activityRangeBounds } from "./activity-range.ts";
+import {
+  repoActivityBoundsBucket,
+  repoActivityBoundsBucketId,
+  type RepoActivityBoundsBucket,
+} from "./repo-activity-bounds.ts";
 import type {
   ActivityRow,
   RepoActivityBoundsRow,
@@ -68,6 +73,7 @@ const MIGRATIONS: Migration[] = [
   { version: 2, file: "0002_activity.sql" },
   { version: 3, file: "0003_actor_identity.sql" },
   { version: 4, file: "0004_review_threads.sql" },
+  { version: 5, file: "0005_repo_activity_bounds.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -180,6 +186,7 @@ export class PgStore implements Store {
   // Serializes transaction() calls, mirroring the SQLite driver: the engine is
   // single-writer and the interface promises serialized transactions.
   #txQueue: Promise<unknown> = Promise.resolve();
+  #repoActivityBoundsDirty = new Map<string, RepoActivityBoundsBucket>();
   // The dedicated lease session while this handle holds the writer lease.
   #lease: Sql | null = null;
 
@@ -275,6 +282,9 @@ export class PgStore implements Store {
 
   async upsertActivity(a: CanonicalActivity, nowIso: string): Promise<void> {
     const details = a.details === null ? null : JSON.stringify(a.details);
+    const projectPath = nz(a.projectPath);
+    const prev = await this.#q`
+      SELECT project_path FROM activity WHERE source_id = ${a.sourceId} AND external_id = ${a.externalId}`;
     await this.#q`
       INSERT INTO activity (
         source_id, external_id, kind, action, project_path, target_kind,
@@ -294,6 +304,76 @@ export class PgStore implements Store {
         actor_key = excluded.actor_key,
         occurred_at = excluded.occurred_at, summary = excluded.summary,
         details = excluded.details, last_seen_at = excluded.last_seen_at`;
+    this.#markRepoActivityBoundsDirty(a.sourceId, projectPath, nowIso);
+    if (prev.length > 0 && (prev[0]!.project_path as string | null) !== projectPath) {
+      this.#markRepoActivityBoundsDirty(a.sourceId, prev[0]!.project_path as string | null, nowIso);
+    }
+    if (this.#sql) await this.#flushRepoActivityBoundsDirty();
+  }
+
+  #markRepoActivityBoundsDirty(sourceId: string, projectPath: string | null, updatedAt: string): void {
+    const bucket = repoActivityBoundsBucket(sourceId, projectPath, updatedAt);
+    this.#repoActivityBoundsDirty.set(repoActivityBoundsBucketId(sourceId, bucket.projectKey), bucket);
+  }
+
+  async #flushRepoActivityBoundsDirty(): Promise<void> {
+    const buckets = [...this.#repoActivityBoundsDirty.values()];
+    this.#repoActivityBoundsDirty.clear();
+    for (const bucket of buckets) await this.#refreshRepoActivityBounds(bucket);
+  }
+
+  async #refreshRepoActivityBounds(bucket: RepoActivityBoundsBucket): Promise<void> {
+    const rows = bucket.projectPath === null
+      ? await this.#q`
+          SELECT observed_since, last_activity_at
+          FROM (
+            SELECT
+              FIRST_VALUE(occurred_at) OVER (
+                ORDER BY occurred_at::timestamptz ASC, activity_id ASC
+              ) AS observed_since,
+              FIRST_VALUE(occurred_at) OVER (
+                ORDER BY occurred_at::timestamptz DESC, activity_id DESC
+              ) AS last_activity_at
+            FROM activity
+            WHERE source_id = ${bucket.sourceId}
+              AND project_path IS NULL
+          ) bounds
+          LIMIT 1`
+      : await this.#q`
+          SELECT observed_since, last_activity_at
+          FROM (
+            SELECT
+              FIRST_VALUE(occurred_at) OVER (
+                ORDER BY occurred_at::timestamptz ASC, activity_id ASC
+              ) AS observed_since,
+              FIRST_VALUE(occurred_at) OVER (
+                ORDER BY occurred_at::timestamptz DESC, activity_id DESC
+              ) AS last_activity_at
+            FROM activity
+            WHERE source_id = ${bucket.sourceId}
+              AND project_path = ${bucket.projectPath}
+          ) bounds
+          LIMIT 1`;
+
+    if (rows.length === 0) {
+      await this.#q`
+        DELETE FROM repo_activity_bounds
+        WHERE source_id = ${bucket.sourceId} AND project_key = ${bucket.projectKey}`;
+      return;
+    }
+
+    await this.#q`
+      INSERT INTO repo_activity_bounds (
+        source_id, project_path, project_key, observed_since, last_activity_at, updated_at
+      ) VALUES (
+        ${bucket.sourceId}, ${bucket.projectPath}, ${bucket.projectKey},
+        ${rows[0]!.observed_since as string | null}, ${rows[0]!.last_activity_at as string | null}, ${bucket.updatedAt}
+      )
+      ON CONFLICT (source_id, project_key) DO UPDATE SET
+        project_path = excluded.project_path,
+        observed_since = excluded.observed_since,
+        last_activity_at = excluded.last_activity_at,
+        updated_at = excluded.updated_at`;
   }
 
   async startRun(sourceId: string, mode: "full" | "incremental", startedAt: string): Promise<number> {
@@ -429,19 +509,10 @@ export class PgStore implements Store {
   }
 
   async listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]> {
-    // All-time earliest/latest occurred_at per repo, by parsed INSTANT (not raw
-    // text — occurred_at keeps the provider's UTC offset). FIRST_VALUE over the
-    // instant-ordered partition picks the actual boundary row's occurred_at;
-    // SELECT DISTINCT collapses the per-row window result to one row per repo.
     const rows = await this.#q`
-      SELECT DISTINCT source_id, project_path,
-             FIRST_VALUE(occurred_at) OVER (
-               PARTITION BY source_id, project_path
-               ORDER BY occurred_at::timestamptz ASC, activity_id ASC) AS observed_since,
-             FIRST_VALUE(occurred_at) OVER (
-               PARTITION BY source_id, project_path
-               ORDER BY occurred_at::timestamptz DESC, activity_id DESC) AS last_activity_at
-      FROM activity`;
+      SELECT source_id, project_path, observed_since, last_activity_at
+      FROM repo_activity_bounds
+      ORDER BY source_id, project_key`;
     return rows as unknown as RepoActivityBoundsRow[];
   }
 
@@ -598,7 +669,13 @@ export class PgStore implements Store {
     if (!this.#sql) throw new Error("nested transactions are invalid");
     const sql = this.#sql;
     const run = this.#txQueue.then(
-      async () => (await sql.begin(async (tx) => fn(new PgStore(sql, undefined, tx as unknown as Sql)))) as T,
+      async () =>
+        (await sql.begin(async (tx) => {
+          const txStore = new PgStore(sql, undefined, tx as unknown as Sql);
+          const result = await fn(txStore);
+          await txStore.#flushRepoActivityBoundsDirty();
+          return result;
+        })) as T,
     );
     this.#txQueue = run.catch(() => undefined);
     return run;

@@ -358,6 +358,43 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("listRepoActivityBounds recomputes cached bounds when a boundary activity changes", async () => {
+    const store = await fresh();
+    await store.upsertActivity(fixtureActivity({ externalId: "earliest", projectPath: "dev-a/repo", occurredAt: "2026-01-01T00:00:00.000Z" }), "2026-01-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "middle", projectPath: "dev-a/repo", occurredAt: "2026-02-01T00:00:00.000Z" }), "2026-02-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "latest", projectPath: "dev-a/repo", occurredAt: "2026-03-01T00:00:00.000Z" }), "2026-03-01T00:00:00Z");
+
+    let bounds = await store.listRepoActivityBounds();
+    assert.equal(bounds[0]?.observed_since, "2026-01-01T00:00:00.000Z");
+    assert.equal(bounds[0]?.last_activity_at, "2026-03-01T00:00:00.000Z");
+
+    await store.upsertActivity(fixtureActivity({ externalId: "earliest", projectPath: "dev-a/repo", occurredAt: "2026-04-01T00:00:00.000Z" }), "2026-04-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "latest", projectPath: "dev-a/repo", occurredAt: "2026-01-15T00:00:00.000Z" }), "2026-04-01T00:00:00Z");
+
+    bounds = await store.listRepoActivityBounds();
+    assert.equal(bounds.length, 1);
+    assert.equal(bounds[0]?.observed_since, "2026-01-15T00:00:00.000Z", "old latest row moved earlier and became the earliest");
+    assert.equal(bounds[0]?.last_activity_at, "2026-04-01T00:00:00.000Z", "old earliest row moved later and became the latest");
+    await store.close();
+  });
+
+  t("listRepoActivityBounds refreshes both buckets when an activity moves repo", async () => {
+    const store = await fresh();
+    await store.upsertActivity(fixtureActivity({ externalId: "a-old", projectPath: "dev-a/repo", occurredAt: "2026-01-01T00:00:00.000Z" }), "2026-01-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "moving", projectPath: "dev-a/repo", occurredAt: "2026-02-01T00:00:00.000Z" }), "2026-02-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "b-existing", projectPath: "dev-b/repo", occurredAt: "2026-03-01T00:00:00.000Z" }), "2026-03-01T00:00:00Z");
+
+    await store.upsertActivity(fixtureActivity({ externalId: "moving", projectPath: "dev-b/repo", occurredAt: "2026-04-01T00:00:00.000Z" }), "2026-04-01T00:00:00Z");
+
+    const byRepo = new Map((await store.listRepoActivityBounds()).map((r) => [`${r.source_id}|${r.project_path}`, r]));
+    assert.equal(byRepo.size, 2);
+    assert.equal(byRepo.get(`${SOURCE}|dev-a/repo`)?.observed_since, "2026-01-01T00:00:00.000Z");
+    assert.equal(byRepo.get(`${SOURCE}|dev-a/repo`)?.last_activity_at, "2026-01-01T00:00:00.000Z", "old bucket drops the moved row");
+    assert.equal(byRepo.get(`${SOURCE}|dev-b/repo`)?.observed_since, "2026-03-01T00:00:00.000Z");
+    assert.equal(byRepo.get(`${SOURCE}|dev-b/repo`)?.last_activity_at, "2026-04-01T00:00:00.000Z", "new bucket includes the moved row");
+    await store.close();
+  });
+
   t("CI refresh candidates include unresolved or recently active change requests", async () => {
     const store = await fresh();
     await store.upsertItem(fixtureItem({ externalId: "PR_PENDING", kind: "change_request", iid: 1, state: "merged", ciState: "pending", updatedAt: "2026-06-08T00:00:00Z", mergedAt: "2026-06-08T00:00:00Z" }), "github/pr-pending", "2026-06-08T00:00:00Z");

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { openSqliteStore, openSqliteStoreReadOnly } from "../src/db/sqlite.ts";
@@ -10,6 +11,14 @@ import type { ActivityRow, EdgeRow, ItemRow, SourceRow } from "../src/db/store.t
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
+
+const SQLITE_SCHEMA_DIR = join(process.cwd(), "schema", "sqlite");
+const SQLITE_V4_MIGRATIONS = [
+  "0001_init.sql",
+  "0002_activity.sql",
+  "0003_actor_identity.sql",
+  "0004_review_threads.sql",
+];
 
 function item(over: Partial<CanonicalItem> = {}): CanonicalItem {
   return {
@@ -127,6 +136,68 @@ function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
     last_seen_at: null,
     ...over,
   };
+}
+
+function createLegacySqliteV4Store(dbPath: string): void {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA foreign_keys = ON;");
+    SQLITE_V4_MIGRATIONS.forEach((file, index) => {
+      db.exec(readFileSync(join(SQLITE_SCHEMA_DIR, file), "utf8"));
+      db.exec(`PRAGMA user_version = ${index + 1}`);
+    });
+    db.prepare(`INSERT INTO source (source_id, kind, host, display_name, created_at) VALUES (?,?,?,?,?)`)
+      .run("github:github.com", "github", "github.com", "GitHub", "2026-06-01T00:00:00Z");
+    const insertActivity = db.prepare(
+      `INSERT INTO activity (
+         source_id, external_id, kind, action, project_path, target_kind,
+         target_source_id, target_external_id, target_iid, title, url, actor,
+         occurred_at, summary, details, first_seen_at, last_seen_at, actor_key
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    insertActivity.run(
+      "github:github.com",
+      "legacy-earliest",
+      "commit",
+      "committed",
+      "sympoies/symphony-board",
+      "commit",
+      null,
+      null,
+      null,
+      "Legacy earliest",
+      "https://example/commit/1",
+      "dev-a",
+      "2026-01-01T05:00:00.000+08:00",
+      null,
+      "{}",
+      "2026-06-01T00:00:00Z",
+      "2026-06-01T00:00:00Z",
+      "provider-user:github:github.com:dev-a",
+    );
+    insertActivity.run(
+      "github:github.com",
+      "legacy-latest",
+      "commit",
+      "committed",
+      "sympoies/symphony-board",
+      "commit",
+      null,
+      null,
+      null,
+      "Legacy latest",
+      "https://example/commit/2",
+      "dev-a",
+      "2026-05-31T20:00:00.000-10:00",
+      null,
+      "{}",
+      "2026-06-01T00:00:00Z",
+      "2026-06-01T00:00:00Z",
+      "provider-user:github:github.com:dev-a",
+    );
+  } finally {
+    db.close();
+  }
 }
 
 test("buildRangeContract returns explicit range rows with endpoint closure and activity filtering", () => {
@@ -304,6 +375,26 @@ test("openSqliteStoreReadOnly can read but cannot write or migrate", async () =>
       /readonly|read-only|attempt/i,
     );
     await ro.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("SQLite migration v5 backfills cached repo activity bounds from existing activity rows", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sb-bounds-migration-"));
+  const dbPath = join(dir, "store.db");
+  try {
+    createLegacySqliteV4Store(dbPath);
+
+    const db = await openSqliteStore(dbPath);
+    const diag = await db.diagnostics();
+    assert.equal(diag.schema_version, 5, "opening a v4 store applies the cached-bounds migration");
+    assert.equal((await db.overview(1)).tables.repo_activity_bounds, 1, "the summary table is backfilled once per repo");
+    const bounds = await db.listRepoActivityBounds();
+    assert.equal(bounds.length, 1);
+    assert.equal(bounds[0]?.observed_since, "2026-01-01T05:00:00.000+08:00", "backfill preserves instant-earliest row text");
+    assert.equal(bounds[0]?.last_activity_at, "2026-05-31T20:00:00.000-10:00", "backfill preserves instant-latest row text");
+    await db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
