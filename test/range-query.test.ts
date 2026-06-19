@@ -175,6 +175,36 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.repo_metrics?.[0]?.totals.activity_score, 0);
 });
 
+test("buildRangeContract keeps data_quality coverage all-time when no activity falls inside the range", () => {
+  // Repo coverage (observed_since / last_activity_at / activity_available) is a
+  // documented ALL-TIME bound (docs/CONTRACT.md). On /api/range the response
+  // activity list is range-bounded, so coverage must come from the separate
+  // all-time bounds (Store.listRepoActivityBounds), not the windowed rows —
+  // otherwise a repo with history but no in-range events wrongly reports
+  // "No activity rows observed" and a null coverage badge.
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const env = buildRangeContract({
+    sources: [source],
+    items: [itemRow({ item_id: 1, updated_at: "2026-05-15T00:00:00Z" })],
+    labels: [],
+    edges: [],
+    activities: [], // range-bounded read: no activity inside the selected range
+    repoActivityBounds: [
+      { source_id: "github:github.com", project_path: "sympoies/symphony-board", observed_since: "2025-01-01T00:00:00Z", last_activity_at: "2026-02-01T00:00:00Z" },
+    ],
+    generatedAt: "2026-06-08T00:00:00Z",
+    range: { from: "2026-06-01T00:00:00.000Z", to: "2026-06-07T23:59:59.999Z" },
+  });
+  const metric = env.repo_metrics?.[0];
+  const dq = metric?.data_quality;
+  assert.equal(dq?.activity_available, true, "coverage stays all-time, not range-bounded");
+  assert.equal(dq?.observed_since, "2025-01-01T00:00:00Z");
+  assert.equal(dq?.last_activity_at, "2026-02-01T00:00:00Z");
+  assert.equal(metric?.totals.activities, 0, "in-window activity totals stay range-scoped");
+  assert.equal(dq?.notes.some((n) => n.includes("No activity rows observed")) ?? false, false, "no missing-activity note when all-time activity exists");
+  assert.deepEqual(validateContract(env), []);
+});
+
 test("buildRangeContract carries the configured timezone onto the envelope and range_query", () => {
   const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
   const env = buildRangeContract({
