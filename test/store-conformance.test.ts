@@ -328,6 +328,36 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("listRepoActivityBounds returns all-time per-repo bounds by INSTANT, not raw text", async () => {
+    // occurred_at keeps the provider's UTC offset, so the bounds must be picked
+    // by parsed instant. These rows are crafted so the instant-earliest/latest
+    // row is NOT the lexicographically smallest/largest text — a text MIN/MAX
+    // would return the wrong row.
+    const store = await fresh();
+    // repo A (dev-a/repo): four rows spanning offsets.
+    //   instant-min: 2026-01-01T05:00+08:00 == 2025-12-31T21:00Z (text "2026-01-01…")
+    await store.upsertActivity(fixtureActivity({ externalId: "a-instant-min", projectPath: "dev-a/repo", occurredAt: "2026-01-01T05:00:00.000+08:00" }), "2026-01-01T00:00:00Z");
+    //   text-min but a LATER instant: 2025-12-31T23:30Z (text "2025-12-31…")
+    await store.upsertActivity(fixtureActivity({ externalId: "a-text-min", projectPath: "dev-a/repo", occurredAt: "2025-12-31T23:30:00.000Z" }), "2026-01-01T00:00:00Z");
+    //   text-max but NOT the latest instant: 2026-06-01T00:00Z (text "2026-06-01…")
+    await store.upsertActivity(fixtureActivity({ externalId: "a-text-max", projectPath: "dev-a/repo", occurredAt: "2026-06-01T00:00:00.000Z" }), "2026-06-01T00:00:00Z");
+    //   instant-max: 2026-05-31T20:00-10:00 == 2026-06-01T06:00Z (text "2026-05-31…")
+    await store.upsertActivity(fixtureActivity({ externalId: "a-instant-max", projectPath: "dev-a/repo", occurredAt: "2026-05-31T20:00:00.000-10:00" }), "2026-06-01T00:00:00Z");
+    // repo B (dev-b/repo): a single activity — both bounds equal it.
+    await store.upsertActivity(fixtureActivity({ externalId: "b-only", projectPath: "dev-b/repo", occurredAt: "2026-04-10T00:00:00.000Z" }), "2026-04-10T00:00:00Z");
+
+    const bounds = await store.listRepoActivityBounds();
+    assert.equal(bounds.length, 2, "one row per repo");
+    const byRepo = new Map(bounds.map((r) => [`${r.source_id}|${r.project_path}`, r]));
+    const a = byRepo.get(`${SOURCE}|dev-a/repo`);
+    assert.equal(a?.observed_since, "2026-01-01T05:00:00.000+08:00", "earliest by instant, keeping the original offset text");
+    assert.equal(a?.last_activity_at, "2026-05-31T20:00:00.000-10:00", "latest by instant, not by text");
+    const b = byRepo.get(`${SOURCE}|dev-b/repo`);
+    assert.equal(b?.observed_since, "2026-04-10T00:00:00.000Z");
+    assert.equal(b?.last_activity_at, "2026-04-10T00:00:00.000Z");
+    await store.close();
+  });
+
   t("CI refresh candidates include unresolved or recently active change requests", async () => {
     const store = await fresh();
     await store.upsertItem(fixtureItem({ externalId: "PR_PENDING", kind: "change_request", iid: 1, state: "merged", ciState: "pending", updatedAt: "2026-06-08T00:00:00Z", mergedAt: "2026-06-08T00:00:00Z" }), "github/pr-pending", "2026-06-08T00:00:00Z");

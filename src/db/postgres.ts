@@ -42,6 +42,7 @@ import type { SourceDescriptor } from "../sources/types.ts";
 import { activityRangeBounds } from "./activity-range.ts";
 import type {
   ActivityRow,
+  RepoActivityBoundsRow,
   CiRefreshCandidateRow,
   EdgeRow,
   ItemRow,
@@ -425,6 +426,23 @@ export class PgStore implements Store {
         AND occurred_at::timestamptz <= ${to}::timestamptz
       ORDER BY occurred_at::timestamptz DESC, activity_id DESC`;
     return rows as unknown as ActivityRow[];
+  }
+
+  async listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]> {
+    // All-time earliest/latest occurred_at per repo, by parsed INSTANT (not raw
+    // text — occurred_at keeps the provider's UTC offset). FIRST_VALUE over the
+    // instant-ordered partition picks the actual boundary row's occurred_at;
+    // SELECT DISTINCT collapses the per-row window result to one row per repo.
+    const rows = await this.#q`
+      SELECT DISTINCT source_id, project_path,
+             FIRST_VALUE(occurred_at) OVER (
+               PARTITION BY source_id, project_path
+               ORDER BY occurred_at::timestamptz ASC, activity_id ASC) AS observed_since,
+             FIRST_VALUE(occurred_at) OVER (
+               PARTITION BY source_id, project_path
+               ORDER BY occurred_at::timestamptz DESC, activity_id DESC) AS last_activity_at
+      FROM activity`;
+    return rows as unknown as RepoActivityBoundsRow[];
   }
 
   async listLabels(): Promise<LabelRow[]> {
