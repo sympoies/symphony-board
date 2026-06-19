@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { activityOccurredExtent, emptyStateKind, rangeReachesDataTail } from "../src/model.ts";
+import { activityOccurredExtent, boardCommitTotal, emptyStateKind, isBoardEmpty, rangeReachesDataTail } from "../src/model.ts";
 
 // `emptyStateKind` is the single decision that picks which empty-state treatment
 // a page renders. It is only ever consulted when the page has nothing to show
@@ -78,4 +78,40 @@ test("activityOccurredExtent: a predicate scopes the extent to a subset", () => 
 
 test("activityOccurredExtent: null for an empty set", () => {
   assert.equal(activityOccurredExtent([], "UTC"), null);
+});
+
+// `isBoardEmpty` decides the fresh/unsynced board-empty treatment. 4.0.0 windows
+// `activities` to ~30 days, so an empty `activities` array no longer implies
+// "no activity ever" — a dormant board still carries full history in
+// `activity_daily`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const env = (over: any) => over as Parameters<typeof isBoardEmpty>[0];
+
+test("isBoardEmpty: a dormant board with windowed-out activities but activity_daily history is NOT empty", () => {
+  assert.equal(isBoardEmpty(env({ items: [], activities: [], activity_daily: { total: 42 } })), false, "full-history total keeps it non-empty");
+});
+
+test("isBoardEmpty: a genuinely fresh board (no items, no activity, zero/absent aggregate) is empty", () => {
+  assert.equal(isBoardEmpty(env({ items: [], activities: [], activity_daily: { total: 0 } })), true);
+  // pre-4.0.0 contract without activity_daily falls back to the windowed array.
+  assert.equal(isBoardEmpty(env({ items: [], activities: [] })), true);
+});
+
+test("isBoardEmpty: any item means the board is not empty", () => {
+  assert.equal(isBoardEmpty(env({ items: [{}], activities: [], activity_daily: { total: 0 } })), false);
+});
+
+// `boardCommitTotal` is the board-wide commit count for the Commits header /
+// empty state. 4.0.0 windows `activities`, so it prefers the full-history
+// `activity_daily.by_kind.commit`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const cenv = (over: any) => over as Parameters<typeof boardCommitTotal>[0];
+
+test("boardCommitTotal: prefers full-history activity_daily.by_kind.commit over the windowed feed", () => {
+  assert.equal(boardCommitTotal(cenv({ activities: [{ kind: "commit" }], activity_daily: { by_kind: { commit: 137 } } })), 137);
+});
+
+test("boardCommitTotal: falls back to the windowed commit count without an aggregate, 0 when absent", () => {
+  assert.equal(boardCommitTotal(cenv({ activities: [{ kind: "commit" }, { kind: "issue" }, { kind: "commit" }] })), 2);
+  assert.equal(boardCommitTotal(null), 0);
 });
