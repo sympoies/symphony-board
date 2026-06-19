@@ -823,6 +823,11 @@ function buildRepoMetrics(
   identityMatchers: IdentityMatcher[],
   actorExcludes: RegExp[],
   timezone: string,
+  // When provided (the /api/range path, where `activities` is range-bounded),
+  // data_quality coverage is read from these all-time bounds instead of the
+  // windowed `activities`, keyed by repoKey(source_id, project_path). The static
+  // path passes the full activity set and omits this, computing coverage inline.
+  coverageBounds?: ReadonlyMap<string, { observed_since: string | null; last_activity_at: string | null }>,
 ): RepoMetricDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const repoItems = new Map<string, ItemDTO[]>();
@@ -874,8 +879,20 @@ function buildRepoMetrics(
         bucket_end: bucket.to,
         stats: computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, bucket),
       }));
-      const observedSince = repoActivityObservedSince(activitiesForRepo);
-      const lastActivityAt = repoActivityObservedUntil(activitiesForRepo);
+      // Coverage (observed_since / last_activity_at) is an ALL-TIME bound. On the
+      // range path `activitiesForRepo` is range-bounded, so coverage must come
+      // from the supplied all-time bounds; otherwise it is computed inline from
+      // the full activity set (static path).
+      let observedSince: string | null;
+      let lastActivityAt: string | null;
+      if (coverageBounds) {
+        const bounds = coverageBounds.get(key);
+        observedSince = bounds?.observed_since ?? null;
+        lastActivityAt = bounds?.last_activity_at ?? null;
+      } else {
+        observedSince = repoActivityObservedSince(activitiesForRepo);
+        lastActivityAt = repoActivityObservedUntil(activitiesForRepo);
+      }
       const notes: string[] = [];
       if (observedSince === null) {
         notes.push("No activity rows observed for this repo; commit, push, comment, and review metrics may be incomplete.");
@@ -1200,8 +1217,23 @@ function mapRows(input: BuildInput): {
   };
 }
 
+// All-time per-repo activity coverage bounds, supplied on the range path so
+// data_quality.observed_since / last_activity_at / activity_available stay
+// all-time even though the response activity list is range-bounded. Keyed by
+// (source_id, project_path); shape-compatible with the Store's
+// RepoActivityBoundsRow so the range handler can pass driver rows through.
+export interface RepoActivityBounds {
+  source_id: string;
+  project_path: string | null;
+  observed_since: string | null;
+  last_activity_at: string | null;
+}
+
 export interface BuildRangeInput extends BuildInput {
   range: TimeRangeDTO;
+  // Optional all-time coverage bounds (see RepoActivityBounds). When present,
+  // repo_metrics coverage uses these instead of the range-bounded activities.
+  repoActivityBounds?: RepoActivityBounds[];
 }
 
 export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
@@ -1213,6 +1245,16 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const actorExcludes = compileActorExcludes(input.excludeActors);
   const repoMetricWindow = buildRepoMetricWindow("time_range", input.range);
   const timezone = input.timezone ?? "UTC";
+  // All-time coverage bounds keyed by repo, so repo_metrics coverage stays
+  // all-time while the response activity list (and totals) stay range-bounded.
+  const coverageBounds = input.repoActivityBounds
+    ? new Map(
+        input.repoActivityBounds.map((b) => [
+          repoKey(b.source_id, b.project_path),
+          { observed_since: b.observed_since, last_activity_at: b.last_activity_at },
+        ]),
+      )
+    : undefined;
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
@@ -1226,7 +1268,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC"),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC", coverageBounds),
     range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to },
   };
 }

@@ -94,6 +94,17 @@ export interface ActivityRow {
   last_seen_at: string | null;
 }
 
+// All-time activity bounds for one repo (source_id, project_path): the earliest
+// and latest occurred_at INSTANT observed across the whole activity history,
+// independent of any range window. One row per repo that has at least one
+// activity. See Store.listRepoActivityBounds.
+export interface RepoActivityBoundsRow {
+  source_id: string;
+  project_path: string | null;
+  observed_since: string | null;
+  last_activity_at: string | null;
+}
+
 export interface CiRefreshCandidateRow {
   source_id: string;
   external_id: string;
@@ -224,6 +235,14 @@ export interface Store {
   // by parsed instant, identical to a JS `from <= t <= to` filter — NOT by raw
   // text, which is offset-sensitive. See src/db/activity-range.ts.
   listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]>;
+  // All-time per-repo activity bounds (earliest/latest occurred_at INSTANT),
+  // independent of any range window. The /api/range path uses these for the
+  // documented all-time data_quality coverage (observed_since /
+  // last_activity_at / activity_available) while its response activity list
+  // stays range-bounded — so a repo with history but no in-range events still
+  // reports its true coverage. Bounds are by parsed instant, not raw text
+  // (offset-sensitive). One row per repo with at least one activity.
+  listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]>;
   listLabels(): Promise<LabelRow[]>;
   listLiveEdges(): Promise<EdgeRow[]>;
   listSources(): Promise<SourceRow[]>;
