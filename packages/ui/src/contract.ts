@@ -54,6 +54,84 @@ async function readContractPayload(res: Response): Promise<{ body: unknown; byte
   return { body, bytes: utf8ByteLength(text) };
 }
 
+function headerValue(res: Response, name: string): string | null {
+  try {
+    return res.headers?.get(name) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function parseByteHeader(value: string | null): number | null {
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+interface ResourceTimingLike extends PerformanceEntry {
+  decodedBodySize?: number;
+  encodedBodySize?: number;
+  transferSize?: number;
+}
+
+function positiveTimingBytes(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
+function resourceTimingNames(target: string, responseUrl: string | null): string[] {
+  const names = new Set<string>();
+  if (target) names.add(target);
+  if (responseUrl) names.add(responseUrl);
+  if (typeof window !== "undefined") {
+    try {
+      names.add(new URL(target, window.location.href).toString());
+    } catch {
+      // Relative paths resolve in browsers; malformed custom schemes can fall
+      // back to the direct target/response URL names above.
+    }
+  }
+  return [...names];
+}
+
+function readResourceTimingBytes(target: string, responseUrl: string | null): Pick<ContractLoadMetadata, "encodedBytes" | "transferBytes" | "encodedBytesSource"> {
+  if (typeof performance === "undefined" || typeof performance.getEntriesByName !== "function") {
+    return { encodedBytes: null, transferBytes: null, encodedBytesSource: null };
+  }
+  for (const name of resourceTimingNames(target, responseUrl)) {
+    const entries = performance.getEntriesByName(name).filter((entry) => entry.entryType === "resource") as ResourceTimingLike[];
+    const entry = entries[entries.length - 1];
+    if (!entry) continue;
+    const encodedBytes = positiveTimingBytes(entry.encodedBodySize);
+    const transferBytes = positiveTimingBytes(entry.transferSize);
+    if (encodedBytes || transferBytes) {
+      return {
+        encodedBytes,
+        transferBytes,
+        encodedBytesSource: encodedBytes ? "resource-timing" : null,
+      };
+    }
+  }
+  return { encodedBytes: null, transferBytes: null, encodedBytesSource: null };
+}
+
+function readTransferMetadata(target: string, res: Response): Pick<ContractLoadMetadata, "encodedBytes" | "transferBytes" | "contentEncoding" | "encodedBytesSource"> {
+  const contentEncoding = headerValue(res, "content-encoding");
+  const resourceTiming = readResourceTimingBytes(target, typeof res.url === "string" && res.url ? res.url : null);
+  if (resourceTiming.encodedBytes != null) {
+    return {
+      ...resourceTiming,
+      contentEncoding,
+    };
+  }
+  const contentLength = parseByteHeader(headerValue(res, "content-length"));
+  return {
+    encodedBytes: contentLength,
+    transferBytes: resourceTiming.transferBytes,
+    contentEncoding,
+    encodedBytesSource: contentLength == null ? null : "content-length",
+  };
+}
+
 function asContractEnvelope(body: unknown): ContractEnvelope {
   if (!body || typeof body !== "object" || !Array.isArray((body as { items?: unknown }).items) || typeof (body as { contract_version?: unknown }).contract_version !== "string") {
     throw new Error("not a symphony-board contract (missing contract_version / items)");
@@ -64,7 +142,16 @@ function asContractEnvelope(body: unknown): ContractEnvelope {
 export interface ContractLoadMetadata {
   source: "network" | "file";
   url: string;
+  // Decoded JSON text bytes. Browser/native fetches expose the body after
+  // Content-Encoding has been decoded.
   bytes: number;
+  // Encoded response-body bytes. Prefer Resource Timing's encodedBodySize, then
+  // fall back to Content-Length when a server provides it for the encoded entity.
+  encodedBytes: number | null;
+  // Total HTTP transfer bytes including headers when Resource Timing exposes it.
+  transferBytes: number | null;
+  contentEncoding: string | null;
+  encodedBytesSource: "resource-timing" | "content-length" | null;
   loadedAt: string;
   durationMs: number;
 }
@@ -130,7 +217,7 @@ function createAttemptTimeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
-async function loadContractAttempt(target: string, requestTimeoutMs: number, connectTimeoutMs: number): Promise<{ env: ContractEnvelope; bytes: number }> {
+async function loadContractAttempt(target: string, requestTimeoutMs: number, connectTimeoutMs: number): Promise<{ env: ContractEnvelope } & Pick<ContractLoadMetadata, "bytes" | "encodedBytes" | "transferBytes" | "contentEncoding" | "encodedBytesSource">> {
   const signal = createAttemptTimeoutSignal(requestTimeoutMs);
   let res: Response;
   try {
@@ -156,20 +243,18 @@ async function loadContractAttempt(target: string, requestTimeoutMs: number, con
   // fires (or the connection drops) mid-body, so readJson rejects. That interrupted
   // body read is transient — retry it like a thrown fetch — but a SyntaxError on a
   // fully-received body is a definitive content error, surfaced without retrying.
-  let body: unknown;
-  let bytes = 0;
+  let payload: { body: unknown; bytes: number };
   try {
-    const payload = await readContractPayload(res);
-    body = payload.body;
-    bytes = payload.bytes;
+    payload = await readContractPayload(res);
   } catch (err) {
     const tagged = (err instanceof Error ? err : new Error(String(err))) as TaggedError;
     tagged.transient = signal.aborted || !(err instanceof SyntaxError);
     throw tagged;
   }
+  const transferMetadata = readTransferMetadata(target, res);
   // A well-formed but non-contract body is definitive: asContractEnvelope throws a
   // plain (untagged) error, so it surfaces immediately without spinning.
-  return { env: asContractEnvelope(body), bytes };
+  return { env: asContractEnvelope(payload.body), bytes: payload.bytes, ...transferMetadata };
 }
 
 // Fetch the contract emitted alongside the app (the loop daemon writes
@@ -201,6 +286,10 @@ export async function fetchContractWithMetadata(
           source: "network",
           url: target,
           bytes: loaded.bytes,
+          encodedBytes: loaded.encodedBytes,
+          transferBytes: loaded.transferBytes,
+          contentEncoding: loaded.contentEncoding,
+          encodedBytesSource: loaded.encodedBytesSource,
           loadedAt: new Date().toISOString(),
           durationMs: Math.max(0, Math.round(finishedAt - startedAt)),
         },
@@ -228,6 +317,10 @@ export function parseContractWithMetadata(text: string, url = "uploaded contract
       source: "file",
       url,
       bytes: utf8ByteLength(text),
+      encodedBytes: null,
+      transferBytes: null,
+      contentEncoding: null,
+      encodedBytesSource: null,
       loadedAt: new Date().toISOString(),
       durationMs,
     },

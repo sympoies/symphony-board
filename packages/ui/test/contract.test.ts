@@ -79,14 +79,22 @@ test("fetchContract parses the JSON on a 2xx and throws with the status on a non
   }
 });
 
-test("fetchContractWithMetadata reports the resolved URL, decoded byte size, and load timing", async () => {
+test("fetchContractWithMetadata reports the resolved URL, decoded byte size, compressed byte size, and load timing", async () => {
   const realFetch = globalThis.fetch;
   try {
     const raw = JSON.stringify({ contract_version: "4.0.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
     let seenUrl: string | undefined;
     globalThis.fetch = (async (url: string) => {
       seenUrl = url;
-      return { ok: true, status: 200, text: async () => raw };
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers([
+          ["content-encoding", "gzip"],
+          ["content-length", "37"],
+        ]),
+        text: async () => raw,
+      };
     }) as unknown as typeof fetch;
     const loaded = await fetchContractWithMetadata("./contract.json", "https://board.example/app/", null, { retries: 0 });
 
@@ -95,10 +103,50 @@ test("fetchContractWithMetadata reports the resolved URL, decoded byte size, and
     assert.equal(loaded.meta.source, "network");
     assert.equal(loaded.meta.url, "https://board.example/app/contract.json");
     assert.equal(loaded.meta.bytes, new TextEncoder().encode(raw).length);
+    assert.equal(loaded.meta.encodedBytes, 37);
+    assert.equal(loaded.meta.contentEncoding, "gzip");
     assert.match(loaded.meta.loadedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.ok(loaded.meta.durationMs >= 0);
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchContractWithMetadata prefers Resource Timing transfer sizes when available", async () => {
+  const realFetch = globalThis.fetch;
+  const realPerformance = Object.getOwnPropertyDescriptor(globalThis, "performance");
+  try {
+    const raw = JSON.stringify({ contract_version: "4.0.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
+    globalThis.fetch = (async (url: string) => ({
+      ok: true,
+      status: 200,
+      url: String(url),
+      headers: new Headers([
+        ["content-encoding", "gzip"],
+        ["content-length", "999"],
+      ]),
+      text: async () => raw,
+    })) as unknown as typeof fetch;
+    Object.defineProperty(globalThis, "performance", {
+      configurable: true,
+      value: {
+        now: () => 42,
+        getEntriesByName: (name: string) =>
+          name === "https://board.example/app/contract.json"
+            ? [{ entryType: "resource", encodedBodySize: 44.4, transferSize: 55.6 }]
+            : [],
+      },
+    });
+
+    const loaded = await fetchContractWithMetadata("./contract.json", "https://board.example/app/", null, { retries: 0 });
+
+    assert.equal(loaded.meta.encodedBytes, 44);
+    assert.equal(loaded.meta.transferBytes, 56);
+    assert.equal(loaded.meta.encodedBytesSource, "resource-timing");
+    assert.equal(loaded.meta.contentEncoding, "gzip");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realPerformance) Object.defineProperty(globalThis, "performance", realPerformance);
   }
 });
 
