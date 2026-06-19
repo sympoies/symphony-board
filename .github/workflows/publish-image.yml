@@ -13,8 +13,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate the published tag against the repo's version files BEFORE anything is
+  # published. publish and desktop run in parallel with no ordering, and publish
+  # pushes the public GHCR tags with `push: true`; without this prerequisite a
+  # manual/retagged release whose tag drifts from package.json would move the
+  # container tags and only then fail in desktop packaging, leaving a partially
+  # published release. Failing here blocks both downstream jobs first.
+  version-gate:
+    name: gate release tag vs package.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Check release version
+        run: scripts/check-release-version.sh "$GITHUB_REF_NAME"
+
   publish:
     name: build, smoke-test, push to GHCR
+    needs: version-gate
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -243,6 +266,7 @@ jobs:
 
   desktop:
     name: build unsigned macOS apps (${{ matrix.arch }})
+    needs: version-gate
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:

@@ -49,6 +49,8 @@ function fixtureRepo(version = "1.2.3"): string {
   mkdirSync(join(dir, "bin"), { recursive: true });
   cpSync(new URL("../scripts/package-desktop-release.sh", import.meta.url), join(dir, "scripts/package-desktop-release.sh"));
   cpSync(new URL("../scripts/check-app-versions.sh", import.meta.url), join(dir, "scripts/check-app-versions.sh"));
+  // package-desktop-release.sh delegates the --version path to this shared gate.
+  cpSync(new URL("../scripts/check-release-version.sh", import.meta.url), join(dir, "scripts/check-release-version.sh"));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "symphony-board", version }, null, 2));
   writeReleaseAppVersions(dir, version);
   for (const cmd of STUB_COMMANDS) {

@@ -147,29 +147,23 @@ need_command pnpm
 need_command rustc
 need_command shasum
 
-# Refuse to package a release whose per-app version files drift from root
-# package.json. The bundled .app version comes from each app's
-# src-tauri/tauri.conf.json (read by `tauri build`), NOT from --version, which
-# only names the output zip — so a stale tauri.conf.json would ship a bundle
-# advertising the wrong version under a correctly named zip. The push/PR `ci`
-# workflow runs this gate, but the release path (publish-image.yml on
-# `release: published`) reaches this packager without it, so re-assert it here
-# at the point the artifacts are actually built.
-"$repo_root/scripts/check-app-versions.sh"
-
-# check-app-versions.sh has now proven every per-app version file matches root
-# package.json, and the bundled .app version comes from tauri.conf.json — so the
-# .app advertises the package.json version regardless of --version, which only
-# names the output zip. publish-image.yml passes the published tag as --version
-# (GITHUB_REF_NAME), independently of package.json, so a manually published or
-# retagged release where the tag leads package.json would write a v<tag> zip
-# around an .app advertising the older package.json version. Reject that drift —
-# the same guard scripts/release.sh applies before creating the release.
-pkg_version="$(normalize_version "$(package_version)")"
-if [ -z "$version" ]; then
-  version="$pkg_version"
-elif [ "$version" != "$pkg_version" ]; then
-  die "requested release version v$version does not match package.json version v$pkg_version"
+# Refuse to package a release whose version files drift. The bundled .app
+# version comes from each app's src-tauri/tauri.conf.json (read by `tauri
+# build`), NOT from --version, which only names the output zip — so a stale
+# tauri.conf.json (or a tag ahead of package.json) would ship a bundle
+# advertising the wrong version under a v<tag> zip. The push/PR `ci` workflow and
+# publish-image.yml's version-gate job run this check, but re-assert it here at
+# the point the artifacts are actually built.
+#
+# With --version (the release path passes GITHUB_REF_NAME) gate the full chain
+# tag == package.json == per-app files via the shared script. Without it (local
+# packaging) there is no tag to compare, so check only the per-app files and take
+# the version from package.json.
+if [ -n "$version" ]; then
+  "$repo_root/scripts/check-release-version.sh" "$version"
+else
+  "$repo_root/scripts/check-app-versions.sh"
+  version="$(normalize_version "$(package_version)")"
 fi
 
 label="$(target_label "$target")"
