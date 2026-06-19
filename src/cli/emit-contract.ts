@@ -9,10 +9,9 @@
 //
 //   node src/cli/emit-contract.ts [--out <file>] [--config <path>] [--no-validate]
 
-import { writeFileSync } from "node:fs";
 import { loadConfig } from "../config.ts";
 import { openConfiguredStore } from "../db/factory.ts";
-import { buildContractEnvelope } from "../contract/emit.ts";
+import { ContractValidationError, buildContractEnvelope, emitContractToFile } from "../contract/emit.ts";
 import { validateContract } from "../contract/validate.ts";
 
 interface Args {
@@ -37,23 +36,32 @@ const args = parseArgs(process.argv.slice(2));
 const { cfg } = loadConfig(args.config);
 
 const store = await openConfiguredStore(cfg);
-const envelope = await buildContractEnvelope(store, cfg, new Date().toISOString());
-await store.close();
+const generatedAt = new Date().toISOString();
+let validationFailed = false;
 
-if (args.validate) {
-  const errors = validateContract(envelope);
-  if (errors.length > 0) {
+try {
+  if (args.out) {
+    const counts = await emitContractToFile(store, cfg, args.out, generatedAt, args.validate);
+    process.stderr.write(`wrote ${counts.items}/${counts.totalItems} items / ${counts.edges} edges / ${counts.activities} activities -> ${args.out}\n`);
+  } else {
+    const envelope = await buildContractEnvelope(store, cfg, generatedAt);
+    if (args.validate) {
+      const errors = validateContract(envelope);
+      if (errors.length > 0) throw new ContractValidationError(errors);
+    }
+    process.stdout.write(JSON.stringify(envelope, null, 2) + "\n");
+  }
+} catch (err) {
+  if (err instanceof ContractValidationError) {
+    const { errors } = err;
     process.stderr.write(`refusing to emit: contract failed schema validation (${errors.length} violation(s)):\n`);
     for (const e of errors) process.stderr.write(`  ${e.path || "(root)"}: ${e.message}\n`);
-    process.exit(1);
+    validationFailed = true;
+  } else {
+    throw err;
   }
+} finally {
+  await store.close();
 }
 
-const json = JSON.stringify(envelope, null, 2);
-if (args.out) {
-  writeFileSync(args.out, json + "\n");
-  const totalItems = envelope.item_window?.total_items ?? envelope.items.length;
-  process.stderr.write(`wrote ${envelope.items.length}/${totalItems} items / ${envelope.edges.length} edges / ${envelope.activities?.length ?? 0} activities -> ${args.out}\n`);
-} else {
-  process.stdout.write(json + "\n");
-}
+if (validationFailed) process.exit(1);

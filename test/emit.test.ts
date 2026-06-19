@@ -1,11 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { openSqliteStore } from "../src/db/sqlite.ts";
 import type { ItemRow, SourceRow, Store } from "../src/db/store.ts";
 import type { AppConfig } from "../src/config.ts";
+import type { CanonicalItem } from "../src/model/types.ts";
 import {
   ContractValidationError,
   buildContractEnvelope,
@@ -46,6 +49,35 @@ function itemRow(over: Partial<ItemRow> = {}): ItemRow {
     milestone: null,
     demand: 3,
     last_seen_at: "2026-06-01T00:00:00Z",
+    ...over,
+  };
+}
+
+function canonicalItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
+  return {
+    sourceId: "github:github.com",
+    externalId: "ISSUE_abc",
+    kind: "issue",
+    projectPath: "dev-a/repo",
+    iid: 7,
+    url: "https://github.com/dev-a/repo/issues/7",
+    title: "An issue",
+    state: "open",
+    stateRaw: "OPEN",
+    stateReason: null,
+    isDraft: null,
+    author: "dev-a",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-06-01T00:00:00Z",
+    closedAt: null,
+    mergedAt: null,
+    reviewState: null,
+    ciState: null,
+    mergeState: null,
+    openReviewThreads: null,
+    totalReviewThreads: null,
+    milestone: null,
+    demand: 3,
     ...over,
   };
 }
@@ -140,6 +172,32 @@ test("emitContractToFile writes a precompressed contract beside the JSON", async
     assert.equal(gunzipSync(gz).toString("utf8"), text, "the gzip artifact matches the emitted JSON exactly");
     assert.ok(gz.length < Buffer.byteLength(text), "the gzip artifact is the compressed transfer body");
     assert.deepEqual(readdirSync(dir).sort(), ["contract.json", "contract.json.gz"], "only finished artifacts survive");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("emit-contract CLI --out writes raw and precompressed contract artifacts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "emit-cli-test-"));
+  try {
+    const dbPath = join(dir, "store.db");
+    const configPath = join(dir, "sources.json");
+    const out = join(dir, "contract.json");
+    writeFileSync(configPath, JSON.stringify(appConfig({ db_path: dbPath }), null, 2));
+
+    const store = await openSqliteStore(dbPath);
+    await store.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+    await store.upsertItem(canonicalItem(), "test", "2026-06-01T00:00:00Z");
+    await store.close();
+
+    execFileSync(
+      process.execPath,
+      ["--disable-warning=ExperimentalWarning", "src/cli/emit-contract.ts", "--config", configPath, "--out", out],
+      { cwd: process.cwd(), stdio: "pipe" },
+    );
+
+    const text = readFileSync(out, "utf8");
+    assert.equal(gunzipSync(readFileSync(`${out}.gz`)).toString("utf8"), text, "CLI gzip artifact matches the raw emit");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
