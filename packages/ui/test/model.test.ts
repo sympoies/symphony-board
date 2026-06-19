@@ -83,6 +83,9 @@ import {
   compareGraphNodes,
   parseHashRoute,
   buildHashRoute,
+  contractTopLevelCounts,
+  contractSectionSizes,
+  contractSourceHealth,
   formatBytes,
   runDuration,
   graphFocusHref,
@@ -2265,6 +2268,51 @@ test("formatBytes scales through binary units and rejects nonsense", () => {
   assert.equal(formatBytes(3 * 1024 ** 3), "3.0 GiB");
   assert.equal(formatBytes(-1), "—");
   assert.equal(formatBytes(Number.NaN), "—");
+});
+
+test("contract payload diagnostics summarize counts, section sizes, and source health", () => {
+  const env = {
+    contract_version: "4.0.0",
+    generated_at: "2026-06-19T00:00:00.000Z",
+    generator: "symphony-board/test",
+    timezone: "Asia/Taipei",
+    sources: [
+      { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_status: "ok", last_success_at: "2026-06-18T00:00:00.000Z" },
+      { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GitLab", last_status: "error", last_success_at: "2026-06-10T00:00:00.000Z" },
+    ],
+    items: [{ id: "github:github.com|I1" }],
+    edges: [{ type: "closes" }],
+    activities: [{ kind: "commit" }, { kind: "review" }],
+    activity_daily: { timezone: "Asia/Taipei", from: "2026-06-01", to: "2026-06-19", total: 2, by_kind: { commit: 1, review: 1 }, days: [] },
+    repos: [{ source_id: "github:github.com", project_path: "sympoies/symphony-board" }],
+    aggregates: [{ scope: "boardWindow" }],
+    item_window: { primary_items: 1, edge_endpoint_items: 0, total_items: 10, truncated: true },
+    repo_stats: [{ source_id: "github:github.com", project_path: "sympoies/symphony-board", items: 10 }],
+    repo_metrics: [{ source_id: "github:github.com", project_path: "sympoies/symphony-board" }],
+  } as unknown as ContractEnvelope;
+
+  assert.deepEqual(contractTopLevelCounts(env), {
+    sources: 2,
+    items: 1,
+    edges: 1,
+    activities: 2,
+    activity_daily_days: 0,
+    repos: 1,
+    aggregates: 1,
+    repo_stats: 1,
+    repo_metrics: 1,
+  });
+
+  const sections = contractSectionSizes(env);
+  const items = sections.find((section) => section.key === "items");
+  assert.equal(items?.rows, 1);
+  assert.equal(items?.bytes, new TextEncoder().encode(JSON.stringify(env.items)).length);
+  assert.ok(sections.some((section) => section.key === "activity_daily"));
+
+  const health = contractSourceHealth(env);
+  assert.deepEqual(health.statusCounts, { error: 1, ok: 1 });
+  assert.equal(health.oldestSuccessAt, "2026-06-10T00:00:00.000Z");
+  assert.equal(health.latestSuccessAt, "2026-06-18T00:00:00.000Z");
 });
 
 test("runDuration formats finished sync runs and dashes a running one", () => {

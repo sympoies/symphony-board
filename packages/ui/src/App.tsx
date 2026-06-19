@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContract, fetchRangeContract, parseContract, majorOf, resolveEndpoint, SUPPORTED_MAJOR } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, SUPPORTED_MAJOR, type ContractLoadMetadata } from "./contract.ts";
 import {
   emptyFilters,
   activityRouteMatches,
@@ -123,6 +123,7 @@ const readHash = (): string => (typeof location !== "undefined" ? location.hash 
 
 export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
+  const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
   const [rangeEnv, setRangeEnv] = useState<ContractEnvelope | null>(null);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -245,9 +246,10 @@ export function App() {
   // backed and untouched, so they survive the reload.
   const reloadData = useCallback(async () => {
     const pending: Promise<void>[] = [];
-    pending.push(fetchContract(undefined, serverBaseUrl)
-      .then((e) => {
-        setEnv(e);
+    pending.push(fetchContractWithMetadata(undefined, serverBaseUrl)
+      .then((loaded) => {
+        setEnv(loaded.env);
+        setContractMeta(loaded.meta);
         setError(null);
       })
       .catch((err: unknown) => setError((err as Error).message)));
@@ -353,6 +355,7 @@ export function App() {
     saveServerBaseUrl(normalizeServerBaseUrl(nextRaw));
     setServerBaseUrl(loadServerBaseUrl());
     setEnv(null);
+    setContractMeta(null);
     setRangeEnv(null);
     setError(null);
     setRangeError(null);
@@ -362,10 +365,11 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchContract(undefined, serverBaseUrl)
-      .then((e) => {
+    fetchContractWithMetadata(undefined, serverBaseUrl)
+      .then((loaded) => {
         if (cancelled) return;
-        setEnv(e);
+        setEnv(loaded.env);
+        setContractMeta(loaded.meta);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -786,10 +790,14 @@ export function App() {
   }
 
   function loadFile(file: File) {
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     file
       .text()
       .then((t) => {
-        setEnv(parseContract(t));
+        const finishedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const loaded = parseContractWithMetadata(t, file.name, Math.max(0, Math.round(finishedAt - startedAt)));
+        setEnv(loaded.env);
+        setContractMeta(loaded.meta);
         setRangeEnv(null);
         setError(null);
       })
@@ -937,7 +945,7 @@ export function App() {
   if (route.page === "debug") {
     return (
       <div className="app app-wide">
-        <DebugPage serverBaseUrl={serverBaseUrl} env={env} onClose={toggleDebug} />
+        <DebugPage serverBaseUrl={serverBaseUrl} env={env} contractMeta={contractMeta} onClose={toggleDebug} />
       </div>
     );
   }

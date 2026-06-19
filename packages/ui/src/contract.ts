@@ -28,9 +28,30 @@ export function endpointRequiresServerUrl(url: string, serverBaseUrl: string | n
   return !serverBaseUrl && requiresConfiguredServerBaseUrl(clientKind) && !/^[a-z][a-z\d+.-]*:\/\//i.test(url);
 }
 
+const textEncoder = new TextEncoder();
+
+function utf8ByteLength(text: string): number {
+  return textEncoder.encode(text).length;
+}
+
 async function readJson(res: Response): Promise<unknown> {
   const body = (await res.json()) as unknown;
   return typeof body === "string" ? JSON.parse(body) : body;
+}
+
+function parseJsonPayload(text: string): unknown {
+  const body = JSON.parse(text) as unknown;
+  return typeof body === "string" ? JSON.parse(body) : body;
+}
+
+async function readContractPayload(res: Response): Promise<{ body: unknown; bytes: number }> {
+  if (typeof res.text === "function") {
+    const text = await res.text();
+    return { body: parseJsonPayload(text), bytes: utf8ByteLength(text) };
+  }
+  const body = await readJson(res);
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return { body, bytes: utf8ByteLength(text) };
 }
 
 function asContractEnvelope(body: unknown): ContractEnvelope {
@@ -38,6 +59,19 @@ function asContractEnvelope(body: unknown): ContractEnvelope {
     throw new Error("not a symphony-board contract (missing contract_version / items)");
   }
   return body as ContractEnvelope;
+}
+
+export interface ContractLoadMetadata {
+  source: "network" | "file";
+  url: string;
+  bytes: number;
+  loadedAt: string;
+  durationMs: number;
+}
+
+export interface LoadedContract {
+  env: ContractEnvelope;
+  meta: ContractLoadMetadata;
 }
 
 // --- contract-load resilience -------------------------------------------------
@@ -96,7 +130,7 @@ function createAttemptTimeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
-async function loadContractAttempt(target: string, requestTimeoutMs: number, connectTimeoutMs: number): Promise<ContractEnvelope> {
+async function loadContractAttempt(target: string, requestTimeoutMs: number, connectTimeoutMs: number): Promise<{ env: ContractEnvelope; bytes: number }> {
   const signal = createAttemptTimeoutSignal(requestTimeoutMs);
   let res: Response;
   try {
@@ -123,8 +157,11 @@ async function loadContractAttempt(target: string, requestTimeoutMs: number, con
   // body read is transient — retry it like a thrown fetch — but a SyntaxError on a
   // fully-received body is a definitive content error, surfaced without retrying.
   let body: unknown;
+  let bytes = 0;
   try {
-    body = await readJson(res);
+    const payload = await readContractPayload(res);
+    body = payload.body;
+    bytes = payload.bytes;
   } catch (err) {
     const tagged = (err instanceof Error ? err : new Error(String(err))) as TaggedError;
     tagged.transient = signal.aborted || !(err instanceof SyntaxError);
@@ -132,18 +169,18 @@ async function loadContractAttempt(target: string, requestTimeoutMs: number, con
   }
   // A well-formed but non-contract body is definitive: asContractEnvelope throws a
   // plain (untagged) error, so it surfaces immediately without spinning.
-  return asContractEnvelope(body);
+  return { env: asContractEnvelope(body), bytes };
 }
 
 // Fetch the contract emitted alongside the app (the loop daemon writes
 // data/contract.json; deploy it next to index.html). Relative URL so it works
 // under any base path.
-export async function fetchContract(
+export async function fetchContractWithMetadata(
   url = "./contract.json",
   serverBaseUrl: string | null = loadServerBaseUrl(),
   clientKind: string | null = currentClientKind(),
   opts: ContractLoadOptions = {},
-): Promise<ContractEnvelope> {
+): Promise<LoadedContract> {
   if (endpointRequiresServerUrl(url, serverBaseUrl, clientKind)) {
     throw new Error("Android client requires a server URL. Set Settings -> Server to a reachable Symphony Board HTTP(S) surface.");
   }
@@ -153,14 +190,48 @@ export async function fetchContract(
   const requestTimeoutMs = opts.requestTimeoutMs ?? CONTRACT_REQUEST_TIMEOUT_MS;
   const connectTimeoutMs = opts.connectTimeoutMs ?? CONTRACT_CONNECT_TIMEOUT_MS;
   const sleep = opts.sleep ?? defaultSleep;
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   for (let attempt = 0; ; attempt++) {
     try {
-      return await loadContractAttempt(target, requestTimeoutMs, connectTimeoutMs);
+      const loaded = await loadContractAttempt(target, requestTimeoutMs, connectTimeoutMs);
+      const finishedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+      return {
+        env: loaded.env,
+        meta: {
+          source: "network",
+          url: target,
+          bytes: loaded.bytes,
+          loadedAt: new Date().toISOString(),
+          durationMs: Math.max(0, Math.round(finishedAt - startedAt)),
+        },
+      };
     } catch (err) {
       if (attempt >= retries || !isTransient(err)) throw err;
       await sleep(Math.min(baseDelay * 2 ** attempt, CONTRACT_RETRY_MAX_DELAY_MS));
     }
   }
+}
+
+export async function fetchContract(
+  url = "./contract.json",
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  clientKind: string | null = currentClientKind(),
+  opts: ContractLoadOptions = {},
+): Promise<ContractEnvelope> {
+  return (await fetchContractWithMetadata(url, serverBaseUrl, clientKind, opts)).env;
+}
+
+export function parseContractWithMetadata(text: string, url = "uploaded contract.json", durationMs = 0): LoadedContract {
+  return {
+    env: asContractEnvelope(parseJsonPayload(text)),
+    meta: {
+      source: "file",
+      url,
+      bytes: utf8ByteLength(text),
+      loadedAt: new Date().toISOString(),
+      durationMs,
+    },
+  };
 }
 
 export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<ContractEnvelope> {
@@ -352,5 +423,5 @@ export async function fetchDaemonLogs(after: number, serverBaseUrl: string | nul
 
 // Parse a contract the user dropped in via the file picker.
 export function parseContract(text: string): ContractEnvelope {
-  return asContractEnvelope(JSON.parse(text));
+  return parseContractWithMetadata(text).env;
 }
