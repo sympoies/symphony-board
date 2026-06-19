@@ -94,10 +94,10 @@ export interface ActivityRow {
   last_seen_at: string | null;
 }
 
-// All-time activity bounds for one repo (source_id, project_path): the earliest
-// and latest occurred_at INSTANT observed across the whole activity history,
-// independent of any range window. One row per repo that has at least one
-// activity. See Store.listRepoActivityBounds.
+// Cached all-time activity bounds for one repo (source_id, project_path): the
+// earliest and latest occurred_at INSTANT observed across the whole activity
+// history, independent of any range window. One row per repo that has at least
+// one parseable activity instant. See Store.listRepoActivityBounds.
 export interface RepoActivityBoundsRow {
   source_id: string;
   project_path: string | null;
@@ -235,13 +235,14 @@ export interface Store {
   // by parsed instant, identical to a JS `from <= t <= to` filter — NOT by raw
   // text, which is offset-sensitive. See src/db/activity-range.ts.
   listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]>;
-  // All-time per-repo activity bounds (earliest/latest occurred_at INSTANT),
-  // independent of any range window. The /api/range path uses these for the
-  // documented all-time data_quality coverage (observed_since /
+  // Cached all-time per-repo activity bounds (earliest/latest occurred_at
+  // INSTANT), independent of any range window. The /api/range path uses these
+  // for documented all-time data_quality coverage (observed_since /
   // last_activity_at / activity_available) while its response activity list
   // stays range-bounded — so a repo with history but no in-range events still
-  // reports its true coverage. Bounds are by parsed instant, not raw text
-  // (offset-sensitive). One row per repo with at least one activity.
+  // reports its true coverage. Bounds are maintained on writes and read without
+  // scanning the full activity table. Bounds are by parsed instant, not raw text
+  // (offset-sensitive). One row per repo with at least one parseable activity.
   listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]>;
   listLabels(): Promise<LabelRow[]>;
   listLiveEdges(): Promise<EdgeRow[]>;

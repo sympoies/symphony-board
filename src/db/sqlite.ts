@@ -29,6 +29,11 @@ import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 import { activityRangeBounds } from "./activity-range.ts";
+import {
+  repoActivityBoundsBucket,
+  repoActivityBoundsBucketId,
+  type RepoActivityBoundsBucket,
+} from "./repo-activity-bounds.ts";
 import type {
   ActivityRow,
   RepoActivityBoundsRow,
@@ -58,6 +63,7 @@ const MIGRATIONS: Migration[] = [
   { version: 2, file: "0002_activity.sql" },
   { version: 3, file: "0003_actor_identity.sql" },
   { version: 4, file: "0004_review_threads.sql" },
+  { version: 5, file: "0005_repo_activity_bounds.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -137,6 +143,8 @@ export class SqliteStore implements Store {
   // Serializes transaction() calls: the engine architecture is single-writer,
   // but an async transaction body must never interleave with another BEGIN.
   #txQueue: Promise<unknown> = Promise.resolve();
+  #inTransaction = false;
+  #repoActivityBoundsDirty = new Map<string, RepoActivityBoundsBucket>();
   // The dedicated lock-database connection while this handle holds the writer
   // lease; null when not held.
   #lease: DatabaseSync | null = null;
@@ -243,6 +251,10 @@ export class SqliteStore implements Store {
 
   async upsertActivity(a: CanonicalActivity, nowIso: string): Promise<void> {
     const details = a.details === null ? null : JSON.stringify(a.details);
+    const projectPath = nz(a.projectPath);
+    const prev = this.#db
+      .prepare(`SELECT project_path FROM activity WHERE source_id=? AND external_id=?`)
+      .get(a.sourceId, a.externalId) as { project_path: string | null } | undefined;
     this.#db
       .prepare(
         `INSERT INTO activity (
@@ -279,6 +291,64 @@ export class SqliteStore implements Store {
         nowIso,
         nowIso,
       );
+    this.#markRepoActivityBoundsDirty(a.sourceId, projectPath, nowIso);
+    if (prev !== undefined && prev.project_path !== projectPath) {
+      this.#markRepoActivityBoundsDirty(a.sourceId, prev.project_path, nowIso);
+    }
+    if (!this.#inTransaction) this.#flushRepoActivityBoundsDirty();
+  }
+
+  #markRepoActivityBoundsDirty(sourceId: string, projectPath: string | null, updatedAt: string): void {
+    const bucket = repoActivityBoundsBucket(sourceId, projectPath, updatedAt);
+    this.#repoActivityBoundsDirty.set(repoActivityBoundsBucketId(sourceId, bucket.projectKey), bucket);
+  }
+
+  #flushRepoActivityBoundsDirty(): void {
+    const buckets = [...this.#repoActivityBoundsDirty.values()];
+    this.#repoActivityBoundsDirty.clear();
+    for (const bucket of buckets) this.#refreshRepoActivityBounds(bucket);
+  }
+
+  #refreshRepoActivityBounds(bucket: RepoActivityBoundsBucket): void {
+    const row = this.#db
+      .prepare(
+        `SELECT observed_since, last_activity_at
+         FROM (
+           SELECT
+             FIRST_VALUE(occurred_at) OVER (
+               ORDER BY julianday(occurred_at) ASC, activity_id ASC
+             ) AS observed_since,
+             FIRST_VALUE(occurred_at) OVER (
+               ORDER BY julianday(occurred_at) DESC, activity_id DESC
+             ) AS last_activity_at
+           FROM activity
+           WHERE source_id = ?
+             AND project_path IS ?
+             AND julianday(occurred_at) IS NOT NULL
+         )
+         LIMIT 1`,
+      )
+      .get(bucket.sourceId, bucket.projectPath) as { observed_since: string | null; last_activity_at: string | null } | undefined;
+
+    if (!row) {
+      this.#db
+        .prepare(`DELETE FROM repo_activity_bounds WHERE source_id=? AND project_key=?`)
+        .run(bucket.sourceId, bucket.projectKey);
+      return;
+    }
+
+    this.#db
+      .prepare(
+        `INSERT INTO repo_activity_bounds (
+           source_id, project_path, project_key, observed_since, last_activity_at, updated_at
+         ) VALUES (?,?,?,?,?,?)
+         ON CONFLICT(source_id, project_key) DO UPDATE SET
+           project_path=excluded.project_path,
+           observed_since=excluded.observed_since,
+           last_activity_at=excluded.last_activity_at,
+           updated_at=excluded.updated_at`,
+      )
+      .run(bucket.sourceId, bucket.projectPath, bucket.projectKey, row.observed_since, row.last_activity_at, bucket.updatedAt);
   }
 
   async startRun(sourceId: string, mode: "full" | "incremental", startedAt: string): Promise<number> {
@@ -436,26 +506,11 @@ export class SqliteStore implements Store {
   }
 
   async listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]> {
-    // All-time earliest/latest occurred_at per repo, by parsed INSTANT (not raw
-    // text — occurred_at keeps the provider's UTC offset). FIRST_VALUE over the
-    // instant-ordered partition picks the actual boundary row's occurred_at;
-    // SELECT DISTINCT collapses the per-row window result to one row per repo.
     return this.#db
       .prepare(
-        `SELECT DISTINCT source_id, project_path,
-                FIRST_VALUE(occurred_at) OVER (
-                  PARTITION BY source_id, project_path
-                  ORDER BY julianday(occurred_at) ASC, activity_id ASC) AS observed_since,
-                FIRST_VALUE(occurred_at) OVER (
-                  PARTITION BY source_id, project_path
-                  ORDER BY julianday(occurred_at) DESC, activity_id DESC) AS last_activity_at
-         -- Skip rows whose timestamp does not parse (julianday -> NULL, which
-         -- SQLite sorts FIRST for the ascending bound and would otherwise
-         -- surface as observed_since). Matches the prior JS coverage helper,
-         -- which skipped unparsable instants. Postgres ::timestamptz fails loud
-         -- on bad input, like its sibling activity queries, so it needs no guard.
-         FROM activity
-         WHERE julianday(occurred_at) IS NOT NULL`,
+        `SELECT source_id, project_path, observed_since, last_activity_at
+         FROM repo_activity_bounds
+         ORDER BY source_id, project_key`,
       )
       .all() as unknown as RepoActivityBoundsRow[];
   }
@@ -604,13 +659,18 @@ export class SqliteStore implements Store {
   async transaction<T>(fn: (tx: Store) => Promise<T>): Promise<T> {
     const run = this.#txQueue.then(async () => {
       this.#db.exec("BEGIN");
+      this.#inTransaction = true;
       try {
         const result = await fn(this);
+        this.#flushRepoActivityBoundsDirty();
         this.#db.exec("COMMIT");
         return result;
       } catch (err) {
+        this.#repoActivityBoundsDirty.clear();
         this.#db.exec("ROLLBACK");
         throw err;
+      } finally {
+        this.#inTransaction = false;
       }
     });
     this.#txQueue = run.catch(() => undefined);
