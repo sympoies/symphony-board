@@ -115,9 +115,29 @@ function sourceLabel(meta: ContractLoadMetadata | null): string {
   return meta.source === "file" ? `file: ${meta.url}` : meta.url;
 }
 
-function statusSummary(counts: Record<string, number>): string {
-  const parts = Object.entries(counts).map(([status, n]) => `${status} ${n}`);
-  return parts.length > 0 ? parts.join(" · ") : "none";
+function sourceSummary(counts: Record<string, number>): ReactNode {
+  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  const detail = Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .map(([status, n]) => `${n.toLocaleString()} ${status}`)
+    .join(" ");
+  const okCount = counts.ok ?? 0;
+  const state =
+    total === 0
+      ? { text: "none", kind: "status-unknown" }
+      : okCount === total
+        ? { text: "ok", kind: "status-ok" }
+        : okCount === 0
+          ? { text: "down", kind: "status-error" }
+          : { text: "degraded", kind: "status-partial" };
+  return (
+    <span className="debug-summary-health">
+      <span>
+        {total.toLocaleString()} {total === 1 ? "source" : "sources"}
+      </span>
+      <Badge text={state.text} kind={state.kind} title={detail || state.text} />
+    </span>
+  );
 }
 
 function transferSummary(meta: ContractLoadMetadata | null): ReactNode {
@@ -125,7 +145,7 @@ function transferSummary(meta: ContractLoadMetadata | null): ReactNode {
   return (
     <>
       {formatOptionalBytes(bytes)}
-      {encodingLabel(meta) ? <span className="muted"> · {encodingLabel(meta)}</span> : null}
+      {encodingLabel(meta) ? <span className="muted"> {encodingLabel(meta)}</span> : null}
     </>
   );
 }
@@ -136,7 +156,7 @@ function transferTotal(meta: ContractLoadMetadata | null): ReactNode {
     return (
       <>
         {formatBytes(meta.encodedBytes)}
-        <span className="muted"> · body</span>
+        <span className="muted"> body</span>
       </>
     );
   }
@@ -226,7 +246,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
       value: (
         <>
           {formatOptionalBytes(contractMeta?.encodedBytes)}
-          {encodedLabel ? <span className="muted"> · {encodedLabel}</span> : null}
+          {encodedLabel ? <span className="muted"> {encodedLabel}</span> : null}
         </>
       ),
     },
@@ -305,7 +325,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
 
       {env ? (
         <section className="debug-summary-strip" aria-label="Diagnostics summary">
-          <SummaryMetric label="Sources">{sourceHealth ? statusSummary(sourceHealth.statusCounts) : "unknown"}</SummaryMetric>
+          <SummaryMetric label="Source health">{sourceHealth ? sourceSummary(sourceHealth.statusCounts) : "unknown"}</SummaryMetric>
           <SummaryMetric label="Decoded JSON">{contractMeta ? formatBytes(contractMeta.bytes) : "unknown"}</SummaryMetric>
           <SummaryMetric label="Transfer">{transferSummary(contractMeta)}</SummaryMetric>
           <SummaryMetric label="Compression">{compressionRatio(contractMeta)}</SummaryMetric>
@@ -355,7 +375,6 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
                 {contractCounts ? <CountsTable title="top-level rows" counts={contractCounts} /> : null}
                 <SectionSizesTable env={env} />
                 <ItemWindowTable env={env} />
-                <CountsTable title="source status" counts={sourceHealth?.statusCounts ?? {}} />
               </div>
             </div>
           </>
@@ -375,7 +394,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
             <section className="debug-summary-strip debug-section-summary" aria-label="Store summary">
               <SummaryMetric label="Store">
                 {(stats.db.driver ?? "sqlite").toUpperCase()}
-                {stats.db.driver === "postgres" && stats.db.schema ? <span className="muted"> · {stats.db.schema}</span> : null}
+                {stats.db.driver === "postgres" && stats.db.schema ? <span className="muted"> {stats.db.schema}</span> : null}
               </SummaryMetric>
               <SummaryMetric label="DB size">
                 {typeof dbSize === "number" ? formatBytes(dbSize) : "n/a"}
@@ -407,7 +426,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
               </button>{" "}
               generated {relativeTime(stats.generated_at)}
               {stats.activities.earliest
-                ? ` · activity ${stats.activities.earliest.slice(0, 10)} → ${(stats.activities.latest ?? "").slice(0, 10)}`
+                ? ` activity ${stats.activities.earliest.slice(0, 10)} → ${(stats.activities.latest ?? "").slice(0, 10)}`
                 : ""}
             </p>
           </>
@@ -476,7 +495,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
               <button type="button" className="toggle" onClick={logs.clear}>
                 Clear
               </button>
-              <span className="muted">in-memory tail of the writer daemon (since its last restart) · polled every 2s</span>
+              <span className="muted">in-memory tail of the writer daemon (since its last restart) polled every 2s</span>
             </div>
             <pre className="debug-log" ref={logRef}>
               {logs.entries.length === 0 ? (
