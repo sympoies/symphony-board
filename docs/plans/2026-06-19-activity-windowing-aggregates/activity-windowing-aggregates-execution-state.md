@@ -55,5 +55,5 @@
 | 2.1 | todo | Add the `activity_daily` aggregate to the contract | pending | DTO + schema + tests + `docs/CONTRACT.md`. |
 | 2.2 | todo | Compute `activity_daily` and window emitted activities at emit | pending | Contract major bump (3.5.0 -> 4.0.0). |
 | 2.3 | todo | Rewire the Activity Overview to read `activity_daily` | pending | Anchor to `generated_at`, not the UI clock. |
-| 2.4 | deferred | Drop redundant `id` and `summary` (optional rider) | pending | Off by default; fold into the 2.2 major bump only if opted in. |
+| 2.4 | todo | Drop redundant `id` and `summary` | pending | Reconstruct in `parseContract`; folded into the 2.2 major bump. |
 | 3.1 | todo | Narrow-local / wide-fetch range threshold | pending | 1w/1mo local, 6mo/1yr via `/api/range`. |

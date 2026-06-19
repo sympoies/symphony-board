@@ -17,8 +17,7 @@ change, a store/driver query change, and a server change.
 
 - Primary source: `docs/plans/2026-06-19-activity-windowing-aggregates/activity-windowing-aggregates-discussion-source.md`
 - Source type: discussion-to-implementation-doc
-- Open questions carried into execution: none (the `id`/`summary` removal is an
-  explicitly optional rider, Task 2.4, off by default)
+- Open questions carried into execution: none
 
 ## Scope
 
@@ -185,23 +184,23 @@ depends on the full raw activity history.
   - `pnpm --filter @symphony-board/ui run test`.
   - `pnpm --filter @symphony-board/ui run build` + smoke.
 
-### Task 2.4 (optional rider): Drop redundant `id` and `summary`
+### Task 2.4: Drop redundant `id` and `summary`
 
 - **Location**:
   - `packages/contract/types.ts`
   - `packages/contract/contract.schema.json`
   - `src/contract/build.ts`
   - `packages/ui/src/contract.ts`
-- **Description**: only if opted in — remove the activity `id`
-  (`= source_id|external_id`) and `summary` fields and reconstruct them in
-  `parseContract`, folding the removal into this major bump. Skipped by default.
+- **Description**: remove the activity `id` (`= source_id|external_id`) and
+  `summary` fields and reconstruct them once in `parseContract`, folding the
+  removal into this major bump.
 - **Dependencies**:
   - Task 2.2
 - **Complexity**: 4
 - **Acceptance criteria**:
-  - If taken: `id`/`summary` reconstructed once in `parseContract`; downstream
-    consumers unchanged; size drops a further ~1.3–1.8 MB.
-  - If skipped: no change.
+  - `id`/`summary` are absent from the emitted contract and reconstructed once
+    in `parseContract`; downstream consumers are unchanged.
+  - Emitted `contract.json` drops a further ~1.3–1.8 MB.
 - **Validation**:
   - `pnpm run typecheck && pnpm test` + UI tests.
 

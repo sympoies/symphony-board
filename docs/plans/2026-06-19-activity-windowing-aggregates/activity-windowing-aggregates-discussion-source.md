@@ -80,6 +80,8 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
    change to an emitted row collection, following the **v2.0.0** precedent that
    windowing `items[]` was a major bump (`docs/DESIGN.md` §269-276). The new
    `activity_daily` field is itself additive; it rides in the same major bump.
+   The redundant activity `id` (`= source_id|external_id`) and `summary` fields
+   are removed in this same bump and reconstructed in `parseContract`.
 8. **Overview anchored to `generated_at`.** The trailing-12-month buckets and
    the heatmap must be anchored at the contract's `generated_at` (emit time),
    not the UI wall clock, so the aggregate and its rendering agree.
@@ -87,7 +89,8 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
 ## Scope
 
 - **Contract** (`packages/contract/`): new `activity_daily` DTO; narrow
-  `activities[]` semantics; major version bump; update types,
+  `activities[]` semantics; remove the redundant `id` and `summary` fields
+  (reconstructed in `parseContract`); major version bump; update types,
   `contract.schema.json`, tests, `docs/CONTRACT.md`, and `docs/DESIGN.md`.
 - **Emit** (`src/contract/build.ts`): compute `activity_daily` via group-by over
   the full activity rows at emit; apply the 30-day window to emitted
@@ -180,9 +183,9 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
   3. **C** — contract major bump: window `activities[]` to 30d + add
      `activity_daily` + rewire the Activity Overview to read it.
   4. **UI range model** — narrow-local / wide-fetch threshold.
-  5. **B (optional rider)** — drop the redundant `id` (`= source_id|external_id`)
-     and `summary` fields, reconstruct in `parseContract`; only if opted in, fold
-     into the step-3 major bump.
+  5. **B** — drop the redundant `id` (`= source_id|external_id`) and `summary`
+     fields and reconstruct them in `parseContract`, folded into the step-3
+     major bump.
 
 ## Retention intent
 
