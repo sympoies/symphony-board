@@ -455,6 +455,29 @@ export function emptyStateKind(input: { boardEmpty: boolean; total: number; wind
   return "filtered";
 }
 
+// Whether the whole board has no data at all (fresh install / not yet synced) —
+// drives the board-empty treatment instead of a misleading "nothing in this
+// range". 4.0.0 windows `activities` to ~30 days, so an empty `activities` array
+// no longer implies "no activity ever": a dormant board whose items aged out of
+// the 90-day window and whose last activity is older than 30 days still carries
+// full history in `activity_daily`. Consult `activity_daily.total` (absent on
+// pre-4.0.0 contracts, where the windowed-array check still holds).
+export function isBoardEmpty(env: Pick<ContractEnvelope, "items" | "activities" | "activity_daily">): boolean {
+  return env.items.length === 0 && (env.activities?.length ?? 0) === 0 && (env.activity_daily?.total ?? 0) === 0;
+}
+
+// Board-wide commit total for the Commits page header / empty state. 4.0.0
+// windows `activities` to ~30 days, so counting commits there under-reports on a
+// board whose commits are older than 30 days (or under a historical range);
+// prefer the full-history `activity_daily.by_kind.commit`. Falls back to the
+// windowed activities for pre-4.0.0 contracts that lack the aggregate.
+export function boardCommitTotal(env: Pick<ContractEnvelope, "activities" | "activity_daily"> | null | undefined): number {
+  if (!env) return 0;
+  const daily = env.activity_daily?.by_kind?.commit;
+  if (typeof daily === "number") return daily;
+  return (env.activities ?? []).filter((a) => a.kind === "commit").length;
+}
+
 // For the range-empty case: does the selected range still reach the newest data?
 // True means the range covers the most-recent-data boundary — so emptiness is
 // the "new day / quiet period" case and the fix is to WIDEN. False means the
@@ -1402,7 +1425,11 @@ export function activityMatches(a: ActivityDTO, f: Filters): boolean {
   const q = f.search.trim().toLowerCase();
   if (q) {
     const details = a.details ? JSON.stringify(a.details) : "";
-    const hay = [a.title, a.actor, a.project_path, a.target_kind, a.target_ref, details]
+    // action/kind are included so action-only terms ("approved", "merged",
+    // "force pushed") still match after 4.0.0 dropped `summary`, which used to
+    // carry that prose. The query is term-by-term substring, so "force pushed"
+    // matches "force_pushed" (both "force" and "pushed" are substrings).
+    const hay = [a.title, a.actor, a.project_path, a.target_kind, a.target_ref, a.action, a.kind, details]
       .filter((s): s is string => !!s)
       .join(" ")
       .toLowerCase();
