@@ -1327,22 +1327,33 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
   await sleep(300);
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
+  await sleep(120); // let the auto-select effect populate the detail pane
   const live = (await send("Runtime.evaluate", {
     expression: `(() => {
       const page = document.querySelector('.live-page');
-      const rows = Array.from(document.querySelectorAll('.live-event'));
-      const links = Array.from(document.querySelectorAll('.live-event-target')).map((a) => a.getAttribute('href') || '');
+      const rows = Array.from(document.querySelectorAll('.live-feed .live-event'));
+      // master-detail: the precise permalink now lives in the selected event's
+      // detail pane (auto-selected newest = the comment row).
+      const detailLink = document.querySelector('.live-detail .live-detail-link')?.getAttribute('href') || '';
       const status = document.querySelector('.live-status');
       return {
         rendered: !!page,
         rows: rows.length,
-        links,
+        detailLink,
         statusText: status?.textContent?.trim() || '',
         statusUnavailable: (status?.textContent || '').includes('Unavailable'),
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Select the second feed row (the change-request event carrying only a target
+  // url) and confirm its detail shows the /pull/ fallback link.
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.live-feed .live-event')[1] && document.querySelectorAll('.live-feed .live-event')[1].click()" });
+  await sleep(150);
+  const liveFallbackLink = (await send("Runtime.evaluate", {
+    expression: "document.querySelector('.live-detail .live-detail-link')?.getAttribute('href') || ''",
+    returnByValue: true,
+  })).result.value || "";
   const portraitPresets = [
     { name: "phone-portrait", width: 384, height: 854, dpr: 3 },
     { name: "tablet-portrait", width: 930, height: 1240, dpr: 2 },
@@ -2056,10 +2067,11 @@ try {
     [has(liveHtml, "live-page"), "live: page rendered"],
     [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
-    // event-link precision: a comment row links to the exact ev.url permalink
-    // (#issuecomment-…), not just the parent issue/PR target url.
-    [live.links.some((href) => href.includes("#issuecomment-")), `live: a comment row links to the exact event permalink (${(live.links || []).join(", ") || "none"})`],
-    [live.links.some((href) => /\/pull\/\d+$/.test(href)), `live: a row without an event url falls back to the target url (${(live.links || []).join(", ") || "none"})`],
+    // event-link precision: the auto-selected newest event (a comment) shows the
+    // exact ev.url permalink (#issuecomment-…) in its detail pane …
+    [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],
+    // … and selecting a row without an event url falls back to the target url.
+    [/\/pull\/\d+$/.test(liveFallbackLink), `live: a selected row without an event url falls back to the target url (${liveFallbackLink || "none"})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],

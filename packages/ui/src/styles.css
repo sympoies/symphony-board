@@ -3029,19 +3029,34 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-feed { list-style: none; margin: 0; padding: 0; }
 .live-event {
   display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
-  padding: 11px 4px 11px 12px; position: relative;
+  padding: 11px 8px 11px 12px; position: relative; cursor: pointer; border-radius: 6px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
 }
 .live-event::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
   border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0;
 }
+.live-event:hover { background: var(--hover-soft); }
 .live-event:hover::before { opacity: 0.5; }
+.live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.live-event-selected { background: color-mix(in srgb, var(--live) 12%, transparent); }
+.live-event-selected::before { opacity: 0.95; }
 .live-event-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--cat, var(--muted)); }
 .live-event-main { min-width: 0; }
 .live-event-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .live-event-category { font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; color: var(--cat, var(--muted)); }
 .live-event-title { color: var(--text); overflow-wrap: anywhere; }
+.live-event-repo { margin-top: 2px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
+/* Clamp the markdown preview to the Settings-controlled line count, with a soft
+   fade so it reads as "more, in the detail pane". --preview-lines is set inline. */
+.live-event-preview {
+  position: relative; overflow: hidden; margin-top: 6px;
+  max-height: calc(var(--preview-lines, 5) * 1.5em + 0.2em);
+}
+.live-event-preview::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1.5em;
+  background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none;
+}
 .live-event-target { display: inline-block; margin-top: 2px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
 .live-event-num { color: var(--iid); }
 .live-event-body { margin: 6px 0 0; color: var(--text); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -3072,4 +3087,88 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-status-dot { animation: none; }
   .live-spark-bar { transition: none; }
   .live-feed .live-event:first-child { animation: none; }
+}
+
+/* ---- filter bar: category pills + multi-select repo / people ---- */
+.live-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 14px; }
+.live-cats { margin-bottom: 0; }
+.live-selects { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+/* multi-select dropdown (repo / people) */
+.ms { position: relative; }
+.ms-button {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: 4px 11px; cursor: pointer;
+}
+.ms-button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.ms-button:disabled { opacity: 0.5; cursor: default; }
+.ms-button-on { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ms-count { font-family: var(--mono); font-size: 11px; background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 0 6px; }
+.ms-caret { font-size: 10px; opacity: 0.8; }
+.ms-menu {
+  position: absolute; z-index: 50; top: calc(100% + 4px); left: 0;
+  min-width: 200px; max-width: 340px; max-height: 320px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow-popover); padding: 6px;
+}
+.ms-clear { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 6px; }
+.ms-clear:hover { background: var(--hover-soft); color: var(--text); }
+.ms-option { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text); }
+.ms-option:hover { background: var(--hover-soft); }
+.ms-option input { accent-color: var(--accent); flex: none; }
+.ms-option-label { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---- master-detail split: feed (left) + selected event (right) ---- */
+.live-split { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.live-feed-empty { margin: 24px 4px; }
+.live-detail { position: sticky; top: 12px; max-height: calc(100vh - 90px); overflow: auto; min-width: 0; }
+.live-detail-empty { color: var(--muted); padding: 24px 4px; }
+.live-detail-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.live-detail-back { display: none; }
+.live-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.live-detail-head .live-event-category { font-size: 12px; }
+.live-detail-head time { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.live-detail-title { font-size: 17px; margin: 0 0 6px; border: none; padding: 0; line-height: 1.35; }
+.live-detail-link { display: inline-block; margin-bottom: 12px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
+.live-detail-link-plain { color: var(--muted); }
+
+/* ---- markdown body (shared by the clamped preview + the full detail) ---- */
+.live-md { color: var(--text); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.live-md > :first-child { margin-top: 0; }
+.live-md > :last-child { margin-bottom: 0; }
+.live-md h1, .live-md h2, .live-md h3, .live-md h4 { line-height: 1.3; margin: 1em 0 0.4em; font-weight: 600; border: none; padding: 0; }
+.live-md h1 { font-size: 1.3em; }
+.live-md h2 { font-size: 1.15em; }
+.live-md h3 { font-size: 1.05em; }
+.live-md h4 { font-size: 1em; }
+.live-md p { margin: 0.5em 0; }
+.live-md a { color: var(--link); }
+.live-md ul, .live-md ol { margin: 0.5em 0; padding-left: 1.4em; }
+.live-md li { margin: 0.2em 0; }
+.live-md code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: 0.92em; }
+.live-md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0.6em 0; }
+.live-md pre code { background: none; padding: 0; }
+.live-md blockquote { margin: 0.6em 0; padding-left: 0.9em; border-left: 3px solid var(--line); color: var(--muted); }
+.live-md table { border-collapse: collapse; margin: 0.6em 0; display: block; overflow-x: auto; }
+.live-md th, .live-md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.live-md img { max-width: 100%; }
+.live-md hr { border: none; border-top: 1px solid var(--line); margin: 0.8em 0; }
+.live-md-preview { font-size: 13px; }
+.live-md-preview h1, .live-md-preview h2, .live-md-preview h3, .live-md-preview h4 { font-size: 1em; margin: 0.35em 0 0.15em; }
+.live-md-preview pre { margin: 0.3em 0; padding: 6px 8px; }
+.live-md-fallback { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font-size: 13px; }
+.live-detail-body { font-size: 14px; }
+
+/* Settings: Live preview line-count stepper */
+.settings-number { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 6px 10px; width: 84px; font: inherit; }
+
+/* narrow: single column; the detail becomes a tap-to-open full-screen overlay */
+@media (max-width: 900px) {
+  .live-split { grid-template-columns: 1fr; }
+  .live-selects { margin-left: 0; }
+  .live-detail { position: static; max-height: none; }
+  .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
+  .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
+  .live-split[data-detail-open="true"] .live-detail { position: fixed; inset: 0; z-index: 60; background: var(--bg); padding: 14px 16px; overflow: auto; }
 }

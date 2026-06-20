@@ -73,6 +73,8 @@ import {
   saveDefaultRangePreset,
   loadTheme,
   saveTheme,
+  loadLivePreviewLines,
+  saveLivePreviewLines,
   loadServerBaseUrl,
   saveServerBaseUrl,
   normalizeServerBaseUrl,
@@ -151,6 +153,7 @@ export function App() {
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
   const [theme, setTheme] = useState<ViewTheme>(loadTheme);
+  const [livePreviewLines, setLivePreviewLines] = useState<number>(loadLivePreviewLines);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
   // Board columns the viewer manually collapsed to a rail (persisted). Empty
   // columns auto-collapse without being stored here; `peekedColumns` is the
@@ -357,6 +360,9 @@ export function App() {
   useEffect(() => {
     saveTheme(theme);
   }, [theme]);
+  useEffect(() => {
+    saveLivePreviewLines(livePreviewLines);
+  }, [livePreviewLines]);
   useEffect(() => {
     saveCollapsedColumns(collapsedColumns);
   }, [collapsedColumns]);
@@ -1009,7 +1015,7 @@ export function App() {
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
         ) : null}
         {pageTabs}
-        <LivePage serverBaseUrl={serverBaseUrl} />
+        <LivePage serverBaseUrl={serverBaseUrl} previewLines={livePreviewLines} />
       </div>
     );
   }
@@ -1170,6 +1176,8 @@ export function App() {
           onDefaultRangePreset={setDefaultRangePreset}
           theme={theme}
           onTheme={setTheme}
+          livePreviewLines={livePreviewLines}
+          onLivePreviewLines={setLivePreviewLines}
           serverBaseUrl={serverBaseUrl}
           onServerBaseUrl={applyServerBaseUrl}
           sync={sync}

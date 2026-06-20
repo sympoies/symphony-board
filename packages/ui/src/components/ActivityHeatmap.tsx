@@ -541,8 +541,8 @@ export function ActivityHeatmap({
         </div>
       </div>
 
-      <ActivityTrendChart trend={trend} onTip={setTip} />
       <ActivityRangeSummary trend={trend} />
+      <ActivityTrendChart trend={trend} onTip={setTip} />
 
       {tip ? (
         <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>

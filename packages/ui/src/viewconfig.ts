@@ -22,6 +22,9 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 const COLORS_KEY = "symphony-board:repo-colors";
 const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
 const THEME_KEY = "symphony-board:theme";
+// How many lines of an event body the Live feed shows before clamping (the full
+// body is one click away in the detail pane). Device-local, like the theme.
+const LIVE_PREVIEW_LINES_KEY = "symphony-board:live-preview-lines";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
 // auto-collapse without being persisted (they re-open when an item lands), so
@@ -122,6 +125,36 @@ export function loadTheme(): ViewTheme {
 export function saveTheme(theme: ViewTheme): void {
   try {
     localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// Live feed preview height, in body lines. Clamped to a sane range so a stored /
+// hand-edited value can't break the layout.
+export const DEFAULT_LIVE_PREVIEW_LINES = 5;
+export const MIN_LIVE_PREVIEW_LINES = 1;
+export const MAX_LIVE_PREVIEW_LINES = 30;
+
+export function clampLivePreviewLines(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_LIVE_PREVIEW_LINES;
+  return Math.min(MAX_LIVE_PREVIEW_LINES, Math.max(MIN_LIVE_PREVIEW_LINES, Math.round(n)));
+}
+
+export function loadLivePreviewLines(): number {
+  try {
+    const raw = localStorage.getItem(LIVE_PREVIEW_LINES_KEY);
+    if (raw === null) return DEFAULT_LIVE_PREVIEW_LINES;
+    const n = Number(raw);
+    return Number.isFinite(n) ? clampLivePreviewLines(n) : DEFAULT_LIVE_PREVIEW_LINES;
+  } catch {
+    return DEFAULT_LIVE_PREVIEW_LINES;
+  }
+}
+
+export function saveLivePreviewLines(lines: number): void {
+  try {
+    localStorage.setItem(LIVE_PREVIEW_LINES_KEY, String(clampLivePreviewLines(lines)));
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }
