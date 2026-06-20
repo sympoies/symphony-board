@@ -178,7 +178,9 @@ export function App() {
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
   const page =
-    route.page === "board"
+    route.page === "live"
+      ? "live"
+      : route.page === "board"
       ? "board"
       : route.page === "graph"
         ? "graph"
@@ -962,18 +964,52 @@ export function App() {
     );
   }
 
-  // The Live page also renders BEFORE the contract gates: it is contract-
-  // independent (its own SSE/snapshot data path), so it must work even when the
-  // contract is missing or failing to load.
+  // The shared top tab bar, built once and rendered both on the Live route
+  // (below, before the contract gates) and in the main shell return — so Live
+  // switches like any other tab instead of being a separate full-screen view.
+  // Live leads (the realtime headline) and appears only where the receiver
+  // answers (liveAvailable). routeHref carries search/range/lens across the hop.
+  const pageTabs = (
+    <nav className="page-tabs">
+      {liveAvailable ? (
+        <a className={`tab tab-live${page === "live" ? " tab-on" : ""}`} href={routeHref("live")}>
+          <span className="tab-live-dot" aria-hidden="true" />
+          Live
+        </a>
+      ) : null}
+      <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
+        Activity
+      </a>
+      <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
+        Commits
+      </a>
+      <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
+        Board
+      </a>
+      <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
+        Graph
+      </a>
+      <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
+        Repo Analytics
+      </a>
+      <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
+        Settings
+      </a>
+    </nav>
+  );
+
+  // The Live tab renders BEFORE the contract gates: it is contract-independent
+  // (its own SSE/snapshot data path), so it must work even when the contract is
+  // missing or failing to load. It keeps the shell header + tab bar so it reads
+  // as a normal tab; the Header only shows once a contract is loaded.
   if (route.page === "live") {
     return (
       <div className="app app-wide">
-        <LivePage
-          serverBaseUrl={serverBaseUrl}
-          onClose={() => {
-            window.location.hash = "#/activity";
-          }}
-        />
+        {env ? (
+          <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
+        ) : null}
+        {pageTabs}
+        <LivePage serverBaseUrl={serverBaseUrl} />
       </div>
     );
   }
@@ -1057,34 +1093,7 @@ export function App() {
   return (
     <div className="app app-wide">
       <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
-      <nav className="page-tabs">
-        {/* `page` folds the Live route into "activity" (Live renders before the
-            contract gates), so gate the Activity highlight on the real route to
-            avoid lighting BOTH Activity and Live on #/live. */}
-        <a className={`tab${page === "activity" && route.page !== "live" ? " tab-on" : ""}`} href={routeHref("activity")}>
-          Activity
-        </a>
-        {liveAvailable ? (
-          <a className={`tab${route.page === "live" ? " tab-on" : ""}`} href="#/live">
-            Live
-          </a>
-        ) : null}
-        <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
-          Commits
-        </a>
-        <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
-          Board
-        </a>
-        <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
-          Graph
-        </a>
-        <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
-          Repo Analytics
-        </a>
-        <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
-          Settings
-        </a>
-      </nav>
+      {pageTabs}
       {unsupported && (
         <div className="banner warn">
           This UI targets contract major v{SUPPORTED_MAJOR}, but the loaded contract is {env.contract_version}. Some
