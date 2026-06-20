@@ -2502,6 +2502,55 @@ export interface DaemonLogsInfo {
   capacity: number;
 }
 
+// --- live event stream (the #/live page) ---
+// View-model mirror of the receiver's `live-event/1` record. Independent of the
+// product contract: the Live page renders from these alone, with no contract
+// loaded. Extra fields from the server (e.g. delivery metadata) are ignored.
+export interface LiveEventActor {
+  login: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  profile_url?: string | null;
+}
+
+export interface LiveEventTarget {
+  kind: string;
+  source_id: string;
+  project_path?: string | null;
+  number?: number | string | null;
+  external_id?: string | null;
+  title?: string | null;
+  url?: string | null;
+}
+
+export interface LiveEvent {
+  schema?: string;
+  seq: number;
+  event_id: string;
+  source_id: string;
+  provider: string;
+  received_at: string;
+  occurred_at?: string | null;
+  event_type: string;
+  action?: string | null;
+  category: string;
+  actor?: LiveEventActor | null;
+  target?: LiveEventTarget | null;
+  title?: string | null;
+  body?: string | null;
+  url?: string | null;
+  review_state?: string | null;
+  provider_details?: Record<string, unknown> | null;
+  raw?: Record<string, unknown> | null;
+}
+
+export interface LiveSnapshot {
+  schema: string;
+  events: LiveEvent[];
+  max_seq: number;
+  generated_at: string;
+}
+
 const diagnosticsTextEncoder = new TextEncoder();
 
 function jsonValueBytes(value: unknown): number {

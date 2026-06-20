@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, LiveSnapshot } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl } from "./viewconfig.ts";
 
@@ -591,6 +591,27 @@ export async function fetchDaemonLogs(after: number, serverBaseUrl: string | nul
     if (!res.ok) return null;
     const body = (await readJson(res)) as DaemonLogsInfo | null;
     return body && typeof body.enabled === "boolean" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- live event stream (the #/live page) ---
+// Snapshot GET that seeds the Live page and the Tauri polling fallback. Null on
+// ANY failure (route missing, no receiver, network error) so the page reports
+// "live unavailable" instead of erroring — mirrors the diagnostics probes. The
+// browser path streams via EventSource against ./api/live directly (it cannot
+// go through appFetch); only the snapshot uses this client.
+export async function fetchLiveSnapshot(
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+): Promise<LiveSnapshot | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/live-snapshot", serverBaseUrl), {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as LiveSnapshot | null;
+    return body && typeof body === "object" && Array.isArray(body.events) ? body : null;
   } catch {
     return null;
   }

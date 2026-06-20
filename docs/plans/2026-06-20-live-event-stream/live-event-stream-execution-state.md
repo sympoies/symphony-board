@@ -65,8 +65,8 @@
 | 2.2 | done | `WebhookProvider` interface + GitHub adapter (pure) | PR (sprint2); test/live-{verify,http-body,github}.test.ts (330 pass); test-first verified | Event/action routing; ping; dedupe id; scrub secret fields from `raw`. |
 | 3.1 | done | `live` receiver process + webhook intake | PR (sprint3); test/live-receiver.test.ts (341 pass); test-first verified | Least-privilege; verify→dedupe→adapt→append→broadcast; ack 202 <10s. |
 | 3.2 | done | SSE broadcaster + snapshot + healthz | PR (sprint3); test/live-receiver.test.ts (341 pass); test-first verified | `text/event-stream`; `id:`/`seq`; `Last-Event-ID` replay; heartbeat; bounds. |
-| 4.1 | todo | `useLive` hook + `fetchLiveSnapshot` client | | EventSource (browser) vs polling (Tauri); capability probe. |
-| 4.2 | todo | `LivePage` component + nav/router wiring | | Early-return before contract gates; `page !== "live"` chrome guards; Decision 10 presentation. |
+| 4.1 | done | `useLive` hook + `fetchLiveSnapshot` client | PR (sprint4); ui build+test(181)+smoke pass; test-first verified | EventSource (browser) vs polling (Tauri); capability probe. |
+| 4.2 | done | `LivePage` component + nav/router wiring | PR (sprint4); ui build+test(181)+smoke pass; test-first verified | Early-return before contract gates; `page !== "live"` chrome guards; Decision 10 presentation. |
 | 5.1 | todo | Compose `live` service + entrypoint dispatch | | `SYNC_MODE=live`; loopback bind; no token/config/store mount; `.env.example`. |
 | 5.2 | todo | nginx `/api/live*` + g14 Funnel/serve + DESIGN promotion | | `proxy_buffering off`; funnel path-scoped to `/webhooks`; trust-boundary note. |
 | 6.1 | todo | GitLab `WebhookProvider` interface stub | | Signing-token HMAC design; `webhook-id` dedupe; work_item branch; Decision 11 rollout gate; not wired. |
