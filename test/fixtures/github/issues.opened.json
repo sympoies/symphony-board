@@ -1,0 +1,27 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 42,
+    "node_id": "I_kwDOissue42",
+    "title": "Bug: thing breaks",
+    "html_url": "https://github.com/sympoies/symphony-board/issues/42",
+    "body": "Steps to reproduce...",
+    "state": "open",
+    "user": {
+      "login": "reporter",
+      "html_url": "https://github.com/reporter",
+      "avatar_url": "https://avatars.example/reporter.png"
+    },
+    "updated_at": "2026-06-20T08:00:00Z"
+  },
+  "repository": {
+    "full_name": "sympoies/symphony-board",
+    "html_url": "https://github.com/sympoies/symphony-board"
+  },
+  "sender": {
+    "login": "reporter",
+    "name": "The Reporter",
+    "html_url": "https://github.com/reporter",
+    "avatar_url": "https://avatars.example/reporter.png"
+  }
+}

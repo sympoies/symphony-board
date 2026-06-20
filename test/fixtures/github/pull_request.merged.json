@@ -1,0 +1,34 @@
+{
+  "action": "closed",
+  "number": 305,
+  "pull_request": {
+    "number": 305,
+    "node_id": "PR_kwDO305",
+    "title": "feat: live event stream",
+    "html_url": "https://github.com/sympoies/symphony-board/pull/305",
+    "body": "Implements the live feed.",
+    "merged": true,
+    "draft": false,
+    "state": "closed",
+    "user": {
+      "login": "graysurf",
+      "html_url": "https://github.com/graysurf"
+    },
+    "updated_at": "2026-06-20T09:00:00Z"
+  },
+  "repository": {
+    "full_name": "sympoies/symphony-board",
+    "html_url": "https://github.com/sympoies/symphony-board"
+  },
+  "sender": {
+    "login": "graysurf",
+    "name": "Gray Surf",
+    "html_url": "https://github.com/graysurf",
+    "avatar_url": "https://avatars.example/graysurf.png"
+  },
+  "installation": {
+    "id": 141220539,
+    "node_id": "MDInstallation",
+    "access_token": "ghs_THIS_MUST_BE_SCRUBBED"
+  }
+}

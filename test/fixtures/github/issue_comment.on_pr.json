@@ -1,0 +1,31 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 305,
+    "node_id": "I_kwDO305",
+    "title": "feat: live event stream",
+    "html_url": "https://github.com/sympoies/symphony-board/pull/305",
+    "pull_request": {
+      "html_url": "https://github.com/sympoies/symphony-board/pull/305"
+    }
+  },
+  "comment": {
+    "body": "Looks good, merging soon.",
+    "html_url": "https://github.com/sympoies/symphony-board/pull/305#issuecomment-1",
+    "created_at": "2026-06-20T08:10:00Z",
+    "user": {
+      "login": "octocat",
+      "html_url": "https://github.com/octocat",
+      "avatar_url": "https://avatars.example/octocat.png"
+    }
+  },
+  "repository": {
+    "full_name": "sympoies/symphony-board",
+    "html_url": "https://github.com/sympoies/symphony-board"
+  },
+  "sender": {
+    "login": "octocat",
+    "html_url": "https://github.com/octocat",
+    "avatar_url": "https://avatars.example/octocat.png"
+  }
+}
