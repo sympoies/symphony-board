@@ -7,6 +7,7 @@
 import type { ServerResponse } from "node:http";
 import type { RepoDTO, TimeRangeDTO, ContractEnvelope } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
+import { configuredRepoRefs } from "../config.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { buildRangeContract } from "../contract/build.ts";
 import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
@@ -75,6 +76,7 @@ export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractE
       identities: cfg.identities,
       excludeActors: cfg.exclude_actors,
       timezone: cfg.timezone,
+      configuredRepos: configuredRepoRefs(cfg),
       range,
     });
   } finally {

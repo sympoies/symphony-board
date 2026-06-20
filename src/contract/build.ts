@@ -329,6 +329,13 @@ function repoKey(sourceId: string, projectPath: string | null): string {
   return JSON.stringify([sourceId, projectPath]);
 }
 
+// The configured repos as a repoKey-keyed set (or undefined when no config set
+// was threaded in — then the repo lists are not filtered). Owns the key format
+// so it always matches buildRepoMetrics' repoKey lookups.
+function configuredRepoKeySet(refs: BuildInput["configuredRepos"]): ReadonlySet<string> | undefined {
+  return refs ? new Set(refs.map((r) => repoKey(r.source_id, r.project_path))) : undefined;
+}
+
 function repoSort(a: { source_id: string; project_path: string | null }, b: { source_id: string; project_path: string | null }): number {
   return a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? "");
 }
@@ -828,6 +835,10 @@ function buildRepoMetrics(
   // windowed `activities`, keyed by repoKey(source_id, project_path). The static
   // path passes the full activity set and omits this, computing coverage inline.
   coverageBounds?: ReadonlyMap<string, { observed_since: string | null; last_activity_at: string | null }>,
+  // Configured repo keys (repoKey form). When provided, a repo is emitted only
+  // if it is configured OR carries live items; an activity/edge-only repo that
+  // is no longer configured is dropped. Absent leaves every repo (historical).
+  configuredRepos?: ReadonlySet<string>,
 ): RepoMetricDTO[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const repoItems = new Map<string, ItemDTO[]>();
@@ -867,6 +878,11 @@ function buildRepoMetrics(
 
   const range: TimeRangeDTO = { from: window.from, to: window.to };
   return [...repoIdentity.entries()]
+    // Drop a repo only when a configured set is supplied AND the repo is neither
+    // configured nor item-bearing (repoItems holds repos with ≥1 live item).
+    // This clears repos removed from config that survive only via activity/edge
+    // rows, while keeping configured repos and any repo whose items still show.
+    .filter(([key]) => !configuredRepos || configuredRepos.has(key) || repoItems.has(key))
     .map(([key, identity]) => {
       const itemsForRepo = repoItems.get(key) ?? [];
       const activitiesForRepo = repoActivities.get(key) ?? [];
@@ -1108,6 +1124,13 @@ export interface BuildInput {
   // thread that has aged out of the board window). Defaults to "default", so
   // existing callers/tests are unaffected.
   itemWindow?: "default" | "full";
+  // Config-declared repos (source_id + project_path), NOT stored in the DB.
+  // When provided, the repo lists drop any repo that is neither configured nor
+  // item-bearing — so a repo removed from config that lingers only via
+  // never-tombstoned activity rows stops showing. Absent leaves every repo
+  // present in the data (the historical behavior), so existing callers/tests
+  // are unaffected.
+  configuredRepos?: ReadonlyArray<{ source_id: string; project_path: string }>;
 }
 
 // Map each activity DTO id to its persisted canonical actor key. Kept off the
@@ -1174,6 +1197,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
   const activityDaily = buildActivityDaily(mapped.activities, input.generatedAt, timezone);
   const activityWindowSince = cutoffIso(CONTRACT_ACTIVITY_WINDOW_DAYS, input.generatedAt);
   const windowedActivities = mapped.activities.filter((a) => timestampAtOrAfter(a.occurred_at, activityWindowSince));
+  const configuredRepoKeys = configuredRepoKeySet(input.configuredRepos);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
@@ -1188,7 +1212,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, timezone),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, timezone, undefined, configuredRepoKeys),
   };
 }
 
@@ -1255,6 +1279,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
         ]),
       )
     : undefined;
+  const configuredRepoKeys = configuredRepoKeySet(input.configuredRepos);
   return {
     contract_version: CONTRACT_VERSION,
     generated_at: input.generatedAt,
@@ -1268,7 +1293,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     aggregates: [],
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
-    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC", coverageBounds),
+    repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC", coverageBounds, configuredRepoKeys),
     range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to },
   };
 }

@@ -798,3 +798,44 @@ test("top_actors is capped at 5, ordered by activity volume, dropping the tail",
     "exactly the 5 highest-volume actors, in order; user6/user7 are trimmed",
   );
 });
+
+test("buildContract drops repo_metrics for repos no longer in config that carry no items", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_cfg", project_path: "o/configured" }),
+    // A repo dropped from config but whose synced items still live on the board.
+    itemRow({ item_id: 2, external_id: "ISSUE_kept", project_path: "o/removed-has-items" }),
+  ];
+  // A repo dropped from config with NO items, surviving only via activity rows
+  // (the activity table has no tombstone) — the "ghost" a removal should clear.
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "push-ghost", kind: "push", action: "pushed", project_path: "o/ghost", actor: "alice", occurred_at: "2026-06-07T10:00:00Z" }),
+  ];
+
+  // No configured set: every repo present in the data is emitted (historical
+  // behavior — nothing is filtered).
+  const unfiltered = buildContract({ sources, items, labels: [], edges: [], activities, generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(
+    (unfiltered.repo_metrics ?? []).map((m) => m.project_path).sort(),
+    ["o/configured", "o/ghost", "o/removed-has-items"],
+  );
+
+  // With the configured set, a repo that is neither configured NOR item-bearing
+  // (the activity-only ghost) drops out; configured repos and repos that still
+  // carry items stay (board consistency).
+  const filtered = buildContract({
+    sources,
+    items,
+    labels: [],
+    edges: [],
+    activities,
+    generatedAt: "2026-06-08T00:00:00.000Z",
+    configuredRepos: [{ source_id: "github:github.com", project_path: "o/configured" }],
+  });
+  assert.deepEqual(
+    (filtered.repo_metrics ?? []).map((m) => m.project_path).sort(),
+    ["o/configured", "o/removed-has-items"],
+  );
+});

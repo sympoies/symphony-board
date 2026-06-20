@@ -11,6 +11,7 @@ import { rmSync, renameSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
+import { configuredRepoRefs } from "../config.ts";
 import type { Store } from "../db/store.ts";
 import { buildContract } from "./build.ts";
 import { validateContract, type ValidationError } from "./validate.ts";
@@ -54,6 +55,7 @@ export async function buildContractEnvelope(
     excludeActors: cfg.exclude_actors,
     timezone: cfg.timezone,
     itemWindow: opts.itemWindow,
+    configuredRepos: configuredRepoRefs(cfg),
   });
 }
 
