@@ -93,6 +93,8 @@ function reviewVerb(state: string | null, action: string): string {
 
 export class GithubWebhookProvider implements WebhookProvider {
   readonly id = "github" as const;
+  readonly eventHeaderName = "x-github-event";
+  readonly hookIdHeaderName = "x-github-hook-id";
 
   verify(
     rawBody: Buffer,
