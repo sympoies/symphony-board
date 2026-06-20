@@ -93,6 +93,24 @@ test("formatLiveEvent renders header, linked title, actor, and time", () => {
   assert.match(msg, /🕒 2026-06-21T10:00:00Z/);
 });
 
+test("formatLiveEvent links the event permalink in preference to the target URL", () => {
+  // A comment event: event.url is the comment anchor, target.url the parent PR.
+  const msg = formatLiveEvent(
+    makeEvent({
+      category: "comment",
+      url: "https://github.com/o/r/pull/9#issuecomment-42",
+      target: {
+        kind: "change_request",
+        source_id: "github:github.com",
+        title: "parent PR",
+        url: "https://github.com/o/r/pull/9",
+      },
+    }),
+  );
+  assert.match(msg, /href="https:\/\/github.com\/o\/r\/pull\/9#issuecomment-42"/);
+  assert.ok(!msg.includes('href="https://github.com/o/r/pull/9"'), "must not link the parent target URL");
+});
+
 test("formatLiveEvent labels a merged PR as merged, not closed", () => {
   const msg = formatLiveEvent(
     makeEvent({

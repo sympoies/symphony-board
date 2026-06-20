@@ -93,9 +93,10 @@ export function parseSseFrame(block: string): SseFrame {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// Give up re-sending one message after this many consecutive 429s (then drop
-// it) so a sustained rate limit cannot wedge the whole stream forever.
-const MAX_RATE_LIMIT_RETRIES = 5;
+// Per-message retry budget for transient failures (429 rate limit + 5xx server
+// errors). Exhausting it throws so the cursor stays put and a reconnect
+// redelivers — a transient Telegram outage must never silently drop an event.
+const MAX_SEND_RETRIES = 5;
 // Hard ceiling on the un-delimited SSE read buffer. One event's JSON is far
 // smaller; a stream that never emits a frame delimiter is treated as hostile
 // and the connection is dropped rather than letting the buffer OOM the process.
@@ -149,21 +150,20 @@ export class TelegramSender {
     this.#cfg = cfg;
   }
 
-  // Deliver one message. Returns when delivered or deliberately skipped (a 4xx
-  // poison message is dropped so it cannot stall the stream); a 429 is retried
-  // after the server-advised delay; a network error throws so the caller can
-  // reconnect and redeliver (the cursor is only advanced on a clean return).
+  // Deliver one message. Returns on success or after dropping a 4xx poison
+  // message (a malformed body that would otherwise wedge the stream forever).
+  // A transient failure — 429 rate limit or 5xx server error — is retried within
+  // MAX_SEND_RETRIES; exhausting that budget THROWS, as does a network error, so
+  // the caller leaves the cursor unmoved and a reconnect redelivers the event
+  // (the receiver replays from Last-Event-ID). The bridge never silently drops a
+  // live event on a transient Telegram problem.
   async send(text: string): Promise<void> {
     if (this.#cfg.dryRun) {
       log.info(`[tg] (dry-run) would send:\n${text}`);
       return;
     }
-    if (!this.#cfg.botToken || !this.#cfg.chatId) {
-      log.warn("[tg] no bot token / chat id configured; dropping message");
-      return;
-    }
     await this.#throttle();
-    let rateLimitRetries = 0;
+    let retries = 0;
     for (;;) {
       const res = await fetch(
         `https://api.telegram.org/bot${this.#cfg.botToken}/sendMessage`,
@@ -180,23 +180,30 @@ export class TelegramSender {
         },
       );
       if (res.ok) return;
-      if (res.status === 429) {
-        if (++rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
-          log.warn(
-            `[tg] still rate limited after ${MAX_RATE_LIMIT_RETRIES} retries; dropping message`,
-          );
-          return;
+      // 429 (rate limit) and 5xx (transient server error) are retryable.
+      if (res.status === 429 || res.status >= 500) {
+        if (++retries > MAX_SEND_RETRIES) {
+          // Out of budget: throw so the stream reconnects and redelivers from
+          // the unchanged cursor rather than losing the event.
+          throw new Error(`Telegram HTTP ${res.status} after ${MAX_SEND_RETRIES} retries`);
         }
-        const payload = (await res.json().catch(() => ({}))) as {
-          parameters?: { retry_after?: number };
-        };
-        // Cap the advised wait so a pathological retry_after cannot freeze the
-        // whole stream (send() blocks the SSE read loop while it waits).
-        const retryAfter = Math.min(payload.parameters?.retry_after ?? 1, 60);
-        log.warn(`[tg] rate limited; retrying after ${retryAfter}s`);
-        await sleep((retryAfter + 1) * 1000);
+        let waitMs: number;
+        if (res.status === 429) {
+          const payload = (await res.json().catch(() => ({}))) as {
+            parameters?: { retry_after?: number };
+          };
+          // Cap the advised wait so a pathological retry_after cannot freeze the
+          // whole stream (send() blocks the SSE read loop while it waits).
+          waitMs = (Math.min(payload.parameters?.retry_after ?? 1, 60) + 1) * 1000;
+        } else {
+          waitMs = Math.min(2000 * retries, 30_000);
+        }
+        log.warn(`[tg] Telegram HTTP ${res.status}; retrying in ${Math.round(waitMs / 1000)}s`);
+        await sleep(waitMs);
         continue;
       }
+      // 4xx (client/config error): genuinely poison — drop it so one bad event
+      // cannot wedge the stream. Cursor still advances for this event only.
       const detail = await res.text().catch(() => "");
       log.warn(`[tg] sendMessage HTTP ${res.status}; dropping message. ${detail}`);
       return;
@@ -248,8 +255,13 @@ async function streamOnce(
       // disk failure never lets memory run ahead of disk (which would re-send
       // already-delivered events after a reconnect/restart).
       if (frame.event === "reset") {
+        // A reset is an authoritative reseed: adopt max_seq in EITHER direction.
+        // A `stale_cursor` reset (the receiver's store was recreated or pruned
+        // below our cursor) carries a LOWER max_seq; if we refused to move back,
+        // every fresh event would look like a duplicate against the stale-high
+        // cursor and nothing would ever forward again.
         const maxSeq = handleReset(frame.data, cursor);
-        if (maxSeq > cursor && writeCursor(cfg.cursorPath, maxSeq)) cursor = maxSeq;
+        if (maxSeq !== cursor && writeCursor(cfg.cursorPath, maxSeq)) cursor = maxSeq;
       } else if (frame.event === "live" && frame.data) {
         const advanced = await handleLiveFrame(frame.data, cursor, sender);
         if (advanced > cursor && writeCursor(cfg.cursorPath, advanced)) {
@@ -310,6 +322,16 @@ export async function runBridge(
 ): Promise<void> {
   for (const w of cfg.warnings) log.warn(`[tg] ${w}`);
 
+  // Fail fast rather than stream into a void: with no delivery target every send
+  // would be a no-op, and advancing the cursor past those events would burn the
+  // backlog so it never arrives once the token/chat is configured. Exit instead
+  // (the container restarts until the secrets are rendered).
+  if (!cfg.dryRun && (!cfg.botToken || !cfg.chatId)) {
+    throw new Error(
+      "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required (or set LIVE_TELEGRAM_DRY_RUN=1)",
+    );
+  }
+
   let cursor = readCursor(cfg.cursorPath);
   if (cursor === null) {
     cursor = await seedCursor(cfg.liveUrl);
@@ -361,7 +383,12 @@ export async function main(): Promise<void> {
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
-  await runBridge(cfg, controller.signal);
+  try {
+    await runBridge(cfg, controller.signal);
+  } catch (err) {
+    log.error(`[tg] fatal: ${(err as Error).message}`);
+    process.exitCode = 2;
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

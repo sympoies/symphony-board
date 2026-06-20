@@ -96,7 +96,10 @@ export function formatLiveEvent(event: LiveEvent): string {
 
   // Linked title: prefer the work-item title, fall back to the event summary.
   const titleText = event.target?.title ?? event.title ?? null;
-  const url = event.target?.url ?? event.url ?? null;
+  // Prefer the event's own permalink (e.g. a comment/review anchor) over the
+  // parent target URL, so the link points at the specific activity being
+  // mirrored — same precedence the UI's eventLink uses. Fall back to target.url.
+  const url = event.url ?? event.target?.url ?? null;
   let titleLine = "";
   if (titleText) {
     const safeTitle = escapeHtml(titleText);
