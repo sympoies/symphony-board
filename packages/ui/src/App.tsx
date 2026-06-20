@@ -1058,7 +1058,10 @@ export function App() {
     <div className="app app-wide">
       <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
       <nav className="page-tabs">
-        <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
+        {/* `page` folds the Live route into "activity" (Live renders before the
+            contract gates), so gate the Activity highlight on the real route to
+            avoid lighting BOTH Activity and Live on #/live. */}
+        <a className={`tab${page === "activity" && route.page !== "live" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity
         </a>
         {liveAvailable ? (

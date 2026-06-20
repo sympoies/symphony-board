@@ -14,10 +14,14 @@ function timeLabel(iso: string | null | undefined): string {
 
 function statusLabel(
   connected: boolean | null,
+  reconnecting: boolean,
   transport: "sse" | "poll" | null,
 ): string {
   if (connected === null) return "Connecting…";
   if (connected === false) return "Unavailable";
+  // A drop that follows a successful open is transient: EventSource auto-
+  // reconnects (poll retries on its own tick), so say so rather than "Live".
+  if (reconnecting) return "Reconnecting…";
   return transport === "poll" ? "Live (polling)" : "Live";
 }
 
@@ -32,6 +36,10 @@ function targetLabel(target: LiveEvent["target"]): string {
 function LiveRow({ ev }: { ev: LiveEvent }) {
   const when = timeLabel(ev.occurred_at ?? ev.received_at);
   const actor = ev.actor?.login ?? "someone";
+  // The event's own url is the precise permalink (e.g. the exact issue_comment /
+  // pull_request_review_comment anchor); fall back to the parent target's url so
+  // a row without an event-level link still links to the issue/PR.
+  const linkUrl = ev.url ?? ev.target?.url;
   return (
     <li className="live-event" data-category={ev.category}>
       <div className="live-event-head">
@@ -41,10 +49,10 @@ function LiveRow({ ev }: { ev: LiveEvent }) {
         </span>
         {when ? <time className="live-event-time">{when}</time> : null}
       </div>
-      {ev.target?.url ? (
+      {linkUrl ? (
         <a
           className="live-event-target"
-          href={ev.target.url}
+          href={linkUrl}
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -69,9 +77,15 @@ export function LivePage({
   serverBaseUrl: string | null;
   onClose: () => void;
 }) {
-  const { events, connected, transport } = useLive(serverBaseUrl);
+  const { events, connected, reconnecting, transport } = useLive(serverBaseUrl);
   const statusKind =
-    connected === null ? "connecting" : connected ? "up" : "down";
+    connected === null
+      ? "connecting"
+      : connected === false
+        ? "down"
+        : reconnecting
+          ? "reconnecting"
+          : "up";
   return (
     <div className="live-page">
       <header className="live-header">
@@ -88,7 +102,7 @@ export function LivePage({
           </a>
           <h1>Live</h1>
           <span className={`live-status live-status-${statusKind}`}>
-            {statusLabel(connected, transport)}
+            {statusLabel(connected, reconnecting, transport)}
           </span>
         </div>
         <p className="live-note">

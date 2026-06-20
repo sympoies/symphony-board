@@ -1,7 +1,8 @@
 // Sprint 4 acceptance for the Live page's pure transport logic + snapshot
 // client. The hook's effects (EventSource / polling) are exercised by the render
-// smoke; here we unit-test the pieces the hook composes, matching the repo's
-// "test the pure logic, smoke the render" convention.
+// smoke (which walks #/live) and by live-effects.test.ts; here we unit-test the
+// pieces the hook composes, matching the repo's "test the pure logic, smoke the
+// render" convention.
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { fetchLiveSnapshot } from "../src/contract.ts";
@@ -35,6 +36,22 @@ test("fetchLiveSnapshot returns the parsed snapshot", async () => {
 
 test("fetchLiveSnapshot returns null on a non-ok response", async () => {
   stubFetch(404, { error: "nope" });
+  assert.equal(await fetchLiveSnapshot(null), null);
+});
+
+test("fetchLiveSnapshot returns null when the snapshot shape is wrong", async () => {
+  // events not an array
+  stubFetch(200, { schema: "live-snapshot/1", events: {}, max_seq: 2 });
+  assert.equal(await fetchLiveSnapshot(null), null);
+  // wrong / missing schema prefix
+  stubFetch(200, { schema: "something-else", events: [], max_seq: 2 });
+  assert.equal(await fetchLiveSnapshot(null), null);
+  stubFetch(200, { events: [], max_seq: 2 });
+  assert.equal(await fetchLiveSnapshot(null), null);
+  // max_seq not a finite number
+  stubFetch(200, { schema: "live-snapshot/1", events: [], max_seq: "2" });
+  assert.equal(await fetchLiveSnapshot(null), null);
+  stubFetch(200, { schema: "live-snapshot/1", events: [] });
   assert.equal(await fetchLiveSnapshot(null), null);
 });
 

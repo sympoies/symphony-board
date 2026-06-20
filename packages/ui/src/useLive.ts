@@ -4,8 +4,9 @@
 // snapshot first and carry its max_seq into the stream cursor so an event
 // appended between snapshot and connect is not lost (EventSource cannot set
 // Last-Event-ID on the initial connect). Contract-independent: depends on no
-// loaded contract. The pure helpers are unit-tested; the effects are smoke-
-// tested by the render harness.
+// loaded contract. The pure helpers are unit-tested (live.test.ts /
+// live-effects.test.ts); the effects are walked by the render smoke (it drives
+// #/live against a mocked /api/live-snapshot).
 import { useEffect, useRef, useState } from "react";
 import {
   endpointRequiresServerUrl,
@@ -13,7 +14,7 @@ import {
   resolveEndpoint,
 } from "./contract.ts";
 import { isTauriRuntime } from "./runtime.ts";
-import type { LiveEvent } from "./model.ts";
+import type { LiveEvent, LiveSnapshot } from "./model.ts";
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_EVENTS = 500;
@@ -29,15 +30,40 @@ export function pickLiveTransport(env: {
 
 // Merge new events into the kept list: dedupe by seq, newest-first, capped.
 // Robust to snapshot/stream overlap and out-of-order arrival.
+//
+// The kept list is already sorted newest-first; the SSE branch appends one
+// frame at a time, so the common case is a single event newer than everything
+// kept. Rather than rebuild a Map and full-sort up to `max` entries on every
+// frame, insert each incoming event at its sorted position (binary search) and
+// dedupe in place. A run of in-order tail appends is then O(1) each; an
+// out-of-order or overlapping arrival still lands in the right slot. The result
+// is identical to a sort-by-seq-desc-then-cap, so existing callers/tests hold.
 export function appendCapped<T extends { seq: number }>(
   prev: T[],
   incoming: T[],
   max: number,
 ): T[] {
-  const bySeq = new Map<number, T>();
-  for (const e of prev) bySeq.set(e.seq, e);
-  for (const e of incoming) bySeq.set(e.seq, e);
-  return [...bySeq.values()].sort((a, b) => b.seq - a.seq).slice(0, max);
+  if (incoming.length === 0) return prev.length > max ? prev.slice(0, max) : prev;
+  const out = prev.slice();
+  for (const e of incoming) insertBySeqDesc(out, e);
+  return out.length > max ? out.slice(0, max) : out;
+}
+
+// Insert one event into a seq-descending list, replacing an existing entry with
+// the same seq (last write wins) instead of duplicating it.
+function insertBySeqDesc<T extends { seq: number }>(list: T[], e: T): void {
+  // Binary search for the first index whose seq is <= e.seq (the insert point).
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const midEntry = list[mid]!; // mid < hi <= list.length
+    if (midEntry.seq > e.seq) lo = mid + 1;
+    else hi = mid;
+  }
+  const at = list[lo];
+  if (at && at.seq === e.seq) list[lo] = e; // dedupe replace
+  else list.splice(lo, 0, e);
 }
 
 // Resolve the SSE URL, carrying the initial cursor as ?since (the snapshot's
@@ -51,27 +77,110 @@ export function liveStreamUrl(
   return `${base}${base.includes("?") ? "&" : "?"}since=${sinceSeq}`;
 }
 
+// The backend emits `event: reset` with `{"reason":"gap","max_seq":N}` when the
+// client's resume cursor is ahead of the server (receiver restarted / pruned
+// below the cursor) OR the backlog to replay exceeds the server's replay cap.
+// Parse the sentinel defensively: junk yields null (ignored); a finite max_seq
+// rides along, but the authoritative cursor comes from the snapshot the reset
+// triggers a refetch of, so an absent/non-finite max_seq is tolerated.
+export interface LiveResetSignal {
+  reason: string;
+  max_seq: number | null;
+}
+
+export function parseResetEvent(data: string): LiveResetSignal | null {
+  try {
+    const body = JSON.parse(data) as { reason?: unknown; max_seq?: unknown };
+    if (!body || typeof body !== "object") return null;
+    const reason = typeof body.reason === "string" ? body.reason : "gap";
+    const max_seq = typeof body.max_seq === "number" && Number.isFinite(body.max_seq) ? body.max_seq : null;
+    return { reason, max_seq };
+  } catch {
+    return null;
+  }
+}
+
+export interface PollPlan {
+  // True when the snapshot's max_seq fell BELOW the cursor (receiver restarted /
+  // pruned): the kept list is stale and must be cleared before reseeding.
+  reset: boolean;
+  // The events to ingest after any reset (newest-first snapshot tail).
+  ingest: LiveEvent[];
+  // The cursor after applying this plan.
+  nextCursor: number;
+}
+
+// Pure decision for one poll tick: given the current cursor and a fresh
+// snapshot, decide whether to reseed (prune/restart) and which events to ingest.
+// A reset reseeds from the whole snapshot and follows its max_seq down; the
+// steady state ingests only the tail newer than the cursor.
+export function planPollIngest(cursor: number, snap: LiveSnapshot): PollPlan {
+  if (snap.max_seq < cursor) {
+    return { reset: true, ingest: snap.events, nextCursor: snap.max_seq };
+  }
+  return {
+    reset: false,
+    ingest: snap.events.filter((ev) => ev.seq > cursor),
+    nextCursor: Math.max(cursor, snap.max_seq),
+  };
+}
+
+export interface ResetPlan {
+  // The SSE reset always clears the kept events before reseeding.
+  clear: true;
+  ingest: LiveEvent[];
+  nextCursor: number;
+}
+
+// Pure decision for an SSE `reset` event: re-seed from the fresh snapshot —
+// clear the kept list, ingest the snapshot events, set the cursor to the
+// snapshot's max_seq. Null when the snapshot refetch failed (leave recovery to
+// the next frame / the stream's own reconnect).
+export function planResetReseed(snap: LiveSnapshot | null): ResetPlan | null {
+  if (!snap) return null;
+  return { clear: true, ingest: snap.events, nextCursor: snap.max_seq };
+}
+
 export interface LiveState {
   events: LiveEvent[];
-  // null = probing/connecting, false = unavailable on this deployment, true = up
+  // null = probing/connecting (no open yet), false = unavailable on this
+  // deployment (the snapshot probe never succeeded), true = up. A drop AFTER a
+  // successful open is `reconnecting`, NOT `connected = false`: EventSource auto-
+  // reconnects, so the UI shows "reconnecting…" rather than "Unavailable".
   connected: boolean | null;
+  reconnecting: boolean;
   transport: "sse" | "poll" | null;
 }
 
 export function useLive(serverBaseUrl: string | null): LiveState {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const [transport, setTransport] = useState<"sse" | "poll" | null>(null);
   const lastSeq = useRef(0);
+  // Latches once the stream has opened (or a snapshot probe has succeeded) at
+  // least once. After that, a drop is a transient reconnect — NOT a deployment
+  // without the receiver — so onerror surfaces "reconnecting…", not
+  // "Unavailable" (EventSource auto-reconnects in the background).
+  const everOpened = useRef(false);
 
   useEffect(() => {
     lastSeq.current = 0;
+    everOpened.current = false;
     setEvents([]);
     setConnected(null);
+    setReconnecting(false);
     setTransport(null);
     let cancelled = false;
     let source: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const markUp = (): void => {
+      if (cancelled) return;
+      everOpened.current = true;
+      setConnected(true);
+      setReconnecting(false);
+    };
 
     const ingest = (incoming: LiveEvent[]): void => {
       if (incoming.length === 0) return;
@@ -96,7 +205,7 @@ export function useLive(serverBaseUrl: string | null): LiveState {
       const es = new EventSource(liveStreamUrl(serverBaseUrl, sinceSeq));
       source = es;
       es.onopen = () => {
-        if (!cancelled) setConnected(true);
+        markUp();
       };
       es.addEventListener("live", (e) => {
         if (cancelled) return;
@@ -106,9 +215,28 @@ export function useLive(serverBaseUrl: string | null): LiveState {
           /* skip a malformed frame */
         }
       });
+      // Reset/gap sentinel: the client cursor is ahead of the server (receiver
+      // restarted / pruned below it) or the replay backlog exceeds the cap.
+      // Re-seed from the snapshot — the same restart/prune recovery the poll
+      // path has — then keep streaming on the SAME EventSource (the server
+      // resumes from its current head after the sentinel).
+      es.addEventListener("reset", (e) => {
+        if (cancelled || parseResetEvent((e as MessageEvent).data) === null) return;
+        void (async () => {
+          const plan = planResetReseed(await fetchLiveSnapshot(serverBaseUrl));
+          if (cancelled || !plan) return;
+          lastSeq.current = 0;
+          setEvents([]);
+          lastSeq.current = plan.nextCursor;
+          ingest(plan.ingest);
+        })();
+      });
       es.onerror = () => {
-        // EventSource auto-reconnects; surface a reconnecting state.
-        if (!cancelled) setConnected(false);
+        if (cancelled) return;
+        // A drop after a successful open is a transient reconnect (EventSource
+        // retries on its own); only a stream that NEVER opened is unavailable.
+        if (everOpened.current) setReconnecting(true);
+        else setConnected(false);
       };
     };
 
@@ -116,23 +244,29 @@ export function useLive(serverBaseUrl: string | null): LiveState {
       const snap = await fetchLiveSnapshot(serverBaseUrl);
       if (cancelled) return;
       if (!snap) {
-        setConnected(false);
+        // A probe that NEVER succeeded is unavailable; a drop after a prior
+        // success is a transient gap the next tick recovers from.
+        if (everOpened.current) setReconnecting(true);
+        else setConnected(false);
         return;
       }
-      setConnected(true);
-      if (snap.max_seq < lastSeq.current) {
+      markUp();
+      const plan = planPollIngest(lastSeq.current, snap);
+      if (plan.reset) {
         // Receiver restarted / pruned below our cursor — reset and reseed.
         lastSeq.current = 0;
         setEvents([]);
       }
-      ingest(snap.events.filter((ev) => ev.seq > lastSeq.current));
+      lastSeq.current = plan.nextCursor;
+      ingest(plan.ingest);
     };
 
     void (async () => {
       const snap = await fetchLiveSnapshot(serverBaseUrl);
       if (cancelled) return;
       if (snap) {
-        setConnected(true);
+        markUp();
+        lastSeq.current = snap.max_seq;
         ingest(snap.events);
       }
       if (transportKind === "sse") {
@@ -150,7 +284,7 @@ export function useLive(serverBaseUrl: string | null): LiveState {
     };
   }, [serverBaseUrl]);
 
-  return { events, connected, transport };
+  return { events, connected, reconnecting, transport };
 }
 
 // One-shot capability probe for App-level nav gating: the Live tab is shown only

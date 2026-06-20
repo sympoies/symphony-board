@@ -127,6 +127,50 @@ async function configMockDoc() {
   return configMock.doc;
 }
 
+// A small, valid `live-snapshot/1` payload for the #/live seed. Two events with
+// distinct seqs (newest-first) cover the feed rows; one carries an event-level
+// `url` permalink (a comment), the other only a target url — exercising the
+// `ev.url ?? ev.target?.url` link precision.
+function liveSnapshotMock() {
+  return {
+    schema: "live-snapshot/1",
+    max_seq: 2,
+    generated_at: new Date().toISOString(),
+    events: [
+      {
+        seq: 2,
+        event_id: "smoke-live-2",
+        source_id: "github:github.com",
+        provider: "github",
+        received_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        event_type: "issue_comment",
+        action: "created",
+        category: "comment",
+        actor: { login: "octocat" },
+        target: { kind: "issue", source_id: "github:github.com", project_path: "acme/widgets", number: 42, title: "Widget overflow", url: "https://github.com/acme/widgets/issues/42" },
+        title: "octocat commented on Widget overflow",
+        body: "Looks good, shipping.",
+        url: "https://github.com/acme/widgets/issues/42#issuecomment-99",
+      },
+      {
+        seq: 1,
+        event_id: "smoke-live-1",
+        source_id: "github:github.com",
+        provider: "github",
+        received_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        event_type: "pull_request",
+        action: "opened",
+        category: "change_request",
+        actor: { login: "hubot" },
+        target: { kind: "change_request", source_id: "github:github.com", project_path: "acme/widgets", number: 7, title: "Add live feed", url: "https://github.com/acme/widgets/pull/7" },
+        title: "hubot opened Add live feed",
+      },
+    ],
+  };
+}
+
 function chromeBinary() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
   if (platform() === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -275,6 +319,16 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/__smoke/contract-count") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ contractRequests: contractRequestCount }));
+      return;
+    }
+    // A minimal mock of the live receiver's snapshot surface, so the headless
+    // render exercises the #/live page's seed path. The browser EventSource
+    // stream itself is not mocked here (CDP has no SSE server to point at), but
+    // the snapshot seed renders the feed rows and the connection status, which
+    // is what this smoke asserts. `live-snapshot/1` schema + a finite max_seq
+    // match fetchLiveSnapshot's validation.
+    if (p === "/api/live-snapshot") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify(liveSnapshotMock()));
       return;
     }
     if (p === "/api/sync-control") {
@@ -1262,6 +1316,33 @@ try {
     expression: `(() => { const g = ${reviewGroupExpr}; const on = g?.querySelector('.toggle.toggle-on'); return { hash: location.hash, chipOn: !!on, chipText: on?.textContent?.trim() || null }; })()`,
     returnByValue: true,
   })).result.value || {};
+  // Live page — the realtime webhook feed. It seeds from /api/live-snapshot
+  // (mocked above), so the smoke exercises the seed -> render path and the
+  // event-link precision (an event-level comment url vs a parent target url),
+  // plus confirms the receiver probe surfaces the Live nav tab. The browser SSE
+  // stream itself is not driven here (no SSE server target), so the status reads
+  // "Live" or "Reconnecting…" once the snapshot seeds — never "Unavailable".
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(300);
+  const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
+  const live = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const page = document.querySelector('.live-page');
+      const rows = Array.from(document.querySelectorAll('.live-event'));
+      const links = Array.from(document.querySelectorAll('.live-event-target')).map((a) => a.getAttribute('href') || '');
+      const status = document.querySelector('.live-status');
+      return {
+        rendered: !!page,
+        rows: rows.length,
+        links,
+        statusText: status?.textContent?.trim() || '',
+        statusUnavailable: (status?.textContent || '').includes('Unavailable'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const portraitPresets = [
     { name: "phone-portrait", width: 384, height: 854, dpr: 3 },
     { name: "tablet-portrait", width: 930, height: 1240, dpr: 2 },
@@ -1971,6 +2052,14 @@ try {
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
+    // live: the realtime feed seeds from the snapshot and renders precise links
+    [has(liveHtml, "live-page"), "live: page rendered"],
+    [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
+    [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
+    // event-link precision: a comment row links to the exact ev.url permalink
+    // (#issuecomment-…), not just the parent issue/PR target url.
+    [live.links.some((href) => href.includes("#issuecomment-")), `live: a comment row links to the exact event permalink (${(live.links || []).join(", ") || "none"})`],
+    [live.links.some((href) => /\/pull\/\d+$/.test(href)), `live: a row without an event url falls back to the target url (${(live.links || []).join(", ") || "none"})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],
