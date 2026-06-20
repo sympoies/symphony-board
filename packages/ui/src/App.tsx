@@ -129,6 +129,10 @@ type MobileControlPanel = "search" | "filters" | "range" | null;
 // (setRouteFocus), and commits routes carry "?repo=<project_path>" and
 // "?branch=<branch>" for the page-local SCM filters.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
+const historyStateObject = (): Record<string, unknown> => {
+  const state = window.history.state;
+  return state && typeof state === "object" && !Array.isArray(state) ? { ...(state as Record<string, unknown>) } : {};
+};
 
 export function App() {
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
@@ -868,6 +872,43 @@ export function App() {
     });
   }
 
+  function liveDetailHash(open: boolean): string | null {
+    const current = parseHashRoute(readHash());
+    if (current.page !== "live") return null;
+    return buildHashRoute({ ...current, page: "live", liveDetail: open ? "1" : null });
+  }
+
+  function openLiveDetailRoute() {
+    if (typeof window === "undefined") return;
+    const next = liveDetailHash(true);
+    if (!next || readHash() === next) return;
+    window.history.pushState({ ...historyStateObject(), symphonyLiveDetail: true }, "", next);
+    setHash(next);
+  }
+
+  function replaceLiveDetailRouteClosed() {
+    if (typeof window === "undefined") return;
+    const next = liveDetailHash(false);
+    if (!next || readHash() === next) return;
+    const state = historyStateObject();
+    delete state.symphonyLiveDetail;
+    window.history.replaceState(state, "", next);
+    setHash(next);
+  }
+
+  function closeLiveDetailRoute() {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    if (current.page !== "live" || current.liveDetail !== "1") return;
+    const next = liveDetailHash(false);
+    if ((window.history.state as { symphonyLiveDetail?: unknown } | null)?.symphonyLiveDetail === true) {
+      window.history.back();
+      if (next) setHash(next);
+      return;
+    }
+    replaceLiveDetailRouteClosed();
+  }
+
   function setRouteSearch(q: string) {
     setFilters((f) => ({ ...f, search: q }));
     if (typeof window === "undefined") return;
@@ -1047,7 +1088,14 @@ export function App() {
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
         ) : null}
         {pageTabs}
-        <LivePage live={live} previewLines={livePreviewLines} />
+        <LivePage
+          live={live}
+          previewLines={livePreviewLines}
+          detailRouteOpen={route.liveDetail === "1"}
+          onOpenDetailRoute={openLiveDetailRoute}
+          onCloseDetailRoute={closeLiveDetailRoute}
+          onClearDetailRoute={closeLiveDetailRoute}
+        />
       </div>
     );
   }

@@ -10,8 +10,9 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { MAX_EVENTS, type LiveState } from "../useLive.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
   categoryCounts,
@@ -59,6 +60,9 @@ const RATE_WINDOW_MS = 3_600_000; // events in the last hour (the "/hr" figure) 
 // a per-minute window reads 0 almost always at this feed's volume.
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
+// Keep this in sync with the CSS breakpoint where .live-detail becomes a fixed
+// overlay.
+const LIVE_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -71,14 +75,13 @@ const shortRepo = (repo: string | null): string => (repo ? (repo.split("/").pop(
 function statusLabel(
   connected: boolean | null,
   reconnecting: boolean,
-  transport: "sse" | "poll" | null,
 ): string {
   if (connected === null) return "Connecting…";
   if (connected === false) return "Offline";
   // A drop that follows a successful open is transient: EventSource auto-
   // reconnects (poll retries on its own tick), so say so rather than "Live".
   if (reconnecting) return "Reconnecting…";
-  return transport === "poll" ? "Streaming (polling)" : "Streaming";
+  return "Streaming";
 }
 
 function Sparkline({ values }: { values: number[] }) {
@@ -250,13 +253,21 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
 export function LivePage({
   live,
   previewLines,
+  detailRouteOpen,
+  onOpenDetailRoute,
+  onCloseDetailRoute,
+  onClearDetailRoute,
 }: {
   live: LiveState;
   previewLines: number;
+  detailRouteOpen: boolean;
+  onOpenDetailRoute: () => void;
+  onCloseDetailRoute: () => void;
+  onClearDetailRoute: () => void;
 }) {
   // The stream is owned by App (always mounted) so the buffer persists across tab
   // switches; LivePage only renders it.
-  const { events, connected, reconnecting, transport } = live;
+  const { events, connected, reconnecting } = live;
   // A 1s tick keeps the relative ages ("9s ago") and the rate window live even
   // between event arrivals.
   const [now, setNow] = useState(() => Date.now());
@@ -267,8 +278,10 @@ export function LivePage({
   // pins it (the detail stays put as new events stream in); clicking it again — or
   // the "follow latest" control in the detail — releases back to auto-follow.
   const [pinned, setPinned] = useState<LiveEvent | null>(null);
-  // Drives the NARROW-screen detail overlay; only a tap opens it.
-  const [detailOpen, setDetailOpen] = useState(false);
+  const isDetailOverlay = useMediaQuery(LIVE_DETAIL_OVERLAY_QUERY);
+  // Drives the NARROW-screen detail overlay; route-backed so Android/browser
+  // Back closes detail before leaving the Live tab.
+  const detailOpen = isDetailOverlay && detailRouteOpen;
   // Mobile-only: the category pills are collapsed behind a disclosure by default
   // (they're shown inline on desktop). Tap the summary to reveal them.
   const [catsOpen, setCatsOpen] = useState(false);
@@ -305,6 +318,16 @@ export function LivePage({
   const detail = pinned ?? shown[0] ?? null;
   const detailKey = detail ? keyOf(detail) : null;
   const feedRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
+  }, [detailRouteOpen, isDetailOverlay, onClearDetailRoute]);
+  const openDetail = useCallback(() => {
+    if (!isDetailOverlay) return;
+    if (!detailRouteOpen) onOpenDetailRoute();
+  }, [detailRouteOpen, isDetailOverlay, onOpenDetailRoute]);
+  const closeDetail = useCallback(() => {
+    if (detailRouteOpen) onCloseDetailRoute();
+  }, [detailRouteOpen, onCloseDetailRoute]);
   // Releasing the pin resumes auto-follow; bring the newest event (now shown in
   // the detail) back into view at the top of the feed.
   const followLatest = () => {
@@ -318,8 +341,7 @@ export function LivePage({
         <div className="live-header-main">
           <h1>Live</h1>
           <span className={`live-status live-status-${statusKind}`}>
-            {statusLabel(connected, reconnecting, transport)}
-            {transport ? <span className="live-status-tx">{transport}</span> : null}
+            {statusLabel(connected, reconnecting)}
           </span>
         </div>
       </header>
@@ -447,7 +469,7 @@ export function LivePage({
                     if (pinned && keyOf(pinned) === keyOf(ev)) followLatest();
                     else {
                       setPinned(ev);
-                      setDetailOpen(true);
+                      openDetail();
                     }
                   }}
                 />
@@ -461,7 +483,7 @@ export function LivePage({
                 now={now}
                 following={following}
                 onFollowLatest={followLatest}
-                onClose={() => setDetailOpen(false)}
+                onClose={closeDetail}
               />
             ) : (
               <div className="live-detail-empty">Waiting for the first event…</div>

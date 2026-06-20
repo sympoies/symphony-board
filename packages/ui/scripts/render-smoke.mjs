@@ -1327,12 +1327,14 @@ try {
   // Live page — the realtime webhook feed. It seeds from /api/live-snapshot
   // (mocked above), so the smoke exercises the seed -> render path and the
   // event-link precision (an event-level comment url vs a parent target url),
-  // plus confirms the receiver probe surfaces the Live nav tab. The browser SSE
-  // stream itself is not driven here (no SSE server target), so the status reads
-  // "Live" or "Reconnecting…" once the snapshot seeds — never "Unavailable".
+  // plus confirms the receiver probe surfaces the Live nav tab. Mock Tauri for
+  // this section so the Live hook chooses polling, matching the desktop/mobile
+  // app path that cannot hold an SSE stream.
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(100);
-  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await send("Runtime.evaluate", {
+    expression: "Object.defineProperty(window, '__TAURI_INTERNALS__', { value: {}, configurable: true }); location.hash = '#/live'",
+  });
   await sleep(300);
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
   await sleep(120); // let the auto-select effect populate the detail pane
@@ -1350,6 +1352,7 @@ try {
         detailLink,
         statusText: status?.textContent?.trim() || '',
         statusUnavailable: (status?.textContent || '').includes('Unavailable'),
+        statusHasTransport: /\\(polling\\)|\\bPOLL\\b/.test(status?.textContent || ''),
       };
     })()`,
     returnByValue: true,
@@ -1362,6 +1365,116 @@ try {
     expression: "document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || ''",
     returnByValue: true,
   })).result.value || "";
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.live-feed .live-event')?.click()" });
+  await sleep(180);
+  const liveMobileOpen = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.live-split');
+      const detail = document.querySelector('.live-detail');
+      const back = document.querySelector('.live-detail-back');
+      const feed = document.querySelector('.live-feed');
+      return {
+        detailOpen: split?.getAttribute('data-detail-open') || '',
+        detailDisplay: detail ? getComputedStyle(detail).display : '',
+        detailPosition: detail ? getComputedStyle(detail).position : '',
+        backVisible: back ? getComputedStyle(back).display !== 'none' : false,
+        feedRows: feed?.querySelectorAll('.live-event').length || 0,
+        hash: location.hash,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(250);
+  const liveMobileAway = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      activityVisible: !!document.querySelector('.activity-page'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await sleep(300);
+  const liveMobileReturnDetail = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.live-split');
+      const detail = document.querySelector('.live-detail');
+      const feed = document.querySelector('.live-feed');
+      return {
+        detailOpen: split?.getAttribute('data-detail-open') || '',
+        detailDisplay: detail ? getComputedStyle(detail).display : '',
+        feedRows: feed?.querySelectorAll('.live-event').length || 0,
+        hash: location.hash,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await sleep(250);
+  const liveMobileBack = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.live-split');
+      const detail = document.querySelector('.live-detail');
+      const feed = document.querySelector('.live-feed');
+      return {
+        detailOpen: split?.getAttribute('data-detail-open') || '',
+        detailDisplay: detail ? getComputedStyle(detail).display : '',
+        feedRows: feed?.querySelectorAll('.live-event').length || 0,
+        hash: location.hash,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(250);
+  await waitHtml("document.querySelector('.commits-page')");
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(120);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.live-feed .live-event')?.click()" });
+  await sleep(180);
+  await send("Emulation.setDeviceMetricsOverride", { width: 930, height: 854, deviceScaleFactor: 2, mobile: true });
+  await sleep(300);
+  const liveBreakpointClear = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.live-split');
+      const detail = document.querySelector('.live-detail');
+      return {
+        detailOpen: split?.getAttribute('data-detail-open') || '',
+        detailDisplay: detail ? getComputedStyle(detail).display : '',
+        hash: location.hash,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(250);
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await sleep(250);
+  const liveBreakpointBackToLive = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      liveVisible: !!document.querySelector('.live-page'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await sleep(250);
+  const liveBreakpointBackToSentinel = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      commitsVisible: !!document.querySelector('.commits-page'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "delete window.__TAURI_INTERNALS__" });
   const portraitPresets = [
     { name: "phone-portrait", width: 384, height: 854, dpr: 3 },
     { name: "tablet-portrait", width: 930, height: 1240, dpr: 2 },
@@ -2075,11 +2188,19 @@ try {
     [has(liveHtml, "live-page"), "live: page rendered"],
     [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
+    [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],
     // event-link precision: the auto-selected newest event (a comment) shows the
     // exact ev.url permalink (#issuecomment-…) in its detail pane …
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],
     // … and selecting a row without an event url falls back to the target url.
     [/\/pull\/\d+$/.test(liveFallbackLink), `live: a selected row without an event url falls back to the target url (${liveFallbackLink || "none"})`],
+    [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
+    [liveMobileAway.hash === "#/activity" && liveMobileAway.activityVisible === true, `live: phone can leave Live while detail is open (${JSON.stringify(liveMobileAway)})`],
+    [liveMobileReturnDetail.detailOpen === "true" && liveMobileReturnDetail.detailDisplay !== "none" && liveMobileReturnDetail.feedRows >= 2 && /[?&]liveDetail=1/.test(liveMobileReturnDetail.hash || ""), `live: phone history.back from another tab returns to the route-backed detail overlay (${JSON.stringify(liveMobileReturnDetail)})`],
+    [liveMobileBack.detailOpen === "false" && liveMobileBack.detailDisplay === "none" && liveMobileBack.feedRows >= 2 && liveMobileBack.hash === "#/live", `live: phone history.back returns from detail overlay to the feed (${JSON.stringify(liveMobileBack)})`],
+    [liveBreakpointClear.detailOpen === "false" && liveBreakpointClear.hash === "#/live", `live: widening past the phone overlay breakpoint clears the detail route (${JSON.stringify(liveBreakpointClear)})`],
+    [liveBreakpointBackToLive.hash === "#/live" && liveBreakpointBackToLive.liveVisible === true, `live: after breakpoint cleanup, one Back from another tab returns to Live (${JSON.stringify(liveBreakpointBackToLive)})`],
+    [liveBreakpointBackToSentinel.hash === "#/commits" && liveBreakpointBackToSentinel.commitsVisible === true, `live: breakpoint cleanup does not leave a duplicate Live history entry (${JSON.stringify(liveBreakpointBackToSentinel)})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],
