@@ -11,6 +11,9 @@
 #                    while it is on, or a server later): docker compose up -d  /
 #                    docker run -d --restart=unless-stopped.
 #   api            - read-only HTTP range-query API. It never syncs or emits.
+#   live           - least-privilege webhook receiver + SSE/snapshot for the
+#                    Live page. Owns ONLY its own live.db; no canonical store,
+#                    no provider token, no config mount. Never syncs or emits.
 #
 # This is the SOLE writer by design: no external cron/trigger. A single writer
 # also preserves the writer/read-only boundary while the UI sidecar and
@@ -28,12 +31,14 @@
 # alone would never tombstone. With the defaults (INTERVAL 120, FULL_EVERY 30)
 # that is a full sweep about hourly, incremental every 2 minutes in between.
 #
-# Env: SYNC_MODE (once|loop|api), INTERVAL (seconds, default 120), FULL_EVERY (loop:
+# Env: SYNC_MODE (once|loop|api|live), INTERVAL (seconds, default 120), FULL_EVERY (loop:
 # run a full sweep every Nth iteration, default 30; 1 = always full), SYMPHONY_CONFIG
 # (default config/sources.json), CONTRACT_OUT (default data/contract.json), PORT
 # (api mode, default 8081). Loop mode also reads SYNC_CONTROL_ENABLED (enable
 # UI-triggered manual sync; default off), SYNC_CONTROL_PORT (default 8080), and
-# SYNC_CONTROL_HOST (default 0.0.0.0).
+# SYNC_CONTROL_HOST (default 0.0.0.0). Live mode reads LIVE_BIND_HOST (default
+# 127.0.0.1), LIVE_PORT (default 8090), LIVE_DB_PATH, WEBHOOK_GITHUB_SECRET
+# [_PREVIOUS], LIVE_EVENT_TTL_DAYS, LIVE_MAX_ROWS, and LIVE_PROJECT_ALLOWLIST.
 set -eu
 
 MODE="${SYNC_MODE:-once}"
@@ -67,8 +72,15 @@ case "$MODE" in
   api)
     exec $NODE src/cli/range-api.ts --config "$CONFIG"
     ;;
+  live)
+    # Least-privilege Live receiver: verifies webhooks, owns its own live.db,
+    # and serves the tailnet SSE/snapshot. No --config by design — it reads only
+    # its own LIVE_* / WEBHOOK_* env and never opens the canonical store.
+    # shellcheck disable=SC2086
+    exec $NODE src/cli/live-receiver.ts
+    ;;
   *)
-    echo "$(ts) ERROR: unknown SYNC_MODE='$MODE' (use once|loop|api)" >&2
+    echo "$(ts) ERROR: unknown SYNC_MODE='$MODE' (use once|loop|api|live)" >&2
     exit 2
     ;;
 esac

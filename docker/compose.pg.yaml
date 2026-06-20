@@ -111,6 +111,53 @@ services:
       retries: 3
       start_period: 10s
 
+  # Least-privilege Live receiver — same as docker/compose.yaml, parameterized
+  # for the PG stack. It uses its OWN live-data SQLite volume (Decision 3), NOT
+  # the Postgres store: no SYMPHONY_DB_URL, no config mount, no provider token
+  # (only the webhook secret by name, via `environment:` interpolation).
+  live:
+    image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SYNC_MODE: live
+      LIVE_BIND_HOST: 0.0.0.0
+      LIVE_PORT: "8090"
+      LIVE_DB_PATH: data/live.db
+      WEBHOOK_GITHUB_SECRET: ${WEBHOOK_GITHUB_SECRET:-}
+      WEBHOOK_GITHUB_SECRET_PREVIOUS: ${WEBHOOK_GITHUB_SECRET_PREVIOUS:-}
+      LIVE_EVENT_TTL_DAYS: ${LIVE_EVENT_TTL_DAYS:-30}
+      LIVE_MAX_ROWS: ${LIVE_MAX_ROWS:-50000}
+      LIVE_PROJECT_ALLOWLIST: ${LIVE_PROJECT_ALLOWLIST:-}
+    volumes:
+      - live-data:/app/data
+    ports:
+      # Loopback-only host port for the host Tailscale Funnel (public /webhooks).
+      # Never 0.0.0.0. /api/live* is reached only via the web sidecar.
+      - "${SYMPHONY_PG_LIVE_BIND:-127.0.0.1}:${SYMPHONY_PG_LIVE_PORT:-18090}:8090"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   web:
     image: ghcr.io/sympoies/symphony-board-web:${SYMPHONY_IMAGE_TAG:-dev}
     build:
@@ -130,7 +177,11 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+      live:
+        condition: service_started
 
 volumes:
   postgres-data:
   contract-data:
+  # The Live receiver's own append-only SQLite store (separate from Postgres).
+  live-data:

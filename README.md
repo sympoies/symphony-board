@@ -107,6 +107,39 @@ transitions.
 Commit activity details may include the full commit body and the provider
 default branch/ref when the REST source exposes that metadata.
 
+## Live Event Stream (Realtime)
+
+Alongside the periodic-sync pipeline above, an independent realtime "Live"
+mechanism streams provider webhook activity to a new **Live** UI tab:
+
+```text
+GitHub org webhook --HMAC verify--> [live receiver] --append--> live.db
+   (SQLite, append-only, TTL-pruned) --SSE / snapshot--> Live page
+```
+
+It is fully separate from the contract pipeline (its own store and its own
+`live-event/1` schema) and is a best-effort freshness feed — the board (periodic
+sync) remains the source of truth. The `live` Docker service is least-privilege:
+it holds only its own `live.db` and the webhook HMAC secret (by env-var name),
+with no canonical store, provider token, or config mount. See
+[`docs/DESIGN.md`](docs/DESIGN.md) ("Live Event Stream") for the full design and
+trust-boundary notes.
+
+**Deployment (g14):** the receiver's only public surface is
+`POST /webhooks/github`. Expose just that path with a Tailscale Funnel on a
+dedicated funnel port (`443` / `8443` / `10000`):
+
+```sh
+# one-time: grant the `funnel` node attribute in the tailnet ACL (admin)
+tailscale funnel --set-path=/webhooks --bg 8443 http://127.0.0.1:18090
+```
+
+The SSE/snapshot reads (`/api/live*`) stay tailnet-only through the existing
+`tailscale serve` UI port and are **never** funneled. Set `WEBHOOK_GITHUB_SECRET`
+(and, during a rotation window, `WEBHOOK_GITHUB_SECRET_PREVIOUS`) to match the
+GitHub org webhook secret; see [`.env.example`](.env.example). The actual
+funnel/serve wiring lives in the g14-infra `serve.sh`, out of this repo.
+
 ## Workspace
 
 This is a pnpm workspace:
