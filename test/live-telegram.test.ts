@@ -9,6 +9,7 @@ import {
   escapeHtml,
   eventEmoji,
   formatLiveEvent,
+  MAX_BODY_LINES,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../src/live/telegram.ts";
 import {
@@ -142,6 +143,16 @@ test("formatLiveEvent truncates an over-long body to the message ceiling", () =>
   const msg = formatLiveEvent(makeEvent({ body: "x".repeat(8000) }));
   assert.ok(msg.length <= TELEGRAM_MESSAGE_LIMIT);
   assert.match(msg, /…$/);
+});
+
+test("formatLiveEvent caps the body at MAX_BODY_LINES lines", () => {
+  const body = Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join("\n");
+  const msg = formatLiveEvent(makeEvent({ body }));
+  const bodyPart = msg.split("\n\n").slice(1).join("\n\n");
+  const kept = bodyPart.split("\n").filter((l) => /^line \d+$/.test(l));
+  assert.equal(kept.length, MAX_BODY_LINES);
+  assert.match(msg, /…$/);
+  assert.ok(!msg.includes("line 11"), "lines past the cap are dropped");
 });
 
 test("formatLiveEvent tolerates missing actor/target/title/body", () => {

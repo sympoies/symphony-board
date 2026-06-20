@@ -11,6 +11,10 @@ import type { LiveEvent } from "./types.ts";
 // characters; an over-long body is truncated with an ellipsis marker.
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
 
+// Body preview cap: keep firehose messages short. Beyond this many lines the
+// body is cut with a "…" and the reader follows the header link for the rest.
+export const MAX_BODY_LINES = 10;
+
 // Escape for Bot API "HTML" parse_mode. We send arbitrary provider text
 // (issue/PR/comment bodies, and URLs inside href attributes) so every
 // interpolated field is escaped — the message structure is the only markup.
@@ -120,15 +124,22 @@ export function formatLiveEvent(event: LiveEvent): string {
 
   const head = header + titleLine + metaLine;
 
-  // Append as much of the (escaped) body as fits under the message ceiling.
-  const body = event.body?.trim();
-  if (!body) return head;
+  // Append a SHORT body preview — at most MAX_BODY_LINES lines, still under the
+  // message ceiling. The header already links the item, so a truncated body
+  // ends with "…" and the reader clicks through for the full content.
+  const rawBody = event.body?.trim();
+  if (!rawBody) return head;
 
   const ELLIPSIS = "\n…";
-  const escapedBody = escapeHtml(body);
   const room = TELEGRAM_MESSAGE_LIMIT - head.length - 2; // 2 for the "\n\n" gap
   if (room <= ELLIPSIS.length) return head;
-  if (escapedBody.length <= room) return `${head}\n\n${escapedBody}`;
-  const sliced = clampHtml(escapedBody, room - ELLIPSIS.length);
-  return `${head}\n\n${sliced}${ELLIPSIS}`;
+
+  const lines = rawBody.split("\n");
+  let truncated = lines.length > MAX_BODY_LINES;
+  let escapedBody = escapeHtml(lines.slice(0, MAX_BODY_LINES).join("\n"));
+  if (escapedBody.length > room - ELLIPSIS.length) {
+    escapedBody = clampHtml(escapedBody, room - ELLIPSIS.length);
+    truncated = true;
+  }
+  return `${head}\n\n${escapedBody}${truncated ? ELLIPSIS : ""}`;
 }
