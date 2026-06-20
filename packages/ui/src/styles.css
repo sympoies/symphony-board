@@ -3034,13 +3034,16 @@ a.rf-node-title:hover { color: var(--accent); }
    Mirrors .live-detail; both panes are reset to natural flow on narrow. */
 .live-feed {
   list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
   position: sticky; top: 12px;
   max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-gutter: stable;
 }
+/* Each row is a bordered panel card (matching .activity-row), so the feed reads
+   as a defined list on the light Paper theme instead of floating on the page. */
 .live-event {
   display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
-  padding: 11px 8px 11px 12px; position: relative; cursor: pointer; border-radius: 6px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  padding: 11px 8px 11px 12px; position: relative; cursor: pointer; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line);
 }
 .live-event::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
@@ -3049,7 +3052,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-event:hover { background: var(--hover-soft); }
 .live-event:hover::before { opacity: 0.5; }
 .live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.live-event-selected { background: color-mix(in srgb, var(--live) 12%, transparent); }
+.live-event-selected { background: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
 .live-event-selected::before { opacity: 0.95; }
 .live-event-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--cat, var(--muted)); }
 .live-event-main { min-width: 0; }
@@ -3089,12 +3092,22 @@ a.rf-node-title:hover { color: var(--accent); }
   100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 0%, transparent); }
 }
 @keyframes live-arrive {
-  from { background: color-mix(in srgb, var(--live) 16%, transparent); }
-  to { background: transparent; }
+  from { background: color-mix(in srgb, var(--live) 18%, var(--panel)); }
+  to { background: var(--panel); }
 }
 
 @media (max-width: 820px) { .live-pulse { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 480px) { .live-pulse { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  /* Phone: keep the metrics a compact 2x2 (set above) but tighten figures and
+     padding, give pills / dropdowns a real tap target, and let the filter
+     dropdowns take their own full-width row below the category pills. */
+  .live-pulse { gap: 8px; margin-bottom: 14px; }
+  .live-figure { font-size: 21px; }
+  .live-card { padding: 10px 11px; }
+  .live-note { margin-bottom: 12px; }
+  .live-cat, .ms-button { min-height: 32px; }
+  .live-selects { width: 100%; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .live-status-dot { animation: none; }
@@ -3118,6 +3131,9 @@ a.rf-node-title:hover { color: var(--accent); }
 .ms-button:disabled { opacity: 0.5; cursor: default; }
 .ms-button-on { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .ms-count { font-family: var(--mono); font-size: 11px; background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 0 6px; }
+/* Nothing selected: a muted "N available" badge, visually distinct from the
+   accent "N selected" badge so the two meanings never read the same. */
+.ms-count-avail { background: var(--panel-2); color: var(--muted); }
 .ms-caret { font-size: 10px; opacity: 0.8; }
 .ms-menu {
   position: absolute; z-index: 50; top: calc(100% + 4px); left: 0;
@@ -3133,7 +3149,11 @@ a.rf-node-title:hover { color: var(--accent); }
 .ms-option-label { min-width: 0; overflow-wrap: anywhere; }
 
 /* ---- master-detail split: feed (left) + selected event (right) ---- */
-.live-split { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+/* Feed (left) : detail (right) = 2 : 3 — the feed stays comfortably wide for
+   scanning while the detail is the larger reading pane. The detail's markdown is
+   line-length capped (~100ch) for readability, so a small right gutter can remain
+   at very wide widths. */
+.live-split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start; }
 .live-feed-empty { margin: 24px 4px; }
 .live-detail { position: sticky; top: 12px; max-height: calc(100vh - 90px); overflow: auto; min-width: 0; }
 .live-detail-empty { color: var(--muted); padding: 24px 4px; }
@@ -3145,6 +3165,14 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-title { font-size: 17px; margin: 0 0 6px; border: none; padding: 0; line-height: 1.35; }
 .live-detail-link { display: inline-block; margin-bottom: 12px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
 .live-detail-link-plain { color: var(--muted); }
+/* Follow-vs-pin mode cue in the detail header: muted "Following latest" with a
+   live dot when auto-following the newest event, or a pill button to release the
+   pin back to auto-follow. */
+.live-mode { display: flex; align-items: center; margin-bottom: 10px; font-size: 12px; }
+.live-mode-following { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.live-mode-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live); flex: none; }
+.live-mode-release { background: none; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text); font: inherit; font-size: 12px; border-radius: 999px; padding: 2px 11px; cursor: pointer; }
+.live-mode-release:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 /* ---- markdown body (shared by the clamped preview + the full detail) ---- */
 .live-md { color: var(--text); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }

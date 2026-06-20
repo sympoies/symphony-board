@@ -187,7 +187,7 @@ function LiveRow({
   );
 }
 
-function LiveDetail({ ev, now, onClose }: { ev: LiveEvent; now: number; onClose: () => void }) {
+function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveEvent; now: number; following: boolean; onFollowLatest: () => void; onClose: () => void }) {
   const instant = eventInstant(ev);
   const age = instant != null ? relativeAge(instant, now) : "";
   const actor = ev.actor?.login ?? "someone";
@@ -198,6 +198,17 @@ function LiveDetail({ ev, now, onClose }: { ev: LiveEvent; now: number; onClose:
       <button type="button" className="live-detail-back" onClick={onClose}>
         ← Back to feed
       </button>
+      <div className="live-mode">
+        {following ? (
+          <span className="live-mode-following">
+            <span className="live-mode-dot" aria-hidden="true" /> Following latest
+          </span>
+        ) : (
+          <button type="button" className="live-mode-release" onClick={onFollowLatest}>
+            Pinned · follow latest
+          </button>
+        )}
+      </div>
       <div className="live-detail-head" style={catStyle(ev.category)}>
         <span className="live-event-category">{humanizeCategory(ev.category)}</span>
         {age ? (
@@ -247,9 +258,11 @@ export function LivePage({
   const [category, setCategory] = useState<string | null>(null);
   const [repos, setRepos] = useState<Set<string>>(() => new Set());
   const [people, setPeople] = useState<Set<string>>(() => new Set());
-  const [selected, setSelected] = useState<LiveEvent | null>(null);
-  // Drives the NARROW-screen detail overlay. Auto-selecting the newest fills the
-  // wide right pane without popping the overlay on mobile; only a tap opens it.
+  // The explicitly pinned event, or null = auto-follow the newest. Clicking a row
+  // pins it (the detail stays put as new events stream in); clicking it again — or
+  // the "follow latest" control in the detail — releases back to auto-follow.
+  const [pinned, setPinned] = useState<LiveEvent | null>(null);
+  // Drives the NARROW-screen detail overlay; only a tap opens it.
   const [detailOpen, setDetailOpen] = useState(false);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -276,15 +289,13 @@ export function LivePage({
   const latestInstant = latest ? eventInstant(latest) : null;
   const shown = events.filter((e) => eventMatchesFilters(e, { category, repos, people }));
 
-  // Seed the detail pane with the newest event on first load so the right pane
-  // is not empty; after that, selection only changes on click (a new arrival
-  // never hijacks what the reader is looking at).
-  useEffect(() => {
-    if (!selected && shown.length) setSelected(shown[0] ?? null);
-  }, [shown, selected]);
-
   const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
-  const selectedKey = selected ? keyOf(selected) : null;
+  // The detail shows the pinned event; with nothing pinned it auto-follows the
+  // newest matching event, so the right pane updates as new data streams in (and
+  // is never empty once an event exists).
+  const following = pinned === null;
+  const detail = pinned ?? shown[0] ?? null;
+  const detailKey = detail ? keyOf(detail) : null;
 
   return (
     <div className="live-page">
@@ -395,9 +406,11 @@ export function LivePage({
                   ev={ev}
                   now={now}
                   previewLines={previewLines}
-                  selected={keyOf(ev) === selectedKey}
+                  selected={keyOf(ev) === detailKey}
                   onSelect={() => {
-                    setSelected(ev);
+                    // Toggle: click pins this row; click the pinned row again to
+                    // release back to auto-follow.
+                    setPinned((cur) => (cur && keyOf(cur) === keyOf(ev) ? null : ev));
                     setDetailOpen(true);
                   }}
                 />
@@ -405,10 +418,16 @@ export function LivePage({
             </ul>
           )}
           <div className="live-detail">
-            {selected ? (
-              <LiveDetail ev={selected} now={now} onClose={() => setDetailOpen(false)} />
+            {detail ? (
+              <LiveDetail
+                ev={detail}
+                now={now}
+                following={following}
+                onFollowLatest={() => setPinned(null)}
+                onClose={() => setDetailOpen(false)}
+              />
             ) : (
-              <div className="live-detail-empty">Select an event to read its full content.</div>
+              <div className="live-detail-empty">Waiting for the first event…</div>
             )}
           </div>
         </div>

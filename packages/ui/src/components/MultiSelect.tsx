@@ -43,7 +43,8 @@ export function MultiSelect({
   };
 
   const count = selected.size;
-  const disabled = options.length === 0;
+  const available = options.length;
+  const disabled = available === 0;
 
   return (
     <div className="ms" ref={rootRef}>
@@ -52,11 +53,18 @@ export function MultiSelect({
         className={`ms-button${count ? " ms-button-on" : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={count ? `${label}: ${count} selected` : `${label}: ${available} available`}
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
         {label}
-        {count ? <span className="ms-count">{count}</span> : null}
+        {count ? (
+          <span className="ms-count">{count}</span>
+        ) : available ? (
+          // Nothing selected: show how many options are available (muted), so the
+          // control reads "N to filter by" — distinct from the accent selected-count.
+          <span className="ms-count ms-count-avail">{available}</span>
+        ) : null}
         <span className="ms-caret" aria-hidden="true">
           ▾
         </span>
