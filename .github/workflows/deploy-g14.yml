@@ -101,13 +101,21 @@ jobs:
           # derive its allowlist from the board's own source config (GitHub only —
           # the Live GitLab adapter is a stub) and append it to the rendered .env.
           # The receiver still only reads this env var (no config mount), so it
-          # stays least-privilege. Best-effort: empty output falls back to the
-          # compose default, so a config quirk never blocks the deploy.
-          allow="$(bash "$infra/scripts/live-allowlist.sh" "$infra/stacks/symphony-board/config/sources.pg.json" || true)"
-          if [ -n "$allow" ]; then
-            echo "LIVE_PROJECT_ALLOWLIST=$allow" >> "$infra/stacks/symphony-board/.env"
-            echo "Live allowlist (from config): $allow"
+          # stays least-privilege. The receiver treats an EMPTY allowlist as
+          # accept-all (every repo the org webhook fans in), so a failed or empty
+          # derivation must FAIL THE DEPLOY closed rather than silently fall back
+          # to the empty compose default and widen the receiver. Log only the repo
+          # count, never the derived list, since Actions logs are public.
+          if ! allow="$(bash "$infra/scripts/live-allowlist.sh" "$infra/stacks/symphony-board/config/sources.pg.json")"; then
+            echo "::error::Live allowlist derivation failed; refusing to deploy the receiver in accept-all mode." >&2
+            exit 1
           fi
+          if [ -z "$allow" ]; then
+            echo "::error::Live allowlist derivation returned empty; refusing to deploy the receiver in accept-all mode." >&2
+            exit 1
+          fi
+          echo "LIVE_PROJECT_ALLOWLIST=$allow" >> "$infra/stacks/symphony-board/.env"
+          echo "Live allowlist derived: $(printf '%s' "$allow" | awk -F, '{print NF}') repo(s)."
           cd "$infra/stacks/symphony-board"
           # Pull the freshly published :latest image and reconcile the stack.
           # Reuses the existing named volumes (postgres-data / contract-data).
