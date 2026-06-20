@@ -239,6 +239,15 @@ export function projectPaths(s: SourceConfig): string[] {
   return s.projects.map((p) => (typeof p === "string" ? p : p.path));
 }
 
+// The (source_id, project_path) pairs currently declared across every source.
+// buildContract uses this so a repo dropped from config (and carrying no live
+// items — e.g. one surviving only via never-tombstoned activity rows) stops
+// appearing in the repo lists. Display/config concern, computed at emit time
+// like colors/identities — never stored in the DB, so buildContract stays pure.
+export function configuredRepoRefs(cfg: Pick<AppConfig, "sources">): Array<{ source_id: string; project_path: string }> {
+  return cfg.sources.flatMap((s) => projectPaths(s).map((project_path) => ({ source_id: s.source_id, project_path })));
+}
+
 export function sourceEnabled(s: Pick<SourceConfig, "enabled">): boolean {
   return s.enabled !== false;
 }
