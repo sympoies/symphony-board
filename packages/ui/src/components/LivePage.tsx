@@ -215,18 +215,23 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
           <time title={instant != null ? new Date(instant).toLocaleString() : undefined}>{age} ago</time>
         ) : null}
       </div>
-      <h2 className="live-detail-title">{ev.title ?? `${actor} · ${ev.event_type}`}</h2>
-      {link ? (
-        <a className="live-detail-link" href={link} target="_blank" rel="noopener noreferrer">
-          {repo}
-          {num ? <span className="live-event-num"> {num}</span> : null} ↗
-        </a>
-      ) : (
-        <div className="live-detail-link live-detail-link-plain">
-          {repo}
-          {num ? <span className="live-event-num"> {num}</span> : null}
-        </div>
-      )}
+      {/* The link goes on the TITLE (which names the actual event) — its target can
+          be a comment permalink, so hanging it off "repo #num" read as wrong. The
+          repo + number stays as a plain reference line below. */}
+      <h2 className="live-detail-title">
+        {link ? (
+          <a className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
+            {ev.title ?? `${actor} · ${ev.event_type}`}
+            <span className="live-detail-title-arrow" aria-hidden="true"> ↗</span>
+          </a>
+        ) : (
+          (ev.title ?? `${actor} · ${ev.event_type}`)
+        )}
+      </h2>
+      <div className="live-detail-ref">
+        {repo}
+        {num ? <span className="live-event-num"> {num}</span> : null}
+      </div>
       {ev.body ? (
         <MarkdownBody text={ev.body} className="live-md live-detail-body" />
       ) : (
