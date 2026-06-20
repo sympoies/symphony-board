@@ -58,9 +58,9 @@
 
 | ID | Status | Task | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | todo | Dedicated live-event store (`src/live/store.ts` + schema) | | Separate SQLite; unique `(source_id, event_id)`; monotonic `seq`; `since`/`recent`/`prune`. |
-| 1.2 | todo | Provider-neutral `LiveEvent` + `live-event/1` schema | | Independent of `packages/contract`; NUL-safe ids; 64-bit-safe numbers. |
-| 1.3 | todo | TTL / row-cap prune | | Default 30d; bounds the SSE replay backlog. |
+| 1.1 | done | Dedicated live-event store (`src/live/store.ts` + schema) | PR #307; test/live-store.test.ts (299 pass); test-first verified | Separate SQLite; unique `(source_id, event_id)`; monotonic `seq`; `since`/`recent`/`prune`. |
+| 1.2 | done | Provider-neutral `LiveEvent` + `live-event/1` schema | PR #307; test/live-store.test.ts (299 pass); test-first verified | Independent of `packages/contract`; NUL-safe ids; 64-bit-safe numbers. |
+| 1.3 | done | TTL / row-cap prune | PR #307; test/live-store.test.ts (299 pass); test-first verified | Default 30d; bounds the SSE replay backlog. |
 | 2.1 | todo | Raw-body reader + HMAC verifier (pure) | | `readBodyBytes` (Buffer); constant-time; no permissive fallback; dual-secret rotation. |
 | 2.2 | todo | `WebhookProvider` interface + GitHub adapter (pure) | | Event/action routing; ping; dedupe id; scrub secret fields from `raw`. |
 | 3.1 | todo | `live` receiver process + webhook intake | | Least-privilege; verify→dedupe→adapt→append→broadcast; ack 202 <10s. |
