@@ -22,7 +22,7 @@
 - Source document: `docs/plans/2026-06-20-live-event-stream/live-event-stream-discussion-source.md`
 - Plan document: `docs/plans/2026-06-20-live-event-stream/live-event-stream-plan.md`
 - Direct source-doc execution waiver: not applicable
-- Tracking issue: pending — created by `create-plan-tracking-issue`.
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/305>
 - Source snapshot: pending — posted by `create-plan-tracking-issue` at issue open.
 - Plan snapshot: pending — posted by `create-plan-tracking-issue` at issue open.
 - Initial state snapshot: pending — posted by `create-plan-tracking-issue` at
