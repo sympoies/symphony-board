@@ -318,15 +318,10 @@ export function LivePage({
         <div className="live-header-main">
           <h1>Live</h1>
           <span className={`live-status live-status-${statusKind}`}>
-            <span className="live-status-dot" aria-hidden="true" />
             {statusLabel(connected, reconnecting, transport)}
             {transport ? <span className="live-status-tx">{transport}</span> : null}
           </span>
         </div>
-        <p className="live-note">
-          Activity appears the moment a webhook arrives. Live can miss events during a
-          reconnect — the board&apos;s periodic sync stays the source of truth.
-        </p>
       </header>
 
       <div className="live-pulse">
