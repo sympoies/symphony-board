@@ -33,17 +33,42 @@ export type Page = "live" | "board" | "graph" | "activity" | "commits" | "repo-a
 // The "default tab" setting is meant to decide that landing, but a restored hash
 // used to win (the old rule only applied the default when the hash was empty, so
 // the setting silently never took effect; the desktop launcher made it worse by
-// hardcoding `#/activity`). This is the single source of truth for both hosts:
-// any plain tab landing yields to the configured default tab, so opening the app
-// always honors the setting. The only survivors are intentional destinations:
-//   • `#/debug` — the hidden Cmd+/ console (a reload while debugging stays put);
-//   • a graph `focus` deep-link — a shared / bookmarked item;
-//   • a hash ALREADY on the default tab — kept verbatim so its range / search
-//     view params are not stripped on a reload.
+// hardcoding `#/activity`). This is the single source of truth for both hosts: a
+// PLAIN tab landing yields to the configured default tab, so opening the app
+// honors the setting — but an INTENTIONAL destination is kept verbatim so links,
+// reloads, and shared URLs still render the same state (the nav.ts contract).
+//
+// A destination is intentional when it carries a drill-down field that `tabHref`
+// does NOT carry across a plain tab hop: a graph `focus`, or an Activity/Commits
+// page-local drill-down (source, repo, branch, kind, action, unresolved). Those
+// only land on the URL via a deliberate deep-link (`activityDrilldownHref`,
+// `commitsDrilldownHref`, a shared link), never on a bare tab click — so their
+// presence means "keep me here".
+//
+// Critically, the fields `tabHref` DOES carry — the shared item lens
+// (isource/istate/ikind/ireview/irepo), the search `q`, the range
+// (from/to/preset), and a mobile sub-tab — are NOT identity: they ride along a
+// plain tab hop, so a reopened `#/board?isource=…`, `#/graph?q=…`, or
+// `#/activity?from=…&preset=1w` must STILL fall to the configured default (else
+// the default-tab fix is defeated for anyone using the board/graph lens or
+// search). Always-kept pages: the hidden `#/debug` console and `#/settings` (a
+// deliberate place you navigated to, never a default tab), plus a hash already
+// on the default tab (so its view params survive a reload).
+const IDENTITY_FIELDS = [
+  "focus",
+  "source",
+  "repo",
+  "branch",
+  "kind",
+  "action",
+  "unresolved",
+] as const satisfies readonly (keyof HashRoute)[];
+
 export function startupRouteHash(restoredHash: string, defaultTab: Page): string {
   const route = parseHashRoute(restoredHash);
-  if (route.page === "debug" || route.focus) return restoredHash;
+  if (route.page === "debug" || route.page === "settings") return restoredHash;
   if (route.page === defaultTab) return restoredHash;
+  if (IDENTITY_FIELDS.some((f) => route[f])) return restoredHash;
   return `#/${defaultTab}`;
 }
 

@@ -294,11 +294,21 @@ export function App() {
   // (hidden on the standalone app and any deployment without the receiver).
   const liveAvailable = useLiveAvailable(serverBaseUrl);
   // The live stream lives HERE, at the always-mounted shell — not inside LivePage
-  // — so the SSE connection and the event buffer survive tab switches. Switching
-  // to Live is then instant and already current, instead of re-seeding from
-  // /api/live-snapshot (a >1s empty flash) on every visit. Gated on the receiver
-  // being reachable so a deployment without it never opens a dead EventSource.
-  const live = useLive(serverBaseUrl, liveAvailable === true);
+  // — so the event buffer survives tab switches: switching to Live is instant and
+  // current instead of re-seeding from /api/live-snapshot (a >1s empty flash) on
+  // every visit. `liveAvailable` (tri-state) gates connect-vs-unavailable; the
+  // third arg opens the SSE/poll stream ONLY while the Live tab is shown, so a
+  // polling transport (Tauri) does not poll in the background on other tabs.
+  const live = useLive(serverBaseUrl, liveAvailable, route.page === "live");
+  // A host WITHOUT the live receiver (the standalone app, or any deploy missing
+  // it) must never strand the user on a dead Live page — which can happen now
+  // that the default tab can be Live and the cold-start redirect honors it. When
+  // the probe resolves unavailable while we're on Live, fall back to Activity (the
+  // old desktop default). Only fires on a confirmed-false probe, so a host that
+  // DOES have Live (liveAvailable null -> true) is never bounced.
+  useEffect(() => {
+    if (liveAvailable === false && route.page === "live") window.location.hash = "#/activity";
+  }, [liveAvailable, route.page]);
   const configState = useConfig(serverBaseUrl);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
   // "sources" value is meaningful; anything else renders the Display tab.

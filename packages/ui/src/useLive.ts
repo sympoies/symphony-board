@@ -158,12 +158,17 @@ export interface LiveState {
   transport: "sse" | "poll" | null;
 }
 
-// `enabled` gates the connection. App mounts this hook once at the always-present
-// shell (so the buffer survives tab switches) but only wants the EventSource open
-// where the receiver is reachable — it passes `liveAvailable === true`. While
-// disabled the hook stays idle (no connection, empty buffer); flipping it on
-// opens the stream and seeds from the snapshot.
-export function useLive(serverBaseUrl: string | null, enabled = true): LiveState {
+// App mounts this hook once at the always-present shell so the event BUFFER
+// survives tab switches (instant, current return to Live). Two gates:
+//   • `available` — the receiver-availability tri-state from App's probe:
+//       null  = still probing  -> "connecting", no stream yet
+//       false = no receiver here -> "unavailable", never connect
+//       true  = reachable -> connect (while active)
+//   • `active`    — whether the Live tab is currently shown. The stream (SSE or
+//       poll) opens only while active, so a polling transport (Tauri thin
+//       clients) does NOT keep a 3s /api/live-snapshot interval running on
+//       background tabs. The buffer is retained across active toggles.
+export function useLive(serverBaseUrl: string | null, available: boolean | null = true, active = true): LiveState {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -175,14 +180,33 @@ export function useLive(serverBaseUrl: string | null, enabled = true): LiveState
   // "Unavailable" (EventSource auto-reconnects in the background).
   const everOpened = useRef(false);
 
+  // Buffer lifecycle. Resets the in-memory buffer + cursor ONLY when the
+  // deployment or its availability changes — never on an `active` toggle — so the
+  // buffer is retained across tab switches. Also owns the disabled / probing
+  // state: a host without the receiver (or Android with no server URL) reads as
+  // unavailable (false); a still-probing host as connecting (null).
   useEffect(() => {
     lastSeq.current = 0;
     everOpened.current = false;
     setEvents([]);
-    setConnected(null);
     setReconnecting(false);
     setTransport(null);
-    if (!enabled) return;
+    if (available === false || endpointRequiresServerUrl("./api/live", serverBaseUrl, null)) {
+      setConnected(false);
+      return;
+    }
+    setConnected(null);
+  }, [serverBaseUrl, available]);
+
+  // Connection lifecycle. Opens the SSE / poll stream only while the receiver is
+  // reachable AND the Live tab is active; the cleanup tears it down when the tab
+  // is left WITHOUT clearing the buffer above. On (re)open it seeds from the
+  // snapshot and advances the cursor, so returning renders the retained buffer
+  // instantly and catches up missed events with no duplicates (appendCapped keys
+  // by seq; the cursor never regresses).
+  useEffect(() => {
+    if (available !== true || !active) return;
+    if (endpointRequiresServerUrl("./api/live", serverBaseUrl, null)) return;
     let cancelled = false;
     let source: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -200,12 +224,6 @@ export function useLive(serverBaseUrl: string | null, enabled = true): LiveState
       if (maxIn > lastSeq.current) lastSeq.current = maxIn;
       setEvents((prev) => appendCapped(prev, incoming, MAX_EVENTS));
     };
-
-    // Android with no server URL configured: same guard the contract loader uses.
-    if (endpointRequiresServerUrl("./api/live", serverBaseUrl, null)) {
-      setConnected(false);
-      return;
-    }
 
     const transportKind = pickLiveTransport({
       tauri: isTauriRuntime(),
@@ -279,11 +297,13 @@ export function useLive(serverBaseUrl: string | null, enabled = true): LiveState
       if (cancelled) return;
       if (snap) {
         markUp();
-        lastSeq.current = snap.max_seq;
+        // Advance — never regress — the cursor: a retained buffer may already
+        // hold frames newer than a fresh snapshot's head (re-open after a switch).
+        lastSeq.current = Math.max(lastSeq.current, snap.max_seq);
         ingest(snap.events);
       }
       if (transportKind === "sse") {
-        startSse(snap?.max_seq ?? 0);
+        startSse(lastSeq.current);
       } else {
         if (!snap) setConnected(false);
         pollTimer = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
@@ -295,7 +315,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true): LiveState
       if (source) source.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [serverBaseUrl, enabled]);
+  }, [serverBaseUrl, available, active]);
 
   return { events, connected, reconnecting, transport };
 }

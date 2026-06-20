@@ -134,9 +134,11 @@ export function saveTheme(theme: ViewTheme): void {
   }
 }
 
-// Live feed preview height, in body lines. Clamped to a sane range so a stored /
-// hand-edited value can't break the layout.
-export const DEFAULT_LIVE_PREVIEW_LINES = 5;
+// Live feed preview height, in body lines. Kept short by default so the feed
+// shows more events at a glance (the full body is one click away in the detail
+// pane); Settings can raise it. Clamped to a sane range so a stored / hand-edited
+// value can't break the layout.
+export const DEFAULT_LIVE_PREVIEW_LINES = 2;
 export const MIN_LIVE_PREVIEW_LINES = 1;
 export const MAX_LIVE_PREVIEW_LINES = 30;
 
