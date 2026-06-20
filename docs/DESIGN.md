@@ -116,8 +116,8 @@ while still exposing developer-significant actions for a feed UI.
 Current sources populate activity from two places:
 
 - canonical item timestamps: opened, closed, and merged transitions
-- provider REST activity surfaces: commits (default branch plus live
-  side-branch compare sets) and repository/project events such as pushes,
+- provider REST activity surfaces: comments, commits (default branch plus live
+  side-branch compare sets), and repository/project events such as pushes,
   branch/tag creation, and branch/tag deletion
 
 Provider activity APIs are not identical. `kind`, `action`, and `details` are
@@ -222,7 +222,7 @@ payload remains in the raw store.
 | review | `reviewDecision` | approval fields | nullable `review_state` |
 | CI | `statusCheckRollup` | `headPipeline.status` | nullable `ci_state` |
 | mergeability | `mergeable` | `detailedMergeStatus` | nullable `merge_state` |
-| activity | commits + repository activity REST | commits + project events REST | `activities[]` |
+| activity | comments + commits + repository activity REST | commits + project events REST | `activities[]` |
 
 GitLab caveat: `Issue.relatedMergeRequests` is a superset of strict closing MRs.
 It is still modeled as `closes` because it provides the useful workflow signal
