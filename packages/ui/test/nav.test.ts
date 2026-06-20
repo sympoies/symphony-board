@@ -23,6 +23,7 @@ import {
   activityViewTab,
   graphView,
   graphViewTab,
+  startupRouteHash,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -275,4 +276,34 @@ test("Graph view round-trips through the hash, and a fresh tab hop resets to the
   assert.equal(graphView(parseHashRoute(canvas)), "graph", "the canvas view survives reload / a shared link");
   // a top-nav hop drops page-local `tab` -> back to the list (the default browse surface)
   assert.equal(graphView(parseHashRoute(tabHref("graph", {}))), "list");
+});
+
+// The "default tab" setting decides where the app LANDS on a cold start (a fresh
+// open OR a reload). The bug it fixes: a restored hash (the browser keeps
+// `#/activity?...` across a reopen; the desktop launcher used to hardcode
+// `#/activity`) used to win, so the setting never took effect. startupRouteHash
+// resolves the landing hash: any plain tab landing yields to the configured
+// default; only the hidden debug console and a graph `focus` deep-link survive,
+// and an already-on-default hash keeps its view params.
+test("startupRouteHash lands a cold start on the configured default tab", () => {
+  // A restored landing tab (with or without view params) yields to the default.
+  assert.equal(startupRouteHash("#/activity", "live"), "#/live");
+  assert.equal(startupRouteHash("#/activity?from=2026-06-15&to=2026-06-21&preset=1w", "live"), "#/live");
+  assert.equal(startupRouteHash("#/board", "live"), "#/live");
+  assert.equal(startupRouteHash("#/commits?repo=acme%2Fwidgets", "live"), "#/live");
+  // An empty / hashless open also lands on the default.
+  assert.equal(startupRouteHash("", "live"), "#/live");
+  assert.equal(startupRouteHash("#/", "activity"), "#/activity");
+  // The default is honored whatever it is set to.
+  assert.equal(startupRouteHash("#/live", "activity"), "#/activity");
+});
+
+test("startupRouteHash preserves debug, graph focus deep-links, and an already-default hash", () => {
+  // Already on the default tab: keep the restored hash (its range/search survive).
+  assert.equal(startupRouteHash("#/activity?preset=1mo", "activity"), "#/activity?preset=1mo");
+  assert.equal(startupRouteHash("#/live", "live"), "#/live");
+  // The hidden debug console (Cmd+/) is an intentional destination — keep it.
+  assert.equal(startupRouteHash("#/debug", "live"), "#/debug");
+  // A graph item deep-link (shared / bookmarked) survives a cold start.
+  assert.equal(startupRouteHash("#/graph?focus=gh%3A1", "live"), "#/graph?focus=gh%3A1");
 });

@@ -19,20 +19,15 @@ declare global {
   }
 }
 
-export const DESKTOP_DEFAULT_HASH = "#/activity";
-
-export function desktopStartupRouteHash(currentHash: string, navigationType: string | null): string | null {
-  if (navigationType === "reload") return null;
-  return currentHash === DESKTOP_DEFAULT_HASH ? null : DESKTOP_DEFAULT_HASH;
-}
-
-export function normalizeDesktopStartupRoute(): void {
+// Apply the resolved cold-start hash in the Tauri webview BEFORE React mounts, so
+// the desktop app never flashes the restored route before redirecting. The
+// landing decision (honor the configured default tab) lives in `startupRouteHash`
+// (nav.ts) and is shared with the web path in App; this is just the DOM applier,
+// gated to the desktop host. A no-op on web, where the browser owns the hash and
+// App applies the same rule on mount.
+export function normalizeDesktopStartupRoute(targetHash: string): void {
   if (!isTauriRuntime() || typeof window === "undefined") return;
-
-  const navigation = window.performance.getEntriesByType("navigation")[0];
-  const navigationType = navigation && "type" in navigation && typeof navigation.type === "string" ? navigation.type : null;
-  const nextHash = desktopStartupRouteHash(window.location.hash, navigationType);
-  if (nextHash && window.location.hash !== nextHash) window.location.hash = nextHash;
+  if (targetHash && window.location.hash !== targetHash) window.location.hash = targetHash;
 }
 
 function cssInset(value: unknown): string {

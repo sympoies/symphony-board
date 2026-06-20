@@ -2970,9 +2970,10 @@ a.rf-node-title:hover { color: var(--accent); }
    histogram in the live-signal cyan); the feed rows below are coded by the
    per-category hues. Motion is confined to the pulse + status dot + the newest
    row's arrival, and is dropped under prefers-reduced-motion. */
-/* Full-bleed like the other tabs (the board / activity use .app-wide's full
-   width); the detail body caps its own prose width for readability below. */
-.live-page { max-width: none; }
+/* Match the Activity page's footprint: its two-column layout tops out at
+   880 + 20 gap + 680 = 1580px, left-aligned inside .app-wide, rather than running
+   edge-to-edge. The detail body caps its own prose width for readability below. */
+.live-page { max-width: 1580px; }
 .live-header { margin: 16px 0 0; }
 .live-header-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .live-header-main h1 { font-size: 22px; letter-spacing: -0.015em; }

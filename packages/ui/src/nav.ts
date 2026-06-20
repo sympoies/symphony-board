@@ -17,13 +17,35 @@
 // `parseHashRoute`) and the matching predicate (`activityRouteMatches`); this
 // module owns the navigation INTENTS and the dim<->route-field mapping.
 
-import { buildHashRoute, graphFocusHref, routeList, type HashRoute, type TimeRangePresetId } from "./model.ts";
+import { buildHashRoute, graphFocusHref, parseHashRoute, routeList, type HashRoute, type TimeRangePresetId } from "./model.ts";
 
 // The board card -> graph focus link lives in model.ts (it needs ItemDTO); it is
 // re-exported here so every cross-page link has a single import home.
 export { graphFocusHref };
 
 export type Page = "live" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings";
+
+// Where a COLD START lands. A cold start is the app first executing its bundle:
+// a fresh open, a reopen, or a reload — in all of them the in-memory route state
+// is gone and the only input is the hash the host restored (the browser keeps
+// `#/activity?...` across a reopen; the Tauri webview restores its last hash).
+//
+// The "default tab" setting is meant to decide that landing, but a restored hash
+// used to win (the old rule only applied the default when the hash was empty, so
+// the setting silently never took effect; the desktop launcher made it worse by
+// hardcoding `#/activity`). This is the single source of truth for both hosts:
+// any plain tab landing yields to the configured default tab, so opening the app
+// always honors the setting. The only survivors are intentional destinations:
+//   • `#/debug` — the hidden Cmd+/ console (a reload while debugging stays put);
+//   • a graph `focus` deep-link — a shared / bookmarked item;
+//   • a hash ALREADY on the default tab — kept verbatim so its range / search
+//     view params are not stripped on a reload.
+export function startupRouteHash(restoredHash: string, defaultTab: Page): string {
+  const route = parseHashRoute(restoredHash);
+  if (route.page === "debug" || route.focus) return restoredHash;
+  if (route.page === defaultTab) return restoredHash;
+  return `#/${defaultTab}`;
+}
 
 // The active time range a navigation should carry. `preset` is the quick-preset
 // id that produced from/to, kept only as a UI tie-break.
