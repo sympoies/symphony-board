@@ -143,6 +143,30 @@ async function seedCursor(liveUrl: string): Promise<number> {
   return maxSeq;
 }
 
+// Cold-start seed with retry: the receiver may not be reachable yet (the sidecar
+// can start before `live` is healthy, or DNS is briefly cold), which is
+// transient — retry with capped backoff rather than exiting and crash-looping.
+// Returns null only if shutdown was requested before a seed succeeded.
+async function seedCursorWithRetry(
+  liveUrl: string,
+  signal: AbortSignal,
+): Promise<number | null> {
+  let backoff = 3000;
+  for (;;) {
+    if (signal.aborted) return null;
+    try {
+      return await seedCursor(liveUrl);
+    } catch (err) {
+      if (signal.aborted) return null;
+      log.warn(
+        `[tg] snapshot seed failed: ${(err as Error).message}; retrying in ${backoff}ms`,
+      );
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, 30_000);
+    }
+  }
+}
+
 export class TelegramSender {
   #lastSendAt = 0;
   readonly #cfg: TelegramBridgeConfig;
@@ -334,7 +358,9 @@ export async function runBridge(
 
   let cursor = readCursor(cfg.cursorPath);
   if (cursor === null) {
-    cursor = await seedCursor(cfg.liveUrl);
+    const seeded = await seedCursorWithRetry(cfg.liveUrl, signal);
+    if (seeded === null) return; // shutdown requested before the first seed
+    cursor = seeded;
     if (!writeCursor(cfg.cursorPath, cursor)) {
       log.error(
         "[tg] could not persist the seed cursor; a crash before the next persist may skip events",
