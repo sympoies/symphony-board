@@ -296,6 +296,13 @@ export function LivePage({
   const following = pinned === null;
   const detail = pinned ?? shown[0] ?? null;
   const detailKey = detail ? keyOf(detail) : null;
+  const feedRef = useRef<HTMLUListElement>(null);
+  // Releasing the pin resumes auto-follow; bring the newest event (now shown in
+  // the detail) back into view at the top of the feed.
+  const followLatest = () => {
+    setPinned(null);
+    feedRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div className="live-page">
@@ -404,13 +411,13 @@ export function LivePage({
             // pill in the detail is the keyboard-accessible equivalent.
             if (!pinned) return;
             const el = e.target instanceof Element ? e.target : null;
-            if (el && !el.closest(".live-event") && !el.closest(".live-detail-card")) setPinned(null);
+            if (el && !el.closest(".live-event") && !el.closest(".live-detail-card")) followLatest();
           }}
         >
           {shown.length === 0 ? (
             <p className="empty live-feed-empty">No events match these filters.</p>
           ) : (
-            <ul className="live-feed">
+            <ul className="live-feed" ref={feedRef}>
               {shown.map((ev) => (
                 <LiveRow
                   key={keyOf(ev)}
@@ -420,9 +427,12 @@ export function LivePage({
                   selected={keyOf(ev) === detailKey}
                   onSelect={() => {
                     // Toggle: click pins this row; click the pinned row again to
-                    // release back to auto-follow.
-                    setPinned((cur) => (cur && keyOf(cur) === keyOf(ev) ? null : ev));
-                    setDetailOpen(true);
+                    // release back to auto-follow (and scroll the feed to newest).
+                    if (pinned && keyOf(pinned) === keyOf(ev)) followLatest();
+                    else {
+                      setPinned(ev);
+                      setDetailOpen(true);
+                    }
                   }}
                 />
               ))}
@@ -434,7 +444,7 @@ export function LivePage({
                 ev={detail}
                 now={now}
                 following={following}
-                onFollowLatest={() => setPinned(null)}
+                onFollowLatest={followLatest}
                 onClose={() => setDetailOpen(false)}
               />
             ) : (
