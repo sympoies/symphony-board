@@ -395,7 +395,18 @@ export function LivePage({
               : "Waiting for activity. New pushes, pull requests, reviews and comments appear here the moment they land."}
         </p>
       ) : (
-        <div className="live-split" data-detail-open={detailOpen ? "true" : "false"}>
+        <div
+          className="live-split"
+          data-detail-open={detailOpen ? "true" : "false"}
+          onClick={(e) => {
+            // Click blank space (not a row, not the detail card) to release the
+            // pin and resume auto-following the newest event. The "follow latest"
+            // pill in the detail is the keyboard-accessible equivalent.
+            if (!pinned) return;
+            const el = e.target instanceof Element ? e.target : null;
+            if (el && !el.closest(".live-event") && !el.closest(".live-detail-card")) setPinned(null);
+          }}
+        >
           {shown.length === 0 ? (
             <p className="empty live-feed-empty">No events match these filters.</p>
           ) : (
