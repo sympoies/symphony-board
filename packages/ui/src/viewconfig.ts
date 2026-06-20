@@ -12,6 +12,7 @@
 
 import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
+import type { Page } from "./nav.ts";
 
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
@@ -25,6 +26,9 @@ const THEME_KEY = "symphony-board:theme";
 // How many lines of an event body the Live feed shows before clamping (the full
 // body is one click away in the detail pane). Device-local, like the theme.
 const LIVE_PREVIEW_LINES_KEY = "symphony-board:live-preview-lines";
+// Which tab the app lands on when the URL has no page (a fresh open / share link
+// without a hash). Device-local, like the theme.
+const DEFAULT_TAB_KEY = "symphony-board:default-tab";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
 // auto-collapse without being persisted (they re-open when an item lands), so
@@ -155,6 +159,39 @@ export function loadLivePreviewLines(): number {
 export function saveLivePreviewLines(lines: number): void {
   try {
     localStorage.setItem(LIVE_PREVIEW_LINES_KEY, String(clampLivePreviewLines(lines)));
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// The tabs offered as a default-landing choice (the content views; Settings is
+// excluded — it is not a landing surface). Live leads.
+export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
+  { id: "live", label: "Live" },
+  { id: "activity", label: "Activity" },
+  { id: "commits", label: "Commits" },
+  { id: "board", label: "Board" },
+  { id: "graph", label: "Graph" },
+  { id: "repo-analytics", label: "Repo Analytics" },
+];
+export const DEFAULT_TAB: Page = "live";
+
+export function isDefaultTab(value: unknown): value is Page {
+  return typeof value === "string" && DEFAULT_TAB_OPTIONS.some((t) => t.id === value);
+}
+
+export function loadDefaultTab(): Page {
+  try {
+    const raw = localStorage.getItem(DEFAULT_TAB_KEY);
+    return isDefaultTab(raw) ? raw : DEFAULT_TAB;
+  } catch {
+    return DEFAULT_TAB;
+  }
+}
+
+export function saveDefaultTab(tab: Page): void {
+  try {
+    localStorage.setItem(DEFAULT_TAB_KEY, tab);
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

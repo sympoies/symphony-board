@@ -5,7 +5,8 @@
 // page is hidden, so nothing polls in normal use.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchStoreStats, fetchDaemonLogs } from "./contract.ts";
+import { fetchStoreStats, fetchDaemonLogs, fetchLiveSnapshot } from "./contract.ts";
+import { categoryCounts, distinctCount, eventInstant, eventRepo } from "./live-stats.ts";
 import type { StoreStats, DaemonLogEntry } from "./model.ts";
 
 const LOG_POLL_INTERVAL_MS = 2000;
@@ -39,6 +40,71 @@ export function useStoreStats(serverBaseUrl: string | null): StoreStatsState {
 
   const refresh = useCallback(() => setEpoch((e) => e + 1), []);
   return { stats, loading, refresh };
+}
+
+// A one-shot snapshot probe of the live receiver for the Diagnostics page — the
+// same reference data the Live tab shows (buffer depth, cursor, active
+// repos/people, category mix), without opening a streaming connection.
+export interface LiveSnapshotInfo {
+  available: boolean | null; // null = still probing
+  maxSeq: number | null;
+  events: number;
+  repos: number;
+  people: number;
+  categories: { category: string; count: number }[];
+  generatedAt: string | null;
+  newestAt: string | null;
+}
+
+const EMPTY_LIVE_INFO: LiveSnapshotInfo = {
+  available: null,
+  maxSeq: null,
+  events: 0,
+  repos: 0,
+  people: 0,
+  categories: [],
+  generatedAt: null,
+  newestAt: null,
+};
+
+export function useLiveSnapshotInfo(serverBaseUrl: string | null): {
+  info: LiveSnapshotInfo;
+  loading: boolean;
+  refresh: () => void;
+} {
+  const [info, setInfo] = useState<LiveSnapshotInfo>(EMPTY_LIVE_INFO);
+  const [loading, setLoading] = useState(true);
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void fetchLiveSnapshot(serverBaseUrl).then((snap) => {
+      if (cancelled) return;
+      if (!snap) {
+        setInfo({ ...EMPTY_LIVE_INFO, available: false });
+      } else {
+        const newest = snap.events[0] ? eventInstant(snap.events[0]) : null;
+        setInfo({
+          available: true,
+          maxSeq: snap.max_seq,
+          events: snap.events.length,
+          repos: distinctCount(snap.events, eventRepo),
+          people: distinctCount(snap.events, (e) => e.actor?.login),
+          categories: categoryCounts(snap.events, []),
+          generatedAt: snap.generated_at,
+          newestAt: newest != null ? new Date(newest).toISOString() : null,
+        });
+      }
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverBaseUrl, epoch]);
+
+  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  return { info, loading, refresh };
 }
 
 export interface DaemonLogsState {

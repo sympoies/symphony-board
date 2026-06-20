@@ -8,7 +8,7 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useEffect, useState, type CSSProperties } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLive, MAX_EVENTS } from "../useLive.ts";
 import { safeHref } from "../url.ts";
 import {
@@ -53,7 +53,8 @@ const CATEGORY_ORDER = [
   "pipeline",
 ] as const;
 
-const RATE_WINDOW_MS = 60_000; // the "/min" figure
+const RATE_WINDOW_MS = 3_600_000; // events in the last hour (the "/hr" figure) —
+// a per-minute window reads 0 almost always at this feed's volume.
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
 
@@ -122,6 +123,20 @@ function LiveRow({
   const age = instant != null ? relativeAge(instant, now) : "";
   const actor = ev.actor?.login ?? "someone";
   const { repo, num } = targetText(ev);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+  // Fade the preview's bottom edge ONLY when the body actually overflows the
+  // clamp. Measured with a ResizeObserver so it re-checks once the lazy markdown
+  // finishes loading (and on resize); a short body that fits shows no fade.
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setClamped(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ev.body, previewLines]);
   return (
     <li
       className={`live-event${selected ? " live-event-selected" : ""}`}
@@ -150,7 +165,8 @@ function LiveRow({
         </div>
         {ev.body ? (
           <div
-            className="live-event-preview"
+            ref={previewRef}
+            className={`live-event-preview${clamped ? " is-clamped" : ""}`}
             style={{ "--preview-lines": previewLines } as CSSProperties}
           >
             <MarkdownBody text={ev.body} className="live-md live-md-preview" />
@@ -288,7 +304,7 @@ export function LivePage({
           <div className="live-card-label">Activity</div>
           <div className="live-figure">
             {rate}
-            <span className="live-unit">/min</span>
+            <span className="live-unit">/hr</span>
           </div>
           <Sparkline values={buckets} />
           <div className="live-card-sub">events per 10m · last 5h</div>

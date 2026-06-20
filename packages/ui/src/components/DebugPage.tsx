@@ -13,7 +13,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { ContractLoadMetadata } from "../contract.ts";
 import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, runDuration } from "../model.ts";
-import { useStoreStats, useDaemonLogs } from "../useDebug.ts";
+import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo } from "../useDebug.ts";
+import { resolveEndpoint } from "../contract.ts";
+import { MAX_EVENTS } from "../useLive.ts";
 import { Badge } from "./Badge.tsx";
 
 interface Props {
@@ -232,6 +234,7 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
 
 export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onClose }: Props) {
   const { stats, loading, refresh } = useStoreStats(serverBaseUrl);
+  const live = useLiveSnapshotInfo(serverBaseUrl);
   const logs = useDaemonLogs(serverBaseUrl);
   const [follow, setFollow] = useState(true);
   const [refreshingDiagnostics, setRefreshingDiagnostics] = useState(false);
@@ -432,6 +435,53 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
               {stats.activities.earliest
                 ? ` activity ${stats.activities.earliest.slice(0, 10)} → ${(stats.activities.latest ?? "").slice(0, 10)}`
                 : ""}
+            </p>
+          </>
+        )}
+      </section>
+
+      <section className="debug-section">
+        <h3>
+          Live receiver{" "}
+          {live.info.available === true ? (
+            <span className="count">— reachable</span>
+          ) : live.info.available === false ? (
+            <span className="count">— offline</span>
+          ) : null}
+        </h3>
+        {live.loading ? (
+          <p className="muted">Probing the live receiver…</p>
+        ) : live.info.available === false ? (
+          <p className="empty">
+            Live receiver unreachable: no <code>/api/live-snapshot</code> on this deployment (e.g. the
+            standalone app, which has no receiver).
+          </p>
+        ) : (
+          <>
+            <section className="debug-summary-strip debug-section-summary" aria-label="Live receiver summary">
+              <SummaryMetric label="Buffer">
+                {live.info.events.toLocaleString()} <span className="muted">/ {MAX_EVENTS}</span>
+              </SummaryMetric>
+              <SummaryMetric label="Cursor (max seq)">{live.info.maxSeq?.toLocaleString() ?? "n/a"}</SummaryMetric>
+              <SummaryMetric label="Active repos">{live.info.repos.toLocaleString()}</SummaryMetric>
+              <SummaryMetric label="Active people">{live.info.people.toLocaleString()}</SummaryMetric>
+              <SummaryMetric label="Newest event">{live.info.newestAt ? relativeTime(live.info.newestAt) : "—"}</SummaryMetric>
+            </section>
+            <div className="debug-subsection">
+              <h4>Live breakdown</h4>
+              <div className="debug-grid">
+                <CountsTable
+                  title="events by category"
+                  counts={Object.fromEntries(live.info.categories.map((c) => [c.category, c.count]))}
+                />
+              </div>
+            </div>
+            <p className="muted debug-foot">
+              <button type="button" className="toggle" onClick={live.refresh}>
+                Refresh
+              </button>{" "}
+              snapshot {live.info.generatedAt ? relativeTime(live.info.generatedAt) : "—"} ·{" "}
+              <code>{resolveEndpoint("./api/live-snapshot", serverBaseUrl)}</code>
             </p>
           </>
         )}

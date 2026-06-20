@@ -75,6 +75,8 @@ import {
   saveTheme,
   loadLivePreviewLines,
   saveLivePreviewLines,
+  loadDefaultTab,
+  saveDefaultTab,
   loadServerBaseUrl,
   saveServerBaseUrl,
   normalizeServerBaseUrl,
@@ -140,7 +142,12 @@ export function App() {
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
   const [mobileControlPanel, setMobileControlPanel] = useState<MobileControlPanel>(null);
-  const [hash, setHash] = useState<string>(readHash);
+  const [hash, setHash] = useState<string>(() => {
+    const h = readHash();
+    // Land on the configured default tab when the URL carries no page (a fresh
+    // open or a hashless share link); an explicit #/page always wins.
+    return parseHashRoute(h).page ? h : `#/${loadDefaultTab()}`;
+  });
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
   //   • hidden        — HIDDEN repoKeys
@@ -154,6 +161,7 @@ export function App() {
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
   const [theme, setTheme] = useState<ViewTheme>(loadTheme);
   const [livePreviewLines, setLivePreviewLines] = useState<number>(loadLivePreviewLines);
+  const [defaultTab, setDefaultTab] = useState<Page>(loadDefaultTab);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
   // Board columns the viewer manually collapsed to a rail (persisted). Empty
   // columns auto-collapse without being stored here; `peekedColumns` is the
@@ -363,6 +371,15 @@ export function App() {
   useEffect(() => {
     saveLivePreviewLines(livePreviewLines);
   }, [livePreviewLines]);
+  useEffect(() => {
+    saveDefaultTab(defaultTab);
+  }, [defaultTab]);
+  // On a hashless first load, reflect the default landing tab into the URL so it
+  // matches the rendered page (the hash state already seeded it above).
+  useEffect(() => {
+    if (!parseHashRoute(readHash()).page) window.location.hash = `#/${loadDefaultTab()}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     saveCollapsedColumns(collapsedColumns);
   }, [collapsedColumns]);
@@ -1178,6 +1195,8 @@ export function App() {
           onTheme={setTheme}
           livePreviewLines={livePreviewLines}
           onLivePreviewLines={setLivePreviewLines}
+          defaultTab={defaultTab}
+          onDefaultTab={setDefaultTab}
           serverBaseUrl={serverBaseUrl}
           onServerBaseUrl={applyServerBaseUrl}
           sync={sync}

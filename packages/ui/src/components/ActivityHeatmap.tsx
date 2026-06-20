@@ -347,8 +347,6 @@ function ActivityTrendChart({
 function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
   const selectedRange = rangeLabel(trend.from, trend.to);
   const byLabel = bucketLabel(trend.bucket);
-  const topRepos = trend.byRepo.slice(0, 5);
-  const maxRepoCount = topRepos[0]?.count ?? 0;
   const items = [
     { label: "events", value: trend.total.toLocaleString(), detail: selectedRange },
     ...(trend.busiest
@@ -379,30 +377,40 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
           </div>
         ))}
       </dl>
-      {topRepos.length > 0 ? (
-        <div className="hm-range-repos">
-          <h5>Top repos by events</h5>
-          <ol>
-            {topRepos.map((repo) => (
-              <li
-                key={`${repo.source_id}-${repo.project_path ?? ""}`}
-                style={
-                  {
-                    "--repo-share": `${maxRepoCount > 0 ? Math.max(4, Math.round((repo.count / maxRepoCount) * 100)) : 0}%`,
-                  } as CSSProperties
-                }
-              >
-                <span className="hm-range-repo">
-                  <span className="hm-range-repo-name">{repo.project_path ?? "(no project)"}</span>
-                  <small>{sourceDisplayName(repo.source_id) || repo.source_id}</small>
-                </span>
-                <b>{repo.count.toLocaleString()}</b>
-                <span className="hm-range-repo-bar" aria-hidden="true" />
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
+    </section>
+  );
+}
+
+// Top repos by events for the selected range. Split out of the summary so it can
+// sit BELOW the trend chart (order: summary -> trend -> top repos).
+function ActivityTopRepos({ trend }: { trend: ActivityTrend }) {
+  const topRepos = trend.byRepo.slice(0, 5);
+  if (topRepos.length === 0) return null;
+  const maxRepoCount = topRepos[0]?.count ?? 0;
+  return (
+    <section className="hm-range hm-top-repos" aria-label="Top repos by events">
+      <div className="hm-range-repos">
+        <h5>Top repos by events</h5>
+        <ol>
+          {topRepos.map((repo) => (
+            <li
+              key={`${repo.source_id}-${repo.project_path ?? ""}`}
+              style={
+                {
+                  "--repo-share": `${maxRepoCount > 0 ? Math.max(4, Math.round((repo.count / maxRepoCount) * 100)) : 0}%`,
+                } as CSSProperties
+              }
+            >
+              <span className="hm-range-repo">
+                <span className="hm-range-repo-name">{repo.project_path ?? "(no project)"}</span>
+                <small>{sourceDisplayName(repo.source_id) || repo.source_id}</small>
+              </span>
+              <b>{repo.count.toLocaleString()}</b>
+              <span className="hm-range-repo-bar" aria-hidden="true" />
+            </li>
+          ))}
+        </ol>
+      </div>
     </section>
   );
 }
@@ -543,6 +551,7 @@ export function ActivityHeatmap({
 
       <ActivityRangeSummary trend={trend} />
       <ActivityTrendChart trend={trend} onTip={setTip} />
+      <ActivityTopRepos trend={trend} />
 
       {tip ? (
         <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>
