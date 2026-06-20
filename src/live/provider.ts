@@ -4,6 +4,8 @@
 // mirroring the repo's pure-`normalize` discipline. Divergence from the source
 // sketch: `verify` takes a secret LIST (current + previous, for rotation) and
 // `toLiveEvents` returns `LiveEventInput[]` (the store assigns `seq`/`schema`).
+// Implementations: GitHub (./github.ts, active) and GitLab (./gitlab.ts, a v1
+// interface stub — designed against this contract but not wired into the receiver).
 import type { IncomingHttpHeaders } from "node:http";
 import type { LiveEventInput } from "./types.ts";
 import type { VerifyResult } from "./verify.ts";
