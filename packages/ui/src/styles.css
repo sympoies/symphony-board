@@ -3026,7 +3026,14 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-cat-on { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .live-cat-all.live-cat-on { border-color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
 
-.live-feed { list-style: none; margin: 0; padding: 0; }
+/* Bound the feed to the viewport and scroll it internally, so a long buffer
+   (up to MAX_EVENTS) never stretches the page past the other tabs' height.
+   Mirrors .live-detail; both panes are reset to natural flow on narrow. */
+.live-feed {
+  list-style: none; margin: 0; padding: 0;
+  position: sticky; top: 12px;
+  max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-gutter: stable;
+}
 .live-event {
   display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
   padding: 11px 8px 11px 12px; position: relative; cursor: pointer; border-radius: 6px;
@@ -3167,6 +3174,7 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (max-width: 900px) {
   .live-split { grid-template-columns: 1fr; }
   .live-selects { margin-left: 0; }
+  .live-feed { position: static; max-height: none; overflow: visible; }
   .live-detail { position: static; max-height: none; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
   .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
