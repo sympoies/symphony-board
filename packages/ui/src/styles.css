@@ -3172,8 +3172,13 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-head .live-event-category { font-size: 12px; }
 .live-detail-head time { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .live-detail-title { font-size: 17px; margin: 0 0 6px; border: none; padding: 0; line-height: 1.35; }
-.live-detail-link { display: inline-block; margin-bottom: 12px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
-.live-detail-link-plain { color: var(--muted); }
+/* The title carries the external link (its target may be a comment permalink).
+   Keep the heading colour; the link-coloured ↗ + hover underline signal it. */
+.live-detail-title-link { color: inherit; }
+.live-detail-title-link:hover { text-decoration: underline; }
+.live-detail-title-arrow { color: var(--link); font-size: 0.78em; white-space: nowrap; }
+/* The repo + number now reads as a plain reference line (no longer the link). */
+.live-detail-ref { display: block; margin-bottom: 12px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 /* Follow-vs-pin mode cue in the detail header: muted "Following latest" with a
    live dot when auto-following the newest event, or a pill button to release the
    pin back to auto-follow. */

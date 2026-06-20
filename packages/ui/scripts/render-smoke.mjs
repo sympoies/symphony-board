@@ -1340,9 +1340,9 @@ try {
     expression: `(() => {
       const page = document.querySelector('.live-page');
       const rows = Array.from(document.querySelectorAll('.live-feed .live-event'));
-      // master-detail: the precise permalink now lives in the selected event's
-      // detail pane (auto-selected newest = the comment row).
-      const detailLink = document.querySelector('.live-detail .live-detail-link')?.getAttribute('href') || '';
+      // master-detail: the precise permalink now lives on the selected event's
+      // detail TITLE link (auto-followed newest = the comment row).
+      const detailLink = document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || '';
       const status = document.querySelector('.live-status');
       return {
         rendered: !!page,
@@ -1359,7 +1359,7 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelectorAll('.live-feed .live-event')[1] && document.querySelectorAll('.live-feed .live-event')[1].click()" });
   await sleep(150);
   const liveFallbackLink = (await send("Runtime.evaluate", {
-    expression: "document.querySelector('.live-detail .live-detail-link')?.getAttribute('href') || ''",
+    expression: "document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || ''",
     returnByValue: true,
   })).result.value || "";
   const portraitPresets = [
