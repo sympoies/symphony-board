@@ -4,6 +4,7 @@
 // body by default and the raw payload behind an expand affordance, and labels
 // the feed as best-effort with the board as the source of truth.
 import { useLive } from "../useLive.ts";
+import { safeHref } from "../url.ts";
 import type { LiveEvent } from "../model.ts";
 
 function timeLabel(iso: string | null | undefined): string {
@@ -38,8 +39,9 @@ function LiveRow({ ev }: { ev: LiveEvent }) {
   const actor = ev.actor?.login ?? "someone";
   // The event's own url is the precise permalink (e.g. the exact issue_comment /
   // pull_request_review_comment anchor); fall back to the parent target's url so
-  // a row without an event-level link still links to the issue/PR.
-  const linkUrl = ev.url ?? ev.target?.url;
+  // a row without an event-level link still links to the issue/PR. Scheme-guarded
+  // so only http/https/mailto can become a clickable link.
+  const linkUrl = safeHref(ev.url ?? ev.target?.url);
   return (
     <li className="live-event" data-category={ev.category}>
       <div className="live-event-head">

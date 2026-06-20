@@ -12,9 +12,10 @@ import {
   appendCapped,
   liveStreamUrl,
   planPollIngest,
-  planResetReseed,
+  reconcileReset,
   parseResetEvent,
 } from "../src/useLive.ts";
+import { safeHref } from "../src/url.ts";
 import type { LiveEvent, LiveSnapshot } from "../src/model.ts";
 
 const realFetch = globalThis.fetch;
@@ -92,8 +93,8 @@ test("planPollIngest reseeds when max_seq drops below the cursor", () => {
 // --- SSE reset re-seed -------------------------------------------------------
 // The backend emits `event: reset` with `{"reason":"gap","max_seq":N}` when the
 // client cursor is ahead of the server or the replay backlog exceeds the cap.
-// The UI must parse it, then re-seed: clear, ingest the fresh snapshot, set the
-// cursor to the snapshot's max_seq.
+// The server keeps streaming on the same connection, so the UI re-seeds from a
+// fresh snapshot WITHOUT clobbering a frame that arrived during the refetch.
 test("parseResetEvent reads the gap sentinel and tolerates junk", () => {
   assert.deepEqual(parseResetEvent('{"reason":"gap","max_seq":12}'), { reason: "gap", max_seq: 12 });
   // Missing/!finite max_seq -> a reset with no usable cursor (still triggers a
@@ -102,15 +103,37 @@ test("parseResetEvent reads the gap sentinel and tolerates junk", () => {
   assert.equal(parseResetEvent("not json"), null);
 });
 
-test("planResetReseed clears, reseeds from the fresh snapshot, and sets the cursor", () => {
-  // After a reset, the kept list is cleared and replaced by the snapshot events;
-  // the cursor is the snapshot's max_seq regardless of the old (ahead) cursor.
-  const plan = planResetReseed(snap(4, [ev(4), ev(3)]));
-  assert.equal(plan.clear, true);
-  assert.deepEqual(plan.ingest.map((e) => e.seq), [4, 3]);
-  assert.equal(plan.nextCursor, 4);
-  // A failed snapshot refetch leaves the stream to recover on the next frame.
-  assert.equal(planResetReseed(null), null);
+test("reconcileReset re-seeds from the snapshot, drops stale rows, keeps newer frames", () => {
+  // Before the reset the kept list holds a stale event (seq 9, no longer in the
+  // snapshot) and a live frame (seq 12) that arrived on the SAME connection while
+  // the snapshot refetch was in flight.
+  const prev = [ev(12), ev(9)];
+  const merged = reconcileReset(prev, snap(11, [ev(11), ev(10)]), 500);
+  // seq 9 (<= max_seq 11 and absent from the snapshot) is dropped; seq 12
+  // (> max_seq) survives the race; the snapshot's 11/10 merge in, newest-first.
+  assert.deepEqual(
+    merged.map((e) => e.seq),
+    [12, 11, 10],
+    "a frame newer than the snapshot is never lost to the reseed",
+  );
+});
+
+// --- safeHref scheme guard (defense-in-depth for webhook-sourced URLs) --------
+// Event/target URLs originate from the webhook payload; only web/mail schemes may
+// become a clickable href so a javascript:/data: value can never reach the DOM.
+test("safeHref allows only http/https/mailto and drops dangerous schemes", () => {
+  assert.equal(
+    safeHref("https://github.com/sympoies/symphony-board/pull/305"),
+    "https://github.com/sympoies/symphony-board/pull/305",
+  );
+  assert.equal(safeHref("http://example.com"), "http://example.com");
+  assert.equal(safeHref("mailto:a@b.com"), "mailto:a@b.com");
+  // eslint-disable-next-line no-script-url
+  assert.equal(safeHref("javascript:alert(1)"), null);
+  assert.equal(safeHref("data:text/html,<script>1</script>"), null);
+  assert.equal(safeHref("not a url"), null);
+  assert.equal(safeHref(null), null);
+  assert.equal(safeHref(undefined), null);
 });
 
 // fetchLiveSnapshot is the re-seed source for both the reset listener and the

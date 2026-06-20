@@ -125,20 +125,24 @@ export function planPollIngest(cursor: number, snap: LiveSnapshot): PollPlan {
   };
 }
 
-export interface ResetPlan {
-  // The SSE reset always clears the kept events before reseeding.
-  clear: true;
-  ingest: LiveEvent[];
-  nextCursor: number;
-}
-
-// Pure decision for an SSE `reset` event: re-seed from the fresh snapshot —
-// clear the kept list, ingest the snapshot events, set the cursor to the
-// snapshot's max_seq. Null when the snapshot refetch failed (leave recovery to
-// the next frame / the stream's own reconnect).
-export function planResetReseed(snap: LiveSnapshot | null): ResetPlan | null {
-  if (!snap) return null;
-  return { clear: true, ingest: snap.events, nextCursor: snap.max_seq };
+// Pure reconciliation for an SSE `reset`/gap sentinel. The server keeps
+// streaming on the same connection after a reset, so the snapshot refetch races
+// with concurrent `live` frames. Re-seed from the authoritative snapshot WITHOUT
+// dropping a frame that arrived during the refetch: keep only events strictly
+// newer than the snapshot's max_seq (the live frames; stale events the snapshot
+// no longer covers are dropped), then merge the snapshot in. The caller advances
+// the cursor to max(cursor, snap.max_seq) so it never regresses below a kept
+// frame. Pure and unit-tested; the effect just applies it.
+export function reconcileReset(
+  prev: LiveEvent[],
+  snap: LiveSnapshot,
+  max: number,
+): LiveEvent[] {
+  return appendCapped(
+    prev.filter((ev) => ev.seq > snap.max_seq),
+    snap.events,
+    max,
+  );
 }
 
 export interface LiveState {
@@ -216,19 +220,20 @@ export function useLive(serverBaseUrl: string | null): LiveState {
         }
       });
       // Reset/gap sentinel: the client cursor is ahead of the server (receiver
-      // restarted / pruned below it) or the replay backlog exceeds the cap.
-      // Re-seed from the snapshot — the same restart/prune recovery the poll
-      // path has — then keep streaming on the SAME EventSource (the server
-      // resumes from its current head after the sentinel).
+      // restarted / pruned below it) or the replay backlog exceeds the cap. The
+      // server does NOT close on a reset — it keeps streaming from its head on the
+      // SAME connection — so the reseed must not clobber `live` frames that arrive
+      // during the async snapshot refetch. reconcileReset() drops stale events the
+      // snapshot no longer covers, KEEPS any frame newer than the snapshot, and
+      // never regresses the cursor, so a concurrent live frame is preserved
+      // instead of being lost to a blind setEvents([]).
       es.addEventListener("reset", (e) => {
         if (cancelled || parseResetEvent((e as MessageEvent).data) === null) return;
         void (async () => {
-          const plan = planResetReseed(await fetchLiveSnapshot(serverBaseUrl));
-          if (cancelled || !plan) return;
-          lastSeq.current = 0;
-          setEvents([]);
-          lastSeq.current = plan.nextCursor;
-          ingest(plan.ingest);
+          const snap = await fetchLiveSnapshot(serverBaseUrl);
+          if (cancelled || !snap) return;
+          lastSeq.current = Math.max(lastSeq.current, snap.max_seq);
+          setEvents((prev) => reconcileReset(prev, snap, MAX_EVENTS));
         })();
       });
       es.onerror = () => {
