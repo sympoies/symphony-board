@@ -255,6 +255,84 @@ test("the target source_id follows ctx.sourceId, not a hardcoded default (#316 i
   );
 });
 
+test("a push fans out one live-event per commit, all sharing the delivery id", () => {
+  const events = provider.toLiveEvents(fixture("push"), ctx("push"));
+  assert.equal(events.length, 2, "one event per commit in commits[]");
+  for (const ev of events) {
+    assert.equal(ev.category, "commit");
+    assert.equal(ev.event_type, "push", "event_type is the X-GitHub-Event header");
+    assert.equal(ev.event_id, "delivery-guid-1", "all events share the delivery id");
+    assert.equal(ev.action, null, "a push carries no action (no whitelist)");
+    assert.equal(ev.target?.kind, "commit");
+    assert.equal(ev.target?.number ?? null, null, "a commit has no issue/PR number");
+    assert.equal(ev.target?.project_path, "sympoies/symphony-board");
+    assert.deepEqual(ev.provider_details, { ref: "refs/heads/main", branch: "main" });
+  }
+});
+
+test("each push event carries the commit sha, subject title, message body, url, and time", () => {
+  const events = provider.toLiveEvents(fixture("push"), ctx("push"));
+  const [first, second] = events;
+  assert.ok(first && second);
+  // commit 1: multi-line message — title is the action sentence with the short
+  // sha, the subject is the target title, and the FULL message is the body.
+  assert.equal(first.target?.external_id, "bbbb222bbbb222bbbb222bbbb222bbbb222bbbb2");
+  assert.equal(first.target?.title, "feat: first commit subject");
+  assert.equal(first.url, "https://github.com/sympoies/symphony-board/commit/bbbb222bbbb222bbbb222bbbb222bbbb222bbbb2");
+  assert.equal(first.occurred_at, "2026-06-21T05:00:00Z");
+  assert.ok(first.title?.includes("bbbb222"), `title carries the short sha: ${first.title}`);
+  assert.ok(!first.title?.includes("longer body"), "the body must not leak into the title");
+  assert.ok(first.body?.includes("A longer body paragraph"), "the full message is the body");
+  // commit 1 author resolves to the GitHub username and (since the pusher
+  // authored it) is enriched with the pusher's avatar.
+  assert.equal(first.actor?.login, "graysurf");
+  assert.equal(first.actor?.avatar_url, "https://avatars.example/graysurf.png");
+  // commit 2: single-line message, author has NO github username — falls back to
+  // the author display name (not "someone"), and carries no enriched avatar.
+  assert.equal(second.target?.external_id, "cccc333cccc333cccc333cccc333cccc333cccc3");
+  assert.equal(second.body, "fix: second commit single line");
+  assert.equal(second.actor?.login ?? null, null, "no github username for this author");
+  assert.ok(second.title?.includes("Robo Committer"), `falls back to the author name: ${second.title}`);
+});
+
+test("a push with no commits (branch delete / tag) yields an empty list", () => {
+  const base = {
+    ref: "refs/heads/dead-branch",
+    repository: { full_name: "sympoies/symphony-board" },
+    sender: { login: "graysurf" },
+  };
+  assert.deepEqual(provider.toLiveEvents({ ...base, commits: [] }, ctx("push")), []);
+  assert.deepEqual(provider.toLiveEvents(base, ctx("push")), [], "missing commits[] is also empty");
+});
+
+test("push secret-bearing fields are scrubbed from raw", () => {
+  const events = provider.toLiveEvents(fixture("push"), ctx("push"));
+  const ev = events[0];
+  assert.ok(ev);
+  const installation = (ev.raw as Record<string, unknown> | null)?.installation as
+    | Record<string, unknown>
+    | undefined;
+  assert.ok(installation, "raw retains the installation object");
+  assert.equal(installation.access_token, "[redacted]");
+});
+
+test("push output validates as live-event/1 records once seq is assigned", () => {
+  const events = provider.toLiveEvents(fixture("push"), ctx("push"));
+  assert.ok(events.length >= 2);
+  events.forEach((ev, i) => {
+    assert.ok(isLiveEvent({ ...ev, schema: "live-event/1", seq: i }));
+  });
+});
+
+test("the push adapter is pure: repeated calls match and the input is not mutated", () => {
+  const payload = fixture("push") as Record<string, unknown>;
+  const before = JSON.stringify(payload);
+  const a = provider.toLiveEvents(payload, ctx("push"));
+  const b = provider.toLiveEvents(payload, ctx("push"));
+  assert.deepEqual(a, b);
+  assert.equal(JSON.stringify(payload), before, "input payload must not be mutated");
+});
+
 test("label-only issue actions are not surfaced in the live feed (#316 item 11)", () => {
   const base = {
     issue: { number: 1, title: "x", html_url: "https://github.com/x/y/issues/1" },

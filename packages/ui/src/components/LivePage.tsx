@@ -45,7 +45,7 @@ const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: str
 // Provider-neutral category order for the filter strip (see LiveEvent.category
 // in model.ts); any category not listed is appended by categoryCounts.
 const CATEGORY_ORDER = [
-  "push",
+  "commit",
   "change_request",
   "issue",
   "review",
@@ -420,7 +420,7 @@ export function LivePage({
             ? "Live stream unavailable on this deployment."
             : connected === null
               ? "Connecting…"
-              : "Waiting for activity. New pushes, pull requests, reviews and comments appear here the moment they land."}
+              : "Waiting for activity. New commits, pull requests, reviews and comments appear here the moment they land."}
         </p>
       ) : (
         <div

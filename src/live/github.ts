@@ -91,6 +91,38 @@ function nameOf(actor: LiveActor | null): string {
   return actor?.login ?? "someone";
 }
 
+// A commit row attributes to the commit AUTHOR (who wrote it), not the pusher.
+// GitHub's commit author carries name/email and, when the email maps to a
+// GitHub account, a `username`; it never carries an avatar/profile. When the
+// pusher authored the commit we enrich those from `sender` so a direct push
+// shows the author's avatar. With no identifiable author we fall back to the
+// pusher actor so the row never reads as "someone".
+function ghCommitActor(
+  authorObj: Record<string, unknown> | null,
+  sender: Record<string, unknown> | null,
+): LiveActor | null {
+  const senderActor = ghActor(sender);
+  const login = authorObj ? asStr(authorObj.username) : null;
+  const displayName = authorObj ? asStr(authorObj.name) : null;
+  if (login === null && displayName === null) return senderActor;
+  if (login !== null && senderActor && senderActor.login === login) {
+    return {
+      login,
+      display_name: displayName ?? senderActor.display_name,
+      avatar_url: senderActor.avatar_url,
+      profile_url: senderActor.profile_url,
+    };
+  }
+  return { login, display_name: displayName, avatar_url: null, profile_url: null };
+}
+
+// The display name for a commit row: prefer the GitHub login, then the git
+// author name, then a neutral fallback. (Plain `nameOf` only knows `login`,
+// which a commit author often lacks.)
+function commitName(actor: LiveActor | null): string {
+  return actor?.login ?? actor?.display_name ?? "someone";
+}
+
 function reviewVerb(state: string | null, action: string): string {
   if (action === "dismissed" || state === "dismissed") {
     return "dismissed a review on";
@@ -143,6 +175,9 @@ export class GithubWebhookProvider implements WebhookProvider {
       occurred_at: string | null;
       review_state?: string | null;
       provider_details?: Record<string, unknown> | null;
+      // Per-event actor override. Most events attribute to the delivery sender;
+      // a push attributes each row to that commit's author instead.
+      actor?: LiveActor | null;
     }): LiveEventInput => ({
       event_id: ctx.deliveryId,
       source_id: ctx.sourceId,
@@ -152,7 +187,7 @@ export class GithubWebhookProvider implements WebhookProvider {
       event_type: ctx.eventHeader,
       action,
       category: fields.category,
-      actor,
+      actor: fields.actor ?? actor,
       target: fields.target,
       title: fields.title,
       body: fields.body,
@@ -302,6 +337,53 @@ export class GithubWebhookProvider implements WebhookProvider {
             occurred_at: null,
           }),
         ];
+      }
+      case "push": {
+        // A push has no `action` and carries an array of commits, so — unlike
+        // every single-item case above — it fans OUT to one live-event per
+        // commit. The receiver assigns each its ordinal in array order; dedup is
+        // (source_id, event_id, ordinal). A branch-delete or tag push carries no
+        // commits and yields nothing (no synthetic "branch deleted" row).
+        const commits = Array.isArray(payload.commits)
+          ? (payload.commits as unknown[])
+          : [];
+        const ref = asStr(payload.ref);
+        const branch = ref?.startsWith("refs/heads/")
+          ? ref.slice("refs/heads/".length)
+          : ref;
+        const sender = asObj(payload.sender);
+        const details = ref ? { ref, branch } : null;
+        const out: LiveEventInput[] = [];
+        for (const entry of commits) {
+          const commit = asObj(entry);
+          const sha = commit ? asStr(commit.id) : null;
+          if (!commit || !sha) continue;
+          const message = asStr(commit.message) ?? "";
+          const subject = message.split("\n", 1)[0] ?? "";
+          const commitActor = ghCommitActor(asObj(commit.author), sender);
+          const url = asStr(commit.url);
+          out.push(
+            make({
+              category: "commit",
+              actor: commitActor,
+              target: {
+                kind: "commit",
+                source_id: ctx.sourceId,
+                project_path: repoPath,
+                number: null,
+                external_id: sha,
+                title: subject || null,
+                url,
+              },
+              title: `${commitName(commitActor)} committed ${sha.slice(0, 7)}`,
+              body: message || null,
+              url,
+              occurred_at: asStr(commit.timestamp),
+              provider_details: details,
+            }),
+          );
+        }
+        return out;
       }
       default:
         return [];

@@ -779,7 +779,8 @@ The live store is a dedicated SQLite database, independent of the canonical
 store's driver — it is append-only, low value to replicate, and stays out of the
 `Store` interface, the `store-conformance` suite, and the Postgres compose gates.
 It dedupes on `(source_id, event_id, ordinal)` (so one delivery may yield
-multiple rows, e.g. a future GitLab push, while a redelivery is a no-op) and
+multiple rows — a GitHub `push` fans out to one row per commit — while a
+redelivery is a no-op) and
 assigns a monotonic `seq` used as the SSE `id:` / `Last-Event-ID` cursor. It
 retains the full neutral record plus body, delivery metadata, and the raw payload
 with secret-bearing fields scrubbed, bounded by a TTL (~30 days) and a row cap
@@ -790,7 +791,11 @@ logged.
 
 A pure, network-free `WebhookProvider` adapter per provider (mirroring the
 pure-`normalize` discipline) keeps the receiver provider-agnostic and replayable
-against captured payloads. GitHub ships first; a GitLab adapter is designed
+against captured payloads. Most events map one-to-one to a neutral record; a
+`push` is the exception — it fans out to one `category: "commit"` record per
+commit (`target.kind: "commit"`, `external_id` = the commit SHA, no issue/PR
+number, attributed to the commit author), so commit-only repos surface in the
+live feed and not just the periodic canonical sync. GitHub ships first; a GitLab adapter is designed
 against the same interface but stubbed — enabling it is gated on company
 clearance to mirror private GitLab content off-host, and would also revisit
 per-client SSE authz / per-source visibility filtering.

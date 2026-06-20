@@ -19,6 +19,7 @@ export type LiveCategory =
   | "review"
   | "review_comment"
   | "review_thread"
+  | "commit"
   | "push"
   | "pipeline"
   // eslint-disable-next-line @typescript-eslint/ban-types
