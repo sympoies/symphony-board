@@ -2985,25 +2985,21 @@ a.rf-node-title:hover { color: var(--accent); }
   border: 1px solid color-mix(in srgb, var(--live) 38%, var(--line));
   border-radius: 999px; padding: 3px 11px 3px 9px;
 }
-/* The status-badge dot is STATIC by default — the Live tab dot already pulses, so
-   a second pulse here just duplicates it. Only a reconnect animates the dot, as a
-   "working on it" cue; up / connecting / down stay calm like the source badges. */
-.live-status-dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--live); flex: none;
-}
+/* Text-only status pill: no dot (the Live nav-tab dot already pulses). State is
+   carried by COLOR instead — muted while connecting, gold on a reconnect, salmon
+   when offline; "Streaming" stays neutral text on the faint live tint. */
 .live-status-tx { color: var(--muted); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-.live-status-connecting .live-status-dot { background: var(--muted); }
+.live-status-connecting { color: var(--muted); }
 .live-status-reconnecting {
   background: color-mix(in srgb, var(--declared) 10%, var(--panel));
   border-color: color-mix(in srgb, var(--declared) 38%, var(--line));
+  color: var(--declared);
 }
-.live-status-reconnecting .live-status-dot { background: var(--declared); animation: live-beat 2s ease-out infinite; }
 .live-status-down {
   background: color-mix(in srgb, var(--broken) 10%, var(--panel));
   border-color: color-mix(in srgb, var(--broken) 38%, var(--line));
+  color: var(--broken);
 }
-.live-status-down .live-status-dot { background: var(--broken); }
-.live-note { color: var(--muted); font-size: 12.5px; margin: 8px 0 16px; max-width: 72ch; }
 
 .live-pulse { display: grid; gap: 12px; margin-bottom: 18px; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; }
 .live-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
@@ -3107,7 +3103,6 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-pulse { gap: 8px; margin-bottom: 14px; }
   .live-figure { font-size: 21px; }
   .live-card { padding: 10px 11px; }
-  .live-note { margin-bottom: 12px; }
   .live-cat, .ms-button { min-height: 32px; }
   .live-filters { flex-wrap: wrap; align-items: center; gap: 8px; }
   /* Row 1: [category disclosure] … [Repo] [People]; the pills wrap to a full row
@@ -3122,7 +3117,6 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-status-reconnecting .live-status-dot { animation: none; }
   .live-spark-bar { transition: none; }
   .live-feed .live-event:first-child { animation: none; }
 }
@@ -3231,10 +3225,12 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (max-width: 900px) {
   .live-split { grid-template-columns: 1fr; }
   .live-selects { margin-left: 0; }
-  /* Bound the feed to its own scroll region (like the Activity list) so it does
-     not grow the page without end; contain the scroll so reaching its edge does
-     not chain to the page. */
-  .live-feed { position: static; max-height: 72vh; overflow-y: auto; overscroll-behavior: contain; }
+  /* Bound the feed to its own scroll region (like the Activity / Commits lists)
+     so it does not grow the page without end, but let it CHAIN to the page at its
+     edges — scrolling up past the feed's top continues to the header (matches the
+     other list tabs). The full-screen detail overlay below keeps its own scroll
+     containment so a short body never drags the feed behind it. */
+  .live-feed { position: static; max-height: 72vh; overflow-y: auto; }
   .live-detail { position: static; max-height: none; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
   .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
