@@ -23,7 +23,7 @@ import { buildHashRoute, graphFocusHref, routeList, type HashRoute, type TimeRan
 // re-exported here so every cross-page link has a single import home.
 export { graphFocusHref };
 
-export type Page = "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings";
+export type Page = "live" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings";
 
 // The active time range a navigation should carry. `preset` is the quick-preset
 // id that produced from/to, kept only as a UI tie-break.

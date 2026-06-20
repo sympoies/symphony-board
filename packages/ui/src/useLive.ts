@@ -17,7 +17,9 @@ import { isTauriRuntime } from "./runtime.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
 
 const POLL_INTERVAL_MS = 3000;
-const MAX_EVENTS = 500;
+// The in-memory feed cap; exported so the Live tab's "buffer" readout can show
+// how full the kept window is (events.length / MAX_EVENTS).
+export const MAX_EVENTS = 500;
 
 // EventSource only streams in a real browser; under Tauri (plugin-http) and
 // where EventSource is absent, fall back to polling.
