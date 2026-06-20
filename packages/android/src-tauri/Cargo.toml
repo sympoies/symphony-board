@@ -1,6 +1,6 @@
 [package]
 name = "symphony-board-android"
-version = "1.2.4"
+version = "1.2.5"
 description = "Android thin-client shell for symphony-board"
 authors = ["sympoies"]
 edition = "2021"
