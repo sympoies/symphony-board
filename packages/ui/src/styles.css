@@ -3208,9 +3208,23 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (max-width: 900px) {
   .live-split { grid-template-columns: 1fr; }
   .live-selects { margin-left: 0; }
-  .live-feed { position: static; max-height: none; overflow: visible; }
+  /* Bound the feed to its own scroll region (like the Activity list) so it does
+     not grow the page without end; contain the scroll so reaching its edge does
+     not chain to the page. */
+  .live-feed { position: static; max-height: 72vh; overflow-y: auto; overscroll-behavior: contain; }
   .live-detail { position: static; max-height: none; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
   .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
-  .live-split[data-detail-open="true"] .live-detail { position: fixed; inset: 0; z-index: 60; background: var(--bg); padding: 14px 16px; overflow: auto; }
+  /* Full-screen detail overlay: pad past the system status / nav bars via the
+     safe-area insets (0 in the browser), and contain its scroll so a short body
+     does not chain-scroll the long feed behind it. */
+  .live-split[data-detail-open="true"] .live-detail {
+    position: fixed; inset: 0; z-index: 60; background: var(--bg);
+    padding:
+      calc(14px + var(--android-safe-area-top, 0px))
+      calc(16px + var(--android-safe-area-right, 0px))
+      calc(14px + var(--android-safe-area-bottom, 0px))
+      calc(16px + var(--android-safe-area-left, 0px));
+    overflow: auto; overscroll-behavior: contain;
+  }
 }
