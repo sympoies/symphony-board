@@ -2970,7 +2970,9 @@ a.rf-node-title:hover { color: var(--accent); }
    histogram in the live-signal cyan); the feed rows below are coded by the
    per-category hues. Motion is confined to the pulse + status dot + the newest
    row's arrival, and is dropped under prefers-reduced-motion. */
-.live-page { max-width: 1180px; }
+/* Full-bleed like the other tabs (the board / activity use .app-wide's full
+   width); the detail body caps its own prose width for readability below. */
+.live-page { max-width: none; }
 .live-header { margin: 16px 0 0; }
 .live-header-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .live-header-main h1 { font-size: 22px; letter-spacing: -0.015em; }
@@ -3050,12 +3052,15 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Clamp the markdown preview to the Settings-controlled line count, with a soft
    fade so it reads as "more, in the detail pane". --preview-lines is set inline. */
 .live-event-preview {
-  position: relative; overflow: hidden; margin-top: 6px;
+  overflow: hidden; margin-top: 6px;
   max-height: calc(var(--preview-lines, 5) * 1.5em + 0.2em);
 }
-.live-event-preview::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1.5em;
-  background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none;
+/* When the body overflows the clamp, fade its bottom edge to transparent with a
+   mask (set by JS on overflow) — no colored overlay, so it reads cleanly over a
+   normal, hovered, or selected row; a body that fits shows no fade. */
+.live-event-preview.is-clamped {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent);
 }
 .live-event-target { display: inline-block; margin-top: 2px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
 .live-event-num { color: var(--iid); }
@@ -3158,7 +3163,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-md-preview h1, .live-md-preview h2, .live-md-preview h3, .live-md-preview h4 { font-size: 1em; margin: 0.35em 0 0.15em; }
 .live-md-preview pre { margin: 0.3em 0; padding: 6px 8px; }
 .live-md-fallback { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font-size: 13px; }
-.live-detail-body { font-size: 14px; }
+.live-detail-body { font-size: 14px; max-width: 100ch; }
 
 /* Settings: Live preview line-count stepper */
 .settings-number { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 6px 10px; width: 84px; font: inherit; }

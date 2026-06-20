@@ -7,6 +7,7 @@ import {
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
   loadTheme, saveTheme,
+  loadDefaultTab, saveDefaultTab,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
@@ -94,6 +95,16 @@ test("theme is a device-local setting with night owl as the default", () => {
   assert.equal(loadTheme(), "night-owl");
   store._raw("symphony-board:theme", "unknown-theme");
   assert.equal(loadTheme(), "night-owl", "invalid value -> default");
+});
+
+test("default tab is a device-local setting defaulting to Live", () => {
+  assert.equal(loadDefaultTab(), "live"); // factory default
+  saveDefaultTab("activity");
+  assert.equal(loadDefaultTab(), "activity");
+  saveDefaultTab("board");
+  assert.equal(loadDefaultTab(), "board");
+  store._raw("symphony-board:default-tab", "settings"); // not an offered landing tab
+  assert.equal(loadDefaultTab(), "live", "non-offered / invalid value -> default");
 });
 
 test("server base URL normalizes http/https roots and rejects unsafe schemes", () => {

@@ -533,8 +533,16 @@ try {
     await sleep(300);
   };
 
-  // First open defaults to Activity; Board remains available at the explicit
-  // #/board route.
+  // The factory default tab is Live (configurable in Settings), so a hashless
+  // first open lands there; capture it for the default-route assertion (the Live
+  // page is contract-independent and renders immediately).
+  // Wait until the receiver probe resolves and the Live tab is active (the tab is
+  // gated on the async liveAvailable probe), so the captured HTML includes it.
+  const defaultLandingHtml = await waitHtml("document.querySelector('.live-page') && document.querySelector('.tab-live.tab-on')");
+  // Then exercise a range-driven page's loading chrome: navigate to Activity
+  // (the range API is still delayed) and confirm the shell stays mounted while
+  // the range projection loads.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   const initialRangePending = await waitValue(`(() => {
     if (!document.body.innerText.includes('Loading range')) return null;
     return {
@@ -545,7 +553,7 @@ try {
     };
   })()`);
   rangeResponseDelayMs = 0;
-  const defaultActivityHtml = await waitHtml("document.querySelector('.activity-page')");
+  await waitHtml("document.querySelector('.activity-page')");
   // Auto-hiding scrollbars: the styled scrollbars are transparent at rest and only
   // paint while their scroller carries `data-scrolling="true"`. A single
   // capture-phase scroll listener flags the scrolled element and clears it after a
@@ -1930,8 +1938,8 @@ try {
   const portraitCommits = portraitResults.filter((r) => r.page === "commits");
   const phoneCommits = portraitCommits.filter((r) => r.preset === "phone-portrait");
   const checks = [
-    // default entry: opening the app with no hash lands on Activity.
-    [has(defaultActivityHtml, "activity-page") && has(defaultActivityHtml, "tab-on") && has(defaultActivityHtml, "Activity"), "app: default route opens Activity"],
+    // default entry: opening the app with no hash lands on the configured default tab (factory: Live).
+    [has(defaultLandingHtml, "live-page") && has(defaultLandingHtml, "tab-on") && has(defaultLandingHtml, "Live"), "app: default route opens the default tab (Live)"],
     [scrollAutoHide.restHidden === true && scrollAutoHide.shownOnPageScroll === true && (scrollAutoHide.hasInner === false || scrollAutoHide.shownOnInnerScroll === true), `app: scrollbars stay hidden at rest and reveal the scroller on scroll (${JSON.stringify(scrollAutoHide)})`],
     [colorSchemeHints.colorScheme === "dark light" && colorSchemeHints.supportedColorSchemes === "dark light", `app: declares supported color schemes for mobile browsers (${JSON.stringify(colorSchemeHints)})`],
     [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],

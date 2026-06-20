@@ -20,8 +20,11 @@ import {
   clampLivePreviewLines,
   MIN_LIVE_PREVIEW_LINES,
   MAX_LIVE_PREVIEW_LINES,
+  DEFAULT_TAB_OPTIONS,
+  isDefaultTab,
   type ViewTheme,
 } from "../viewconfig.ts";
+import type { Page } from "../nav.ts";
 
 interface Props {
   sources: SourceDTO[]; // per-source health + configured color, read-only (from the contract)
@@ -41,6 +44,8 @@ interface Props {
   onTheme: (theme: ViewTheme) => void;
   livePreviewLines: number; // lines of an event body the Live feed shows before clamping
   onLivePreviewLines: (lines: number) => void;
+  defaultTab: Page; // the tab the app opens on a hashless load
+  onDefaultTab: (tab: Page) => void;
   serverBaseUrl: string | null;
   onServerBaseUrl: (serverBaseUrl: string | null) => void;
   sync?: SyncState; // writer-owned manual sync, when the control surface is available
@@ -97,6 +102,8 @@ export function SettingsPage({
   onTheme,
   livePreviewLines,
   onLivePreviewLines,
+  defaultTab,
+  onDefaultTab,
   serverBaseUrl,
   onServerBaseUrl,
   sync,
@@ -189,6 +196,28 @@ export function SettingsPage({
           value={livePreviewLines}
           onChange={(e) => onLivePreviewLines(clampLivePreviewLines(Number(e.target.value)))}
         />
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Default tab</h3>
+          <p className="muted">
+            The tab to open when the URL has no specific page (a fresh open). Saved on this device only.
+          </p>
+        </div>
+        <select
+          className="settings-select"
+          value={defaultTab}
+          onChange={(e) => {
+            if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
+          }}
+        >
+          {DEFAULT_TAB_OPTIONS.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="settings-pref">

@@ -1,11 +1,15 @@
-// Safe markdown renderer for UNTRUSTED webhook bodies. Raw HTML is off
-// (react-markdown renders to React elements, never dangerouslySetInnerHTML), so
-// an event body cannot inject markup; link hrefs are scheme-guarded via safeHref
-// (http/https/mailto only), defeating `javascript:`/`data:` URLs, and links open
-// in a new tab. Default-exported so the Live tab can lazy-load it — react-markdown
-// + remark-gfm then form their own chunk and stay out of the board/graph bundles.
+// Markdown renderer for UNTRUSTED webhook bodies. GitHub/GitLab bodies mix
+// markdown with a little inline HTML (e.g. `<sub>` badges), so raw HTML IS
+// parsed (rehype-raw) but then sanitized against rehype-sanitize's default
+// (GitHub) allowlist: safe tags like sub/sup/img survive, while `<script>`,
+// event handlers, and `javascript:`/`data:` URLs are stripped. Link hrefs and
+// image srcs additionally pass the safeHref scheme guard, and links open in a
+// new tab. Default-exported so the Live tab can lazy-load it — react-markdown +
+// the rehype/remark plugins then form their own chunk, out of the board bundle.
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { safeHref } from "../url.ts";
 
 const components: Components = {
@@ -19,6 +23,7 @@ export default function Markdown({ children, className }: { children: string; cl
     <div className={className ?? "live-md"}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
         urlTransform={(url) => safeHref(url) ?? ""}
         components={components}
       >
