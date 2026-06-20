@@ -8,11 +8,17 @@
 //
 // - Verification: prefer the SIGNING TOKEN — HMAC-SHA256 in the lowercase
 //   `webhook-signature` header, value `v1,{base64}`, signed over
-//   `{message_id}.{timestamp}.{body}` (GA in GitLab 19.1). The legacy plaintext
-//   `X-Gitlab-Token` is weaker and not recommended for new webhooks. Verify over
-//   the RAW bytes, constant-time, no permissive fallback (as for GitHub).
+//   `{message_id}.{timestamp}.{body}` (GA in GitLab 19.1). CRUCIAL: the
+//   configured signing token is a Standard-Webhooks key of the form
+//   `whsec_{base64}`; strip the `whsec_` prefix and BASE64-DECODE the remainder
+//   to get the raw HMAC key — using the token string verbatim as the key would
+//   reject every valid signature. The legacy plaintext `X-Gitlab-Token` is
+//   weaker and not recommended for new webhooks. Verify over the RAW bytes,
+//   constant-time, no permissive fallback (as for GitHub).
 // - Dedupe on the `webhook-id` header (stable across retries) — NOT
-//   `X-Gitlab-Event-UUID`, which is shared by recursive webhooks.
+//   `X-Gitlab-Event-UUID`, which is shared by recursive webhooks. That dedupe
+//   key is distinct from the webhook's own identity header
+//   (`x-gitlab-webhook-uuid`), which is what hookIdHeaderName carries.
 // - Event typing: the `X-Gitlab-Event` header (`Note Hook`, `Merge Request
 //   Hook`, `Issue Hook`, `Push Hook`, `Pipeline Hook`, `Job Hook`, …) plus
 //   `object_kind` in the body; `object_kind` does NOT always match the header
@@ -53,8 +59,11 @@ const NOT_IMPLEMENTED =
 export class GitlabWebhookProvider implements WebhookProvider {
   readonly id = "gitlab" as const;
   readonly eventHeaderName = "x-gitlab-event";
-  // GitLab dedupes on `webhook-id` (stable across retries).
-  readonly hookIdHeaderName = "webhook-id";
+  // The webhook's own identity header, persisted into delivery.hook_id. This is
+  // NOT the dedupe key: deliveryId() reads `webhook-id` (stable across retries),
+  // while the hook identity is `x-gitlab-webhook-uuid`. Setting both to
+  // `webhook-id` would persist the dedupe id twice and lose the hook identifier.
+  readonly hookIdHeaderName = "x-gitlab-webhook-uuid";
 
   // Stub: the real impl verifies the `webhook-signature` signing token (HMAC over
   // {message_id}.{timestamp}.{body}) over the raw bytes, constant-time.

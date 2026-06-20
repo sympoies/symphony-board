@@ -44,6 +44,18 @@ function head<T>(arr: T[]): T {
   return at(arr, 0);
 }
 
+// append now returns the persisted LiveEvent for a NEW row (or null for a
+// redelivery). This helper asserts a new insert and yields its seq.
+function appendNew(
+  store: ReturnType<typeof openLiveStore>,
+  input: LiveEventInput,
+  ordinal = 0,
+): number {
+  const ev = store.append(input, ordinal);
+  assert.ok(ev, "expected append to insert a new row");
+  return ev.seq;
+}
+
 function makeInput(over: Partial<LiveEventInput> = {}): LiveEventInput {
   return {
     event_id: "d-1",
@@ -103,7 +115,7 @@ test("append assigns a strictly monotonic seq and tracks maxSeq", () => {
   const store = openLiveStore(":memory:");
   try {
     const seqs: number[] = [];
-    for (let i = 1; i <= 5; i++) seqs.push(store.append(ev(i)));
+    for (let i = 1; i <= 5; i++) seqs.push(appendNew(store, ev(i)));
     for (let i = 1; i < seqs.length; i++) assert.ok(at(seqs, i) > at(seqs, i - 1));
     assert.equal(store.maxSeq(), at(seqs, seqs.length - 1));
   } finally {
@@ -114,9 +126,10 @@ test("append assigns a strictly monotonic seq and tracks maxSeq", () => {
 test("append is idempotent on (source_id, event_id) and is append-only", () => {
   const store = openLiveStore(":memory:");
   try {
-    const s1 = store.append(ev(1));
-    const s2 = store.append(ev(1, { body: "edited later" }));
-    assert.equal(s2, s1, "a redelivery returns the original seq");
+    const first = store.append(ev(1));
+    assert.ok(first, "the first write inserts a new row");
+    const redelivery = store.append(ev(1, { body: "edited later" }));
+    assert.equal(redelivery, null, "a redelivery returns null (nothing new)");
     assert.equal(store.recent(100).length, 1, "no duplicate row");
     assert.equal(
       head(store.recent(1)).body,
@@ -140,15 +153,15 @@ test("a multi-event delivery keeps one row per ordinal; a redelivery is a no-op"
         signature_status: "verified",
       },
     });
-    const s0 = store.append({ ...base, title: "commit a" }, 0);
-    const s1 = store.append({ ...base, title: "commit b" }, 1);
-    const s2 = store.append({ ...base, title: "commit c" }, 2);
+    const s0 = appendNew(store, { ...base, title: "commit a" }, 0);
+    const s1 = appendNew(store, { ...base, title: "commit b" }, 1);
+    const s2 = appendNew(store, { ...base, title: "commit c" }, 2);
     assert.ok(s1 > s0 && s2 > s1, "each ordinal gets its own monotonic seq");
     assert.equal(store.recent(100).length, 3, "one row per ordinal");
     assert.equal(
       store.append({ ...base, title: "commit a (redelivered)" }, 0),
-      s0,
-      "redelivery of ordinal 0 returns the original seq",
+      null,
+      "redelivery of ordinal 0 returns null",
     );
     assert.equal(store.recent(100).length, 3, "redelivery adds no rows");
     assert.deepEqual(
@@ -167,7 +180,7 @@ test("since returns only rows after the cursor, ascending, bounded by limit", ()
   const store = openLiveStore(":memory:");
   try {
     const seqs: number[] = [];
-    for (let i = 1; i <= 5; i++) seqs.push(store.append(ev(i)));
+    for (let i = 1; i <= 5; i++) seqs.push(appendNew(store, ev(i)));
     assert.deepEqual(
       store.since(at(seqs, 1)).map((e) => e.seq),
       [at(seqs, 2), at(seqs, 3), at(seqs, 4)],
@@ -200,9 +213,13 @@ test("a fully-populated record round-trips through the JSON columns without loss
   const store = openLiveStore(":memory:");
   try {
     const input = ev(1);
-    const seq = store.append(input);
+    const inserted = store.append(input);
+    assert.ok(inserted);
     const back = head(store.recent(1));
-    assert.deepEqual(back, { ...input, schema: LIVE_EVENT_SCHEMA, seq });
+    assert.deepEqual(back, { ...input, schema: LIVE_EVENT_SCHEMA, seq: inserted.seq });
+    // append's returned event (broadcast over SSE) must equal the read-back row
+    // (snapshot/replay) — the no-re-query broadcast parity invariant.
+    assert.deepEqual(inserted, back, "append returns exactly the persisted event");
   } finally {
     store.close();
   }
@@ -224,11 +241,13 @@ test("a minimal record reads back with nullable fields as null", () => {
         signature_status: "verified",
       },
     };
-    const seq = store.append(minimal);
+    const inserted = store.append(minimal);
+    assert.ok(inserted);
     const back = head(store.recent(1));
+    assert.deepEqual(inserted, back, "append returns exactly the persisted event");
     assert.deepEqual(back, {
       schema: LIVE_EVENT_SCHEMA,
-      seq,
+      seq: inserted.seq,
       event_id: "m-1",
       source_id: "github:github.com",
       provider: "github",
@@ -259,14 +278,18 @@ test("a minimal record reads back with nullable fields as null", () => {
 test("NUL bytes are stripped from text and SSE ids are NUL-free", () => {
   const store = openLiveStore(":memory:");
   try {
-    const seq = store.append(
+    const inserted = store.append(
       ev(7, { body: `line1${NUL}line2`, title: `t${NUL}` }),
     );
+    assert.ok(inserted);
     const back = head(store.recent(1));
     assert.equal(back.body, "line1line2");
     assert.equal(back.title, "t");
+    // The returned (broadcast) event has NUL stripped too — storage parity.
+    assert.equal(inserted.body, "line1line2");
+    assert.equal(inserted.title, "t");
     assert.ok(!String(back.seq).includes(NUL), "the SSE id: value is NUL-free");
-    assert.equal(back.seq, seq);
+    assert.equal(back.seq, inserted.seq);
   } finally {
     store.close();
   }

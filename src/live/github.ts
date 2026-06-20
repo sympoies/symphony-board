@@ -23,6 +23,11 @@ import { verifyGithubSignature, type VerifyResult } from "./verify.ts";
 
 export const GITHUB_SOURCE_ID = "github:github.com";
 
+// Decision (#316 item 11): "labeled"/"unlabeled" are deliberately NOT surfaced
+// in the realtime feed. Label churn is high-volume and low-signal (bots relabel
+// constantly), and the canonical sync already reflects the resulting label state
+// on the work item; the live stream is for human-meaningful activity. Add these
+// actions only if a concrete need for realtime label events appears.
 const ISSUE_ACTIONS = new Set(["opened", "closed", "reopened", "edited"]);
 const ISSUE_COMMENT_ACTIONS = new Set(["created", "edited", "deleted"]);
 const PR_ACTIONS = new Set([
@@ -65,11 +70,15 @@ function ghTarget(
   kind: string,
   obj: Record<string, unknown> | null,
   repoPath: string | null,
+  // The canonical source id of THIS delivery's route, so a non-default GitHub
+  // source (e.g. GitHub Enterprise) yields targets whose source_id matches the
+  // event's, keeping downstream (source_id, external_id) matching consistent.
+  sourceId: string,
 ): LiveTarget | null {
   if (!obj) return null;
   return {
     kind,
-    source_id: GITHUB_SOURCE_ID,
+    source_id: sourceId,
     project_path: repoPath,
     number: toProviderNumber(asNum(obj.number)),
     external_id: asStr(obj.node_id),
@@ -163,7 +172,7 @@ export class GithubWebhookProvider implements WebhookProvider {
       case "issues": {
         if (action === null || !ISSUE_ACTIONS.has(action)) return [];
         const issue = asObj(payload.issue);
-        const target = ghTarget("issue", issue, repoPath);
+        const target = ghTarget("issue", issue, repoPath, ctx.sourceId);
         const num = target?.number ?? "";
         return [
           make({
@@ -185,6 +194,7 @@ export class GithubWebhookProvider implements WebhookProvider {
           isPr ? "change_request" : "issue",
           issue,
           repoPath,
+          ctx.sourceId,
         );
         const num = target?.number ?? "";
         const where = isPr ? "PR" : "issue";
@@ -214,7 +224,7 @@ export class GithubWebhookProvider implements WebhookProvider {
       case "pull_request": {
         if (action === null || !PR_ACTIONS.has(action)) return [];
         const pr = asObj(payload.pull_request);
-        const target = ghTarget("change_request", pr, repoPath);
+        const target = ghTarget("change_request", pr, repoPath, ctx.sourceId);
         const num = target?.number ?? "";
         const merged = action === "closed" && asBool(pr?.merged);
         return [
@@ -235,7 +245,7 @@ export class GithubWebhookProvider implements WebhookProvider {
         if (action === null || !REVIEW_ACTIONS.has(action)) return [];
         const review = asObj(payload.review);
         const pr = asObj(payload.pull_request);
-        const target = ghTarget("change_request", pr, repoPath);
+        const target = ghTarget("change_request", pr, repoPath, ctx.sourceId);
         const num = target?.number ?? "";
         const state = review ? asStr(review.state) : null;
         return [
@@ -258,7 +268,7 @@ export class GithubWebhookProvider implements WebhookProvider {
         if (action === null || !REVIEW_COMMENT_ACTIONS.has(action)) return [];
         const comment = asObj(payload.comment);
         const pr = asObj(payload.pull_request);
-        const target = ghTarget("change_request", pr, repoPath);
+        const target = ghTarget("change_request", pr, repoPath, ctx.sourceId);
         const num = target?.number ?? "";
         return [
           make({
@@ -280,7 +290,7 @@ export class GithubWebhookProvider implements WebhookProvider {
       case "pull_request_review_thread": {
         if (action === null || !REVIEW_THREAD_ACTIONS.has(action)) return [];
         const pr = asObj(payload.pull_request);
-        const target = ghTarget("change_request", pr, repoPath);
+        const target = ghTarget("change_request", pr, repoPath, ctx.sourceId);
         const num = target?.number ?? "";
         return [
           make({

@@ -93,3 +93,18 @@ test("an array-valued signature header uses the first value", () => {
     ok: true,
   });
 });
+
+test("a sha256= signature of the wrong length rejects as mismatch, never throws", () => {
+  const body = Buffer.from("payload");
+  // The length check must short-circuit before timingSafeEqual, which throws on
+  // unequal-length buffers — a malformed signature must be a clean reject.
+  assert.deepEqual(verifyGithubSignature(body, "sha256=deadbeef", [SECRET]), {
+    ok: false,
+    reason: "mismatch",
+  });
+  // A signature one hex digit too long is likewise a clean mismatch.
+  assert.deepEqual(
+    verifyGithubSignature(body, sign(body, SECRET) + "00", [SECRET]),
+    { ok: false, reason: "mismatch" },
+  );
+});

@@ -97,6 +97,35 @@ function rowToEvent(row: LiveEventRow): LiveEvent {
   };
 }
 
+// Build the persisted LiveEvent view from a freshly-appended input plus its
+// store-assigned seq, applying the SAME text normalization the columns store, so
+// a just-appended event broadcast over SSE is identical to the same event later
+// read back via since()/recent() — letting the receiver fan out without a
+// re-query. JSON fields round-trip structurally (parseJson(jsonOrNull(x)) ≡ x).
+function inputToEvent(input: LiveEventInput, seq: number): LiveEvent {
+  return {
+    schema: LIVE_EVENT_SCHEMA,
+    seq,
+    event_id: text(input.event_id) ?? "",
+    source_id: text(input.source_id) ?? "",
+    provider: text(input.provider) ?? "",
+    received_at: text(input.received_at) ?? "",
+    occurred_at: text(input.occurred_at),
+    event_type: text(input.event_type) ?? "",
+    action: text(input.action),
+    category: text(input.category) ?? "",
+    actor: input.actor ?? null,
+    target: input.target ?? null,
+    title: text(input.title),
+    body: text(input.body),
+    url: text(input.url),
+    review_state: text(input.review_state),
+    delivery: input.delivery,
+    provider_details: input.provider_details ?? null,
+    raw: input.raw ?? null,
+  };
+}
+
 const SELECT_COLUMNS = `seq, source_id, event_id, provider, received_at,
   occurred_at, event_type, action, category, actor_json, target_json, title,
   body, url, review_state, delivery_json, provider_details_json, raw_json`;
@@ -114,11 +143,12 @@ export class LiveStore {
     return this.#path;
   }
 
-  // Insert-or-ignore on (source_id, event_id, ordinal). Returns the assigned
-  // seq for a new row, or the existing seq for a redelivery (append-only: the
-  // first write wins, never an in-place update). `ordinal` lets one delivery
+  // Insert-or-ignore on (source_id, event_id, ordinal). Returns the persisted
+  // LiveEvent for a NEW row, or null for a redelivery (append-only: the first
+  // write wins, never an in-place update). The null return is what makes a
+  // redelivery non-rebroadcast at the receiver. `ordinal` lets one delivery
   // produce several rows; it defaults to 0 for the common single-event case.
-  append(input: LiveEventInput, ordinal = 0): number {
+  append(input: LiveEventInput, ordinal = 0): LiveEvent | null {
     const sourceId = text(input.source_id);
     const eventId = text(input.event_id);
     const inserted = this.#db
@@ -153,14 +183,10 @@ export class LiveStore {
         jsonOrNull(input.raw),
         new Date().toISOString(),
       ) as { seq: number } | undefined;
-    if (inserted) return inserted.seq;
-    const existing = this.#db
-      .prepare(
-        `SELECT seq FROM live_event
-         WHERE source_id=? AND event_id=? AND ordinal=?`,
-      )
-      .get(sourceId, eventId, ordinal) as { seq: number };
-    return existing.seq;
+    // Redelivery: the (source_id, event_id, ordinal) row already exists. Signal
+    // "nothing new" so the receiver does not rebroadcast a duplicate.
+    if (!inserted) return null;
+    return inputToEvent(input, inserted.seq);
   }
 
   // Replay backlog: rows strictly after `seq`, oldest-first, bounded by limit.
@@ -199,18 +225,27 @@ export class LiveStore {
   // side effect. `now` is injectable for deterministic tests.
   prune(ttlDays: number, maxRows: number, now: Date = new Date()): number {
     const cutoff = new Date(now.getTime() - ttlDays * 86_400_000).toISOString();
+    // received_at is always ISO-8601 UTC (Z), so a lexical compare is
+    // instant-correct AND uses the live_event_received_at index — julianday()
+    // wrapped the column and forced a full scan.
     const byTtl = this.#db
-      .prepare(
-        `DELETE FROM live_event WHERE julianday(received_at) < julianday(?)`,
-      )
+      .prepare(`DELETE FROM live_event WHERE received_at < ?`)
       .run(cutoff);
-    const byCap = this.#db
-      .prepare(
-        `DELETE FROM live_event
-         WHERE seq NOT IN (SELECT seq FROM live_event ORDER BY seq DESC LIMIT ?)`,
-      )
-      .run(maxRows);
-    return Number(byTtl.changes) + Number(byCap.changes);
+    // Row cap: find the seq of the (maxRows+1)-th newest row via one indexed
+    // range over the seq primary key, then delete at/below it — instead of a
+    // whole-table NOT IN anti-join.
+    const cutoffRow = this.#db
+      .prepare(`SELECT seq FROM live_event ORDER BY seq DESC LIMIT 1 OFFSET ?`)
+      .get(maxRows) as { seq: number } | undefined;
+    let byCapChanges = 0;
+    if (cutoffRow) {
+      byCapChanges = Number(
+        this.#db
+          .prepare(`DELETE FROM live_event WHERE seq <= ?`)
+          .run(cutoffRow.seq).changes,
+      );
+    }
+    return Number(byTtl.changes) + byCapChanges;
   }
 
   close(): void {

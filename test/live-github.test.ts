@@ -238,3 +238,37 @@ test("adapter output validates as a live-event/1 record once seq is assigned", (
   const ev = one(provider.toLiveEvents(fixture("issues.opened"), ctx("issues")));
   assert.ok(isLiveEvent({ ...ev, schema: "live-event/1", seq: 1 }));
 });
+
+test("the target source_id follows ctx.sourceId, not a hardcoded default (#316 item 7)", () => {
+  const enterprise = "github:ghe.example.com";
+  const ev = one(
+    provider.toLiveEvents(
+      fixture("issues.opened"),
+      ctx("issues", { sourceId: enterprise }),
+    ),
+  );
+  assert.equal(ev.source_id, enterprise, "event source_id reflects the route");
+  assert.equal(
+    ev.target?.source_id,
+    enterprise,
+    "target source_id matches the event's source, keeping (source_id, external_id) consistent",
+  );
+});
+
+test("label-only issue actions are not surfaced in the live feed (#316 item 11)", () => {
+  const base = {
+    issue: { number: 1, title: "x", html_url: "https://github.com/x/y/issues/1" },
+    repository: { full_name: "x/y" },
+    sender: { login: "a" },
+  };
+  assert.deepEqual(
+    provider.toLiveEvents({ ...base, action: "labeled" }, ctx("issues")),
+    [],
+    "labeled is intentionally dropped",
+  );
+  assert.deepEqual(
+    provider.toLiveEvents({ ...base, action: "unlabeled" }, ctx("issues")),
+    [],
+    "unlabeled is intentionally dropped",
+  );
+});

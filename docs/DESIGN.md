@@ -738,16 +738,29 @@ serve`) and read-only toward providers. The Live receiver keeps the
 read-only-toward-providers guarantee (it never writes issues/PRs back) but adds
 exactly one inbound public route:
 
-- **Public (Tailscale Funnel, path-scoped):** `POST /webhooks/<provider>` on a
-  dedicated funnel port, authenticated by the provider HMAC over the raw bytes
-  (constant-time compare, no permissive fallback, dual-secret rotation). The
-  Funnel is path-scoped to `/webhooks`; nothing else on that port is public, and
-  granting the `funnel` node attribute is a one-time tailnet-policy admin action.
-- **Tailnet-only (never funneled):** `GET /api/live` (SSE) and
-  `GET /api/live-snapshot`, proxied by the `web` nginx sidecar with
-  `proxy_buffering off`. v1 relies on the tailnet boundary for SSE authz, as the
-  rest of the UI does. The default `web` host port is loopback-only; tailnet
-  exposure is host-level `tailscale serve`.
+The split is enforced **in-app by two listeners** that share one store +
+broadcaster but expose disjoint routes (`src/live/receiver.ts`), so the
+public/tailnet boundary does not depend on out-of-repo proxy config alone:
+
+- **Public (Tailscale Funnel) — the webhook listener:** `POST /webhooks/<provider>`
+  (+ `/healthz`) on its own port, authenticated by the provider HMAC over the raw
+  bytes (constant-time compare, no permissive fallback, dual-secret rotation).
+  This listener serves **no** read routes, so the compose `live` service publishes
+  only this port to the host and the Funnel targets it directly with **no
+  `--set-path`** — even funneling the whole port cannot reach the event stream.
+  (Earlier drafts path-scoped a shared port with `--set-path=/webhooks`; that was
+  both a Go-ServeMux trailing-slash footgun and a single-point reliance on proxy
+  config, so the listener split supersedes it.) Granting the `funnel` node
+  attribute is a one-time tailnet-policy admin action.
+- **Tailnet-only (never funneled) — the reads listener:** `GET /api/live` (SSE)
+  and `GET /api/live-snapshot` (+ `/healthz`) on a separate port, reachable only
+  by the `web` nginx sidecar over the compose network (`proxy_buffering off`). v1
+  relies on the tailnet boundary for SSE authz, as the rest of the UI does. The
+  default `web` host port is loopback-only; tailnet exposure is host-level
+  `tailscale serve`. The webhook listener also applies request/headers timeouts
+  and a connection cap to bound an unauthenticated POST flood, and the SSE
+  broadcaster evicts a subscriber whose buffer backs up past a cap (so one slow
+  reader cannot grow receiver memory without bound).
 
 ### Least-privilege receiver
 

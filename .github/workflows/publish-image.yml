@@ -145,6 +145,7 @@ jobs:
           docker run -d --rm --name symphony-board-web-smoke \
             --add-host board:127.0.0.1 \
             --add-host api:127.0.0.1 \
+            --add-host live:127.0.0.1 \
             -p 8080:80 \
             -v "$PWD/packages/ui/public/contract.json:/srv/data/contract.json:ro" \
             symphony-board-web:smoke

@@ -125,20 +125,34 @@ with no canonical store, provider token, or config mount. See
 [`docs/DESIGN.md`](docs/DESIGN.md) ("Live Event Stream") for the full design and
 trust-boundary notes.
 
-**Deployment (g14):** the receiver's only public surface is
-`POST /webhooks/github`. Expose just that path with a Tailscale Funnel on a
+**Deployment (g14):** the receiver runs two listeners — a tailnet-only reads
+listener (`/api/live*`) and a separate **webhook listener** (`/webhooks/*`) that
+is the only public surface. The compose `live` service publishes just the webhook
+listener on a loopback host port, and a Tailscale Funnel exposes that port on a
 dedicated funnel port (`443` / `8443` / `10000`):
 
 ```sh
 # one-time: grant the `funnel` node attribute in the tailnet ACL (admin)
-tailscale funnel --set-path=/webhooks --bg 8443 http://127.0.0.1:18090
+tailscale funnel --bg --https=10000 http://127.0.0.1:18090
 ```
 
-The SSE/snapshot reads (`/api/live*`) stay tailnet-only through the existing
-`tailscale serve` UI port and are **never** funneled. Set `WEBHOOK_GITHUB_SECRET`
-(and, during a rotation window, `WEBHOOK_GITHUB_SECRET_PREVIOUS`) to match the
-GitHub org webhook secret; see [`.env.example`](.env.example). The actual
-funnel/serve wiring lives in the g14-infra `serve.sh`, out of this repo.
+No `--set-path` is needed (and it is avoided — its subtree matching is a
+trailing-slash footgun): the published port is the webhook-only listener, which
+serves no read routes, so even funneling the whole port cannot expose the event
+stream. The public webhook URL is then
+`https://<host>.ts.net:10000/webhooks/github`. The SSE/snapshot reads
+(`/api/live*`) stay tailnet-only through the existing `tailscale serve` UI port
+and are **never** funneled.
+
+Set `WEBHOOK_GITHUB_SECRET` (and, during a rotation window,
+`WEBHOOK_GITHUB_SECRET_PREVIOUS`) to match the GitHub org webhook secret. The
+`live` service reads it by `environment:` interpolation, which resolves the
+`.env` in the **compose project directory** (`docker/.env` for `docker compose -f
+docker/compose.yaml`), not the repo-root `.env` that `board`/`api` load — so for
+a direct run, set it in `docker/.env` or the shell env
+(`WEBHOOK_GITHUB_SECRET=… docker compose …`); see [`.env.example`](.env.example).
+The actual funnel/serve wiring lives in the g14-infra `serve.sh`, out of this
+repo.
 
 ## Workspace
 
