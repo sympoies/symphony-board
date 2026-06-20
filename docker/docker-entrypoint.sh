@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entrypoint for the symphony-board image. Three modes:
+# Entrypoint for the symphony-board image. Five modes:
 #
 #   once (default) - one sync + one contract emit, then exit. CMD args pass to
 #                    the sync (e.g. --dry-run, --incremental, --source <id>).
@@ -14,6 +14,10 @@
 #   live           - least-privilege webhook receiver + SSE/snapshot for the
 #                    Live page. Owns ONLY its own live.db; no canonical store,
 #                    no provider token, no config mount. Never syncs or emits.
+#   live-telegram  - read-only bridge: consumes the `live` service's SSE stream
+#                    (GET /api/live) and forwards every event to Telegram. Holds
+#                    no store / token / config — only LIVE_URL + TELEGRAM_* env.
+#                    Never syncs or emits.
 #
 # This is the SOLE writer by design: no external cron/trigger. A single writer
 # also preserves the writer/read-only boundary while the UI sidecar and
@@ -31,7 +35,7 @@
 # alone would never tombstone. With the defaults (INTERVAL 120, FULL_EVERY 30)
 # that is a full sweep about hourly, incremental every 2 minutes in between.
 #
-# Env: SYNC_MODE (once|loop|api|live), INTERVAL (seconds, default 120), FULL_EVERY (loop:
+# Env: SYNC_MODE (once|loop|api|live|live-telegram), INTERVAL (seconds, default 120), FULL_EVERY (loop:
 # run a full sweep every Nth iteration, default 30; 1 = always full), SYMPHONY_CONFIG
 # (default config/sources.json), CONTRACT_OUT (default data/contract.json), PORT
 # (api mode, default 8081). Loop mode also reads SYNC_CONTROL_ENABLED (enable
@@ -79,8 +83,15 @@ case "$MODE" in
     # shellcheck disable=SC2086
     exec $NODE src/cli/live-receiver.ts
     ;;
+  live-telegram)
+    # Read-only Live -> Telegram bridge: consumes the `live` service's SSE
+    # stream and forwards events to Telegram. No --config; reads only LIVE_URL /
+    # TELEGRAM_* / LIVE_TELEGRAM_* env and never opens the canonical store.
+    # shellcheck disable=SC2086
+    exec $NODE src/cli/live-telegram-bridge.ts
+    ;;
   *)
-    echo "$(ts) ERROR: unknown SYNC_MODE='$MODE' (use once|loop|api|live)" >&2
+    echo "$(ts) ERROR: unknown SYNC_MODE='$MODE' (use once|loop|api|live|live-telegram)" >&2
     exit 2
     ;;
 esac
