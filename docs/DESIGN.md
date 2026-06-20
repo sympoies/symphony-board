@@ -465,6 +465,9 @@ The Docker deployment keeps the same process split in both store modes:
   sync control surface (see below)
 - `api`: read-only range query sidecar over the configured store
 - `web`: read-only nginx sidecar serving the built UI and `/contract.json`
+- `live`: least-privilege webhook receiver + tailnet SSE/snapshot for the Live
+  page; owns its own `live.db`, with no canonical store / token / config (see
+  Live Event Stream below)
 
 `docker/compose.yaml` is the default SQLite stack. It bind-mounts `config/` and
 `data/`, so the SQLite file and emitted `data/contract.json` survive container
@@ -496,7 +499,9 @@ daemon's internal control port. `web` depends on both `board` and `api`
 healthchecks so it does not serve before the first contract and read-only API
 are ready.
 
-There is intentionally no external cron and no second writer.
+There is intentionally no external cron and no second writer **of the canonical
+store**. The `live` receiver is the single writer of its own, separate `live.db`
+(see Live Event Stream below); it never opens or writes the canonical store.
 
 Default loop cadence:
 
@@ -707,6 +712,75 @@ detects a daemon restart when `latest_seq` drops below its last-seen `seq` and
 re-reads from the top. The `sync_run` table (surfaced by `/api/stats`) already
 carries per-run `status` / `error`, which covers most "why did sync fail"
 questions without log access.
+
+## Live Event Stream (Realtime)
+
+A second, **independent** pipeline provides realtime "Live" activity, parallel to
+and separate from `raw → canonical DB → contract.json`:
+
+    GitHub org webhook → signature-verified delivery → dedicated append-only
+    live-event store → provider-neutral `live-event/1` record → snapshot + SSE
+    → contract-independent Live UI page
+
+It shares nothing with the canonical pipeline but the `source_id` vocabulary. It
+does **not** touch `contract.json`, the contract schema, the canonical store, the
+sync engine, or the Activity tab. The live feed is **freshness, not the system of
+record**: the periodic full/incremental sync remains the authoritative
+reconciliation/backstop, and because GitHub does not auto-retry failed deliveries
+the feed may have gaps (receiver downtime). The UI labels it a best-effort live
+feed and points to the board as the source of truth.
+
+### Trust boundary change
+
+This subsystem introduces the product's **first public-internet ingress**.
+Previously every surface was tailnet-only (UI + read-only APIs behind `tailscale
+serve`) and read-only toward providers. The Live receiver keeps the
+read-only-toward-providers guarantee (it never writes issues/PRs back) but adds
+exactly one inbound public route:
+
+- **Public (Tailscale Funnel, path-scoped):** `POST /webhooks/<provider>` on a
+  dedicated funnel port, authenticated by the provider HMAC over the raw bytes
+  (constant-time compare, no permissive fallback, dual-secret rotation). The
+  Funnel is path-scoped to `/webhooks`; nothing else on that port is public, and
+  granting the `funnel` node attribute is a one-time tailnet-policy admin action.
+- **Tailnet-only (never funneled):** `GET /api/live` (SSE) and
+  `GET /api/live-snapshot`, proxied by the `web` nginx sidecar with
+  `proxy_buffering off`. v1 relies on the tailnet boundary for SSE authz, as the
+  rest of the UI does. The default `web` host port is loopback-only; tailnet
+  exposure is host-level `tailscale serve`.
+
+### Least-privilege receiver
+
+The receiver (`live` service / `src/cli/live-receiver.ts`) holds **only** its own
+`live.db` and the webhook secret (by env-var name). It has **no** canonical store
+handle, **no** provider token, **no** config mount, and **no** Docker socket; it
+never acquires the canonical writer lease, soft-deletes, or mutates canonical
+data. It is the single writer of its own store, honoring "one writer per store"
+without introducing a second writer to the *canonical* store. The container runs
+with a read-only rootfs, all capabilities dropped, and bounded resources, and its
+host port is loopback-only.
+
+### Live-event store and retention
+
+The live store is a dedicated SQLite database, independent of the canonical
+store's driver — it is append-only, low value to replicate, and stays out of the
+`Store` interface, the `store-conformance` suite, and the Postgres compose gates.
+It dedupes on `(source_id, event_id, ordinal)` (so one delivery may yield
+multiple rows, e.g. a future GitLab push, while a redelivery is a no-op) and
+assigns a monotonic `seq` used as the SSE `id:` / `Last-Event-ID` cursor. It
+retains the full neutral record plus body, delivery metadata, and the raw payload
+with secret-bearing fields scrubbed, bounded by a TTL (~30 days) and a row cap
+that also bound the SSE replay backlog. The webhook secret is never persisted or
+logged.
+
+### Adapter interface
+
+A pure, network-free `WebhookProvider` adapter per provider (mirroring the
+pure-`normalize` discipline) keeps the receiver provider-agnostic and replayable
+against captured payloads. GitHub ships first; a GitLab adapter is designed
+against the same interface but stubbed — enabling it is gated on company
+clearance to mirror private GitLab content off-host, and would also revisit
+per-client SSE authz / per-source visibility filtering.
 
 ## Runtime Decisions
 
