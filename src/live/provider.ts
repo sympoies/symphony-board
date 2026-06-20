@@ -24,6 +24,14 @@ export interface AdaptCtx {
 export interface WebhookProvider {
   readonly id: "github" | "gitlab";
 
+  // Header carrying the provider's event name (X-GitHub-Event / X-Gitlab-Event).
+  // The receiver reads it to fill AdaptCtx.eventHeader (toLiveEvents is pure and
+  // never sees raw headers).
+  readonly eventHeaderName: string;
+
+  // Header carrying the provider's hook id, or null when the provider has none.
+  readonly hookIdHeaderName: string | null;
+
   // Verify the delivery over the RAW request bytes. Verdict only; no parsing, no
   // side effects. Constant-time compare; no permissive fallback.
   verify(
