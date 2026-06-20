@@ -9,9 +9,14 @@ import {
   openExternalUrl,
   shouldOpenExternalHttpHref,
 } from "./runtime.ts";
+import { startupRouteHash } from "./nav.ts";
+import { loadDefaultTab } from "./viewconfig.ts";
 import "./styles.css";
 
-normalizeDesktopStartupRoute();
+// Desktop only: land on the configured default tab before React mounts (the web
+// path applies the same rule in App). startupRouteHash honors the setting while
+// preserving the debug console and graph deep-links.
+normalizeDesktopStartupRoute(startupRouteHash(window.location.hash, loadDefaultTab()));
 installAndroidSafeAreaInsets();
 
 document.addEventListener(

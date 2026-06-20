@@ -158,7 +158,12 @@ export interface LiveState {
   transport: "sse" | "poll" | null;
 }
 
-export function useLive(serverBaseUrl: string | null): LiveState {
+// `enabled` gates the connection. App mounts this hook once at the always-present
+// shell (so the buffer survives tab switches) but only wants the EventSource open
+// where the receiver is reachable — it passes `liveAvailable === true`. While
+// disabled the hook stays idle (no connection, empty buffer); flipping it on
+// opens the stream and seeds from the snapshot.
+export function useLive(serverBaseUrl: string | null, enabled = true): LiveState {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -177,6 +182,7 @@ export function useLive(serverBaseUrl: string | null): LiveState {
     setConnected(null);
     setReconnecting(false);
     setTransport(null);
+    if (!enabled) return;
     let cancelled = false;
     let source: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -289,7 +295,7 @@ export function useLive(serverBaseUrl: string | null): LiveState {
       if (source) source.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [serverBaseUrl]);
+  }, [serverBaseUrl, enabled]);
 
   return { events, connected, reconnecting, transport };
 }

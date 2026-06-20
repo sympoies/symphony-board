@@ -1,6 +1,8 @@
 // Contract-independent Live tab. Renders the realtime webhook feed from the
-// `useLive` hook; depends on no loaded contract (it renders inside App's live
-// branch, which keeps the shell tab bar so Live switches like any other tab).
+// `LiveState` App owns (the `useLive` stream lives at the always-mounted shell so
+// the buffer survives tab switches); depends on no loaded contract (it renders
+// inside App's live branch, which keeps the shell tab bar so Live switches like
+// any other tab).
 // Layout is master-detail: a "pulse" strip on top (activity rate + a rolling
 // histogram, last-event freshness, buffer depth, who/what is active), a filter
 // bar (category pills + multi-select repo / people), then a two-pane split — a
@@ -9,7 +11,7 @@
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
 import { lazy, memo, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
-import { useLive, MAX_EVENTS } from "../useLive.ts";
+import { MAX_EVENTS, type LiveState } from "../useLive.ts";
 import { safeHref } from "../url.ts";
 import {
   categoryCounts,
@@ -230,13 +232,15 @@ function LiveDetail({ ev, now, onClose }: { ev: LiveEvent; now: number; onClose:
 }
 
 export function LivePage({
-  serverBaseUrl,
+  live,
   previewLines,
 }: {
-  serverBaseUrl: string | null;
+  live: LiveState;
   previewLines: number;
 }) {
-  const { events, connected, reconnecting, transport } = useLive(serverBaseUrl);
+  // The stream is owned by App (always mounted) so the buffer persists across tab
+  // switches; LivePage only renders it.
+  const { events, connected, reconnecting, transport } = live;
   // A 1s tick keeps the relative ages ("9s ago") and the rate window live even
   // between event arrivals.
   const [now, setNow] = useState(() => Date.now());

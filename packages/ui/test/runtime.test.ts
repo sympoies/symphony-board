@@ -1,22 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DESKTOP_DEFAULT_HASH,
   applyAndroidSafeAreaInsets,
-  desktopStartupRouteHash,
   internalRouteHashFromHref,
   shouldOpenExternalHttpHref,
 } from "../src/runtime.ts";
 
-test("desktop startup route defaults app launches to Activity while preserving reloads", () => {
-  assert.equal(DESKTOP_DEFAULT_HASH, "#/activity");
-  assert.equal(desktopStartupRouteHash("", "navigate"), "#/activity");
-  assert.equal(desktopStartupRouteHash("#/graph", "navigate"), "#/activity");
-  assert.equal(desktopStartupRouteHash("#/board", "back_forward"), "#/activity");
-  assert.equal(desktopStartupRouteHash("#/graph", null), "#/activity");
-  assert.equal(desktopStartupRouteHash("#/activity", "navigate"), null);
-  assert.equal(desktopStartupRouteHash("#/graph", "reload"), null);
-});
+// The desktop cold-start landing decision now lives in `startupRouteHash`
+// (nav.ts, unit-tested there) and is shared with the web path; runtime.ts only
+// keeps the DOM applier `normalizeDesktopStartupRoute`, which is exercised by the
+// render-smoke rather than a unit test (it touches window.location + the Tauri
+// host probe).
 
 test("Tauri external opener keeps internal hash routes inside the app", () => {
   const current = "http://tauri.localhost/#/activity";

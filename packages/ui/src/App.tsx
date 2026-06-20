@@ -53,6 +53,7 @@ import {
   activityViewTab,
   graphView,
   graphViewTab,
+  startupRouteHash,
   ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
   type ActivityView,
@@ -83,7 +84,7 @@ import {
   type ViewTheme,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
-import { useLiveAvailable } from "./useLive.ts";
+import { useLive, useLiveAvailable } from "./useLive.ts";
 import { useConfig } from "./useConfig.ts";
 import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
@@ -142,12 +143,7 @@ export function App() {
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
   const [mobileControlPanel, setMobileControlPanel] = useState<MobileControlPanel>(null);
-  const [hash, setHash] = useState<string>(() => {
-    const h = readHash();
-    // Land on the configured default tab when the URL carries no page (a fresh
-    // open or a hashless share link); an explicit #/page always wins.
-    return parseHashRoute(h).page ? h : `#/${loadDefaultTab()}`;
-  });
+  const [hash, setHash] = useState<string>(() => startupRouteHash(readHash(), loadDefaultTab()));
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
   //   • hidden        — HIDDEN repoKeys
@@ -297,6 +293,12 @@ export function App() {
   // Probe the live receiver so the Live tab appears only where it is reachable
   // (hidden on the standalone app and any deployment without the receiver).
   const liveAvailable = useLiveAvailable(serverBaseUrl);
+  // The live stream lives HERE, at the always-mounted shell — not inside LivePage
+  // — so the SSE connection and the event buffer survive tab switches. Switching
+  // to Live is then instant and already current, instead of re-seeding from
+  // /api/live-snapshot (a >1s empty flash) on every visit. Gated on the receiver
+  // being reachable so a deployment without it never opens a dead EventSource.
+  const live = useLive(serverBaseUrl, liveAvailable === true);
   const configState = useConfig(serverBaseUrl);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
   // "sources" value is meaningful; anything else renders the Display tab.
@@ -374,10 +376,13 @@ export function App() {
   useEffect(() => {
     saveDefaultTab(defaultTab);
   }, [defaultTab]);
-  // On a hashless first load, reflect the default landing tab into the URL so it
-  // matches the rendered page (the hash state already seeded it above).
+  // Cold start: reflect the resolved landing route into the URL so it matches the
+  // rendered page (the hash state already seeded it above). startupRouteHash
+  // honors the configured default tab over a restored hash — the web counterpart
+  // of the desktop launcher in main.tsx — while preserving debug / graph focus.
   useEffect(() => {
-    if (!parseHashRoute(readHash()).page) window.location.hash = `#/${loadDefaultTab()}`;
+    const target = startupRouteHash(readHash(), loadDefaultTab());
+    if (readHash() !== target) window.location.hash = target;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -1032,7 +1037,7 @@ export function App() {
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
         ) : null}
         {pageTabs}
-        <LivePage serverBaseUrl={serverBaseUrl} previewLines={livePreviewLines} />
+        <LivePage live={live} previewLines={livePreviewLines} />
       </div>
     );
   }
