@@ -3098,15 +3098,24 @@ a.rf-node-title:hover { color: var(--accent); }
 
 @media (max-width: 820px) { .live-pulse { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) {
-  /* Phone: keep the metrics a compact 2x2 (set above) but tighten figures and
-     padding, give pills / dropdowns a real tap target, and let the filter
-     dropdowns take their own full-width row below the category pills. */
+  /* Phone: compact 2x2 metrics; collapse the category pills behind the shared
+     tap-to-open disclosure and keep the Repo / People dropdowns on the same row
+     as it, so the filter bar is one line until the categories are expanded. */
   .live-pulse { gap: 8px; margin-bottom: 14px; }
   .live-figure { font-size: 21px; }
   .live-card { padding: 10px 11px; }
   .live-note { margin-bottom: 12px; }
   .live-cat, .ms-button { min-height: 32px; }
-  .live-selects { width: 100%; }
+  .live-filters { flex-wrap: wrap; align-items: center; gap: 8px; }
+  /* Row 1: [category disclosure] … [Repo] [People]; the pills wrap to a full row
+     below only when expanded. (`order` keeps the selects beside the disclosure
+     even though the pills sit between them in the DOM.) */
+  .live-selects { order: 2; margin-left: auto; width: auto; }
+  .live-cats { order: 3; display: none; flex-basis: 100%; margin-top: 2px; }
+  .live-cats[data-open="true"] { display: flex; }
+  /* Anchor the Repo / People popovers to the right so they never run off-screen
+     from a button sitting at the right edge of the row. */
+  .live-selects .ms-menu { left: auto; right: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

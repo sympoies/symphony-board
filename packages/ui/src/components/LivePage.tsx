@@ -264,6 +264,9 @@ export function LivePage({
   const [pinned, setPinned] = useState<LiveEvent | null>(null);
   // Drives the NARROW-screen detail overlay; only a tap opens it.
   const [detailOpen, setDetailOpen] = useState(false);
+  // Mobile-only: the category pills are collapsed behind a disclosure by default
+  // (they're shown inline on desktop). Tap the summary to reveal them.
+  const [catsOpen, setCatsOpen] = useState(false);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -362,7 +365,20 @@ export function LivePage({
 
       {events.length > 0 ? (
         <div className="live-filters">
-          <div className="live-cats" role="group" aria-label="Filter the feed by category">
+          {/* Mobile-only summary: the category pills below collapse behind this on a
+              phone (shared filter chrome); desktop hides it and shows the pills inline. */}
+          <button
+            type="button"
+            className="filter-summary-disclosure live-cats-disclosure"
+            aria-expanded={catsOpen}
+            aria-controls="live-cats-pills"
+            onClick={() => setCatsOpen((o) => !o)}
+          >
+            <span className="filter-summary-disclosure-label">category</span>
+            <span className="filter-summary-disclosure-summary">{category === null ? "all" : humanizeCategory(category)}</span>
+            <span className="filter-summary-disclosure-caret" aria-hidden="true" />
+          </button>
+          <div className="live-cats" id="live-cats-pills" data-open={catsOpen ? "true" : "false"} role="group" aria-label="Filter the feed by category">
             <button
               type="button"
               className={`live-cat live-cat-all${category === null ? " live-cat-on" : ""}`}
