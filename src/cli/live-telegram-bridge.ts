@@ -18,7 +18,12 @@ import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { log } from "../log.ts";
 import { isLiveEvent, type LiveEvent } from "../live/types.ts";
-import { clampHtml, formatLiveEvent, TELEGRAM_MESSAGE_LIMIT } from "../live/telegram.ts";
+import {
+  clampHtml,
+  formatLiveEvent,
+  MAX_BODY_LINES,
+  TELEGRAM_MESSAGE_LIMIT,
+} from "../live/telegram.ts";
 
 export interface TelegramBridgeConfig {
   // Base URL of the Live receiver's reads listener (no trailing slash).
@@ -31,6 +36,8 @@ export interface TelegramBridgeConfig {
   cursorPath: string;
   // Minimum spacing between sends, a light guard against Telegram rate limits.
   minIntervalMs: number;
+  // Body preview line cap passed to the pure Telegram formatter.
+  bodyLines: number;
   warnings: string[];
 }
 
@@ -49,6 +56,7 @@ export function resolveTelegramBridgeConfig(
     );
   }
   const minIntervalMs = Number(env.LIVE_TELEGRAM_MIN_INTERVAL_MS ?? "350");
+  const bodyLines = Number(env.LIVE_TELEGRAM_BODY_LINES ?? String(MAX_BODY_LINES));
   return {
     liveUrl: (env.LIVE_URL ?? "http://127.0.0.1:8090").replace(/\/+$/, ""),
     botToken,
@@ -58,6 +66,7 @@ export function resolveTelegramBridgeConfig(
     minIntervalMs: Number.isFinite(minIntervalMs) && minIntervalMs >= 0
       ? minIntervalMs
       : 350,
+    bodyLines: Number.isInteger(bodyLines) && bodyLines > 0 ? bodyLines : MAX_BODY_LINES,
     warnings,
   };
 }
@@ -287,7 +296,7 @@ async function streamOnce(
         const maxSeq = handleReset(frame.data, cursor);
         if (maxSeq !== cursor && writeCursor(cfg.cursorPath, maxSeq)) cursor = maxSeq;
       } else if (frame.event === "live" && frame.data) {
-        const advanced = await handleLiveFrame(frame.data, cursor, sender);
+        const advanced = await handleLiveFrame(frame.data, cursor, sender, cfg.bodyLines);
         if (advanced > cursor && writeCursor(cfg.cursorPath, advanced)) {
           cursor = advanced;
         }
@@ -322,6 +331,7 @@ async function handleLiveFrame(
   data: string,
   cursor: number,
   sender: TelegramSender,
+  bodyLines: number,
 ): Promise<number> {
   let parsed: unknown;
   try {
@@ -336,7 +346,7 @@ async function handleLiveFrame(
   }
   const event = parsed as LiveEvent;
   if (event.seq <= cursor) return cursor; // already delivered (replay dedupe)
-  await sender.send(formatLiveEvent(event));
+  await sender.send(formatLiveEvent(event, bodyLines));
   return event.seq;
 }
 

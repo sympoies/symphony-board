@@ -155,6 +155,16 @@ test("formatLiveEvent caps the body at MAX_BODY_LINES lines", () => {
   assert.ok(!msg.includes("line 11"), "lines past the cap are dropped");
 });
 
+test("formatLiveEvent accepts a caller-specified body line cap", () => {
+  const body = Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join("\n");
+  const msg = formatLiveEvent(makeEvent({ body }), 5);
+  const bodyPart = msg.split("\n\n").slice(1).join("\n\n");
+  const kept = bodyPart.split("\n").filter((l) => /^line \d+$/.test(l));
+  assert.equal(kept.length, 5);
+  assert.match(msg, /…$/);
+  assert.ok(!msg.includes("line 6"), "lines past the override cap are dropped");
+});
+
 test("formatLiveEvent tolerates missing actor/target/title/body", () => {
   const msg = formatLiveEvent(
     makeEvent({ actor: null, target: null, title: null, url: null, body: null }),
@@ -205,8 +215,16 @@ test("resolveTelegramBridgeConfig strips trailing slashes and applies defaults",
     TELEGRAM_BOT_TOKEN: "t",
     TELEGRAM_CHAT_ID: "c",
     LIVE_TELEGRAM_MIN_INTERVAL_MS: "1000",
+    LIVE_TELEGRAM_BODY_LINES: "5",
   });
   assert.equal(over.liveUrl, "http://live:8090");
   assert.equal(over.warnings.length, 0);
   assert.equal(over.minIntervalMs, 1000);
+  assert.equal(over.bodyLines, 5);
+
+  const invalid = resolveTelegramBridgeConfig({
+    LIVE_TELEGRAM_DRY_RUN: "1",
+    LIVE_TELEGRAM_BODY_LINES: "nope",
+  });
+  assert.equal(invalid.bodyLines, MAX_BODY_LINES);
 });

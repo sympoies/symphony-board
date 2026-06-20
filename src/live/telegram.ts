@@ -11,8 +11,8 @@ import type { LiveEvent } from "./types.ts";
 // characters; an over-long body is truncated with an ellipsis marker.
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
 
-// Body preview cap: keep firehose messages short. Beyond this many lines the
-// body is cut with a "…" and the reader follows the header link for the rest.
+// Default body preview cap: keep firehose messages short. Beyond this many lines
+// the body is cut with a "…" and the reader follows the header link for the rest.
 export const MAX_BODY_LINES = 10;
 
 // Escape for Bot API "HTML" parse_mode. We send arbitrary provider text
@@ -89,7 +89,7 @@ function numberLabel(event: LiveEvent): string | null {
 // and total: tolerates any nullable field. The header carries actor/category/
 // action/number, an optional linked title, a meta line, then the full body
 // (escaped), with the whole message capped at TELEGRAM_MESSAGE_LIMIT.
-export function formatLiveEvent(event: LiveEvent): string {
+export function formatLiveEvent(event: LiveEvent, bodyLines = MAX_BODY_LINES): string {
   const repo = escapeHtml(repoLabel(event));
   const action = effectiveAction(event);
   const num = numberLabel(event);
@@ -134,9 +134,10 @@ export function formatLiveEvent(event: LiveEvent): string {
   const room = TELEGRAM_MESSAGE_LIMIT - head.length - 2; // 2 for the "\n\n" gap
   if (room <= ELLIPSIS.length) return head;
 
+  const lineCap = Number.isInteger(bodyLines) && bodyLines > 0 ? bodyLines : MAX_BODY_LINES;
   const lines = rawBody.split("\n");
-  let truncated = lines.length > MAX_BODY_LINES;
-  let escapedBody = escapeHtml(lines.slice(0, MAX_BODY_LINES).join("\n"));
+  let truncated = lines.length > lineCap;
+  let escapedBody = escapeHtml(lines.slice(0, lineCap).join("\n"));
   if (escapedBody.length > room - ELLIPSIS.length) {
     escapedBody = clampHtml(escapedBody, room - ELLIPSIS.length);
     truncated = true;
