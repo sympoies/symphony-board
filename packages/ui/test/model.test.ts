@@ -905,6 +905,49 @@ test("deriveRepoOptions includes commit-only repos (in repo_metrics, not repo_st
   );
 });
 
+test("deriveRepoOptions surfaces each repo's last_activity_at from repo_metrics", () => {
+  const env: ContractEnvelope = {
+    contract_version: "3.5.0",
+    generated_at: "2026-06-08T00:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [],
+    edges: [],
+    item_window: {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-03-10T00:00:00.000Z", days: 90, edge_filter: null },
+      primary_items: 0,
+      edge_endpoint_items: 0,
+      total_items: 0,
+      truncated: false,
+    },
+    repo_stats: [
+      { source_id: "github:github.com", project_path: "o/active", items: 3, by_state: { open: 3 }, by_kind: { issue: 3 } },
+      { source_id: "github:github.com", project_path: "o/no-metric", items: 1, by_state: { open: 1 }, by_kind: { issue: 1 } },
+    ],
+    repo_metrics: [
+      repoMetric({
+        source_id: "github:github.com",
+        project_path: "o/active",
+        data_quality: { activity_available: true, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-21T04:00:00.000Z", notes: [] },
+      }),
+      repoMetric({
+        source_id: "github:github.com",
+        project_path: "o/commits-only",
+        data_quality: { activity_available: true, observed_since: "2026-06-01T00:00:00.000Z", last_activity_at: "2026-06-19T00:00:00.000Z", notes: [] },
+      }),
+    ],
+  };
+
+  const byPath = new Map(deriveRepoOptions(env).map((r) => [r.project_path, r.last_activity_at]));
+  // A repo with a matching metric carries its last-activity instant ...
+  assert.equal(byPath.get("o/active"), "2026-06-21T04:00:00.000Z");
+  // ... including a commit-only repo that is absent from repo_stats ...
+  assert.equal(byPath.get("o/commits-only"), "2026-06-19T00:00:00.000Z");
+  // ... and a repo with no metric falls back to null.
+  assert.equal(byPath.get("o/no-metric"), null);
+});
+
 test("computeStats counts items by state/kind and edges by lifecycle", () => {
   const items = [item({ state: "open", kind: "issue" }), item({ state: "merged", kind: "change_request" })];
   const stats = computeStats(items, [

@@ -1600,6 +1600,9 @@ export interface RepoOption {
   source_id: string;
   project_path: string | null;
   count: number; // items in this repo
+  // Latest activity instant for the repo (from repo_metrics.data_quality), or
+  // null when no activity row carries a parseable timestamp / no metric exists.
+  last_activity_at: string | null;
 }
 
 // Stable key for a repo — used both to dedupe rows and as the localStorage unit.
@@ -1618,7 +1621,7 @@ export function deriveRepos(items: ItemDTO[]): RepoOption[] {
     const key = repoKey(it.source_id, it.project_path);
     const cur = byKey.get(key);
     if (cur) cur.count++;
-    else byKey.set(key, { key, source_id: it.source_id, project_path: it.project_path, count: 1 });
+    else byKey.set(key, { key, source_id: it.source_id, project_path: it.project_path, count: 1, last_activity_at: null });
   }
   return [...byKey.values()].sort(
     (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),
@@ -1637,18 +1640,21 @@ export function deriveRepoOptions(env: ContractEnvelope): RepoOption[] {
           source_id: repo.source_id,
           project_path: repo.project_path,
           count: repo.items,
+          last_activity_at: null,
         }))
       : deriveRepos(env.items);
   for (const repo of itemRepos) byKey.set(repo.key, repo);
-  // Commit-only repos: present in repo_metrics (they have commit activity) but
-  // with no work-items, so absent from repo_stats. Surface them too — with a 0
-  // item count — so the global source filter lists every tracked repo that has
-  // items OR commits, and their commit activity stays visible and toggleable.
+  // repo_metrics carries the per-repo activity projection. Use it for two
+  // things: (1) surface commit-only repos — present here (they have commit
+  // activity) but absent from repo_stats (no work-items) — with a 0 item count
+  // so the source filter lists every tracked repo that has items OR commits; and
+  // (2) stamp each repo's last-activity instant onto its option.
   for (const metric of env.repo_metrics ?? []) {
     const key = repoKey(metric.source_id, metric.project_path);
-    if (!byKey.has(key)) {
-      byKey.set(key, { key, source_id: metric.source_id, project_path: metric.project_path, count: 0 });
-    }
+    const last_activity_at = metric.data_quality?.last_activity_at ?? null;
+    const existing = byKey.get(key);
+    if (existing) existing.last_activity_at = last_activity_at;
+    else byKey.set(key, { key, source_id: metric.source_id, project_path: metric.project_path, count: 0, last_activity_at });
   }
   return [...byKey.values()].sort(
     (a, b) => a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""),

@@ -291,7 +291,16 @@ export function SettingsPage({
                     <label className="settings-repo">
                       <input type="checkbox" checked={!hidden.has(r.key)} onChange={() => onToggle(r.key)} />
                       <span className="settings-repo-name">{r.project_path ?? "(no project)"}</span>
-                      <span className="count">{r.count}</span>
+                      <span
+                        className="count"
+                        title={`${r.count} ${r.count === 1 ? "item" : "items"}${
+                          r.last_activity_at
+                            ? ` · last active ${new Date(r.last_activity_at).toLocaleString()}`
+                            : " · no activity recorded"
+                        }`}
+                      >
+                        {r.last_activity_at ? relativeTime(r.last_activity_at) : "—"}
+                      </span>
                     </label>
                     <span className="settings-repo-color">
                       <input
