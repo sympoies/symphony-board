@@ -2969,13 +2969,13 @@ a.rf-node-title:hover { color: var(--accent); }
 /* ============================ live tab ============================
    The realtime webhook feed. The hero is the activity "pulse" (a rolling
    histogram in the live-signal cyan); the feed rows below are coded by the
-   per-category hues. Motion is confined to the pulse + status dot + the newest
+   per-category hues. Motion is confined to the pulse + status pill + the newest
    row's arrival, and is dropped under prefers-reduced-motion. */
 /* Match the Activity page's footprint: its two-column layout tops out at
    880 + 20 gap + 680 = 1580px, left-aligned inside .app-wide, rather than running
    edge-to-edge. The detail body caps its own prose width for readability below. */
 .live-page { max-width: 1580px; }
-.live-header { margin: 16px 0 0; }
+.live-header { margin: 16px 0 12px; }
 .live-header-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .live-header-main h1 { font-size: 22px; letter-spacing: -0.015em; }
 
@@ -2988,7 +2988,6 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Text-only status pill: no dot (the Live nav-tab dot already pulses). State is
    carried by COLOR instead — muted while connecting, gold on a reconnect, salmon
    when offline; "Streaming" stays neutral text on the faint live tint. */
-.live-status-tx { color: var(--muted); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .live-status-connecting { color: var(--muted); }
 .live-status-reconnecting {
   background: color-mix(in srgb, var(--declared) 10%, var(--panel));
