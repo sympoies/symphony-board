@@ -116,7 +116,8 @@ test("formatLiveEvent escapes hostile body/title text", () => {
   );
   assert.match(msg, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(msg, /look &lt;b&gt;bold&lt;\/b&gt; &amp; &lt;i&gt;x&lt;\/i&gt;/);
-  assert.doesNotMatch(msg, /<script>/);
+  // Plain substring check (not a tag-shaped regex) — the raw tag must be gone.
+  assert.ok(!msg.includes("<script>"), "raw <script> tag must be escaped");
 });
 
 test("formatLiveEvent truncates an over-long body to the message ceiling", () => {
