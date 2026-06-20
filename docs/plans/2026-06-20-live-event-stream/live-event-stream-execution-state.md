@@ -69,4 +69,4 @@
 | 4.2 | done | `LivePage` component + nav/router wiring | PR (sprint4); ui build+test(181)+smoke pass; test-first verified | Early-return before contract gates; `page !== "live"` chrome guards; Decision 10 presentation. |
 | 5.1 | done | Compose `live` service + entrypoint dispatch | PR (sprint5); shellcheck + compose config + live up --wait healthy under read_only | `SYNC_MODE=live`; loopback bind; no token/config/store mount; `.env.example`. |
 | 5.2 | done | nginx `/api/live*` + g14 Funnel/serve + DESIGN promotion | PR (sprint5); shellcheck + compose config + live up --wait healthy under read_only | `proxy_buffering off`; funnel path-scoped to `/webhooks`; trust-boundary note. |
-| 6.1 | todo | GitLab `WebhookProvider` interface stub | | Signing-token HMAC design; `webhook-id` dedupe; work_item branch; Decision 11 rollout gate; not wired. |
+| 6.1 | done | GitLab `WebhookProvider` interface stub | PR (sprint6); test/live-gitlab.test.ts (348 pass); test-first verified | Signing-token HMAC design; `webhook-id` dedupe; work_item branch; Decision 11 rollout gate; not wired. |
