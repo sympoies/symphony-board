@@ -104,6 +104,60 @@ services:
       retries: 3
       start_period: 10s
 
+  # Least-privilege Live receiver (Sprint 5): verifies inbound GitHub webhooks,
+  # owns its OWN live.db (the live-data volume), and serves the tailnet-only SSE
+  # + snapshot. It mounts NO config and holds NO provider token — only the
+  # webhook secret(s), passed by name via `environment:` interpolation, NOT
+  # env_file (which would leak GITHUB_TOKEN). It never opens the canonical store.
+  # It listens on 0.0.0.0 inside the compose network so the web sidecar can proxy
+  # /api/live*; its only host port is loopback, for the host Tailscale Funnel to
+  # reach the public /webhooks path. SSE/snapshot are NEVER funneled.
+  live:
+    image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SYNC_MODE: live
+      LIVE_BIND_HOST: 0.0.0.0
+      LIVE_PORT: "8090"
+      LIVE_DB_PATH: data/live.db
+      WEBHOOK_GITHUB_SECRET: ${WEBHOOK_GITHUB_SECRET:-}
+      WEBHOOK_GITHUB_SECRET_PREVIOUS: ${WEBHOOK_GITHUB_SECRET_PREVIOUS:-}
+      LIVE_EVENT_TTL_DAYS: ${LIVE_EVENT_TTL_DAYS:-30}
+      LIVE_MAX_ROWS: ${LIVE_MAX_ROWS:-50000}
+      LIVE_PROJECT_ALLOWLIST: ${LIVE_PROJECT_ALLOWLIST:-}
+    volumes:
+      - live-data:/app/data
+    ports:
+      # Loopback-only host port for the host Tailscale Funnel to target the
+      # public /webhooks path. Never 0.0.0.0. /api/live* is reached only via the
+      # web sidecar over the compose network and is never published here.
+      - "${SYMPHONY_LIVE_BIND:-127.0.0.1}:${SYMPHONY_LIVE_PORT:-18090}:8090"
+    # Hardened: the only writable paths are the live-data volume and tmpfs /tmp;
+    # all capabilities dropped; no privilege escalation; bounded resources.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # Read-only UI sidecar: a multi-stage build of packages/ui served by nginx at
   # http://localhost:8080. It serves the daemon-emitted data/contract.json
   # (mounted read-only) at /contract.json, so the UI always renders the loop's
@@ -115,8 +169,12 @@ services:
       context: ..
       dockerfile: docker/ui.Dockerfile
     restart: unless-stopped
+    # Loopback-only by default (was 0.0.0.0:8080): the UI and the proxied
+    # tailnet-only /api/* — including /api/live* — must not be LAN-reachable.
+    # Tailnet exposure is done on the host via `tailscale serve` to this loopback
+    # port. Set SYMPHONY_WEB_BIND to ONE host interface to widen it; never 0.0.0.0.
     ports:
-      - "8080:80"
+      - "${SYMPHONY_WEB_BIND:-127.0.0.1}:${SYMPHONY_WEB_PORT:-8080}:80"
     volumes:
       - ../data:/srv/data:ro
     depends_on:
@@ -124,3 +182,10 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+      live:
+        condition: service_started
+
+volumes:
+  # The Live receiver's own append-only store, isolated from the canonical
+  # ../data bind (which the receiver never mounts).
+  live-data:
