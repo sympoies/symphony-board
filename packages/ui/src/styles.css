@@ -3207,8 +3207,14 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0.6em 0; }
 .live-md pre code { background: none; padding: 0; }
 .live-md blockquote { margin: 0.6em 0; padding-left: 0.9em; border-left: 3px solid var(--line); color: var(--muted); }
-.live-md table { border-collapse: collapse; margin: 0.6em 0; display: block; overflow-x: auto; }
-.live-md th, .live-md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.live-md table { border-collapse: collapse; margin: 0.6em 0; display: block; width: max-content; max-width: 100%; overflow-x: auto; }
+/* Cells override the body's `overflow-wrap: anywhere`: `break-word` still breaks
+   genuinely long tokens to avoid overflow, but (unlike `anywhere`) it does NOT
+   count per-character break points toward each column's min-content width — so the
+   auto table layout can't collapse a short column like "Severity" into a 1-char
+   ribbon that wraps letter-by-letter. */
+.live-md th, .live-md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; overflow-wrap: break-word; }
+.live-md th { white-space: nowrap; }
 .live-md img { max-width: 100%; }
 .live-md hr { border: none; border-top: 1px solid var(--line); margin: 0.8em 0; }
 .live-md-preview { font-size: 13px; }
