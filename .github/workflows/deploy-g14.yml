@@ -97,6 +97,17 @@ jobs:
           # the repo or workflow env. A render failure aborts here (set -e), before
           # compose, so a bad rotation can never deploy a broken stack.
           "$secrets/bin/render.sh" symphony-board "$infra/stacks/symphony-board/.env"
+          # The Live receiver watches the same GitHub repos the board tracks:
+          # derive its allowlist from the board's own source config (GitHub only —
+          # the Live GitLab adapter is a stub) and append it to the rendered .env.
+          # The receiver still only reads this env var (no config mount), so it
+          # stays least-privilege. Best-effort: empty output falls back to the
+          # compose default, so a config quirk never blocks the deploy.
+          allow="$(bash "$infra/scripts/live-allowlist.sh" "$infra/stacks/symphony-board/config/sources.pg.json" || true)"
+          if [ -n "$allow" ]; then
+            echo "LIVE_PROJECT_ALLOWLIST=$allow" >> "$infra/stacks/symphony-board/.env"
+            echo "Live allowlist (from config): $allow"
+          fi
           cd "$infra/stacks/symphony-board"
           # Pull the freshly published :latest image and reconcile the stack.
           # Reuses the existing named volumes (postgres-data / contract-data).
