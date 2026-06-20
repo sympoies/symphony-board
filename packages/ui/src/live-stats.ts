@@ -85,17 +85,48 @@ export function categoryCounts(
   return out;
 }
 
-// Distinct non-empty keys produced by `key` across the events.
-export function distinctCount(
+// Distinct non-empty keys produced by `key`, sorted. The option lists for the
+// repo / people filter dropdowns are built from these.
+export function distinctValues(
   events: LiveEvent[],
   key: (e: LiveEvent) => string | null | undefined,
-): number {
+): string[] {
   const set = new Set<string>();
   for (const e of events) {
     const k = key(e);
     if (k) set.add(k);
   }
-  return set.size;
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+// Distinct non-empty keys produced by `key` across the events.
+export function distinctCount(
+  events: LiveEvent[],
+  key: (e: LiveEvent) => string | null | undefined,
+): number {
+  return distinctValues(events, key).length;
+}
+
+// The feed's filter selection: category is single-select (null = any); repos and
+// people are multi-select sets (empty = any).
+export interface LiveFilters {
+  category: string | null;
+  repos: ReadonlySet<string>;
+  people: ReadonlySet<string>;
+}
+
+// Does an event pass the filters? Every supplied dimension must match (AND).
+export function eventMatchesFilters(e: LiveEvent, sel: LiveFilters): boolean {
+  if (sel.category && e.category !== sel.category) return false;
+  if (sel.repos.size) {
+    const repo = eventRepo(e);
+    if (!repo || !sel.repos.has(repo)) return false;
+  }
+  if (sel.people.size) {
+    const login = e.actor?.login;
+    if (!login || !sel.people.has(login)) return false;
+  }
+  return true;
 }
 
 // Compact relative age ("now" / "5s" / "3m" / "2h" / "4d") for a feed row or the

@@ -12,6 +12,8 @@ import {
   rateBuckets,
   categoryCounts,
   distinctCount,
+  distinctValues,
+  eventMatchesFilters,
   relativeAge,
 } from "../src/live-stats.ts";
 import type { LiveEvent } from "../src/model.ts";
@@ -134,4 +136,46 @@ test("relativeAge renders compact units and clamps the future to 'now'", () => {
   assert.equal(relativeAge(NOW - 2 * 3_600_000, NOW), "2h");
   assert.equal(relativeAge(NOW - 50 * 3_600_000, NOW), "2d");
   assert.equal(relativeAge(NOW + 5_000, NOW), "now"); // clock skew → never negative
+});
+
+test("distinctValues returns sorted distinct non-empty keys (for the filter dropdowns)", () => {
+  const events = [
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "o/zeta" } }),
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "o/alpha" } }),
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "o/zeta" } }),
+    ev({ target: null }),
+  ];
+  assert.deepEqual(distinctValues(events, eventRepo), ["o/alpha", "o/zeta"]);
+  assert.deepEqual(
+    distinctValues([ev({ actor: { login: "bob" } }), ev({ actor: { login: null } })], (e) => e.actor?.login),
+    ["bob"],
+  );
+});
+
+test("eventMatchesFilters ANDs category (single) with repo + people (multi, empty = all)", () => {
+  const e = ev({
+    category: "review",
+    actor: { login: "graysurf" },
+    target: { kind: "change_request", source_id: "github:github.com", project_path: "o/repo" },
+  });
+  const none = { category: null, repos: new Set<string>(), people: new Set<string>() };
+  // no filters → everything matches
+  assert.equal(eventMatchesFilters(e, none), true);
+  // category mismatch fails; match passes
+  assert.equal(eventMatchesFilters(e, { ...none, category: "push" }), false);
+  assert.equal(eventMatchesFilters(e, { ...none, category: "review" }), true);
+  // repo / people multi-select: present in the set passes, absent fails
+  assert.equal(eventMatchesFilters(e, { ...none, repos: new Set(["o/repo"]) }), true);
+  assert.equal(eventMatchesFilters(e, { ...none, repos: new Set(["o/other"]) }), false);
+  assert.equal(eventMatchesFilters(e, { ...none, people: new Set(["graysurf"]) }), true);
+  assert.equal(eventMatchesFilters(e, { ...none, people: new Set(["someone"]) }), false);
+  // all three together must all pass
+  assert.equal(
+    eventMatchesFilters(e, { category: "review", repos: new Set(["o/repo"]), people: new Set(["graysurf"]) }),
+    true,
+  );
+  assert.equal(
+    eventMatchesFilters(e, { category: "review", repos: new Set(["o/repo"]), people: new Set(["someone"]) }),
+    false,
+  );
 });

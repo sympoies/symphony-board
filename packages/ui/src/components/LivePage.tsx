@@ -1,24 +1,44 @@
 // Contract-independent Live tab. Renders the realtime webhook feed from the
 // `useLive` hook; depends on no loaded contract (it renders inside App's live
 // branch, which keeps the shell tab bar so Live switches like any other tab).
-// Above the feed sits a "pulse" strip — activity rate + a rolling histogram,
-// last-event freshness, buffer depth, and who/what is active — all derived from
-// the in-memory buffer by the pure helpers in live-stats.ts. Per Decision 10 a
-// row shows the full event body by default with the raw payload behind an
-// expander, and the feed is labelled best-effort with the board as the truth.
-import { useEffect, useState, type CSSProperties } from "react";
+// Layout is master-detail: a "pulse" strip on top (activity rate + a rolling
+// histogram, last-event freshness, buffer depth, who/what is active), a filter
+// bar (category pills + multi-select repo / people), then a two-pane split — a
+// compact feed on the left (each row a markdown preview clamped to the
+// Settings-controlled line count) and the selected event's full markdown body on
+// the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
+// feed is labelled best-effort with the board as the source of truth.
+import { lazy, memo, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { useLive, MAX_EVENTS } from "../useLive.ts";
 import { safeHref } from "../url.ts";
 import {
   categoryCounts,
   countInWindow,
   distinctCount,
+  distinctValues,
   eventInstant,
+  eventMatchesFilters,
   eventRepo,
   rateBuckets,
   relativeAge,
 } from "../live-stats.ts";
+import { MultiSelect } from "./MultiSelect.tsx";
 import type { LiveEvent } from "../model.ts";
+
+// react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
+// stay out of the board/graph bundles — only the Live tab pays for them.
+const Markdown = lazy(() => import("./Markdown.tsx"));
+
+// Memoized so the 1s relative-time tick (which re-renders the feed) never
+// re-parses an unchanged body. Falls back to the plain text while the markdown
+// chunk loads, so a row never flashes empty.
+const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: string; className?: string }) {
+  return (
+    <Suspense fallback={<div className={className}><div className="live-md-fallback">{text}</div></div>}>
+      <Markdown className={className}>{text}</Markdown>
+    </Suspense>
+  );
+});
 
 // Provider-neutral category order for the filter strip (see LiveEvent.category
 // in model.ts); any category not listed is appended by categoryCounts.
@@ -34,8 +54,8 @@ const CATEGORY_ORDER = [
 ] as const;
 
 const RATE_WINDOW_MS = 60_000; // the "/min" figure
-const SPARK_BUCKET_MS = 30_000; // one histogram bar per 30s
-const SPARK_BUCKETS = 30; // 30 bars → last 15 minutes
+const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
+const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -75,37 +95,66 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-function LiveRow({ ev, now }: { ev: LiveEvent; now: number }) {
+// The precise permalink (event url, else the parent target url), scheme-guarded.
+function eventLink(ev: LiveEvent): string | null {
+  return safeHref(ev.url ?? ev.target?.url);
+}
+function targetText(ev: LiveEvent): { repo: string; num: string } {
+  const repo = eventRepo(ev) ?? ev.source_id;
+  const num = ev.target?.number != null ? `#${ev.target.number}` : "";
+  return { repo, num };
+}
+
+function LiveRow({
+  ev,
+  now,
+  previewLines,
+  selected,
+  onSelect,
+}: {
+  ev: LiveEvent;
+  now: number;
+  previewLines: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   const instant = eventInstant(ev);
   const age = instant != null ? relativeAge(instant, now) : "";
   const actor = ev.actor?.login ?? "someone";
-  const repo = eventRepo(ev);
-  // The event's own url is the precise permalink (e.g. the exact issue_comment /
-  // review-comment anchor); fall back to the parent target's url so a row
-  // without an event-level link still links to the issue/PR. Scheme-guarded so
-  // only http/https/mailto can become a clickable link.
-  const linkUrl = safeHref(ev.url ?? ev.target?.url);
-  const num = ev.target?.number != null ? `#${ev.target.number}` : "";
+  const { repo, num } = targetText(ev);
   return (
-    <li className="live-event" data-category={ev.category} style={catStyle(ev.category)}>
+    <li
+      className={`live-event${selected ? " live-event-selected" : ""}`}
+      data-category={ev.category}
+      style={catStyle(ev.category)}
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       <span className="live-event-dot" aria-hidden="true" />
       <div className="live-event-main">
         <div className="live-event-head">
           <span className="live-event-category">{humanizeCategory(ev.category)}</span>
           <span className="live-event-title">{ev.title ?? `${actor} · ${ev.event_type}`}</span>
         </div>
-        {linkUrl ? (
-          <a className="live-event-target" href={linkUrl} target="_blank" rel="noopener noreferrer">
-            {repo ?? ev.source_id}
-            {num ? <span className="live-event-num"> {num}</span> : null}
-          </a>
-        ) : null}
-        {ev.body ? <p className="live-event-body">{ev.body}</p> : null}
-        {ev.raw ? (
-          <details className="live-event-raw">
-            <summary>raw payload</summary>
-            <pre>{JSON.stringify(ev.raw, null, 2)}</pre>
-          </details>
+        <div className="live-event-repo">
+          {repo}
+          {num ? <span className="live-event-num"> {num}</span> : null}
+        </div>
+        {ev.body ? (
+          <div
+            className="live-event-preview"
+            style={{ "--preview-lines": previewLines } as CSSProperties}
+          >
+            <MarkdownBody text={ev.body} className="live-md live-md-preview" />
+          </div>
         ) : null}
       </div>
       {age ? (
@@ -120,12 +169,68 @@ function LiveRow({ ev, now }: { ev: LiveEvent; now: number }) {
   );
 }
 
-export function LivePage({ serverBaseUrl }: { serverBaseUrl: string | null }) {
+function LiveDetail({ ev, now, onClose }: { ev: LiveEvent; now: number; onClose: () => void }) {
+  const instant = eventInstant(ev);
+  const age = instant != null ? relativeAge(instant, now) : "";
+  const actor = ev.actor?.login ?? "someone";
+  const { repo, num } = targetText(ev);
+  const link = eventLink(ev);
+  return (
+    <article className="live-detail-card">
+      <button type="button" className="live-detail-back" onClick={onClose}>
+        ← Back to feed
+      </button>
+      <div className="live-detail-head" style={catStyle(ev.category)}>
+        <span className="live-event-category">{humanizeCategory(ev.category)}</span>
+        {age ? (
+          <time title={instant != null ? new Date(instant).toLocaleString() : undefined}>{age} ago</time>
+        ) : null}
+      </div>
+      <h2 className="live-detail-title">{ev.title ?? `${actor} · ${ev.event_type}`}</h2>
+      {link ? (
+        <a className="live-detail-link" href={link} target="_blank" rel="noopener noreferrer">
+          {repo}
+          {num ? <span className="live-event-num"> {num}</span> : null} ↗
+        </a>
+      ) : (
+        <div className="live-detail-link live-detail-link-plain">
+          {repo}
+          {num ? <span className="live-event-num"> {num}</span> : null}
+        </div>
+      )}
+      {ev.body ? (
+        <MarkdownBody text={ev.body} className="live-md live-detail-body" />
+      ) : (
+        <p className="muted">This event carries no body.</p>
+      )}
+      {ev.raw ? (
+        <details className="live-event-raw">
+          <summary>raw payload</summary>
+          <pre>{JSON.stringify(ev.raw, null, 2)}</pre>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
+export function LivePage({
+  serverBaseUrl,
+  previewLines,
+}: {
+  serverBaseUrl: string | null;
+  previewLines: number;
+}) {
   const { events, connected, reconnecting, transport } = useLive(serverBaseUrl);
   // A 1s tick keeps the relative ages ("9s ago") and the rate window live even
   // between event arrivals.
   const [now, setNow] = useState(() => Date.now());
   const [category, setCategory] = useState<string | null>(null);
+  const [repos, setRepos] = useState<Set<string>>(() => new Set());
+  const [people, setPeople] = useState<Set<string>>(() => new Set());
+  const [selected, setSelected] = useState<LiveEvent | null>(null);
+  // Drives the NARROW-screen detail overlay. Auto-selecting the newest fills the
+  // wide right pane without popping the overlay on mobile; only a tap opens it.
+  const [detailOpen, setDetailOpen] = useState(false);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -143,11 +248,23 @@ export function LivePage({ serverBaseUrl }: { serverBaseUrl: string | null }) {
   const rate = countInWindow(events, now, RATE_WINDOW_MS);
   const buckets = rateBuckets(events, now, SPARK_BUCKET_MS, SPARK_BUCKETS);
   const cats = categoryCounts(events, CATEGORY_ORDER);
-  const repos = distinctCount(events, eventRepo);
-  const people = distinctCount(events, (e) => e.actor?.login);
+  const repoCount = distinctCount(events, eventRepo);
+  const peopleCount = distinctCount(events, (e) => e.actor?.login);
+  const repoOptions = distinctValues(events, eventRepo);
+  const peopleOptions = distinctValues(events, (e) => e.actor?.login);
   const latest = events[0];
   const latestInstant = latest ? eventInstant(latest) : null;
-  const shown = category ? events.filter((e) => e.category === category) : events;
+  const shown = events.filter((e) => eventMatchesFilters(e, { category, repos, people }));
+
+  // Seed the detail pane with the newest event on first load so the right pane
+  // is not empty; after that, selection only changes on click (a new arrival
+  // never hijacks what the reader is looking at).
+  useEffect(() => {
+    if (!selected && shown.length) setSelected(shown[0] ?? null);
+  }, [shown, selected]);
+
+  const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
+  const selectedKey = selected ? keyOf(selected) : null;
 
   return (
     <div className="live-page">
@@ -174,7 +291,7 @@ export function LivePage({ serverBaseUrl }: { serverBaseUrl: string | null }) {
             <span className="live-unit">/min</span>
           </div>
           <Sparkline values={buckets} />
-          <div className="live-card-sub">events per 30s · last 15 min</div>
+          <div className="live-card-sub">events per 10m · last 5h</div>
         </div>
         <div className="live-card">
           <div className="live-card-label">Last event</div>
@@ -196,58 +313,85 @@ export function LivePage({ serverBaseUrl }: { serverBaseUrl: string | null }) {
         <div className="live-card">
           <div className="live-card-label">Active now</div>
           <div className="live-figure">
-            {repos}
+            {repoCount}
             <span className="live-unit">repos</span>
           </div>
           <div className="live-card-sub">
-            {people} {people === 1 ? "person" : "people"} · in this buffer
+            {peopleCount} {peopleCount === 1 ? "person" : "people"} · in this buffer
           </div>
         </div>
       </div>
 
       {events.length > 0 ? (
-        <div className="live-cats" role="group" aria-label="Filter the feed by category">
-          <button
-            type="button"
-            className={`live-cat live-cat-all${category === null ? " live-cat-on" : ""}`}
-            aria-pressed={category === null}
-            onClick={() => setCategory(null)}
-          >
-            All<span className="live-cat-n">{events.length}</span>
-          </button>
-          {cats.map((c) => (
+        <div className="live-filters">
+          <div className="live-cats" role="group" aria-label="Filter the feed by category">
             <button
-              key={c.category}
               type="button"
-              className={`live-cat${category === c.category ? " live-cat-on" : ""}`}
-              style={catStyle(c.category)}
-              aria-pressed={category === c.category}
-              onClick={() => setCategory((prev) => (prev === c.category ? null : c.category))}
+              className={`live-cat live-cat-all${category === null ? " live-cat-on" : ""}`}
+              aria-pressed={category === null}
+              onClick={() => setCategory(null)}
             >
-              <span className="live-cat-dot" aria-hidden="true" />
-              {humanizeCategory(c.category)}
-              <span className="live-cat-n">{c.count}</span>
+              All<span className="live-cat-n">{events.length}</span>
             </button>
-          ))}
+            {cats.map((c) => (
+              <button
+                key={c.category}
+                type="button"
+                className={`live-cat${category === c.category ? " live-cat-on" : ""}`}
+                style={catStyle(c.category)}
+                aria-pressed={category === c.category}
+                onClick={() => setCategory((prev) => (prev === c.category ? null : c.category))}
+              >
+                <span className="live-cat-dot" aria-hidden="true" />
+                {humanizeCategory(c.category)}
+                <span className="live-cat-n">{c.count}</span>
+              </button>
+            ))}
+          </div>
+          <div className="live-selects">
+            <MultiSelect label="Repo" options={repoOptions} selected={repos} onChange={setRepos} />
+            <MultiSelect label="People" options={peopleOptions} selected={people} onChange={setPeople} />
+          </div>
         </div>
       ) : null}
 
-      {shown.length === 0 ? (
+      {events.length === 0 ? (
         <p className="empty">
           {connected === false
             ? "Live stream unavailable on this deployment."
             : connected === null
               ? "Connecting…"
-              : category
-                ? `No ${humanizeCategory(category)} events in the buffer yet.`
-                : "Waiting for activity. New pushes, pull requests, reviews and comments appear here the moment they land."}
+              : "Waiting for activity. New pushes, pull requests, reviews and comments appear here the moment they land."}
         </p>
       ) : (
-        <ul className="live-feed">
-          {shown.map((ev) => (
-            <LiveRow key={`${ev.source_id}:${ev.event_id}:${ev.seq}`} ev={ev} now={now} />
-          ))}
-        </ul>
+        <div className="live-split" data-detail-open={detailOpen ? "true" : "false"}>
+          {shown.length === 0 ? (
+            <p className="empty live-feed-empty">No events match these filters.</p>
+          ) : (
+            <ul className="live-feed">
+              {shown.map((ev) => (
+                <LiveRow
+                  key={keyOf(ev)}
+                  ev={ev}
+                  now={now}
+                  previewLines={previewLines}
+                  selected={keyOf(ev) === selectedKey}
+                  onSelect={() => {
+                    setSelected(ev);
+                    setDetailOpen(true);
+                  }}
+                />
+              ))}
+            </ul>
+          )}
+          <div className="live-detail">
+            {selected ? (
+              <LiveDetail ev={selected} now={now} onClose={() => setDetailOpen(false)} />
+            ) : (
+              <div className="live-detail-empty">Select an event to read its full content.</div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
