@@ -1,0 +1,72 @@
+# Realtime Live Event Stream Execution State
+
+<!-- plan-issue-record:v2 role=state profile=tracking -->
+## Execution State
+
+- Status: ready for plan tracking; not started
+- Target scope: a new independent realtime Live mechanism — dedicated
+  append-only live-event store + neutral `live-event/1` record, a GitHub
+  `WebhookProvider` adapter with raw-body HMAC verification, a least-privilege
+  `live` receiver service serving `POST /webhooks/github` (public, funneled) plus
+  tailnet-only `GET /api/live` (SSE) / `/api/live-snapshot`, a contract-
+  independent Live UI page with a Tauri polling fallback, the Docker `live`
+  service + nginx `/api/live*` + g14 Funnel/serve wiring, a `docs/DESIGN.md`
+  trust-boundary promotion, and a GitLab adapter interface stub.
+- Execution window: Sprint 1 store + schema → Sprint 2 GitHub adapter + verifier
+  (pure) → Sprint 3 receiver + SSE/snapshot → Sprint 4 Live UI page → Sprint 5
+  deployment + DESIGN promotion → Sprint 6 GitLab adapter stub.
+- Current task: none (pre-implementation).
+- Next task: 1.1 — dedicated live-event store.
+- Last updated: 2026-06-20
+- Branch/commit/PR: none yet.
+- Source document: `docs/plans/2026-06-20-live-event-stream/live-event-stream-discussion-source.md`
+- Plan document: `docs/plans/2026-06-20-live-event-stream/live-event-stream-plan.md`
+- Direct source-doc execution waiver: not applicable
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/305>
+- Source snapshot: pending — posted by `create-plan-tracking-issue` at issue open.
+- Plan snapshot: pending — posted by `create-plan-tracking-issue` at issue open.
+- Initial state snapshot: pending — posted by `create-plan-tracking-issue` at
+  issue open.
+
+## Validation Plan
+
+- Bundle:
+  - `plan-tooling validate --file docs/plans/2026-06-20-live-event-stream/live-event-stream-plan.md --format text --explain`.
+- Tracker open:
+  - Dry-run `plan-issue record open --profile tracking`.
+  - Live `plan-issue record open --profile tracking`.
+  - Read-back and audit with `plan-issue record audit --profile tracking
+    --expect-visible`.
+- Code (always):
+  - `pnpm run typecheck && pnpm test`.
+- UI (Sprint 4):
+  - `pnpm --filter @symphony-board/ui run build`.
+  - `pnpm --filter @symphony-board/ui run test`.
+  - `pnpm --filter @symphony-board/ui run smoke`.
+- Shell / compose (Sprint 5):
+  - `shellcheck` over `scripts/**/*.sh` and `docker/docker-entrypoint.sh`.
+  - Compose config lint / local up smoke; nginx config test.
+- Live store note:
+  - The live-event store is a **separate** SQLite store, NOT the canonical
+    `Store`, so `pnpm run test:pg-e2e` / `pnpm run test:pg-compose` and
+    `store-conformance` do NOT apply for v1. State this in each PR.
+- End-to-end:
+  - Real org webhook → g14 receiver under `test/e2e/` or a deploy smoke,
+    env-gated and self-skipping; never the default `pnpm test` glob.
+
+## Task Ledger
+
+| ID | Status | Task | Evidence | Notes |
+| --- | --- | --- | --- | --- |
+| 1.1 | todo | Dedicated live-event store (`src/live/store.ts` + schema) | | Separate SQLite; unique `(source_id, event_id)`; monotonic `seq`; `since`/`recent`/`prune`. |
+| 1.2 | todo | Provider-neutral `LiveEvent` + `live-event/1` schema | | Independent of `packages/contract`; NUL-safe ids; 64-bit-safe numbers. |
+| 1.3 | todo | TTL / row-cap prune | | Default 30d; bounds the SSE replay backlog. |
+| 2.1 | todo | Raw-body reader + HMAC verifier (pure) | | `readBodyBytes` (Buffer); constant-time; no permissive fallback; dual-secret rotation. |
+| 2.2 | todo | `WebhookProvider` interface + GitHub adapter (pure) | | Event/action routing; ping; dedupe id; scrub secret fields from `raw`. |
+| 3.1 | todo | `live` receiver process + webhook intake | | Least-privilege; verify→dedupe→adapt→append→broadcast; ack 202 <10s. |
+| 3.2 | todo | SSE broadcaster + snapshot + healthz | | `text/event-stream`; `id:`/`seq`; `Last-Event-ID` replay; heartbeat; bounds. |
+| 4.1 | todo | `useLive` hook + `fetchLiveSnapshot` client | | EventSource (browser) vs polling (Tauri); capability probe. |
+| 4.2 | todo | `LivePage` component + nav/router wiring | | Early-return before contract gates; `page !== "live"` chrome guards; Decision 10 presentation. |
+| 5.1 | todo | Compose `live` service + entrypoint dispatch | | `SYNC_MODE=live`; loopback bind; no token/config/store mount; `.env.example`. |
+| 5.2 | todo | nginx `/api/live*` + g14 Funnel/serve + DESIGN promotion | | `proxy_buffering off`; funnel path-scoped to `/webhooks`; trust-boundary note. |
+| 6.1 | todo | GitLab `WebhookProvider` interface stub | | Signing-token HMAC design; `webhook-id` dedupe; work_item branch; Decision 11 rollout gate; not wired. |
