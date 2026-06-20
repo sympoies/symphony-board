@@ -63,8 +63,8 @@
 | 1.3 | done | TTL / row-cap prune | PR #307; test/live-store.test.ts (299 pass); test-first verified | Default 30d; bounds the SSE replay backlog. |
 | 2.1 | done | Raw-body reader + HMAC verifier (pure) | PR (sprint2); test/live-{verify,http-body,github}.test.ts (330 pass); test-first verified | `readBodyBytes` (Buffer); constant-time; no permissive fallback; dual-secret rotation. |
 | 2.2 | done | `WebhookProvider` interface + GitHub adapter (pure) | PR (sprint2); test/live-{verify,http-body,github}.test.ts (330 pass); test-first verified | Event/action routing; ping; dedupe id; scrub secret fields from `raw`. |
-| 3.1 | todo | `live` receiver process + webhook intake | | Least-privilege; verify→dedupe→adapt→append→broadcast; ack 202 <10s. |
-| 3.2 | todo | SSE broadcaster + snapshot + healthz | | `text/event-stream`; `id:`/`seq`; `Last-Event-ID` replay; heartbeat; bounds. |
+| 3.1 | done | `live` receiver process + webhook intake | PR (sprint3); test/live-receiver.test.ts (341 pass); test-first verified | Least-privilege; verify→dedupe→adapt→append→broadcast; ack 202 <10s. |
+| 3.2 | done | SSE broadcaster + snapshot + healthz | PR (sprint3); test/live-receiver.test.ts (341 pass); test-first verified | `text/event-stream`; `id:`/`seq`; `Last-Event-ID` replay; heartbeat; bounds. |
 | 4.1 | todo | `useLive` hook + `fetchLiveSnapshot` client | | EventSource (browser) vs polling (Tauri); capability probe. |
 | 4.2 | todo | `LivePage` component + nav/router wiring | | Early-return before contract gates; `page !== "live"` chrome guards; Decision 10 presentation. |
 | 5.1 | todo | Compose `live` service + entrypoint dispatch | | `SYNC_MODE=live`; loopback bind; no token/config/store mount; `.env.example`. |
