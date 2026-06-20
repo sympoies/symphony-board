@@ -611,7 +611,23 @@ export async function fetchLiveSnapshot(
     });
     if (!res.ok) return null;
     const body = (await readJson(res)) as LiveSnapshot | null;
-    return body && typeof body === "object" && Array.isArray(body.events) ? body : null;
+    // Validate the snapshot shape the re-seed/poll paths rely on: a
+    // `live-snapshot/1` schema string, an events array, and a finite max_seq
+    // cursor. A wrong shape is treated as unavailable (null), mirroring the
+    // other probe clients — the UI then renders "live unavailable" rather than
+    // seeding from a bogus cursor.
+    if (
+      !body ||
+      typeof body !== "object" ||
+      typeof body.schema !== "string" ||
+      !body.schema.startsWith("live-snapshot/1") ||
+      !Array.isArray(body.events) ||
+      typeof body.max_seq !== "number" ||
+      !Number.isFinite(body.max_seq)
+    ) {
+      return null;
+    }
+    return body;
   } catch {
     return null;
   }
