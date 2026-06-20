@@ -3,7 +3,7 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: ready for plan tracking; not started
+- Status: complete; tracking issue closed
 - Target scope: a new independent realtime Live mechanism — dedicated
   append-only live-event store + neutral `live-event/1` record, a GitHub
   `WebhookProvider` adapter with raw-body HMAC verification, a least-privilege
@@ -18,7 +18,7 @@
 - Current task: none (pre-implementation).
 - Next task: 1.1 — dedicated live-event store.
 - Last updated: 2026-06-20
-- Branch/commit/PR: none yet.
+- Branch/commit/PR: sympoies/symphony-board#312 merged (https://github.com/sympoies/symphony-board/pull/312)
 - Source document: `docs/plans/2026-06-20-live-event-stream/live-event-stream-discussion-source.md`
 - Plan document: `docs/plans/2026-06-20-live-event-stream/live-event-stream-plan.md`
 - Direct source-doc execution waiver: not applicable
