@@ -16,11 +16,16 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 test("the GitLab stub satisfies the WebhookProvider shape", () => {
   assert.equal(provider.id, "gitlab");
   assert.equal(provider.eventHeaderName, "x-gitlab-event");
-  assert.equal(provider.hookIdHeaderName, "webhook-id");
+  // hookIdHeaderName is the webhook IDENTITY header, distinct from the dedupe
+  // key (#316 item 12): setting it to webhook-id too would persist the dedupe id
+  // twice and lose the webhook identifier.
+  assert.equal(provider.hookIdHeaderName, "x-gitlab-webhook-uuid");
 });
 
 test("deliveryId reads the webhook-id header (the GitLab dedupe key)", () => {
   assert.equal(provider.deliveryId({ "webhook-id": "wh-1" }), "wh-1");
+  // The dedupe key stays webhook-id even though hookIdHeaderName is the uuid.
+  assert.equal(provider.deliveryId({ "x-gitlab-webhook-uuid": "u-1" }), null);
   // Not X-Gitlab-Event-UUID (shared by recursive webhooks).
   assert.equal(provider.deliveryId({ "x-gitlab-event-uuid": "u-1" }), null);
   assert.equal(provider.deliveryId({}), null);
@@ -72,6 +77,16 @@ test("the stub documents the GitLab specifics and the Decision 11 rollout gate",
   assert.match(src, /webhook-id/i, "dedupe key");
   assert.match(src, /object_kind/i, "header-to-object_kind mapping");
   assert.match(src, /work_item/i, "work-item branch under Issue Hook");
+  assert.match(
+    src,
+    /whsec_/,
+    "the signing key must have its whsec_ prefix stripped + be base64-decoded (#316 item 13)",
+  );
+  assert.match(
+    src,
+    /x-gitlab-webhook-uuid/i,
+    "the webhook identity header distinct from the dedupe key (#316 item 12)",
+  );
   assert.match(
     src,
     /Decision 11|company|clearance/i,

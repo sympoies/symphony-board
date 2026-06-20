@@ -69,5 +69,14 @@ export function readBodyBytes(
       else finish(() => resolve(Buffer.concat(chunks)));
     });
     req.on("error", (err) => finish(() => reject(err)));
+    // `req.destroy()` on the runaway 4x cut above emits `close`, not `end`, so
+    // without this the promise would hang until the idle timeout and surface as
+    // a 408 instead of the intended 413. Settle as BodyTooLargeError on close
+    // when already over the cap; any other premature close is an aborted body.
+    req.on("close", () => {
+      if (settled) return;
+      if (tooLarge) finish(() => reject(new BodyTooLargeError(maxBytes)));
+      else finish(() => reject(new Error("request body closed before end")));
+    });
   });
 }

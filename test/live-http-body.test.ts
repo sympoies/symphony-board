@@ -43,3 +43,15 @@ test("readBodyBytes times out a stalled body", async () => {
     /timed out/,
   );
 });
+
+test("a runaway body past 4x the cap settles as 413, not a timeout (#316 item 5)", async () => {
+  // The first chunk trips tooLarge; a second chunk past 4x the cap triggers
+  // req.destroy(), which emits `close` (not `end`). Without the close handler the
+  // promise would hang until the idle timeout and surface as a 408. The generous
+  // timeout below must NOT be hit — settlement is via `close`.
+  const req = new Readable({ read() {} });
+  const p = readBodyBytes(req as unknown as IncomingMessage, 10, 5000);
+  req.push(Buffer.alloc(15, 0x61)); // over the cap -> tooLarge
+  req.push(Buffer.alloc(40, 0x61)); // over 4x the cap -> destroy -> close
+  await assert.rejects(() => p, BodyTooLargeError);
+});

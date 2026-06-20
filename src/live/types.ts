@@ -137,5 +137,9 @@ export function isLiveEvent(value: unknown): value is LiveEvent {
   const delivery = d as Record<string, unknown>;
   if (typeof delivery.delivery_id !== "string") return false;
   if (typeof delivery.event_header !== "string") return false;
+  // Verified-only persistence is a pipeline invariant: a record whose delivery
+  // is not the literal "verified" must never narrow to LiveEvent, even when it
+  // arrives via untrusted snapshot/SSE JSON or an older stored row.
+  if (delivery.signature_status !== "verified") return false;
   return true;
 }
