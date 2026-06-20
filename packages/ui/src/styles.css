@@ -49,7 +49,8 @@
      per-category event hues below. The --cat-* map reuses the semantic hues, so
      it follows a theme swap automatically; only --live needs a per-theme value. */
   --live: #24dae8;
-  --cat-push: var(--accent);          /* blue   — commits / code            */
+  --cat-commit: var(--accent);        /* blue   — commits / code            */
+  --cat-push: var(--accent);          /* blue   — push (alias of commit)    */
   --cat-change_request: var(--link);  /* teal   — PR / MR                   */
   --cat-issue: var(--closed);         /* purple — issues                    */
   --cat-review: var(--open);          /* green  — review verdicts           */

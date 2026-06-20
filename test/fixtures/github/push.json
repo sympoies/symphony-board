@@ -1,0 +1,58 @@
+{
+  "ref": "refs/heads/main",
+  "before": "0000000000000000000000000000000000000000",
+  "after": "aaaa111aaaa111aaaa111aaaa111aaaa111aaaa1",
+  "compare": "https://github.com/sympoies/symphony-board/compare/before...after",
+  "commits": [
+    {
+      "id": "bbbb222bbbb222bbbb222bbbb222bbbb222bbbb2",
+      "message": "feat: first commit subject\n\nA longer body paragraph that should not appear in the title.",
+      "timestamp": "2026-06-21T05:00:00Z",
+      "url": "https://github.com/sympoies/symphony-board/commit/bbbb222bbbb222bbbb222bbbb222bbbb222bbbb2",
+      "author": {
+        "name": "Gray Surf",
+        "email": "graysurf@example.com",
+        "username": "graysurf"
+      }
+    },
+    {
+      "id": "cccc333cccc333cccc333cccc333cccc333cccc3",
+      "message": "fix: second commit single line",
+      "timestamp": "2026-06-21T05:01:00Z",
+      "url": "https://github.com/sympoies/symphony-board/commit/cccc333cccc333cccc333cccc333cccc333cccc3",
+      "author": {
+        "name": "Robo Committer",
+        "email": "robo@example.com"
+      }
+    }
+  ],
+  "head_commit": {
+    "id": "cccc333cccc333cccc333cccc333cccc333cccc3",
+    "message": "fix: second commit single line",
+    "timestamp": "2026-06-21T05:01:00Z",
+    "url": "https://github.com/sympoies/symphony-board/commit/cccc333cccc333cccc333cccc333cccc333cccc3",
+    "author": {
+      "name": "Robo Committer",
+      "email": "robo@example.com"
+    }
+  },
+  "repository": {
+    "full_name": "sympoies/symphony-board",
+    "html_url": "https://github.com/sympoies/symphony-board"
+  },
+  "pusher": {
+    "name": "graysurf",
+    "email": "graysurf@example.com"
+  },
+  "sender": {
+    "login": "graysurf",
+    "name": "Gray Surf",
+    "html_url": "https://github.com/graysurf",
+    "avatar_url": "https://avatars.example/graysurf.png"
+  },
+  "installation": {
+    "id": 141220539,
+    "node_id": "MDInstallation",
+    "access_token": "ghs_THIS_MUST_BE_SCRUBBED"
+  }
+}
