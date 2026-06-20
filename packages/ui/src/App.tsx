@@ -79,6 +79,7 @@ import {
   type ViewTheme,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
+import { useLiveAvailable } from "./useLive.ts";
 import { useConfig } from "./useConfig.ts";
 import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
@@ -92,6 +93,7 @@ import { ActivityPage } from "./components/ActivityPage.tsx";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { DebugPage } from "./components/DebugPage.tsx";
+import { LivePage } from "./components/LivePage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
 import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
@@ -279,6 +281,9 @@ export function App() {
     void reloadData().finally(() => setRefreshingData(false));
   }, [reloadData]);
   const sync = useSync(reloadDataAfterSync, serverBaseUrl);
+  // Probe the live receiver so the Live tab appears only where it is reachable
+  // (hidden on the standalone app and any deployment without the receiver).
+  const liveAvailable = useLiveAvailable(serverBaseUrl);
   const configState = useConfig(serverBaseUrl);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
   // "sources" value is meaningful; anything else renders the Display tab.
@@ -957,6 +962,22 @@ export function App() {
     );
   }
 
+  // The Live page also renders BEFORE the contract gates: it is contract-
+  // independent (its own SSE/snapshot data path), so it must work even when the
+  // contract is missing or failing to load.
+  if (route.page === "live") {
+    return (
+      <div className="app app-wide">
+        <LivePage
+          serverBaseUrl={serverBaseUrl}
+          onClose={() => {
+            window.location.hash = "#/activity";
+          }}
+        />
+      </div>
+    );
+  }
+
   if (loading) return <div className="state-msg">Loading contract…</div>;
 
   if (error && !env) {
@@ -1040,6 +1061,11 @@ export function App() {
         <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
           Activity
         </a>
+        {liveAvailable ? (
+          <a className={`tab${route.page === "live" ? " tab-on" : ""}`} href="#/live">
+            Live
+          </a>
+        ) : null}
         <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
           Commits
         </a>
