@@ -25,7 +25,7 @@ store, not the consumer API.
 The full product path is implemented end to end:
 
 - GitHub and GitLab GraphQL sources fetch issues and change requests; REST
-  activity surfaces add commit and repository/project event records.
+  activity surfaces add commits, comments, and repository/project event records.
 - Raw provider payloads, canonical rows, labels, sync state, relationship
   edges, and activity rows are stored in the configured canonical store.
 - `sync` supports full and incremental modes; only a full and complete sweep may
@@ -102,7 +102,7 @@ where a provider exposes enough information.
 
 Activity rows are separate from items and edges. Items are current state;
 activity records are timestamped developer-significant events such as commit
-pushes, branch/tag events, reviews, and issue or PR/MR open/close/merge
+pushes, comments, branch/tag events, reviews, and issue or PR/MR open/close/merge
 transitions.
 Commit activity details may include the full commit body and the provider
 default branch/ref when the REST source exposes that metadata.

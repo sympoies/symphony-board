@@ -337,11 +337,11 @@ below):
   alphabetical).
 
 Current sources derive item transition activities from canonical item timestamps
-and fetch provider REST activity surfaces for commits and repository/project
-events. The commit feed covers the default branch plus live side branches: push
-events discover branches with new activity, each contributes its branch-unique
-commits (a compare against the default branch), and the feeds merge per sha into
-a single activity row.
+and fetch provider REST activity surfaces for comments, commits, and
+repository/project events. The commit feed covers the default branch plus live
+side branches: push events discover branches with new activity, each contributes
+its branch-unique commits (a compare against the default branch), and the feeds
+merge per sha into a single activity row.
 
 Version `3.2.1` is a clarification release for the above: producers now fill
 the previously reserved `details.branches` / `details.refs` membership lists,
@@ -356,10 +356,11 @@ consumers can ignore — no existing field changed — so the major stays `3`.
 
 There is no separate `target_url` field. Consumers should use `activities[].url`
 as the row's provider destination and treat `null` as intentionally unlinked.
-GitHub and GitLab comments currently stay unlinked because their stable
-per-comment anchors are not normalized. Push events link to a compare page when
-both endpoint SHAs are usable; new refs link to the ref page and deleted refs
-link to the last known commit when available.
+GitHub comments link to their stable provider `html_url` anchors. GitLab
+comments currently stay unlinked because their stable per-comment anchors are
+not normalized. Push events link to a compare page when both endpoint SHAs are
+usable; new refs link to the ref page and deleted refs link to the last known
+commit when available.
 
 Review activity (`kind: "review"`) is derived per provider and feeds the
 `reviews` / `approvals` repo metrics (see Repo Metrics):

@@ -365,6 +365,10 @@ export class GitHubSource implements Source {
       });
     }
 
+    const commentActivity = await this.fetchRepoCommentActivity(project, owner, name, since, now);
+    records.push(...commentActivity.records);
+    if (commentActivity.latest && (!latest || commentActivity.latest > latest)) latest = commentActivity.latest;
+
     // One entry per sha; a commit seen on several branch feeds unions its
     // membership instead of emitting duplicate records.
     const bySha = new Map<string, { commit: any; branches: string[] }>();
@@ -429,6 +433,46 @@ export class GitHubSource implements Source {
         contentHash: hash(payloadJson),
       });
     }
+    return { records, latest };
+  }
+
+  private async fetchRepoCommentActivity(project: string, owner: string | undefined, name: string | undefined, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
+    if (!this.rest || !owner || !name) return { records: [], latest: null };
+    const records: RawRecord[] = [];
+    let latest: string | null = null;
+    const surfaces = [
+      { path: `repos/${owner}/${name}/issues/comments`, activityKind: "github_issue_comment", idPrefix: "issue-comment" },
+      { path: `repos/${owner}/${name}/pulls/comments`, activityKind: "github_pr_review_comment", idPrefix: "pr-review-comment" },
+    ];
+
+    for (const surface of surfaces) {
+      for (let page = 1; page <= MAX_REST_PAGES; page++) {
+        const comments = await this.rest<any[]>(surface.path, {
+          per_page: 100,
+          page,
+          sort: "updated",
+          direction: "desc",
+          ...(since ? { since } : {}),
+        });
+        for (const comment of comments ?? []) {
+          const updated = cleanText(comment?.updated_at) ?? cleanText(comment?.created_at);
+          if (!updated) continue;
+          if (!latest || updated > latest) latest = updated;
+          const payload = { __activityKind: surface.activityKind, project, comment };
+          const payloadJson = JSON.stringify(payload);
+          records.push({
+            entityKind: "activity",
+            externalId: stableActivityId([surface.idPrefix, project, comment?.node_id ?? comment?.id ?? comment?.html_url ?? updated]),
+            apiVersion: `${API_VERSION}.rest`,
+            fetchedAt: now,
+            payload,
+            contentHash: hash(payloadJson),
+          });
+        }
+        if ((comments ?? []).length < 100) break;
+      }
+    }
+
     return { records, latest };
   }
 
@@ -536,6 +580,33 @@ export class GitHubSource implements Source {
           after: event.after ?? null,
           push_type: pushType,
         },
+      };
+      return { item: null, labels: [], edges: [], activities: [activity] };
+    }
+    if (kind === "github_issue_comment" || kind === "github_pr_review_comment") {
+      const comment = p.comment ?? {};
+      const occurredAt = cleanText(comment.created_at) ?? cleanText(comment.updated_at);
+      if (!occurredAt) return null;
+      const projectPath = p.project ?? null;
+      const isReviewComment = kind === "github_pr_review_comment";
+      const target = gitHubCommentTarget(comment, isReviewComment);
+      const actorLogin = comment.user?.login ?? null;
+      const activity: CanonicalActivity = {
+        sourceId: this.descriptor.sourceId,
+        externalId: raw.externalId,
+        kind: "comment",
+        action: "commented",
+        projectPath,
+        targetKind: target.kind,
+        target: null,
+        targetIid: target.iid,
+        title: null,
+        url: cleanText(comment.html_url),
+        actor: actorLogin,
+        actorKey: deriveActorKey({ sourceId: this.descriptor.sourceId, username: actorLogin }),
+        occurredAt,
+        summary: commentSummary(target.kind, target.iid, projectPath),
+        details: commentDetails(comment, isReviewComment),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -658,6 +729,59 @@ function repoActivitySummary(action: string, ref: string, project: string | null
   if (action === "force_pushed") return `Force-pushed ${target}${suffix}`;
   if (action === "merged") return `Merged into ${target}${suffix}`;
   return `Pushed ${target}${suffix}`;
+}
+
+function gitHubCommentTarget(comment: any, isReviewComment: boolean): { kind: "issue" | "change_request"; iid: number | null } {
+  if (isReviewComment) {
+    return { kind: "change_request", iid: numberFromPaths(comment?.html_url, comment?.pull_request_url) };
+  }
+  const htmlUrl = cleanText(comment?.html_url);
+  if (htmlUrl?.includes("/pull/")) return { kind: "change_request", iid: numberFromPaths(htmlUrl, comment?.issue_url) };
+  return { kind: "issue", iid: numberFromPaths(htmlUrl, comment?.issue_url) };
+}
+
+function numberFromPaths(...values: unknown[]): number | null {
+  for (const value of values) {
+    const text = cleanText(value);
+    if (!text) continue;
+    const m = text.match(/\/(?:issues|pull|pulls)\/(\d+)(?:[#/?]|$)/);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (Number.isSafeInteger(n)) return n;
+  }
+  return null;
+}
+
+function commentDetails(comment: any, isReviewComment: boolean): Record<string, unknown> {
+  const details: Record<string, unknown> = {};
+  addDetail(details, "comment_id", comment?.id);
+  addDetail(details, "node_id", cleanText(comment?.node_id));
+  addDetail(details, "updated_at", cleanText(comment?.updated_at));
+  addDetail(details, "author_association", cleanText(comment?.author_association));
+  if (isReviewComment) {
+    addDetail(details, "path", cleanText(comment?.path));
+    addDetail(details, "line", comment?.line);
+    addDetail(details, "side", cleanText(comment?.side));
+    addDetail(details, "commit_id", cleanText(comment?.commit_id));
+    addDetail(details, "original_commit_id", cleanText(comment?.original_commit_id));
+    addDetail(details, "in_reply_to_id", comment?.in_reply_to_id);
+  }
+  return details;
+}
+
+function addDetail(details: Record<string, unknown>, key: string, value: unknown): void {
+  if (value === null || value === undefined || value === "") return;
+  details[key] = value;
+}
+
+function commentSummary(kind: string | null, iid: number | null, project: string | null): string {
+  const target =
+    kind === "change_request"
+      ? `change request${iid != null ? ` #${iid}` : ""}`
+      : kind === "issue"
+        ? `issue${iid != null ? ` #${iid}` : ""}`
+        : "work item";
+  return `Commented on ${target}${project ? ` in ${project}` : ""}`;
 }
 
 // PullRequestReviewState -> a review activity action. Everything submitted is a

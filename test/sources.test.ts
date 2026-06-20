@@ -35,6 +35,10 @@ const gql: GqlClient = (async (query: string) => {
   };
 }) as GqlClient;
 
+function isGitHubCommentActivityPath(path: string): boolean {
+  return path === "repos/o/r/issues/comments" || path === "repos/o/r/pulls/comments";
+}
+
 test("incremental fetch stops at the first record older than the watermark", async () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const res = await src.fetch({ since: "2026-03-01T00:00:00Z", full: false });
@@ -89,6 +93,7 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
         },
       ] as T;
     }
+    if (isGitHubCommentActivityPath(path)) return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -135,6 +140,7 @@ test("a full sweep backfills a year window and reads the cursor-paginated activi
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
     calls.push({ path, params });
     if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
     return fullPage(path, Number(params?.page ?? 0)) as T;
   };
 
@@ -146,6 +152,89 @@ test("a full sweep backfills a year window and reads the cursor-paginated activi
   );
   assert.equal(calls.filter((c) => c.path === "repos/o/r/commits").length, 20, "commits page to 2000 per project");
   assert.equal(calls.filter((c) => c.path === "repos/o/r/activity").length, 1, "the activity surface is read once per sweep");
+});
+
+test("GitHub fetch and normalize includes issue and pull request comments from REST", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/activity") return [] as T;
+    if (path === "repos/o/r/commits") return [] as T;
+    if (path === "repos/o/r/issues/comments") {
+      return [
+        {
+          id: 101,
+          node_id: "IC_kwDO_issue",
+          html_url: "https://github.com/o/r/issues/7#issuecomment-101",
+          issue_url: "https://api.github.com/repos/o/r/issues/7",
+          created_at: "2026-06-09T12:00:00Z",
+          updated_at: "2026-06-09T12:10:00Z",
+          user: { login: "alice" },
+          author_association: "MEMBER",
+        },
+      ] as T;
+    }
+    if (path === "repos/o/r/pulls/comments") {
+      return [
+        {
+          id: 202,
+          node_id: "PRRC_kwDO_review",
+          html_url: "https://github.com/o/r/pull/8#discussion_r202",
+          pull_request_url: "https://api.github.com/repos/o/r/pulls/8",
+          created_at: "2026-06-10T12:20:00Z",
+          updated_at: "2026-06-10T12:21:00Z",
+          user: { login: "bob" },
+          path: "src/sources/github.ts",
+          line: 42,
+          side: "RIGHT",
+        },
+      ] as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  const comments = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "comment");
+
+  assert.equal(comments.length, 2);
+  assert.equal(res.watermark, "2026-06-10T12:21:00Z", "comment updated_at advances the incremental watermark");
+  assert.ok(calls.some((c) => c.path === "repos/o/r/issues/comments" && c.params?.since === "2026-06-01T00:00:00Z" && c.params?.sort === "updated"));
+  assert.ok(calls.some((c) => c.path === "repos/o/r/pulls/comments" && c.params?.since === "2026-06-01T00:00:00Z" && c.params?.sort === "updated"));
+
+  const issue = comments.find((a) => a.targetKind === "issue")!;
+  assert.equal(issue.action, "commented");
+  assert.equal(issue.targetIid, 7);
+  assert.equal(issue.url, "https://github.com/o/r/issues/7#issuecomment-101");
+  assert.equal(issue.actor, "alice");
+  assert.equal(issue.actorKey, "provider-user:github:github.com:alice");
+  assert.equal(issue.occurredAt, "2026-06-09T12:00:00Z");
+  assert.deepEqual(issue.details, {
+    comment_id: 101,
+    node_id: "IC_kwDO_issue",
+    updated_at: "2026-06-09T12:10:00Z",
+    author_association: "MEMBER",
+  });
+
+  const review = comments.find((a) => a.targetKind === "change_request")!;
+  assert.equal(review.action, "commented");
+  assert.equal(review.targetIid, 8);
+  assert.equal(review.url, "https://github.com/o/r/pull/8#discussion_r202");
+  assert.equal(review.actor, "bob");
+  assert.equal(review.actorKey, "provider-user:github:github.com:bob");
+  assert.equal(review.occurredAt, "2026-06-10T12:20:00Z");
+  assert.deepEqual(review.details, {
+    comment_id: 202,
+    node_id: "PRRC_kwDO_review",
+    updated_at: "2026-06-10T12:21:00Z",
+    path: "src/sources/github.ts",
+    line: 42,
+    side: "RIGHT",
+  });
 });
 
 // --- multi-branch commit expansion (side branches via push events + compare) --
@@ -201,6 +290,7 @@ test("GitHub fetch expands live side branches via compare and merges branch memb
     // A side branch can also carry a commit the default feed already saw (e.g.
     // a merge that landed mid-sweep) — membership must union, not duplicate.
     if (path === "repos/o/r/compare/main...feature%2Fy") return { commits: [ghSideCommit, ghMainCommit] } as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -252,6 +342,7 @@ test("a GitHub full sweep compares side branches from the whole activity window"
       return [ghPush("refs/heads/feature-x", "2025-09-01T00:00:00Z")] as T;
     }
     if (path === "repos/o/r/compare/main...feature-x") return { commits: [ghSideCommit] } as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -273,6 +364,7 @@ test("a side branch deleted before its compare is skipped without failing the sw
       return [ghPush("refs/heads/feature-x", "2026-06-09T11:31:00Z")] as T;
     }
     if (path === "repos/o/r/compare/main...feature-x") throw new Error("REST HTTP 404: Not Found");
+    if (isGitHubCommentActivityPath(path)) return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -323,6 +415,7 @@ test("commit_branches=default keeps the commit feed on the default branch only",
     if (path === "repos/o/r/activity") {
       return [ghPush("refs/heads/feature-x", "2026-06-09T11:31:00Z")] as T;
     }
+    if (isGitHubCommentActivityPath(path)) return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
