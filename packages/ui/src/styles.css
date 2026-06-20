@@ -2984,22 +2984,24 @@ a.rf-node-title:hover { color: var(--accent); }
   border: 1px solid color-mix(in srgb, var(--live) 38%, var(--line));
   border-radius: 999px; padding: 3px 11px 3px 9px;
 }
+/* The status-badge dot is STATIC by default — the Live tab dot already pulses, so
+   a second pulse here just duplicates it. Only a reconnect animates the dot, as a
+   "working on it" cue; up / connecting / down stay calm like the source badges. */
 .live-status-dot {
   width: 8px; height: 8px; border-radius: 50%; background: var(--live); flex: none;
-  animation: live-beat 2s ease-out infinite;
 }
 .live-status-tx { color: var(--muted); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-.live-status-connecting .live-status-dot { background: var(--muted); animation: none; }
+.live-status-connecting .live-status-dot { background: var(--muted); }
 .live-status-reconnecting {
   background: color-mix(in srgb, var(--declared) 10%, var(--panel));
   border-color: color-mix(in srgb, var(--declared) 38%, var(--line));
 }
-.live-status-reconnecting .live-status-dot { background: var(--declared); }
+.live-status-reconnecting .live-status-dot { background: var(--declared); animation: live-beat 2s ease-out infinite; }
 .live-status-down {
   background: color-mix(in srgb, var(--broken) 10%, var(--panel));
   border-color: color-mix(in srgb, var(--broken) 38%, var(--line));
 }
-.live-status-down .live-status-dot { background: var(--broken); animation: none; }
+.live-status-down .live-status-dot { background: var(--broken); }
 .live-note { color: var(--muted); font-size: 12.5px; margin: 8px 0 16px; max-width: 72ch; }
 
 .live-pulse { display: grid; gap: 12px; margin-bottom: 18px; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; }
@@ -3119,7 +3121,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-status-dot { animation: none; }
+  .live-status-reconnecting .live-status-dot { animation: none; }
   .live-spark-bar { transition: none; }
   .live-feed .live-event:first-child { animation: none; }
 }
