@@ -2,6 +2,7 @@ import { useMemo, type CSSProperties, type ReactNode } from "react";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
+import { ACTION_KIND } from "../activity-action-style.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import {
@@ -16,30 +17,6 @@ import {
   relativeTime,
   type ColorOf,
 } from "../model.ts";
-
-// Action -> badge style for the mixed Activity feed. Every `action` the sources
-// emit (see src/sources/* and src/model/activity.ts) needs an entry here; an
-// unmapped action falls through to the quiet neutral "status-unknown" pill.
-export const ACTION_KIND: Record<string, string> = {
-  // item lifecycle
-  opened: "open",
-  reopened: "open",
-  closed: "closed",
-  merged: "merged",
-  accepted: "merged", // GitLab emits "accepted" when an MR is merged
-  // commits / pushes
-  committed: "status-ok",
-  created: "status-ok",
-  pushed: "lifecycle-declared",
-  force_pushed: "lifecycle-broken",
-  deleted: "status-error",
-  // comments + reviews
-  commented: "status-partial",
-  approved: "status-ok",
-  reviewed: "status-partial",
-  changes_requested: "status-error",
-  dismissed: "status-idle",
-};
 
 // The scrollable, virtualized activity list. Rows render a clickable title when
 // the record carries a `url` (e.g. a commit links straight to its GitHub/GitLab
