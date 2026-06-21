@@ -25,6 +25,7 @@ import {
   graphViewTab,
   clearFiltersHref,
   startupRouteHash,
+  resolveDefaultTab,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -367,4 +368,16 @@ test("startupRouteHash preserves parameterized shared links and intentional dest
   // Already on the default tab: keep the restored hash (its range/search survive).
   assert.equal(startupRouteHash("#/activity?preset=1mo", "activity"), "#/activity?preset=1mo");
   assert.equal(startupRouteHash("#/live", "live"), "#/live");
+});
+
+// The Live tab is opt-in (off by default). When it is disabled the configured
+// default landing tab cannot be Live — it must fall back to Activity (the next
+// content tab) so a fresh open never lands on a hidden tab. Every other default
+// is honored unchanged, and when Live is enabled "live" stays the default.
+test("resolveDefaultTab falls back off Live only when the Live tab is disabled", () => {
+  assert.equal(resolveDefaultTab("live", false), "activity", "Live disabled -> land on Activity");
+  assert.equal(resolveDefaultTab("live", true), "live", "Live enabled -> keep Live as the default");
+  assert.equal(resolveDefaultTab("board", false), "board", "a non-Live default is never rewritten");
+  assert.equal(resolveDefaultTab("activity", false), "activity");
+  assert.equal(resolveDefaultTab("commits", true), "commits");
 });

@@ -24,7 +24,8 @@ import {
   isDefaultTab,
   type ViewTheme,
 } from "../viewconfig.ts";
-import type { Page } from "../nav.ts";
+import { LIVE_CATEGORY_ORDER, humanizeCategory } from "../live-stats.ts";
+import { resolveDefaultTab, type Page } from "../nav.ts";
 
 interface Props {
   sources: SourceDTO[]; // per-source health + configured color, read-only (from the contract)
@@ -44,6 +45,10 @@ interface Props {
   onTheme: (theme: ViewTheme) => void;
   livePreviewLines: number; // lines of an event body the Live feed shows before clamping
   onLivePreviewLines: (lines: number) => void;
+  liveTabEnabled: boolean; // whether the realtime Live tab is shown + streams (off by default)
+  onLiveTabEnabled: (enabled: boolean) => void;
+  hiddenEventTypes: ReadonlySet<string>; // HIDDEN Live categories (an independent layer)
+  onToggleEventType: (category: string) => void; // flip one category's Live visibility
   defaultTab: Page; // the tab the app opens on a hashless load
   onDefaultTab: (tab: Page) => void;
   serverBaseUrl: string | null;
@@ -102,6 +107,10 @@ export function SettingsPage({
   onTheme,
   livePreviewLines,
   onLivePreviewLines,
+  liveTabEnabled,
+  onLiveTabEnabled,
+  hiddenEventTypes,
+  onToggleEventType,
   defaultTab,
   onDefaultTab,
   serverBaseUrl,
@@ -123,6 +132,14 @@ export function SettingsPage({
     else bySource.set(r.source_id, [r]);
   }
 
+  // The Live tab can't be a default-landing choice while it is disabled (the
+  // landing would resolve to a hidden tab); drop it from the picker in that case.
+  // The select VALUE is resolved the same way the landing is (resolveDefaultTab),
+  // so a stored "live" default shows as Activity here while Live is off — matching
+  // an offered option without rewriting the stored preference, which re-applies
+  // once Live is turned back on.
+  const tabOptions = liveTabEnabled ? DEFAULT_TAB_OPTIONS : DEFAULT_TAB_OPTIONS.filter((t) => t.id !== "live");
+
   const showTabs = config?.available === true;
   const activeTab: SettingsTab = showTabs && tab === "sources" ? "sources" : "display";
 
@@ -142,20 +159,10 @@ export function SettingsPage({
         <div>
           <h2>Display</h2>
           <p className="muted">
-            Choose which repos and sources appear, set the theme and default shared date range, and give a repo a highlight color.
-            These are view-only preferences saved in your browser. The daemon keeps syncing every source.
+            View-only preferences saved in your browser — the theme, the Live tab, the default
+            landing tab and date range, and which repos and sources appear. The daemon keeps
+            syncing every source regardless.
           </p>
-        </div>
-        <div className="settings-bulk">
-          <span className="muted">
-            {shownTotal}/{allKeys.length} repos shown
-          </span>
-          <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, true)}>
-            Show all
-          </button>
-          <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, false)}>
-            Hide all
-          </button>
         </div>
       </div>
 
@@ -181,22 +188,67 @@ export function SettingsPage({
 
       <div className="settings-pref">
         <div>
-          <h3>Live feed preview</h3>
+          <h3>Live tab</h3>
           <p className="muted">
-            Lines of an event body shown in the Live feed before it clamps; the full body opens in
-            the detail pane. Saved on this device only.
+            Show the realtime Live tab and stream activity as it lands. Off by default — while off
+            the tab is hidden and the app opens no live connection, so it costs nothing. Saved on
+            this device only.
           </p>
         </div>
-        <input
-          className="settings-number"
-          type="number"
-          min={MIN_LIVE_PREVIEW_LINES}
-          max={MAX_LIVE_PREVIEW_LINES}
-          step={1}
-          value={livePreviewLines}
-          onChange={(e) => onLivePreviewLines(clampLivePreviewLines(Number(e.target.value)))}
-        />
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={liveTabEnabled}
+            onChange={(e) => onLiveTabEnabled(e.target.checked)}
+            aria-label="Enable the Live tab"
+          />
+        </label>
       </div>
+
+      {liveTabEnabled ? (
+        <>
+          <div className="settings-pref">
+            <div>
+              <h3>Live feed preview</h3>
+              <p className="muted">
+                Lines of an event body shown in the Live feed before it clamps; the full body opens in
+                the detail pane. Saved on this device only.
+              </p>
+            </div>
+            <input
+              className="settings-number"
+              type="number"
+              min={MIN_LIVE_PREVIEW_LINES}
+              max={MAX_LIVE_PREVIEW_LINES}
+              step={1}
+              value={livePreviewLines}
+              onChange={(e) => onLivePreviewLines(clampLivePreviewLines(Number(e.target.value)))}
+            />
+          </div>
+
+          <div className="settings-pref">
+            <div>
+              <h3>Live event types</h3>
+              <p className="muted">
+                Which event categories appear in the Live feed and its filter strip. Unticking one
+                hides it everywhere on the Live tab. Saved on this device only.
+              </p>
+            </div>
+            <div className="settings-types">
+              {LIVE_CATEGORY_ORDER.map((category) => (
+                <label key={category} className="settings-type">
+                  <input
+                    type="checkbox"
+                    checked={!hiddenEventTypes.has(category)}
+                    onChange={() => onToggleEventType(category)}
+                  />
+                  <span>{humanizeCategory(category)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <div className="settings-pref">
         <div>
@@ -207,12 +259,12 @@ export function SettingsPage({
         </div>
         <select
           className="settings-select"
-          value={defaultTab}
+          value={resolveDefaultTab(defaultTab, liveTabEnabled)}
           onChange={(e) => {
             if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
           }}
         >
-          {DEFAULT_TAB_OPTIONS.map((t) => (
+          {tabOptions.map((t) => (
             <option key={t.id} value={t.id}>
               {t.label}
             </option>
@@ -249,6 +301,29 @@ export function SettingsPage({
       </div>
 
       {sync?.available ? <SyncControls sync={sync} /> : null}
+
+      {repos.length > 0 ? (
+        <div className="settings-repos-head">
+          <div>
+            <h3>Sources &amp; repos</h3>
+            <p className="muted">
+              Choose which repos and sources appear on the Board and Graph, and give a repo a
+              highlight color. Hiding here is view-only — the daemon keeps syncing every source.
+            </p>
+          </div>
+          <div className="settings-bulk">
+            <span className="muted">
+              {shownTotal}/{allKeys.length} repos shown
+            </span>
+            <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, true)}>
+              Show all
+            </button>
+            <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, false)}>
+              Hide all
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {[...bySource.entries()].map(([sourceId, list]) => {
         const meta = sourceMeta.get(sourceId);

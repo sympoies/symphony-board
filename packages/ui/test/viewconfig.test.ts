@@ -8,6 +8,8 @@ import {
   loadDefaultRangePreset, saveDefaultRangePreset,
   loadTheme, saveTheme,
   loadDefaultTab, saveDefaultTab,
+  loadLiveTabEnabled, saveLiveTabEnabled,
+  loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
@@ -107,6 +109,31 @@ test("default tab is a device-local setting defaulting to Live", () => {
   assert.equal(loadDefaultTab(), "live", "non-offered / invalid value -> default");
 });
 
+test("live tab enabled is a device-local setting that is OFF by default", () => {
+  assert.equal(loadLiveTabEnabled(), false, "default: Live tab disabled (no SSE, hidden tab)");
+  saveLiveTabEnabled(true);
+  assert.equal(loadLiveTabEnabled(), true);
+  saveLiveTabEnabled(false);
+  assert.equal(loadLiveTabEnabled(), false);
+  // Hand-edited / stale garbage falls back to the safe OFF default.
+  store._raw("symphony-board:live-tab-enabled", "yes");
+  assert.equal(loadLiveTabEnabled(), false, "non-boolean value -> default off");
+});
+
+test("hidden event types round-trip and default to nothing hidden (all visible)", () => {
+  assert.deepEqual([...loadHiddenEventTypes()], [], "default: no category hidden");
+  saveHiddenEventTypes(new Set(["commit", "pipeline"]));
+  assert.deepEqual([...loadHiddenEventTypes()].sort(), ["commit", "pipeline"]);
+  // Its own key — writing it never disturbs the hidden-repos / hidden-sources layers.
+  saveHidden(new Set(["o/r"]));
+  assert.deepEqual([...loadHiddenEventTypes()].sort(), ["commit", "pipeline"]);
+  saveHiddenEventTypes(new Set());
+  assert.deepEqual([...loadHiddenEventTypes()], []);
+  // Malformed / non-array storage degrades to empty (everything visible).
+  store._raw("symphony-board:hidden-event-types", "{not json");
+  assert.deepEqual([...loadHiddenEventTypes()], [], "malformed -> empty");
+});
+
 test("server base URL normalizes http/https roots and rejects unsafe schemes", () => {
   assert.equal(normalizeServerBaseUrl("http://localhost:8080"), "http://localhost:8080/");
   assert.equal(normalizeServerBaseUrl("https://board.example.com/app"), "https://board.example.com/app/");
@@ -139,7 +166,11 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadDefaultRangePreset(), "this-week", "load degrades to default range");
   assert.equal(loadTheme(), "night-owl", "theme load degrades to default");
   assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
+  assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
+  assert.deepEqual([...loadHiddenEventTypes()], [], "hidden event types degrade to empty");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
+  assert.doesNotThrow(() => saveLiveTabEnabled(true));
+  assert.doesNotThrow(() => saveHiddenEventTypes(new Set(["commit"])));
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
   assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));

@@ -533,11 +533,24 @@ try {
     await sleep(300);
   };
 
-  // The factory default tab is Live (configurable in Settings), so a hashless
-  // first open lands there; capture it for the default-route assertion (the Live
-  // page is contract-independent and renders immediately).
-  // Wait until the receiver probe resolves and the Live tab is active (the tab is
-  // gated on the async liveAvailable probe), so the captured HTML includes it.
+  // The Live tab is OFF by default, so a hashless first open falls back to
+  // Activity with NO Live tab in the bar (and — by design — the live-snapshot
+  // probe never fires). Capture that first as the opt-out assertion.
+  const liveOffLanding = await waitValue(`(() => {
+    const tabs = document.querySelector('.page-tabs');
+    if (!tabs) return null;
+    return JSON.stringify({ hash: location.hash, hasLiveTab: !!document.querySelector('.tab-live') });
+  })()`);
+  // Then enable the Live tab (and pin it as the default) the way Settings would,
+  // and reload so the rest of the smoke exercises the realtime feed.
+  await send("Runtime.evaluate", {
+    expression: "localStorage.setItem('symphony-board:live-tab-enabled','true'); localStorage.setItem('symphony-board:default-tab','live'); location.reload();",
+  });
+  await sleep(400);
+  // With Live enabled and pinned as the default, a hashless open lands on Live;
+  // capture it for the default-route assertion (the Live page is
+  // contract-independent and renders immediately). Wait until the receiver probe
+  // resolves and the Live tab is active (gated on the async liveAvailable probe).
   const defaultLandingHtml = await waitHtml("document.querySelector('.live-page') && document.querySelector('.tab-live.tab-on')");
   // Then exercise a range-driven page's loading chrome: navigate to Activity
   // (the range API is still delayed) and confirm the shell stays mounted while
@@ -1357,6 +1370,27 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // #356 review regression: tapping a sparkline bar must SELECT it on the FIRST
+  // activation. The button focuses before the click fires, so a toggle-on-click
+  // would clear it (first tap a no-op). Drive focus()+click() — the touch/keyboard
+  // sequence — on one bar, then read the rate caption: it must show that bucket's
+  // window, not the default "events per 10m · last 5h".
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const bars = document.querySelectorAll('.live-card-rate .live-spark-bar');
+      const bar = bars[bars.length - 2] || bars[0];
+      if (bar) { bar.focus(); bar.click(); }
+    })()`,
+  });
+  await sleep(120);
+  const sparkTap = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const caption = document.querySelector('.live-card-rate .live-card-sub')?.textContent?.trim() || '';
+      const bars = document.querySelectorAll('.live-card-rate .live-spark-bar').length;
+      return JSON.stringify({ bars, caption, isDefault: caption === 'events per 10m · last 5h' });
+    })()`,
+    returnByValue: true,
+  })).result.value || null;
   // Select the second feed row (the change-request event carrying only a target
   // url) and confirm its detail shows the /pull/ fallback link.
   await send("Runtime.evaluate", { expression: "document.querySelectorAll('.live-feed .live-event')[1] && document.querySelectorAll('.live-feed .live-event')[1].click()" });
@@ -2051,8 +2085,10 @@ try {
   const portraitCommits = portraitResults.filter((r) => r.page === "commits");
   const phoneCommits = portraitCommits.filter((r) => r.preset === "phone-portrait");
   const checks = [
-    // default entry: opening the app with no hash lands on the configured default tab (factory: Live).
-    [has(defaultLandingHtml, "live-page") && has(defaultLandingHtml, "tab-on") && has(defaultLandingHtml, "Live"), "app: default route opens the default tab (Live)"],
+    // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
+    [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity"); } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity (${liveOffLanding})`],
+    // default entry: with Live enabled and pinned as the default, opening with no hash lands on Live.
+    [has(defaultLandingHtml, "live-page") && has(defaultLandingHtml, "tab-on") && has(defaultLandingHtml, "Live"), "app: default route opens the configured default tab (Live, once enabled)"],
     [scrollAutoHide.restHidden === true && scrollAutoHide.shownOnPageScroll === true && (scrollAutoHide.hasInner === false || scrollAutoHide.shownOnInnerScroll === true), `app: scrollbars stay hidden at rest and reveal the scroller on scroll (${JSON.stringify(scrollAutoHide)})`],
     [colorSchemeHints.colorScheme === "dark light" && colorSchemeHints.supportedColorSchemes === "dark light", `app: declares supported color schemes for mobile browsers (${JSON.stringify(colorSchemeHints)})`],
     [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],
@@ -2186,6 +2222,7 @@ try {
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
+    [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],
     [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],

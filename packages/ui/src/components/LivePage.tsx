@@ -24,8 +24,11 @@ import {
   eventInstant,
   eventMatchesFilters,
   eventRepo,
+  humanizeCategory,
+  LIVE_CATEGORY_ORDER,
   rateBuckets,
   relativeAge,
+  visibleByCategory,
 } from "../live-stats.ts";
 import { ACTION_KIND } from "../activity-action-style.ts";
 import { Badge } from "./Badge.tsx";
@@ -47,23 +50,14 @@ const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: str
   );
 });
 
-// Provider-neutral category order for the filter strip (see LiveEvent.category
-// in model.ts); any category not listed is appended by categoryCounts.
-const CATEGORY_ORDER = [
-  "commit",
-  "change_request",
-  "issue",
-  "review",
-  "review_comment",
-  "review_thread",
-  "comment",
-  "pipeline",
-] as const;
-
-const RATE_WINDOW_MS = 3_600_000; // events in the last hour (the "/hr" figure) —
-// a per-minute window reads 0 almost always at this feed's volume.
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
+// The Activity headline counts EVERYTHING in the sparkline's full window (not a
+// trailing hour), so the figure summarizes the same span the histogram shows and
+// the unit names that span ("/5h"). A trailing-hour rate over-read a recent burst
+// and ignored the rest of the visible window.
+const SPARK_WINDOW_MS = SPARK_BUCKET_MS * SPARK_BUCKETS; // 5 hours
+const SPARK_WINDOW_HOURS = SPARK_WINDOW_MS / 3_600_000; // 5 — drives the "/5h" unit
 // Keep this in sync with the CSS breakpoint where .live-detail becomes a fixed
 // overlay.
 const LIVE_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
@@ -73,7 +67,6 @@ const LIVE_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
 const catStyle = (category: string): CSSProperties =>
   ({ "--cat": `var(--cat-${category})` }) as CSSProperties;
 
-const humanizeCategory = (c: string): string => c.replace(/_/g, " ");
 const shortRepo = (repo: string | null): string => (repo ? (repo.split("/").pop() ?? repo) : "—");
 
 function liveAction(ev: LiveEvent): string {
@@ -144,7 +137,12 @@ function Sparkline({ values, now, bucketMs }: { values: number[]; now: number; b
               onMouseLeave={() => clearIf(i)}
               onFocus={() => setSel(i)}
               onBlur={() => clearIf(i)}
-              onClick={() => setSel((cur) => (cur === i ? null : i))}
+              // Tap / Enter / Space SELECTS this bar — never toggles. The button
+              // takes focus before the click fires, so onFocus has already set
+              // sel=i; a toggle would then read cur===i and immediately clear it,
+              // making the first touch/keyboard activation a no-op (#356 review).
+              // Clearing is owned by blur / mouseleave.
+              onClick={() => setSel(i)}
             />
           );
         })}
@@ -308,6 +306,7 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
 export function LivePage({
   live,
   previewLines,
+  hiddenEventTypes,
   detailRouteOpen,
   onOpenDetailRoute,
   onCloseDetailRoute,
@@ -315,6 +314,7 @@ export function LivePage({
 }: {
   live: LiveState;
   previewLines: number;
+  hiddenEventTypes: ReadonlySet<string>; // Live categories the viewer hid in Settings
   detailRouteOpen: boolean;
   onOpenDetailRoute: () => void;
   onCloseDetailRoute: () => void;
@@ -344,6 +344,12 @@ export function LivePage({
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+  // If the viewer hides (in Settings) the very category they had focused, the
+  // transient focus would filter the feed to nothing and its chip is gone — clear
+  // it so the feed falls back to "all visible".
+  useEffect(() => {
+    if (category && hiddenEventTypes.has(category)) setCategory(null);
+  }, [category, hiddenEventTypes]);
 
   const statusKind =
     connected === null
@@ -354,16 +360,23 @@ export function LivePage({
           ? "reconnecting"
           : "up";
 
-  const rate = countInWindow(events, now, RATE_WINDOW_MS);
+  // The pulse cards (Activity, sparkline, Last event, Buffer, Active now) read the
+  // RAW stream — they are stream/memory telemetry, so the persistent event-type
+  // filter does not touch them (matching how the transient focus filters already
+  // leave the pulse alone). The chip strip, the "All" count, the feed, and the
+  // filter option lists read `visibleEvents` so hiding a type removes it tab-wide
+  // from what you browse.
+  const visibleEvents = visibleByCategory(events, hiddenEventTypes);
+  const windowTotal = countInWindow(events, now, SPARK_WINDOW_MS);
   const buckets = rateBuckets(events, now, SPARK_BUCKET_MS, SPARK_BUCKETS);
-  const cats = categoryCounts(events, CATEGORY_ORDER);
+  const cats = categoryCounts(visibleEvents, LIVE_CATEGORY_ORDER);
   const repoCount = distinctCount(events, eventRepo);
   const peopleCount = distinctCount(events, actorKey);
-  const repoOptions = distinctValues(events, eventRepo);
-  const peopleOptions = distinctValues(events, actorKey);
+  const repoOptions = distinctValues(visibleEvents, eventRepo);
+  const peopleOptions = distinctValues(visibleEvents, actorKey);
   const latest = events[0];
   const latestInstant = latest ? eventInstant(latest) : null;
-  const shown = events.filter((e) => eventMatchesFilters(e, { category, repos, people }));
+  const shown = visibleEvents.filter((e) => eventMatchesFilters(e, { category, repos, people }));
 
   const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
   // The detail shows the pinned event; with nothing pinned it auto-follows the
@@ -405,8 +418,8 @@ export function LivePage({
         <div className="live-card live-card-rate">
           <div className="live-card-label">Activity</div>
           <div className="live-figure">
-            {rate}
-            <span className="live-unit">/hr</span>
+            {windowTotal}
+            <span className="live-unit">/{SPARK_WINDOW_HOURS}h</span>
           </div>
           <Sparkline values={buckets} now={now} bucketMs={SPARK_BUCKET_MS} />
         </div>
@@ -461,7 +474,7 @@ export function LivePage({
               aria-pressed={category === null}
               onClick={() => setCategory(null)}
             >
-              All<span className="live-cat-n">{events.length}</span>
+              All<span className="live-cat-n">{visibleEvents.length}</span>
             </button>
             {cats.map((c) => (
               <button
@@ -507,7 +520,11 @@ export function LivePage({
           }}
         >
           {shown.length === 0 ? (
-            <p className="empty live-feed-empty">No events match these filters.</p>
+            <p className="empty live-feed-empty">
+              {visibleEvents.length === 0
+                ? "Every event type is hidden — re-enable some under Settings → Live event types."
+                : "No events match these filters."}
+            </p>
           ) : (
             <ul className="live-feed" ref={feedRef}>
               {shown.map((ev) => (

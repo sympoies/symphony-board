@@ -5,6 +5,27 @@
 // math is unit-tested (live-stats.test.ts) rather than smoke-only.
 import type { LiveEvent } from "./model.ts";
 
+// Provider-neutral category order for the Live filter strip and the Settings
+// "which event types to show" toggles (see LiveEvent.category in model.ts). The
+// strip orders known categories by this list and appends any unforeseen one
+// (categoryCounts); Settings offers exactly these as toggleable. Shared here so
+// the feed, the strip, and the Settings checkboxes agree on the vocabulary.
+export const LIVE_CATEGORY_ORDER = [
+  "commit",
+  "change_request",
+  "issue",
+  "review",
+  "review_comment",
+  "review_thread",
+  "comment",
+  "pipeline",
+] as const;
+
+// A category's display label: the snake_case id with underscores as spaces
+// ("change_request" -> "change request"). Shared by the feed, the filter chips,
+// and the Settings toggles so one category never reads two different ways.
+export const humanizeCategory = (c: string): string => c.replace(/_/g, " ");
+
 // The instant an event happened, in epoch ms: provider event time when present
 // (it is the truer "when"), else the receipt time. null when neither parses.
 export function eventInstant(e: LiveEvent): number | null {
@@ -97,6 +118,19 @@ export function categoryCounts(
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   for (const [category, count] of extras) out.push({ category, count });
   return out;
+}
+
+// The Live tab's persistent "which event types to show" filter: the events whose
+// category the viewer has NOT hidden (Settings-controlled, see
+// viewconfig.loadHiddenEventTypes). Applied tab-wide before the transient
+// category/repo/people focus filters, so it scopes the feed AND the chip strip.
+// An empty hidden set returns the SAME array (the common case allocates nothing).
+export function visibleByCategory(
+  events: LiveEvent[],
+  hiddenCategories: ReadonlySet<string>,
+): LiveEvent[] {
+  if (hiddenCategories.size === 0) return events;
+  return events.filter((e) => !hiddenCategories.has(e.category));
 }
 
 // Distinct non-empty keys produced by `key`, sorted. The option lists for the
