@@ -36,6 +36,11 @@ import {
 } from "../live-stats.ts";
 import { ACTION_KIND } from "../activity-action-style.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
+import {
+  LIVE_FOLLOW_DETAIL_HOLD_MS,
+  liveFeedSelectedKey,
+  resolveLiveFollowDecision,
+} from "../live-follow.ts";
 import { Badge } from "./Badge.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { activityVirtualRange, liveDetailNavigation, liveEventKey, type LiveEvent, type LiveEventActor } from "../model.ts";
@@ -71,11 +76,6 @@ const LIVE_ROW_BASE_HEIGHT_PX = 74;
 const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
 const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
-// The newest feed row's `live-enter` entrance duration. In follow mode the
-// detail pane holds its content swap for this long so the list's arrival
-// animation plays out BEFORE the detail crossfades to the same event. Keep in
-// sync with `live-enter` in styles.css.
-const LIVE_FEED_ENTER_MS = 650;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
 const LIVE_PANE_MIN_HEIGHT_PX = 320;
 const LIVE_RANK_LIMIT = 6;
@@ -705,52 +705,62 @@ export function LivePage({
   const following = pinned === null;
   const newest = shown[0] ?? null;
   const newestKey = newest ? liveEventKey(newest) : null;
-  // In follow mode the detail trails the newest event by the feed's enter
-  // duration, so the row's `live-enter` finishes before the detail crossfades to
-  // it. `followed` is that lagged event; a single pending timer settles it to the
-  // CURRENT newest when it fires, so a burst coalesces into one swap-per-window
-  // (a debounce-to-quiet would freeze the pane mid-stream). The hold is bypassed
-  // — swap immediately — for the first event, reduced-motion, and filter changes
-  // (a filter change is a user action, not an arrival, and could otherwise strand
-  // a now-filtered-out event in the pane). Pinning abandons any pending swap.
+  // In follow mode the detail trails the newest event by the feed's visual
+  // settle duration, so the row's arrival and selected-color animation finish
+  // before the detail crossfades to it. `followed` is that lagged event; the
+  // pending timer is keyed to the current newest row, so a burst restarts the
+  // hold for the row that is actually selected in the feed. The hold is bypassed
+  // — swap immediately — for the first
+  // event, reduced-motion, and filter changes (a filter change is a user action,
+  // not an arrival, and could otherwise strand a now-filtered-out event in the
+  // pane). Pinning abandons any pending swap.
   const [followed, setFollowed] = useState<LiveEvent | null>(newest);
   const newestRef = useRef(newest);
   newestRef.current = newest;
   const holdRef = useRef<number | null>(null);
+  const holdKeyRef = useRef<string | null>(null);
   const filterKeyRef = useRef(feedResetKey);
   const clearHold = useCallback(() => {
     if (holdRef.current != null) {
       window.clearTimeout(holdRef.current);
       holdRef.current = null;
     }
+    holdKeyRef.current = null;
   }, []);
   useEffect(() => {
-    if (!following) {
-      clearHold();
-      return;
+    let filtersChanged = false;
+    if (following && newest != null) {
+      filtersChanged = filterKeyRef.current !== feedResetKey;
+      filterKeyRef.current = feedResetKey;
     }
-    if (newest == null) {
+    const decision = resolveLiveFollowDecision({
+      following,
+      newest,
+      newestKey,
+      followed,
+      pendingHoldKey: holdKeyRef.current,
+      filtersChanged,
+      prefersReducedMotion,
+    });
+    if (decision.action === "clear-pending") {
       clearHold();
-      setFollowed(null);
-      return;
-    }
-    const filtersChanged = filterKeyRef.current !== feedResetKey;
-    filterKeyRef.current = feedResetKey;
-    if (followed == null || prefersReducedMotion || filtersChanged) {
+    } else if (decision.action === "set-followed") {
       clearHold();
-      setFollowed(newest);
-      return;
+      setFollowed(decision.event);
+    } else if (decision.action === "schedule-hold") {
+      clearHold();
+      holdKeyRef.current = decision.holdKey;
+      holdRef.current = window.setTimeout(() => {
+        holdRef.current = null;
+        holdKeyRef.current = null;
+        setFollowed(newestRef.current);
+      }, LIVE_FOLLOW_DETAIL_HOLD_MS);
     }
-    if (liveEventKey(followed) === newestKey) return; // detail already current
-    if (holdRef.current != null) return; // a settle is already pending
-    holdRef.current = window.setTimeout(() => {
-      holdRef.current = null;
-      setFollowed(newestRef.current);
-    }, LIVE_FEED_ENTER_MS);
   }, [following, newest, newestKey, feedResetKey, prefersReducedMotion, followed, clearHold]);
   useEffect(() => clearHold, [clearHold]); // clear any pending timer on unmount
   const detail = pinned ?? followed ?? null;
   const detailKey = detail ? liveEventKey(detail) : null;
+  const feedSelectedKey = liveFeedSelectedKey(following, newestKey, detailKey);
   const detailNav = useMemo(() => liveDetailNavigation(shown, detail), [shown, detail]);
   useEffect(() => {
     if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
@@ -976,7 +986,7 @@ export function LivePage({
                     ev={ev}
                     now={now}
                     previewLines={previewLines}
-                    selected={liveEventKey(ev) === detailKey}
+                    selected={liveEventKey(ev) === feedSelectedKey}
                     positionY={index * rowStride}
                     index={index}
                     total={shown.length}

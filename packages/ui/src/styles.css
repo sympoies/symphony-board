@@ -3518,22 +3518,23 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Each row is a bordered panel card (matching .activity-row), so the feed reads
    as a defined list on the light Paper theme instead of floating on the page. */
 .live-event {
+  --live-row-bg: var(--panel);
   position: absolute; top: 0; left: 0; right: 0;
   display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: start;
   padding: 10px 8px 10px 10px; cursor: pointer; border-radius: 8px;
   height: var(--live-row-height);
   box-sizing: border-box;
   overflow: hidden;
-  background: var(--panel); border: 1px solid var(--line);
+  background: var(--live-row-bg); border: 1px solid var(--line);
 }
 .live-event::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
   border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0.62;
 }
-.live-event:hover { background: var(--hover-soft); }
+.live-event:hover { --live-row-bg: var(--hover-soft); }
 .live-event:hover::before { opacity: 0.82; }
 .live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.live-event-selected { background: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
+.live-event-selected { --live-row-bg: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
 .live-event-selected::before { opacity: 0.95; }
 .live-avatar {
   width: 32px; height: 32px; border-radius: 50%; margin-top: 1px; position: relative;
@@ -3605,7 +3606,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 @keyframes live-arrive {
   from { background: color-mix(in srgb, var(--live) 18%, var(--panel)); }
-  to { background: var(--panel); }
+  to { background: var(--live-row-bg); }
 }
 /* Newest-row entrance: drop in from just above its slot and settle. translate +
    scale (NOT transform) so the inline positioning transform stays intact. */
@@ -3691,14 +3692,31 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-card { box-sizing: border-box; min-height: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
 .live-detail-back { display: none; }
 /* Keyed on the event identity in LiveDetail, so the shell REMOUNTS when the
-   detail follows a new event and replays this gentle crossfade. A keyed remount
-   (not a class toggle) keeps the animation off the 1s relative-time re-render. */
+   detail follows a new event and replays this reveal. A keyed remount (not a
+   class toggle) keeps the animation off the 1s relative-time re-render. */
 .live-detail-shell {
+  position: relative;
   display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start;
-  animation: live-detail-in 240ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  animation: live-detail-in 360ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
-.live-detail-shell[data-motion="next"] { animation: live-detail-in-next 240ms cubic-bezier(0.2, 0.7, 0.3, 1); }
-.live-detail-shell[data-motion="previous"] { animation: live-detail-in-previous 240ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.live-detail-shell::before {
+  content: "";
+  position: absolute;
+  inset: -8px -10px;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--cat, var(--live)) 48%, transparent);
+  border-left-width: 3px;
+  border-radius: 9px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cat, var(--live)) 16%, transparent), transparent 56%);
+  opacity: 0;
+  animation: live-detail-accent 900ms ease-out;
+}
+.live-detail-shell > * {
+  position: relative;
+  z-index: 1;
+}
+.live-detail-shell[data-motion="next"] { animation: live-detail-in-next 360ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.live-detail-shell[data-motion="previous"] { animation: live-detail-in-previous 360ms cubic-bezier(0.2, 0.7, 0.3, 1); }
 .live-detail-shell > .live-avatar { margin-top: 1px; }
 .live-detail-main { min-width: 0; }
 .live-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
@@ -3826,6 +3844,11 @@ a.rf-node-title:hover { color: var(--accent); }
   from { opacity: 0.4; translate: -22px 0; }
   to { opacity: 1; translate: 0 0; }
 }
+@keyframes live-detail-accent {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
 @keyframes live-overlay-in {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
@@ -3841,5 +3864,6 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-detail-shell,
   .live-detail-shell[data-motion="next"],
   .live-detail-shell[data-motion="previous"] { animation: none; }
+  .live-detail-shell::before { animation: none; }
   .live-split[data-detail-open="true"] .live-detail { animation: none; }
 }
