@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { ItemDTO, RepoMetricDTO, RepoMetricStatsDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import {
   relativeTime,
@@ -8,11 +8,56 @@ import {
   type Filters,
   type TimeRange,
 } from "../model.ts";
-import { activityDrilldownHref, reviewThreadsHref, type ItemRouteFields } from "../nav.ts";
+import { reviewRepoSearchHref } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { StatTile } from "./StatTile.tsx";
+
+const Markdown = lazy(() => import("./Markdown.tsx"));
+
+const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: string; className?: string }) {
+  return (
+    <Suspense fallback={<span className="live-md-fallback review-md-preview">{text}</span>}>
+      <Markdown className={className}>{text}</Markdown>
+    </Suspense>
+  );
+});
+
+const LazyMarkdownPreview = memo(function LazyMarkdownPreview({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+
+  useEffect(() => {
+    const node = ref.current;
+    if (visible || !node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { root: null, rootMargin: "240px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  return (
+    <div ref={ref}>
+      {visible ? (
+        <MarkdownBody text={text} className="live-md live-md-preview review-md-preview" />
+      ) : (
+        <span className="live-md-fallback review-md-preview">{text}</span>
+      )}
+    </div>
+  );
+});
 
 interface ThreadRow {
   thread: ReviewThreadDTO;
@@ -27,10 +72,6 @@ interface RepoThreadSummary {
   resolved: number;
   comments: number;
   metric: RepoMetricDTO | null;
-}
-
-function reviewSignal(stats: RepoMetricStatsDTO): number {
-  return stats.unresolved_review_threads ?? 0;
 }
 
 function changesRequested(stats: RepoMetricStatsDTO): number {
@@ -71,6 +112,7 @@ function threadMatches(row: ThreadRow, filters: Filters): boolean {
     if (!matchesReviewLens) return false;
   }
   const q = filters.search.trim().toLowerCase();
+  if (q && lower(thread.project_path) === q) return true;
   return !q || threadText(row).includes(q);
 }
 
@@ -105,36 +147,42 @@ function statusBadge(thread: ReviewThreadDTO) {
   return <Badge text="resolved" kind="status-ok" />;
 }
 
-function ReviewTrendBars({ metric }: { metric: RepoMetricDTO }) {
-  const values = metric.series.map((point) => reviewSignal(point.stats));
-  const max = Math.max(0, ...values);
+function commentersLabel(thread: ReviewThreadDTO, target: ItemDTO | null): string {
+  const authors: string[] = [];
+  for (const comment of thread.comments) {
+    const author = comment.author?.trim();
+    if (author && !authors.includes(author)) authors.push(author);
+  }
+  if (authors.length > 0) {
+    return authors.length === 1 ? `@${authors[0]}` : `@${authors[0]} +${authors.length - 1}`;
+  }
+  return target?.author ? `@${target.author}` : "unknown";
+}
+
+function ReviewThreadBars({ summary }: { summary: RepoThreadSummary }) {
+  const values = [
+    { key: "resolved", value: summary.resolved, title: `${summary.resolved} resolved threads` },
+    { key: "open", value: summary.open, title: `${summary.open} open threads` },
+  ];
+  const max = Math.max(0, ...values.map((value) => value.value));
   if (max <= 0) {
     return (
-      <div className="review-trend review-trend-flat" aria-label="review thread trend">
-        <span title="0 open threads" />
+      <div className="review-trend review-trend-flat" aria-label="review thread volume">
+        <span title="0 threads" />
       </div>
     );
   }
   return (
-    <div className="review-trend" aria-label="review thread trend">
-      {values.map((value, index) => (
+    <div className="review-trend" aria-label="review thread volume" title={`${summary.total} threads`}>
+      {values.map(({ key, value, title }) => (
         <span
-          key={`${index}-${value}`}
-          title={`${value} open threads`}
-          style={{ "--bar-h": `${Math.max(8, Math.round((value / max) * 100))}%` } as CSSProperties}
+          key={key}
+          data-state={key}
+          title={title}
+          style={{ "--bar-h": value > 0 ? `${Math.max(10, Math.round((value / max) * 100))}%` : "0%" } as CSSProperties}
         />
       ))}
     </div>
-  );
-}
-
-function ReviewMetricLink({ value, href, label }: { value: number; href: string | null; label: string }) {
-  return value > 0 && href ? (
-    <a className="repo-metric-link" href={href} aria-label={label}>
-      {value}
-    </a>
-  ) : (
-    <>{value}</>
   );
 }
 
@@ -168,19 +216,26 @@ function repoSummaries(rows: ThreadRow[], metrics: RepoMetricDTO[], filters: Fil
   for (const metric of metrics) {
     if (!repoMetricMatches(metric, filters)) continue;
     const key = repoKey(metric.source_id, metric.project_path);
-    if (!byRepo.has(key) && reviewSignal(metric.totals) > 0) {
+    const unresolved = metric.totals.unresolved_review_threads ?? 0;
+    if (!byRepo.has(key) && unresolved > 0) {
       byRepo.set(key, {
         source_id: metric.source_id,
         project_path: metric.project_path,
-        total: 0,
-        open: 0,
+        total: unresolved,
+        open: unresolved,
         resolved: 0,
         comments: 0,
         metric,
       });
     }
   }
-  return [...byRepo.values()].sort((a, b) => b.open - a.open || b.total - a.total || a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""));
+  return [...byRepo.values()].sort((a, b) => b.total - a.total || b.open - a.open || a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""));
+}
+
+function reviewLens(filters: Filters): "threads" | "unresolved" | null {
+  if (filters.reviews.has("unresolved")) return "unresolved";
+  if (filters.reviews.has("threads")) return "threads";
+  return null;
 }
 
 export function ReviewsPage({
@@ -192,7 +247,6 @@ export function ReviewsPage({
   range,
   sourceKind,
   colorOf,
-  lens,
   emptyState,
 }: {
   reviewThreads: ReviewThreadDTO[];
@@ -203,7 +257,6 @@ export function ReviewsPage({
   range: TimeRange;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
-  lens?: ItemRouteFields;
   emptyState?: ReactNode;
 }) {
   const windowById = useMemo(() => new Map(windowItems.map((item) => [item.id, item])), [windowItems]);
@@ -215,7 +268,15 @@ export function ReviewsPage({
         .sort(compareThreads),
     [reviewThreads, itemsById, windowById, filters],
   );
-  const summaries = useMemo(() => repoSummaries(threadRows, metrics, filters), [threadRows, metrics, filters]);
+  const summaryRows = useMemo(() => {
+    const summaryFilters = { ...filters, reviews: new Set<string>() };
+    return reviewThreads
+      .map((thread): ThreadRow => ({ thread, target: itemsById.get(thread.target_ref) ?? windowById.get(thread.target_ref) ?? null }))
+      .filter((row) => threadMatches(row, summaryFilters))
+      .sort(compareThreads);
+  }, [reviewThreads, itemsById, windowById, filters]);
+  const summaries = useMemo(() => repoSummaries(summaryRows, metrics, filters), [summaryRows, metrics, filters]);
+  const activeReviewLens = reviewLens(filters);
 
   const openThreads = threadRows.filter((row) => !row.thread.is_resolved).length;
   const resolvedThreads = threadRows.length - openThreads;
@@ -248,6 +309,85 @@ export function ReviewsPage({
         emptyState ?? <p className="empty">No review threads match the current view.</p>
       ) : (
         <div className="reviews-layout">
+          <aside className="review-side" aria-label="Review context">
+            <section className="review-repo-section" aria-labelledby="review-repos-title">
+              <div className="review-section-head">
+                <h3 id="review-repos-title">Repo Breakdown</h3>
+                <span className="muted">{summaries.length} repos</span>
+              </div>
+              {summaries.length === 0 ? (
+                <p className="empty">No repo review threads in this range.</p>
+              ) : (
+                <div className="review-repo-list">
+                  {summaries.map((summary) => {
+                    const metric = summary.metric;
+                    const repoHref = reviewRepoSearchHref({ source: summary.source_id, repo: summary.project_path, range, review: activeReviewLens });
+                    const accentColor = colorOf(summary.source_id, summary.project_path);
+                    const rowClass = `review-repo-row${accentColor ? " review-row-accent" : ""}`;
+                    const rowStyle = { "--repo-color": accentColor ?? undefined } as CSSProperties;
+                    const rowContent = (
+                      <>
+                        <div className="review-repo-main">
+                          <span className="review-repo-name">
+                            <SourceIcon kind={sourceKind.get(summary.source_id)} />
+                            <span>{summary.project_path ?? "(unknown repo)"}</span>
+                          </span>
+                          <span className="muted">{sourceDisplayName(summary.source_id)}</span>
+                        </div>
+                        <ReviewThreadBars summary={summary} />
+                        <dl className="review-repo-metrics">
+                          <div>
+                            <dt>threads</dt>
+                            <dd>{summary.total}</dd>
+                          </div>
+                          <div>
+                            <dt>open</dt>
+                            <dd>{summary.open}</dd>
+                          </div>
+                          <div>
+                            <dt>resolved</dt>
+                            <dd>{summary.resolved}</dd>
+                          </div>
+                          <div>
+                            <dt>comments</dt>
+                            <dd>{summary.comments}</dd>
+                          </div>
+                          <div>
+                            <dt>reviews</dt>
+                            <dd>{metric?.totals.reviews ?? 0}</dd>
+                          </div>
+                          <div>
+                            <dt>changes</dt>
+                            <dd>{metric ? changesRequested(metric.totals) : 0}</dd>
+                          </div>
+                        </dl>
+                      </>
+                    );
+                    return repoHref ? (
+                      <a
+                        key={`${summary.source_id}|${summary.project_path ?? ""}`}
+                        href={repoHref}
+                        className={rowClass}
+                        style={rowStyle}
+                        aria-label={`Search review threads in ${summary.project_path ?? "repo"}`}
+                      >
+                        {rowContent}
+                      </a>
+                    ) : (
+                      <article
+                        key={`${summary.source_id}|${summary.project_path ?? ""}`}
+                        className={rowClass}
+                        style={rowStyle}
+                      >
+                        {rowContent}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </aside>
+
           <section className="review-queue" aria-labelledby="review-queue-title">
             <div className="review-section-head">
               <h3 id="review-queue-title">Thread Inbox</h3>
@@ -259,19 +399,21 @@ export function ReviewsPage({
               <div className="review-table-wrap">
                 <table className="review-table">
                   <colgroup>
-                    <col className="review-col-pr" />
                     <col className="review-col-small" />
+                    <col className="review-col-seen" />
+                    <col className="review-col-pr" />
+                    <col className="review-col-commenter" />
                     <col className="review-col-location" />
                     <col className="review-col-preview" />
-                    <col className="review-col-small" />
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>Thread</th>
                       <th>Status</th>
+                      <th>Seen</th>
+                      <th>Thread</th>
+                      <th>Commenter</th>
                       <th>Location</th>
                       <th>Preview</th>
-                      <th>Seen</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -285,9 +427,17 @@ export function ReviewsPage({
                           className={accentColor ? "review-row-accent" : ""}
                           style={{ "--repo-color": accentColor ?? undefined } as CSSProperties}
                         >
+                          <td data-label="Status">
+                            <span className="review-state-stack">
+                              {statusBadge(thread)}
+                              {thread.resolved_by ? <span className="muted">@{thread.resolved_by}</span> : null}
+                            </span>
+                          </td>
+                          <td data-label="Seen">
+                            <time title={thread.last_seen_at ?? undefined}>{relativeTime(thread.last_seen_at)}</time>
+                          </td>
                           <td className="review-pr-cell" data-label="Thread">
                             <span className="review-pr-title">
-                              <SourceIcon kind={sourceKind.get(thread.source_id)} />
                               {thread.url ? (
                                 <a href={thread.url} target="_blank" rel="noopener noreferrer">
                                   {thread.target_iid != null ? `#${thread.target_iid} ` : ""}
@@ -305,10 +455,9 @@ export function ReviewsPage({
                               {target?.author ? <span>@{target.author}</span> : null}
                             </span>
                           </td>
-                          <td data-label="Status">
-                            <span className="review-state-stack">
-                              {statusBadge(thread)}
-                              {thread.resolved_by ? <span className="muted">@{thread.resolved_by}</span> : null}
+                          <td data-label="Commenter">
+                            <span className="review-commenter" title="First synced thread comment author; falls back to the PR/MR author">
+                              {commentersLabel(thread, target)}
                             </span>
                           </td>
                           <td data-label="Location">
@@ -320,19 +469,16 @@ export function ReviewsPage({
                             ) : (
                               <div className="review-comment-preview">
                                 {thread.comments.slice(0, 2).map((comment) => (
-                                  <p key={comment.id}>
+                                  <div className="review-comment" key={comment.id}>
                                     {comment.author ? <strong>@{comment.author}</strong> : null}
-                                    <span>{comment.body ?? "(empty comment)"}</span>
-                                  </p>
+                                    <LazyMarkdownPreview text={comment.body ?? "(empty comment)"} />
+                                  </div>
                                 ))}
                                 {thread.comments_total > thread.comments.length ? (
                                   <span className="muted">+{thread.comments_total - thread.comments.length} more comments</span>
                                 ) : null}
                               </div>
                             )}
-                          </td>
-                          <td data-label="Seen">
-                            <time title={thread.last_seen_at ?? undefined}>{relativeTime(thread.last_seen_at)}</time>
                           </td>
                         </tr>
                       );
@@ -342,71 +488,6 @@ export function ReviewsPage({
               </div>
             )}
           </section>
-
-          <aside className="review-side" aria-label="Review context">
-            <section className="review-repo-section" aria-labelledby="review-repos-title">
-              <div className="review-section-head">
-                <h3 id="review-repos-title">Repo Breakdown</h3>
-                <span className="muted">{summaries.length} repos</span>
-              </div>
-              {summaries.length === 0 ? (
-                <p className="empty">No repo review threads in this range.</p>
-              ) : (
-                <div className="review-repo-list">
-                  {summaries.map((summary) => {
-                    const metric = summary.metric;
-                    const activityHref = summary.project_path
-                      ? activityDrilldownHref({ source: summary.source_id, repo: summary.project_path, range, kind: "review", item: lens })
-                      : null;
-                    const threadsHref = reviewThreadsHref({ source: summary.source_id, repo: summary.project_path, range, value: "unresolved" });
-                    const accentColor = colorOf(summary.source_id, summary.project_path);
-                    return (
-                      <article
-                        key={`${summary.source_id}|${summary.project_path ?? ""}`}
-                        className={`review-repo-row${accentColor ? " review-row-accent" : ""}`}
-                        style={{ "--repo-color": accentColor ?? undefined } as CSSProperties}
-                      >
-                        <div className="review-repo-main">
-                          <span className="review-repo-name">
-                            <SourceIcon kind={sourceKind.get(summary.source_id)} />
-                            <span>{summary.project_path ?? "(unknown repo)"}</span>
-                          </span>
-                          <span className="muted">{sourceDisplayName(summary.source_id)}</span>
-                        </div>
-                        {metric ? <ReviewTrendBars metric={metric} /> : <div className="review-trend review-trend-flat"><span title="No metric series" /></div>}
-                        <dl className="review-repo-metrics">
-                          <div>
-                            <dt>open</dt>
-                            <dd>
-                              <ReviewMetricLink value={summary.open} href={threadsHref} label={`Open unresolved review threads for ${summary.project_path ?? "repo"}`} />
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>resolved</dt>
-                            <dd>{summary.resolved}</dd>
-                          </div>
-                          <div>
-                            <dt>comments</dt>
-                            <dd>{summary.comments}</dd>
-                          </div>
-                          <div>
-                            <dt>reviews</dt>
-                            <dd>
-                              <ReviewMetricLink value={metric?.totals.reviews ?? 0} href={activityHref} label={`Open review activity for ${summary.project_path ?? "repo"}`} />
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>changes</dt>
-                            <dd>{metric ? changesRequested(metric.totals) : 0}</dd>
-                          </div>
-                        </dl>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </aside>
         </div>
       )}
     </main>

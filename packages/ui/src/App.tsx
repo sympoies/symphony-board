@@ -1375,7 +1375,6 @@ export function App() {
           range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}
-          lens={itemFacetFields(itemFacetState)}
           emptyState={
             <EmptyState
               noun="review threads"
