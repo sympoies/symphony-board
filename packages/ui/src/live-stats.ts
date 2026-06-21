@@ -59,6 +59,20 @@ export function rateBuckets(
   return buckets;
 }
 
+// The wall-clock window a `rateBuckets` index covers, for the same
+// `(now, bucketMs, bucketCount)`. The last bucket ends exactly at `now`; each
+// earlier bucket is one `bucketMs` older. Used to label a sparkline bar with its
+// time range. (Mirrors the index math in `rateBuckets`.)
+export function bucketRange(
+  now: number,
+  bucketMs: number,
+  bucketCount: number,
+  index: number,
+): { start: number; end: number } {
+  const end = now - (bucketCount - 1 - index) * bucketMs;
+  return { start: end - bucketMs, end };
+}
+
 // Category → count. Categories named in `order` come first in that order (only
 // those actually present); any extra category not in `order` is appended,
 // sorted by count desc then name, so an unforeseen provider category still
