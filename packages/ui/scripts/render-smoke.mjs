@@ -1468,6 +1468,21 @@ try {
       const status = document.querySelector('.live-status');
       const avatar = rows[0]?.querySelector('.live-avatar');
       const avatarImg = avatar?.querySelector('img');
+      const selectedRow = rows.find((row) => row.classList.contains('live-event-selected')) || rows[0] || null;
+      const unselectedRow = rows.find((row) => !row.classList.contains('live-event-selected')) || null;
+      const accent = (row) => {
+        if (!row) return { width: 0, opacity: 0, background: '', rowBackground: '' };
+        const before = getComputedStyle(row, '::before');
+        const base = getComputedStyle(row);
+        return {
+          width: parseFloat(before.width || '0') || 0,
+          opacity: Number(before.opacity || '0') || 0,
+          background: before.backgroundColor || '',
+          rowBackground: base.backgroundColor || '',
+        };
+      };
+      const selectedAccent = accent(selectedRow);
+      const unselectedAccent = accent(unselectedRow);
       return {
         rendered: !!page,
         rows: rows.length,
@@ -1481,6 +1496,8 @@ try {
         detailAvatarImgSrc: detailAvatarImg?.getAttribute('src') || '',
         detailAvatarLabel: detailAvatar?.getAttribute('aria-label') || detailAvatar?.getAttribute('title') || '',
         detailAvatarDotContent: detailAvatar ? getComputedStyle(detailAvatar, '::after').content : '',
+        selectedAccent,
+        unselectedAccent,
         feedHeight: feedRect?.height || 0,
         detailHeight: detailRect?.height || 0,
         activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\\s+/g, '') || '',
@@ -2462,6 +2479,8 @@ try {
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
     [(live.rowText || []).some((text) => text.includes("Old widget note")), `live: row outside the 5h pulse remains retained in the 1000-event buffer (${JSON.stringify(live.rowText || [])})`],
     [live.avatarDotContent === "none", `live: feed avatars render without a lower-right category dot (${live.avatarDotContent || "empty"})`],
+    [(live.unselectedAccent?.width || 0) >= 3 && (live.unselectedAccent?.opacity || 0) > 0.4 && !/rgba\\(0, 0, 0, 0\\)/.test(live.unselectedAccent?.background || ""), `live: non-selected rows show the category-colored left accent line (${JSON.stringify(live.unselectedAccent || {})})`],
+    [(live.selectedAccent?.opacity || 0) > (live.unselectedAccent?.opacity || 0) && live.selectedAccent?.rowBackground !== live.unselectedAccent?.rowBackground, `live: selected row keeps stronger accent/background emphasis (${JSON.stringify({ selected: live.selectedAccent, unselected: live.unselectedAccent })})`],
     [live.detailAvatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.detailAvatarImgSrc || "") && /Octocat/.test(live.detailAvatarLabel || "") && live.detailAvatarDotContent === "none", `live: detail pane renders the selected actor avatar without a dot (${JSON.stringify({ href: live.detailAvatarHref, src: live.detailAvatarImgSrc, label: live.detailAvatarLabel, dot: live.detailAvatarDotContent })})`],
     [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
     [/^2\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows the 5h count over the retained-event cap (${live.bufferText || "empty"})`],

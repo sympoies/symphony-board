@@ -3100,10 +3100,10 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .live-event::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0;
+  border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0.62;
 }
 .live-event:hover { background: var(--hover-soft); }
-.live-event:hover::before { opacity: 0.5; }
+.live-event:hover::before { opacity: 0.82; }
 .live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .live-event-selected { background: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
 .live-event-selected::before { opacity: 0.95; }
@@ -3147,10 +3147,11 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-event-raw pre { background: var(--panel-2); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
 .live-event-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; padding-top: 2px; }
 
-/* The newest row flashes once as it arrives — it is the only element freshly
-   mounted at the top of the list, so :first-child animates exactly once. */
+/* The newest retained row flashes once as it arrives; virtualization keeps
+   that row addressable through the feed index rather than DOM position. */
 .live-feed .live-event[data-feed-index="0"] { animation: live-arrive 1400ms ease-out; }
 .live-feed .live-event[data-feed-index="0"]::before { opacity: 0.85; }
+.live-feed .live-event-selected[data-feed-index="0"]::before { opacity: 0.95; }
 
 @keyframes live-beat {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }
