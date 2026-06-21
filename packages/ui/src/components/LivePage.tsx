@@ -398,7 +398,77 @@ function LiveRow({
 
 function blocksDetailSwipe(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest("a, button, input, textarea, select, summary, pre, code, table, [role='button']"));
+  return Boolean(target.closest("a, button, input, textarea, select, summary, [role='button']"));
+}
+
+function horizontalSwipeScroller(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const scroller = target.closest("table, pre");
+  if (!(scroller instanceof HTMLElement)) return null;
+  return scroller.scrollWidth > scroller.clientWidth + 2 ? scroller : null;
+}
+
+function scrollCanConsumeSwipe(scroller: HTMLElement, scrollLeft: number, dx: number): boolean {
+  const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+  if (maxScrollLeft <= 2) return false;
+  if (dx < 0) return scrollLeft < maxScrollLeft - 2;
+  if (dx > 0) return scrollLeft > 2;
+  return false;
+}
+
+function LiveDetailNav({
+  position,
+  total,
+  canPrevious,
+  canNext,
+  onNavigate,
+}: {
+  position: number;
+  total: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  onNavigate: (move: LiveDetailMove) => void;
+}) {
+  if (total <= 1) return null;
+  const handleTouchNavigate = (move: LiveDetailMove) => (event: TouchEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onNavigate(move);
+  };
+  const stopTouchPropagation = (event: TouchEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
+  return (
+    <nav className="live-detail-nav" aria-label="Live event navigation">
+      <button
+        type="button"
+        className="live-detail-nav-button"
+        disabled={!canPrevious}
+        aria-label="Show newer event"
+        title="Show newer event"
+        onTouchStart={stopTouchPropagation}
+        onTouchEnd={handleTouchNavigate("previous")}
+        onClick={() => onNavigate("previous")}
+      >
+        ‹ <span>Newer</span>
+      </button>
+      <span className="live-detail-nav-count" aria-live="polite">
+        {position > 0 ? position : "—"} / {total}
+      </span>
+      <button
+        type="button"
+        className="live-detail-nav-button"
+        disabled={!canNext}
+        aria-label="Show older event"
+        title="Show older event"
+        onTouchStart={stopTouchPropagation}
+        onTouchEnd={handleTouchNavigate("next")}
+        onClick={() => onNavigate("next")}
+      >
+        <span>Older</span> ›
+      </button>
+    </nav>
+  );
 }
 
 function LiveDetail({
@@ -406,11 +476,6 @@ function LiveDetail({
   now,
   following,
   motion,
-  position,
-  total,
-  canPrevious,
-  canNext,
-  onNavigate,
   onFollowLatest,
   onClose,
 }: {
@@ -418,11 +483,6 @@ function LiveDetail({
   now: number;
   following: boolean;
   motion: LiveDetailMotion;
-  position: number;
-  total: number;
-  canPrevious: boolean;
-  canNext: boolean;
-  onNavigate: (move: LiveDetailMove) => void;
   onFollowLatest: () => void;
   onClose: () => void;
 }) {
@@ -432,29 +492,8 @@ function LiveDetail({
   const { repo, num } = targetText(ev);
   const link = eventLink(ev);
   const action = liveAction(ev);
-  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
-  const onTouchStart = (e: TouchEvent<HTMLElement>) => {
-    if (e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
-      touchRef.current = null;
-      return;
-    }
-    const touch = e.touches[0]!;
-    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-  };
-  const onTouchEnd = (e: TouchEvent<HTMLElement>) => {
-    const start = touchRef.current;
-    touchRef.current = null;
-    if (!start || e.changedTouches.length !== 1) return;
-    const touch = e.changedTouches[0]!;
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    const elapsed = Date.now() - start.t;
-    if (elapsed > LIVE_DETAIL_SWIPE_MAX_MS) return;
-    if (Math.abs(dx) < LIVE_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
-    onNavigate(dx < 0 ? "next" : "previous");
-  };
   return (
-    <article className="live-detail-card" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={() => { touchRef.current = null; }}>
+    <article className="live-detail-card">
       <button type="button" className="live-detail-back" onClick={onClose}>
         ← Back to feed
       </button>
@@ -469,33 +508,6 @@ function LiveDetail({
           </button>
         )}
       </div>
-      {total > 1 ? (
-        <nav className="live-detail-nav" aria-label="Live event navigation">
-          <button
-            type="button"
-            className="live-detail-nav-button"
-            disabled={!canPrevious}
-            aria-label="Show newer event"
-            title="Show newer event"
-            onClick={() => onNavigate("previous")}
-          >
-            ‹ <span>Newer</span>
-          </button>
-          <span className="live-detail-nav-count" aria-live="polite">
-            {position > 0 ? position : "—"} / {total}
-          </span>
-          <button
-            type="button"
-            className="live-detail-nav-button"
-            disabled={!canNext}
-            aria-label="Show older event"
-            title="Show older event"
-            onClick={() => onNavigate("next")}
-          >
-            <span>Older</span> ›
-          </button>
-        </nav>
-      ) : null}
       {/* Keyed on the event identity so the shell REMOUNTS when the detail follows
           a new event — that replays the `live-detail-in` crossfade (styles.css).
           Keyed remount, not a class toggle, keeps the animation off the 1s
@@ -806,6 +818,44 @@ export function LivePage({
     },
     [detailNav.next, detailNav.previous, selectDetailEvent],
   );
+  const detailTouchRef = useRef<{
+    x: number;
+    y: number;
+    t: number;
+    scroller: HTMLElement | null;
+    scrollLeft: number;
+  } | null>(null);
+  const handleDetailTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    if (!detail || e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
+      detailTouchRef.current = null;
+      return;
+    }
+    const touch = e.touches[0]!;
+    const scroller = horizontalSwipeScroller(e.target);
+    detailTouchRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      t: Date.now(),
+      scroller,
+      scrollLeft: scroller?.scrollLeft ?? 0,
+    };
+  }, [detail]);
+  const handleDetailTouchEnd = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    const start = detailTouchRef.current;
+    detailTouchRef.current = null;
+    if (!start || e.changedTouches.length !== 1) return;
+    const touch = e.changedTouches[0]!;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = Date.now() - start.t;
+    if (elapsed > LIVE_DETAIL_SWIPE_MAX_MS) return;
+    if (Math.abs(dx) < LIVE_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    if (start.scroller && scrollCanConsumeSwipe(start.scroller, start.scrollLeft, dx)) return;
+    navigateDetail(dx < 0 ? "next" : "previous");
+  }, [navigateDetail]);
+  const handleDetailTouchCancel = useCallback(() => {
+    detailTouchRef.current = null;
+  }, []);
   // Releasing the pin resumes auto-follow; bring the newest event (now shown in
   // the detail) back into view at the top of the feed.
   const followLatest = useCallback(() => {
@@ -1001,21 +1051,30 @@ export function LivePage({
               })}
             </ul>
           )}
-          <div className="live-detail">
+          <div
+            className="live-detail"
+            onTouchStart={handleDetailTouchStart}
+            onTouchEnd={handleDetailTouchEnd}
+            onTouchCancel={handleDetailTouchCancel}
+          >
             {detail ? (
-              <LiveDetail
-                ev={detail}
-                now={now}
-                following={following}
-                motion={detailMotion}
-                position={detailNav.position}
-                total={detailNav.total}
-                canPrevious={detailNav.previous !== null}
-                canNext={detailNav.next !== null}
-                onNavigate={navigateDetail}
-                onFollowLatest={followLatest}
-                onClose={closeDetail}
-              />
+              <>
+                <LiveDetail
+                  ev={detail}
+                  now={now}
+                  following={following}
+                  motion={detailMotion}
+                  onFollowLatest={followLatest}
+                  onClose={closeDetail}
+                />
+                <LiveDetailNav
+                  position={detailNav.position}
+                  total={detailNav.total}
+                  canPrevious={detailNav.previous !== null}
+                  canNext={detailNav.next !== null}
+                  onNavigate={navigateDetail}
+                />
+              </>
             ) : (
               <div className="live-detail-empty">Waiting for the first event…</div>
             )}

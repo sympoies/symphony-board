@@ -3739,7 +3739,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-mode-release { background: none; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text); font: inherit; font-size: 12px; border-radius: 999px; padding: 2px 11px; cursor: pointer; }
 .live-mode-release:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .live-detail-nav {
-  display: flex; align-items: center; gap: 8px; margin: -2px 0 12px;
+  display: flex; align-items: center; gap: 8px; margin: 10px 2px 0;
 }
 .live-detail-nav-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -3808,7 +3808,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-detail { position: static; height: auto; max-height: none; }
   .live-detail-card { min-height: 0; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
-  .live-detail-nav { margin: 0 0 12px; }
+  .live-detail-nav { margin: 10px 0 0; }
   .live-detail-nav-button { flex: 1 1 0; min-width: 0; height: 40px; font-size: 13px; }
   .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
   /* Full-screen detail overlay: pad past the system status / nav bars via the
@@ -3816,17 +3816,24 @@ a.rf-node-title:hover { color: var(--accent); }
      does not chain-scroll the long feed behind it. */
   .live-split[data-detail-open="true"] .live-detail {
     position: fixed; inset: 0; z-index: 60; background: var(--bg);
+    display: flex; flex-direction: column; box-sizing: border-box;
+    height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh;
     padding:
       calc(14px + var(--android-safe-area-top, 0px))
       calc(16px + var(--android-safe-area-right, 0px))
       calc(14px + var(--android-safe-area-bottom, 0px))
       calc(16px + var(--android-safe-area-left, 0px));
-    overflow: auto; overscroll-behavior: contain;
+    overflow: hidden; overscroll-behavior: contain;
     /* The overlay swaps in via display (none -> fixed); a CSS animation plays on
        that display change where a transition would not — sliding the sheet up as
        it appears. Exit stays instant (display:none cannot animate out). */
     animation: live-overlay-in 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
   }
+  .live-split[data-detail-open="true"] .live-detail-card {
+    flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .live-split[data-detail-open="true"] .live-detail-nav { flex: 0 0 auto; }
 }
 
 /* Detail crossfade + mobile overlay entrance keyframes (referenced above). The

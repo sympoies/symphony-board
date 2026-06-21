@@ -204,6 +204,26 @@ function liveSnapshotMock() {
     ];
   if (!liveSnapshotLarge) {
     if (liveSnapshotRankFit) {
+      const longRows = Array.from({ length: 14 }, (_, i) =>
+        `| Long delivery comment row ${i + 1} | fixed-now | Tables and paragraphs stay inside the card while navigation remains pinned. |`,
+      );
+      const longBody = [
+        "Delivery Review Outcome",
+        "",
+        "- Reviewable: PR #374",
+        "- Decision: proceed-to-merge",
+        "- Lenses: testing, maintainability, security, performance, red-team",
+        "- Validation: `pnpm --filter @symphony-board/ui run smoke; pnpm run typecheck && pnpm test`",
+        "",
+        "| Item | Disposition | Reason |",
+        "| --- | --- | --- |",
+        "| Analytics review/thread call-site coverage gap | fixed-now | Render smoke keeps the review drilldown covered. |",
+        "| Reviews repo-breakdown click-through coverage gap | fixed-now | The mobile detail card must scroll without moving navigation. |",
+        "| Long delivery comment body | regression guard | Tables and paragraphs stay inside the card. |",
+        ...longRows,
+        "",
+        "This trailing paragraph intentionally makes the mobile detail body tall enough to need its own scroll region.",
+      ].join("\n");
       const rankEvents = Array.from({ length: 6 }, (_, i) => {
         const seq = 20 - i;
         const n = i + 1;
@@ -232,6 +252,7 @@ function liveSnapshotMock() {
             url: `https://github.com/rank-org/rank-repo-${n}/commit/${seq}`,
           },
           title: `rank-user-${n} committed ${seq}`,
+          body: n === 2 ? longBody : undefined,
         };
       });
       return {
@@ -1837,7 +1858,13 @@ try {
       const shell = document.querySelector('.live-detail-shell');
       const newer = document.querySelector('.live-detail-nav-button[aria-label="Show newer event"]');
       const older = document.querySelector('.live-detail-nav-button[aria-label="Show older event"]');
+      const card = document.querySelector('.live-detail-card');
+      const nav = document.querySelector('.live-detail-nav');
+      const detail = document.querySelector('.live-detail');
       const selectedText = selected?.textContent || '';
+      const cardRect = card?.getBoundingClientRect();
+      const navRect = nav?.getBoundingClientRect();
+      const detailRect = detail?.getBoundingClientRect();
       return Object.assign({
         detailTitle,
         selectedText,
@@ -1848,22 +1875,49 @@ try {
         navButtons: document.querySelectorAll('.live-detail-nav-button').length,
         newerDisabled: newer?.disabled === true,
         olderDisabled: older?.disabled === true,
+        navInsideCard: !!(card && nav && card.contains(nav)),
+        navTop: Math.round(navRect?.top || 0),
+        navBottom: Math.round(navRect?.bottom || 0),
+        navViewportBottomGap: Math.round(window.innerHeight - (navRect?.bottom || 0)),
+        viewportHeight: window.innerHeight,
+        cardBottom: Math.round(cardRect?.bottom || 0),
+        cardHeight: Math.round(cardRect?.height || 0),
+        cardClientHeight: card?.clientHeight || 0,
+        cardScrollHeight: card?.scrollHeight || 0,
+        cardScrollable: !!card && card.scrollHeight > card.clientHeight + 4,
+        detailHeight: Math.round(detailRect?.height || 0),
+        detailClientHeight: detail?.clientHeight || 0,
+        detailScrollHeight: detail?.scrollHeight || 0,
       }, ${JSON.stringify(extra)});
     })()`,
     returnByValue: true,
   })).result.value || {};
-  const dispatchLiveMobileSwipe = async ({ dx, dy = 4, selector = ".live-detail-card" }) => (await send("Runtime.evaluate", {
-    expression: `(({ dx, dy, selector }) => {
+  const dispatchLiveMobileSwipe = async ({ dx, dy = 4, selector = ".live-detail-card", xRatio = 0.32, yRatio = 0.58, scrollX = null }) => (await send("Runtime.evaluate", {
+    expression: `(({ dx, dy, selector, xRatio, yRatio, scrollX }) => {
       const card = document.querySelector('.live-detail-card');
       if (!card) return { dispatched: false, reason: 'missing-card' };
       const target = document.querySelector(selector);
       if (!target) return { dispatched: false, reason: 'missing-target', selector };
+      if (scrollX && target instanceof HTMLElement) {
+        const maxScrollLeft = Math.max(0, target.scrollWidth - target.clientWidth);
+        if (scrollX === 'end') target.scrollLeft = maxScrollLeft;
+        else if (scrollX === 'middle') target.scrollLeft = Math.max(0, Math.round(maxScrollLeft / 2));
+        else if (scrollX === 'start') target.scrollLeft = 0;
+      }
       const rect = target.getBoundingClientRect();
       const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-      const startX = Math.round(clamp(rect.left + Math.min(96, rect.width * 0.32), rect.left + 4, rect.right - 4));
-      const startY = Math.round(clamp(rect.top + Math.max(4, Math.min(rect.height - 4, Math.max(24, rect.height * 0.58))), rect.top + 4, rect.bottom - 4));
+      const startX = Math.round(clamp(rect.left + Math.min(96, rect.width * xRatio), rect.left + 4, rect.right - 4));
+      const startY = Math.round(clamp(rect.top + Math.max(4, Math.min(rect.height - 4, Math.max(24, rect.height * yRatio))), rect.top + 4, rect.bottom - 4));
       const endX = startX + dx;
       const endY = startY + dy;
+      const scrollInfo = target instanceof HTMLElement
+        ? {
+            scrollLeft: Math.round(target.scrollLeft),
+            scrollWidth: target.scrollWidth,
+            clientWidth: target.clientWidth,
+            maxScrollLeft: Math.max(0, Math.round(target.scrollWidth - target.clientWidth)),
+          }
+        : {};
       try {
         const makeTouch = (x, y) => new Touch({
           identifier: 7,
@@ -1881,7 +1935,7 @@ try {
         const end = makeTouch(endX, endY);
         target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], targetTouches: [start], changedTouches: [start] }));
         target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [end] }));
-        return { dispatched: true, method: 'TouchEvent', selector, x: startX, y: startY, dx, dy };
+        return { dispatched: true, method: 'TouchEvent', selector, x: startX, y: startY, dx, dy, ...scrollInfo };
       } catch (error) {
         try {
           const touch = (x, y) => ({ identifier: 7, target, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
@@ -1898,7 +1952,7 @@ try {
           const end = touch(endX, endY);
           target.dispatchEvent(makeEvent('touchstart', [start], [start]));
           target.dispatchEvent(makeEvent('touchend', [], [end]));
-          return { dispatched: true, method: 'event-props', selector, x: startX, y: startY, dx, dy };
+          return { dispatched: true, method: 'event-props', selector, x: startX, y: startY, dx, dy, ...scrollInfo };
         } catch (fallbackError) {
           return {
             dispatched: false,
@@ -1908,14 +1962,65 @@ try {
           };
         }
       }
-    })(${JSON.stringify({ dx, dy, selector })})`,
+    })(${JSON.stringify({ dx, dy, selector, xRatio, yRatio, scrollX })})`,
+    returnByValue: true,
+  })).result.value || {};
+  const tapLiveMobileNavButton = async (label) => (await send("Runtime.evaluate", {
+    expression: `((label) => {
+        const button = document.querySelector(\`.live-detail-nav-button[aria-label="\${label}"]\`);
+        if (!button) return { clicked: false, reason: 'missing-button', label };
+        const rect = button.getBoundingClientRect();
+        const x = Math.round(rect.left + rect.width / 2);
+        const y = Math.round(rect.top + rect.height / 2);
+        const point = {
+          clicked: false,
+          label,
+          disabled: button.disabled === true,
+          x,
+          y,
+          hit: document.elementFromPoint(x, y)?.className || null,
+        };
+        if (point.disabled) return point;
+        try {
+          const makeTouch = (target) => new Touch({
+            identifier: 11,
+            target,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            pageX: x,
+            pageY: y,
+            radiusX: 1,
+            radiusY: 1,
+          });
+          const touch = makeTouch(button);
+          button.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [touch], targetTouches: [touch], changedTouches: [touch] }));
+          button.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [touch] }));
+          return { ...point, clicked: true, method: 'TouchEvent' };
+        } catch (error) {
+          const touch = { identifier: 11, target: button, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y };
+          const makeEvent = (type, touches, changedTouches) => {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperties(event, {
+              touches: { value: touches },
+              targetTouches: { value: touches },
+              changedTouches: { value: changedTouches },
+            });
+            return event;
+          };
+          button.dispatchEvent(makeEvent('touchstart', [touch], [touch]));
+          button.dispatchEvent(makeEvent('touchend', [], [touch]));
+          return { ...point, clicked: true, method: 'event-props', reason: String(error?.message || error) };
+        }
+      })(${JSON.stringify(label)})`,
     returnByValue: true,
   })).result.value || {};
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await sleep(120);
-  await send("Runtime.evaluate", { expression: "document.querySelector('.live-detail-nav-button[aria-label=\"Show older event\"]')?.click()" });
+  const liveMobileOlderClick = await tapLiveMobileNavButton("Show older event");
   await sleep(300);
-  const liveMobileNav = await liveMobileDetailState();
+  const liveMobileNav = await liveMobileDetailState({ click: liveMobileOlderClick });
   const liveMobileReducedMotion = (await send("Runtime.evaluate", {
     expression: `(() => {
       const shell = document.querySelector('.live-detail-shell');
@@ -1937,9 +2042,21 @@ try {
   const liveMobileLeftSwipeDispatch = await dispatchLiveMobileSwipe({ dx: -112 });
   await sleep(300);
   const liveMobileLeftSwipe = await liveMobileDetailState({ dispatch: liveMobileLeftSwipeDispatch });
+  const liveMobileTableMidSwipeDispatch = await dispatchLiveMobileSwipe({ dx: -112, selector: ".live-detail-body table", yRatio: 0.08, scrollX: "middle" });
+  await sleep(300);
+  const liveMobileTableMidSwipe = await liveMobileDetailState({ dispatch: liveMobileTableMidSwipeDispatch });
+  const liveMobileTableEdgeSwipeDispatch = await dispatchLiveMobileSwipe({ dx: -112, selector: ".live-detail-body table", yRatio: 0.08, scrollX: "end" });
+  await sleep(300);
+  const liveMobileTableEdgeSwipe = await liveMobileDetailState({ dispatch: liveMobileTableEdgeSwipeDispatch });
+  const liveMobileAfterTableReturnDispatch = await dispatchLiveMobileSwipe({ dx: 112 });
+  await sleep(300);
+  const liveMobileAfterTableReturn = await liveMobileDetailState({ dispatch: liveMobileAfterTableReturnDispatch });
   const liveMobileIgnoredLinkSwipeDispatch = await dispatchLiveMobileSwipe({ dx: 112, selector: ".live-detail-title-link" });
   await sleep(300);
   const liveMobileIgnoredLinkSwipe = await liveMobileDetailState({ dispatch: liveMobileIgnoredLinkSwipeDispatch });
+  const liveMobileOverlaySwipeDispatch = await dispatchLiveMobileSwipe({ dx: 112, selector: ".live-detail", yRatio: 0.86 });
+  await sleep(300);
+  const liveMobileOverlaySwipe = await liveMobileDetailState({ dispatch: liveMobileOverlaySwipeDispatch });
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(250);
   const liveMobileAway = (await send("Runtime.evaluate", {
@@ -2821,10 +2938,16 @@ try {
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileNav.navButtons === 2 && liveMobileNav.motion === "next" && liveMobileNav.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileNav.count || "") && liveMobileNav.selectedMatchesDetail === true && liveMobileNav.newerDisabled === false && liveMobileNav.olderDisabled === false, `live: phone detail Older button advances detail and selected feed row together (${JSON.stringify(liveMobileNav)})`],
+    [liveMobileNav.navInsideCard === false && liveMobileNav.navTop >= liveMobileNav.cardBottom, `live: phone detail navigation sits below the detail card (${JSON.stringify(liveMobileNav)})`],
+    [liveMobileNav.cardScrollable === true && liveMobileNav.navBottom <= liveMobileNav.viewportHeight && liveMobileNav.navViewportBottomGap >= 8 && liveMobileNav.navViewportBottomGap <= 48 && liveMobileNav.detailScrollHeight <= liveMobileNav.detailClientHeight + 4, `live: phone long detail body scrolls inside a fixed-height card while navigation stays pinned (${JSON.stringify(liveMobileNav)})`],
     [liveMobileReducedMotion.matches === true && liveMobileReducedMotion.motion === "next" && liveMobileReducedMotion.animationName === "none", `live: phone detail directional motion respects reduced-motion (${JSON.stringify(liveMobileReducedMotion)})`],
     [liveMobileSwipe.dispatch?.dispatched === true && liveMobileSwipe.motion === "previous" && liveMobileSwipe.selectedIndex === "0" && /1\s*\/\s*\d+/.test(liveMobileSwipe.count || "") && liveMobileSwipe.selectedMatchesDetail === true && liveMobileSwipe.newerDisabled === true && liveMobileSwipe.olderDisabled === false, `live: phone detail right-swipe returns to the newer event and selected feed row (${JSON.stringify(liveMobileSwipe)})`],
     [liveMobileLeftSwipe.dispatch?.dispatched === true && liveMobileLeftSwipe.motion === "next" && liveMobileLeftSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileLeftSwipe.count || "") && liveMobileLeftSwipe.selectedMatchesDetail === true && liveMobileLeftSwipe.newerDisabled === false && liveMobileLeftSwipe.olderDisabled === false, `live: phone detail left-swipe advances to the older event and selected feed row (${JSON.stringify(liveMobileLeftSwipe)})`],
-    [liveMobileIgnoredLinkSwipe.dispatch?.dispatched === true && liveMobileIgnoredLinkSwipe.motion === "next" && liveMobileIgnoredLinkSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileIgnoredLinkSwipe.count || "") && liveMobileIgnoredLinkSwipe.selectedMatchesDetail === true && liveMobileIgnoredLinkSwipe.newerDisabled === false && liveMobileIgnoredLinkSwipe.olderDisabled === false, `live: phone detail ignores swipes that start on the title link (${JSON.stringify(liveMobileIgnoredLinkSwipe)})`],
+    [liveMobileTableMidSwipe.dispatch?.dispatched === true && liveMobileTableMidSwipe.dispatch.scrollLeft > 0 && liveMobileTableMidSwipe.dispatch.scrollLeft < liveMobileTableMidSwipe.dispatch.maxScrollLeft && liveMobileTableMidSwipe.motion === "next" && liveMobileTableMidSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileTableMidSwipe.count || "") && liveMobileTableMidSwipe.selectedMatchesDetail === true, `live: phone detail lets a horizontally scrollable markdown table consume swipes before its edge (${JSON.stringify(liveMobileTableMidSwipe)})`],
+    [liveMobileTableEdgeSwipe.dispatch?.dispatched === true && liveMobileTableEdgeSwipe.dispatch.maxScrollLeft > 0 && liveMobileTableEdgeSwipe.dispatch.scrollLeft === liveMobileTableEdgeSwipe.dispatch.maxScrollLeft && liveMobileTableEdgeSwipe.motion === "next" && liveMobileTableEdgeSwipe.selectedIndex === "2" && /3\s*\/\s*\d+/.test(liveMobileTableEdgeSwipe.count || "") && liveMobileTableEdgeSwipe.selectedMatchesDetail === true, `live: phone detail changes page from a markdown table once the horizontal edge is reached (${JSON.stringify(liveMobileTableEdgeSwipe)})`],
+    [liveMobileAfterTableReturn.dispatch?.dispatched === true && liveMobileAfterTableReturn.motion === "previous" && liveMobileAfterTableReturn.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileAfterTableReturn.count || "") && liveMobileAfterTableReturn.selectedMatchesDetail === true, `live: phone detail returns from the table-edge page for subsequent gesture checks (${JSON.stringify(liveMobileAfterTableReturn)})`],
+    [liveMobileIgnoredLinkSwipe.dispatch?.dispatched === true && liveMobileIgnoredLinkSwipe.motion === liveMobileAfterTableReturn.motion && liveMobileIgnoredLinkSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileIgnoredLinkSwipe.count || "") && liveMobileIgnoredLinkSwipe.selectedMatchesDetail === true && liveMobileIgnoredLinkSwipe.newerDisabled === false && liveMobileIgnoredLinkSwipe.olderDisabled === false, `live: phone detail ignores swipes that start on the title link (${JSON.stringify(liveMobileIgnoredLinkSwipe)})`],
+    [liveMobileOverlaySwipe.dispatch?.dispatched === true && liveMobileOverlaySwipe.motion === "previous" && liveMobileOverlaySwipe.selectedIndex === "0" && /1\s*\/\s*\d+/.test(liveMobileOverlaySwipe.count || "") && liveMobileOverlaySwipe.selectedMatchesDetail === true && liveMobileOverlaySwipe.newerDisabled === true && liveMobileOverlaySwipe.olderDisabled === false, `live: phone detail accepts swipe gestures from the full overlay surface (${JSON.stringify(liveMobileOverlaySwipe)})`],
     [liveMobileAway.hash === "#/activity" && liveMobileAway.activityVisible === true, `live: phone can leave Live while detail is open (${JSON.stringify(liveMobileAway)})`],
     [liveMobileReturnDetail.detailOpen === "true" && liveMobileReturnDetail.detailDisplay !== "none" && liveMobileReturnDetail.feedRows >= 2 && /[?&]liveDetail=1/.test(liveMobileReturnDetail.hash || ""), `live: phone history.back from another tab returns to the route-backed detail overlay (${JSON.stringify(liveMobileReturnDetail)})`],
     [liveMobileBack.detailOpen === "false" && liveMobileBack.detailDisplay === "none" && liveMobileBack.feedRows >= 2 && liveMobileBack.hash === "#/live", `live: phone history.back returns from detail overlay to the feed (${JSON.stringify(liveMobileBack)})`],
