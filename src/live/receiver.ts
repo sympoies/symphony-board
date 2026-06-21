@@ -295,13 +295,25 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
       Number.isFinite(raw) && raw > 0
         ? Math.min(Math.trunc(raw), maxSnapshotLimit)
         : snapshotLimit;
+    const sinceParam = url.searchParams.get("since");
+    const since =
+      sinceParam !== null && /^\d+$/.test(sinceParam)
+        ? Number(sinceParam)
+        : null;
+    const maxSeq = store.maxSeq();
+    const events =
+      since === null || since > maxSeq
+        ? store.recent(limit)
+        : since >= maxSeq
+          ? []
+          : store.sinceDesc(since, limit);
     sendJsonMaybeGzip(
       res,
       200,
       {
         schema: "live-snapshot/1",
-        events: store.recent(limit),
-        max_seq: store.maxSeq(),
+        events,
+        max_seq: maxSeq,
         generated_at: new Date().toISOString(),
       },
       req.headers["accept-encoding"],

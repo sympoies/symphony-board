@@ -189,3 +189,33 @@ test("fetchLiveSnapshot accepts a well-formed live-snapshot/1 payload", async ()
   assert.ok(got);
   assert.equal(got.max_seq, 2);
 });
+
+test("fetchLiveSnapshot requests the Live UI retention window when supplied", async () => {
+  let requested = "";
+  globalThis.fetch = (async (url) => {
+    requested = String(url);
+    return new Response(JSON.stringify(snap(2, [ev(2), ev(1)])), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const got = await fetchLiveSnapshot(null, 1000);
+  assert.ok(got);
+  assert.equal(requested, "./api/live-snapshot?limit=1000");
+});
+
+test("fetchLiveSnapshot carries the polling cursor when supplied", async () => {
+  let requested = "";
+  globalThis.fetch = (async (url) => {
+    requested = String(url);
+    return new Response(JSON.stringify(snap(7, [])), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const got = await fetchLiveSnapshot(null, 1000, 7);
+  assert.ok(got);
+  assert.equal(requested, "./api/live-snapshot?limit=1000&since=7");
+});

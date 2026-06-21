@@ -1,0 +1,1 @@
+export const LIVE_EVENT_BUFFER_LIMIT = 1000;

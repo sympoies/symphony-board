@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchStoreStats, fetchDaemonLogs, fetchLiveSnapshot } from "./contract.ts";
+import { LIVE_EVENT_BUFFER_LIMIT } from "./live-config.ts";
 import { actorKey, categoryCounts, distinctCount, eventInstant, eventRepo } from "./live-stats.ts";
 import type { StoreStats, DaemonLogEntry } from "./model.ts";
 
@@ -79,7 +80,7 @@ export function useLiveSnapshotInfo(serverBaseUrl: string | null): {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void fetchLiveSnapshot(serverBaseUrl).then((snap) => {
+    void fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT).then((snap) => {
       if (cancelled) return;
       if (!snap) {
         setInfo({ ...EMPTY_LIVE_INFO, available: false });

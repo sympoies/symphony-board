@@ -198,6 +198,25 @@ test("since returns only rows after the cursor, ascending, bounded by limit", ()
   }
 });
 
+test("sinceDesc returns newer rows newest-first without reading the recent window", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    const seqs: number[] = [];
+    for (let i = 1; i <= 5; i++) seqs.push(appendNew(store, ev(i)));
+    assert.deepEqual(
+      store.sinceDesc(at(seqs, 1)).map((e) => e.seq),
+      [at(seqs, 4), at(seqs, 3), at(seqs, 2)],
+    );
+    assert.deepEqual(
+      store.sinceDesc(at(seqs, 1), 2).map((e) => e.event_id),
+      ["d-5", "d-4"],
+    );
+    assert.equal(store.sinceDesc(at(seqs, 4)).length, 0);
+  } finally {
+    store.close();
+  }
+});
+
 test("recent returns newest-first, bounded by limit", () => {
   const store = openLiveStore(":memory:");
   try {

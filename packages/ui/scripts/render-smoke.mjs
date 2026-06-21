@@ -47,6 +47,8 @@ const syncMock = { current: null, last: null, seq: 0 };
 let cachedSyncSources = null;
 let contractRequestCount = 0;
 let liveSnapshotRequestCount = 0;
+const liveSnapshotRequestUrls = [];
+let liveSnapshotLarge = false;
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -135,21 +137,20 @@ async function configMockDoc() {
   return configMock.doc;
 }
 
-// A small, valid `live-snapshot/1` payload for the #/live seed. Two events with
-// distinct seqs (newest-first) cover the feed rows; one carries an event-level
-// `url` permalink (a comment), the other only a target url — exercising the
-// `ev.url ?? ev.target?.url` link precision.
+// A small, valid `live-snapshot/1` payload for the #/live seed. Three events
+// with distinct seqs (newest-first) cover the feed rows; one carries an
+// event-level `url` permalink (a comment), one only a target url, and one is
+// outside the 5h pulse window so Buffer can prove it counts the 5h window
+// rather than every retained row.
 function liveSnapshotMock() {
   const now = Date.now();
   const newest = new Date(now - 5_000).toISOString();
   const outsideTrailingHour = new Date(now - 70 * 60_000).toISOString();
-  return {
-    schema: "live-snapshot/1",
-    max_seq: 2,
-    generated_at: new Date(now).toISOString(),
-    events: [
+  const outsidePulseWindow = new Date(now - 6 * 60 * 60_000).toISOString();
+  const generated_at = new Date(now).toISOString();
+  const baseEvents = [
       {
-        seq: 2,
+        seq: 3,
         event_id: "smoke-live-2",
         source_id: "github:github.com",
         provider: "github",
@@ -170,7 +171,7 @@ function liveSnapshotMock() {
         url: "https://github.com/acme/widgets/issues/42#issuecomment-99",
       },
       {
-        seq: 1,
+        seq: 2,
         event_id: "smoke-live-1",
         source_id: "github:github.com",
         provider: "github",
@@ -183,7 +184,58 @@ function liveSnapshotMock() {
         target: { kind: "change_request", source_id: "github:github.com", project_path: "acme/widgets", number: 7, title: "Add live feed", url: "https://github.com/acme/widgets/pull/7" },
         title: "hubot opened Add live feed",
       },
-    ],
+      {
+        seq: 1,
+        event_id: "smoke-live-0",
+        source_id: "github:github.com",
+        provider: "github",
+        received_at: outsidePulseWindow,
+        occurred_at: outsidePulseWindow,
+        event_type: "issue_comment",
+        action: "created",
+        category: "comment",
+        actor: { login: "octocat" },
+        target: { kind: "issue", source_id: "github:github.com", project_path: "acme/widgets", number: 41, title: "Old widget note", url: "https://github.com/acme/widgets/issues/41" },
+        title: "octocat commented on Old widget note",
+        body: "Older than the Live pulse window.",
+        url: "https://github.com/acme/widgets/issues/41#issuecomment-41",
+      },
+    ];
+  if (!liveSnapshotLarge) {
+    return {
+      schema: "live-snapshot/1",
+      max_seq: 3,
+      generated_at,
+      events: baseEvents,
+    };
+  }
+  const largeEvents = [
+    { ...baseEvents[0], seq: 1000, event_id: "smoke-live-large-1000" },
+    { ...baseEvents[1], seq: 999, event_id: "smoke-live-large-999" },
+    { ...baseEvents[2], seq: 998, event_id: "smoke-live-large-998" },
+    ...Array.from({ length: 997 }, (_, i) => {
+      const seq = 997 - i;
+      return {
+        seq,
+        event_id: `smoke-live-large-${seq}`,
+        source_id: "github:github.com",
+        provider: "github",
+        received_at: outsidePulseWindow,
+        occurred_at: outsidePulseWindow,
+        event_type: "push",
+        action: "committed",
+        category: "commit",
+        actor: { login: "hubot" },
+        target: { kind: "commit", source_id: "github:github.com", project_path: "acme/widgets", number: seq, title: `Historical commit ${seq}`, url: `https://github.com/acme/widgets/commit/${seq}` },
+        title: `hubot committed historical ${seq}`,
+      };
+    }),
+  ];
+  return {
+    schema: "live-snapshot/1",
+    max_seq: 1000,
+    generated_at,
+    events: largeEvents,
   };
 }
 
@@ -338,7 +390,16 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (p === "/__smoke/live-snapshot-count") {
-      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ liveSnapshotRequests: liveSnapshotRequestCount }));
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({
+        liveSnapshotRequests: liveSnapshotRequestCount,
+        liveSnapshotUrls: liveSnapshotRequestUrls,
+      }));
+      return;
+    }
+    if (p === "/__smoke/live-large") {
+      const url = new URL(req.url || "/__smoke/live-large", `http://127.0.0.1:${HTTP_PORT}`);
+      liveSnapshotLarge = url.searchParams.get("enabled") !== "0";
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ liveSnapshotLarge }));
       return;
     }
     // A minimal mock of the live receiver's snapshot surface, so the headless
@@ -349,6 +410,7 @@ const server = createServer(async (req, res) => {
     // match fetchLiveSnapshot's validation.
     if (p === "/api/live-snapshot") {
       liveSnapshotRequestCount += 1;
+      liveSnapshotRequestUrls.push(req.url || "/api/live-snapshot");
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify(liveSnapshotMock()));
       return;
     }
@@ -547,6 +609,12 @@ try {
       awaitPromise: true,
       returnByValue: true,
     })).result.value || 0;
+  const liveSnapshotState = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/live-snapshot-count').then((res) => res.json())",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || {};
   const rangeButtonLabels = async () =>
     (await send("Runtime.evaluate", {
       expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).map((el) => el.textContent?.trim() || '')",
@@ -1393,20 +1461,25 @@ try {
       // master-detail: the precise permalink now lives on the selected event's
       // detail TITLE link (auto-followed newest = the comment row).
       const detailLink = document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || '';
+      const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
+      const detailRect = document.querySelector('.live-detail-card')?.getBoundingClientRect();
       const status = document.querySelector('.live-status');
       const avatar = rows[0]?.querySelector('.live-avatar');
       const avatarImg = avatar?.querySelector('img');
       return {
         rendered: !!page,
         rows: rows.length,
+        rowText: rows.map((row) => row.textContent || ''),
         detailLink,
         avatarHref: avatar?.getAttribute('href') || '',
         avatarImgSrc: avatarImg?.getAttribute('src') || '',
         avatarLabel: avatar?.getAttribute('aria-label') || avatar?.getAttribute('title') || '',
-        activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\s+/g, '') || '',
+        feedHeight: feedRect?.height || 0,
+        detailHeight: detailRect?.height || 0,
+        activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\\s+/g, '') || '',
         bufferText: Array.from(document.querySelectorAll('.live-card'))
           .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer')
-          ?.querySelector('.live-figure')?.textContent?.replace(/\s+/g, '') || '',
+          ?.querySelector('.live-figure')?.textContent?.replace(/\\s+/g, '') || '',
         statusText: status?.textContent?.trim() || '',
         statusUnavailable: (status?.textContent || '').includes('Unavailable'),
         statusHasTransport: /\\(polling\\)|\\bPOLL\\b/.test(status?.textContent || ''),
@@ -1414,6 +1487,8 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  await sleep(3300);
+  const liveSnapshotAfterPoll = await liveSnapshotState();
   // #356 review regression: tapping a sparkline bar must SELECT it on the FIRST
   // activation. The button focuses before the click fires, so a toggle-on-click
   // would clear it (first tap a no-op). Drive focus()+click() — the touch/keyboard
@@ -1631,6 +1706,23 @@ try {
       hash: location.hash,
       commitsVisible: !!document.querySelector('.commits-page'),
     }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "fetch('/__smoke/live-large?enabled=1').then(() => { location.hash = '#/live'; })", awaitPromise: true });
+  await sleep(3500);
+  const liveLargeBuffer = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.live-feed .live-event'));
+      const allCount = document.querySelector('.live-cat-all .live-cat-n')?.textContent?.trim() || '';
+      const indexes = rows.map((row) => Number(row.getAttribute('data-feed-index'))).filter((n) => Number.isFinite(n));
+      return {
+        allCount,
+        rows: rows.length,
+        firstIndex: indexes.length ? Math.min(...indexes) : null,
+        lastIndex: indexes.length ? Math.max(...indexes) : null,
+      };
+    })()`,
     returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", { expression: "delete window.__TAURI_INTERNALS__" });
@@ -2206,6 +2298,17 @@ try {
   // shared date range, so every one of them collapses it behind a disclosure on a
   // phone — the first screen is content, not date pickers.
   const phoneRangeCollapsePages = portraitResults.filter((r) => r.preset === "phone-portrait" && !["settings", "debug"].includes(r.page));
+  const liveSnapshotUrlsAfterPoll = Array.isArray(liveSnapshotAfterPoll.liveSnapshotUrls)
+    ? liveSnapshotAfterPoll.liveSnapshotUrls
+    : [];
+  const hasLiveSnapshotUrl = (predicate) =>
+    liveSnapshotUrlsAfterPoll.some((raw) => {
+      try {
+        return predicate(new URL(String(raw), "http://smoke.local"));
+      } catch {
+        return false;
+      }
+    });
   const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
   const portraitCommits = portraitResults.filter((r) => r.page === "commits");
   const phoneCommits = portraitCommits.filter((r) => r.preset === "phone-portrait");
@@ -2348,12 +2451,17 @@ try {
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
     [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],
-    [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
+    [live.rendered === true && live.rows === 3, `live: snapshot seeds every retained feed row (${live.rows || 0} === 3)`],
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
+    [(live.rowText || []).some((text) => text.includes("Old widget note")), `live: row outside the 5h pulse remains retained in the 1000-event buffer (${JSON.stringify(live.rowText || [])})`],
     [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
+    [/^2\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows the 5h count over the retained-event cap (${live.bufferText || "empty"})`],
+    [Math.abs((live.detailHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailHeight || 0}px vs ${live.feedHeight || 0}px)`],
+    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && !url.searchParams.has("since")), `live: snapshot seed requests the retained cap (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
+    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && url.searchParams.get("since") === "3"), `live: polling fallback requests only rows after the cursor (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],
-    [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || "") && /^2\/500$/.test(liveHiddenType.bufferText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
+    [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
     // event-link precision: the auto-selected newest event (a comment) shows the
     // exact ev.url permalink (#issuecomment-…) in its detail pane …
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],
@@ -2367,6 +2475,7 @@ try {
     [liveBreakpointClear.detailOpen === "false" && liveBreakpointClear.hash === "#/live", `live: widening past the phone overlay breakpoint clears the detail route (${JSON.stringify(liveBreakpointClear)})`],
     [liveBreakpointBackToLive.hash === "#/live" && liveBreakpointBackToLive.liveVisible === true, `live: after breakpoint cleanup, one Back from another tab returns to Live (${JSON.stringify(liveBreakpointBackToLive)})`],
     [liveBreakpointBackToSentinel.hash === "#/commits" && liveBreakpointBackToSentinel.commitsVisible === true, `live: breakpoint cleanup does not leave a duplicate Live history entry (${JSON.stringify(liveBreakpointBackToSentinel)})`],
+    [Number(liveLargeBuffer.allCount) === 1000 && liveLargeBuffer.rows > 0 && liveLargeBuffer.rows < 80 && liveLargeBuffer.firstIndex === 0 && liveLargeBuffer.lastIndex < 80, `live: 1000 retained events render a bounded virtual row window (${JSON.stringify(liveLargeBuffer)})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],

@@ -386,6 +386,18 @@ export class LiveStore {
     return this.hydrateEvents(rows.map(rowToEvent));
   }
 
+  // Snapshot delta: rows strictly after `seq`, newest-first, bounded by limit.
+  // This keeps polling snapshots cheap when the UI already has a cursor.
+  sinceDesc(seq: number, limit = DEFAULT_SINCE_LIMIT): LiveEvent[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT ${SELECT_COLUMNS} FROM live_event
+         WHERE seq > ? ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(seq, limit) as unknown as LiveEventRow[];
+    return rows.map(rowToEvent);
+  }
+
   // Snapshot: most recent rows, newest-first, bounded by limit.
   recent(limit = DEFAULT_RECENT_LIMIT): LiveEvent[] {
     const rows = this.#db
