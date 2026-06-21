@@ -27,6 +27,8 @@ import {
   rateBuckets,
   relativeAge,
 } from "../live-stats.ts";
+import { ACTION_KIND } from "../activity-action-style.ts";
+import { Badge } from "./Badge.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import type { LiveEvent } from "../model.ts";
 
@@ -73,6 +75,19 @@ const catStyle = (category: string): CSSProperties =>
 
 const humanizeCategory = (c: string): string => c.replace(/_/g, " ");
 const shortRepo = (repo: string | null): string => (repo ? (repo.split("/").pop() ?? repo) : "—");
+
+function liveAction(ev: LiveEvent): string {
+  if (ev.category === "commit" && !ev.action) return "committed";
+  if (ev.category === "change_request" && ev.action === "closed" && ev.provider_details?.merged === true) return "merged";
+  if ((ev.category === "comment" || ev.category === "review_comment") && ev.action === "created") return "commented";
+  if (ev.category === "review" && (ev.action === "submitted" || !ev.action)) {
+    if (ev.review_state === "approved") return "approved";
+    if (ev.review_state === "changes_requested") return "changes_requested";
+    if (ev.review_state === "dismissed") return "dismissed";
+    return "reviewed";
+  }
+  return ev.action ?? ev.category;
+}
 
 function statusLabel(
   connected: boolean | null,
@@ -166,6 +181,7 @@ function LiveRow({
   const age = instant != null ? relativeAge(instant, now) : "";
   const actor = ev.actor?.login ?? "someone";
   const { repo, num } = targetText(ev);
+  const action = liveAction(ev);
   const previewRef = useRef<HTMLDivElement>(null);
   const [clamped, setClamped] = useState(false);
   // Fade the preview's bottom edge ONLY when the body actually overflows the
@@ -199,7 +215,7 @@ function LiveRow({
       <span className="live-event-dot" aria-hidden="true" />
       <div className="live-event-main">
         <div className="live-event-head">
-          <span className="live-event-category">{humanizeCategory(ev.category)}</span>
+          <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />
           <span className="live-event-title">{ev.title ?? `${actor} · ${ev.event_type}`}</span>
         </div>
         <div className="live-event-repo">
@@ -234,6 +250,7 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
   const actor = ev.actor?.login ?? "someone";
   const { repo, num } = targetText(ev);
   const link = eventLink(ev);
+  const action = liveAction(ev);
   return (
     <article className="live-detail-card">
       <button type="button" className="live-detail-back" onClick={onClose}>
@@ -251,7 +268,7 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
         )}
       </div>
       <div className="live-detail-head" style={catStyle(ev.category)}>
-        <span className="live-event-category">{humanizeCategory(ev.category)}</span>
+        <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />
         {age ? (
           <time title={instant != null ? new Date(instant).toLocaleString([], { hour12: false }) : undefined}>{age} ago</time>
         ) : null}

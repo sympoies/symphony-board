@@ -23,6 +23,7 @@ import {
   activityViewTab,
   graphView,
   graphViewTab,
+  clearFiltersHref,
   startupRouteHash,
 } from "../src/nav.ts";
 
@@ -133,6 +134,41 @@ test("tabHref carries search, range, and the shared item lens but drops drill-do
   assert.equal(bare.page, "activity");
   assert.equal(bare.q, null);
   assert.equal(bare.isource, null, "no item lens when none is supplied");
+});
+
+test("clearFiltersHref drops search and page filters while preserving range and view state", () => {
+  const activity = parseHashRoute(
+    clearFiltersHref(parseHashRoute(
+      "#/activity?q=review&source=github%3Agithub.com&repo=sympoies%2Fsymphony-board&kind=review&action=commented&unresolved=1&isource=github%3Agithub.com&istate=open&ikind=issue&ireview=unresolved&irepo=sympoies%2Fsymphony-board&from=2026-06-15&to=2026-06-21&preset=1w&tab=overview",
+    )),
+  );
+  assert.equal(activity.page, "activity");
+  assert.equal(activity.q, null);
+  assert.equal(activity.source, null);
+  assert.equal(activity.repo, null);
+  assert.equal(activity.kind, null);
+  assert.equal(activity.action, null);
+  assert.equal(activity.unresolved, null);
+  assert.equal(activity.isource, null);
+  assert.equal(activity.istate, null);
+  assert.equal(activity.ikind, null);
+  assert.equal(activity.ireview, null);
+  assert.equal(activity.irepo, null);
+  assert.equal(activity.from, "2026-06-15");
+  assert.equal(activity.to, "2026-06-21");
+  assert.equal(activity.preset, "1w");
+  assert.equal(activity.tab, "overview", "sub-view state is not a filter");
+
+  const graph = parseHashRoute(
+    clearFiltersHref(parseHashRoute("#/graph?focus=github%3Agithub.com%7Cissue-1&q=issue&isource=github%3Agithub.com&from=2026-06-15&to=2026-06-21&tab=graph")),
+  );
+  assert.equal(graph.page, "graph");
+  assert.equal(graph.focus, "github:github.com|issue-1", "focused graph item is preserved");
+  assert.equal(graph.q, null);
+  assert.equal(graph.isource, null);
+  assert.equal(graph.from, "2026-06-15");
+  assert.equal(graph.to, "2026-06-21");
+  assert.equal(graph.tab, "graph");
 });
 
 // The board / graph / repo-analytics shared lens. Distinct route fields from the

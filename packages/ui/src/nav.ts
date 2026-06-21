@@ -290,6 +290,19 @@ export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute
   });
 }
 
+// Clear the visible search/facet filters in one action while preserving view
+// state that is not a filter: page, range, mobile sub-view, and graph focus.
+export function clearFiltersHref(route: HashRoute, page: string = route.page): string {
+  return buildHashRoute({
+    page,
+    focus: page === "graph" ? route.focus : null,
+    from: route.from,
+    to: route.to,
+    preset: route.preset,
+    tab: route.tab,
+  });
+}
+
 // Repo Analytics -> Activity drill-down: a repo-scoped feed, optionally pinned to
 // a kind and/or action. Sets the SAME route fields the Activity chips read, so
 // landing on the feed shows every applied filter as an active, removable chip.

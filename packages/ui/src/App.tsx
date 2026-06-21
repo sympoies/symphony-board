@@ -53,6 +53,7 @@ import {
   activityViewTab,
   graphView,
   graphViewTab,
+  clearFiltersHref,
   startupRouteHash,
   ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
@@ -717,13 +718,15 @@ export function App() {
   function clearFilters() {
     if (typeof window === "undefined") return;
     const current = parseHashRoute(readHash());
-    const next = buildHashRoute({
+    const next = clearFiltersHref(
+      {
+        ...current,
+        from: explicitRange?.from ?? null,
+        to: explicitRange?.to ?? null,
+        preset: explicitRange ? route.preset : null,
+      },
       page,
-      focus: page === "graph" ? current.focus : null,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
+    );
     if (readHash() !== next) window.location.hash = next;
   }
 
@@ -1204,6 +1207,7 @@ export function App() {
                 else if (page === "activity") setActivityFacet(dim as ActivityFacetDim, value);
                 else setItemFacet(dim as ItemFacetDim, value);
               }}
+              onClearFilters={clearFilters}
               onLoadFile={loadFile}
               onMobilePanel={setMobileControlPanel}
             />

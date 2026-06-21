@@ -405,6 +405,10 @@ html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animat
 }
 .toggle:hover { border-color: var(--accent); }
 .toggle-on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.controls-clear {
+  white-space: nowrap;
+  color: var(--text);
+}
 /* Paper theme: a solid accent fill reads too loud against the soft paper
    surfaces, so a selected toggle borrows the outlined-badge recipe (see the
    .badge-* group) — accent text, a solid accent border, and a faint accent
@@ -1980,11 +1984,23 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .mobile-control-sheet-title {
     min-width: 0;
+    flex: 1 1 auto;
     font-size: 15px;
     line-height: 1.2;
   }
+  .mobile-control-sheet-clear {
+    flex: none;
+    color: var(--link);
+    background: none;
+    border: 0;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .mobile-control-sheet-clear:hover { color: var(--accent); }
   .mobile-control-sheet-close {
-    margin-left: auto;
+    flex: none;
     width: 30px;
     height: 30px;
     display: inline-flex;
@@ -2026,6 +2042,10 @@ a.rf-node-title:hover { color: var(--accent); }
     gap: 5px;
   }
   .filter-groups .toggle-label { flex-basis: 100%; }
+  .controls-clear {
+    justify-content: center;
+    min-height: 34px;
+  }
   .time-range-controls { align-items: flex-start; gap: 8px; }
   .time-range-controls .range-disclosure { width: 100%; }
   .time-range-controls .time-range-inline { display: none; }
@@ -3060,6 +3080,8 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-event-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--cat, var(--muted)); }
 .live-event-main { min-width: 0; }
 .live-event-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.live-event-head .badge,
+.live-detail-head .badge { flex: none; }
 .live-event-category { font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; color: var(--cat, var(--muted)); }
 .live-event-title { color: var(--text); overflow-wrap: anywhere; }
 .live-event-repo { margin-top: 2px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
@@ -3170,7 +3192,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
 .live-detail-back { display: none; }
 .live-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
-.live-detail-head .live-event-category { font-size: 12px; }
+.live-detail-head .badge { font-size: 12px; }
 .live-detail-head time { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .live-detail-title { font-size: 17px; margin: 0 0 6px; border: none; padding: 0; line-height: 1.35; }
 /* The title carries the external link (its target may be a comment permalink).

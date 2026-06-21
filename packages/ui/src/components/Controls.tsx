@@ -24,6 +24,7 @@ interface Props {
   mobilePanel?: "search" | "filters" | "range" | null;
   onSearch: (q: string) => void;
   onToggle: (dim: string, value: string) => void;
+  onClearFilters?: () => void;
   onLoadFile: (file: File) => void;
   onMobilePanel?: (panel: "search" | "filters" | "range" | null) => void;
 }
@@ -62,11 +63,12 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
   );
 }
 
-export function Controls({ search, groups, mobilePanel = null, onSearch, onToggle, onLoadFile, onMobilePanel }: Props) {
+export function Controls({ search, groups, mobilePanel = null, onSearch, onToggle, onClearFilters, onLoadFile, onMobilePanel }: Props) {
   const mobileSearchRef = useRef<HTMLInputElement | null>(null);
   const filtersOpen = mobilePanel === "filters";
   const searchOpen = mobilePanel === "search";
   const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
+  const clearable = search.trim() !== "" || activeFilterCount > 0;
   // Collapsed-state summary for the narrow disclosure: "all" when nothing narrows
   // the view, else the active facet count. Mirrors the range / commits filter
   // disclosures so every page's filter chrome reads the same on a phone.
@@ -77,6 +79,10 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
   }, [searchOpen]);
   const setMobilePanel = (panel: "search" | "filters" | "range" | null) => {
     onMobilePanel?.(panel);
+  };
+  const clearFilters = () => {
+    onClearFilters?.();
+    setMobilePanel(null);
   };
   const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") setMobilePanel(null);
@@ -122,6 +128,17 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
           <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
         ))}
       </div>
+      {clearable && onClearFilters ? (
+        <button
+          type="button"
+          className="toggle controls-clear"
+          title="Clear search and filters; keeps range"
+          aria-label="Clear search and filters; keeps range"
+          onClick={clearFilters}
+        >
+          Clear filters
+        </button>
+      ) : null}
       {searchOpen || filtersOpen ? (
         <>
           <button type="button" className="mobile-control-backdrop" aria-label="Close controls" onClick={() => setMobilePanel(null)} />
@@ -138,6 +155,11 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
               <strong id={searchOpen ? "mobile-search-title" : "mobile-filter-title"} className="mobile-control-sheet-title">
                 {searchOpen ? "Search" : "Filters"}
               </strong>
+              {clearable && onClearFilters ? (
+                <button type="button" className="mobile-control-sheet-clear" onClick={clearFilters}>
+                  Clear
+                </button>
+              ) : null}
               <button type="button" className="mobile-control-sheet-close" aria-label="Close controls" onClick={() => setMobilePanel(null)}>
                 ×
               </button>
