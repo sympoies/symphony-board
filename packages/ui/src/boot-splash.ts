@@ -15,6 +15,32 @@ const FADE_MS = 400;
 
 let dismissed = false;
 
+// Hard ceiling for how long the cold-start splash may stay up before it is
+// dismissed regardless of readiness, so a signal that never arrives (e.g. a dead
+// network on the Live tab) can't leave the splash covering the app forever.
+export const BOOT_SPLASH_MAX_MS = 12_000;
+
+// Whether the cold-start splash may be dismissed: only once the first view has
+// actual CONTENT to show, never the blank gap between mount and content. Pure +
+// unit-tested (boot-splash.test.ts) so the readiness rule can't silently regress.
+//   - debug: self-contained, renders immediately.
+//   - live: the page is contract-INDEPENDENT but still needs its snapshot, so it
+//     is blank until the connection probe resolves (connected !== null). Holding
+//     here is the fix for the "splash flashes then blank Live page" regression.
+//   - every other (contract-backed) page: until the contract load resolves.
+//   - timedOut: a hard ceiling so a never-arriving signal can't strand the splash.
+export function bootSplashReady(opts: {
+  routePage: string;
+  loading: boolean;
+  liveConnected: boolean | null;
+  timedOut: boolean;
+}): boolean {
+  if (opts.timedOut) return true;
+  if (opts.routePage === "debug") return true;
+  if (opts.routePage === "live") return opts.liveConnected !== null;
+  return !opts.loading;
+}
+
 // Update the splash's status line (e.g. "Loading…" -> "Reconnecting…"). No-op
 // once the splash has been dismissed or outside the browser.
 export function setBootSplashStatus(text: string): void {
