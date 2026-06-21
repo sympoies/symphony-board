@@ -9,14 +9,30 @@ const workflow = readFileSync(
   new URL("../.github/workflows/deploy-g14.yml", import.meta.url),
   "utf8",
 );
-const helper = new URL("../scripts/live-config-basename.sh", import.meta.url);
+
+function workflowBasenameFunction(): string {
+  const match = workflow.match(
+    /# BEGIN test:resolve_live_config_basename\n(?<body>[\s\S]*?)\n\s*# END test:resolve_live_config_basename/,
+  );
+  assert.ok(match?.groups?.body, "workflow exposes the tested basename parser block");
+  return match.groups.body
+    .split("\n")
+    .map((line) => line.replace(/^ {10}/, ""))
+    .join("\n");
+}
 
 function resolveBasename(envText: string): string {
   const dir = mkdtempSync(join(tmpdir(), "live-config-"));
   try {
     const envPath = join(dir, ".env");
+    const scriptPath = join(dir, "resolve.sh");
     writeFileSync(envPath, envText, "utf8");
-    return execFileSync("bash", [helper.pathname, envPath], {
+    writeFileSync(
+      scriptPath,
+      `set -euo pipefail\n${workflowBasenameFunction()}\nresolve_live_config_basename "$1"\n`,
+      "utf8",
+    );
+    return execFileSync("bash", [scriptPath, envPath], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
@@ -28,8 +44,13 @@ function resolveBasename(envText: string): string {
 test("deploy-g14 derives the Live allowlist from the configured source basename", () => {
   assert.match(
     workflow,
-    /live-config-basename\.sh/,
+    /resolve_live_config_basename "\$stack_env"/,
     "the deploy must honor the stack's configured source basename",
+  );
+  assert.doesNotMatch(
+    workflow,
+    /\$infra\/scripts\/live-config-basename\.sh/,
+    "the deploy job does not check out this repo, so basename parsing must not call a missing external helper",
   );
   assert.doesNotMatch(
     workflow,
@@ -58,10 +79,16 @@ test("live-config-basename rejects path-like or empty basenames", () => {
     const dir = mkdtempSync(join(tmpdir(), "live-config-"));
     try {
       const envPath = join(dir, ".env");
+      const scriptPath = join(dir, "resolve.sh");
       writeFileSync(envPath, `SYMPHONY_CONFIG_BASENAME=${value}\n`, "utf8");
+      writeFileSync(
+        scriptPath,
+        `set -euo pipefail\n${workflowBasenameFunction()}\nresolve_live_config_basename "$1"\n`,
+        "utf8",
+      );
       assert.throws(
-        () => execFileSync("bash", [helper.pathname, envPath], { stdio: "pipe" }),
-        /Invalid SYMPHONY_CONFIG_BASENAME/,
+        () => execFileSync("bash", [scriptPath, envPath], { stdio: "pipe" }),
+        /Command failed/,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

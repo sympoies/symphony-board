@@ -108,7 +108,28 @@ jobs:
           # derivation must FAIL THE DEPLOY closed rather than silently fall back
           # to the empty compose default and widen the receiver. Log only the repo
           # count, never the derived list, since Actions logs are public.
-          if ! config_basename="$(bash "$infra/scripts/live-config-basename.sh" "$stack_env")"; then
+          # BEGIN test:resolve_live_config_basename
+          resolve_live_config_basename() {
+            local env_file="${1:?env file required}"
+            local config_basename
+            config_basename="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?SYMPHONY_CONFIG_BASENAME[[:space:]]*=[[:space:]]*//p' "$env_file" | tail -n1)"
+            if [[ -z "$config_basename" ]]; then
+              if grep -Eq '^[[:space:]]*(export[[:space:]]+)?SYMPHONY_CONFIG_BASENAME[[:space:]]*=' "$env_file"; then
+                return 1
+              fi
+              config_basename="sources.pg.json"
+            fi
+            config_basename="${config_basename%\"}"
+            config_basename="${config_basename#\"}"
+            config_basename="${config_basename%\'}"
+            config_basename="${config_basename#\'}"
+            case "$config_basename" in
+              ""|*/*|*..*) return 1 ;;
+            esac
+            printf '%s\n' "$config_basename"
+          }
+          # END test:resolve_live_config_basename
+          if ! config_basename="$(resolve_live_config_basename "$stack_env")"; then
             echo "::error::Invalid SYMPHONY_CONFIG_BASENAME for Live allowlist derivation." >&2
             exit 1
           fi
