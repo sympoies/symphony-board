@@ -49,6 +49,7 @@ let contractRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
 let liveSnapshotLarge = false;
+let liveSnapshotRankFit = false;
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -202,6 +203,44 @@ function liveSnapshotMock() {
       },
     ];
   if (!liveSnapshotLarge) {
+    if (liveSnapshotRankFit) {
+      const rankEvents = Array.from({ length: 6 }, (_, i) => {
+        const seq = 20 - i;
+        const n = i + 1;
+        return {
+          seq,
+          event_id: `smoke-live-rank-fit-${n}`,
+          source_id: "github:github.com",
+          provider: "github",
+          received_at: newest,
+          occurred_at: newest,
+          event_type: "push",
+          action: "committed",
+          category: "commit",
+          actor: {
+            login: `rank-user-${n}`,
+            display_name: `Rank User ${n}`,
+            avatar_url: null,
+            profile_url: `https://github.com/rank-user-${n}`,
+          },
+          target: {
+            kind: "commit",
+            source_id: "github:github.com",
+            project_path: `rank-org/rank-repo-${n}`,
+            number: seq,
+            title: `Rank fit commit ${n}`,
+            url: `https://github.com/rank-org/rank-repo-${n}/commit/${seq}`,
+          },
+          title: `rank-user-${n} committed ${seq}`,
+        };
+      });
+      return {
+        schema: "live-snapshot/1",
+        max_seq: 20,
+        generated_at,
+        events: [...rankEvents, ...baseEvents],
+      };
+    }
     return {
       schema: "live-snapshot/1",
       max_seq: 3,
@@ -647,7 +686,7 @@ try {
   // Then enable the Live tab (and pin it as the default) the way Settings would,
   // and reload so the rest of the smoke exercises the realtime feed.
   await send("Runtime.evaluate", {
-    expression: "localStorage.setItem('symphony-board:live-tab-enabled','true'); localStorage.setItem('symphony-board:default-tab','live'); location.reload();",
+    expression: "localStorage.setItem('symphony-board:live-tab-enabled','true'); localStorage.setItem('symphony-board:default-tab','live'); localStorage.removeItem('symphony-board:hidden-event-types'); location.reload();",
   });
   await sleep(400);
   // With Live enabled and pinned as the default, a hashless open lands on Live;
@@ -889,7 +928,7 @@ try {
       const rangeLabels = Array.from(heatmap.querySelectorAll('.hm-range-summary dt')).map((node) => node.textContent?.trim() || '');
       const listHeight = Math.round(document.querySelector('.activity-list')?.getBoundingClientRect().height || 0);
       const panelHeight = Math.round(heatmap.getBoundingClientRect().height || 0);
-      const wideLayout = window.matchMedia('(min-width: 1531px)').matches;
+      const wideLayout = window.matchMedia('(min-width: 1451px)').matches;
       return {
         present: true,
         total: heatmap.querySelectorAll('.hm-grid .hm-cell:not(.hm-cell-empty)').length,
@@ -941,6 +980,28 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || { hits: 0, legend: 0, lines: 0, tip: false, focus: false };
+  const activityBreakpoint = {};
+  for (const width of [1450, 1451]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(80);
+    activityBreakpoint[String(width)] = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const layout = document.querySelector('.activity-layout');
+        const list = document.querySelector('.activity-list');
+        const panel = document.querySelector('.activity-heatmap');
+        const layoutStyle = layout ? getComputedStyle(layout) : null;
+        const listRect = list?.getBoundingClientRect();
+        const panelRect = panel?.getBoundingClientRect();
+        return {
+          columns: layoutStyle?.gridTemplateColumns || '',
+          gap: layoutStyle?.columnGap || '',
+          stacked: !!listRect && !!panelRect && panelRect.top > listRect.bottom - 2,
+          sideBySide: !!listRect && !!panelRect && Math.abs(panelRect.top - listRect.top) <= 2 && panelRect.left > listRect.right,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+  }
   // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
@@ -1627,11 +1688,56 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
   await sleep(300);
   await waitHtml("document.querySelectorAll('.live-feed .live-event').length >= 2");
+  liveSnapshotRankFit = true;
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(200);
+  await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(500);
+  await waitHtml("document.querySelectorAll('.live-rank-item').length >= 6");
+  const liveRankFit = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const pulse = document.querySelector('.live-pulse');
+      const pulseStyle = pulse ? getComputedStyle(pulse) : null;
+      const charts = Array.from(document.querySelectorAll('.live-rank-chart'));
+      const chartFits = charts.map((chart) => ({
+        label: chart.closest('.live-card')?.querySelector('.live-card-label')?.textContent?.trim() || '',
+        clientWidth: chart.clientWidth,
+        scrollWidth: chart.scrollWidth,
+        display: getComputedStyle(chart).display,
+      }));
+      return {
+        columns: pulseStyle?.gridTemplateColumns || '',
+        chartFits,
+        allFit: chartFits.length >= 2 && chartFits.every((chart) => chart.display !== 'none' && chart.scrollWidth <= chart.clientWidth + 1),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
   await sleep(150);
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
   await sleep(300);
   await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  const liveMobileCards = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = (label) => Array.from(document.querySelectorAll('.live-card'))
+        .find((node) => node.querySelector('.live-card-label')?.textContent?.trim() === label);
+      const buffer = card('Buffer');
+      const active = card('Active now');
+      const visible = (node) => !!node && getComputedStyle(node).display !== 'none';
+      return {
+        bufferChartHidden: !visible(buffer?.querySelector('.live-rank-chart')),
+        activeChartHidden: !visible(active?.querySelector('.live-rank-chart')),
+        bufferMobileSub: buffer?.querySelector('.live-card-sub-mobile')?.textContent?.trim() || '',
+        activeMobileSub: active?.querySelector('.live-card-sub-mobile')?.textContent?.trim() || '',
+        bufferMobileSubVisible: visible(buffer?.querySelector('.live-card-sub-mobile')),
+        activeMobileSubVisible: visible(active?.querySelector('.live-card-sub-mobile')),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Runtime.evaluate", {
     expression: `(() => {
       const repo = Array.from(document.querySelectorAll('.live-selects .ms-button'))
@@ -1766,15 +1872,33 @@ try {
     returnByValue: true,
   })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-  await send("Runtime.evaluate", { expression: "fetch('/__smoke/live-large?enabled=1').then(() => { location.hash = '#/live'; })", awaitPromise: true });
-  await sleep(3500);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
+  await sleep(250);
+  await waitHtml("document.querySelector('.settings-page .settings-type')");
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      for (const box of document.querySelectorAll('.settings-type input')) {
+        if (!box.checked) box.click();
+      }
+    })()`,
+  });
+  await sleep(200);
+  liveSnapshotRankFit = false;
+  await send("Runtime.evaluate", { expression: "fetch('/__smoke/live-large?enabled=1').then(() => { location.hash = '#/live'; location.reload(); })", awaitPromise: true });
+  await sleep(800);
+  await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  await sleep(3200);
   const liveLargeBuffer = (await send("Runtime.evaluate", {
     expression: `(() => {
       const rows = Array.from(document.querySelectorAll('.live-feed .live-event'));
       const allCount = document.querySelector('.live-cat-all .live-cat-n')?.textContent?.trim() || '';
+      const bufferText = Array.from(document.querySelectorAll('.live-card'))
+        .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer')
+        ?.querySelector('.live-figure')?.textContent?.replace(/\\s+/g, '') || '';
       const indexes = rows.map((row) => Number(row.getAttribute('data-feed-index'))).filter((n) => Number.isFinite(n));
       return {
         allCount,
+        bufferText,
         rows: rows.length,
         firstIndex: indexes.length ? Math.min(...indexes) : null,
         lastIndex: indexes.length ? Math.max(...indexes) : null,
@@ -2504,6 +2628,7 @@ try {
     [!activityHeatmap.present || trendHover.tip === true, "activity: hovering a trend point shows the per-line counts tooltip"],
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
+    [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "4px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
@@ -2528,11 +2653,14 @@ try {
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],
     [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || "") && /^3\/1000$/.test(liveHiddenType.bufferText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
+    [(liveHiddenType.bufferRanks || [])[0] === "The Octocat · 2 events" && (liveHiddenType.bufferRanks || [])[1] === "hubot · 1 event" && (liveHiddenType.repoRanks || [])[0] === "acme/widgets · 3 events", `live: hidden event types keep rank charts scoped to the raw retained buffer (${JSON.stringify({ bufferRanks: liveHiddenType.bufferRanks, repoRanks: liveHiddenType.repoRanks })})`],
+    [liveRankFit.allFit === true && / /.test(liveRankFit.columns || ""), `live: six-rank charts fit without horizontal overflow at 1024px (${JSON.stringify(liveRankFit)})`],
     // event-link precision: the auto-selected newest event (a comment) shows the
     // exact ev.url permalink (#issuecomment-…) in its detail pane …
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],
     // … and selecting a row without an event url falls back to the target url.
     [/\/pull\/\d+$/.test(liveFallbackLink), `live: a selected row without an event url falls back to the target url (${liveFallbackLink || "none"})`],
+    [liveMobileCards.bufferChartHidden === true && liveMobileCards.activeChartHidden === true && liveMobileCards.bufferMobileSubVisible === true && liveMobileCards.activeMobileSubVisible === true && liveMobileCards.bufferMobileSub === "retained events · memory cap", `live: phone hides rank charts and shows compact summaries (${JSON.stringify(liveMobileCards)})`],
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileAway.hash === "#/activity" && liveMobileAway.activityVisible === true, `live: phone can leave Live while detail is open (${JSON.stringify(liveMobileAway)})`],
@@ -2541,7 +2669,7 @@ try {
     [liveBreakpointClear.detailOpen === "false" && liveBreakpointClear.hash === "#/live", `live: widening past the phone overlay breakpoint clears the detail route (${JSON.stringify(liveBreakpointClear)})`],
     [liveBreakpointBackToLive.hash === "#/live" && liveBreakpointBackToLive.liveVisible === true, `live: after breakpoint cleanup, one Back from another tab returns to Live (${JSON.stringify(liveBreakpointBackToLive)})`],
     [liveBreakpointBackToSentinel.hash === "#/commits" && liveBreakpointBackToSentinel.commitsVisible === true, `live: breakpoint cleanup does not leave a duplicate Live history entry (${JSON.stringify(liveBreakpointBackToSentinel)})`],
-    [Number(liveLargeBuffer.allCount) === 1000 && liveLargeBuffer.rows > 0 && liveLargeBuffer.rows < 80 && liveLargeBuffer.firstIndex === 0 && liveLargeBuffer.lastIndex < 80, `live: 1000 retained events render a bounded virtual row window (${JSON.stringify(liveLargeBuffer)})`],
+    [/^1000\/1000$/.test(liveLargeBuffer.bufferText || "") && liveLargeBuffer.rows > 0 && liveLargeBuffer.rows < 80 && liveLargeBuffer.firstIndex === 0 && liveLargeBuffer.lastIndex < 80, `live: 1000 retained events render a bounded virtual row window (${JSON.stringify(liveLargeBuffer)})`],
     // page 3b: commits log — commit-only projection with SCM filters
     [has(commitsHtml, "commits-page"), "commits: page rendered"],
     [sameRangeButtons(commitsRangeButtons), `commits: shared range quick presets rendered without all (${commitsRangeButtons.join(", ")})`],

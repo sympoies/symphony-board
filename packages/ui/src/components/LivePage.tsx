@@ -74,6 +74,12 @@ const LIVE_OVERSCAN_ROWS = 8;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
 const LIVE_PANE_MIN_HEIGHT_PX = 320;
 const LIVE_RANK_LIMIT = 6;
+// New events prepend at the top, bumping every row's index (and translateY) by
+// one. Only animate that "push the list down" shift while the viewer is at the
+// very top, where it reads as the newest row pushing the feed down. While
+// scrolled, the shift must stay instant so it never fights the preserved scroll
+// position (see the CSS note on .live-feed[data-animate-shift]).
+const LIVE_FEED_SHIFT_TOP_EPSILON_PX = 2;
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -242,7 +248,11 @@ function LiveRankChart({
   className?: string;
 }) {
   if (items.length === 0) {
-    return <div className="live-rank-empty">{empty}</div>;
+    return (
+      <div className={`live-rank-chart live-rank-chart-empty ${className}`.trim()}>
+        <div className="live-rank-empty">{empty}</div>
+      </div>
+    );
   }
   const max = Math.max(1, ...items.map((item) => item.count));
   const axisMax = niceAxisMax(max);
@@ -400,7 +410,12 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
           </button>
         )}
       </div>
-      <div className="live-detail-shell" style={catStyle(ev.category)}>
+      {/* Keyed on the event identity so the shell REMOUNTS when the detail follows
+          a new event — that replays the `live-detail-in` crossfade (styles.css).
+          Keyed remount, not a class toggle, keeps the animation off the 1s
+          relative-time re-render (the key is stable across ticks); react-markdown
+          is lazy + module-cached, so the swap re-parses without a Suspense flash. */}
+      <div className="live-detail-shell" key={`${ev.source_id}:${ev.event_id}:${ev.seq}`} style={catStyle(ev.category)}>
         <LiveAvatar actor={ev.actor} />
         <div className="live-detail-main">
           <div className="live-detail-head">
@@ -559,6 +574,8 @@ export function LivePage({
     () => shown.slice(virtual.start, virtual.end),
     [shown, virtual.start, virtual.end],
   );
+  // Arm the feed's slide-down only at the top (see LIVE_FEED_SHIFT_TOP_EPSILON_PX).
+  const feedAtTop = scrollTop <= LIVE_FEED_SHIFT_TOP_EPSILON_PX;
   const splitRef = useRef<HTMLDivElement>(null);
   const [paneHeight, setPaneHeight] = useState<number | null>(null);
 
@@ -656,7 +673,7 @@ export function LivePage({
             </div>
             <div className="live-card-sub live-card-sub-desktop">{peopleCount} {peopleCount === 1 ? "person" : "people"}</div>
           </div>
-          <div className="live-card-sub live-card-sub-mobile">events in last {SPARK_WINDOW_HOURS}h · memory cap</div>
+          <div className="live-card-sub live-card-sub-mobile">retained events · memory cap</div>
           <LiveRankChart
             ariaLabel="Top people in the retained Live buffer"
             empty="no people yet"
@@ -774,6 +791,7 @@ export function LivePage({
               className="live-feed"
               ref={feedRef}
               onScroll={handleScroll}
+              data-animate-shift={feedAtTop ? "true" : "false"}
               style={{ "--live-row-height": `${rowHeight}px` } as CSSProperties}
             >
               <li className="live-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }} aria-hidden="true" />
