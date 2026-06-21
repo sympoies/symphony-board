@@ -5,6 +5,7 @@ import {
   LIVE_FEED_ENTER_MS,
   LIVE_FEED_SELECTED_SETTLE_MS,
   LIVE_FOLLOW_DETAIL_HOLD_MS,
+  clampLivePaneHeight,
   liveFeedSelectedKey,
   resolveLiveFollowDecision,
 } from "../src/live-follow.ts";
@@ -25,7 +26,7 @@ function liveEvent(seq: number): LiveEvent {
   };
 }
 
-test("Live auto-follow delays detail swaps and restarts the hold for bursts", () => {
+test("Live auto-follow delays detail swaps and holds (does not reset) across bursts", () => {
   assert.equal(LIVE_FEED_SELECTED_SETTLE_MS, 1400);
   assert.equal(LIVE_FOLLOW_DETAIL_HOLD_MS, Math.max(LIVE_FEED_ENTER_MS, LIVE_FEED_SELECTED_SETTLE_MS));
 
@@ -72,8 +73,8 @@ test("Live auto-follow delays detail swaps and restarts the hold for bursts", ()
       filtersChanged: false,
       prefersReducedMotion: false,
     }),
-    { action: "schedule-hold", holdKey: newestKey },
-    "a burst should restart the hold for the latest selected feed row",
+    { action: "keep" },
+    "a burst must NOT restart the hold: the pending settle timer fires on its own schedule (leading-edge throttle), so a continuous stream still advances the detail instead of debouncing to quiet forever",
   );
   assert.equal(
     liveFeedSelectedKey(true, newestKey, currentKey),
@@ -156,6 +157,63 @@ test("Live auto-follow bypasses the hold for non-arrival transitions", () => {
     }),
     { action: "clear-pending" },
     "pinning/manual selection should abandon pending auto-follow swaps",
+  );
+});
+
+test("Live auto-follow refreshes the detail in place when the followed event is re-sent with fresh data", () => {
+  // A same-(source,event,seq) replacement (e.g. actor-profile/avatar enrichment
+  // broadcast over `live-update`) arrives as a fresh object under the same key.
+  // The detail must re-render with the enriched object, not be skipped as "keep".
+  const followed = liveEvent(1);
+  const refreshed: LiveEvent = { ...followed, title: "event 1 (enriched)" };
+  const key = liveEventKey(followed);
+
+  assert.deepEqual(
+    resolveLiveFollowDecision({
+      following: true,
+      newest: refreshed,
+      newestKey: key,
+      followed,
+      pendingHoldKey: null,
+      filtersChanged: false,
+      prefersReducedMotion: false,
+    }),
+    { action: "set-followed", event: refreshed },
+    "a same-key fresh object should refresh the detail immediately (no settle hold — it is the same logical event)",
+  );
+  assert.deepEqual(
+    resolveLiveFollowDecision({
+      following: true,
+      newest: followed,
+      newestKey: key,
+      followed,
+      pendingHoldKey: null,
+      filtersChanged: false,
+      prefersReducedMotion: false,
+    }),
+    { action: "keep" },
+    "the identical object reference should keep — no needless detail churn",
+  );
+});
+
+test("clampLivePaneHeight fills the available viewport and never forces the minimum past it", () => {
+  // Tall window: plenty of room below the split, the minimum is comfortably met.
+  assert.equal(clampLivePaneHeight(1000, 200, 16, 320), 784);
+  // Short window: less than the minimum remains. Forcing 320 here reintroduces
+  // document-level scrolling, so clamp to what is actually available instead.
+  assert.equal(clampLivePaneHeight(480, 300, 16, 320), 164);
+  // Degenerate: the split already sits past the viewport — never go negative.
+  assert.equal(clampLivePaneHeight(300, 320, 16, 320), 0);
+});
+
+test("Live pulse strip collapses to two columns before the ranked charts would overflow a four-column row", () => {
+  // The four-column pulse grid starves the ranked-chart cards on ~1280px desktops
+  // (the charts need more width than a 1fr/1.2fr card gives), so the strip drops
+  // to two columns below the large-desktop breakpoint.
+  assert.match(
+    stylesSource,
+    /@media \(max-width: 1439px\)\s*{\s*\.live-pulse\s*{\s*grid-template-columns:\s*1fr 1fr;\s*}\s*}/,
+    "the pulse strip should collapse to two columns at the 1439px breakpoint",
   );
 });
 

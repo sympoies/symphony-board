@@ -169,7 +169,8 @@ const indexKey = (project: string | null, kind: string, iid: string): string =>
 
 export class GitLabSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "gitlab/4";
+  // gitlab/5: review-thread comments now carry avatarUrl in the canonical output.
+  readonly normalizerVersion = "gitlab/5";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -824,8 +825,14 @@ function resolveAvatarUrl(value: unknown, host: string): string | null {
 }
 
 function lineNumber(value: unknown): number | null {
+  // Diff line positions are 1-based, and GitLab leaves new_line/old_line (and the
+  // line-range fields) null on one side of a diff. Guard nullish AND non-positive
+  // first: Number(null) is 0, so without this the `?? ` fallback at the call
+  // sites stops on a coerced 0 instead of using the other side's real line, and
+  // the contract/UI emit locations like `file.ts:0`.
+  if (value == null) return null;
   const n = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(n) ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 function messageBody(value: unknown): string | null {

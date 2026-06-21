@@ -81,6 +81,7 @@ const MIGRATIONS: Migration[] = [
   { version: 4, file: "0004_review_threads.sql" },
   { version: 5, file: "0005_repo_activity_bounds.sql" },
   { version: 6, file: "0006_review_thread_detail.sql" },
+  { version: 7, file: "0007_review_thread_target_iid_bigint.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 

@@ -533,6 +533,39 @@ test("review-thread comment carries the author avatar URL through to the contrac
   assert.equal(comments[1]!.avatar_url, null);
 });
 
+test("review-thread comment schema tolerates a 4.1.0 comment with no avatar_url key (minor-version back-compat)", () => {
+  // 4.2.0 is a minor bump, so the new avatar_url must be additive-optional: a
+  // contract emitted under 4.1.0 (whose comments never had the key) must still
+  // validate, instead of being rejected by a required avatar_url.
+  const env = buildContract({
+    sources: [
+      { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    ],
+    items: [itemRow({ item_id: 1, external_id: "PR_open", kind: "change_request", iid: 8, open_review_threads: 1, total_review_threads: 1 })],
+    labels: [],
+    edges: [],
+    reviewThreads: [
+      reviewThreadRow({
+        comments_json: JSON.stringify([
+          {
+            id: "PRRC_legacy",
+            author: "reviewer",
+            body: "A 4.1.0-shaped comment.",
+            url: "https://github.com/dev-a/repo/pull/8#discussion_r1",
+            createdAt: "2026-06-01T01:00:00Z",
+            updatedAt: "2026-06-01T01:05:00Z",
+          },
+        ]),
+        comments_total: 1,
+      }),
+    ],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+  });
+  // Drop the producer-emitted key to simulate a contract from before 4.2.0.
+  delete (env.review_threads![0]!.comments[0] as { avatar_url?: unknown }).avatar_url;
+  assert.deepEqual(validateContract(env), [], "a comment without avatar_url must still validate under 4.2.0");
+});
+
 test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },

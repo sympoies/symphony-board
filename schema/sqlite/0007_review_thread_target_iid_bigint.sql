@@ -1,0 +1,4 @@
+-- No-op on SQLite: this mirrors postgres/0007 (widen review_thread.target_iid to
+-- BIGINT) only to keep the migration ledger aligned across drivers. SQLite's
+-- INTEGER affinity already stores 64-bit values, so target_iid never overflows
+-- here and needs no change. The runner still advances PRAGMA user_version to 7.

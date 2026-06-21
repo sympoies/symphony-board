@@ -3418,7 +3418,11 @@ a.rf-node-title:hover { color: var(--accent); }
   to { opacity: 1; translate: 0 0; scale: 1; }
 }
 
-@media (max-width: 1240px) { .live-pulse { grid-template-columns: 1fr 1fr; } }
+/* Collapse to two columns below large-desktop widths: at ~1280px the
+   four-column row starves the ranked-chart cards (the six-bar charts need more
+   width than a 1fr / 1.2fr card gives) and the charts overflow. Two half-width
+   columns give them room. */
+@media (max-width: 1439px) { .live-pulse { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) {
   /* Phone: compact 2x2 metrics; collapse the category pills behind the shared
      tap-to-open disclosure and keep the Repo / People dropdowns on the same row

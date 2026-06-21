@@ -112,7 +112,8 @@ const hash = (s: string): string => createHash("sha256").update(s).digest("hex")
 
 export class GitHubSource implements Source {
   readonly descriptor: SourceDescriptor;
-  readonly normalizerVersion = "github/3";
+  // github/4: review-thread comments now carry avatarUrl in the canonical output.
+  readonly normalizerVersion = "github/4";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -153,6 +154,16 @@ export class GitHubSource implements Source {
                 break;
               }
               if (!latest || node.updatedAt > latest) latest = node.updatedAt;
+              // A PR with more than the first 100 review threads only returns its
+              // first page, so normalize emits no thread detail for it. If this
+              // were treated as a complete sweep, the source-wide
+              // softDeleteUnseenReviewThreads would tombstone that PR's stored
+              // threads (none re-seen). Mark the sweep partial so the disappearance
+              // rule keeps them — better stale than wrongly deleted.
+              if (kind === "change_request" && node.reviewThreads?.pageInfo?.hasNextPage) {
+                complete = false;
+                log.warn(`[${this.descriptor.sourceId}] ${project} PR #${node.number}: >100 review threads; marking sweep partial so unseen threads are not tombstoned`);
+              }
               const payload = JSON.stringify(node);
               records.push({
                 entityKind: kind,

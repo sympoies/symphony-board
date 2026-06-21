@@ -193,14 +193,27 @@ function richerActor(a: LiveEventActor | null, b: LiveEventActor | null | undefi
   return score(b) > score(a) ? b : a;
 }
 
+// Rank grouping is display grouping, so it is source-scoped. Two providers can
+// mint the same login, or host the same project_path (a GitHub repo and a GitLab
+// mirror both named `owner/repo`). Identity buckets in this app are
+// (source_id, identity); merging across sources would conflate distinct people /
+// repos into one bar with the wrong count and the wrong avatar / provider link.
+// The rank `key` carries the source for grouping; the `label` stays the bare
+// person / repo name for display. (`key` is internal — a React key and sort
+// tiebreak — never rendered. The separator is `|`, which model refs already
+// reserve as the source_id delimiter (refOf rejects a `|` in source_id), so it
+// is collision-free here.)
+const RANK_KEY_SEP = "|";
+
 export function actorActivityRanks(events: LiveEvent[], limit = 5): LiveActorRank[] {
   const ranks = new Map<string, LiveActorRank>();
   for (const e of events) {
-    const key = actorKey(e);
-    if (!key) continue;
+    const id = actorKey(e);
+    if (!id) continue;
+    const key = `${e.source_id}${RANK_KEY_SEP}${id}`;
     const prev = ranks.get(key);
     if (!prev) {
-      ranks.set(key, { key, label: actorLabel(e.actor, key), count: 1, actor: e.actor ?? null });
+      ranks.set(key, { key, label: actorLabel(e.actor, id), count: 1, actor: e.actor ?? null });
       continue;
     }
     const actor = richerActor(prev.actor, e.actor);
@@ -208,7 +221,7 @@ export function actorActivityRanks(events: LiveEvent[], limit = 5): LiveActorRan
       ...prev,
       count: prev.count + 1,
       actor,
-      label: actorLabel(actor, key),
+      label: actorLabel(actor, id),
     });
   }
   return [...ranks.values()]
@@ -219,11 +232,12 @@ export function actorActivityRanks(events: LiveEvent[], limit = 5): LiveActorRan
 export function repoActivityRanks(events: LiveEvent[], limit = 5): LiveRepoRank[] {
   const ranks = new Map<string, LiveRepoRank>();
   for (const e of events) {
-    const key = eventRepo(e);
-    if (!key) continue;
+    const repo = eventRepo(e);
+    if (!repo) continue;
+    const key = `${e.target?.source_id ?? e.source_id}${RANK_KEY_SEP}${repo}`;
     const prev = ranks.get(key);
     if (!prev) {
-      ranks.set(key, { key, label: key, count: 1 });
+      ranks.set(key, { key, label: repo, count: 1 });
       continue;
     }
     ranks.set(key, { ...prev, count: prev.count + 1 });
