@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, SUPPORTED_MAJOR, type ContractLoadMetadata } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, type ContractLoadMetadata } from "./contract.ts";
+import { dismissBootSplash, setBootSplashStatus } from "./boot-splash.ts";
 import {
   emptyFilters,
   activityRouteMatches,
@@ -159,6 +160,17 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshingData, setRefreshingData] = useState(false);
+  // Cold-start init retry: a contract that is briefly unreachable at launch must
+  // self-heal into a working board WITHOUT an app restart. `reloadKey` bumps to
+  // re-run the init fetch; `initAttemptRef` counts consecutive failures (drives
+  // the patient-window splash vs. the actionable error UI); `retrying` flags that
+  // a background retry is pending; `bootDismissed` tracks whether the cold-start
+  // splash has been removed yet.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  const [bootDismissed, setBootDismissed] = useState(false);
+  const initAttemptRef = useRef(0);
+  const initRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Seed the search from the hash's "?q=" token if present; the URL is the source
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(initialStartupHash)));
@@ -316,6 +328,16 @@ export function App() {
     setRefreshingData(true);
     void reloadData().finally(() => setRefreshingData(false));
   }, [reloadData]);
+  // Manual "Retry now" from the load-error screen: cancel any pending backoff and
+  // fire an immediate init round (the init effect re-runs on the reloadKey bump).
+  const retryContractLoad = useCallback(() => {
+    if (initRetryTimerRef.current) {
+      clearTimeout(initRetryTimerRef.current);
+      initRetryTimerRef.current = null;
+    }
+    setRetrying(true);
+    setReloadKey((k) => k + 1);
+  }, []);
   const sync = useSync(reloadDataAfterSync, serverBaseUrl);
   // Probe the live receiver so the Live tab appears only where it is reachable
   // (hidden on the standalone app and any deployment without the receiver). The
@@ -453,29 +475,85 @@ export function App() {
     setRangeEnv(null);
     setError(null);
     setRangeError(null);
+    // Reset the init-retry loop so the new server gets a fresh patient window.
+    if (initRetryTimerRef.current) {
+      clearTimeout(initRetryTimerRef.current);
+      initRetryTimerRef.current = null;
+    }
+    initAttemptRef.current = 0;
+    setRetrying(false);
     setLoading(true);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    fetchContractWithMetadata(undefined, serverBaseUrl)
+    // A missing server URL on an Android client is a configuration error, not a
+    // transient one — surface it so the user sets a server, and do NOT loop on it.
+    const definitiveConfigError = endpointRequiresServerUrl("./contract.json", serverBaseUrl);
+    // Keep the blocking loading view (covered by the cold-start splash) up only
+    // while still within the patient window with no data yet; past that the
+    // actionable error UI takes over while we keep retrying in the background.
+    if (!env && !definitiveConfigError && initAttemptRef.current < INIT_LOAD_PATIENT_ATTEMPTS) {
+      setLoading(true);
+    }
+    // Single fetch per outer round (retries: 0) so the visible status reflects
+    // each try; this effect owns the spacing + retry between rounds.
+    fetchContractWithMetadata(undefined, serverBaseUrl, undefined, { retries: 0 })
       .then((loaded) => {
         if (cancelled) return;
+        initAttemptRef.current = 0;
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
         setError(null);
+        setRetrying(false);
+        setLoading(false);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError((err as Error).message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setError((err as Error).message);
+        if (definitiveConfigError) {
+          setRetrying(false);
+          setLoading(false);
+          return;
+        }
+        initAttemptRef.current += 1;
+        // Past the patient window, reveal the actionable error UI but keep
+        // retrying — a late-arriving server then restores the board on its own.
+        if (initAttemptRef.current >= INIT_LOAD_PATIENT_ATTEMPTS) setLoading(false);
+        setRetrying(true);
+        const delay = initLoadRetryDelayMs(initAttemptRef.current);
+        if (initRetryTimerRef.current) clearTimeout(initRetryTimerRef.current);
+        initRetryTimerRef.current = setTimeout(() => {
+          initRetryTimerRef.current = null;
+          if (!cancelled) setReloadKey((k) => k + 1);
+        }, delay);
       });
     return () => {
       cancelled = true;
+      if (initRetryTimerRef.current) {
+        clearTimeout(initRetryTimerRef.current);
+        initRetryTimerRef.current = null;
+      }
     };
-  }, [serverBaseUrl]);
+  }, [serverBaseUrl, reloadKey]);
+
+  // Remove the cold-start boot splash (index.html) once the first real view is
+  // ready: a definitive non-loading state (board / error / onboarding) OR a
+  // contract-independent page (Live / Diagnostics) that renders before the
+  // contract gates. The effect runs after commit, so the splash fades over
+  // already-painted content rather than a blank frame.
+  const bootSplashDone = !loading || route.page === "live" || route.page === "debug";
+  useEffect(() => {
+    if (!bootSplashDone || bootDismissed) return;
+    dismissBootSplash();
+    setBootDismissed(true);
+  }, [bootSplashDone, bootDismissed]);
+
+  // Reflect the init / retry state in the splash's status line while it is up.
+  useEffect(() => {
+    if (bootDismissed) return;
+    setBootSplashStatus(retrying ? "Reconnecting…" : "Loading…");
+  }, [bootDismissed, retrying]);
 
   useEffect(() => {
     if (!activeRange || !staticRange) return;
@@ -1196,7 +1274,10 @@ export function App() {
     );
   }
 
-  if (loading) return <div className="state-msg">Loading contract…</div>;
+  // While the cold-start splash is still up it covers this, so render nothing
+  // behind the (30%-opacity) veil; once the splash is gone (e.g. a later
+  // server-URL change re-enters loading) show the inline message.
+  if (loading) return bootDismissed ? <div className="state-msg">Loading contract…</div> : null;
 
   if (error && !env) {
     // First-run onboarding: the server is reachable and editable (the config
@@ -1222,6 +1303,14 @@ export function App() {
       <div className="state-msg error">
         <p>
           Could not load <code>{resolveEndpoint("./contract.json", serverBaseUrl)}</code>: {error}
+        </p>
+        <p className="muted" role="status">
+          {retrying ? "Retrying automatically…" : "Automatic retries are paused."}
+        </p>
+        <p>
+          <button type="button" className="toggle" onClick={retryContractLoad}>
+            Retry now
+          </button>
         </p>
         <ServerConnectionForm serverBaseUrl={serverBaseUrl} onServerBaseUrl={applyServerBaseUrl} />
         <p className="muted">
