@@ -10,7 +10,7 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
@@ -69,6 +69,8 @@ const LIVE_ROW_BASE_HEIGHT_PX = 74;
 const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
 const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
+const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
+const LIVE_PANE_MIN_HEIGHT_PX = 320;
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -479,6 +481,40 @@ export function LivePage({
     () => shown.slice(virtual.start, virtual.end),
     [shown, virtual.start, virtual.end],
   );
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const split = splitRef.current;
+    if (!split || typeof window === "undefined") return;
+
+    let raf = 0;
+    const measure = () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        const top = split.getBoundingClientRect().top;
+        const next = Math.max(
+          LIVE_PANE_MIN_HEIGHT_PX,
+          Math.floor(window.innerHeight - top - LIVE_PANE_BOTTOM_GUTTER_PX),
+        );
+        setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
+      });
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(split);
+    ro?.observe(document.body);
+
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, [events.length, shown.length, previewLines, category, repos, people, hiddenEventTypes]);
 
   const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
   // The detail shows the pinned event; with nothing pinned it auto-follows the
@@ -609,8 +645,10 @@ export function LivePage({
         </p>
       ) : (
         <div
+          ref={splitRef}
           className="live-split"
           data-detail-open={detailOpen ? "true" : "false"}
+          style={paneHeight == null ? undefined : ({ "--live-pane-height": `${paneHeight}px` } as CSSProperties)}
           onClick={(e) => {
             // Click blank space (not a row, not the detail card) to release the
             // pin and resume auto-following the newest event. The "follow latest"
