@@ -322,40 +322,45 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
           </button>
         )}
       </div>
-      <div className="live-detail-head" style={catStyle(ev.category)}>
-        <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />
-        {age ? (
-          <time title={instant != null ? new Date(instant).toLocaleString([], { hour12: false }) : undefined}>{age} ago</time>
-        ) : null}
+      <div className="live-detail-shell" style={catStyle(ev.category)}>
+        <LiveAvatar actor={ev.actor} />
+        <div className="live-detail-main">
+          <div className="live-detail-head">
+            <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />
+            {age ? (
+              <time title={instant != null ? new Date(instant).toLocaleString([], { hour12: false }) : undefined}>{age} ago</time>
+            ) : null}
+          </div>
+          {/* The link goes on the TITLE (which names the actual event) — its target can
+              be a comment permalink, so hanging it off "repo #num" read as wrong. The
+              repo + number stays as a plain reference line below. */}
+          <h2 className="live-detail-title">
+            {link ? (
+              <a className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
+                {ev.title ?? `${actor} · ${ev.event_type}`}
+                <span className="live-detail-title-arrow" aria-hidden="true"> ↗</span>
+              </a>
+            ) : (
+              (ev.title ?? `${actor} · ${ev.event_type}`)
+            )}
+          </h2>
+          <div className="live-detail-ref">
+            {repo}
+            {num ? <span className="live-event-num"> {num}</span> : null}
+          </div>
+          {ev.body ? (
+            <MarkdownBody text={ev.body} className="live-md live-detail-body" />
+          ) : (
+            <p className="muted">This event carries no body.</p>
+          )}
+          {ev.raw ? (
+            <details className="live-event-raw">
+              <summary>raw payload</summary>
+              <pre>{JSON.stringify(ev.raw, null, 2)}</pre>
+            </details>
+          ) : null}
+        </div>
       </div>
-      {/* The link goes on the TITLE (which names the actual event) — its target can
-          be a comment permalink, so hanging it off "repo #num" read as wrong. The
-          repo + number stays as a plain reference line below. */}
-      <h2 className="live-detail-title">
-        {link ? (
-          <a className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
-            {ev.title ?? `${actor} · ${ev.event_type}`}
-            <span className="live-detail-title-arrow" aria-hidden="true"> ↗</span>
-          </a>
-        ) : (
-          (ev.title ?? `${actor} · ${ev.event_type}`)
-        )}
-      </h2>
-      <div className="live-detail-ref">
-        {repo}
-        {num ? <span className="live-event-num"> {num}</span> : null}
-      </div>
-      {ev.body ? (
-        <MarkdownBody text={ev.body} className="live-md live-detail-body" />
-      ) : (
-        <p className="muted">This event carries no body.</p>
-      )}
-      {ev.raw ? (
-        <details className="live-event-raw">
-          <summary>raw payload</summary>
-          <pre>{JSON.stringify(ev.raw, null, 2)}</pre>
-        </details>
-      ) : null}
     </article>
   );
 }

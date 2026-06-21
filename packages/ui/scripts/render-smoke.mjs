@@ -1461,6 +1461,8 @@ try {
       // master-detail: the precise permalink now lives on the selected event's
       // detail TITLE link (auto-followed newest = the comment row).
       const detailLink = document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || '';
+      const detailAvatar = document.querySelector('.live-detail .live-avatar');
+      const detailAvatarImg = detailAvatar?.querySelector('img');
       const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
       const detailRect = document.querySelector('.live-detail-card')?.getBoundingClientRect();
       const status = document.querySelector('.live-status');
@@ -1474,6 +1476,11 @@ try {
         avatarHref: avatar?.getAttribute('href') || '',
         avatarImgSrc: avatarImg?.getAttribute('src') || '',
         avatarLabel: avatar?.getAttribute('aria-label') || avatar?.getAttribute('title') || '',
+        avatarDotContent: avatar ? getComputedStyle(avatar, '::after').content : '',
+        detailAvatarHref: detailAvatar?.getAttribute('href') || '',
+        detailAvatarImgSrc: detailAvatarImg?.getAttribute('src') || '',
+        detailAvatarLabel: detailAvatar?.getAttribute('aria-label') || detailAvatar?.getAttribute('title') || '',
+        detailAvatarDotContent: detailAvatar ? getComputedStyle(detailAvatar, '::after').content : '',
         feedHeight: feedRect?.height || 0,
         detailHeight: detailRect?.height || 0,
         activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\\s+/g, '') || '',
@@ -2454,6 +2461,8 @@ try {
     [live.rendered === true && live.rows === 3, `live: snapshot seeds every retained feed row (${live.rows || 0} === 3)`],
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
     [(live.rowText || []).some((text) => text.includes("Old widget note")), `live: row outside the 5h pulse remains retained in the 1000-event buffer (${JSON.stringify(live.rowText || [])})`],
+    [live.avatarDotContent === "none", `live: feed avatars render without a lower-right category dot (${live.avatarDotContent || "empty"})`],
+    [live.detailAvatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.detailAvatarImgSrc || "") && /Octocat/.test(live.detailAvatarLabel || "") && live.detailAvatarDotContent === "none", `live: detail pane renders the selected actor avatar without a dot (${JSON.stringify({ href: live.detailAvatarHref, src: live.detailAvatarImgSrc, label: live.detailAvatarLabel, dot: live.detailAvatarDotContent })})`],
     [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
     [/^2\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows the 5h count over the retained-event cap (${live.bufferText || "empty"})`],
     [Math.abs((live.detailHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailHeight || 0}px vs ${live.feedHeight || 0}px)`],
