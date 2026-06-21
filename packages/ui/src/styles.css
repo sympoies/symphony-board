@@ -3100,10 +3100,10 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .live-event::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0;
+  border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0.62;
 }
 .live-event:hover { background: var(--hover-soft); }
-.live-event:hover::before { opacity: 0.5; }
+.live-event:hover::before { opacity: 0.82; }
 .live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .live-event-selected { background: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
 .live-event-selected::before { opacity: 0.95; }
@@ -3113,14 +3113,6 @@ a.rf-node-title:hover { color: var(--accent); }
   border: 1px solid color-mix(in srgb, var(--cat, var(--muted)) 55%, var(--line));
   background: var(--panel-2); color: var(--text); text-decoration: none;
 }
-.live-avatar::after {
-  content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px;
-  border-radius: 50%; background: var(--cat, var(--muted));
-  border: 2px solid var(--panel);
-}
-.live-event:hover .live-avatar::after,
-.live-event-selected .live-avatar::after { border-color: var(--hover-soft); }
-.live-event-selected .live-avatar::after { border-color: color-mix(in srgb, var(--live) 13%, var(--panel)); }
 .live-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
 .live-avatar-fallback {
   font: 700 11px/1 var(--mono); letter-spacing: 0; max-width: 26px;
@@ -3155,10 +3147,11 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-event-raw pre { background: var(--panel-2); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
 .live-event-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; padding-top: 2px; }
 
-/* The newest row flashes once as it arrives — it is the only element freshly
-   mounted at the top of the list, so :first-child animates exactly once. */
+/* The newest retained row flashes once as it arrives; virtualization keeps
+   that row addressable through the feed index rather than DOM position. */
 .live-feed .live-event[data-feed-index="0"] { animation: live-arrive 1400ms ease-out; }
 .live-feed .live-event[data-feed-index="0"]::before { opacity: 0.85; }
+.live-feed .live-event-selected[data-feed-index="0"]::before { opacity: 0.95; }
 
 @keyframes live-beat {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }
@@ -3242,6 +3235,9 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-empty { color: var(--muted); padding: 24px 4px; }
 .live-detail-card { box-sizing: border-box; min-height: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
 .live-detail-back { display: none; }
+.live-detail-shell { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start; }
+.live-detail-shell > .live-avatar { margin-top: 1px; }
+.live-detail-main { min-width: 0; }
 .live-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .live-detail-head .badge { font-size: 12px; }
 .live-detail-head time { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
