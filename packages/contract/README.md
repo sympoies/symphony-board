@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.1.0`.
+Current contract version emitted by the backend: `4.2.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.1.0`. Important compatibility milestones:
+The current emitted contract is `4.2.0`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -92,6 +92,10 @@ The current emitted contract is `4.1.0`. Important compatibility milestones:
   current provider review-thread status, file/line metadata, and compact
   comment previews for loaded change requests. The existing item-level
   `review_threads {open,total}` summary is unchanged.
+- 4.2.0 adds `ReviewThreadCommentDTO.avatar_url`: the comment author's avatar URL
+  when the provider reports it, else `null`. Additive on the 4.1.0 comment object;
+  the producer always emits the key. The Reviews UI renders it as the author's
+  photo with an initials fallback.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

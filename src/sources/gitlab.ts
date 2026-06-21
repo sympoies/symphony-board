@@ -490,6 +490,7 @@ export class GitLabSource implements Source {
         .map((n: any) => ({
           id: String(n.id),
           author: n.author?.username ?? null,
+          avatarUrl: resolveAvatarUrl(n.author?.avatar_url, this.descriptor.host),
           body: cleanText(n.body),
           url: cleanText(n.web_url) ?? item.url ?? null,
           createdAt: cleanText(n.created_at),
@@ -808,6 +809,18 @@ function firstLine(s: unknown): string | null {
 
 function cleanText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+// GitLab returns note-author avatar URLs that are absolute on gitlab.com but can
+// be host-relative on a self-hosted instance (e.g. "/uploads/-/system/user/...").
+// Resolve a relative path against the source host so the contract always carries
+// a usable absolute URL; drop anything else.
+function resolveAvatarUrl(value: unknown, host: string): string | null {
+  const raw = cleanText(value);
+  if (!raw) return null;
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  if (raw.startsWith("/")) return `https://${host}${raw}`;
+  return null;
 }
 
 function lineNumber(value: unknown): number | null {

@@ -259,10 +259,11 @@
     "reviewThreadComment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "author", "body", "url", "created_at", "updated_at"],
+      "required": ["id", "author", "avatar_url", "body", "url", "created_at", "updated_at"],
       "properties": {
         "id": { "type": "string" },
         "author": { "type": ["string", "null"] },
+        "avatar_url": { "type": ["string", "null"] },
         "body": { "type": ["string", "null"] },
         "url": { "type": ["string", "null"] },
         "created_at": { "type": ["string", "null"], "format": "date-time" },

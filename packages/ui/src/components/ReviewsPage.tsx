@@ -20,11 +20,10 @@ import type { ItemDTO, ReviewThreadCommentDTO, ReviewThreadDTO } from "@symphony
 import {
   activityVirtualRange,
   relativeTime,
-  sourceDisplayName,
-  type ColorOf,
   type Filters,
   type TimeRange,
 } from "../model.ts";
+import { liveAvatarModel } from "../live-avatar.ts";
 import { safeHref } from "../url.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
@@ -185,6 +184,28 @@ function threadTitle(row: ThreadRow): string {
   return thread.target_iid != null ? `#${thread.target_iid} ${base}` : base;
 }
 
+// The face for a thread comment. Avatars appear only inside the thread (the
+// comment chain), not on the list rows or the detail header. Renders the real
+// provider photo when the contract carries one (avatar_url, 4.2.0+) and falls
+// back to the author's initials — the same circle + image handling as the Live
+// tab (reusing liveAvatarModel and the .live-avatar styles).
+function ReviewAvatar({ author, avatarUrl, className }: { author: string | null; avatarUrl?: string | null; className?: string }) {
+  const model = liveAvatarModel(author ? { login: author, avatar_url: avatarUrl ?? null } : null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [model.imageUrl]);
+  const showImage = model.imageUrl != null && !failed;
+  const cls = `live-avatar ${showImage ? "live-avatar-image" : "live-avatar-text"}${className ? ` ${className}` : ""}`;
+  return (
+    <span className={cls} title={model.label} aria-label={model.label}>
+      {showImage ? (
+        <img src={model.imageUrl!} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
+      ) : (
+        <span className="live-avatar-fallback" aria-hidden="true">{model.initials}</span>
+      )}
+    </span>
+  );
+}
+
 function threadKey(row: ThreadRow): string {
   return row.thread.id;
 }
@@ -206,7 +227,6 @@ function ReviewRow({
   positionY,
   index,
   total,
-  colorOf,
   sourceKind,
   onSelect,
 }: {
@@ -215,7 +235,6 @@ function ReviewRow({
   positionY: number;
   index: number;
   total: number;
-  colorOf: ColorOf;
   sourceKind: ReadonlyMap<string, string>;
   onSelect: () => void;
 }) {
@@ -223,7 +242,6 @@ function ReviewRow({
   const status = threadStatus(thread);
   const location = lineLabel(thread);
   const preview = thread.comments[0]?.body ?? null;
-  const repoColor = colorOf(thread.source_id, thread.project_path);
   const previewRef = useRef<HTMLDivElement>(null);
   const [clamped, setClamped] = useState(false);
   // Fade the preview's bottom edge ONLY when the body actually overflows the
@@ -256,7 +274,6 @@ function ReviewRow({
         }
       }}
     >
-      <span className={`review-status-glyph review-status-${status.key}`} aria-hidden="true" />
       <div className="live-event-main">
         <div className="live-event-head">
           {statusBadge(status)}
@@ -264,7 +281,6 @@ function ReviewRow({
         </div>
         <div className="review-row-meta">
           <span className="review-row-repo">
-            {repoColor ? <span className="review-repo-swatch" style={{ background: repoColor }} aria-hidden="true" /> : null}
             <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
           </span>
           <span className="review-row-by">{commentersLabel(thread, target)}</span>
@@ -373,6 +389,7 @@ function ReviewComment({ comment }: { comment: ReviewThreadCommentDTO }) {
   return (
     <article className="review-comment-card">
       <div className="review-comment-head">
+        <ReviewAvatar author={comment.author} avatarUrl={comment.avatar_url} className="review-comment-avatar" />
         <strong>{comment.author ? `@${comment.author}` : "unknown"}</strong>
         {when ? (
           <time title={when}>{relativeTime(when)}</time>
@@ -414,7 +431,6 @@ function ReviewDetail({
           prev/next nav is a sibling of this card (see the render below), so the
           narrow-screen overlay can pin it to the bottom while the card scrolls. */}
       <div className="live-detail-shell" key={threadKey(row)} data-motion={motion} style={catStyle(status.colorVar)}>
-        <span className={`review-status-glyph review-status-glyph-lg review-status-${status.key}`} aria-hidden="true" />
         <div className="live-detail-main">
           <div className="live-detail-head">
             {statusBadge(status)}
@@ -433,8 +449,6 @@ function ReviewDetail({
           </h2>
           <div className="live-detail-ref">
             <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
-            <span className="review-detail-dot" aria-hidden="true">·</span>
-            <span>{sourceDisplayName(thread.source_id)}</span>
             {target?.author ? (
               <>
                 <span className="review-detail-dot" aria-hidden="true">·</span>
@@ -470,7 +484,6 @@ export function ReviewsPage({
   itemsById,
   range,
   sourceKind,
-  colorOf,
   detailRouteOpen,
   onOpenDetailRoute,
   onCloseDetailRoute,
@@ -483,7 +496,6 @@ export function ReviewsPage({
   itemsById: ReadonlyMap<string, ItemDTO>;
   range: TimeRange;
   sourceKind: ReadonlyMap<string, string>;
-  colorOf: ColorOf;
   detailRouteOpen: boolean;
   onOpenDetailRoute: () => void;
   onCloseDetailRoute: () => void;
@@ -725,7 +737,6 @@ export function ReviewsPage({
                 positionY={index * REVIEW_ROW_STRIDE_PX}
                 index={index}
                 total={threadRows.length}
-                colorOf={colorOf}
                 sourceKind={sourceKind}
                 onSelect={() => selectThread(row, "neutral")}
               />

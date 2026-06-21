@@ -490,6 +490,49 @@ test("buildContract emits current review-thread detail rows for loaded change_re
   assert.equal(thread.comments[0]!.body, "Please cover this branch.");
 });
 
+test("review-thread comment carries the author avatar URL through to the contract DTO (4.2.0)", () => {
+  const env = buildContract({
+    sources: [
+      { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    ],
+    items: [itemRow({ item_id: 1, external_id: "PR_open", kind: "change_request", iid: 8, open_review_threads: 1, total_review_threads: 1 })],
+    labels: [],
+    edges: [],
+    reviewThreads: [
+      reviewThreadRow({
+        comments_json: JSON.stringify([
+          {
+            id: "PRRC_1",
+            author: "reviewer",
+            avatarUrl: "https://avatars.example/u/7.png",
+            body: "Please cover this branch.",
+            url: "https://github.com/dev-a/repo/pull/8#discussion_r1",
+            createdAt: "2026-06-01T01:00:00Z",
+            updatedAt: "2026-06-01T01:05:00Z",
+          },
+          {
+            id: "PRRC_2",
+            author: "maintainer",
+            body: "No avatar synced for this one.",
+            url: "https://github.com/dev-a/repo/pull/8#discussion_r2",
+            createdAt: "2026-06-01T01:10:00Z",
+            updatedAt: "2026-06-01T01:10:00Z",
+          },
+        ]),
+        comments_total: 2,
+      }),
+    ],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+  });
+
+  // The schema (additionalProperties:false) must accept the new field, and the
+  // producer must always emit it — present when synced, null when absent.
+  assert.deepEqual(validateContract(env), []);
+  const comments = env.review_threads![0]!.comments;
+  assert.equal(comments[0]!.avatar_url, "https://avatars.example/u/7.png");
+  assert.equal(comments[1]!.avatar_url, null);
+});
+
 test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },

@@ -614,7 +614,7 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
               nodes: [
                 {
                   id: "C_1",
-                  author: { login: "reviewer" },
+                  author: { login: "reviewer", avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4" },
                   body: "Please cover this branch.",
                   url: "https://github.com/o/r/pull/9#discussion_r1",
                   createdAt: "2026-06-01T01:00:00Z",
@@ -633,6 +633,7 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
   assert.equal(detail.isResolved, false);
   assert.equal(detail.path, "src/app.ts");
   assert.equal(detail.comments[0]!.body, "Please cover this branch.");
+  assert.equal(detail.comments[0]!.avatarUrl, "https://avatars.githubusercontent.com/u/1?v=4");
 });
 
 test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
@@ -1111,7 +1112,7 @@ test("GitLab: resolvable discussions normalize into review-thread detail", () =>
               web_url: "https://gitlab.com/g/p/-/merge_requests/9#note_101",
               created_at: "2026-06-01T01:00:00Z",
               updated_at: "2026-06-01T01:05:00Z",
-              author: { username: "reviewer" },
+              author: { username: "reviewer", avatar_url: "/uploads/-/system/user/avatar/1/avatar.png" },
               position: { new_path: "src/app.ts", new_line: 12, line_range: { start: { new_line: 10 } } },
             },
           ],
@@ -1129,6 +1130,8 @@ test("GitLab: resolvable discussions normalize into review-thread detail", () =>
   assert.equal(thread.line, 12);
   assert.equal(thread.comments[0]!.author, "reviewer");
   assert.equal(thread.comments[0]!.body, "Please cover this branch.");
+  // A host-relative GitLab avatar resolves to an absolute URL against the source host.
+  assert.equal(thread.comments[0]!.avatarUrl, "https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

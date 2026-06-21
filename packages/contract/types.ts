@@ -324,6 +324,10 @@ export interface ActivityDTO {
 export interface ReviewThreadCommentDTO {
   id: string;
   author: string | null;
+  // The comment author's avatar URL when the provider reported it, else null.
+  // Added in 4.2.0; the producer always emits the key (null when absent), so the
+  // schema keeps it required-but-nullable like the sibling comment fields.
+  avatar_url: string | null;
   body: string | null;
   url: string | null;
   created_at: string | null;

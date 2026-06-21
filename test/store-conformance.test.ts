@@ -178,6 +178,7 @@ function fixtureReviewThread(over: Partial<CanonicalReviewThread> = {}): Canonic
       {
         id: "COMMENT_1",
         author: "reviewer",
+        avatarUrl: "https://avatars.example/u/1.png",
         body: "Please cover this branch.",
         url: "https://example/pr/1#discussion",
         createdAt: "2026-06-01T00:00:00Z",
