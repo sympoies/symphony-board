@@ -388,19 +388,21 @@ function ReviewComment({ comment }: { comment: ReviewThreadCommentDTO }) {
   const when = comment.created_at ?? comment.updated_at;
   return (
     <article className="review-comment-card">
-      <div className="review-comment-head">
-        <ReviewAvatar author={comment.author} avatarUrl={comment.avatar_url} className="review-comment-avatar" />
-        <strong>{comment.author ? `@${comment.author}` : "unknown"}</strong>
-        {when ? (
-          <time title={when}>{relativeTime(when)}</time>
-        ) : null}
-        {link ? (
-          <a href={link} target="_blank" rel="noopener noreferrer" className="review-comment-link">
-            view ↗
-          </a>
-        ) : null}
+      <ReviewAvatar author={comment.author} avatarUrl={comment.avatar_url} className="review-comment-avatar" />
+      <div className="review-comment-main">
+        <div className="review-comment-head">
+          <strong>{comment.author ? `@${comment.author}` : "unknown"}</strong>
+          {when ? (
+            <time title={when}>{relativeTime(when)}</time>
+          ) : null}
+          {link ? (
+            <a href={link} target="_blank" rel="noopener noreferrer" className="review-comment-link">
+              view ↗
+            </a>
+          ) : null}
+        </div>
+        <MarkdownBody text={comment.body ?? "(empty comment)"} className="live-md" />
       </div>
-      <MarkdownBody text={comment.body ?? "(empty comment)"} className="live-md" />
     </article>
   );
 }

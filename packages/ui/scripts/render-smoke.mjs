@@ -1323,6 +1323,17 @@ try {
         // avatar_url (4.2.0) — assert the <img> src like the Live tab does.
         rowAvatars: document.querySelectorAll('.reviews-page .live-feed .live-event .live-avatar').length,
         commentAvatarSrc: document.querySelector('.reviews-page .live-detail .review-comment-card .review-comment-avatar img')?.getAttribute('src') || '',
+        commentAvatarLayout: (() => {
+          const card = document.querySelector('.reviews-page .live-detail .review-comment-card');
+          const avatar = card?.querySelector('.review-comment-avatar') || null;
+          const main = card?.querySelector('.review-comment-main') || null;
+          const avatarRect = avatar?.getBoundingClientRect();
+          const mainRect = main?.getBoundingClientRect();
+          return {
+            avatarIsCardChild: !!(card && avatar && avatar.parentElement === card),
+            mainStartsAfterAvatar: !!(avatarRect && mainRect && mainRect.left >= avatarRect.right + 6),
+          };
+        })(),
         // The prev/next nav must be a SIBLING of the card (a direct child of
         // .live-detail), not nested inside it — that is what lets the shared
         // narrow-overlay flex rules pin it as the footer (mirrors the Live tab).
@@ -3032,6 +3043,7 @@ try {
     [reviewsSummary.detailComments >= 1, `reviews: detail pane renders the selected thread's comment chain (${reviewsSummary.detailComments || 0})`],
     [reviewsSummary.rowAvatars === 0, `reviews: list rows carry no avatar — avatars live only in the thread (${reviewsSummary.rowAvatars})`],
     [/avatars\.githubusercontent\.com/.test(reviewsSummary.commentAvatarSrc), `reviews: thread comment renders the author photo from avatar_url (${reviewsSummary.commentAvatarSrc || "none"})`],
+    [reviewsSummary.commentAvatarLayout?.avatarIsCardChild === true && reviewsSummary.commentAvatarLayout?.mainStartsAfterAvatar === true, `reviews: thread comment avatar leads the comment body like Live detail rows (${JSON.stringify(reviewsSummary.commentAvatarLayout || {})})`],
     [reviewsSummary.navInsideCard === false && reviewsSummary.navIsDetailChild === true, `reviews: detail nav is a card sibling so the shared overlay pins it (${JSON.stringify({ navInsideCard: reviewsSummary.navInsideCard, navIsDetailChild: reviewsSummary.navIsDetailChild })})`],
     [reviewsRowClick.rowTitle !== "" && reviewsSelect.detailTitle.includes(reviewsRowClick.rowTitle) && reviewsSelect.comments >= 1, `reviews: selecting a thread row swaps the detail pane (${JSON.stringify(reviewsSelect)})`],
     // deep link: a board card's focus link opens the graph in the focus view

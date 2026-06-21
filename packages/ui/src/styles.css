@@ -2378,15 +2378,16 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .review-comment-thread { display: grid; gap: 12px; max-width: 110ch; }
 .review-comment-card {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start;
   border: 1px solid var(--line); border-radius: 8px;
   background: var(--panel-2); padding: 10px 12px;
 }
+.review-comment-main { min-width: 0; }
 .review-comment-head {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px;
 }
-/* A small author avatar leads each comment so a multi-author thread is scannable. */
-.review-comment-avatar { width: 22px; height: 22px; }
-.review-comment-avatar .live-avatar-fallback { font-size: 9px; }
+/* A leading author avatar keeps each comment scannable like Live detail rows. */
+.review-comment-avatar { width: 32px; height: 32px; margin-top: 1px; }
 .review-comment-head strong { color: var(--link); }
 .review-comment-head time { color: var(--muted); }
 .review-comment-link { margin-left: auto; color: var(--link); white-space: nowrap; }
