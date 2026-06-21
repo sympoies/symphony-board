@@ -72,6 +72,18 @@ export function startupRouteHash(restoredHash: string, defaultTab: Page): string
   return `#/${defaultTab}`;
 }
 
+// The Live tab is opt-in (off by default), so the configured default landing tab
+// cannot be Live while it is disabled — a cold start would otherwise resolve to a
+// hidden tab. Fall back to Activity (the next content tab) in that one case; every
+// other default is honored unchanged. Resolution happens at READ time at every
+// site that consumes the default tab — the landing hash (App + the desktop
+// launcher in main.tsx) and the Settings picker's shown value — so the stored
+// preference is never rewritten and a "live" default re-applies once Live is back
+// on. Pure, so the link<->landing contract stays unit-tested.
+export function resolveDefaultTab(defaultTab: Page, liveTabEnabled: boolean): Page {
+  return defaultTab === "live" && !liveTabEnabled ? "activity" : defaultTab;
+}
+
 // The active time range a navigation should carry. `preset` is the quick-preset
 // id that produced from/to, kept only as a UI tie-break.
 export interface RangeRoute {

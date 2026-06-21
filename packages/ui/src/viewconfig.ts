@@ -6,6 +6,8 @@
 //   • default range preset — one of the shared quick preset ids
 //   • theme — device-local palette choice (Night Owl by default, Paper for e-ink)
 //   • collapsed columns — board column kinds the viewer manually collapsed
+//   • live tab enabled — opt-in Live tab (OFF by default: hidden tab, no stream)
+//   • hidden event types — set of HIDDEN Live categories (an independent layer)
 // We store what is HIDDEN (not what is visible) so a repo/source that first
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
@@ -34,6 +36,14 @@ const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // auto-collapse without being persisted (they re-open when an item lands), so
 // this set holds only explicit collapses of non-empty columns.
 const COLLAPSED_COLUMNS_KEY = "symphony-board:collapsed-columns";
+// Whether the realtime Live tab is shown at all. OFF by default: when off the
+// tab is hidden AND the app opens no live connection (no snapshot probe, no
+// SSE/poll), so a deployment that does not care about the feed pays nothing.
+const LIVE_TAB_ENABLED_KEY = "symphony-board:live-tab-enabled";
+// HIDDEN Live event categories (an independent layer, like hidden sources): a
+// category in this set is dropped from the Live feed and its filter chip. Stored
+// as the hidden set so a new provider category defaults visible.
+const HIDDEN_EVENT_TYPES_KEY = "symphony-board:hidden-event-types";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
 export const ANDROID_CLIENT_KIND = "android";
 export const VIEW_THEMES = [
@@ -165,6 +175,33 @@ export function saveLivePreviewLines(lines: number): void {
     /* storage unavailable / over quota — the choice just won't persist */
   }
 }
+
+// The Live tab is opt-in: OFF unless explicitly turned on. Only the exact string
+// "true" enables it, so a missing / hand-edited / stale value reads as off — the
+// safe default (no hidden tab stranded behind a dead stream, no idle SSE).
+export const DEFAULT_LIVE_TAB_ENABLED = false;
+
+export function loadLiveTabEnabled(): boolean {
+  try {
+    return localStorage.getItem(LIVE_TAB_ENABLED_KEY) === "true";
+  } catch {
+    return DEFAULT_LIVE_TAB_ENABLED;
+  }
+}
+
+export function saveLiveTabEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(LIVE_TAB_ENABLED_KEY, enabled ? "true" : "false");
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// HIDDEN Live event categories — the persistent "which event types to show"
+// filter, stored as the hidden set (its own key, like hidden sources) so a new
+// provider category defaults visible. Empty = everything visible.
+export const loadHiddenEventTypes = (): Set<string> => loadStringSet(HIDDEN_EVENT_TYPES_KEY);
+export const saveHiddenEventTypes = (hidden: ReadonlySet<string>): void => saveStringSet(HIDDEN_EVENT_TYPES_KEY, hidden);
 
 // The tabs offered as a default-landing choice (the content views; Settings is
 // excluded — it is not a landing surface). Live leads.

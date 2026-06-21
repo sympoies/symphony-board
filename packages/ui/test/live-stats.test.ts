@@ -17,6 +17,9 @@ import {
   distinctValues,
   eventMatchesFilters,
   relativeAge,
+  visibleByCategory,
+  LIVE_CATEGORY_ORDER,
+  humanizeCategory,
 } from "../src/live-stats.ts";
 import type { LiveEvent } from "../src/model.ts";
 
@@ -234,4 +237,47 @@ test("actorKey backs the people options/count with a display_name fallback", () 
   ];
   assert.deepEqual(distinctValues(events, actorKey), ["graysurf", "Robo Committer"]);
   assert.equal(distinctCount(events, actorKey), 2);
+});
+
+test("LIVE_CATEGORY_ORDER is the canonical provider-neutral filter order", () => {
+  assert.deepEqual([...LIVE_CATEGORY_ORDER], [
+    "commit",
+    "change_request",
+    "issue",
+    "review",
+    "review_comment",
+    "review_thread",
+    "comment",
+    "pipeline",
+  ]);
+});
+
+test("humanizeCategory turns the snake_case category into a display label", () => {
+  assert.equal(humanizeCategory("change_request"), "change request");
+  assert.equal(humanizeCategory("review_thread"), "review thread");
+  assert.equal(humanizeCategory("commit"), "commit");
+});
+
+test("visibleByCategory drops events whose category the viewer has hidden", () => {
+  const events = [
+    ev({ category: "commit" }),
+    ev({ category: "review" }),
+    ev({ category: "comment" }),
+    ev({ category: "commit" }),
+  ];
+  // Empty hidden set → everything visible (and the SAME array reference, so the
+  // common no-filter case allocates nothing).
+  assert.equal(visibleByCategory(events, new Set()), events);
+  // Hiding a category removes exactly its events, order preserved.
+  assert.deepEqual(
+    visibleByCategory(events, new Set(["commit"])).map((e) => e.category),
+    ["review", "comment"],
+  );
+  // Hiding several leaves only the rest.
+  assert.deepEqual(
+    visibleByCategory(events, new Set(["commit", "comment"])).map((e) => e.category),
+    ["review"],
+  );
+  // A hidden category that is not present is a no-op.
+  assert.equal(visibleByCategory(events, new Set(["pipeline"])).length, 4);
 });

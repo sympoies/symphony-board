@@ -55,6 +55,7 @@ import {
   graphViewTab,
   clearFiltersHref,
   startupRouteHash,
+  resolveDefaultTab,
   ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
   type ActivityView,
@@ -77,6 +78,10 @@ import {
   saveTheme,
   loadLivePreviewLines,
   saveLivePreviewLines,
+  loadLiveTabEnabled,
+  saveLiveTabEnabled,
+  loadHiddenEventTypes,
+  saveHiddenEventTypes,
   loadDefaultTab,
   saveDefaultTab,
   loadServerBaseUrl,
@@ -130,12 +135,20 @@ type MobileControlPanel = "search" | "filters" | "range" | null;
 // (setRouteFocus), and commits routes carry "?repo=<project_path>" and
 // "?branch=<branch>" for the page-local SCM filters.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
+const readStartupHash = (): string =>
+  startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), loadLiveTabEnabled()));
 const historyStateObject = (): Record<string, unknown> => {
   const state = window.history.state;
   return state && typeof state === "object" && !Array.isArray(state) ? { ...(state as Record<string, unknown>) } : {};
 };
 
 export function App() {
+  // Compute the cold-start hash once and seed every startup consumer from it.
+  // Otherwise the normalized page route and URL-backed search could disagree for
+  // one render when startupRouteHash intentionally drops transient query params.
+  const startupHashRef = useRef<string | null>(null);
+  if (startupHashRef.current === null) startupHashRef.current = readStartupHash();
+  const initialStartupHash = startupHashRef.current;
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
   const [rangeEnv, setRangeEnv] = useState<ContractEnvelope | null>(null);
@@ -146,9 +159,9 @@ export function App() {
   const [refreshingData, setRefreshingData] = useState(false);
   // Seed the search from the hash's "?q=" token if present; the URL is the source
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
-  const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
+  const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(initialStartupHash)));
   const [mobileControlPanel, setMobileControlPanel] = useState<MobileControlPanel>(null);
-  const [hash, setHash] = useState<string>(() => startupRouteHash(readHash(), loadDefaultTab()));
+  const [hash, setHash] = useState<string>(initialStartupHash);
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
   //   • hidden        — HIDDEN repoKeys
@@ -162,6 +175,11 @@ export function App() {
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
   const [theme, setTheme] = useState<ViewTheme>(loadTheme);
   const [livePreviewLines, setLivePreviewLines] = useState<number>(loadLivePreviewLines);
+  // Live tab is opt-in (off by default): gates the tab, the SSE/poll stream, AND
+  // the snapshot probe. `hiddenEventTypes` is the persistent per-category Live
+  // filter (an independent layer, like hidden sources).
+  const [liveTabEnabled, setLiveTabEnabled] = useState<boolean>(loadLiveTabEnabled);
+  const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<string>>(loadHiddenEventTypes);
   const [defaultTab, setDefaultTab] = useState<Page>(loadDefaultTab);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
   // Board columns the viewer manually collapsed to a rail (persisted). Empty
@@ -296,8 +314,12 @@ export function App() {
   }, [reloadData]);
   const sync = useSync(reloadDataAfterSync, serverBaseUrl);
   // Probe the live receiver so the Live tab appears only where it is reachable
-  // (hidden on the standalone app and any deployment without the receiver).
-  const liveAvailable = useLiveAvailable(serverBaseUrl);
+  // (hidden on the standalone app and any deployment without the receiver). The
+  // enable flag short-circuits the probe: with the Live tab off we never even ask
+  // /api/live-snapshot, so the opt-out costs no requests — and `false` cascades to
+  // hide the tab (pageTabs), keep the stream closed (useLive), and bounce a stale
+  // #/live to Activity (the redirect below).
+  const liveAvailable = useLiveAvailable(serverBaseUrl, liveTabEnabled);
   // The live stream lives HERE, at the always-mounted shell — not inside LivePage
   // — so the event buffer survives tab switches: switching to Live is instant and
   // current instead of re-seeding from /api/live-snapshot (a >1s empty flash) on
@@ -389,6 +411,16 @@ export function App() {
     saveLivePreviewLines(livePreviewLines);
   }, [livePreviewLines]);
   useEffect(() => {
+    saveLiveTabEnabled(liveTabEnabled);
+  }, [liveTabEnabled]);
+  useEffect(() => {
+    saveHiddenEventTypes(hiddenEventTypes);
+  }, [hiddenEventTypes]);
+  // A "live" default with the Live tab off is resolved AT READ TIME — the landing
+  // hash (here + main.tsx) and the Settings picker's value all run through
+  // resolveDefaultTab — so the stored preference is left untouched and re-applies
+  // the moment Live is turned back on (the opt-out is reversible, not destructive).
+  useEffect(() => {
     saveDefaultTab(defaultTab);
   }, [defaultTab]);
   // Cold start: reflect the resolved landing route into the URL so it matches the
@@ -396,7 +428,7 @@ export function App() {
   // honors the configured default tab over a restored hash — the web counterpart
   // of the desktop launcher in main.tsx — while preserving debug / graph focus.
   useEffect(() => {
-    const target = startupRouteHash(readHash(), loadDefaultTab());
+    const target = startupHashRef.current ?? readStartupHash();
     if (readHash() !== target) window.location.hash = target;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -822,6 +854,17 @@ export function App() {
     });
   }
 
+  // Flip one Live event category's visibility (its own layer, like sources). The
+  // set stores HIDDEN categories, so present = hidden, absent = visible.
+  function toggleEventType(category: string) {
+    setHiddenEventTypes((h) => {
+      const next = new Set(h);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }
+
   // Collapse / expand one board column by its column kind (a status key, or
   // `lane-<key>` for a Spotlight lane). The click is routed by emptiness so the
   // two regimes stay disjoint (see model.columnCollapsed): toggling an EMPTY
@@ -1094,6 +1137,7 @@ export function App() {
         <LivePage
           live={live}
           previewLines={livePreviewLines}
+          hiddenEventTypes={hiddenEventTypes}
           detailRouteOpen={route.liveDetail === "1"}
           onOpenDetailRoute={openLiveDetailRoute}
           onCloseDetailRoute={closeLiveDetailRoute}
@@ -1262,6 +1306,10 @@ export function App() {
           onTheme={setTheme}
           livePreviewLines={livePreviewLines}
           onLivePreviewLines={setLivePreviewLines}
+          liveTabEnabled={liveTabEnabled}
+          onLiveTabEnabled={setLiveTabEnabled}
+          hiddenEventTypes={hiddenEventTypes}
+          onToggleEventType={toggleEventType}
           defaultTab={defaultTab}
           onDefaultTab={setDefaultTab}
           serverBaseUrl={serverBaseUrl}

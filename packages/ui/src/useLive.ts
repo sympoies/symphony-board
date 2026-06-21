@@ -323,11 +323,19 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
 // One-shot capability probe for App-level nav gating: the Live tab is shown only
 // when the receiver answers (so a deployment without it — e.g. the standalone
 // app — never shows a dead tab). null = still probing.
-export function useLiveAvailable(serverBaseUrl: string | null): boolean | null {
+//
+// `enabled` is the user's opt-in (the Live tab is off by default): when false we
+// skip the probe entirely and report unavailable, so opting out makes no network
+// request and the tab/stream/redirect all treat Live as absent.
+export function useLiveAvailable(serverBaseUrl: string | null, enabled = true): boolean | null {
   const [available, setAvailable] = useState<boolean | null>(null);
   useEffect(() => {
     let cancelled = false;
     setAvailable(null);
+    if (!enabled) {
+      setAvailable(false);
+      return;
+    }
     if (endpointRequiresServerUrl("./api/live-snapshot", serverBaseUrl, null)) {
       setAvailable(false);
       return;
@@ -338,6 +346,6 @@ export function useLiveAvailable(serverBaseUrl: string | null): boolean | null {
     return () => {
       cancelled = true;
     };
-  }, [serverBaseUrl]);
+  }, [serverBaseUrl, enabled]);
   return available;
 }

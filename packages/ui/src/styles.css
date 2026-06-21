@@ -2333,6 +2333,16 @@ a.rf-node-title:hover { color: var(--accent); }
 .settings-head h2 { margin: 0 0 4px; border: none; padding: 0; }
 .settings-head p { margin: 0; max-width: 520px; }
 .settings-bulk { display: inline-flex; align-items: center; gap: 8px; }
+/* the "Sources & repos" header sits directly above the per-repo toggle list, so
+   its bulk Show all / Hide all controls live next to what they act on. Same
+   flex layout as .settings-head, with extra top margin to separate it from the
+   preference rows above. */
+.settings-repos-head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start;
+  gap: 12px; margin-top: 22px;
+}
+.settings-repos-head h3 { margin: 0 0 4px; font-size: 13px; }
+.settings-repos-head p { margin: 0; max-width: 520px; }
 .settings-pref {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin-top: 14px; padding: 10px 12px; background: var(--panel);
@@ -2344,6 +2354,16 @@ a.rf-node-title:hover { color: var(--accent); }
   flex: none; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit;
 }
+/* a boolean Settings control (the Live-tab enable switch): a slightly larger
+   accent checkbox, right-aligned like the selects. */
+.settings-toggle { flex: none; display: inline-flex; align-items: center; }
+.settings-toggle input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+/* the Live event-type visibility checkboxes: a wrapping group of compact labels.
+   Left-aligned (within its right-hand 320px box) so the boxes line up as a
+   scannable column rather than staggering per wrapped row. */
+.settings-types { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: flex-start; max-width: 320px; }
+.settings-type { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.settings-type input { accent-color: var(--accent); cursor: pointer; }
 .settings-server { align-items: flex-start; }
 .server-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
 .server-url-field { display: inline-flex; flex-direction: column; gap: 3px; font-size: 12px; }
@@ -2931,6 +2951,11 @@ a.rf-node-title:hover { color: var(--accent); }
   .settings-pref {
     flex-direction: column;
     align-items: stretch;
+  }
+  /* the stacked pref row gives its control a full-width line — let the event-type
+     chips use it instead of the 320px desktop cap. */
+  .settings-types {
+    max-width: none;
   }
   .settings-bulk,
   .settings-source-actions,
