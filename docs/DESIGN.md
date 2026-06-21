@@ -800,6 +800,31 @@ against the same interface but stubbed — enabling it is gated on company
 clearance to mirror private GitLab content off-host, and would also revisit
 per-client SSE authz / per-source visibility filtering.
 
+### Live coverage (allowlist + webhook)
+
+A repo's events reach the live feed only when **two independent gates** are both
+satisfied:
+
+- **Allowlisted.** The receiver takes an optional project allowlist
+  (`projectAllowlist`). An empty allowlist accepts every delivery; a **non-empty
+  one is fail-closed** — an event whose `target.project_path` is not listed is
+  dropped before persist. This bounds a webhook that fans in many repos (an org
+  or multi-repo hook) to the intended scope, and is expected to be derived from
+  the same source-of-truth that defines the tracked repos, so the live scope and
+  the canonical-sync scope stay aligned.
+- **Delivering.** Something must actually POST that repo's events to the receiver
+  with a valid signature — a per-repo, org, or App webhook — subscribed to the
+  event types of interest (issue / PR / review / comment, plus `push` for
+  commits).
+
+The gates are independent, which makes the two failure modes explicit: an
+allowlisted repo with no webhook is **silent in Live** (it still appears in the
+periodic canonical sync / Activity), while a delivering repo that is not
+allowlisted is **dropped**. Adding a repo to Live therefore means doing both —
+allowlisting it and pointing a webhook at the receiver. The exact mechanics are
+deployment-specific by design: the receiver reads only the webhook secret and the
+allowlist, by env-var name, and never holds a provider token or config mount.
+
 ## Runtime Decisions
 
 - **Node 24 with type stripping**: backend has no build step.
