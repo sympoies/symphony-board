@@ -26,8 +26,6 @@ const SCHEMA_FILE = resolve(__dirname, "schema.sql");
 // The live store owns its own version cursor (PRAGMA user_version), independent
 // of the canonical store's schema version.
 const LIVE_SCHEMA_VERSION = 2;
-const DEFAULT_ACTOR_PROFILE_TTL_MS = 7 * 86_400_000;
-
 export const DEFAULT_RECENT_LIMIT = 200;
 export const DEFAULT_SINCE_LIMIT = 1000;
 
@@ -82,10 +80,6 @@ const jsonOrNull = (v: unknown): string | null =>
 function loginKey(login: string | null | undefined): string | null {
   const value = text(login)?.trim();
   return value ? value.toLowerCase() : null;
-}
-
-function isoPlus(at: Date, ms: number): string {
-  return new Date(at.getTime() + ms).toISOString();
 }
 
 function parseJson<T>(raw: string | null): T | null {
@@ -160,6 +154,26 @@ const SELECT_COLUMNS = `seq, source_id, event_id, provider, received_at,
   occurred_at, event_type, action, category, actor_json, target_json, title,
   body, url, review_state, delivery_json, provider_details_json, raw_json`;
 
+interface LiveActorProfileKey {
+  sourceId: string;
+  provider: string;
+  login: string;
+}
+
+interface LiveActorProfileLookupRow extends LiveActorProfileRow {
+  source_id: string;
+  provider: string;
+  login: string;
+}
+
+function actorNeedsHydration(actor: LiveActor | null | undefined): actor is LiveActor {
+  return !!actor?.login && (!actor.display_name || !actor.avatar_url || !actor.profile_url);
+}
+
+function actorProfileKey(sourceId: string, provider: string, login: string): string {
+  return `${sourceId}\x1f${provider}\x1f${login}`;
+}
+
 export class LiveStore {
   readonly #db: DatabaseSync;
   readonly #path: string;
@@ -187,9 +201,18 @@ export class LiveStore {
            fetched_at, expires_at, last_error
          ) VALUES (?,?,?,?,?,?,?,?,?)
          ON CONFLICT(source_id, provider, login) DO UPDATE SET
-           display_name=excluded.display_name,
-           avatar_url=excluded.avatar_url,
-           profile_url=excluded.profile_url,
+           display_name=CASE
+             WHEN excluded.last_error IS NOT NULL THEN excluded.display_name
+             ELSE COALESCE(excluded.display_name, live_actor_profile.display_name)
+           END,
+           avatar_url=CASE
+             WHEN excluded.last_error IS NOT NULL THEN excluded.avatar_url
+             ELSE COALESCE(excluded.avatar_url, live_actor_profile.avatar_url)
+           END,
+           profile_url=CASE
+             WHEN excluded.last_error IS NOT NULL THEN excluded.profile_url
+             ELSE COALESCE(excluded.profile_url, live_actor_profile.profile_url)
+           END,
            fetched_at=excluded.fetched_at,
            expires_at=excluded.expires_at,
            last_error=excluded.last_error`,
@@ -207,13 +230,14 @@ export class LiveStore {
       );
   }
 
-  hasFreshActorProfile(
+  hasFreshResolvedActorProfile(
     sourceId: string,
     provider: string,
     login: string,
     now: Date = new Date(),
   ): boolean {
-    return this.#actorProfile(sourceId, provider, login, now.toISOString()) !== null;
+    const profile = this.#actorProfile(sourceId, provider, login, now.toISOString());
+    return profile !== null && (profile.last_error !== null || profile.avatar_url !== null);
   }
 
   #actorProfile(
@@ -236,29 +260,40 @@ export class LiveStore {
     return row ?? null;
   }
 
-  #seedActorProfile(ev: LiveEvent, now: Date = new Date()): void {
-    const actor = ev.actor;
-    const login = actor?.login;
-    if (!login) return;
-    if (!actor.display_name && !actor.avatar_url && !actor.profile_url) return;
-    this.upsertActorProfile({
-      source_id: ev.source_id,
-      provider: ev.provider,
-      login,
-      display_name: actor.display_name ?? null,
-      avatar_url: actor.avatar_url ?? null,
-      profile_url: actor.profile_url ?? null,
-      fetched_at: now.toISOString(),
-      expires_at: isoPlus(now, DEFAULT_ACTOR_PROFILE_TTL_MS),
-      last_error: null,
-    });
+  #actorProfiles(
+    keys: LiveActorProfileKey[],
+    nowIso: string,
+  ): Map<string, LiveActorProfileRow> {
+    const profiles = new Map<string, LiveActorProfileRow>();
+    const chunkSize = 200;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const tuples = chunk.map(() => "(?,?,?)").join(",");
+      const params: string[] = [nowIso];
+      for (const key of chunk) params.push(key.sourceId, key.provider, key.login);
+      const rows = this.#db
+        .prepare(
+          `SELECT source_id, provider, login, display_name, avatar_url, profile_url, expires_at, last_error
+           FROM live_actor_profile
+           WHERE expires_at >= ? AND (source_id, provider, login) IN (${tuples})`,
+        )
+        .all(...params) as unknown as LiveActorProfileLookupRow[];
+      for (const row of rows) {
+        profiles.set(actorProfileKey(row.source_id, row.provider, row.login), row);
+      }
+    }
+    return profiles;
   }
 
-  #hydrateEvent(ev: LiveEvent, nowIso: string = new Date().toISOString()): LiveEvent {
+  #hydrateEventFromProfiles(
+    ev: LiveEvent,
+    profiles: Map<string, LiveActorProfileRow>,
+  ): LiveEvent {
     const actor = ev.actor;
     const login = actor?.login;
-    if (!actor || !login) return ev;
-    const profile = this.#actorProfile(ev.source_id, ev.provider, login, nowIso);
+    const loginText = loginKey(login);
+    if (!actor || !loginText) return ev;
+    const profile = profiles.get(actorProfileKey(ev.source_id, ev.provider, loginText));
     if (!profile) return ev;
     const next: LiveActor = {
       ...actor,
@@ -274,6 +309,23 @@ export class LiveStore {
       return ev;
     }
     return { ...ev, actor: next };
+  }
+
+  hydrateEvents(events: LiveEvent[], now: Date = new Date()): LiveEvent[] {
+    if (events.length === 0) return events;
+    const keys = new Map<string, LiveActorProfileKey>();
+    for (const ev of events) {
+      if (!actorNeedsHydration(ev.actor)) continue;
+      const sourceId = text(ev.source_id);
+      const provider = text(ev.provider);
+      const login = loginKey(ev.actor.login);
+      if (!sourceId || !provider || !login) continue;
+      keys.set(actorProfileKey(sourceId, provider, login), { sourceId, provider, login });
+    }
+    if (keys.size === 0) return events;
+    const profiles = this.#actorProfiles([...keys.values()], now.toISOString());
+    if (profiles.size === 0) return events;
+    return events.map((ev) => this.#hydrateEventFromProfiles(ev, profiles));
   }
 
   // Insert-or-ignore on (source_id, event_id, ordinal). Returns the persisted
@@ -319,9 +371,7 @@ export class LiveStore {
     // Redelivery: the (source_id, event_id, ordinal) row already exists. Signal
     // "nothing new" so the receiver does not rebroadcast a duplicate.
     if (!inserted) return null;
-    const ev = inputToEvent(input, inserted.seq);
-    this.#seedActorProfile(ev);
-    return this.#hydrateEvent(ev);
+    return inputToEvent(input, inserted.seq);
   }
 
   // Replay backlog: rows strictly after `seq`, oldest-first, bounded by limit.
@@ -333,8 +383,7 @@ export class LiveStore {
          WHERE seq > ? ORDER BY seq ASC LIMIT ?`,
       )
       .all(seq, limit) as unknown as LiveEventRow[];
-    const nowIso = new Date().toISOString();
-    return rows.map((row) => this.#hydrateEvent(rowToEvent(row), nowIso));
+    return this.hydrateEvents(rows.map(rowToEvent));
   }
 
   // Snapshot: most recent rows, newest-first, bounded by limit.
@@ -344,8 +393,7 @@ export class LiveStore {
         `SELECT ${SELECT_COLUMNS} FROM live_event ORDER BY seq DESC LIMIT ?`,
       )
       .all(limit) as unknown as LiveEventRow[];
-    const nowIso = new Date().toISOString();
-    return rows.map((row) => this.#hydrateEvent(rowToEvent(row), nowIso));
+    return this.hydrateEvents(rows.map(rowToEvent));
   }
 
   // Highest seq currently retained, or 0 when empty. Served alongside the
@@ -368,6 +416,9 @@ export class LiveStore {
     const byTtl = this.#db
       .prepare(`DELETE FROM live_event WHERE received_at < ?`)
       .run(cutoff);
+    const byProfileTtl = this.#db
+      .prepare(`DELETE FROM live_actor_profile WHERE expires_at < ?`)
+      .run(now.toISOString());
     // Row cap: find the seq of the (maxRows+1)-th newest row via one indexed
     // range over the seq primary key, then delete at/below it — instead of a
     // whole-table NOT IN anti-join.
@@ -382,7 +433,7 @@ export class LiveStore {
           .run(cutoffRow.seq).changes,
       );
     }
-    return Number(byTtl.changes) + byCapChanges;
+    return Number(byTtl.changes) + byCapChanges + Number(byProfileTtl.changes);
   }
 
   close(): void {

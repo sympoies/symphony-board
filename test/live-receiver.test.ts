@@ -63,7 +63,7 @@ function build(
     maxBodyBytes?: number;
     replayLimit?: number;
     routes?: ProviderRoute[];
-    actorProfiles?: { observe(event: LiveEvent): void };
+    actorProfiles?: { observe(event: LiveEvent, onUpdate?: (event: LiveEvent) => void): void };
   } = {},
 ): Built {
   const store = openLiveStore(":memory:");
@@ -179,6 +179,15 @@ function dataSeqs(frames: string[]): number[] {
     });
 }
 
+function dataEvents(frames: string[]): LiveEvent[] {
+  return frames
+    .filter((f) => f.includes("data:") && f.includes("event: live"))
+    .map((f) => {
+      const line = f.split("\n").find((l) => l.startsWith("data: "));
+      return JSON.parse((line ?? "data: {}").slice(6)) as LiveEvent;
+    });
+}
+
 // Raw GET so a custom (possibly malformed) Host header can be set, which fetch
 // will not permit. Resolves the status code, or 0 on a connection error.
 function rawGet(
@@ -269,6 +278,45 @@ test("actor profile observer failures never reject a webhook delivery", async ()
     assert.equal(res.status, 202);
     assert.equal(b.store.recent(100).length, 1);
   } finally {
+    await stop(b);
+  }
+});
+
+test("actor profile observer updates are broadcast as same-seq replacements", async () => {
+  const b = build({
+    actorProfiles: {
+      observe(event, onUpdate) {
+        setTimeout(() => {
+          onUpdate?.({
+            ...event,
+            actor: {
+              ...(event.actor ?? {}),
+              login: event.actor?.login ?? null,
+              avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+              profile_url: "https://github.com/reporter",
+            },
+          });
+        }, 0);
+      },
+    },
+  });
+  const { hook, read } = await start(b);
+  const frames: string[] = [];
+  const sse = openSse(read, "/api/live", frames);
+  try {
+    const res = await postDelivery(hook, {
+      event: "issues",
+      delivery: "d-profile-update",
+      payload: issuesOpened(1),
+    });
+    assert.equal(res.status, 202);
+    await until(() => dataEvents(frames).length >= 2);
+    const events = dataEvents(frames);
+    assert.equal(events[1]?.seq, events[0]?.seq);
+    assert.equal(events[0]?.actor?.avatar_url ?? null, null);
+    assert.equal(events[1]?.actor?.avatar_url, "https://avatars.githubusercontent.com/u/1?v=4");
+  } finally {
+    sse.destroy();
     await stop(b);
   }
 });

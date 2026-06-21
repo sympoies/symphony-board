@@ -20,7 +20,7 @@ export interface GithubActorProfileOptions {
 }
 
 export interface ActorProfileObserver {
-  observe(event: LiveEvent): void;
+  observe(event: LiveEvent, onUpdate?: (event: LiveEvent) => void): void;
   close?(): void;
 }
 
@@ -54,6 +54,33 @@ function negativeProfile(
     expires_at: profileTime(now, ttlMs),
     last_error: error,
   };
+}
+
+function hasSeed(actor: LiveEvent["actor"]): boolean {
+  return !!(actor?.display_name || actor?.avatar_url || actor?.profile_url);
+}
+
+function hasAvatar(actor: LiveEvent["actor"]): boolean {
+  return !!actor?.avatar_url;
+}
+
+function applyProfile(event: LiveEvent, profile: LiveActorProfileInput): LiveEvent {
+  const actor = event.actor;
+  if (!actor || !actor.login) return event;
+  const next = {
+    ...actor,
+    display_name: actor.display_name ?? profile.display_name ?? null,
+    avatar_url: actor.avatar_url ?? profile.avatar_url ?? null,
+    profile_url: actor.profile_url ?? profile.profile_url ?? null,
+  };
+  if (
+    next.display_name === actor.display_name &&
+    next.avatar_url === actor.avatar_url &&
+    next.profile_url === actor.profile_url
+  ) {
+    return event;
+  }
+  return { ...event, actor: next };
 }
 
 export async function fetchGithubActorProfile(
@@ -106,51 +133,76 @@ export function createGithubActorProfileObserver(
 ): ActorProfileObserver {
   const maxConcurrent = opts.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
   const maxQueue = opts.maxQueue ?? DEFAULT_MAX_QUEUE;
-  const queue: string[] = [];
-  const queued = new Set<string>();
+  const queue: Array<{
+    key: string;
+    login: string;
+    waiters: Array<{ event: LiveEvent; onUpdate?: (event: LiveEvent) => void }>;
+  }> = [];
+  const queued = new Map<string, (typeof queue)[number]>();
   let active = 0;
   let closed = false;
 
   const runNext = (): void => {
     if (closed || active >= maxConcurrent) return;
-    const login = queue.shift();
-    if (!login) return;
+    const job = queue.shift();
+    if (!job) return;
     active += 1;
-    void fetchGithubActorProfile(login, opts)
+    void fetchGithubActorProfile(job.login, opts)
       .then((profile) => {
-        if (!closed) store.upsertActorProfile(profile);
+        if (closed) return;
+        store.upsertActorProfile(profile);
+        if (!profile.avatar_url) return;
+        for (const waiter of job.waiters) {
+          const enriched = applyProfile(waiter.event, profile);
+          if (enriched === waiter.event) continue;
+          try {
+            waiter.onUpdate?.(enriched);
+          } catch (err) {
+            log.warn(`[live] actor profile update failed for ${job.login}: ${(err as Error).message}`);
+          }
+        }
       })
       .catch((err: unknown) => {
         if (!closed) {
-          log.warn(`[live] actor profile lookup failed for ${login}: ${(err as Error).message}`);
+          log.warn(`[live] actor profile lookup failed for ${job.login}: ${(err as Error).message}`);
         }
       })
       .finally(() => {
         active -= 1;
-        queued.delete(login.toLowerCase());
+        queued.delete(job.key);
         runNext();
       });
   };
 
-  const enqueue = (login: string): void => {
+  const enqueue = (
+    login: string,
+    event: LiveEvent,
+    onUpdate?: (event: LiveEvent) => void,
+  ): void => {
     const key = login.toLowerCase();
-    if (closed || queued.has(key)) return;
+    if (closed) return;
+    const existing = queued.get(key);
+    if (existing) {
+      existing.waiters.push({ event, onUpdate });
+      return;
+    }
     if (queue.length >= maxQueue) {
       log.warn("[live] actor profile lookup queue full; dropping lookup");
       return;
     }
-    queued.add(key);
-    queue.push(login);
+    const job = { key, login, waiters: [{ event, onUpdate }] };
+    queued.set(key, job);
+    queue.push(job);
     runNext();
   };
 
   return {
-    observe(event: LiveEvent): void {
+    observe(event: LiveEvent, onUpdate?: (event: LiveEvent) => void): void {
       if (event.provider !== "github" || event.source_id !== "github:github.com") return;
       const actor = event.actor;
       const login = actor?.login;
       if (!login) return;
-      if (actor.display_name || actor.avatar_url || actor.profile_url) {
+      if (hasSeed(actor)) {
         const now = new Date();
         store.upsertActorProfile({
           source_id: event.source_id,
@@ -163,10 +215,10 @@ export function createGithubActorProfileObserver(
           expires_at: profileTime(now, opts.ttlMs ?? DEFAULT_PROFILE_TTL_MS),
           last_error: null,
         });
-        return;
       }
-      if (store.hasFreshActorProfile(event.source_id, event.provider, login)) return;
-      enqueue(login);
+      if (hasAvatar(actor)) return;
+      if (store.hasFreshResolvedActorProfile(event.source_id, event.provider, login)) return;
+      enqueue(login, event, onUpdate);
     },
     close(): void {
       closed = true;

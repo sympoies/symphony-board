@@ -25,6 +25,12 @@ export interface Subscriber {
   lastSentSeq: number;
 }
 
+export interface BroadcastOptions {
+  // Allow a same-seq replacement frame for post-ack enrichment updates. Older
+  // seqs are still skipped so the Last-Event-ID cursor never moves backwards.
+  replace?: boolean;
+}
+
 // SSE wire frame: `id: <seq>` (the Last-Event-ID cursor) + `event: live` +
 // `data: <json>`, terminated by a blank line.
 export function formatSseFrame(event: LiveEvent): string {
@@ -78,19 +84,20 @@ export class Broadcaster {
   // Send one event to a single subscriber, skipping anything it has already seen
   // and evicting it when its buffer is over the cap or the write throws. Used
   // both for backlog replay and live broadcast.
-  send(sub: Subscriber, event: LiveEvent): void {
-    if (event.seq <= sub.lastSentSeq) return;
+  send(sub: Subscriber, event: LiveEvent, opts: BroadcastOptions = {}): void {
+    if (event.seq < sub.lastSentSeq) return;
+    if (event.seq === sub.lastSentSeq && !opts.replace) return;
     // Advance the high-water mark only on a successful write, so an evicted
     // subscriber is never recorded as having "seen" an event it did not get.
     if (this.#writeOrEvict(sub, formatSseFrame(event))) {
-      sub.lastSentSeq = event.seq;
+      sub.lastSentSeq = Math.max(sub.lastSentSeq, event.seq);
     }
   }
 
   // Fan an event to every subscriber (each dedupes by its own high-water mark).
   // Iterate a snapshot of the values: a failed write may evict mid-loop.
-  broadcast(event: LiveEvent): void {
-    for (const sub of [...this.#subs.values()]) this.send(sub, event);
+  broadcast(event: LiveEvent, opts: BroadcastOptions = {}): void {
+    for (const sub of [...this.#subs.values()]) this.send(sub, event, opts);
   }
 
   closeAll(): void {

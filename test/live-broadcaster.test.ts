@@ -87,6 +87,29 @@ test("send writes a frame once and dedupes anything at or below the high-water s
   assert.equal(dataFrames[1], formatSseFrame(event(2)));
 });
 
+test("send can write a same-seq replacement without moving the cursor backwards", () => {
+  const b = new Broadcaster();
+  const r = res();
+  const sub = b.add(asRes(r), 0);
+  b.send(sub, event(2));
+  b.send(sub, { ...event(2), title: "enriched" }, { replace: true });
+  b.send(sub, event(1), { replace: true });
+  const dataFrames = r.writes.filter((w) => w.includes("event: live"));
+  assert.equal(dataFrames.length, 2);
+  assert.match(dataFrames[1] ?? "", /"title":"enriched"/);
+  assert.equal(sub.lastSentSeq, 2);
+});
+
+test("broadcast replacement fans same-seq updates to subscribers at that cursor", () => {
+  const b = new Broadcaster();
+  const r = res();
+  b.add(asRes(r), 5);
+  b.broadcast({ ...event(5), title: "profile update" }, { replace: true });
+  const dataFrames = r.writes.filter((w) => w.includes("event: live"));
+  assert.equal(dataFrames.length, 1);
+  assert.match(dataFrames[0] ?? "", /"title":"profile update"/);
+});
+
 test("broadcast fans to every subscriber, each deduping by its own cursor", () => {
   const b = new Broadcaster();
   const behind = res();

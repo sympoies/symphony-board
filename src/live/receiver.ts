@@ -195,14 +195,23 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
 
     // Profile lookup and broadcast both happen after the ack. Neither can reject
     // a delivery GitHub will not retry.
-    for (const ev of appended) {
+    const broadcastEvents = store.hydrateEvents(appended);
+    for (let i = 0; i < appended.length; i++) {
+      const ev = appended[i]!;
+      const broadcastEvent = broadcastEvents[i] ?? ev;
       try {
-        opts.actorProfiles?.observe(ev);
+        opts.actorProfiles?.observe(ev, (updated) => {
+          try {
+            broadcaster.broadcast(updated, { replace: true });
+          } catch (err) {
+            log.warn(`[live] actor profile update broadcast failed: ${(err as Error).message}`);
+          }
+        });
       } catch (err) {
         log.warn(`[live] actor profile observer failed: ${(err as Error).message}`);
       }
       try {
-        broadcaster.broadcast(ev);
+        broadcaster.broadcast(broadcastEvent);
       } catch (err) {
         log.warn(`[live] broadcast failed: ${(err as Error).message}`);
       }

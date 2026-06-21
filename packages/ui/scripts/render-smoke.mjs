@@ -158,7 +158,12 @@ function liveSnapshotMock() {
         event_type: "issue_comment",
         action: "created",
         category: "comment",
-        actor: { login: "octocat" },
+        actor: {
+          login: "octocat",
+          display_name: "The Octocat",
+          avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
+          profile_url: "https://github.com/octocat",
+        },
         target: { kind: "issue", source_id: "github:github.com", project_path: "acme/widgets", number: 42, title: "Widget overflow", url: "https://github.com/acme/widgets/issues/42" },
         title: "octocat commented on Widget overflow",
         body: "Looks good, shipping.",
@@ -1389,10 +1394,15 @@ try {
       // detail TITLE link (auto-followed newest = the comment row).
       const detailLink = document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || '';
       const status = document.querySelector('.live-status');
+      const avatar = rows[0]?.querySelector('.live-avatar');
+      const avatarImg = avatar?.querySelector('img');
       return {
         rendered: !!page,
         rows: rows.length,
         detailLink,
+        avatarHref: avatar?.getAttribute('href') || '',
+        avatarImgSrc: avatarImg?.getAttribute('src') || '',
+        avatarLabel: avatar?.getAttribute('aria-label') || avatar?.getAttribute('title') || '',
         activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\s+/g, '') || '',
         bufferText: Array.from(document.querySelectorAll('.live-card'))
           .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer')
@@ -2310,6 +2320,7 @@ try {
     [has(liveHtml, "live-page"), "live: page rendered"],
     [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],
     [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
+    [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
     [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],

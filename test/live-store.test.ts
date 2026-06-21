@@ -8,9 +8,11 @@
 // discipline in store-conformance, kept in its own file per repo convention.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { openLiveStore } from "../src/live/store.ts";
 import {
   LIVE_EVENT_SCHEMA,
@@ -259,17 +261,31 @@ test("cached actor profiles hydrate events whose actor lacks avatar fields", () 
   }
 });
 
-test("webhook-provided actor avatars seed the profile cache for later rows", () => {
+test("partial actor profile seeds preserve existing avatar fields", () => {
   const store = openLiveStore(":memory:");
   try {
-    store.append(ev(1, {
-      actor: {
-        login: "octocat",
-        display_name: "The Octocat",
-        avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
-        profile_url: "https://github.com/octocat",
-      },
-    }));
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "octocat",
+      display_name: "The Octocat",
+      avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
+      profile_url: "https://github.com/octocat",
+      fetched_at: "2026-06-21T00:00:00.000Z",
+      expires_at: "2026-06-28T00:00:00.000Z",
+      last_error: null,
+    });
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "octocat",
+      display_name: "Octo",
+      avatar_url: null,
+      profile_url: null,
+      fetched_at: "2026-06-21T00:01:00.000Z",
+      expires_at: "2026-06-28T00:01:00.000Z",
+      last_error: null,
+    });
     store.append(ev(2, {
       actor: {
         login: "octocat",
@@ -281,11 +297,145 @@ test("webhook-provided actor avatars seed the profile cache for later rows", () 
 
     const latest = head(store.recent(1));
     assert.equal(latest.event_id, "d-2");
-    assert.equal(latest.actor?.display_name, "The Octocat");
+    assert.equal(latest.actor?.display_name, "Octo");
     assert.equal(latest.actor?.avatar_url, "https://avatars.githubusercontent.com/u/583231?v=4");
     assert.equal(latest.actor?.profile_url, "https://github.com/octocat");
   } finally {
     store.close();
+  }
+});
+
+test("partial actor profile rows do not count as resolved until an avatar or error exists", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "partial",
+      display_name: "Partial Actor",
+      avatar_url: null,
+      profile_url: null,
+      fetched_at: "2026-06-21T00:00:00.000Z",
+      expires_at: "2026-06-28T00:00:00.000Z",
+      last_error: null,
+    });
+    assert.equal(
+      store.hasFreshResolvedActorProfile(
+        "github:github.com",
+        "github",
+        "partial",
+        new Date("2026-06-21T00:00:00.000Z"),
+      ),
+      false,
+    );
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "partial",
+      display_name: null,
+      avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+      profile_url: null,
+      fetched_at: "2026-06-21T00:01:00.000Z",
+      expires_at: "2026-06-28T00:01:00.000Z",
+      last_error: null,
+    });
+    assert.equal(
+      store.hasFreshResolvedActorProfile(
+        "github:github.com",
+        "github",
+        "partial",
+        new Date("2026-06-21T00:01:00.000Z"),
+      ),
+      true,
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("opening a v1 live.db preserves rows and adds the actor profile cache", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sb-live-v1-"));
+  const dbPath = join(dir, "live.db");
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`
+      CREATE TABLE live_event (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        ordinal INTEGER NOT NULL DEFAULT 0,
+        provider TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        occurred_at TEXT,
+        event_type TEXT NOT NULL,
+        action TEXT,
+        category TEXT NOT NULL,
+        actor_json TEXT,
+        target_json TEXT,
+        title TEXT,
+        body TEXT,
+        url TEXT,
+        review_state TEXT,
+        delivery_json TEXT,
+        provider_details_json TEXT,
+        raw_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+      CREATE UNIQUE INDEX live_event_delivery
+        ON live_event (source_id, event_id, ordinal);
+      CREATE INDEX live_event_received_at
+        ON live_event (received_at);
+      INSERT INTO live_event (
+        source_id, event_id, provider, received_at, event_type, category,
+        actor_json, delivery_json, created_at
+      ) VALUES (
+        'github:github.com', 'old-1', 'github', '2026-06-20T00:00:00Z',
+        'issues', 'issue', '{"login":"octocat"}',
+        '{"delivery_id":"old-1","event_header":"issues","signature_status":"verified"}',
+        '2026-06-20T00:00:00Z'
+      );
+      PRAGMA user_version = 1;
+    `);
+    db.close();
+
+    const store = openLiveStore(dbPath);
+    assert.equal(head(store.recent(1)).event_id, "old-1");
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "octocat",
+      display_name: "The Octocat",
+      avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
+      profile_url: "https://github.com/octocat",
+      fetched_at: "2026-06-21T00:00:00.000Z",
+      expires_at: "2026-06-28T00:00:00.000Z",
+      last_error: null,
+    });
+    assert.equal(head(store.recent(1)).actor?.avatar_url, "https://avatars.githubusercontent.com/u/583231?v=4");
+    store.close();
+
+    const verify = new DatabaseSync(dbPath);
+    try {
+      const version = verify.prepare("PRAGMA user_version").get() as { user_version: number };
+      assert.equal(version.user_version, 2);
+      const table = verify
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='live_actor_profile'")
+        .get() as { name: string } | undefined;
+      assert.equal(table?.name, "live_actor_profile");
+    } finally {
+      verify.close();
+    }
+
+    const reopened = openLiveStore(dbPath);
+    assert.equal(head(reopened.recent(1)).actor?.avatar_url, "https://avatars.githubusercontent.com/u/583231?v=4");
+    reopened.close();
+  } finally {
+    try {
+      db.close();
+    } catch {
+      /* already closed */
+    }
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -476,6 +626,48 @@ test("prune drops rows older than the TTL, keeps newer rows and the max seq", ()
     assert.equal(store.maxSeq(), 5);
     const replayed = store.since(0).map((e) => e.event_id);
     assert.ok(!replayed.includes("d-1") && !replayed.includes("d-2"));
+  } finally {
+    store.close();
+  }
+});
+
+test("prune drops expired actor profile cache rows", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "expired",
+      display_name: "Expired",
+      avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+      profile_url: "https://github.com/expired",
+      fetched_at: "2026-06-20T00:00:00.000Z",
+      expires_at: "2026-06-20T00:15:00.000Z",
+      last_error: null,
+    });
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "fresh",
+      display_name: "Fresh",
+      avatar_url: "https://avatars.githubusercontent.com/u/2?v=4",
+      profile_url: "https://github.com/fresh",
+      fetched_at: "2026-06-21T00:00:00.000Z",
+      expires_at: "2026-06-28T00:00:00.000Z",
+      last_error: null,
+    });
+
+    const deleted = store.prune(30, 100, new Date("2026-06-21T00:00:00.000Z"));
+    assert.equal(deleted, 1);
+    assert.equal(
+      store.hasFreshResolvedActorProfile(
+        "github:github.com",
+        "github",
+        "fresh",
+        new Date("2026-06-21T00:00:00.000Z"),
+      ),
+      true,
+    );
   } finally {
     store.close();
   }
