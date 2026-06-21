@@ -1274,7 +1274,27 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  // Page 5 — the Settings display filter: a per-repo checkbox list with bulk
+  // Page 5 — Reviews: synced provider review-thread detail with inline comment
+  // previews. Keep this after Repo Analytics so the threads metric can be
+  // validated independently of the repo table.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/reviews?ireview=unresolved'" });
+  await sleep(300);
+  const reviewsHtml = await waitHtml("document.querySelector('.reviews-page .review-table tbody tr')");
+  const reviewsRangeButtons = await rangeButtonLabels();
+  const reviewsCountText = await textOf(".reviews-head .count");
+  const reviewsSummary = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      rows: document.querySelectorAll('.reviews-page .review-table tbody tr').length,
+      links: Array.from(document.querySelectorAll('.reviews-page .review-pr-title a')).map((el) => el.getAttribute('href') || ''),
+      statuses: Array.from(document.querySelectorAll('.reviews-page .review-state-stack .badge')).map((el) => (el.textContent || '').trim()),
+      previews: Array.from(document.querySelectorAll('.reviews-page .review-comment-preview')).map((el) => el.textContent || ''),
+      repoBreakdown: document.querySelectorAll('.reviews-page .review-repo-row').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || { rows: 0, links: [], statuses: [], previews: [], repoBreakdown: 0 };
+  // Page 6 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
@@ -1916,6 +1936,7 @@ try {
     { page: "graph", hash: "#/graph", selector: ".graph-body" },
     { page: "activity", hash: "#/activity", selector: ".activity-page" },
     { page: "commits", hash: "#/commits", selector: ".commits-page" },
+    { page: "reviews", hash: "#/reviews", selector: ".reviews-page" },
     { page: "repo-analytics", hash: "#/repo-analytics", selector: ".repo-analytics-page" },
     { page: "settings", hash: "#/settings", selector: ".settings-page" },
     { page: "debug", hash: "#/debug", selector: ".debug-page" },
@@ -1979,6 +2000,8 @@ try {
                   ? document.querySelector('.graph-list')
                   : pageName === 'repo-analytics'
                     ? document.querySelector('.repo-table-wrap')
+                    : pageName === 'reviews'
+                      ? document.querySelector('.review-table-wrap')
                     : null;
           const primarySurfaceRect = primarySurface?.getBoundingClientRect();
           const heatmapMaxScroll = heatmapScroll ? Math.max(0, heatmapScroll.scrollWidth - heatmapScroll.clientWidth) : 0;
@@ -2473,7 +2496,7 @@ try {
   const phoneGraph = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "graph") || {};
   const tabletGraph = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "graph") || {};
   const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
-  const phoneContentPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["activity", "commits", "board", "graph", "repo-analytics"].includes(r.page));
+  const phoneContentPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["activity", "commits", "reviews", "board", "graph", "repo-analytics"].includes(r.page));
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   // Every content page (not Settings, not the chrome-less Debug page) renders the
   // shared date range, so every one of them collapses it behind a disclosure on a
@@ -2719,6 +2742,14 @@ try {
     // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
     // (2.5.0) rather than the old earliest-observed "since" timestamp.
     [/active \d/.test(repoHtml), "repo analytics: repo row renders the 'last active' timestamp label"],
+    // page 5: Reviews uses synced provider review-thread detail rows.
+    [has(reviewsHtml, "reviews-page"), "reviews: page rendered"],
+    [sameRangeButtons(reviewsRangeButtons), `reviews: shared range quick presets rendered without all (${reviewsRangeButtons.join(", ")})`],
+    [reviewsSummary.rows >= 1 && /open threads/.test(reviewsCountText), `reviews: unresolved thread rows rendered (${reviewsSummary.rows || 0}, ${reviewsCountText || "empty"})`],
+    [reviewsSummary.links.some((href) => href.includes("/pull/15#discussion_")), "reviews: thread title links to provider discussion"],
+    [reviewsSummary.statuses.includes("unresolved"), `reviews: unresolved status badge rendered (${reviewsSummary.statuses.join(", ") || "none"})`],
+    [reviewsSummary.previews.some((text) => text.includes("Cache the compiled pattern")), "reviews: comment preview text rendered inline"],
+    [reviewsSummary.repoBreakdown >= 1, `reviews: repo breakdown rendered (${reviewsSummary.repoBreakdown || 0})`],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     // every linked card also shows its relation count in the meta row — the two

@@ -30,12 +30,13 @@ The full product path is implemented end to end:
   edges, and activity rows are stored in the configured canonical store.
 - `sync` supports full and incremental modes; only a full and complete sweep may
   soft-delete unseen items or edges.
-- `emit` produces contract major v4, currently `4.0.0`, and validates the JSON
+- `emit` produces contract major v4, currently `4.1.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a 7-column Board, a relationship Graph, an
-  Activity feed, a GitHub-like Commits log, a Repo Analytics table/trend view,
-  and persistent Settings. Board, Graph, Activity, Commits, and Repo Analytics
-  share one URL-backed date-range control with a browser-local default preset.
+  Activity feed, a GitHub-like Commits log, a Review thread inbox with comment
+  previews, a Repo Analytics table/trend view, and persistent Settings. Board,
+  Graph, Activity, Commits, Reviews, and Repo Analytics share one URL-backed
+  date-range control with a browser-local default preset.
 - Docker Compose runs the sync/emit loop as the sole writer, a read-only range
   API sidecar over the configured store, and a read-only web sidecar over the
   latest emitted contract. `docker/compose.yaml` is the default SQLite stack;
@@ -493,7 +494,7 @@ Postgres or provider config/token files to Android.
 
 ## Contract Summary
 
-The current emitted contract is major v4, currently `4.0.0`. The canonical
+The current emitted contract is major v4, currently `4.1.0`. The canonical
 schema, field semantics, version rules, and full version history live in
 [docs/CONTRACT.md](docs/CONTRACT.md). The TypeScript DTO and JSON Schema entry
 point is [`@symphony-board/contract`](packages/contract).

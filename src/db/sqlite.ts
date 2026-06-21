@@ -25,7 +25,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
-import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/types.ts";
+import type { CanonicalActivity, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 import { activityRangeBounds } from "./activity-range.ts";
@@ -41,6 +41,7 @@ import type {
   EdgeRow,
   ItemRow,
   LabelRow,
+  ReviewThreadRow,
   SourceRow,
   Store,
   StoreDiagnostics,
@@ -64,6 +65,7 @@ const MIGRATIONS: Migration[] = [
   { version: 3, file: "0003_actor_identity.sql" },
   { version: 4, file: "0004_review_threads.sql" },
   { version: 5, file: "0005_repo_activity_bounds.sql" },
+  { version: 6, file: "0006_review_thread_detail.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -298,6 +300,53 @@ export class SqliteStore implements Store {
     if (!this.#inTransaction) this.#flushRepoActivityBoundsDirty();
   }
 
+  async upsertReviewThread(thread: CanonicalReviewThread, nowIso: string): Promise<void> {
+    this.#db
+      .prepare(
+        `INSERT INTO review_thread (
+           source_id, external_id, project_path, target_source_id, target_external_id,
+           target_iid, title, url, is_resolved, is_outdated, resolved_by, path,
+           line, start_line, comments_total, comments_json, last_seen_at, deleted_at
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+         ON CONFLICT(source_id, external_id) DO UPDATE SET
+           project_path=excluded.project_path,
+           target_source_id=excluded.target_source_id,
+           target_external_id=excluded.target_external_id,
+           target_iid=excluded.target_iid,
+           title=excluded.title,
+           url=excluded.url,
+           is_resolved=excluded.is_resolved,
+           is_outdated=excluded.is_outdated,
+           resolved_by=excluded.resolved_by,
+           path=excluded.path,
+           line=excluded.line,
+           start_line=excluded.start_line,
+           comments_total=excluded.comments_total,
+           comments_json=excluded.comments_json,
+           last_seen_at=excluded.last_seen_at,
+           deleted_at=NULL`,
+      )
+      .run(
+        thread.sourceId,
+        thread.externalId,
+        nz(thread.projectPath),
+        thread.target.sourceId,
+        thread.target.externalId,
+        nz(thread.targetIid),
+        nz(thread.title),
+        nz(thread.url),
+        bint(thread.isResolved),
+        bint(thread.isOutdated),
+        nz(thread.resolvedBy),
+        nz(thread.path),
+        nz(thread.line),
+        nz(thread.startLine),
+        thread.commentsTotal,
+        JSON.stringify(thread.comments),
+        nowIso,
+      );
+  }
+
   #markRepoActivityBoundsDirty(sourceId: string, projectPath: string | null, updatedAt: string): void {
     const bucket = repoActivityBoundsBucket(sourceId, projectPath, updatedAt);
     this.#repoActivityBoundsDirty.set(repoActivityBoundsBucketId(sourceId, bucket.projectKey), bucket);
@@ -412,6 +461,13 @@ export class SqliteStore implements Store {
     return Number(r.changes);
   }
 
+  async softDeleteUnseenReviewThreads(sourceId: string, cutoff: string, nowIso: string): Promise<number> {
+    const r = this.#db
+      .prepare(`UPDATE review_thread SET deleted_at=? WHERE source_id=? AND deleted_at IS NULL AND last_seen_at < ?`)
+      .run(nowIso, sourceId, cutoff);
+    return Number(r.changes);
+  }
+
   // ---- read paths ----------------------------------------------------------
 
   async getWatermark(sourceId: string): Promise<string | null> {
@@ -503,6 +559,24 @@ export class SqliteStore implements Store {
          ORDER BY julianday(occurred_at) DESC, activity_id DESC`,
       )
       .all(coarseFrom, coarseTo, from, to) as unknown as ActivityRow[];
+  }
+
+  async listLiveReviewThreads(): Promise<ReviewThreadRow[]> {
+    const rows = this.#db
+      .prepare(
+        `SELECT source_id, external_id, project_path, target_source_id, target_external_id,
+                target_iid, title, url, is_resolved, is_outdated, resolved_by, path,
+                line, start_line, comments_total, comments_json, last_seen_at
+         FROM review_thread
+         WHERE deleted_at IS NULL
+         ORDER BY is_resolved ASC, source_id ASC, project_path ASC, target_iid DESC, path ASC, line ASC, external_id ASC`,
+      )
+      .all() as unknown as Array<Omit<ReviewThreadRow, "is_resolved" | "is_outdated"> & { is_resolved: number; is_outdated: number | null }>;
+    return rows.map((r) => ({
+      ...r,
+      is_resolved: r.is_resolved !== 0,
+      is_outdated: r.is_outdated === null ? null : r.is_outdated !== 0,
+    }));
   }
 
   async listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]> {

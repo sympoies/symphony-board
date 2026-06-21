@@ -12,7 +12,7 @@
 // registered driver. A new driver is acceptable when that suite passes — the
 // suite, not the type signatures, is the swap guarantee.
 
-import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/types.ts";
+import type { CanonicalActivity, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 
@@ -91,6 +91,26 @@ export interface ActivityRow {
   summary: string | null;
   details: string | null;
   first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+export interface ReviewThreadRow {
+  source_id: string;
+  external_id: string;
+  project_path: string | null;
+  target_source_id: string;
+  target_external_id: string;
+  target_iid: number | null;
+  title: string | null;
+  url: string | null;
+  is_resolved: boolean;
+  is_outdated: boolean | null;
+  resolved_by: string | null;
+  path: string | null;
+  line: number | null;
+  start_line: number | null;
+  comments_total: number;
+  comments_json: string;
   last_seen_at: string | null;
 }
 
@@ -187,6 +207,7 @@ export interface Store {
   replaceLabels(itemId: number, labels: CanonicalLabel[]): Promise<void>;
   upsertEdge(e: ReconciledEdge, nowIso: string): Promise<void>;
   upsertActivity(a: CanonicalActivity, nowIso: string): Promise<void>;
+  upsertReviewThread(thread: CanonicalReviewThread, nowIso: string): Promise<void>;
   // Open a run row (status starts 'partial' so a crash mid-run never enables a
   // soft-delete sweep). Resolves the run_id.
   startRun(sourceId: string, mode: "full" | "incremental", startedAt: string): Promise<number>;
@@ -214,6 +235,9 @@ export interface Store {
   // in `sourceId`) — a single-source sweep cannot confirm a cross-source edge
   // disappeared. CALLER MUST gate this on a full + complete run.
   softDeleteUnseenEdges(sourceId: string, cutoff: string, nowIso: string): Promise<number>;
+  // Same disappearance rule for review-thread detail rows: only a full +
+  // complete source sweep may tombstone threads that were not observed.
+  softDeleteUnseenReviewThreads(sourceId: string, cutoff: string, nowIso: string): Promise<number>;
 
   // -- read paths --
   // Prior incremental watermark for a source (max updated_at seen), or null.
@@ -235,6 +259,7 @@ export interface Store {
   // by parsed instant, identical to a JS `from <= t <= to` filter — NOT by raw
   // text, which is offset-sensitive. See src/db/activity-range.ts.
   listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]>;
+  listLiveReviewThreads(): Promise<ReviewThreadRow[]>;
   // Cached all-time per-repo activity bounds (earliest/latest occurred_at
   // INSTANT), independent of any range window. The /api/range path uses these
   // for documented all-time data_quality coverage (observed_since /

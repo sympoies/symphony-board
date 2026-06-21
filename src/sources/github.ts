@@ -10,6 +10,7 @@ import type {
   CanonicalItem,
   CanonicalEdge,
   CanonicalActivity,
+  CanonicalReviewThread,
   ItemState,
   ReviewState,
   CiState,
@@ -52,7 +53,10 @@ const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedA
 // covers every real PR; if one somehow has more (`pageInfo.hasNextPage`), the
 // node-derived `open` would be a misleading floor, so the count is reported as
 // unknown (null) for that PR rather than wrong (see reviewThreadCounts).
-const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes { isResolved } }`;
+const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes {
+  id isResolved isOutdated path line startLine resolvedBy { login }
+  comments(first:10){ totalCount nodes { id author { login } body url createdAt updatedAt } }
+} }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
 // really a `closes` link, which we skip (closingIssuesReferences covers those).
@@ -291,7 +295,13 @@ export class GitHubSource implements Source {
       openReviewThreads: threads.open,
       totalReviewThreads: threads.total,
     };
-    return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.reviewActivities(p, item)] };
+    return {
+      item,
+      labels: this.labels(p),
+      edges,
+      activities: [...itemActivities(item), ...this.reviewActivities(p, item)],
+      reviewThreads: this.reviewThreads(p, item),
+    };
   }
 
   // Submitted PR reviews -> `review` activity rows. Each submission
@@ -320,6 +330,43 @@ export class GitHubSource implements Source {
         occurredAt,
         summary: reviewSummary(action, item.iid),
         details: { state: r.state ?? null },
+      });
+    }
+    return out;
+  }
+
+  private reviewThreads(p: any, item: CanonicalItem): CanonicalReviewThread[] {
+    const rt = p?.reviewThreads;
+    if (!rt || rt.pageInfo?.hasNextPage) return [];
+    const out: CanonicalReviewThread[] = [];
+    for (const t of rt.nodes ?? []) {
+      if (!t?.id) continue;
+      const comments = (t.comments?.nodes ?? [])
+        .filter((c: any) => c?.id)
+        .map((c: any) => ({
+          id: String(c.id),
+          author: c.author?.login ?? null,
+          body: cleanText(c.body),
+          url: cleanText(c.url),
+          createdAt: cleanText(c.createdAt),
+          updatedAt: cleanText(c.updatedAt),
+        }));
+      out.push({
+        sourceId: this.descriptor.sourceId,
+        externalId: String(t.id),
+        projectPath: item.projectPath,
+        target: { sourceId: this.descriptor.sourceId, externalId: p.id },
+        targetIid: item.iid,
+        title: item.title,
+        url: comments[0]?.url ?? item.url ?? null,
+        isResolved: Boolean(t.isResolved),
+        isOutdated: typeof t.isOutdated === "boolean" ? t.isOutdated : null,
+        resolvedBy: t.resolvedBy?.login ?? null,
+        path: cleanText(t.path),
+        line: typeof t.line === "number" ? t.line : null,
+        startLine: typeof t.startLine === "number" ? t.startLine : null,
+        commentsTotal: typeof t.comments?.totalCount === "number" ? t.comments.totalCount : comments.length,
+        comments,
       });
     }
     return out;

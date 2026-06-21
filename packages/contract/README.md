@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.0.0`.
+Current contract version emitted by the backend: `4.1.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.0.0`. Important compatibility milestones:
+The current emitted contract is `4.1.0`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -88,6 +88,10 @@ The current emitted contract is `4.0.0`. Important compatibility milestones:
   windowing); `/api/range` stays un-windowed for wider raw feeds. 4.0.0 also
   drops the redundant activity `id` (= `source_id|external_id`) and `summary`
   (producer prose the UI rebuilds from the structured fields).
+- 4.1.0 adds optional top-level `ReviewThreadDTO[]` (`review_threads`) with
+  current provider review-thread status, file/line metadata, and compact
+  comment previews for loaded change requests. The existing item-level
+  `review_threads {open,total}` summary is unchanged.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

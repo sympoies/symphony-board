@@ -91,7 +91,7 @@ const SOURCE_ROW: SourceRow = {
   last_status: "ok",
 };
 
-// Minimal read-only Store stub: buildContractEnvelope only calls the five list
+// Minimal read-only Store stub: buildContractEnvelope only calls these list
 // methods, so the emit path is testable without a DB.
 function fakeStore(items: ItemRow[]): Store {
   return {
@@ -100,6 +100,7 @@ function fakeStore(items: ItemRow[]): Store {
     listLabels: async () => [],
     listLiveEdges: async () => [],
     listActivities: async () => [],
+    listLiveReviewThreads: async () => [],
   } as unknown as Store;
 }
 

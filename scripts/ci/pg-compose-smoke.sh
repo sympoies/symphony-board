@@ -131,8 +131,8 @@ if (stats.db?.driver !== "postgres") {
   console.error(`expected stats.db.driver=postgres, got ${stats.db?.driver ?? "(missing)"}`);
   process.exit(1);
 }
-if (stats.db?.schema_version !== 5) {
-  console.error(`expected schema_version=5, got ${stats.db?.schema_version ?? "(missing)"}`);
+if (stats.db?.schema_version !== 6) {
+  console.error(`expected schema_version=6, got ${stats.db?.schema_version ?? "(missing)"}`);
   process.exit(1);
 }
 ' "$stats"

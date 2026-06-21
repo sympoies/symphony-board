@@ -1,5 +1,5 @@
 {
-  "contract_version": "4.0.0",
+  "contract_version": "4.1.0",
   "generated_at": "2026-06-10T09:00:00Z",
   "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
@@ -332,6 +332,240 @@
         "primary",
         "edge_endpoint"
       ]
+    }
+  ],
+  "review_threads": [
+    {
+      "id": "github:github.com|PRRT_b_1",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_b_1",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_b",
+      "target_iid": 13,
+      "title": "Fix flaky sync-engine test",
+      "url": "https://github.com/sympoies/symphony-board/pull/13#discussion_r1001",
+      "is_resolved": true,
+      "is_outdated": false,
+      "resolved_by": "reviewer",
+      "path": "src/sync-engine.ts",
+      "line": 42,
+      "start_line": null,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-b-1",
+          "author": "reviewer",
+          "body": "Looks good after the retry guard.",
+          "url": "https://github.com/sympoies/symphony-board/pull/13#discussion_r1001",
+          "created_at": "2026-06-09T16:15:00Z",
+          "updated_at": "2026-06-09T16:15:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_b_2",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_b_2",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_b",
+      "target_iid": 13,
+      "title": "Fix flaky sync-engine test",
+      "url": "https://github.com/sympoies/symphony-board/pull/13#discussion_r1002",
+      "is_resolved": true,
+      "is_outdated": true,
+      "resolved_by": "maintainer",
+      "path": "test/sync-engine.test.ts",
+      "line": 88,
+      "start_line": 84,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-b-2",
+          "author": "maintainer",
+          "body": "Covered by the regression case.",
+          "url": "https://github.com/sympoies/symphony-board/pull/13#discussion_r1002",
+          "created_at": "2026-06-09T17:45:00Z",
+          "updated_at": "2026-06-09T17:45:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_d_1",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_d_1",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_d",
+      "target_iid": 15,
+      "title": "WIP: incremental loop cadence",
+      "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2001",
+      "is_resolved": false,
+      "is_outdated": false,
+      "resolved_by": null,
+      "path": "src/loop.ts",
+      "line": 37,
+      "start_line": null,
+      "comments_total": 2,
+      "comments": [
+        {
+          "id": "github-comment-d-1",
+          "author": "reviewer",
+          "body": "Cache the compiled pattern so the loop does not rebuild it on every tick.",
+          "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2001",
+          "created_at": "2026-06-10T08:20:00Z",
+          "updated_at": "2026-06-10T08:20:00Z"
+        },
+        {
+          "id": "github-comment-d-2",
+          "author": "maintainer",
+          "body": "I will move this next to the scheduler state.",
+          "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2002",
+          "created_at": "2026-06-10T08:35:00Z",
+          "updated_at": "2026-06-10T08:35:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_d_2",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_d_2",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_d",
+      "target_iid": 15,
+      "title": "WIP: incremental loop cadence",
+      "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2003",
+      "is_resolved": false,
+      "is_outdated": false,
+      "resolved_by": null,
+      "path": "src/sources/github.ts",
+      "line": 119,
+      "start_line": 117,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-d-3",
+          "author": "reviewer",
+          "body": "Please keep the incremental fetch from deleting unseen rows.",
+          "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2003",
+          "created_at": "2026-06-10T08:25:00Z",
+          "updated_at": "2026-06-10T08:25:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_d_3",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_d_3",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_d",
+      "target_iid": 15,
+      "title": "WIP: incremental loop cadence",
+      "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2004",
+      "is_resolved": false,
+      "is_outdated": true,
+      "resolved_by": null,
+      "path": "README.md",
+      "line": 54,
+      "start_line": null,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-d-4",
+          "author": "maintainer",
+          "body": "The README should mention the cadence knob.",
+          "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2004",
+          "created_at": "2026-06-10T08:40:00Z",
+          "updated_at": "2026-06-10T08:40:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_d_4",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_d_4",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_d",
+      "target_iid": 15,
+      "title": "WIP: incremental loop cadence",
+      "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2005",
+      "is_resolved": true,
+      "is_outdated": false,
+      "resolved_by": "maintainer",
+      "path": "docs/DESIGN.md",
+      "line": 72,
+      "start_line": null,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-d-5",
+          "author": "reviewer",
+          "body": "This design note is now clear.",
+          "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2005",
+          "created_at": "2026-06-10T08:45:00Z",
+          "updated_at": "2026-06-10T08:45:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_d_5",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_d_5",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_d",
+      "target_iid": 15,
+      "title": "WIP: incremental loop cadence",
+      "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2006",
+      "is_resolved": true,
+      "is_outdated": false,
+      "resolved_by": "reviewer",
+      "path": "src/server/range.ts",
+      "line": 29,
+      "start_line": null,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-d-6",
+          "author": "reviewer",
+          "body": "Resolved after the range endpoint kept the same projection.",
+          "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2006",
+          "created_at": "2026-06-10T08:47:00Z",
+          "updated_at": "2026-06-10T08:47:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "id": "github:github.com|PRRT_f_1",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_f_1",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_f",
+      "target_iid": 8,
+      "title": "Abandoned rate-limit fix",
+      "url": "https://github.com/sympoies/symphony-board/pull/8#discussion_r3001",
+      "is_resolved": false,
+      "is_outdated": false,
+      "resolved_by": null,
+      "path": "src/sources/rest.ts",
+      "line": 64,
+      "start_line": null,
+      "comments_total": 1,
+      "comments": [
+        {
+          "id": "github-comment-f-1",
+          "author": "reviewer",
+          "body": "This retry policy still hides the provider status code.",
+          "url": "https://github.com/sympoies/symphony-board/pull/8#discussion_r3001",
+          "created_at": "2026-04-22T10:30:00Z",
+          "updated_at": "2026-04-22T10:30:00Z"
+        }
+      ],
+      "last_seen_at": "2026-06-10T08:58:00Z"
     }
   ],
   "edges": [

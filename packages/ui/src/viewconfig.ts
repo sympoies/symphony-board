@@ -209,6 +209,7 @@ export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
   { id: "live", label: "Live" },
   { id: "activity", label: "Activity" },
   { id: "commits", label: "Commits" },
+  { id: "reviews", label: "Reviews" },
   { id: "board", label: "Board" },
   { id: "graph", label: "Graph" },
   { id: "repo-analytics", label: "Analytics" },

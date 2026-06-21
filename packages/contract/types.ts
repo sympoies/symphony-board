@@ -321,6 +321,35 @@ export interface ActivityDTO {
   last_seen_at: string | null;
 }
 
+export interface ReviewThreadCommentDTO {
+  id: string;
+  author: string | null;
+  body: string | null;
+  url: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ReviewThreadDTO {
+  id: Ref;
+  source_id: string;
+  external_id: string;
+  project_path: string | null;
+  target_ref: Ref;
+  target_iid: number | null;
+  title: string | null;
+  url: string | null;
+  is_resolved: boolean;
+  is_outdated: boolean | null;
+  resolved_by: string | null;
+  path: string | null;
+  line: number | null;
+  start_line: number | null;
+  comments_total: number;
+  comments: ReviewThreadCommentDTO[];
+  last_seen_at: string | null;
+}
+
 // One calendar day's activity counts (LAYER 3). Part of activity_daily.
 export interface ActivityDailyBucketDTO {
   // Calendar day "YYYY-MM-DD" in the envelope `timezone`.
@@ -379,6 +408,11 @@ export interface ContractEnvelope {
   // `activity_daily`; for a wider raw feed fetch `/api/range` (which is NOT
   // windowed). The range API still returns the full requested span here.
   activities?: ActivityDTO[];
+  // Current provider review-thread detail rows for the emitted item projection.
+  // This is the thread inbox surface: current resolution state, location, and a
+  // small synced comment preview. Added in 4.1.0. Optional so older v4 payloads
+  // stay readable.
+  review_threads?: ReviewThreadDTO[];
   // Pre-computed per-day / per-kind activity counts over the FULL canonical
   // activity history (added in 4.0.0), so the Activity Overview no longer needs
   // the full raw `activities[]`. Optional: the static `contract.json` always

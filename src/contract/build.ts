@@ -2,7 +2,7 @@
 // given rows + a `generatedAt` instant, produce the versioned envelope. No DB
 // access here, so it is unit-testable with fabricated rows.
 
-import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../db/store.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, ReviewThreadRow, SourceRow } from "../db/store.ts";
 import type {
   ActivityDTO,
   ActivityDailyDTO,
@@ -17,6 +17,8 @@ import type {
   RepoMetricDTO,
   RepoMetricStatsDTO,
   RepoMetricWindowDTO,
+  ReviewThreadCommentDTO,
+  ReviewThreadDTO,
   LabelDTO,
   AggregateDTO,
   AggregateStatsDTO,
@@ -137,6 +139,65 @@ function toActivityDTO(row: ActivityRow): ActivityDTO {
     first_seen_at: row.first_seen_at,
     last_seen_at: row.last_seen_at,
   };
+}
+
+function parseReviewThreadComments(raw: string): ReviewThreadCommentDTO[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((comment): comment is Record<string, unknown> => {
+        return comment !== null && typeof comment === "object" && typeof comment.id === "string";
+      })
+      .map((comment) => ({
+        id: String(comment.id),
+        author: typeof comment.author === "string" ? comment.author : null,
+        body: typeof comment.body === "string" ? comment.body : null,
+        url: typeof comment.url === "string" ? comment.url : null,
+        created_at: typeof comment.createdAt === "string" ? comment.createdAt : typeof comment.created_at === "string" ? comment.created_at : null,
+        updated_at: typeof comment.updatedAt === "string" ? comment.updatedAt : typeof comment.updated_at === "string" ? comment.updated_at : null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function toReviewThreadDTO(row: ReviewThreadRow): ReviewThreadDTO {
+  return {
+    id: refOf(row.source_id, row.external_id),
+    source_id: row.source_id,
+    external_id: row.external_id,
+    project_path: row.project_path,
+    target_ref: refOf(row.target_source_id, row.target_external_id),
+    target_iid: row.target_iid,
+    title: row.title,
+    url: row.url,
+    is_resolved: row.is_resolved,
+    is_outdated: row.is_outdated,
+    resolved_by: row.resolved_by,
+    path: row.path,
+    line: row.line,
+    start_line: row.start_line,
+    comments_total: row.comments_total,
+    comments: parseReviewThreadComments(row.comments_json),
+    last_seen_at: row.last_seen_at,
+  };
+}
+
+function reviewThreadsForItems(rows: ReviewThreadDTO[], items: ItemDTO[]): ReviewThreadDTO[] {
+  const emittedTargets = new Set(items.map((item) => item.id));
+  return rows
+    .filter((thread) => emittedTargets.has(thread.target_ref))
+    .sort((a, b) => {
+      if (a.is_resolved !== b.is_resolved) return a.is_resolved ? 1 : -1;
+      const repo = (a.project_path ?? "").localeCompare(b.project_path ?? "");
+      if (repo !== 0) return repo;
+      const target = (b.target_iid ?? 0) - (a.target_iid ?? 0);
+      if (target !== 0) return target;
+      const path = (a.path ?? "").localeCompare(b.path ?? "");
+      if (path !== 0) return path;
+      return (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? "");
+    });
 }
 
 function toSourceDTO(row: SourceRow, sourceColors: Record<string, string>): SourceDTO {
@@ -1103,6 +1164,7 @@ export interface BuildInput {
   labels: LabelRow[];
   edges: EdgeRow[];
   activities?: ActivityRow[];
+  reviewThreads?: ReviewThreadRow[];
   generatedAt: string;
   // Config-derived display colors (NOT stored in the DB). Threaded in by the
   // emit CLI, which reads config; buildContract stays a pure mapping of its
@@ -1211,6 +1273,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     items: windowed.items,
     edges: windowed.edges,
     activities: windowedActivities,
+    review_threads: reviewThreadsForItems(mapped.reviewThreads, windowed.items),
     activity_daily: activityDaily,
     repos: mapped.repos,
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
@@ -1225,6 +1288,7 @@ function mapRows(input: BuildInput): {
   items: ItemDTO[];
   edges: EdgeDTO[];
   activities: ActivityDTO[];
+  reviewThreads: ReviewThreadDTO[];
   repos: RepoDTO[];
 } {
   const labelsByItem = new Map<number, LabelRow[]>();
@@ -1239,6 +1303,7 @@ function mapRows(input: BuildInput): {
   return {
     sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
     activities: sortActivitiesByInstantDesc((input.activities ?? []).map(toActivityDTO)),
+    reviewThreads: (input.reviewThreads ?? []).map(toReviewThreadDTO),
     repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
     items,
     edges,
@@ -1293,6 +1358,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     items: ranged.items,
     edges: ranged.edges,
     activities: ranged.activities,
+    review_threads: reviewThreadsForItems(mapped.reviewThreads, ranged.items),
     repos: mapped.repos,
     aggregates: [],
     item_window: ranged.itemWindow,

@@ -102,6 +102,7 @@ import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
 import { CommitsPage } from "./components/CommitsPage.tsx";
+import { ReviewsPage } from "./components/ReviewsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { DebugPage } from "./components/DebugPage.tsx";
 import { LivePage } from "./components/LivePage.tsx";
@@ -125,10 +126,11 @@ type MobileControlPanel = "search" | "filters" | "range" | null;
 // Pages via a zero-dep hash route: "" (first open) defaults to Activity,
 // "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
 // graph, "activity" (#/activity) the event feed,
-// "commits" (#/commits) the cross-repo commit log, "repo-analytics"
-// (#/repo-analytics) the per-repo metrics view, and "settings" (#/settings) the
-// persistent repo display filter. "debug" (#/debug) is the hidden Diagnostics
-// page — not in the nav, toggled with Cmd+/ (Ctrl+/) or by typing the hash.
+// "commits" (#/commits) the cross-repo commit log, "reviews" (#/reviews) the
+// current provider review-thread inbox, "repo-analytics" (#/repo-analytics) the
+// per-repo metrics view, and "settings" (#/settings) the persistent repo
+// display filter. "debug" (#/debug) is the hidden Diagnostics page — not in the
+// nav, toggled with Cmd+/ (Ctrl+/) or by typing the hash.
 // The route may carry "?q=<search>" so the
 // visible search box is URL-backed; graph routes may also carry "?focus=<ref>",
 // written by a board-card deep-link AND by every in-graph focus change
@@ -216,11 +218,13 @@ export function App() {
         ? "graph"
         : route.page === "commits"
           ? "commits"
-          : route.page === "repo-analytics" || route.page === "repos"
-            ? "repo-analytics"
-            : route.page === "settings"
-              ? "settings"
-              : "activity";
+          : route.page === "reviews"
+            ? "reviews"
+            : route.page === "repo-analytics" || route.page === "repos"
+              ? "repo-analytics"
+              : route.page === "settings"
+                ? "settings"
+                : "activity";
   useEffect(() => {
     setMobileControlPanel(null);
   }, [page]);
@@ -1108,6 +1112,9 @@ export function App() {
       <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
         Commits
       </a>
+      <a className={`tab${page === "reviews" ? " tab-on" : ""}`} href={routeHref("reviews")}>
+        Reviews
+      </a>
       <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
         Board
       </a>
@@ -1356,6 +1363,26 @@ export function App() {
           colorOf={colorOf}
           emptyState={
             <EmptyState noun="commits" total={totalCommits} windowTotal={windowCommits.length} {...emptyStateShared} dataExtent={commitDataExtent} />
+          }
+        />
+      ) : page === "reviews" ? (
+        <ReviewsPage
+          reviewThreads={visibleEnv.review_threads ?? []}
+          windowItems={primaryItems}
+          metrics={repoMetrics}
+          filters={itemFilters}
+          itemsById={activityItemsById}
+          range={activeRange}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+          lens={itemFacetFields(itemFacetState)}
+          emptyState={
+            <EmptyState
+              noun="review threads"
+              total={env.review_threads?.length ?? 0}
+              windowTotal={visibleEnv.review_threads?.length ?? 0}
+              {...emptyStateShared}
+            />
           }
         />
       ) : page === "repo-analytics" ? (

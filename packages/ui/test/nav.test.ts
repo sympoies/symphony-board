@@ -16,7 +16,7 @@ import {
   ITEM_REVIEW_VALUES,
   activityDrilldownHref,
   commitsDrilldownHref,
-  boardReviewsHref,
+  reviewThreadsHref,
   tabHref,
   graphFocusHref,
   activityView,
@@ -221,7 +221,7 @@ test("item facets parse, toggle, and round-trip through the hash without collidi
   assert.deepEqual([...activityFacets(route).sources], [], "Activity facets are untouched by the item lens");
 });
 
-test("review lens: toggleItemFacet round-trips ireview; boardReviewsHref pins source + review + repo search", () => {
+test("review lens: toggleItemFacet round-trips ireview; reviewThreadsHref pins source + review + repo search", () => {
   assert.deepEqual([...ITEM_REVIEW_VALUES], ["threads", "unresolved"]);
   const empty = itemFacets({ isource: null, istate: null, ikind: null, ireview: null, irepo: null });
   const withReview = toggleItemFacet(empty, "reviews", "unresolved");
@@ -229,18 +229,18 @@ test("review lens: toggleItemFacet round-trips ireview; boardReviewsHref pins so
   assert.equal(itemFacetFields(withReview).ireview, "unresolved");
   assert.equal(itemFacetFields(toggleItemFacet(withReview, "reviews", "unresolved")).ireview, null, "re-toggle clears it");
 
-  const href = boardReviewsHref({ source: "github:github.com", repo: "o/r", range: { from: null, to: null, preset: null }, value: "unresolved" });
+  const href = reviewThreadsHref({ source: "github:github.com", repo: "o/r", range: { from: null, to: null, preset: null }, value: "unresolved" });
   const route = parseHashRoute(href!);
-  assert.equal(route.page, "board");
+  assert.equal(route.page, "reviews");
   assert.equal(route.isource, "github:github.com");
   assert.equal(route.ireview, "unresolved");
   // the exact repo is pinned via irepo (NOT the free-text q substring, which
   // collided on shared path prefixes).
   assert.equal(route.irepo, "o/r", "repo path pins the exact-repo lens");
-  assert.equal(route.q, null, "no free-text q substring on the board reviews link");
+  assert.equal(route.q, null, "no free-text q substring on the review threads link");
   assert.ok(href!.includes("irepo=o%2Fr"), `hash carries the encoded irepo pin (${href})`);
   assert.ok(!href!.includes("q="), "hash carries no q= field");
-  assert.equal(boardReviewsHref({ source: "s", repo: null, range: { from: null, to: null, preset: null }, value: "unresolved" }), null, "null repo -> no link");
+  assert.equal(reviewThreadsHref({ source: "s", repo: null, range: { from: null, to: null, preset: null }, value: "unresolved" }), null, "null repo -> no link");
 });
 
 // The lens (incl. irepo) threads through the Repo Analytics drill-downs so a

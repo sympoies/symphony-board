@@ -4,7 +4,7 @@ import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
 import { validateContract } from "../src/contract/validate.ts";
 import { deriveActorKey } from "../src/model/actor.ts";
-import type { ActivityRow, ItemRow, LabelRow, EdgeRow, SourceRow } from "../src/db/store.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, ReviewThreadRow, SourceRow } from "../src/db/store.ts";
 
 function itemRow(over: Partial<ItemRow>): ItemRow {
   return {
@@ -66,6 +66,38 @@ function activityRow(over: Partial<ActivityRow> = {}): ActivityRow {
     merged.actor_key = deriveActorKey({ sourceId: merged.source_id, username: merged.actor });
   }
   return merged;
+}
+
+function reviewThreadRow(over: Partial<ReviewThreadRow> = {}): ReviewThreadRow {
+  return {
+    source_id: "github:github.com",
+    external_id: "PRRT_1",
+    project_path: "dev-a/repo",
+    target_source_id: "github:github.com",
+    target_external_id: "PR_open",
+    target_iid: 8,
+    title: "Reviewable PR",
+    url: "https://github.com/dev-a/repo/pull/8#discussion_r1",
+    is_resolved: false,
+    is_outdated: false,
+    resolved_by: null,
+    path: "src/app.ts",
+    line: 12,
+    start_line: 10,
+    comments_total: 1,
+    comments_json: JSON.stringify([
+      {
+        id: "PRRC_1",
+        author: "reviewer",
+        body: "Please cover this branch.",
+        url: "https://github.com/dev-a/repo/pull/8#discussion_r1",
+        createdAt: "2026-06-01T01:00:00Z",
+        updatedAt: "2026-06-01T01:05:00Z",
+      },
+    ]),
+    last_seen_at: "2026-06-01T02:00:00Z",
+    ...over,
+  };
 }
 
 test("buildContract emits a versioned envelope with composite-ref ids", () => {
@@ -362,7 +394,7 @@ test("buildContract emits repo metrics for the static default window", () => {
   const env = buildContract({ sources, items, labels, edges, activities, generatedAt: "2026-06-08T00:00:00.000Z" });
 
   assert.deepEqual(validateContract(env), []);
-  assert.equal(env.contract_version, "4.0.0");
+  assert.equal(env.contract_version, CONTRACT_VERSION);
   const metric = env.repo_metrics?.[0];
   assert.equal(metric?.source_id, "github:github.com");
   assert.equal(metric?.project_path, "o/repo");
@@ -424,6 +456,38 @@ test("review_threads folds the two columns into a nested DTO, null for issues an
   assert.deepEqual(byExt.get("PR_open")?.review_threads, { open: 2, total: 3 });
   assert.deepEqual(byExt.get("PR_resolved")?.review_threads, { open: 0, total: 4 });
   assert.equal(byExt.get("PR_unknown")?.review_threads, null);
+});
+
+test("buildContract emits current review-thread detail rows for loaded change_requests", () => {
+  const env = buildContract({
+    sources: [
+      { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    ],
+    items: [
+      itemRow({ item_id: 1, external_id: "PR_open", kind: "change_request", iid: 8, open_review_threads: 1, total_review_threads: 1 }),
+      itemRow({ item_id: 2, external_id: "ISSUE_1", kind: "issue" }),
+    ],
+    labels: [],
+    edges: [],
+    reviewThreads: [
+      reviewThreadRow(),
+      reviewThreadRow({ external_id: "PRRT_hidden", target_external_id: "PR_outside", target_iid: 99 }),
+    ],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+  });
+
+  assert.deepEqual(validateContract(env), []);
+  assert.equal(env.review_threads?.length, 1);
+  const thread = env.review_threads![0]!;
+  assert.equal(thread.id, "github:github.com|PRRT_1");
+  assert.equal(thread.target_ref, "github:github.com|PR_open");
+  assert.equal(thread.is_resolved, false);
+  assert.equal(thread.path, "src/app.ts");
+  assert.equal(thread.start_line, 10);
+  assert.equal(thread.line, 12);
+  assert.equal(thread.comments_total, 1);
+  assert.equal(thread.comments[0]!.author, "reviewer");
+  assert.equal(thread.comments[0]!.body, "Please cover this branch.");
 });
 
 test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {

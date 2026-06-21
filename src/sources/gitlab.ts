@@ -36,6 +36,7 @@ import type {
   CanonicalItem,
   CanonicalEdge,
   CanonicalActivity,
+  CanonicalReviewThread,
   ItemState,
   ReviewState,
   CiState,
@@ -268,6 +269,7 @@ export class GitLabSource implements Source {
           const d: any = await this.gql(MR_RESOLVE_Q, { path: project, iid: String(node.iid) });
           node.approvedBy = d?.project?.mergeRequest?.approvedBy ?? { nodes: [] };
           node.notes = d?.project?.mergeRequest?.notes ?? { nodes: [] };
+          node.discussions = shouldFetchReviewDiscussions(node) ? await this.fetchMergeRequestDiscussions(project, String(node.iid)) : [];
         }
       } catch (err) {
         log.warn(`[${this.descriptor.sourceId}] project ${project}: ${kind}#${node.iid} resolve failed: ${(err as Error).message}`);
@@ -276,6 +278,7 @@ export class GitLabSource implements Source {
         node.relatedMergeRequests ??= { nodes: [] };
         node.approvedBy ??= { nodes: [] };
         node.notes ??= { nodes: [] };
+        node.discussions ??= [];
       }
       const { mentions, relates } = this.resolveNoteRefs(node, project, index);
       node.__mentions = mentions;
@@ -326,6 +329,7 @@ export class GitLabSource implements Source {
         node.__projectPath = candidate.projectPath;
         node.__mentions = [];
         node.__relates = [];
+        node.discussions = shouldFetchReviewDiscussions(node) ? await this.fetchMergeRequestDiscussions(candidate.projectPath, String(candidate.iid)) : [];
         const payload = JSON.stringify(node);
         records.push({
           entityKind: "change_request",
@@ -398,7 +402,13 @@ export class GitLabSource implements Source {
         openReviewThreads: threads.open,
         totalReviewThreads: threads.total,
       };
-      return { item, labels: this.labels(p), edges, activities: [...itemActivities(item), ...this.approvalActivities(p, item)] };
+      return {
+        item,
+        labels: this.labels(p),
+        edges,
+        activities: [...itemActivities(item), ...this.approvalActivities(p, item)],
+        reviewThreads: this.reviewThreads(p, item),
+      };
     }
 
     // issue: discover the `closes` edge from the issue's related MRs (GitLab
@@ -463,6 +473,57 @@ export class GitLabSource implements Source {
         summary: `Approved change request${item.iid != null ? ` !${item.iid}` : ""}`,
         details: { source: "approved_by" },
       });
+    }
+    return out;
+  }
+
+  private reviewThreads(p: any, item: CanonicalItem): CanonicalReviewThread[] {
+    const out: CanonicalReviewThread[] = [];
+    for (const discussion of p.discussions ?? []) {
+      if (!discussion?.id) continue;
+      const notes = Array.isArray(discussion.notes) ? discussion.notes : [];
+      const resolvableNotes = notes.filter((n: any) => n?.resolvable === true);
+      if (resolvableNotes.length === 0) continue;
+      const position = resolvableNotes.find((n: any) => n?.position)?.position ?? notes.find((n: any) => n?.position)?.position ?? null;
+      const comments = notes
+        .filter((n: any) => n?.id != null)
+        .map((n: any) => ({
+          id: String(n.id),
+          author: n.author?.username ?? null,
+          body: cleanText(n.body),
+          url: cleanText(n.web_url) ?? item.url ?? null,
+          createdAt: cleanText(n.created_at),
+          updatedAt: cleanText(n.updated_at),
+        }));
+      out.push({
+        sourceId: this.descriptor.sourceId,
+        externalId: String(discussion.id),
+        projectPath: item.projectPath,
+        target: { sourceId: this.descriptor.sourceId, externalId: p.id },
+        targetIid: item.iid,
+        title: item.title,
+        url: comments[0]?.url ?? item.url ?? null,
+        isResolved: resolvableNotes.every((n: any) => n?.resolved === true),
+        isOutdated: null,
+        resolvedBy: resolvableNotes.find((n: any) => n?.resolved_by?.username)?.resolved_by?.username ?? null,
+        path: cleanText(position?.new_path) ?? cleanText(position?.old_path),
+        line: lineNumber(position?.new_line) ?? lineNumber(position?.old_line),
+        startLine: lineNumber(position?.line_range?.start?.new_line) ?? lineNumber(position?.line_range?.start?.old_line),
+        commentsTotal: comments.length,
+        comments,
+      });
+    }
+    return out;
+  }
+
+  private async fetchMergeRequestDiscussions(project: string, iid: string): Promise<any[]> {
+    if (!this.rest) return [];
+    const out: any[] = [];
+    const projectId = encodeURIComponent(project);
+    for (let page = 1; page <= MAX_REST_PAGES; page++) {
+      const discussions = await this.rest<any[]>(`projects/${projectId}/merge_requests/${iid}/discussions`, { per_page: 100, page });
+      out.push(...(discussions ?? []));
+      if ((discussions ?? []).length < 100) break;
     }
     return out;
   }
@@ -749,6 +810,11 @@ function cleanText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function lineNumber(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 function messageBody(value: unknown): string | null {
   if (typeof value !== "string") return null;
   return cleanText(value.split(/\r?\n/).slice(1).join("\n"));
@@ -852,6 +918,10 @@ function reviewThreadCounts(p: any): { open: number | null; total: number | null
   if (typeof resolvable !== "number") return { open: null, total: null };
   const resolved = typeof p?.resolvedDiscussionsCount === "number" ? p.resolvedDiscussionsCount : 0;
   return { open: Math.max(0, resolvable - resolved), total: resolvable };
+}
+
+function shouldFetchReviewDiscussions(p: any): boolean {
+  return typeof p?.resolvableDiscussionsCount === "number" && p.resolvableDiscussionsCount > 0;
 }
 
 // PipelineStatusEnum (gitlab.com): CREATED WAITING_FOR_RESOURCE PREPARING

@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import postgres from "postgres";
 import type { Sql, TransactionSql } from "postgres";
-import type { CanonicalActivity, CanonicalItem, CanonicalLabel } from "../model/types.ts";
+import type { CanonicalActivity, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 import { activityRangeBounds } from "./activity-range.ts";
@@ -52,6 +52,7 @@ import type {
   EdgeRow,
   ItemRow,
   LabelRow,
+  ReviewThreadRow,
   SourceRow,
   Store,
   StoreDiagnostics,
@@ -79,6 +80,7 @@ const MIGRATIONS: Migration[] = [
   { version: 3, file: "0003_actor_identity.sql" },
   { version: 4, file: "0004_review_threads.sql" },
   { version: 5, file: "0005_repo_activity_bounds.sql" },
+  { version: 6, file: "0006_review_thread_detail.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -336,6 +338,38 @@ export class PgStore implements Store {
     if (this.#sql) await this.#flushRepoActivityBoundsDirty();
   }
 
+  async upsertReviewThread(thread: CanonicalReviewThread, nowIso: string): Promise<void> {
+    await this.#q`
+      INSERT INTO review_thread (
+        source_id, external_id, project_path, target_source_id, target_external_id,
+        target_iid, title, url, is_resolved, is_outdated, resolved_by, path,
+        line, start_line, comments_total, comments_json, last_seen_at, deleted_at
+      ) VALUES (
+        ${thread.sourceId}, ${thread.externalId}, ${nz(thread.projectPath)}, ${thread.target.sourceId},
+        ${thread.target.externalId}, ${nz(thread.targetIid)}, ${nz(thread.title)}, ${nz(thread.url)},
+        ${thread.isResolved}, ${nz(thread.isOutdated)}, ${nz(thread.resolvedBy)}, ${nz(thread.path)},
+        ${nz(thread.line)}, ${nz(thread.startLine)}, ${thread.commentsTotal}, ${JSON.stringify(thread.comments)},
+        ${nowIso}, NULL
+      )
+      ON CONFLICT (source_id, external_id) DO UPDATE SET
+        project_path = excluded.project_path,
+        target_source_id = excluded.target_source_id,
+        target_external_id = excluded.target_external_id,
+        target_iid = excluded.target_iid,
+        title = excluded.title,
+        url = excluded.url,
+        is_resolved = excluded.is_resolved,
+        is_outdated = excluded.is_outdated,
+        resolved_by = excluded.resolved_by,
+        path = excluded.path,
+        line = excluded.line,
+        start_line = excluded.start_line,
+        comments_total = excluded.comments_total,
+        comments_json = excluded.comments_json,
+        last_seen_at = excluded.last_seen_at,
+        deleted_at = NULL`;
+  }
+
   #markRepoActivityBoundsDirty(sourceId: string, projectPath: string | null, updatedAt: string): void {
     const bucket = repoActivityBoundsBucket(sourceId, projectPath, updatedAt);
     this.#repoActivityBoundsDirty.set(repoActivityBoundsBucketId(sourceId, bucket.projectKey), bucket);
@@ -441,6 +475,13 @@ export class PgStore implements Store {
     return r.count;
   }
 
+  async softDeleteUnseenReviewThreads(sourceId: string, cutoff: string, nowIso: string): Promise<number> {
+    const r = await this.#q`
+      UPDATE review_thread SET deleted_at = ${nowIso}
+      WHERE source_id = ${sourceId} AND deleted_at IS NULL AND last_seen_at < ${cutoff}`;
+    return r.count;
+  }
+
   // ---- read paths ----------------------------------------------------------
 
   async getWatermark(sourceId: string): Promise<string | null> {
@@ -512,6 +553,18 @@ export class PgStore implements Store {
         AND occurred_at::timestamptz <= ${to}::timestamptz
       ORDER BY occurred_at::timestamptz DESC, activity_id DESC`;
     return rows as unknown as ActivityRow[];
+  }
+
+  async listLiveReviewThreads(): Promise<ReviewThreadRow[]> {
+    const rows = await this.#q`
+      SELECT source_id, external_id, project_path, target_source_id, target_external_id,
+             target_iid, title, url, is_resolved, is_outdated, resolved_by, path,
+             line, start_line, comments_total, comments_json, last_seen_at
+      FROM review_thread
+      WHERE deleted_at IS NULL
+      ORDER BY is_resolved ASC, source_id ASC, project_path ASC NULLS LAST,
+               target_iid DESC NULLS LAST, path ASC NULLS LAST, line ASC NULLS LAST, external_id ASC`;
+    return rows as unknown as ReviewThreadRow[];
   }
 
   async listRepoActivityBounds(): Promise<RepoActivityBoundsRow[]> {

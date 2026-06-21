@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.0.0`.
+Current emitted version: `4.1.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.0.0",
+  "contract_version": "4.1.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -68,6 +68,36 @@ package version, to decide compatibility.
   ],
   "edges": [],
   "activities": [],
+  "review_threads": [
+    {
+      "id": "github:github.com|PRRT_1",
+      "source_id": "github:github.com",
+      "external_id": "PRRT_1",
+      "project_path": "sympoies/symphony-board",
+      "target_ref": "github:github.com|PR_2",
+      "target_iid": 2,
+      "title": "Improve sync",
+      "url": "https://github.com/sympoies/symphony-board/pull/2#discussion_r1",
+      "is_resolved": false,
+      "is_outdated": false,
+      "resolved_by": null,
+      "path": "src/sync.ts",
+      "line": 42,
+      "start_line": 40,
+      "comments_total": 2,
+      "comments": [
+        {
+          "id": "PRRC_1",
+          "author": "reviewer",
+          "body": "Please cover this branch.",
+          "url": "https://github.com/sympoies/symphony-board/pull/2#discussion_r1",
+          "created_at": "2026-06-08T01:00:00.000Z",
+          "updated_at": "2026-06-08T01:10:00.000Z"
+        }
+      ],
+      "last_seen_at": "2026-06-08T02:00:00.000Z"
+    }
+  ],
   "activity_daily": {
     "timezone": "UTC",
     "from": "2025-02-01",
@@ -397,6 +427,29 @@ each sync, distinct from the per-event `review` activity above:
 
 The window-scoped `unresolved_review_threads` repo metric sums `review_threads.open`
 across active change_requests (see Repo Metrics).
+
+Top-level `review_threads[]` (4.1.0+) carries current provider review-thread
+detail rows for loaded change requests. This is the Review tab's thread inbox,
+not a review-event feed. Each row is keyed by provider thread id, points back to
+the owning change request via `target_ref`, includes current resolution/outdated
+state, file/line metadata when the provider reports it, and a compact
+`comments[]` preview. `comments_total` may be larger than `comments.length`
+because producers cap the preview payload.
+
+- GitHub: `PullRequest.reviewThreads` nodes supply `isResolved`, `isOutdated`,
+  path/line metadata, `resolvedBy`, and the first review-thread comments.
+- GitLab: the MR Discussions REST API supplies resolvable discussion notes,
+  their `resolved` state, position metadata, and note bodies. Non-resolvable MR
+  comments are not emitted as review threads.
+
+The top-level detail list is filtered to the same loaded item projection as
+`items[]`: the static contract includes threads for its item window, while
+`GET /api/range` includes threads for that range projection.
+
+Version `4.1.0` is additive: a new optional top-level `review_threads[]` detail
+list for current provider review threads. The existing item-level
+`review_threads {open,total}` summary and repo metric semantics are unchanged,
+so old consumers can ignore the new list.
 
 Version `4.0.0` **windows the static contract's `activities[]` to the last 30
 days** (anchored to `generated_at`), down from the full ~16-month history. This
