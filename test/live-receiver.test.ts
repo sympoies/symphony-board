@@ -527,6 +527,7 @@ test("SSE emits a reset sentinel when the cursor is ahead of the store", async (
   try {
     await until(() => frames.some((f) => f.includes("event: reset")));
     const reset = frames.find((f) => f.includes("event: reset")) ?? "";
+    assert.match(reset, /(^|\n)id: 1\n/, "reset carries the current head as the SSE id");
     const data = JSON.parse(
       (reset.split("\n").find((l) => l.startsWith("data: ")) ?? "data: {}").slice(6),
     );
@@ -550,12 +551,40 @@ test("SSE emits a gap reset when the backlog exceeds the replay limit", async ()
   try {
     await until(() => frames.some((f) => f.includes("event: reset")));
     const reset = frames.find((f) => f.includes("event: reset")) ?? "";
+    assert.match(reset, /(^|\n)id: 5\n/, "reset carries the current head as the SSE id");
     const data = JSON.parse(
       (reset.split("\n").find((l) => l.startsWith("data: ")) ?? "data: {}").slice(6),
     );
     assert.equal(data.reason, "gap");
     assert.equal(data.max_seq, 5);
     assert.deepEqual(dataSeqs(frames), [], "gap signalled instead of a partial replay");
+  } finally {
+    sse.destroy();
+    await stop(b);
+  }
+});
+
+test("SSE emits a gap reset when the cursor predates the retained floor", async () => {
+  const b = build({ replayLimit: 10 });
+  const { hook, read } = await start(b);
+  for (let i = 1; i <= 8; i++) {
+    await postDelivery(hook, { event: "issues", delivery: `d-${i}`, payload: issuesOpened(i) });
+  }
+  // Keep seq 5..8. A client resuming from seq 2 is below the retained floor:
+  // replaying 5..8 would silently skip 3..4, so the receiver must reset.
+  b.store.prune(3650, 4, new Date("2026-06-21T00:00:00Z"));
+  const frames: string[] = [];
+  const sse = openSse(read, "/api/live?since=2", frames);
+  try {
+    await until(() => frames.some((f) => f.includes("event: reset")));
+    const reset = frames.find((f) => f.includes("event: reset")) ?? "";
+    assert.match(reset, /(^|\n)id: 8\n/, "reset carries the current head as the SSE id");
+    const data = JSON.parse(
+      (reset.split("\n").find((l) => l.startsWith("data: ")) ?? "data: {}").slice(6),
+    );
+    assert.equal(data.reason, "gap");
+    assert.equal(data.max_seq, 8);
+    assert.deepEqual(dataSeqs(frames), [], "no non-contiguous replay alongside a reset");
   } finally {
     sse.destroy();
     await stop(b);

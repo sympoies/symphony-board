@@ -6,10 +6,11 @@
 // project as the live receiver, reaching it over the compose network
 // (http://live:8090). Connection discipline mirrors the UI client
 // (packages/ui/src/useLive.ts): seed the cursor from /api/live-snapshot's
-// max_seq, then resume the stream via the Last-Event-ID header; on a `reset`
-// sentinel, jump the cursor to max_seq (a missed gap is logged, never replayed
-// as a channel flood); the last delivered seq is persisted so a restart resumes
-// gap-free within the receiver's retention window.
+// max_seq, persist that seed durably, then resume the stream via the
+// Last-Event-ID header; on a `reset` sentinel, jump the cursor to max_seq (a
+// missed gap is logged, never replayed as a channel flood); the last delivered
+// seq is persisted so a restart resumes gap-free within the receiver's
+// retention window.
 //
 // Config is read from the environment BY NAME only (no token is ever inlined or
 // logged). The Telegram bot token never leaves the host running this bridge.
@@ -111,6 +112,10 @@ const MAX_SEND_RETRIES = 5;
 // and the connection is dropped rather than letting the buffer OOM the process.
 const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
 
+function isTelegramAuthOrConfigFailure(status: number): boolean {
+  return status === 400 || status === 401 || status === 403 || status === 404;
+}
+
 function readCursor(path: string): number | null {
   try {
     const raw = readFileSync(path, "utf8").trim();
@@ -183,13 +188,12 @@ export class TelegramSender {
     this.#cfg = cfg;
   }
 
-  // Deliver one message. Returns on success or after dropping a 4xx poison
-  // message (a malformed body that would otherwise wedge the stream forever).
-  // A transient failure — 429 rate limit or 5xx server error — is retried within
-  // MAX_SEND_RETRIES; exhausting that budget THROWS, as does a network error, so
-  // the caller leaves the cursor unmoved and a reconnect redelivers the event
-  // (the receiver replays from Last-Event-ID). The bridge never silently drops a
-  // live event on a transient Telegram problem.
+  // Deliver one message. Auth/config failures (bad token, revoked bot, bad chat)
+  // throw so the caller leaves the cursor unmoved; otherwise an operator can fix
+  // credentials only to find that the wrong-credentials window burned every seq.
+  // Transient 429 / 5xx failures are retried within MAX_SEND_RETRIES; exhausting
+  // that budget also throws. Remaining 4xx responses are treated as poison
+  // messages and dropped so one malformed event cannot wedge the stream forever.
   async send(text: string): Promise<void> {
     if (this.#cfg.dryRun) {
       log.info(`[tg] (dry-run) would send:\n${text}`);
@@ -213,6 +217,10 @@ export class TelegramSender {
         },
       );
       if (res.ok) return;
+      if (isTelegramAuthOrConfigFailure(res.status)) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`Telegram HTTP ${res.status}: ${detail}`);
+      }
       // 429 (rate limit) and 5xx (transient server error) are retryable.
       if (res.status === 429 || res.status >= 500) {
         if (++retries > MAX_SEND_RETRIES) {
@@ -235,8 +243,8 @@ export class TelegramSender {
         await sleep(waitMs);
         continue;
       }
-      // 4xx (client/config error): genuinely poison — drop it so one bad event
-      // cannot wedge the stream. Cursor still advances for this event only.
+      // Remaining 4xx: genuinely poison — drop it so one bad event cannot wedge
+      // the stream. Cursor still advances for this event only.
       const detail = await res.text().catch(() => "");
       log.warn(`[tg] sendMessage HTTP ${res.status}; dropping message. ${detail}`);
       return;
@@ -372,8 +380,8 @@ export async function runBridge(
     if (seeded === null) return; // shutdown requested before the first seed
     cursor = seeded;
     if (!writeCursor(cfg.cursorPath, cursor)) {
-      log.error(
-        "[tg] could not persist the seed cursor; a crash before the next persist may skip events",
+      throw new Error(
+        "seed cursor persist failed; refusing to stream without a durable cursor",
       );
     }
     log.info(`[tg] cold start; seeded cursor at seq ${cursor} (no backlog replay)`);

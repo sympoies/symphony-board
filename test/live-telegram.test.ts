@@ -2,8 +2,9 @@
 // (escaping, category glyphs, merged-PR labelling, body truncation), the SSE
 // frame parser (heartbeat skip, multi-data, comment lines), and the bridge's
 // pure env -> config resolution. No socket is bound and no token is needed.
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   clampHtml,
   escapeHtml,
@@ -15,8 +16,14 @@ import {
 import {
   parseSseFrame,
   resolveTelegramBridgeConfig,
+  TelegramSender,
 } from "../src/cli/live-telegram-bridge.ts";
 import { LIVE_EVENT_SCHEMA, type LiveEvent } from "../src/live/types.ts";
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
 
 function makeEvent(over: Partial<LiveEvent> = {}): LiveEvent {
   return {
@@ -259,4 +266,40 @@ test("resolveTelegramBridgeConfig strips trailing slashes and applies defaults",
     LIVE_TELEGRAM_BODY_LINES: "nope",
   });
   assert.equal(invalid.bodyLines, MAX_BODY_LINES);
+});
+
+test("TelegramSender throws on auth/config HTTP failures so the cursor is not advanced", async () => {
+  const cfg = resolveTelegramBridgeConfig({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_CHAT_ID: "chat",
+    LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
+  });
+  const statuses = [401, 403, 400];
+  for (const status of statuses) {
+    globalThis.fetch = (async () =>
+      new Response(`telegram ${status}`, { status })) as typeof fetch;
+    const sender = new TelegramSender(cfg);
+    await assert.rejects(
+      () => sender.send("hello"),
+      new RegExp(`Telegram HTTP ${status}`),
+      `HTTP ${status} must leave the live cursor unmoved for retry/fail-fast recovery`,
+    );
+  }
+});
+
+test("runBridge fails fast if the cold-start seed cursor is not durable", () => {
+  const src = readFileSync(
+    new URL("../src/cli/live-telegram-bridge.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    src,
+    /throw new Error\([^)]*seed cursor[^)]*persist/i,
+    "the initial cursor seed must be a hard precondition",
+  );
+  assert.doesNotMatch(
+    src,
+    /a crash before the next persist may skip events/,
+    "the bridge must not continue after a failed initial seed persist",
+  );
 });

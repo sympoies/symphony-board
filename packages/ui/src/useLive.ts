@@ -127,6 +127,10 @@ export function planPollIngest(cursor: number, snap: LiveSnapshot): PollPlan {
   };
 }
 
+export interface ResetReconcileOptions {
+  reseed?: boolean;
+}
+
 // Pure reconciliation for an SSE `reset`/gap sentinel. The server keeps
 // streaming on the same connection after a reset, so the snapshot refetch races
 // with concurrent `live` frames. Re-seed from the authoritative snapshot WITHOUT
@@ -134,14 +138,18 @@ export function planPollIngest(cursor: number, snap: LiveSnapshot): PollPlan {
 // newer than the snapshot's max_seq (the live frames; stale events the snapshot
 // no longer covers are dropped), then merge the snapshot in. The caller advances
 // the cursor to max(cursor, snap.max_seq) so it never regresses below a kept
-// frame. Pure and unit-tested; the effect just applies it.
+// frame. When the receiver restarted into a lower seq space, `reseed` drops the
+// old high-seq buffer first; the effect clears before the async refetch so
+// frames that arrive after the reset can still be preserved by the default merge.
+// Pure and unit-tested; the effect just applies it.
 export function reconcileReset(
   prev: LiveEvent[],
   snap: LiveSnapshot,
   max: number,
+  opts: ResetReconcileOptions = {},
 ): LiveEvent[] {
   return appendCapped(
-    prev.filter((ev) => ev.seq > snap.max_seq),
+    opts.reseed ? [] : prev.filter((ev) => ev.seq > snap.max_seq),
     snap.events,
     max,
   );
@@ -254,12 +262,29 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       // never regresses the cursor, so a concurrent live frame is preserved
       // instead of being lost to a blind setEvents([]).
       es.addEventListener("reset", (e) => {
-        if (cancelled || parseResetEvent((e as MessageEvent).data) === null) return;
+        if (cancelled) return;
+        const reset = parseResetEvent((e as MessageEvent).data);
+        if (reset === null) return;
+        const cursorAtReset = lastSeq.current;
+        const resetMaxSeq = reset.max_seq;
+        const reseedBeforeFetch =
+          resetMaxSeq !== null && resetMaxSeq < cursorAtReset;
+        if (reseedBeforeFetch) {
+          lastSeq.current = resetMaxSeq;
+          setEvents([]);
+        }
         void (async () => {
           const snap = await fetchLiveSnapshot(serverBaseUrl);
           if (cancelled || !snap) return;
+          const reseedAfterFetch =
+            !reseedBeforeFetch && snap.max_seq < cursorAtReset;
+          if (reseedAfterFetch) {
+            lastSeq.current = snap.max_seq;
+          }
           lastSeq.current = Math.max(lastSeq.current, snap.max_seq);
-          setEvents((prev) => reconcileReset(prev, snap, MAX_EVENTS));
+          setEvents((prev) =>
+            reconcileReset(prev, snap, MAX_EVENTS, { reseed: reseedAfterFetch }),
+          );
         })();
       });
       es.onerror = () => {
@@ -297,10 +322,13 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       if (cancelled) return;
       if (snap) {
         markUp();
-        // Advance — never regress — the cursor: a retained buffer may already
-        // hold frames newer than a fresh snapshot's head (re-open after a switch).
-        lastSeq.current = Math.max(lastSeq.current, snap.max_seq);
-        ingest(snap.events);
+        const plan = planPollIngest(lastSeq.current, snap);
+        if (plan.reset) {
+          lastSeq.current = 0;
+          setEvents([]);
+        }
+        lastSeq.current = plan.nextCursor;
+        ingest(plan.ingest);
       }
       if (transportKind === "sse") {
         startSse(lastSeq.current);

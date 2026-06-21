@@ -118,6 +118,14 @@ test("reconcileReset re-seeds from the snapshot, drops stale rows, keeps newer f
   );
 });
 
+test("reconcileReset can reseed when a reset lowers the stream sequence space", () => {
+  // Receiver restart / store replacement: the snapshot's seq space is lower
+  // than the kept buffer. Old high seq rows are stale and must not survive.
+  const prev = [ev(100), ev(99)];
+  const merged = reconcileReset(prev, snap(2, [ev(2), ev(1)]), 500, { reseed: true });
+  assert.deepEqual(merged.map((e) => e.seq), [2, 1]);
+});
+
 // --- safeHref scheme guard (defense-in-depth for webhook-sourced URLs) --------
 // Event/target URLs originate from the webhook payload; only web/mail schemes may
 // become a clickable href so a javascript:/data: value can never reach the DOM.

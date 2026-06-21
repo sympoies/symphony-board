@@ -3130,16 +3130,14 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-figure { font-size: 21px; }
   .live-card { padding: 10px 11px; }
   .live-cat, .ms-button { min-height: 32px; }
-  .live-filters { flex-wrap: wrap; align-items: center; gap: 8px; }
-  /* Row 1: [category disclosure] … [Repo] [People]; the pills wrap to a full row
-     below only when expanded. (`order` keeps the selects beside the disclosure
-     even though the pills sit between them in the DOM.) */
-  .live-selects { order: 2; margin-left: auto; width: auto; }
-  .live-cats { order: 3; display: none; flex-basis: 100%; margin-top: 2px; }
+  .live-filters { flex-wrap: wrap; align-items: center; gap: 8px; position: relative; }
+  .live-selects { margin-left: auto; width: auto; }
+  .live-cats { display: none; flex-basis: 100%; margin-top: 2px; }
   .live-cats[data-open="true"] { display: flex; }
-  /* Anchor the Repo / People popovers to the right so they never run off-screen
-     from a button sitting at the right edge of the row. */
-  .live-selects .ms-menu { left: auto; right: 0; }
+  /* On phones, place popovers against the full filter bar, not the inboard
+     trigger. This keeps wide repo names inside the viewport. */
+  .live-selects .ms { position: static; }
+  .live-selects .ms-menu { left: 0; right: 0; top: calc(100% + 4px); max-width: none; width: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

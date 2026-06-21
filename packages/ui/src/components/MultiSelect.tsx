@@ -44,7 +44,7 @@ export function MultiSelect({
 
   const count = selected.size;
   const available = options.length;
-  const disabled = available === 0;
+  const disabled = available === 0 && count === 0;
 
   return (
     <div className="ms" ref={rootRef}>
