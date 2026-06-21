@@ -26,8 +26,9 @@ export interface Subscriber {
 }
 
 export interface BroadcastOptions {
-  // Allow a same-seq replacement frame for post-ack enrichment updates. Older
-  // seqs are still skipped so the Last-Event-ID cursor never moves backwards.
+  // Send an id-less replacement frame for post-ack enrichment updates. The
+  // subscriber high-water cursor is left untouched, so late updates for older
+  // rows cannot move Last-Event-ID backwards.
   replace?: boolean;
 }
 
@@ -35,6 +36,13 @@ export interface BroadcastOptions {
 // `data: <json>`, terminated by a blank line.
 export function formatSseFrame(event: LiveEvent): string {
   return `id: ${event.seq}\nevent: live\ndata: ${JSON.stringify(event)}\n\n`;
+}
+
+// Enrichment updates replace a row the client may already hold, but they do not
+// advance or regress the resumable EventSource cursor. The payload is still a
+// full `live-event/1` row, and clients merge it by `seq`.
+export function formatSseUpdateFrame(event: LiveEvent): string {
+  return `event: live-update\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
 export class Broadcaster {
@@ -85,12 +93,15 @@ export class Broadcaster {
   // and evicting it when its buffer is over the cap or the write throws. Used
   // both for backlog replay and live broadcast.
   send(sub: Subscriber, event: LiveEvent, opts: BroadcastOptions = {}): void {
-    if (event.seq < sub.lastSentSeq) return;
-    if (event.seq === sub.lastSentSeq && !opts.replace) return;
+    if (opts.replace) {
+      this.#writeOrEvict(sub, formatSseUpdateFrame(event));
+      return;
+    }
+    if (event.seq <= sub.lastSentSeq) return;
     // Advance the high-water mark only on a successful write, so an evicted
     // subscriber is never recorded as having "seen" an event it did not get.
     if (this.#writeOrEvict(sub, formatSseFrame(event))) {
-      sub.lastSentSeq = Math.max(sub.lastSentSeq, event.seq);
+      sub.lastSentSeq = event.seq;
     }
   }
 

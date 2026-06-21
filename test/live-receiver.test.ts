@@ -171,21 +171,25 @@ function openSse(base: string, path: string, frames: string[]) {
 }
 
 function dataSeqs(frames: string[]): number[] {
-  return frames
-    .filter((f) => f.includes("data:") && f.includes("event: live"))
-    .map((f) => {
-      const line = f.split("\n").find((l) => l.startsWith("data: "));
-      return JSON.parse((line ?? "data: {}").slice(6)).seq as number;
-    });
+  return liveDataFrames(frames).map((f) => {
+    const line = f.split("\n").find((l) => l.startsWith("data: "));
+    return JSON.parse((line ?? "data: {}").slice(6)).seq as number;
+  });
 }
 
 function dataEvents(frames: string[]): LiveEvent[] {
-  return frames
-    .filter((f) => f.includes("data:") && f.includes("event: live"))
-    .map((f) => {
-      const line = f.split("\n").find((l) => l.startsWith("data: "));
-      return JSON.parse((line ?? "data: {}").slice(6)) as LiveEvent;
-    });
+  return liveDataFrames(frames).map((f) => {
+    const line = f.split("\n").find((l) => l.startsWith("data: "));
+    return JSON.parse((line ?? "data: {}").slice(6)) as LiveEvent;
+  });
+}
+
+function liveDataFrames(frames: string[]): string[] {
+  return frames.filter((f) => {
+    if (!f.includes("data:")) return false;
+    const eventName = f.split("\n").find((l) => l.startsWith("event: "))?.slice(7);
+    return eventName === "live" || eventName === "live-update";
+  });
 }
 
 // Raw GET so a custom (possibly malformed) Host header can be set, which fetch
@@ -312,9 +316,12 @@ test("actor profile observer updates are broadcast as same-seq replacements", as
     assert.equal(res.status, 202);
     await until(() => dataEvents(frames).length >= 2);
     const events = dataEvents(frames);
+    const eventFrames = liveDataFrames(frames);
     assert.equal(events[1]?.seq, events[0]?.seq);
     assert.equal(events[0]?.actor?.avatar_url ?? null, null);
     assert.equal(events[1]?.actor?.avatar_url, "https://avatars.githubusercontent.com/u/1?v=4");
+    assert.match(eventFrames[1] ?? "", /^event: live-update/m);
+    assert.doesNotMatch(eventFrames[1] ?? "", /^id:/m);
   } finally {
     sse.destroy();
     await stop(b);

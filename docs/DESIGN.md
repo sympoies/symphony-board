@@ -791,7 +791,9 @@ logged. The store also owns a small GitHub actor-profile metadata cache that
 enriches Live rows with `avatar_url` / `profile_url` at read time. The cache
 stores provider profile URLs and expiry/error metadata only; it does **not**
 download or persist avatar image bytes, and it does not rewrite append-only
-live-event rows.
+live-event rows. Post-ack profile enrichments are emitted as id-less
+`event: live-update` SSE frames carrying a full `live-event/1` payload; clients
+merge them by `seq` without advancing or regressing the `Last-Event-ID` cursor.
 
 ### Adapter interface
 

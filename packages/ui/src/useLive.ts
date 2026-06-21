@@ -237,14 +237,19 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       es.onopen = () => {
         markUp();
       };
-      es.addEventListener("live", (e) => {
+      const ingestEventSourceFrame = (e: Event): void => {
         if (cancelled) return;
         try {
           ingest([JSON.parse((e as MessageEvent).data) as LiveEvent]);
         } catch {
           /* skip a malformed frame */
         }
-      });
+      };
+      es.addEventListener("live", ingestEventSourceFrame);
+      // Profile enrichment updates are id-less SSE frames, so they can replace
+      // already-delivered rows without moving the browser's Last-Event-ID
+      // cursor backwards.
+      es.addEventListener("live-update", ingestEventSourceFrame);
       // Reset/gap sentinel: the client cursor is ahead of the server (receiver
       // restarted / pruned below it) or the replay backlog exceeds the cap. The
       // server does NOT close on a reset — it keeps streaming from its head on the

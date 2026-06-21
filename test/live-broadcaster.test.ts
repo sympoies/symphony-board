@@ -9,6 +9,7 @@ import {
   Broadcaster,
   MAX_SUBSCRIBER_BUFFER_BYTES,
   formatSseFrame,
+  formatSseUpdateFrame,
 } from "../src/live/broadcaster.ts";
 import { LIVE_EVENT_SCHEMA, type LiveEvent } from "../src/live/types.ts";
 
@@ -91,23 +92,40 @@ test("send can write a same-seq replacement without moving the cursor backwards"
   const b = new Broadcaster();
   const r = res();
   const sub = b.add(asRes(r), 0);
+  const update = { ...event(2), title: "enriched" };
   b.send(sub, event(2));
-  b.send(sub, { ...event(2), title: "enriched" }, { replace: true });
-  b.send(sub, event(1), { replace: true });
+  b.send(sub, update, { replace: true });
   const dataFrames = r.writes.filter((w) => w.includes("event: live"));
   assert.equal(dataFrames.length, 2);
-  assert.match(dataFrames[1] ?? "", /"title":"enriched"/);
+  assert.equal(dataFrames[1], formatSseUpdateFrame(update));
+  assert.doesNotMatch(dataFrames[1] ?? "", /^id:/m);
+  assert.equal(sub.lastSentSeq, 2);
+});
+
+test("send writes older replacement updates without regressing the resume cursor", () => {
+  const b = new Broadcaster();
+  const r = res();
+  const sub = b.add(asRes(r), 0);
+  const update = { ...event(1), title: "late profile update" };
+  b.send(sub, event(1));
+  b.send(sub, event(2));
+  b.send(sub, update, { replace: true });
+  const dataFrames = r.writes.filter((w) => w.includes("event: live"));
+  assert.equal(dataFrames.length, 3);
+  assert.equal(dataFrames[2], formatSseUpdateFrame(update));
+  assert.doesNotMatch(dataFrames[2] ?? "", /^id:/m);
   assert.equal(sub.lastSentSeq, 2);
 });
 
 test("broadcast replacement fans same-seq updates to subscribers at that cursor", () => {
   const b = new Broadcaster();
   const r = res();
+  const update = { ...event(5), title: "profile update" };
   b.add(asRes(r), 5);
-  b.broadcast({ ...event(5), title: "profile update" }, { replace: true });
-  const dataFrames = r.writes.filter((w) => w.includes("event: live"));
+  b.broadcast(update, { replace: true });
+  const dataFrames = r.writes.filter((w) => w.includes("event: live-update"));
   assert.equal(dataFrames.length, 1);
-  assert.match(dataFrames[0] ?? "", /"title":"profile update"/);
+  assert.equal(dataFrames[0], formatSseUpdateFrame(update));
 });
 
 test("broadcast fans to every subscriber, each deduping by its own cursor", () => {
