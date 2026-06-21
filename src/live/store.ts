@@ -25,8 +25,7 @@ const SCHEMA_FILE = resolve(__dirname, "schema.sql");
 
 // The live store owns its own version cursor (PRAGMA user_version), independent
 // of the canonical store's schema version.
-const LIVE_SCHEMA_VERSION = 1;
-
+const LIVE_SCHEMA_VERSION = 2;
 export const DEFAULT_RECENT_LIMIT = 200;
 export const DEFAULT_SINCE_LIMIT = 1000;
 
@@ -51,12 +50,37 @@ interface LiveEventRow {
   raw_json: string | null;
 }
 
+export interface LiveActorProfileInput {
+  source_id: string;
+  provider: string;
+  login: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  profile_url?: string | null;
+  fetched_at: string;
+  expires_at: string;
+  last_error?: string | null;
+}
+
+interface LiveActorProfileRow {
+  display_name: string | null;
+  avatar_url: string | null;
+  profile_url: string | null;
+  expires_at: string;
+  last_error: string | null;
+}
+
 // node:sqlite forbids binding `undefined`; coerce nullable text to null and
 // strip any NUL byte so a raw 0x00 never lands in a TEXT column.
 const text = (v: string | null | undefined): string | null => stripNul(v ?? null);
 
 const jsonOrNull = (v: unknown): string | null =>
   v === null || v === undefined ? null : JSON.stringify(v);
+
+function loginKey(login: string | null | undefined): string | null {
+  const value = text(login)?.trim();
+  return value ? value.toLowerCase() : null;
+}
 
 function parseJson<T>(raw: string | null): T | null {
   if (raw === null) return null;
@@ -130,6 +154,26 @@ const SELECT_COLUMNS = `seq, source_id, event_id, provider, received_at,
   occurred_at, event_type, action, category, actor_json, target_json, title,
   body, url, review_state, delivery_json, provider_details_json, raw_json`;
 
+interface LiveActorProfileKey {
+  sourceId: string;
+  provider: string;
+  login: string;
+}
+
+interface LiveActorProfileLookupRow extends LiveActorProfileRow {
+  source_id: string;
+  provider: string;
+  login: string;
+}
+
+function actorNeedsHydration(actor: LiveActor | null | undefined): actor is LiveActor {
+  return !!actor?.login && (!actor.display_name || !actor.avatar_url || !actor.profile_url);
+}
+
+function actorProfileKey(sourceId: string, provider: string, login: string): string {
+  return `${sourceId}\x1f${provider}\x1f${login}`;
+}
+
 export class LiveStore {
   readonly #db: DatabaseSync;
   readonly #path: string;
@@ -141,6 +185,147 @@ export class LiveStore {
 
   get path(): string {
     return this.#path;
+  }
+
+  upsertActorProfile(profile: LiveActorProfileInput): void {
+    const sourceId = text(profile.source_id);
+    const provider = text(profile.provider);
+    const login = loginKey(profile.login);
+    const fetchedAt = text(profile.fetched_at);
+    const expiresAt = text(profile.expires_at);
+    if (!sourceId || !provider || !login || !fetchedAt || !expiresAt) return;
+    this.#db
+      .prepare(
+        `INSERT INTO live_actor_profile (
+           source_id, provider, login, display_name, avatar_url, profile_url,
+           fetched_at, expires_at, last_error
+         ) VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(source_id, provider, login) DO UPDATE SET
+           display_name=CASE
+             WHEN excluded.last_error IS NOT NULL THEN excluded.display_name
+             ELSE COALESCE(excluded.display_name, live_actor_profile.display_name)
+           END,
+           avatar_url=CASE
+             WHEN excluded.last_error IS NOT NULL THEN excluded.avatar_url
+             ELSE COALESCE(excluded.avatar_url, live_actor_profile.avatar_url)
+           END,
+           profile_url=CASE
+             WHEN excluded.last_error IS NOT NULL THEN excluded.profile_url
+             ELSE COALESCE(excluded.profile_url, live_actor_profile.profile_url)
+           END,
+           fetched_at=excluded.fetched_at,
+           expires_at=excluded.expires_at,
+           last_error=excluded.last_error`,
+      )
+      .run(
+        sourceId,
+        provider,
+        login,
+        text(profile.display_name),
+        text(profile.avatar_url),
+        text(profile.profile_url),
+        fetchedAt,
+        expiresAt,
+        text(profile.last_error),
+      );
+  }
+
+  hasFreshResolvedActorProfile(
+    sourceId: string,
+    provider: string,
+    login: string,
+    now: Date = new Date(),
+  ): boolean {
+    const profile = this.#actorProfile(sourceId, provider, login, now.toISOString());
+    return profile !== null && (profile.last_error !== null || profile.avatar_url !== null);
+  }
+
+  #actorProfile(
+    sourceId: string,
+    provider: string,
+    login: string,
+    nowIso: string,
+  ): LiveActorProfileRow | null {
+    const source = text(sourceId);
+    const providerText = text(provider);
+    const loginText = loginKey(login);
+    if (!source || !providerText || !loginText) return null;
+    const row = this.#db
+      .prepare(
+        `SELECT display_name, avatar_url, profile_url, expires_at, last_error
+         FROM live_actor_profile
+         WHERE source_id = ? AND provider = ? AND login = ? AND expires_at >= ?`,
+      )
+      .get(source, providerText, loginText, nowIso) as LiveActorProfileRow | undefined;
+    return row ?? null;
+  }
+
+  #actorProfiles(
+    keys: LiveActorProfileKey[],
+    nowIso: string,
+  ): Map<string, LiveActorProfileRow> {
+    const profiles = new Map<string, LiveActorProfileRow>();
+    const chunkSize = 200;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const tuples = chunk.map(() => "(?,?,?)").join(",");
+      const params: string[] = [nowIso];
+      for (const key of chunk) params.push(key.sourceId, key.provider, key.login);
+      const rows = this.#db
+        .prepare(
+          `SELECT source_id, provider, login, display_name, avatar_url, profile_url, expires_at, last_error
+           FROM live_actor_profile
+           WHERE expires_at >= ? AND (source_id, provider, login) IN (${tuples})`,
+        )
+        .all(...params) as unknown as LiveActorProfileLookupRow[];
+      for (const row of rows) {
+        profiles.set(actorProfileKey(row.source_id, row.provider, row.login), row);
+      }
+    }
+    return profiles;
+  }
+
+  #hydrateEventFromProfiles(
+    ev: LiveEvent,
+    profiles: Map<string, LiveActorProfileRow>,
+  ): LiveEvent {
+    const actor = ev.actor;
+    const login = actor?.login;
+    const loginText = loginKey(login);
+    if (!actor || !loginText) return ev;
+    const profile = profiles.get(actorProfileKey(ev.source_id, ev.provider, loginText));
+    if (!profile) return ev;
+    const next: LiveActor = {
+      ...actor,
+      display_name: actor.display_name ?? profile.display_name,
+      avatar_url: actor.avatar_url ?? profile.avatar_url,
+      profile_url: actor.profile_url ?? profile.profile_url,
+    };
+    if (
+      next.display_name === actor.display_name &&
+      next.avatar_url === actor.avatar_url &&
+      next.profile_url === actor.profile_url
+    ) {
+      return ev;
+    }
+    return { ...ev, actor: next };
+  }
+
+  hydrateEvents(events: LiveEvent[], now: Date = new Date()): LiveEvent[] {
+    if (events.length === 0) return events;
+    const keys = new Map<string, LiveActorProfileKey>();
+    for (const ev of events) {
+      if (!actorNeedsHydration(ev.actor)) continue;
+      const sourceId = text(ev.source_id);
+      const provider = text(ev.provider);
+      const login = loginKey(ev.actor.login);
+      if (!sourceId || !provider || !login) continue;
+      keys.set(actorProfileKey(sourceId, provider, login), { sourceId, provider, login });
+    }
+    if (keys.size === 0) return events;
+    const profiles = this.#actorProfiles([...keys.values()], now.toISOString());
+    if (profiles.size === 0) return events;
+    return events.map((ev) => this.#hydrateEventFromProfiles(ev, profiles));
   }
 
   // Insert-or-ignore on (source_id, event_id, ordinal). Returns the persisted
@@ -198,7 +383,7 @@ export class LiveStore {
          WHERE seq > ? ORDER BY seq ASC LIMIT ?`,
       )
       .all(seq, limit) as unknown as LiveEventRow[];
-    return rows.map(rowToEvent);
+    return this.hydrateEvents(rows.map(rowToEvent));
   }
 
   // Snapshot: most recent rows, newest-first, bounded by limit.
@@ -208,7 +393,7 @@ export class LiveStore {
         `SELECT ${SELECT_COLUMNS} FROM live_event ORDER BY seq DESC LIMIT ?`,
       )
       .all(limit) as unknown as LiveEventRow[];
-    return rows.map(rowToEvent);
+    return this.hydrateEvents(rows.map(rowToEvent));
   }
 
   // Highest seq currently retained, or 0 when empty. Served alongside the
@@ -231,6 +416,9 @@ export class LiveStore {
     const byTtl = this.#db
       .prepare(`DELETE FROM live_event WHERE received_at < ?`)
       .run(cutoff);
+    const byProfileTtl = this.#db
+      .prepare(`DELETE FROM live_actor_profile WHERE expires_at < ?`)
+      .run(now.toISOString());
     // Row cap: find the seq of the (maxRows+1)-th newest row via one indexed
     // range over the seq primary key, then delete at/below it — instead of a
     // whole-table NOT IN anti-join.
@@ -245,7 +433,7 @@ export class LiveStore {
           .run(cutoffRow.seq).changes,
       );
     }
-    return Number(byTtl.changes) + byCapChanges;
+    return Number(byTtl.changes) + byCapChanges + Number(byProfileTtl.changes);
   }
 
   close(): void {

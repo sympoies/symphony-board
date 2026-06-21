@@ -24,7 +24,7 @@ import {
   type ProviderRoute,
 } from "../src/live/receiver.ts";
 import { headerValue, type WebhookProvider } from "../src/live/provider.ts";
-import type { LiveEventInput } from "../src/live/types.ts";
+import type { LiveEvent, LiveEventInput } from "../src/live/types.ts";
 import type { VerifyResult } from "../src/live/verify.ts";
 
 const SECRET = "shhh-secret";
@@ -63,6 +63,7 @@ function build(
     maxBodyBytes?: number;
     replayLimit?: number;
     routes?: ProviderRoute[];
+    actorProfiles?: { observe(event: LiveEvent, onUpdate?: (event: LiveEvent) => void): void };
   } = {},
 ): Built {
   const store = openLiveStore(":memory:");
@@ -79,6 +80,7 @@ function build(
     projectAllowlist: opts.allowlist,
     maxBodyBytes: opts.maxBodyBytes,
     replayLimit: opts.replayLimit,
+    actorProfiles: opts.actorProfiles,
   });
   return { store, webhookServer, readServer, broadcaster };
 }
@@ -169,12 +171,25 @@ function openSse(base: string, path: string, frames: string[]) {
 }
 
 function dataSeqs(frames: string[]): number[] {
-  return frames
-    .filter((f) => f.includes("data:") && f.includes("event: live"))
-    .map((f) => {
-      const line = f.split("\n").find((l) => l.startsWith("data: "));
-      return JSON.parse((line ?? "data: {}").slice(6)).seq as number;
-    });
+  return liveDataFrames(frames).map((f) => {
+    const line = f.split("\n").find((l) => l.startsWith("data: "));
+    return JSON.parse((line ?? "data: {}").slice(6)).seq as number;
+  });
+}
+
+function dataEvents(frames: string[]): LiveEvent[] {
+  return liveDataFrames(frames).map((f) => {
+    const line = f.split("\n").find((l) => l.startsWith("data: "));
+    return JSON.parse((line ?? "data: {}").slice(6)) as LiveEvent;
+  });
+}
+
+function liveDataFrames(frames: string[]): string[] {
+  return frames.filter((f) => {
+    if (!f.includes("data:")) return false;
+    const eventName = f.split("\n").find((l) => l.startsWith("event: "))?.slice(7);
+    return eventName === "live" || eventName === "live-update";
+  });
 }
 
 // Raw GET so a custom (possibly malformed) Host header can be set, which fetch
@@ -217,6 +232,98 @@ test("a valid signed delivery is stored once and a redelivery is a no-op", async
     assert.equal(r2.status, 202);
     assert.equal(b.store.recent(100).length, 1, "redelivery stored nothing");
   } finally {
+    await stop(b);
+  }
+});
+
+test("actor profile observation runs after a successful append without blocking the ack", async () => {
+  let resolveObserved!: (event: LiveEvent) => void;
+  const observed = new Promise<LiveEvent>((resolve) => {
+    resolveObserved = resolve;
+  });
+  const b = build({
+    actorProfiles: {
+      observe(event) {
+        resolveObserved(event);
+      },
+    },
+  });
+  const { hook } = await start(b);
+  try {
+    const res = await postDelivery(hook, {
+      event: "issues",
+      delivery: "d-profile",
+      payload: issuesOpened(1),
+    });
+    assert.equal(res.status, 202);
+    const seen = await observed;
+    assert.equal(seen.actor?.login, "reporter");
+    assert.equal(b.store.recent(100).length, 1);
+  } finally {
+    await stop(b);
+  }
+});
+
+test("actor profile observer failures never reject a webhook delivery", async () => {
+  const b = build({
+    actorProfiles: {
+      observe() {
+        throw new Error("profile lookup failed");
+      },
+    },
+  });
+  const { hook } = await start(b);
+  try {
+    const res = await postDelivery(hook, {
+      event: "issues",
+      delivery: "d-profile-fail",
+      payload: issuesOpened(1),
+    });
+    assert.equal(res.status, 202);
+    assert.equal(b.store.recent(100).length, 1);
+  } finally {
+    await stop(b);
+  }
+});
+
+test("actor profile observer updates are broadcast as same-seq replacements", async () => {
+  const b = build({
+    actorProfiles: {
+      observe(event, onUpdate) {
+        setTimeout(() => {
+          onUpdate?.({
+            ...event,
+            actor: {
+              ...(event.actor ?? {}),
+              login: event.actor?.login ?? null,
+              avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+              profile_url: "https://github.com/reporter",
+            },
+          });
+        }, 0);
+      },
+    },
+  });
+  const { hook, read } = await start(b);
+  const frames: string[] = [];
+  const sse = openSse(read, "/api/live", frames);
+  try {
+    const res = await postDelivery(hook, {
+      event: "issues",
+      delivery: "d-profile-update",
+      payload: issuesOpened(1),
+    });
+    assert.equal(res.status, 202);
+    await until(() => dataEvents(frames).length >= 2);
+    const events = dataEvents(frames);
+    const eventFrames = liveDataFrames(frames);
+    assert.equal(events[1]?.seq, events[0]?.seq);
+    assert.equal(events[0]?.actor?.avatar_url ?? null, null);
+    assert.equal(events[1]?.actor?.avatar_url, "https://avatars.githubusercontent.com/u/1?v=4");
+    assert.match(eventFrames[1] ?? "", /^event: live-update/m);
+    assert.doesNotMatch(eventFrames[1] ?? "", /^id:/m);
+  } finally {
+    sse.destroy();
     await stop(b);
   }
 });

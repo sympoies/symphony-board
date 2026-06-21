@@ -10,6 +10,7 @@
 import { pathToFileURL } from "node:url";
 import { log } from "../log.ts";
 import { openLiveStore } from "../live/store.ts";
+import { createGithubActorProfileObserver } from "../live/actor-profiles.ts";
 import { GithubWebhookProvider, GITHUB_SOURCE_ID } from "../live/github.ts";
 import { createLiveReceiver, type ProviderRoute } from "../live/receiver.ts";
 import { resolvePruneConfig, startPruneTimer } from "../live/prune.ts";
@@ -69,6 +70,7 @@ export function main(): void {
   for (const w of cfg.warnings) log.warn(`[live] ${w}`);
 
   const store = openLiveStore(cfg.dbPath);
+  const actorProfiles = createGithubActorProfileObserver(store);
   const routes: ProviderRoute[] = [
     {
       pathSegment: "github",
@@ -81,6 +83,7 @@ export function main(): void {
     store,
     routes,
     projectAllowlist: cfg.allowlist,
+    actorProfiles,
   });
 
   const pruneConfig = resolvePruneConfig();
@@ -101,6 +104,7 @@ export function main(): void {
   const shutdown = (sig: string): void => {
     log.info(`[live] ${sig} received; shutting down`);
     stopPrune();
+    actorProfiles.close?.();
     broadcaster.closeAll();
     webhookServer.close();
     readServer.close();

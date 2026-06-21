@@ -54,3 +54,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS live_event_delivery
 -- TTL prune scans walk received_at by instant.
 CREATE INDEX IF NOT EXISTS live_event_received_at
   ON live_event (received_at);
+
+-- Lightweight actor profile metadata cache. This stores provider profile URLs
+-- only, not avatar image bytes. It lets older live-event rows whose actor_json
+-- lacked avatar/profile fields be enriched at read time without rewriting the
+-- append-only event row.
+CREATE TABLE IF NOT EXISTS live_actor_profile (
+  source_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  login TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  profile_url TEXT,
+  fetched_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  last_error TEXT,
+  PRIMARY KEY (source_id, provider, login)
+);
+
+CREATE INDEX IF NOT EXISTS live_actor_profile_expires_at
+  ON live_actor_profile (expires_at);

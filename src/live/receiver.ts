@@ -27,6 +27,7 @@ import { log } from "../log.ts";
 import { sendJsonMaybeGzip } from "../server/http.ts";
 import type { LiveStore } from "./store.ts";
 import type { LiveEvent } from "./types.ts";
+import type { ActorProfileObserver } from "./actor-profiles.ts";
 import { headerValue, type AdaptCtx, type WebhookProvider } from "./provider.ts";
 import {
   BodyTimeoutError,
@@ -66,6 +67,7 @@ export interface ReceiverOptions {
   webhookRequestTimeoutMs?: number;
   headersTimeoutMs?: number;
   maxWebhookConnections?: number;
+  actorProfiles?: ActorProfileObserver;
 }
 
 export interface LiveReceiver {
@@ -191,10 +193,25 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
     });
     sendJson(res, 202, { ok: true });
 
-    // Broadcast the fresh rows after the ack (best-effort; ephemeral fan-out).
-    for (const ev of appended) {
+    // Profile lookup and broadcast both happen after the ack. Neither can reject
+    // a delivery GitHub will not retry.
+    const broadcastEvents = store.hydrateEvents(appended);
+    for (let i = 0; i < appended.length; i++) {
+      const ev = appended[i]!;
+      const broadcastEvent = broadcastEvents[i] ?? ev;
       try {
-        broadcaster.broadcast(ev);
+        opts.actorProfiles?.observe(ev, (updated) => {
+          try {
+            broadcaster.broadcast(updated, { replace: true });
+          } catch (err) {
+            log.warn(`[live] actor profile update broadcast failed: ${(err as Error).message}`);
+          }
+        });
+      } catch (err) {
+        log.warn(`[live] actor profile observer failed: ${(err as Error).message}`);
+      }
+      try {
+        broadcaster.broadcast(broadcastEvent);
       } catch (err) {
         log.warn(`[live] broadcast failed: ${(err as Error).message}`);
       }

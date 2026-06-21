@@ -787,7 +787,13 @@ assigns a monotonic `seq` used as the SSE `id:` / `Last-Event-ID` cursor. It
 retains the full neutral record plus body, delivery metadata, and the raw payload
 with secret-bearing fields scrubbed, bounded by a TTL (~30 days) and a row cap
 that also bound the SSE replay backlog. The webhook secret is never persisted or
-logged.
+logged. The store also owns a small GitHub actor-profile metadata cache that
+enriches Live rows with `avatar_url` / `profile_url` at read time. The cache
+stores provider profile URLs and expiry/error metadata only; it does **not**
+download or persist avatar image bytes, and it does not rewrite append-only
+live-event rows. Post-ack profile enrichments are emitted as id-less
+`event: live-update` SSE frames carrying a full `live-event/1` payload; clients
+merge them by `seq` without advancing or regressing the `Last-Event-ID` cursor.
 
 ### Adapter interface
 
@@ -800,7 +806,11 @@ number, attributed to the commit author), so commit-only repos surface in the
 live feed and not just the periodic canonical sync. GitHub ships first; a GitLab adapter is designed
 against the same interface but stubbed — enabling it is gated on company
 clearance to mirror private GitLab content off-host, and would also revisit
-per-client SSE authz / per-source visibility filtering.
+per-client SSE authz / per-source visibility filtering. GitHub actor profile
+lookups stay outside the pure adapter: the receiver observes already-appended
+events, seeds the cache from webhook payload avatars, and performs bounded
+best-effort public GitHub user lookups for missing avatars after the webhook has
+been acknowledged.
 
 ### Live coverage (allowlist + webhook)
 
