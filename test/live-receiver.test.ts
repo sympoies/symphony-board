@@ -441,6 +441,39 @@ test("the snapshot returns recent events newest-first plus max_seq", async () =>
   }
 });
 
+test("the snapshot since cursor returns only newer recent events", async () => {
+  const b = build();
+  const { hook, read } = await start(b);
+  try {
+    await postDelivery(hook, { event: "issues", delivery: "d-1", payload: issuesOpened(1) });
+    await postDelivery(hook, { event: "issues", delivery: "d-2", payload: issuesOpened(2) });
+    await postDelivery(hook, { event: "issues", delivery: "d-3", payload: issuesOpened(3) });
+
+    const newer = await getJson(read, "/api/live-snapshot?limit=10&since=1");
+    assert.equal(newer.status, 200);
+    assert.deepEqual(
+      (newer.body as { events: { seq: number }[] }).events.map((e) => e.seq),
+      [3, 2],
+    );
+
+    const caughtUp = await getJson(read, "/api/live-snapshot?limit=10&since=3");
+    assert.equal(caughtUp.status, 200);
+    assert.deepEqual(
+      (caughtUp.body as { events: { seq: number }[] }).events.map((e) => e.seq),
+      [],
+    );
+
+    const stale = await getJson(read, "/api/live-snapshot?limit=10&since=99");
+    assert.equal(stale.status, 200);
+    assert.deepEqual(
+      (stale.body as { events: { seq: number }[] }).events.map((e) => e.seq),
+      [3, 2, 1],
+    );
+  } finally {
+    await stop(b);
+  }
+});
+
 test("healthz returns 200 on both listeners", async () => {
   const b = build();
   const { hook, read } = await start(b);

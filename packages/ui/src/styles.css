@@ -3078,19 +3078,24 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-cat-all.live-cat-on { border-color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
 
 /* Bound the feed to the viewport and scroll it internally, so a long buffer
-   (up to MAX_EVENTS) never stretches the page past the other tabs' height.
-   Mirrors .live-detail; both panes are reset to natural flow on narrow. */
+   never stretches the page past the other tabs' height. Mirrors .live-detail;
+   both panes are reset to natural flow on narrow. */
 .live-feed {
   list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 6px;
+  display: block;
   position: sticky; top: 12px;
   max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-gutter: stable;
 }
+.live-virtual-space { pointer-events: none; }
 /* Each row is a bordered panel card (matching .activity-row), so the feed reads
    as a defined list on the light Paper theme instead of floating on the page. */
 .live-event {
+  position: absolute; left: 0; right: 4px;
   display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: start;
-  padding: 10px 8px 10px 10px; position: relative; cursor: pointer; border-radius: 8px;
+  padding: 10px 8px 10px 10px; cursor: pointer; border-radius: 8px;
+  height: var(--live-row-height);
+  box-sizing: border-box;
+  overflow: hidden;
   background: var(--panel); border: 1px solid var(--line);
 }
 .live-event::before {
@@ -3152,8 +3157,8 @@ a.rf-node-title:hover { color: var(--accent); }
 
 /* The newest row flashes once as it arrives — it is the only element freshly
    mounted at the top of the list, so :first-child animates exactly once. */
-.live-feed .live-event:first-child { animation: live-arrive 1400ms ease-out; }
-.live-feed .live-event:first-child::before { opacity: 0.85; }
+.live-feed .live-event[data-feed-index="0"] { animation: live-arrive 1400ms ease-out; }
+.live-feed .live-event[data-feed-index="0"]::before { opacity: 0.85; }
 
 @keyframes live-beat {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }
@@ -3186,7 +3191,7 @@ a.rf-node-title:hover { color: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {
   .live-spark-bar { transition: none; }
-  .live-feed .live-event:first-child { animation: none; }
+  .live-feed .live-event[data-feed-index="0"] { animation: none; }
 }
 
 /* ---- filter bar: category pills + multi-select repo / people ---- */
@@ -3227,11 +3232,15 @@ a.rf-node-title:hover { color: var(--accent); }
    scanning while the detail is the larger reading pane. The detail's markdown is
    line-length capped (~100ch) for readability, so a small right gutter can remain
    at very wide widths. */
-.live-split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start; }
+.live-split {
+  --live-pane-height: calc(100vh - 90px);
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start;
+}
 .live-feed-empty { margin: 24px 4px; }
-.live-detail { position: sticky; top: 12px; max-height: calc(100vh - 90px); overflow: auto; min-width: 0; }
+.live-feed { position: sticky; height: var(--live-pane-height); max-height: var(--live-pane-height); }
+.live-detail { position: sticky; top: 12px; height: var(--live-pane-height); max-height: var(--live-pane-height); overflow: auto; min-width: 0; }
 .live-detail-empty { color: var(--muted); padding: 24px 4px; }
-.live-detail-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.live-detail-card { box-sizing: border-box; min-height: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
 .live-detail-back { display: none; }
 .live-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .live-detail-head .badge { font-size: 12px; }
@@ -3298,8 +3307,9 @@ a.rf-node-title:hover { color: var(--accent); }
      edges — scrolling up past the feed's top continues to the header (matches the
      other list tabs). The full-screen detail overlay below keeps its own scroll
      containment so a short body never drags the feed behind it. */
-  .live-feed { position: static; max-height: 72vh; overflow-y: auto; }
-  .live-detail { position: static; max-height: none; }
+  .live-feed { position: relative; height: auto; max-height: 72vh; overflow-y: auto; }
+  .live-detail { position: static; height: auto; max-height: none; }
+  .live-detail-card { min-height: 0; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
   .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
   /* Full-screen detail overlay: pad past the system status / nav bars via the

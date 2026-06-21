@@ -604,9 +604,20 @@ export async function fetchDaemonLogs(after: number, serverBaseUrl: string | nul
 // go through appFetch); only the snapshot uses this client.
 export async function fetchLiveSnapshot(
   serverBaseUrl: string | null = loadServerBaseUrl(),
+  limit?: number,
+  sinceSeq?: number,
 ): Promise<LiveSnapshot | null> {
   try {
-    const res = await appFetch(resolveEndpoint("./api/live-snapshot", serverBaseUrl), {
+    const params = new URLSearchParams();
+    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+      params.set("limit", String(Math.trunc(limit)));
+    }
+    if (typeof sinceSeq === "number" && Number.isFinite(sinceSeq) && sinceSeq >= 0) {
+      params.set("since", String(Math.trunc(sinceSeq)));
+    }
+    const query = params.toString();
+    const path = query ? `./api/live-snapshot?${query}` : "./api/live-snapshot";
+    const res = await appFetch(resolveEndpoint(path, serverBaseUrl), {
       cache: "no-store",
     });
     if (!res.ok) return null;

@@ -15,7 +15,7 @@ import type { ContractLoadMetadata } from "../contract.ts";
 import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, runDuration } from "../model.ts";
 import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo } from "../useDebug.ts";
 import { resolveEndpoint } from "../contract.ts";
-import { MAX_EVENTS } from "../useLive.ts";
+import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import { Badge } from "./Badge.tsx";
 
 interface Props {
@@ -460,7 +460,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
           <>
             <section className="debug-summary-strip debug-section-summary" aria-label="Live receiver summary">
               <SummaryMetric label="Buffer">
-                {live.info.events.toLocaleString()} <span className="muted">/ {MAX_EVENTS}</span>
+                {live.info.events.toLocaleString()} <span className="muted">/ {LIVE_EVENT_BUFFER_LIMIT}</span>
               </SummaryMetric>
               <SummaryMetric label="Cursor (max seq)">{live.info.maxSeq?.toLocaleString() ?? "n/a"}</SummaryMetric>
               <SummaryMetric label="Active repos">{live.info.repos.toLocaleString()}</SummaryMetric>

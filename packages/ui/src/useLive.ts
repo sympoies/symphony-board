@@ -13,13 +13,11 @@ import {
   fetchLiveSnapshot,
   resolveEndpoint,
 } from "./contract.ts";
+import { LIVE_EVENT_BUFFER_LIMIT } from "./live-config.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
 
 const POLL_INTERVAL_MS = 3000;
-// The in-memory feed cap; exported so the Live tab's "buffer" readout can show
-// how full the kept window is (events.length / MAX_EVENTS).
-export const MAX_EVENTS = 500;
 
 // EventSource only streams in a real browser; under Tauri (plugin-http) and
 // where EventSource is absent, fall back to polling.
@@ -288,7 +286,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       if (incoming.length === 0) return;
       const maxIn = incoming.reduce((m, e) => Math.max(m, e.seq), 0);
       if (maxIn > lastSeq.current) lastSeq.current = maxIn;
-      setEvents((prev) => appendCapped(prev, incoming, MAX_EVENTS));
+      setEvents((prev) => appendCapped(prev, incoming, LIVE_EVENT_BUFFER_LIMIT));
     };
 
     const transportKind = pickLiveTransport({
@@ -335,7 +333,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
           setEvents([]);
         }
         void (async () => {
-          const snap = await fetchLiveSnapshot(serverBaseUrl);
+          const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT);
           if (cancelled) return;
           if (!snap) {
             const retry = planSseResetSnapshotFailure(resetStart);
@@ -363,7 +361,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
           );
           lastSeq.current = plan.nextCursor;
           setEvents((prev) =>
-            reconcileReset(prev, snap, MAX_EVENTS, plan.reconcileOptions),
+            reconcileReset(prev, snap, LIVE_EVENT_BUFFER_LIMIT, plan.reconcileOptions),
           );
         })();
       });
@@ -377,7 +375,11 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
     };
 
     const pollOnce = async (): Promise<void> => {
-      const snap = await fetchLiveSnapshot(serverBaseUrl);
+      const snap = await fetchLiveSnapshot(
+        serverBaseUrl,
+        LIVE_EVENT_BUFFER_LIMIT,
+        lastSeq.current > 0 ? lastSeq.current : undefined,
+      );
       if (cancelled) return;
       if (!snap) {
         // A probe that NEVER succeeded is unavailable; a drop after a prior
@@ -398,7 +400,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
     };
 
     void (async () => {
-      const snap = await fetchLiveSnapshot(serverBaseUrl);
+      const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT);
       if (cancelled) return;
       if (snap) {
         markUp();

@@ -11,7 +11,9 @@
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { MAX_EVENTS, type LiveState } from "../useLive.ts";
+import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
+import type { LiveState } from "../useLive.ts";
+import { useListViewport } from "../useListViewport.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
@@ -34,7 +36,7 @@ import { ACTION_KIND } from "../activity-action-style.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
 import { Badge } from "./Badge.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
-import type { LiveEvent, LiveEventActor } from "../model.ts";
+import { activityVirtualRange, type LiveEvent, type LiveEventActor } from "../model.ts";
 
 // react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
 // stay out of the board/graph bundles — only the Live tab pays for them.
@@ -62,6 +64,11 @@ const SPARK_WINDOW_HOURS = SPARK_WINDOW_MS / 3_600_000; // 5 — drives the "/5h
 // Keep this in sync with the CSS breakpoint where .live-detail becomes a fixed
 // overlay.
 const LIVE_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
+const LIVE_DEFAULT_VIEWPORT_PX = 640;
+const LIVE_ROW_BASE_HEIGHT_PX = 74;
+const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
+const LIVE_ROW_GAP_PX = 6;
+const LIVE_OVERSCAN_ROWS = 8;
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -203,12 +210,18 @@ function LiveRow({
   now,
   previewLines,
   selected,
+  positionY,
+  index,
+  total,
   onSelect,
 }: {
   ev: LiveEvent;
   now: number;
   previewLines: number;
   selected: boolean;
+  positionY: number;
+  index: number;
+  total: number;
   onSelect: () => void;
 }) {
   const instant = eventInstant(ev);
@@ -234,11 +247,19 @@ function LiveRow({
     <li
       className={`live-event${selected ? " live-event-selected" : ""}`}
       data-category={ev.category}
-      style={catStyle(ev.category)}
+      data-feed-index={index}
+      style={
+        {
+          ...catStyle(ev.category),
+          transform: `translateY(${positionY}px)`,
+        } as CSSProperties
+      }
       onClick={onSelect}
       role="button"
       tabIndex={0}
       aria-pressed={selected}
+      aria-posinset={index + 1}
+      aria-setsize={total}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -419,6 +440,40 @@ export function LivePage({
     () => visibleEvents.filter((e) => eventMatchesFilters(e, { category, repos, people })),
     [visibleEvents, category, repos, people],
   );
+  const feedResetKey = useMemo(
+    () => JSON.stringify({
+      category,
+      hidden: [...hiddenEventTypes].sort(),
+      people: [...people].sort(),
+      repos: [...repos].sort(),
+    }),
+    [category, hiddenEventTypes, people, repos],
+  );
+  const rowHeight = useMemo(
+    () => LIVE_ROW_BASE_HEIGHT_PX + Math.max(0, previewLines) * LIVE_ROW_PREVIEW_LINE_HEIGHT_PX,
+    [previewLines],
+  );
+  const rowStride = rowHeight + LIVE_ROW_GAP_PX;
+  const { listRef: feedRef, scrollTop, viewportHeight, handleScroll } = useListViewport<HTMLUListElement>({
+    defaultViewportPx: LIVE_DEFAULT_VIEWPORT_PX,
+    resetKey: feedResetKey,
+  });
+  const virtual = useMemo(
+    () =>
+      activityVirtualRange({
+        count: shown.length,
+        scrollTop,
+        viewportHeight,
+        rowHeight,
+        rowGap: LIVE_ROW_GAP_PX,
+        overscan: LIVE_OVERSCAN_ROWS,
+      }),
+    [shown.length, scrollTop, viewportHeight, rowHeight],
+  );
+  const visibleShown = useMemo(
+    () => shown.slice(virtual.start, virtual.end),
+    [shown, virtual.start, virtual.end],
+  );
 
   const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
   // The detail shows the pinned event; with nothing pinned it auto-follows the
@@ -427,7 +482,6 @@ export function LivePage({
   const following = pinned === null;
   const detail = pinned ?? shown[0] ?? null;
   const detailKey = detail ? keyOf(detail) : null;
-  const feedRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
     if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
   }, [detailRouteOpen, isDetailOverlay, onClearDetailRoute]);
@@ -477,10 +531,10 @@ export function LivePage({
         <div className="live-card">
           <div className="live-card-label">Buffer</div>
           <div className="live-figure">
-            {events.length}
-            <span className="live-unit">/ {MAX_EVENTS}</span>
+            {windowTotal}
+            <span className="live-unit">/ {LIVE_EVENT_BUFFER_LIMIT}</span>
           </div>
-          <div className="live-card-sub">events kept in memory</div>
+          <div className="live-card-sub">events in last {SPARK_WINDOW_HOURS}h · memory cap</div>
         </div>
         <div className="live-card">
           <div className="live-card-label">Active now</div>
@@ -568,25 +622,37 @@ export function LivePage({
                 : "No events match these filters."}
             </p>
           ) : (
-            <ul className="live-feed" ref={feedRef}>
-              {shown.map((ev) => (
-                <LiveRow
-                  key={keyOf(ev)}
-                  ev={ev}
-                  now={now}
-                  previewLines={previewLines}
-                  selected={keyOf(ev) === detailKey}
-                  onSelect={() => {
-                    // Toggle: click pins this row; click the pinned row again to
-                    // release back to auto-follow (and scroll the feed to newest).
-                    if (pinned && keyOf(pinned) === keyOf(ev)) followLatest();
-                    else {
-                      setPinned(ev);
-                      openDetail();
-                    }
-                  }}
-                />
-              ))}
+            <ul
+              className="live-feed"
+              ref={feedRef}
+              onScroll={handleScroll}
+              style={{ "--live-row-height": `${rowHeight}px` } as CSSProperties}
+            >
+              <li className="live-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }} aria-hidden="true" />
+              {visibleShown.map((ev, offset) => {
+                const index = virtual.start + offset;
+                return (
+                  <LiveRow
+                    key={keyOf(ev)}
+                    ev={ev}
+                    now={now}
+                    previewLines={previewLines}
+                    selected={keyOf(ev) === detailKey}
+                    positionY={index * rowStride}
+                    index={index}
+                    total={shown.length}
+                    onSelect={() => {
+                      // Toggle: click pins this row; click the pinned row again to
+                      // release back to auto-follow (and scroll the feed to newest).
+                      if (pinned && keyOf(pinned) === keyOf(ev)) followLatest();
+                      else {
+                        setPinned(ev);
+                        openDetail();
+                      }
+                    }}
+                  />
+                );
+              })}
             </ul>
           )}
           <div className="live-detail">
