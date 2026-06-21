@@ -174,7 +174,7 @@ export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
   { id: "commits", label: "Commits" },
   { id: "board", label: "Board" },
   { id: "graph", label: "Graph" },
-  { id: "repo-analytics", label: "Repo Analytics" },
+  { id: "repo-analytics", label: "Analytics" },
 ];
 export const DEFAULT_TAB: Page = "live";
 

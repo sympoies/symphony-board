@@ -226,7 +226,7 @@ export function RepoAnalyticsPage({
   return (
     <main className="repo-analytics-page">
       <div className="repo-analytics-head">
-        <h2>Repo Analytics</h2>
+        <h2>Analytics</h2>
         <span className="count">{countLabel}</span>
         <span className="muted">{range.from} to {range.to}</span>
       </div>
