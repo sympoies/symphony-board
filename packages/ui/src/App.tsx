@@ -1069,7 +1069,7 @@ export function App() {
         Graph
       </a>
       <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
-        Repo Analytics
+        Analytics
       </a>
       <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
         Settings
