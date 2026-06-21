@@ -16,6 +16,9 @@ import {
   fetchSecrets,
   saveSecretValue,
   SYNC_CONTROL_HEADER,
+  initLoadRetryDelayMs,
+  INIT_LOAD_RETRY_BASE_MS,
+  INIT_LOAD_RETRY_MAX_MS,
 } from "../src/contract.ts";
 
 test("majorOf reads the leading integer of a version string (never NaN)", () => {
@@ -582,4 +585,19 @@ test("fetchSecrets probes booleans-only and saveSecretValue never echoes the val
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("initLoadRetryDelayMs grows exponentially from the base and caps at the max", () => {
+  assert.equal(initLoadRetryDelayMs(1), INIT_LOAD_RETRY_BASE_MS, "first retry uses the base delay");
+  assert.equal(initLoadRetryDelayMs(2), INIT_LOAD_RETRY_BASE_MS * 2);
+  assert.equal(initLoadRetryDelayMs(3), INIT_LOAD_RETRY_BASE_MS * 4);
+  // Far-out attempts are clamped to the ceiling, never unbounded.
+  assert.equal(initLoadRetryDelayMs(99), INIT_LOAD_RETRY_MAX_MS);
+  // Defensive: a zero / negative / fractional attempt floors to the first retry.
+  assert.equal(initLoadRetryDelayMs(0), INIT_LOAD_RETRY_BASE_MS);
+  assert.equal(initLoadRetryDelayMs(-5), INIT_LOAD_RETRY_BASE_MS);
+  assert.equal(initLoadRetryDelayMs(1.9), INIT_LOAD_RETRY_BASE_MS);
+  // Honors injected base/max for testability.
+  assert.equal(initLoadRetryDelayMs(4, 1000, 5000), 5000);
+  assert.equal(initLoadRetryDelayMs(2, 1000, 5000), 2000);
 });

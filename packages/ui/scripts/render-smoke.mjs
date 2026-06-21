@@ -715,6 +715,12 @@ try {
   // contract-independent and renders immediately). Wait until the receiver probe
   // resolves and the Live tab is active (gated on the async liveAvailable probe).
   const defaultLandingHtml = await waitHtml("document.querySelector('.live-page') && document.querySelector('.tab-live.tab-on')");
+  // The cold-start boot splash (index.html) must (a) be PRESENT in the served
+  // markup — it is painted before any JS runs, so a build that ships no splash
+  // element is caught here — and (b) be REMOVED once a real view is ready (never
+  // left covering a usable app: the "frozen / blank" regression).
+  const bootSplashServed = (await readFile(join(DIST, "index.html"), "utf8")).includes('id="boot-splash"');
+  const bootSplashRemoved = await waitValue("document.getElementById('boot-splash') ? null : 'gone'");
   // Then exercise a range-driven page's loading chrome: navigate to Activity
   // (the range API is still delayed) and confirm the shell stays mounted while
   // the range projection loads.
@@ -2799,6 +2805,7 @@ try {
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],
     // default entry: with Live enabled and pinned as the default, opening with no hash lands on Live.
     [has(defaultLandingHtml, "live-page") && has(defaultLandingHtml, "tab-on") && has(defaultLandingHtml, "Live"), "app: default route opens the configured default tab (Live, once enabled)"],
+    [bootSplashServed && bootSplashRemoved === "gone", `app: cold-start boot splash renders in served HTML then is removed once ready (served=${bootSplashServed}, ${bootSplashRemoved})`],
     [scrollAutoHide.restHidden === true && scrollAutoHide.shownOnPageScroll === true && (scrollAutoHide.hasInner === false || scrollAutoHide.shownOnInnerScroll === true), `app: scrollbars stay hidden at rest and reveal the scroller on scroll (${JSON.stringify(scrollAutoHide)})`],
     [colorSchemeHints.colorScheme === "dark light" && colorSchemeHints.supportedColorSchemes === "dark light", `app: declares supported color schemes for mobile browsers (${JSON.stringify(colorSchemeHints)})`],
     [headerRefresh.title === "Symphony Board", `app: header uses product title (${headerRefresh.title || "empty"})`],

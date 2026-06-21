@@ -10,9 +10,123 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#030b22" />
     <title>symphony-board</title>
+    <script>
+      // Apply the persisted theme BEFORE first paint so the boot splash and the
+      // app's first CSS frame match the user's choice (no light/dark flash). The
+      // React app re-applies the same rule on mount (App's useLayoutEffect).
+      (function () {
+        try {
+          var t = localStorage.getItem("symphony-board:theme");
+          if (t === "paper" || t === "night-owl") document.documentElement.dataset.theme = t;
+        } catch (e) {
+          /* storage unavailable — fall back to the default (night-owl) theme. */
+        }
+      })();
+    </script>
+    <style>
+      /* Cold-start boot splash. This paints on the very FIRST frame — before the
+         JS bundle and styles.css load — so a phone/desktop cold start shows a
+         themed loading hint instead of a blank screen during bundle parse +
+         React mount + the first contract fetch (which can be slow on a phone).
+         The React app REMOVES it once the first real view is ready (see
+         boot-splash.ts / App). Colors are inlined here (styles.css is not loaded
+         yet) and mirror the night-owl / paper design tokens. */
+      :root {
+        --bs-bg: #011627; /* night-owl --bg */
+        --bs-text: #d6deeb; /* night-owl --text */
+        --bs-muted: #637777; /* night-owl --muted */
+        --bs-accent: #82aaff; /* night-owl --accent */
+        /* How opaque the loading cover is. Start at 30% (a translucent veil over
+           the themed background) per request; raise toward 1 for a fully solid
+           cover. This single knob controls the whole overlay's opacity. */
+        --boot-splash-alpha: 0.3;
+      }
+      :root[data-theme="paper"] {
+        --bs-bg: #f4f3ed; /* paper --bg */
+        --bs-text: #1f2520; /* paper --text */
+        --bs-muted: #5d645c; /* paper --muted */
+        --bs-accent: #2457a7; /* paper --accent */
+      }
+      /* Solid themed base so the very first frame is the app background, never a
+         white flash, regardless of the veil alpha above. */
+      html,
+      body {
+        background: var(--bs-bg);
+      }
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        /* A faint accent glow over the solid themed background; the whole layer
+           rides at --boot-splash-alpha so the hint reads as a translucent veil. */
+        background:
+          radial-gradient(120% 80% at 50% 40%, color-mix(in srgb, var(--bs-accent) 14%, transparent), transparent 68%),
+          var(--bs-bg);
+        color: var(--bs-text);
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        opacity: var(--boot-splash-alpha, 0.3);
+        transition: opacity 360ms ease;
+      }
+      /* React sets this to fade the splash out before removing it from the DOM. */
+      #boot-splash[data-hiding="true"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* CSS-only "equalizer" — a nod to "Symphony" — instead of an image/spinner. */
+      .boot-splash-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 5px;
+        height: 30px;
+      }
+      .boot-splash-bars span {
+        width: 5px;
+        height: 100%;
+        border-radius: 3px;
+        background: var(--bs-accent);
+        transform: scaleY(0.3);
+        transform-origin: bottom;
+        animation: boot-splash-bar 1.05s ease-in-out infinite;
+      }
+      .boot-splash-bars span:nth-child(1) { animation-delay: -0.9s; }
+      .boot-splash-bars span:nth-child(2) { animation-delay: -0.6s; }
+      .boot-splash-bars span:nth-child(3) { animation-delay: -0.3s; }
+      .boot-splash-bars span:nth-child(4) { animation-delay: -0.15s; }
+      .boot-splash-bars span:nth-child(5) { animation-delay: -0.45s; }
+      .boot-splash-title {
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+      }
+      .boot-splash-status {
+        font-size: 12.5px;
+        color: var(--bs-muted);
+        min-height: 1.4em;
+      }
+      @keyframes boot-splash-bar {
+        0%, 100% { transform: scaleY(0.3); opacity: 0.5; }
+        50% { transform: scaleY(1); opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-splash-bars span { animation: none; transform: scaleY(0.7); opacity: 0.85; }
+        #boot-splash { transition: none; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-splash" role="status" aria-live="polite" aria-label="Loading Symphony Board">
+      <div class="boot-splash-bars" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="boot-splash-title">Symphony Board</div>
+      <div class="boot-splash-status" id="boot-splash-status">Loading…</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

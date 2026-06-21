@@ -256,6 +256,31 @@ export const CONTRACT_LOAD_RETRIES = 2;
 export const CONTRACT_RETRY_BASE_DELAY_MS = 1_000;
 const CONTRACT_RETRY_MAX_DELAY_MS = 8_000;
 
+// --- cold-start init retry (App-level outer loop) ----------------------------
+// The loader above retries a few times WITHIN one call. The App also runs an
+// OUTER retry loop on cold start so a board that is briefly unreachable at launch
+// (server still starting, the tailnet not up yet, a momentary blip) self-heals
+// into a working board WITHOUT an app restart — the old behaviour stranded the UI
+// on a dead error screen until relaunch. Each outer round does a SINGLE fetch
+// (retries: 0) so the visible status reflects each try; this policy then spaces
+// the rounds with capped exponential backoff. The first PATIENT rounds keep the
+// cold-start splash up and retry quietly; after that the actionable error UI
+// shows while the loop keeps retrying in the background.
+export const INIT_LOAD_PATIENT_ATTEMPTS = 2;
+export const INIT_LOAD_RETRY_BASE_MS = 1_500;
+export const INIT_LOAD_RETRY_MAX_MS = 15_000;
+
+// Backoff before the Nth consecutive init retry (attempt counts failures so far,
+// >= 1), capped. Pure + unit-tested (contract.test.ts).
+export function initLoadRetryDelayMs(
+  attempt: number,
+  baseMs: number = INIT_LOAD_RETRY_BASE_MS,
+  maxMs: number = INIT_LOAD_RETRY_MAX_MS,
+): number {
+  const n = Math.max(1, Math.floor(attempt));
+  return Math.min(baseMs * 2 ** (n - 1), maxMs);
+}
+
 export interface ContractLoadOptions {
   retries?: number; // extra attempts after the first
   retryBaseDelayMs?: number; // exponential-backoff base
