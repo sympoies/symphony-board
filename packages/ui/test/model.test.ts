@@ -25,6 +25,8 @@ import {
   itemReviewMatches,
   reviewActivityIsUnresolved,
   activityVirtualRange,
+  liveDetailNavigation,
+  liveEventKey,
   buildCommitRows,
   commitVirtualRange,
   filterActivitiesByRange,
@@ -116,6 +118,7 @@ import {
   type ConfigDocument,
   type ConfigProjectEntry,
   type ConfigSourceDoc,
+  type LiveEvent,
 } from "../src/model.ts";
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
@@ -746,6 +749,63 @@ test("activityVirtualRange clamps empty and invalid inputs", () => {
     end: 2,
     visibleCount: 2,
     totalHeightPx: 2 * (ACTIVITY_ROW_HEIGHT_PX + ACTIVITY_ROW_GAP_PX) - ACTIVITY_ROW_GAP_PX,
+  });
+});
+
+function liveEvent(over: Partial<LiveEvent> = {}): LiveEvent {
+  return {
+    seq: 1,
+    event_id: "evt-1",
+    source_id: "github:github.com",
+    provider: "github",
+    received_at: "2026-06-21T00:00:00.000Z",
+    event_type: "pull_request",
+    category: "change_request",
+    title: "event",
+    ...over,
+  };
+}
+
+test("liveDetailNavigation finds adjacent events in the filtered feed order", () => {
+  const newest = liveEvent({ seq: 3, event_id: "evt-3", title: "newest" });
+  const current = liveEvent({ seq: 2, event_id: "evt-2", title: "current" });
+  const older = liveEvent({ seq: 1, event_id: "evt-1", title: "older" });
+
+  assert.equal(liveEventKey(current), "github:github.com:evt-2:2");
+  assert.deepEqual(liveDetailNavigation([newest, current, older], current), {
+    index: 1,
+    position: 2,
+    total: 3,
+    previous: newest,
+    next: older,
+  });
+});
+
+test("liveDetailNavigation disables unavailable edges and ignores stale detail", () => {
+  const newest = liveEvent({ seq: 3, event_id: "evt-3" });
+  const older = liveEvent({ seq: 2, event_id: "evt-2" });
+  const stale = liveEvent({ seq: 99, event_id: "evt-stale" });
+
+  assert.deepEqual(liveDetailNavigation([newest, older], newest), {
+    index: 0,
+    position: 1,
+    total: 2,
+    previous: null,
+    next: older,
+  });
+  assert.deepEqual(liveDetailNavigation([newest, older], older), {
+    index: 1,
+    position: 2,
+    total: 2,
+    previous: newest,
+    next: null,
+  });
+  assert.deepEqual(liveDetailNavigation([newest, older], stale), {
+    index: -1,
+    position: 0,
+    total: 2,
+    previous: null,
+    next: null,
   });
 });
 

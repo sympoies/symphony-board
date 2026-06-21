@@ -2558,6 +2558,31 @@ export interface LiveEvent {
   raw?: Record<string, unknown> | null;
 }
 
+export interface LiveDetailNavigation {
+  index: number;
+  position: number;
+  total: number;
+  previous: LiveEvent | null;
+  next: LiveEvent | null;
+}
+
+export function liveEventKey(ev: Pick<LiveEvent, "source_id" | "event_id" | "seq">): string {
+  return `${ev.source_id}:${ev.event_id}:${ev.seq}`;
+}
+
+export function liveDetailNavigation(events: readonly LiveEvent[], current: LiveEvent | null): LiveDetailNavigation {
+  const total = events.length;
+  const currentKey = current ? liveEventKey(current) : null;
+  const index = currentKey ? events.findIndex((ev) => liveEventKey(ev) === currentKey) : -1;
+  return {
+    index,
+    position: index >= 0 ? index + 1 : 0,
+    total,
+    previous: index > 0 ? events[index - 1]! : null,
+    next: index >= 0 && index + 1 < total ? events[index + 1]! : null,
+  };
+}
+
 export interface LiveSnapshot {
   schema: string;
   events: LiveEvent[];

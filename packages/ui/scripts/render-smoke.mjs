@@ -1806,6 +1806,117 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  const liveMobileDetailState = async (extra = {}) => (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const selected = document.querySelector('.live-feed .live-event-selected');
+      const detailTitle = document.querySelector('.live-detail-title')?.textContent || '';
+      const detailLabel = detailTitle.replace('↗', '').trim();
+      const shell = document.querySelector('.live-detail-shell');
+      const newer = document.querySelector('.live-detail-nav-button[aria-label="Show newer event"]');
+      const older = document.querySelector('.live-detail-nav-button[aria-label="Show older event"]');
+      const selectedText = selected?.textContent || '';
+      return Object.assign({
+        detailTitle,
+        selectedText,
+        selectedMatchesDetail: detailLabel.length > 0 && selectedText.includes(detailLabel),
+        selectedIndex: selected?.getAttribute('data-feed-index') || '',
+        count: document.querySelector('.live-detail-nav-count')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        motion: shell?.getAttribute('data-motion') || '',
+        navButtons: document.querySelectorAll('.live-detail-nav-button').length,
+        newerDisabled: newer?.disabled === true,
+        olderDisabled: older?.disabled === true,
+      }, ${JSON.stringify(extra)});
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const dispatchLiveMobileSwipe = async ({ dx, dy = 4, selector = ".live-detail-card" }) => (await send("Runtime.evaluate", {
+    expression: `(({ dx, dy, selector }) => {
+      const card = document.querySelector('.live-detail-card');
+      if (!card) return { dispatched: false, reason: 'missing-card' };
+      const target = document.querySelector(selector);
+      if (!target) return { dispatched: false, reason: 'missing-target', selector };
+      const rect = target.getBoundingClientRect();
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+      const startX = Math.round(clamp(rect.left + Math.min(96, rect.width * 0.32), rect.left + 4, rect.right - 4));
+      const startY = Math.round(clamp(rect.top + Math.max(4, Math.min(rect.height - 4, Math.max(24, rect.height * 0.58))), rect.top + 4, rect.bottom - 4));
+      const endX = startX + dx;
+      const endY = startY + dy;
+      try {
+        const makeTouch = (x, y) => new Touch({
+          identifier: 7,
+          target,
+          clientX: x,
+          clientY: y,
+          screenX: x,
+          screenY: y,
+          pageX: x,
+          pageY: y,
+          radiusX: 1,
+          radiusY: 1,
+        });
+        const start = makeTouch(startX, startY);
+        const end = makeTouch(endX, endY);
+        target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], targetTouches: [start], changedTouches: [start] }));
+        target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [end] }));
+        return { dispatched: true, method: 'TouchEvent', selector, x: startX, y: startY, dx, dy };
+      } catch (error) {
+        try {
+          const touch = (x, y) => ({ identifier: 7, target, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
+          const makeEvent = (type, touches, changedTouches) => {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperties(event, {
+              touches: { value: touches },
+              targetTouches: { value: touches },
+              changedTouches: { value: changedTouches },
+            });
+            return event;
+          };
+          const start = touch(startX, startY);
+          const end = touch(endX, endY);
+          target.dispatchEvent(makeEvent('touchstart', [start], [start]));
+          target.dispatchEvent(makeEvent('touchend', [], [end]));
+          return { dispatched: true, method: 'event-props', selector, x: startX, y: startY, dx, dy };
+        } catch (fallbackError) {
+          return {
+            dispatched: false,
+            selector,
+            reason: String(error?.message || error),
+            fallback: String(fallbackError?.message || fallbackError),
+          };
+        }
+      }
+    })(${JSON.stringify({ dx, dy, selector })})`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await sleep(120);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.live-detail-nav-button[aria-label=\"Show older event\"]')?.click()" });
+  await sleep(300);
+  const liveMobileNav = await liveMobileDetailState();
+  const liveMobileReducedMotion = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const shell = document.querySelector('.live-detail-shell');
+      const style = shell ? getComputedStyle(shell) : null;
+      return {
+        matches: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        motion: shell?.getAttribute('data-motion') || '',
+        animationName: style?.animationName || '',
+        animationDuration: style?.animationDuration || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+  await sleep(120);
+  const liveMobileSwipeDispatch = await dispatchLiveMobileSwipe({ dx: 112 });
+  await sleep(300);
+  const liveMobileSwipe = await liveMobileDetailState({ dispatch: liveMobileSwipeDispatch });
+  const liveMobileLeftSwipeDispatch = await dispatchLiveMobileSwipe({ dx: -112 });
+  await sleep(300);
+  const liveMobileLeftSwipe = await liveMobileDetailState({ dispatch: liveMobileLeftSwipeDispatch });
+  const liveMobileIgnoredLinkSwipeDispatch = await dispatchLiveMobileSwipe({ dx: 112, selector: ".live-detail-title-link" });
+  await sleep(300);
+  const liveMobileIgnoredLinkSwipe = await liveMobileDetailState({ dispatch: liveMobileIgnoredLinkSwipeDispatch });
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(250);
   const liveMobileAway = (await send("Runtime.evaluate", {
@@ -2686,6 +2797,11 @@ try {
     [liveMobileCards.bufferChartHidden === true && liveMobileCards.activeChartHidden === true && liveMobileCards.bufferMobileSubVisible === true && liveMobileCards.activeMobileSubVisible === true && liveMobileCards.bufferMobileSub === "retained events · memory cap", `live: phone hides rank charts and shows compact summaries (${JSON.stringify(liveMobileCards)})`],
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
+    [liveMobileNav.navButtons === 2 && liveMobileNav.motion === "next" && liveMobileNav.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileNav.count || "") && liveMobileNav.selectedMatchesDetail === true && liveMobileNav.newerDisabled === false && liveMobileNav.olderDisabled === false, `live: phone detail Older button advances detail and selected feed row together (${JSON.stringify(liveMobileNav)})`],
+    [liveMobileReducedMotion.matches === true && liveMobileReducedMotion.motion === "next" && liveMobileReducedMotion.animationName === "none", `live: phone detail directional motion respects reduced-motion (${JSON.stringify(liveMobileReducedMotion)})`],
+    [liveMobileSwipe.dispatch?.dispatched === true && liveMobileSwipe.motion === "previous" && liveMobileSwipe.selectedIndex === "0" && /1\s*\/\s*\d+/.test(liveMobileSwipe.count || "") && liveMobileSwipe.selectedMatchesDetail === true && liveMobileSwipe.newerDisabled === true && liveMobileSwipe.olderDisabled === false, `live: phone detail right-swipe returns to the newer event and selected feed row (${JSON.stringify(liveMobileSwipe)})`],
+    [liveMobileLeftSwipe.dispatch?.dispatched === true && liveMobileLeftSwipe.motion === "next" && liveMobileLeftSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileLeftSwipe.count || "") && liveMobileLeftSwipe.selectedMatchesDetail === true && liveMobileLeftSwipe.newerDisabled === false && liveMobileLeftSwipe.olderDisabled === false, `live: phone detail left-swipe advances to the older event and selected feed row (${JSON.stringify(liveMobileLeftSwipe)})`],
+    [liveMobileIgnoredLinkSwipe.dispatch?.dispatched === true && liveMobileIgnoredLinkSwipe.motion === "next" && liveMobileIgnoredLinkSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileIgnoredLinkSwipe.count || "") && liveMobileIgnoredLinkSwipe.selectedMatchesDetail === true && liveMobileIgnoredLinkSwipe.newerDisabled === false && liveMobileIgnoredLinkSwipe.olderDisabled === false, `live: phone detail ignores swipes that start on the title link (${JSON.stringify(liveMobileIgnoredLinkSwipe)})`],
     [liveMobileAway.hash === "#/activity" && liveMobileAway.activityVisible === true, `live: phone can leave Live while detail is open (${JSON.stringify(liveMobileAway)})`],
     [liveMobileReturnDetail.detailOpen === "true" && liveMobileReturnDetail.detailDisplay !== "none" && liveMobileReturnDetail.feedRows >= 2 && /[?&]liveDetail=1/.test(liveMobileReturnDetail.hash || ""), `live: phone history.back from another tab returns to the route-backed detail overlay (${JSON.stringify(liveMobileReturnDetail)})`],
     [liveMobileBack.detailOpen === "false" && liveMobileBack.detailDisplay === "none" && liveMobileBack.feedRows >= 2 && liveMobileBack.hash === "#/live", `live: phone history.back returns from detail overlay to the feed (${JSON.stringify(liveMobileBack)})`],
