@@ -3147,11 +3147,28 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-event-raw pre { background: var(--panel-2); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
 .live-event-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; padding-top: 2px; }
 
-/* The newest retained row flashes once as it arrives; virtualization keeps
-   that row addressable through the feed index rather than DOM position. */
-.live-feed .live-event[data-feed-index="0"] { animation: live-arrive 1400ms ease-out; }
+/* The newest retained row arrives with a brief slide-in + background flash;
+   virtualization keeps that row addressable through the feed index rather than
+   DOM position. The entrance uses the independent translate/scale properties so
+   it COMPOSES with the inline transform that positions the row (translateY by
+   index) instead of clobbering it. */
+.live-feed .live-event[data-feed-index="0"] {
+  animation: live-enter 440ms cubic-bezier(0.2, 0.7, 0.3, 1), live-arrive 1400ms ease-out;
+}
 .live-feed .live-event[data-feed-index="0"]::before { opacity: 0.85; }
 .live-feed .live-event-selected[data-feed-index="0"]::before { opacity: 0.95; }
+
+/* When the viewer is at the top, a new arrival bumps every existing row's index
+   by one, so each one's translateY target moves down a full stride. Easing that
+   transform turns the instant jump into the newest row visibly PUSHING the list
+   down. Armed (data-animate-shift, set by LivePage) only at the top: while
+   scrolled the shift stays instant so it never fights the preserved scroll
+   position (the spacer height still changes untransitioned, as before). The 1s
+   relative-time tick recomputes the same translateY, so it never re-triggers
+   this transition. */
+.live-feed[data-animate-shift="true"] .live-event {
+  transition: transform 240ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
 
 @keyframes live-beat {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }
@@ -3161,6 +3178,12 @@ a.rf-node-title:hover { color: var(--accent); }
 @keyframes live-arrive {
   from { background: color-mix(in srgb, var(--live) 18%, var(--panel)); }
   to { background: var(--panel); }
+}
+/* Newest-row entrance: drop in from just above its slot and settle. translate +
+   scale (NOT transform) so the inline positioning transform stays intact. */
+@keyframes live-enter {
+  from { opacity: 0; translate: 0 -8px; scale: 0.99; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
 }
 
 @media (max-width: 820px) { .live-pulse { grid-template-columns: 1fr 1fr; } }
@@ -3235,7 +3258,13 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-empty { color: var(--muted); padding: 24px 4px; }
 .live-detail-card { box-sizing: border-box; min-height: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
 .live-detail-back { display: none; }
-.live-detail-shell { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start; }
+/* Keyed on the event identity in LiveDetail, so the shell REMOUNTS when the
+   detail follows a new event and replays this gentle crossfade. A keyed remount
+   (not a class toggle) keeps the animation off the 1s relative-time re-render. */
+.live-detail-shell {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start;
+  animation: live-detail-in 240ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
 .live-detail-shell > .live-avatar { margin-top: 1px; }
 .live-detail-main { min-width: 0; }
 .live-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
@@ -3319,5 +3348,32 @@ a.rf-node-title:hover { color: var(--accent); }
       calc(14px + var(--android-safe-area-bottom, 0px))
       calc(16px + var(--android-safe-area-left, 0px));
     overflow: auto; overscroll-behavior: contain;
+    /* The overlay swaps in via display (none -> fixed); a CSS animation plays on
+       that display change where a transition would not — sliding the sheet up as
+       it appears. Exit stays instant (display:none cannot animate out). */
+    animation: live-overlay-in 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
   }
+}
+
+/* Detail crossfade + mobile overlay entrance keyframes (referenced above). The
+   detail fades from a partial (not zero) opacity so a keyed remount never blanks
+   the pane between events. */
+@keyframes live-detail-in {
+  from { opacity: 0.4; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes live-overlay-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduced-motion: drop every Live entrance/shift added alongside the original
+   arrival flash. Defined LAST in the section so it overrides the feed, detail,
+   and narrow-overlay rules regardless of their source order; each selector
+   matches the original's specificity so the override actually wins. */
+@media (prefers-reduced-motion: reduce) {
+  .live-feed[data-animate-shift="true"] .live-event { transition: none; }
+  .live-feed .live-event[data-feed-index="0"] { animation: none; }
+  .live-detail-shell { animation: none; }
+  .live-split[data-detail-open="true"] .live-detail { animation: none; }
 }
