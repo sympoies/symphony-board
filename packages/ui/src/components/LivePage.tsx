@@ -15,6 +15,7 @@ import { MAX_EVENTS, type LiveState } from "../useLive.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
+  actorKey,
   bucketRange,
   categoryCounts,
   countInWindow,
@@ -340,9 +341,9 @@ export function LivePage({
   const buckets = rateBuckets(events, now, SPARK_BUCKET_MS, SPARK_BUCKETS);
   const cats = categoryCounts(events, CATEGORY_ORDER);
   const repoCount = distinctCount(events, eventRepo);
-  const peopleCount = distinctCount(events, (e) => e.actor?.login);
+  const peopleCount = distinctCount(events, actorKey);
   const repoOptions = distinctValues(events, eventRepo);
-  const peopleOptions = distinctValues(events, (e) => e.actor?.login);
+  const peopleOptions = distinctValues(events, actorKey);
   const latest = events[0];
   const latestInstant = latest ? eventInstant(latest) : null;
   const shown = events.filter((e) => eventMatchesFilters(e, { category, repos, people }));

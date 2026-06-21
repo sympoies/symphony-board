@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  actorKey,
   eventInstant,
   eventRepo,
   countInWindow,
@@ -194,4 +195,43 @@ test("eventMatchesFilters ANDs category (single) with repo + people (multi, empt
     eventMatchesFilters(e, { category: "review", repos: new Set(["o/repo"]), people: new Set(["someone"]) }),
     false,
   );
+});
+
+test("people filter matches a login-less commit author by display_name", () => {
+  // A pushed commit whose author email GitHub could not map to an account has a
+  // display_name but no login. It shows in the feed (via the row title) but, if
+  // the people key is login-only, it cannot be filtered and is absent from the
+  // People options/count. The people key must fall back to display_name.
+  const commitAuthor = ev({
+    category: "commit",
+    actor: { login: null, display_name: "Robo Committer" },
+  });
+  const none = { category: null, repos: new Set<string>(), people: new Set<string>() };
+  assert.equal(eventMatchesFilters(commitAuthor, none), true, "no filter → matches");
+  assert.equal(
+    eventMatchesFilters(commitAuthor, { ...none, people: new Set(["Robo Committer"]) }),
+    true,
+    "filterable by the display name when login is absent",
+  );
+  assert.equal(
+    eventMatchesFilters(commitAuthor, { ...none, people: new Set(["someone-else"]) }),
+    false,
+    "a non-matching display name still excludes it",
+  );
+});
+
+test("actorKey backs the people options/count with a display_name fallback", () => {
+  // Options, count, and the filter all key off actorKey, so a login-less commit
+  // author surfaces as a People option (and is counted) under its display_name.
+  assert.equal(actorKey(ev({ actor: { login: "graysurf", display_name: "Gray Surf" } })), "graysurf");
+  assert.equal(actorKey(ev({ actor: { login: null, display_name: "Robo Committer" } })), "Robo Committer");
+  assert.equal(actorKey(ev({ actor: { login: null, display_name: null } })), null);
+  assert.equal(actorKey(ev({ actor: null })), null);
+  const events = [
+    ev({ actor: { login: "graysurf" } }),
+    ev({ actor: { login: null, display_name: "Robo Committer" } }),
+    ev({ actor: { login: null, display_name: null } }),
+  ];
+  assert.deepEqual(distinctValues(events, actorKey), ["graysurf", "Robo Committer"]);
+  assert.equal(distinctCount(events, actorKey), 2);
 });

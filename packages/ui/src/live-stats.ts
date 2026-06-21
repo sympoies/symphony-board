@@ -121,6 +121,17 @@ export function distinctCount(
   return distinctValues(events, key).length;
 }
 
+// The stable identity key for an actor in the people filter / count / options:
+// the GitHub login when present, else the display name. A pushed commit whose
+// author email GitHub could not resolve to an account has a display_name but no
+// login — keying on login alone would drop it from the People controls even
+// though it shows in the feed. null when neither is present. The same key MUST
+// back the options, the count, and eventMatchesFilters so a selected option
+// always matches the events it was derived from.
+export function actorKey(e: LiveEvent): string | null {
+  return e.actor?.login ?? e.actor?.display_name ?? null;
+}
+
 // The feed's filter selection: category is single-select (null = any); repos and
 // people are multi-select sets (empty = any).
 export interface LiveFilters {
@@ -137,8 +148,8 @@ export function eventMatchesFilters(e: LiveEvent, sel: LiveFilters): boolean {
     if (!repo || !sel.repos.has(repo)) return false;
   }
   if (sel.people.size) {
-    const login = e.actor?.login;
-    if (!login || !sel.people.has(login)) return false;
+    const key = actorKey(e);
+    if (!key || !sel.people.has(key)) return false;
   }
   return true;
 }

@@ -316,6 +316,36 @@ test("push secret-bearing fields are scrubbed from raw", () => {
   assert.equal(installation.access_token, "[redacted]");
 });
 
+test("each push row's raw carries only ITS commit, not the whole commits[] (no per-commit payload fan-out)", () => {
+  // A push of N commits fans out to N rows that each persist `raw` once. Carrying
+  // the full delivery `commits[]` in every row makes the store O(N^2) (GitHub
+  // allows up to 2048 commits/push), and the snapshot/SSE APIs serve every copy
+  // back. Each row must instead carry only its own commit under `commits`, while
+  // the constant-size delivery envelope (ref, repository, installation, …) is
+  // preserved and still scrubbed.
+  const events = provider.toLiveEvents(fixture("push"), ctx("push"));
+  const [first, second] = events;
+  assert.ok(first && second);
+  const rawOf = (ev: typeof first) => ev.raw as Record<string, unknown>;
+  const commitsOf = (ev: typeof first) => rawOf(ev).commits as unknown[];
+  assert.equal(commitsOf(first).length, 1, "row 1 raw holds only its own commit");
+  assert.equal(commitsOf(second).length, 1, "row 2 raw holds only its own commit");
+  assert.equal(
+    (commitsOf(first)[0] as Record<string, unknown>).id,
+    "bbbb222bbbb222bbbb222bbbb222bbbb222bbbb2",
+    "row 1 raw commit matches the row's sha",
+  );
+  assert.equal(
+    (commitsOf(second)[0] as Record<string, unknown>).id,
+    "cccc333cccc333cccc333cccc333cccc333cccc3",
+    "row 2 raw commit matches the row's sha",
+  );
+  // The constant-size envelope is still present (and still scrubbed).
+  const installation = rawOf(first).installation as Record<string, unknown>;
+  assert.equal(installation.access_token, "[redacted]", "envelope stays scrubbed");
+  assert.equal(rawOf(first).ref, "refs/heads/main", "delivery ref preserved per row");
+});
+
 test("push output validates as live-event/1 records once seq is assigned", () => {
   const events = provider.toLiveEvents(fixture("push"), ctx("push"));
   assert.ok(events.length >= 2);
