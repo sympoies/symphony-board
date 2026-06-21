@@ -178,6 +178,11 @@ export class GithubWebhookProvider implements WebhookProvider {
       // Per-event actor override. Most events attribute to the delivery sender;
       // a push attributes each row to that commit's author instead.
       actor?: LiveActor | null;
+      // Per-event raw override. Single-event deliveries persist the whole scrubbed
+      // payload; a push slices it to ONE commit per row (make({ raw: … })) so a
+      // multi-commit push does not duplicate the full commits[] into every
+      // fan-out row's raw_json (O(N^2) store; GitHub allows up to 2048/push).
+      raw?: Record<string, unknown> | null;
     }): LiveEventInput => ({
       event_id: ctx.deliveryId,
       source_id: ctx.sourceId,
@@ -200,7 +205,7 @@ export class GithubWebhookProvider implements WebhookProvider {
         signature_status: "verified",
       },
       provider_details: fields.provider_details ?? null,
-      raw,
+      raw: fields.raw ?? raw,
     });
 
     switch (ctx.eventHeader) {
@@ -347,6 +352,10 @@ export class GithubWebhookProvider implements WebhookProvider {
         const commits = Array.isArray(payload.commits)
           ? (payload.commits as unknown[])
           : [];
+        // The scrubbed commit objects, parallel by index to `commits`, so each
+        // fan-out row can carry ONLY its own commit in `raw` instead of the whole
+        // (potentially 2048-long) commits[] array repeated per row.
+        const rawCommits = Array.isArray(raw.commits) ? (raw.commits as unknown[]) : [];
         const ref = asStr(payload.ref);
         const branch = ref?.startsWith("refs/heads/")
           ? ref.slice("refs/heads/".length)
@@ -354,18 +363,27 @@ export class GithubWebhookProvider implements WebhookProvider {
         const sender = asObj(payload.sender);
         const details = ref ? { ref, branch } : null;
         const out: LiveEventInput[] = [];
-        for (const entry of commits) {
-          const commit = asObj(entry);
+        for (let i = 0; i < commits.length; i++) {
+          const commit = asObj(commits[i]);
           const sha = commit ? asStr(commit.id) : null;
           if (!commit || !sha) continue;
           const message = asStr(commit.message) ?? "";
           const subject = message.split("\n", 1)[0] ?? "";
           const commitActor = ghCommitActor(asObj(commit.author), sender);
           const url = asStr(commit.url);
+          // Per-commit raw: the constant-size delivery envelope (ref, repository,
+          // pusher, installation, …, all already scrubbed) with `commits` narrowed
+          // to this row's single commit — keeping replay context without the
+          // per-row fan-out of the full array.
+          const rawSlice: Record<string, unknown> = {
+            ...raw,
+            commits: i < rawCommits.length ? [rawCommits[i]] : [],
+          };
           out.push(
             make({
               category: "commit",
               actor: commitActor,
+              raw: rawSlice,
               target: {
                 kind: "commit",
                 source_id: ctx.sourceId,

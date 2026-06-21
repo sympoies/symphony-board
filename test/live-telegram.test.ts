@@ -112,6 +112,38 @@ test("formatLiveEvent links the event permalink in preference to the target URL"
   assert.ok(!msg.includes('href="https://github.com/o/r/pull/9"'), "must not link the parent target URL");
 });
 
+test("formatLiveEvent keeps the short SHA in the commit mirror's linked title", () => {
+  // A commit row's target.title is the bare subject; its event.title is the
+  // disambiguating "<author> committed <short-sha>". The bare subject loses the
+  // SHA, so repeated/generic subjects become indistinguishable in the mirror.
+  // The commit mirror must surface the short SHA in the linked title.
+  const msg = formatLiveEvent(
+    makeEvent({
+      category: "commit",
+      title: "Robo Committer committed cccc333",
+      url: "https://github.com/sympoies/symphony-board/commit/cccc333cccc333cccc333cccc333cccc333cccc3",
+      target: {
+        kind: "commit",
+        source_id: "github:github.com",
+        project_path: "sympoies/symphony-board",
+        external_id: "cccc333cccc333cccc333cccc333cccc333cccc3",
+        title: "fix: second commit single line",
+        url: "https://github.com/sympoies/symphony-board/commit/cccc333cccc333cccc333cccc333cccc333cccc3",
+      },
+    }),
+  );
+  // Assert on the LINKED TITLE TEXT (between > and </a>), not anywhere in the
+  // message — the href legitimately carries the full SHA, so a bare /cccc333/
+  // match would pass even while the visible title shows only the subject.
+  const linkText = msg.match(/>([^<]*)<\/a>/)?.[1] ?? "";
+  assert.match(linkText, /committed cccc333/, "the linked title carries the short SHA");
+  assert.doesNotMatch(
+    linkText,
+    /^fix: second commit single line$/,
+    "the bare subject (no SHA) must not be the linked title for a commit",
+  );
+});
+
 test("formatLiveEvent labels a merged PR as merged, not closed", () => {
   const msg = formatLiveEvent(
     makeEvent({

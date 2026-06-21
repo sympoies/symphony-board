@@ -99,7 +99,14 @@ export function formatLiveEvent(event: LiveEvent, bodyLines = MAX_BODY_LINES): s
     (num ? ` ${escapeHtml(num)}` : "");
 
   // Linked title: prefer the work-item title, fall back to the event summary.
-  const titleText = event.target?.title ?? event.title ?? null;
+  // A commit is the exception: its target.title is the bare subject, while the
+  // event title is the disambiguating "<author> committed <short-sha>". Prefer
+  // the event title for commits so repeated/generic subjects keep their SHA in
+  // the mirror instead of collapsing to indistinguishable lines.
+  const titleText =
+    event.category === "commit"
+      ? (event.title ?? event.target?.title ?? null)
+      : (event.target?.title ?? event.title ?? null);
   // Prefer the event's own permalink (e.g. a comment/review anchor) over the
   // parent target URL, so the link points at the specific activity being
   // mirrored — same precedence the UI's eventLink uses. Fall back to target.url.

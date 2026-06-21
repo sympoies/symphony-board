@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchStoreStats, fetchDaemonLogs, fetchLiveSnapshot } from "./contract.ts";
-import { categoryCounts, distinctCount, eventInstant, eventRepo } from "./live-stats.ts";
+import { actorKey, categoryCounts, distinctCount, eventInstant, eventRepo } from "./live-stats.ts";
 import type { StoreStats, DaemonLogEntry } from "./model.ts";
 
 const LOG_POLL_INTERVAL_MS = 2000;
@@ -90,7 +90,7 @@ export function useLiveSnapshotInfo(serverBaseUrl: string | null): {
           maxSeq: snap.max_seq,
           events: snap.events.length,
           repos: distinctCount(snap.events, eventRepo),
-          people: distinctCount(snap.events, (e) => e.actor?.login),
+          people: distinctCount(snap.events, actorKey),
           categories: categoryCounts(snap.events, []),
           generatedAt: snap.generated_at,
           newestAt: newest != null ? new Date(newest).toISOString() : null,
