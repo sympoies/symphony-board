@@ -379,7 +379,9 @@ test("buildContract emits repo metrics for the static default window", () => {
   assert.equal(metric?.totals.change_requests_opened, 1);
   assert.equal(metric?.totals.change_requests_merged, 1);
   assert.equal(metric?.totals.activities, 2);
-  assert.equal(metric?.totals.activity_score, 9.25);
+  // Unweighted sum of in-window event counts: commits(1) + issues_opened(1)
+  // + change_requests_opened(1) + change_requests_merged(1) = 4.
+  assert.equal(metric?.totals.activity_score, 4);
   assert.equal(metric?.totals.commits, 1);
   assert.equal(metric?.totals.pushes, 1);
   assert.equal(metric?.totals.unresolved_review_threads, 2);

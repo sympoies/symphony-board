@@ -315,8 +315,10 @@ and render `display_name` / `aliases`, while the original `actor` field remains
 a backward-compatible display value.
 
 Version `2.4.0` added optional `activity_score` to the repo metric stats shape.
-It is a weighted, range-scoped activity signal over commits, opened issues,
-opened and merged change requests, comments, reviews, and approvals. It
+It is a range-scoped activity signal: the unweighted sum of in-window commits,
+opened issues, opened and merged change requests, comments, reviews, and
+approvals. (It was a weighted score through contract 4.x; the weighting was
+dropped in favour of a plain event count — see `docs/CONTRACT.md`.) It
 deliberately excludes `items_active` because active items are inventory, not
 in-window activity.
 
