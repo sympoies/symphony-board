@@ -15,6 +15,7 @@ import { MAX_EVENTS, type LiveState } from "../useLive.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
+  bucketRange,
   categoryCounts,
   countInWindow,
   distinctCount,
@@ -84,20 +85,56 @@ function statusLabel(
   return "Streaming";
 }
 
-function Sparkline({ values }: { values: number[] }) {
+function fmtClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function Sparkline({ values, now, bucketMs }: { values: number[]; now: number; bucketMs: number }) {
   // Floor the scale so a quiet feed (a few events) does not paint full-height
   // bars and read as a storm.
   const max = Math.max(4, ...values);
+  const count = values.length;
+  // The hovered / focused / tapped bar. A native `title` covers desktop hover;
+  // this also drives a text readout so touch (no hover) and screen readers get
+  // the same window + count.
+  const [sel, setSel] = useState<number | null>(null);
+  const bucketText = (i: number): string => {
+    const { start, end } = bucketRange(now, bucketMs, count, i);
+    const n = values[i] ?? 0;
+    return `${fmtClock(start)}–${fmtClock(end)} · ${n} ${n === 1 ? "event" : "events"}`;
+  };
+  const caption = sel != null ? bucketText(sel) : "events per 10m · last 5h";
+  // Clear only when leaving the bar that is currently selected (so moving the
+  // pointer between bars does not flicker the readout to the default).
+  const clearIf = (i: number) => setSel((cur) => (cur === i ? null : cur));
   return (
-    <div className="live-spark" aria-hidden="true">
-      {values.map((v, i) => (
-        <span
-          key={i}
-          className={`live-spark-bar${i === values.length - 1 ? " live-spark-bar-now" : ""}`}
-          style={{ height: `${Math.max(6, Math.round((v / max) * 100))}%` }}
-        />
-      ))}
-    </div>
+    <>
+      <div
+        className="live-spark"
+        role="group"
+        aria-label="Activity — events per 10 minutes over the last 5 hours; focus a bar for its window"
+      >
+        {values.map((v, i) => {
+          const label = bucketText(i);
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`live-spark-bar${i === count - 1 ? " live-spark-bar-now" : ""}${sel === i ? " live-spark-bar-sel" : ""}`}
+              style={{ height: `${Math.max(6, Math.round((v / max) * 100))}%` }}
+              title={label}
+              aria-label={label}
+              onMouseEnter={() => setSel(i)}
+              onMouseLeave={() => clearIf(i)}
+              onFocus={() => setSel(i)}
+              onBlur={() => clearIf(i)}
+              onClick={() => setSel((cur) => (cur === i ? null : i))}
+            />
+          );
+        })}
+      </div>
+      <div className="live-card-sub" aria-live="polite">{caption}</div>
+    </>
   );
 }
 
@@ -353,8 +390,7 @@ export function LivePage({
             {rate}
             <span className="live-unit">/hr</span>
           </div>
-          <Sparkline values={buckets} />
-          <div className="live-card-sub">events per 10m · last 5h</div>
+          <Sparkline values={buckets} now={now} bucketMs={SPARK_BUCKET_MS} />
         </div>
         <div className="live-card">
           <div className="live-card-label">Last event</div>

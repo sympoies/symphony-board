@@ -10,6 +10,7 @@ import {
   eventRepo,
   countInWindow,
   rateBuckets,
+  bucketRange,
   categoryCounts,
   distinctCount,
   distinctValues,
@@ -86,6 +87,21 @@ test("rateBuckets distributes events oldest-first; current bucket is last; out-o
   assert.equal(buckets[9], 2); // the two near-now events
   assert.equal(buckets[0], 1); // the 9.5s-old event
   assert.equal(buckets.reduce((a, b) => a + b, 0), 3); // 2 dropped
+});
+
+test("bucketRange gives the [start,end] window of a rateBuckets index; last bucket ends at now", () => {
+  const NOW2 = 5_000_000;
+  const bucketMs = 1000;
+  const count = 10;
+  // The last bucket ends exactly at now and spans the trailing bucketMs.
+  assert.deepEqual(bucketRange(NOW2, bucketMs, count, count - 1), { start: NOW2 - 1000, end: NOW2 });
+  // The oldest bucket is the 5h-ago end of the window.
+  assert.deepEqual(bucketRange(NOW2, bucketMs, count, 0), { start: NOW2 - 10_000, end: NOW2 - 9_000 });
+  // Consistent with rateBuckets: an event that lands in bucket i (the 9.5s-old
+  // case from the test above) falls inside bucketRange(i)'s window.
+  const t = NOW2 - 9_500;
+  const r0 = bucketRange(NOW2, bucketMs, count, 0);
+  assert.ok(t > r0.start && t <= r0.end, "event instant falls within its bucket's range");
 });
 
 test("categoryCounts orders by the canonical order, only present categories", () => {
