@@ -121,7 +121,9 @@ It is fully separate from the contract pipeline (its own store and its own
 `live-event/1` schema) and is a best-effort freshness feed — the board (periodic
 sync) remains the source of truth. The `live` Docker service is least-privilege:
 it holds only its own `live.db` and the webhook HMAC secret (by env-var name),
-with no canonical store, provider token, or config mount. See
+with no canonical store, provider token, or config mount. GitHub actor avatars
+are cached as profile URLs only — the receiver does not store avatar image bytes.
+See
 [`docs/DESIGN.md`](docs/DESIGN.md) ("Live Event Stream") for the full design and
 trust-boundary notes.
 

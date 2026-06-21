@@ -31,9 +31,10 @@ import {
   visibleByCategory,
 } from "../live-stats.ts";
 import { ACTION_KIND } from "../activity-action-style.ts";
+import { liveAvatarModel } from "../live-avatar.ts";
 import { Badge } from "./Badge.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
-import type { LiveEvent } from "../model.ts";
+import type { LiveEvent, LiveEventActor } from "../model.ts";
 
 // react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
 // stay out of the board/graph bundles — only the Live tab pays for them.
@@ -162,6 +163,41 @@ function targetText(ev: LiveEvent): { repo: string; num: string } {
   return { repo, num };
 }
 
+function LiveAvatar({ actor }: { actor: LiveEventActor | null | undefined }) {
+  const model = liveAvatarModel(actor);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [model.imageUrl]);
+  const body = model.imageUrl && !failed ? (
+    <img
+      src={model.imageUrl}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  ) : (
+    <span className="live-avatar-fallback" aria-hidden="true">{model.initials}</span>
+  );
+  const className = `live-avatar${model.imageUrl && !failed ? " live-avatar-image" : " live-avatar-text"}`;
+  if (!model.profileUrl) {
+    return <span className={className} title={model.label} aria-label={model.label}>{body}</span>;
+  }
+  return (
+    <a
+      className={className}
+      href={model.profileUrl}
+      title={model.label}
+      aria-label={`Open ${model.label} profile on provider`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      {body}
+    </a>
+  );
+}
+
 function LiveRow({
   ev,
   now,
@@ -210,7 +246,7 @@ function LiveRow({
         }
       }}
     >
-      <span className="live-event-dot" aria-hidden="true" />
+      <LiveAvatar actor={ev.actor} />
       <div className="live-event-main">
         <div className="live-event-head">
           <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />

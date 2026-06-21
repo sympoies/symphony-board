@@ -225,6 +225,70 @@ test("a fully-populated record round-trips through the JSON columns without loss
   }
 });
 
+test("cached actor profiles hydrate events whose actor lacks avatar fields", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    const input = ev(1, {
+      actor: {
+        login: "graysurf",
+        display_name: null,
+        avatar_url: null,
+        profile_url: null,
+      },
+    });
+    const inserted = store.append(input);
+    assert.ok(inserted);
+    store.upsertActorProfile({
+      source_id: "github:github.com",
+      provider: "github",
+      login: "graysurf",
+      display_name: "Gray Surf",
+      avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+      profile_url: "https://github.com/graysurf",
+      fetched_at: "2026-06-21T00:00:00.000Z",
+      expires_at: "2026-06-28T00:00:00.000Z",
+      last_error: null,
+    });
+
+    const back = head(store.recent(1));
+    assert.equal(back.actor?.display_name, "Gray Surf");
+    assert.equal(back.actor?.avatar_url, "https://avatars.githubusercontent.com/u/1?v=4");
+    assert.equal(back.actor?.profile_url, "https://github.com/graysurf");
+  } finally {
+    store.close();
+  }
+});
+
+test("webhook-provided actor avatars seed the profile cache for later rows", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    store.append(ev(1, {
+      actor: {
+        login: "octocat",
+        display_name: "The Octocat",
+        avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
+        profile_url: "https://github.com/octocat",
+      },
+    }));
+    store.append(ev(2, {
+      actor: {
+        login: "octocat",
+        display_name: null,
+        avatar_url: null,
+        profile_url: null,
+      },
+    }));
+
+    const latest = head(store.recent(1));
+    assert.equal(latest.event_id, "d-2");
+    assert.equal(latest.actor?.display_name, "The Octocat");
+    assert.equal(latest.actor?.avatar_url, "https://avatars.githubusercontent.com/u/583231?v=4");
+    assert.equal(latest.actor?.profile_url, "https://github.com/octocat");
+  } finally {
+    store.close();
+  }
+});
+
 test("a minimal record reads back with nullable fields as null", () => {
   const store = openLiveStore(":memory:");
   try {

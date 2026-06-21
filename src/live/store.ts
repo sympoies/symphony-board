@@ -25,7 +25,8 @@ const SCHEMA_FILE = resolve(__dirname, "schema.sql");
 
 // The live store owns its own version cursor (PRAGMA user_version), independent
 // of the canonical store's schema version.
-const LIVE_SCHEMA_VERSION = 1;
+const LIVE_SCHEMA_VERSION = 2;
+const DEFAULT_ACTOR_PROFILE_TTL_MS = 7 * 86_400_000;
 
 export const DEFAULT_RECENT_LIMIT = 200;
 export const DEFAULT_SINCE_LIMIT = 1000;
@@ -51,12 +52,41 @@ interface LiveEventRow {
   raw_json: string | null;
 }
 
+export interface LiveActorProfileInput {
+  source_id: string;
+  provider: string;
+  login: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  profile_url?: string | null;
+  fetched_at: string;
+  expires_at: string;
+  last_error?: string | null;
+}
+
+interface LiveActorProfileRow {
+  display_name: string | null;
+  avatar_url: string | null;
+  profile_url: string | null;
+  expires_at: string;
+  last_error: string | null;
+}
+
 // node:sqlite forbids binding `undefined`; coerce nullable text to null and
 // strip any NUL byte so a raw 0x00 never lands in a TEXT column.
 const text = (v: string | null | undefined): string | null => stripNul(v ?? null);
 
 const jsonOrNull = (v: unknown): string | null =>
   v === null || v === undefined ? null : JSON.stringify(v);
+
+function loginKey(login: string | null | undefined): string | null {
+  const value = text(login)?.trim();
+  return value ? value.toLowerCase() : null;
+}
+
+function isoPlus(at: Date, ms: number): string {
+  return new Date(at.getTime() + ms).toISOString();
+}
 
 function parseJson<T>(raw: string | null): T | null {
   if (raw === null) return null;
@@ -143,6 +173,109 @@ export class LiveStore {
     return this.#path;
   }
 
+  upsertActorProfile(profile: LiveActorProfileInput): void {
+    const sourceId = text(profile.source_id);
+    const provider = text(profile.provider);
+    const login = loginKey(profile.login);
+    const fetchedAt = text(profile.fetched_at);
+    const expiresAt = text(profile.expires_at);
+    if (!sourceId || !provider || !login || !fetchedAt || !expiresAt) return;
+    this.#db
+      .prepare(
+        `INSERT INTO live_actor_profile (
+           source_id, provider, login, display_name, avatar_url, profile_url,
+           fetched_at, expires_at, last_error
+         ) VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(source_id, provider, login) DO UPDATE SET
+           display_name=excluded.display_name,
+           avatar_url=excluded.avatar_url,
+           profile_url=excluded.profile_url,
+           fetched_at=excluded.fetched_at,
+           expires_at=excluded.expires_at,
+           last_error=excluded.last_error`,
+      )
+      .run(
+        sourceId,
+        provider,
+        login,
+        text(profile.display_name),
+        text(profile.avatar_url),
+        text(profile.profile_url),
+        fetchedAt,
+        expiresAt,
+        text(profile.last_error),
+      );
+  }
+
+  hasFreshActorProfile(
+    sourceId: string,
+    provider: string,
+    login: string,
+    now: Date = new Date(),
+  ): boolean {
+    return this.#actorProfile(sourceId, provider, login, now.toISOString()) !== null;
+  }
+
+  #actorProfile(
+    sourceId: string,
+    provider: string,
+    login: string,
+    nowIso: string,
+  ): LiveActorProfileRow | null {
+    const source = text(sourceId);
+    const providerText = text(provider);
+    const loginText = loginKey(login);
+    if (!source || !providerText || !loginText) return null;
+    const row = this.#db
+      .prepare(
+        `SELECT display_name, avatar_url, profile_url, expires_at, last_error
+         FROM live_actor_profile
+         WHERE source_id = ? AND provider = ? AND login = ? AND expires_at >= ?`,
+      )
+      .get(source, providerText, loginText, nowIso) as LiveActorProfileRow | undefined;
+    return row ?? null;
+  }
+
+  #seedActorProfile(ev: LiveEvent, now: Date = new Date()): void {
+    const actor = ev.actor;
+    const login = actor?.login;
+    if (!login) return;
+    if (!actor.display_name && !actor.avatar_url && !actor.profile_url) return;
+    this.upsertActorProfile({
+      source_id: ev.source_id,
+      provider: ev.provider,
+      login,
+      display_name: actor.display_name ?? null,
+      avatar_url: actor.avatar_url ?? null,
+      profile_url: actor.profile_url ?? null,
+      fetched_at: now.toISOString(),
+      expires_at: isoPlus(now, DEFAULT_ACTOR_PROFILE_TTL_MS),
+      last_error: null,
+    });
+  }
+
+  #hydrateEvent(ev: LiveEvent, nowIso: string = new Date().toISOString()): LiveEvent {
+    const actor = ev.actor;
+    const login = actor?.login;
+    if (!actor || !login) return ev;
+    const profile = this.#actorProfile(ev.source_id, ev.provider, login, nowIso);
+    if (!profile) return ev;
+    const next: LiveActor = {
+      ...actor,
+      display_name: actor.display_name ?? profile.display_name,
+      avatar_url: actor.avatar_url ?? profile.avatar_url,
+      profile_url: actor.profile_url ?? profile.profile_url,
+    };
+    if (
+      next.display_name === actor.display_name &&
+      next.avatar_url === actor.avatar_url &&
+      next.profile_url === actor.profile_url
+    ) {
+      return ev;
+    }
+    return { ...ev, actor: next };
+  }
+
   // Insert-or-ignore on (source_id, event_id, ordinal). Returns the persisted
   // LiveEvent for a NEW row, or null for a redelivery (append-only: the first
   // write wins, never an in-place update). The null return is what makes a
@@ -186,7 +319,9 @@ export class LiveStore {
     // Redelivery: the (source_id, event_id, ordinal) row already exists. Signal
     // "nothing new" so the receiver does not rebroadcast a duplicate.
     if (!inserted) return null;
-    return inputToEvent(input, inserted.seq);
+    const ev = inputToEvent(input, inserted.seq);
+    this.#seedActorProfile(ev);
+    return this.#hydrateEvent(ev);
   }
 
   // Replay backlog: rows strictly after `seq`, oldest-first, bounded by limit.
@@ -198,7 +333,8 @@ export class LiveStore {
          WHERE seq > ? ORDER BY seq ASC LIMIT ?`,
       )
       .all(seq, limit) as unknown as LiveEventRow[];
-    return rows.map(rowToEvent);
+    const nowIso = new Date().toISOString();
+    return rows.map((row) => this.#hydrateEvent(rowToEvent(row), nowIso));
   }
 
   // Snapshot: most recent rows, newest-first, bounded by limit.
@@ -208,7 +344,8 @@ export class LiveStore {
         `SELECT ${SELECT_COLUMNS} FROM live_event ORDER BY seq DESC LIMIT ?`,
       )
       .all(limit) as unknown as LiveEventRow[];
-    return rows.map(rowToEvent);
+    const nowIso = new Date().toISOString();
+    return rows.map((row) => this.#hydrateEvent(rowToEvent(row), nowIso));
   }
 
   // Highest seq currently retained, or 0 when empty. Served alongside the

@@ -6,6 +6,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { fetchLiveSnapshot } from "../src/contract.ts";
+import { liveAvatarModel } from "../src/live-avatar.ts";
 import { appendCapped, liveStreamUrl, pickLiveTransport } from "../src/useLive.ts";
 
 const realFetch = globalThis.fetch;
@@ -88,4 +89,44 @@ test("appendCapped dedupes by seq, newest-first, capped", () => {
 test("liveStreamUrl appends the since cursor only when > 0", () => {
   assert.equal(liveStreamUrl(null, 0), "./api/live");
   assert.equal(liveStreamUrl(null, 5), "./api/live?since=5");
+});
+
+test("liveAvatarModel renders an image model with a safe profile href", () => {
+  assert.deepEqual(
+    liveAvatarModel({
+      login: "octocat",
+      display_name: "The Octocat",
+      avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
+      profile_url: "https://github.com/octocat",
+    }),
+    {
+      label: "The Octocat",
+      initials: "TO",
+      imageUrl: "https://avatars.githubusercontent.com/u/583231?v=4",
+      profileUrl: "https://github.com/octocat",
+    },
+  );
+});
+
+test("liveAvatarModel falls back deterministically and drops unsafe urls", () => {
+  assert.deepEqual(
+    liveAvatarModel({
+      login: "renovate[bot]",
+      display_name: null,
+      avatar_url: "javascript:alert(1)",
+      profile_url: "data:text/html,<script>1</script>",
+    }),
+    {
+      label: "renovate[bot]",
+      initials: "R",
+      imageUrl: null,
+      profileUrl: null,
+    },
+  );
+  assert.deepEqual(liveAvatarModel(null), {
+    label: "someone",
+    initials: "?",
+    imageUrl: null,
+    profileUrl: null,
+  });
 });

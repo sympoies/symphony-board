@@ -3089,8 +3089,8 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Each row is a bordered panel card (matching .activity-row), so the feed reads
    as a defined list on the light Paper theme instead of floating on the page. */
 .live-event {
-  display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
-  padding: 11px 8px 11px 12px; position: relative; cursor: pointer; border-radius: 8px;
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  padding: 10px 8px 10px 10px; position: relative; cursor: pointer; border-radius: 8px;
   background: var(--panel); border: 1px solid var(--line);
 }
 .live-event::before {
@@ -3102,7 +3102,26 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .live-event-selected { background: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
 .live-event-selected::before { opacity: 0.95; }
-.live-event-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--cat, var(--muted)); }
+.live-avatar {
+  width: 32px; height: 32px; border-radius: 50%; margin-top: 1px; position: relative;
+  display: inline-grid; place-items: center; overflow: visible; flex: none;
+  border: 1px solid color-mix(in srgb, var(--cat, var(--muted)) 55%, var(--line));
+  background: var(--panel-2); color: var(--text); text-decoration: none;
+}
+.live-avatar::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px;
+  border-radius: 50%; background: var(--cat, var(--muted));
+  border: 2px solid var(--panel);
+}
+.live-event:hover .live-avatar::after,
+.live-event-selected .live-avatar::after { border-color: var(--hover-soft); }
+.live-event-selected .live-avatar::after { border-color: color-mix(in srgb, var(--live) 13%, var(--panel)); }
+.live-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.live-avatar-fallback {
+  font: 700 11px/1 var(--mono); letter-spacing: 0; max-width: 26px;
+  overflow: hidden; text-align: center;
+}
+.live-avatar:hover { border-color: var(--accent); }
 .live-event-main { min-width: 0; }
 .live-event-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .live-event-head .badge,
