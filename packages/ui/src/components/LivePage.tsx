@@ -10,7 +10,7 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
@@ -38,7 +38,7 @@ import { ACTION_KIND } from "../activity-action-style.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
 import { Badge } from "./Badge.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
-import { activityVirtualRange, type LiveEvent, type LiveEventActor } from "../model.ts";
+import { activityVirtualRange, liveDetailNavigation, liveEventKey, type LiveEvent, type LiveEventActor } from "../model.ts";
 
 // react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
 // stay out of the board/graph bundles — only the Live tab pays for them.
@@ -85,6 +85,10 @@ const LIVE_RANK_LIMIT = 6;
 // scrolled, the shift must stay instant so it never fights the preserved scroll
 // position (see the CSS note on .live-feed[data-animate-shift]).
 const LIVE_FEED_SHIFT_TOP_EPSILON_PX = 2;
+const LIVE_DETAIL_SWIPE_MIN_PX = 54;
+const LIVE_DETAIL_SWIPE_MAX_MS = 1100;
+type LiveDetailMove = "previous" | "next";
+type LiveDetailMotion = LiveDetailMove | "neutral";
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -392,15 +396,65 @@ function LiveRow({
   );
 }
 
-function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveEvent; now: number; following: boolean; onFollowLatest: () => void; onClose: () => void }) {
+function blocksDetailSwipe(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("a, button, input, textarea, select, summary, pre, code, table, [role='button']"));
+}
+
+function LiveDetail({
+  ev,
+  now,
+  following,
+  motion,
+  position,
+  total,
+  canPrevious,
+  canNext,
+  onNavigate,
+  onFollowLatest,
+  onClose,
+}: {
+  ev: LiveEvent;
+  now: number;
+  following: boolean;
+  motion: LiveDetailMotion;
+  position: number;
+  total: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  onNavigate: (move: LiveDetailMove) => void;
+  onFollowLatest: () => void;
+  onClose: () => void;
+}) {
   const instant = eventInstant(ev);
   const age = instant != null ? relativeAge(instant, now) : "";
   const actor = ev.actor?.login ?? "someone";
   const { repo, num } = targetText(ev);
   const link = eventLink(ev);
   const action = liveAction(ev);
+  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onTouchStart = (e: TouchEvent<HTMLElement>) => {
+    if (e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
+      touchRef.current = null;
+      return;
+    }
+    const touch = e.touches[0]!;
+    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  };
+  const onTouchEnd = (e: TouchEvent<HTMLElement>) => {
+    const start = touchRef.current;
+    touchRef.current = null;
+    if (!start || e.changedTouches.length !== 1) return;
+    const touch = e.changedTouches[0]!;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = Date.now() - start.t;
+    if (elapsed > LIVE_DETAIL_SWIPE_MAX_MS) return;
+    if (Math.abs(dx) < LIVE_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    onNavigate(dx < 0 ? "next" : "previous");
+  };
   return (
-    <article className="live-detail-card">
+    <article className="live-detail-card" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={() => { touchRef.current = null; }}>
       <button type="button" className="live-detail-back" onClick={onClose}>
         ← Back to feed
       </button>
@@ -415,12 +469,39 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
           </button>
         )}
       </div>
+      {total > 1 ? (
+        <nav className="live-detail-nav" aria-label="Live event navigation">
+          <button
+            type="button"
+            className="live-detail-nav-button"
+            disabled={!canPrevious}
+            aria-label="Show newer event"
+            title="Show newer event"
+            onClick={() => onNavigate("previous")}
+          >
+            ‹ <span>Newer</span>
+          </button>
+          <span className="live-detail-nav-count" aria-live="polite">
+            {position > 0 ? position : "—"} / {total}
+          </span>
+          <button
+            type="button"
+            className="live-detail-nav-button"
+            disabled={!canNext}
+            aria-label="Show older event"
+            title="Show older event"
+            onClick={() => onNavigate("next")}
+          >
+            <span>Older</span> ›
+          </button>
+        </nav>
+      ) : null}
       {/* Keyed on the event identity so the shell REMOUNTS when the detail follows
           a new event — that replays the `live-detail-in` crossfade (styles.css).
           Keyed remount, not a class toggle, keeps the animation off the 1s
           relative-time re-render (the key is stable across ticks); react-markdown
           is lazy + module-cached, so the swap re-parses without a Suspense flash. */}
-      <div className="live-detail-shell" key={`${ev.source_id}:${ev.event_id}:${ev.seq}`} style={catStyle(ev.category)}>
+      <div className="live-detail-shell" key={liveEventKey(ev)} data-motion={motion} style={catStyle(ev.category)}>
         <LiveAvatar actor={ev.actor} />
         <div className="live-detail-main">
           <div className="live-detail-head">
@@ -493,6 +574,7 @@ export function LivePage({
   // pins it (the detail stays put as new events stream in); clicking it again — or
   // the "follow latest" control in the detail — releases back to auto-follow.
   const [pinned, setPinned] = useState<LiveEvent | null>(null);
+  const [detailMotion, setDetailMotion] = useState<LiveDetailMotion>("neutral");
   const isDetailOverlay = useMediaQuery(LIVE_DETAIL_OVERLAY_QUERY);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   // Drives the NARROW-screen detail overlay; route-backed so Android/browser
@@ -617,13 +699,12 @@ export function LivePage({
     };
   }, [events.length, shown.length, previewLines, category, repos, people, hiddenEventTypes]);
 
-  const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
   // The detail shows the pinned event; with nothing pinned it auto-follows the
   // newest matching event, so the right pane updates as new data streams in (and
   // is never empty once an event exists).
   const following = pinned === null;
   const newest = shown[0] ?? null;
-  const newestKey = newest ? keyOf(newest) : null;
+  const newestKey = newest ? liveEventKey(newest) : null;
   // In follow mode the detail trails the newest event by the feed's enter
   // duration, so the row's `live-enter` finishes before the detail crossfades to
   // it. `followed` is that lagged event; a single pending timer settles it to the
@@ -660,7 +741,7 @@ export function LivePage({
       setFollowed(newest);
       return;
     }
-    if (keyOf(followed) === newestKey) return; // detail already current
+    if (liveEventKey(followed) === newestKey) return; // detail already current
     if (holdRef.current != null) return; // a settle is already pending
     holdRef.current = window.setTimeout(() => {
       holdRef.current = null;
@@ -669,7 +750,8 @@ export function LivePage({
   }, [following, newest, newestKey, feedResetKey, prefersReducedMotion, followed, clearHold]);
   useEffect(() => clearHold, [clearHold]); // clear any pending timer on unmount
   const detail = pinned ?? followed ?? null;
-  const detailKey = detail ? keyOf(detail) : null;
+  const detailKey = detail ? liveEventKey(detail) : null;
+  const detailNav = useMemo(() => liveDetailNavigation(shown, detail), [shown, detail]);
   useEffect(() => {
     if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
   }, [detailRouteOpen, isDetailOverlay, onClearDetailRoute]);
@@ -680,16 +762,51 @@ export function LivePage({
   const closeDetail = useCallback(() => {
     if (detailRouteOpen) onCloseDetailRoute();
   }, [detailRouteOpen, onCloseDetailRoute]);
+  const scrollEventIntoFeed = useCallback(
+    (ev: LiveEvent) => {
+      const feed = feedRef.current;
+      if (!feed) return;
+      const index = shown.findIndex((candidate) => liveEventKey(candidate) === liveEventKey(ev));
+      if (index < 0) return;
+      const viewport = feed.clientHeight || viewportHeight || LIVE_DEFAULT_VIEWPORT_PX;
+      const targetTop = index * rowStride - Math.max(0, (viewport - rowHeight) / 2);
+      const maxTop = Math.max(0, virtual.totalHeightPx - viewport);
+      feed.scrollTo({
+        top: Math.min(Math.max(0, targetTop), maxTop),
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    },
+    [shown, viewportHeight, rowStride, rowHeight, virtual.totalHeightPx, prefersReducedMotion],
+  );
+  const selectDetailEvent = useCallback(
+    (ev: LiveEvent, motion: LiveDetailMotion) => {
+      clearHold();
+      setDetailMotion(motion);
+      setPinned(ev);
+      openDetail();
+      scrollEventIntoFeed(ev);
+    },
+    [clearHold, openDetail, scrollEventIntoFeed],
+  );
+  const navigateDetail = useCallback(
+    (move: LiveDetailMove) => {
+      const target = move === "previous" ? detailNav.previous : detailNav.next;
+      if (!target) return;
+      selectDetailEvent(target, move);
+    },
+    [detailNav.next, detailNav.previous, selectDetailEvent],
+  );
   // Releasing the pin resumes auto-follow; bring the newest event (now shown in
   // the detail) back into view at the top of the feed.
-  const followLatest = () => {
+  const followLatest = useCallback(() => {
     setPinned(null);
+    setDetailMotion("neutral");
     // Explicit action, not a stream arrival: jump the detail to newest now rather
     // than waiting out the follow hold.
     clearHold();
     setFollowed(newestRef.current);
-    feedRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-  };
+    feedRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [clearHold, prefersReducedMotion]);
 
   return (
     <div className="live-page">
@@ -855,22 +972,19 @@ export function LivePage({
                 const index = virtual.start + offset;
                 return (
                   <LiveRow
-                    key={keyOf(ev)}
+                    key={liveEventKey(ev)}
                     ev={ev}
                     now={now}
                     previewLines={previewLines}
-                    selected={keyOf(ev) === detailKey}
+                    selected={liveEventKey(ev) === detailKey}
                     positionY={index * rowStride}
                     index={index}
                     total={shown.length}
                     onSelect={() => {
                       // Toggle: click pins this row; click the pinned row again to
                       // release back to auto-follow (and scroll the feed to newest).
-                      if (pinned && keyOf(pinned) === keyOf(ev)) followLatest();
-                      else {
-                        setPinned(ev);
-                        openDetail();
-                      }
+                      if (pinned && liveEventKey(pinned) === liveEventKey(ev)) followLatest();
+                      else selectDetailEvent(ev, "neutral");
                     }}
                   />
                 );
@@ -883,6 +997,12 @@ export function LivePage({
                 ev={detail}
                 now={now}
                 following={following}
+                motion={detailMotion}
+                position={detailNav.position}
+                total={detailNav.total}
+                canPrevious={detailNav.previous !== null}
+                canNext={detailNav.next !== null}
+                onNavigate={navigateDetail}
                 onFollowLatest={followLatest}
                 onClose={closeDetail}
               />
