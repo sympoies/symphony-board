@@ -108,18 +108,10 @@ jobs:
           # derivation must FAIL THE DEPLOY closed rather than silently fall back
           # to the empty compose default and widen the receiver. Log only the repo
           # count, never the derived list, since Actions logs are public.
-          config_basename="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?SYMPHONY_CONFIG_BASENAME[[:space:]]*=[[:space:]]*//p' "$stack_env" | tail -n1)"
-          config_basename="${config_basename:-sources.pg.json}"
-          config_basename="${config_basename%\"}"
-          config_basename="${config_basename#\"}"
-          config_basename="${config_basename%\'}"
-          config_basename="${config_basename#\'}"
-          case "$config_basename" in
-            ""|*/*|*..*)
-              echo "::error::Invalid SYMPHONY_CONFIG_BASENAME for Live allowlist derivation." >&2
-              exit 1
-              ;;
-          esac
+          if ! config_basename="$(bash "$infra/scripts/live-config-basename.sh" "$stack_env")"; then
+            echo "::error::Invalid SYMPHONY_CONFIG_BASENAME for Live allowlist derivation." >&2
+            exit 1
+          fi
           if ! allow="$(bash "$infra/scripts/live-allowlist.sh" "$stack/config/$config_basename")"; then
             echo "::error::Live allowlist derivation failed; refusing to deploy the receiver in accept-all mode." >&2
             exit 1

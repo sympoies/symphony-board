@@ -4,7 +4,9 @@
 // pure env -> config resolution. No socket is bound and no token is needed.
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   clampHtml,
   escapeHtml,
@@ -16,6 +18,8 @@ import {
 import {
   parseSseFrame,
   resolveTelegramBridgeConfig,
+  runBridge,
+  streamOnce,
   TelegramSender,
 } from "../src/cli/live-telegram-bridge.ts";
 import { LIVE_EVENT_SCHEMA, type LiveEvent } from "../src/live/types.ts";
@@ -53,6 +57,15 @@ function makeEvent(over: Partial<LiveEvent> = {}): LiveEvent {
     },
     ...over,
   } as LiveEvent;
+}
+
+function sseBody(text: string): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
+    },
+  });
 }
 
 test("escapeHtml escapes the Bot-API HTML entities including double quotes", () => {
@@ -274,10 +287,15 @@ test("TelegramSender throws on auth/config HTTP failures so the cursor is not ad
     TELEGRAM_CHAT_ID: "chat",
     LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
   });
-  const statuses = [401, 403, 400];
-  for (const status of statuses) {
+  const cases = [
+    { status: 401, body: "Unauthorized" },
+    { status: 403, body: "Forbidden" },
+    { status: 404, body: "Not Found" },
+    { status: 400, body: "Bad Request: chat not found" },
+  ];
+  for (const { status, body } of cases) {
     globalThis.fetch = (async () =>
-      new Response(`telegram ${status}`, { status })) as typeof fetch;
+      new Response(body, { status })) as typeof fetch;
     const sender = new TelegramSender(cfg);
     await assert.rejects(
       () => sender.send("hello"),
@@ -287,19 +305,122 @@ test("TelegramSender throws on auth/config HTTP failures so the cursor is not ad
   }
 });
 
-test("runBridge fails fast if the cold-start seed cursor is not durable", () => {
-  const src = readFileSync(
-    new URL("../src/cli/live-telegram-bridge.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(
-    src,
-    /throw new Error\([^)]*seed cursor[^)]*persist/i,
-    "the initial cursor seed must be a hard precondition",
-  );
-  assert.doesNotMatch(
-    src,
-    /a crash before the next persist may skip events/,
-    "the bridge must not continue after a failed initial seed persist",
-  );
+test("TelegramSender drops message-specific HTTP 400 poison without retrying forever", async () => {
+  const cfg = resolveTelegramBridgeConfig({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_CHAT_ID: "chat",
+    LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
+  });
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response("Bad Request: can't parse entities", { status: 400 });
+  }) as typeof fetch;
+  const sender = new TelegramSender(cfg);
+  await sender.send("hello");
+  assert.equal(calls, 1);
+});
+
+test("streamOnce leaves the cursor file unchanged when Telegram auth/config send fails", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  try {
+    const cursorPath = join(dir, "cursor");
+    writeFileSync(cursorPath, "5", "utf8");
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      TELEGRAM_BOT_TOKEN: "token",
+      TELEGRAM_CHAT_ID: "chat",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+      LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
+    });
+    const event = makeEvent({ seq: 6 });
+    let telegramCalls = 0;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "http://live/api/live") {
+        return new Response(
+          sseBody(`id: 6\nevent: live\ndata: ${JSON.stringify(event)}\n\n`),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.startsWith("https://api.telegram.org/")) {
+        telegramCalls += 1;
+        return new Response("Unauthorized", { status: 401 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => streamOnce(cfg, new TelegramSender(cfg), 5, new AbortController().signal),
+      /Telegram HTTP 401/,
+    );
+    assert.equal(readFileSync(cursorPath, "utf8"), "5");
+    assert.equal(telegramCalls, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("streamOnce persists a lower reset cursor", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  try {
+    const cursorPath = join(dir, "cursor");
+    writeFileSync(cursorPath, "100", "utf8");
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+    });
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "http://live/api/live") {
+        return new Response(
+          sseBody('id: 2\nevent: reset\ndata: {"reason":"stale_cursor","max_seq":2}\n\n'),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const cursor = await streamOnce(
+      cfg,
+      new TelegramSender(cfg),
+      100,
+      new AbortController().signal,
+    );
+    assert.equal(cursor, 2);
+    assert.equal(readFileSync(cursorPath, "utf8"), "2");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runBridge fails fast if the cold-start seed cursor is not durable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  try {
+    const cursorPath = join(dir, "cursor-as-directory");
+    mkdirSync(cursorPath);
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+    });
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "http://live/api/live-snapshot?limit=1") {
+        return new Response(JSON.stringify({ max_seq: 7 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => runBridge(cfg, new AbortController().signal),
+      /seed cursor persist failed/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

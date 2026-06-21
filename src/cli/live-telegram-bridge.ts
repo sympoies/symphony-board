@@ -112,8 +112,13 @@ const MAX_SEND_RETRIES = 5;
 // and the connection is dropped rather than letting the buffer OOM the process.
 const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
 
-function isTelegramAuthOrConfigFailure(status: number): boolean {
-  return status === 400 || status === 401 || status === 403 || status === 404;
+function isTelegramAuthOrConfigFailure(status: number, detail: string): boolean {
+  if (status === 401 || status === 403 || status === 404) return true;
+  if (status !== 400) return false;
+  // Telegram uses HTTP 400 for both fixable config problems (bad chat id,
+  // missing chat access) and message-specific poison (malformed entities). Keep
+  // the latter droppable so one bad formatted event cannot block the mirror.
+  return /\b(chat not found|chat_id is empty|bot was blocked|not enough rights|unauthorized)\b/i.test(detail);
 }
 
 function readCursor(path: string): number | null {
@@ -217,10 +222,6 @@ export class TelegramSender {
         },
       );
       if (res.ok) return;
-      if (isTelegramAuthOrConfigFailure(res.status)) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(`Telegram HTTP ${res.status}: ${detail}`);
-      }
       // 429 (rate limit) and 5xx (transient server error) are retryable.
       if (res.status === 429 || res.status >= 500) {
         if (++retries > MAX_SEND_RETRIES) {
@@ -243,9 +244,12 @@ export class TelegramSender {
         await sleep(waitMs);
         continue;
       }
+      const detail = await res.text().catch(() => "");
+      if (isTelegramAuthOrConfigFailure(res.status, detail)) {
+        throw new Error(`Telegram HTTP ${res.status}: ${detail}`);
+      }
       // Remaining 4xx: genuinely poison — drop it so one bad event cannot wedge
       // the stream. Cursor still advances for this event only.
-      const detail = await res.text().catch(() => "");
       log.warn(`[tg] sendMessage HTTP ${res.status}; dropping message. ${detail}`);
       return;
     }
@@ -260,7 +264,7 @@ export class TelegramSender {
 
 // One SSE connection: stream frames until the connection ends or aborts. Returns
 // the (possibly advanced) cursor so the next reconnect resumes from it.
-async function streamOnce(
+export async function streamOnce(
   cfg: TelegramBridgeConfig,
   sender: TelegramSender,
   startCursor: number,

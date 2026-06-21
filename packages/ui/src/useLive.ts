@@ -131,6 +131,63 @@ export interface ResetReconcileOptions {
   reseed?: boolean;
 }
 
+export interface SseResetStartPlan {
+  // Cursor to use if the reset snapshot fetch fails. The reset frame may carry
+  // an SSE id that advances the browser's native Last-Event-ID, so retry with
+  // the UI-owned pre-reset cursor until reseed succeeds.
+  retryCursor: number;
+  nextCursor: number;
+  clearBeforeFetch: boolean;
+  reseedBeforeFetch: boolean;
+}
+
+export function planSseResetStart(
+  cursor: number,
+  reset: LiveResetSignal,
+): SseResetStartPlan {
+  const reseedBeforeFetch = reset.max_seq !== null && reset.max_seq < cursor;
+  return {
+    retryCursor: cursor,
+    nextCursor: reseedBeforeFetch ? reset.max_seq ?? cursor : cursor,
+    clearBeforeFetch: reseedBeforeFetch,
+    reseedBeforeFetch,
+  };
+}
+
+export interface SseResetSnapshotPlan {
+  nextCursor: number;
+  reconcileOptions: ResetReconcileOptions;
+}
+
+export function planSseResetSnapshot(
+  cursorAtReset: number,
+  currentCursor: number,
+  snap: LiveSnapshot,
+  resetStart: SseResetStartPlan,
+): SseResetSnapshotPlan {
+  const reseedAfterFetch =
+    !resetStart.reseedBeforeFetch && snap.max_seq < cursorAtReset;
+  const baseCursor = reseedAfterFetch ? snap.max_seq : currentCursor;
+  return {
+    nextCursor: Math.max(baseCursor, snap.max_seq),
+    reconcileOptions: { reseed: reseedAfterFetch },
+  };
+}
+
+export interface SseResetSnapshotFailurePlan {
+  retryCursor: number;
+  restoreCursor: number;
+}
+
+export function planSseResetSnapshotFailure(
+  resetStart: SseResetStartPlan,
+): SseResetSnapshotFailurePlan {
+  return {
+    retryCursor: resetStart.retryCursor,
+    restoreCursor: resetStart.retryCursor,
+  };
+}
+
 // Pure reconciliation for an SSE `reset`/gap sentinel. The server keeps
 // streaming on the same connection after a reset, so the snapshot refetch races
 // with concurrent `live` frames. Re-seed from the authoritative snapshot WITHOUT
@@ -218,6 +275,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
     let cancelled = false;
     let source: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let sseResetRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const markUp = (): void => {
       if (cancelled) return;
@@ -266,24 +324,41 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
         const reset = parseResetEvent((e as MessageEvent).data);
         if (reset === null) return;
         const cursorAtReset = lastSeq.current;
-        const resetMaxSeq = reset.max_seq;
-        const reseedBeforeFetch =
-          resetMaxSeq !== null && resetMaxSeq < cursorAtReset;
-        if (reseedBeforeFetch) {
-          lastSeq.current = resetMaxSeq;
+        const resetStart = planSseResetStart(cursorAtReset, reset);
+        if (resetStart.clearBeforeFetch) {
+          lastSeq.current = resetStart.nextCursor;
           setEvents([]);
         }
         void (async () => {
           const snap = await fetchLiveSnapshot(serverBaseUrl);
-          if (cancelled || !snap) return;
-          const reseedAfterFetch =
-            !reseedBeforeFetch && snap.max_seq < cursorAtReset;
-          if (reseedAfterFetch) {
-            lastSeq.current = snap.max_seq;
+          if (cancelled) return;
+          if (!snap) {
+            const retry = planSseResetSnapshotFailure(resetStart);
+            // The reset frame carries `id: max_seq` for native EventSource
+            // clients. If the authoritative snapshot reseed fails, discard this
+            // EventSource instance so its native Last-Event-ID cannot skip the
+            // missing snapshot window; reconnect from the UI-owned pre-reset
+            // cursor and let the receiver send another reset.
+            lastSeq.current = retry.restoreCursor;
+            setReconnecting(true);
+            es.close();
+            if (source === es) source = null;
+            if (sseResetRetryTimer) clearTimeout(sseResetRetryTimer);
+            sseResetRetryTimer = setTimeout(() => {
+              sseResetRetryTimer = null;
+              if (!cancelled) startSse(retry.retryCursor);
+            }, POLL_INTERVAL_MS);
+            return;
           }
-          lastSeq.current = Math.max(lastSeq.current, snap.max_seq);
+          const plan = planSseResetSnapshot(
+            cursorAtReset,
+            lastSeq.current,
+            snap,
+            resetStart,
+          );
+          lastSeq.current = plan.nextCursor;
           setEvents((prev) =>
-            reconcileReset(prev, snap, MAX_EVENTS, { reseed: reseedAfterFetch }),
+            reconcileReset(prev, snap, MAX_EVENTS, plan.reconcileOptions),
           );
         })();
       });
@@ -340,6 +415,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
 
     return () => {
       cancelled = true;
+      if (sseResetRetryTimer) clearTimeout(sseResetRetryTimer);
       if (source) source.close();
       if (pollTimer) clearInterval(pollTimer);
     };

@@ -4,6 +4,7 @@
 // Set the parent owns; closing on outside-click / Escape keeps it keyboard- and
 // pointer-dismissable.
 import { useEffect, useRef, useState } from "react";
+import { multiSelectDisabled } from "./multiSelectState.ts";
 
 export function MultiSelect({
   label,
@@ -44,7 +45,7 @@ export function MultiSelect({
 
   const count = selected.size;
   const available = options.length;
-  const disabled = available === 0 && count === 0;
+  const disabled = multiSelectDisabled(available, count);
 
   return (
     <div className="ms" ref={rootRef}>

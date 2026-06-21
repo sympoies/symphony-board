@@ -12,6 +12,9 @@ import {
   appendCapped,
   liveStreamUrl,
   planPollIngest,
+  planSseResetSnapshot,
+  planSseResetSnapshotFailure,
+  planSseResetStart,
   reconcileReset,
   parseResetEvent,
 } from "../src/useLive.ts";
@@ -124,6 +127,40 @@ test("reconcileReset can reseed when a reset lowers the stream sequence space", 
   const prev = [ev(100), ev(99)];
   const merged = reconcileReset(prev, snap(2, [ev(2), ev(1)]), 500, { reseed: true });
   assert.deepEqual(merged.map((e) => e.seq), [2, 1]);
+});
+
+test("SSE reset planning lowers stale cursors while preserving post-reset live frames", () => {
+  const start = planSseResetStart(100, { reason: "stale_cursor", max_seq: 2 });
+  assert.deepEqual(start, {
+    retryCursor: 100,
+    nextCursor: 2,
+    clearBeforeFetch: true,
+    reseedBeforeFetch: true,
+  });
+
+  // A live frame seq=3 arrived on the same EventSource after the reset and
+  // before the snapshot refetch completed. Because the reset max_seq was known
+  // before fetch, the stale high rows were already cleared and the frame is
+  // preserved across the snapshot reseed.
+  const snapshotPlan = planSseResetSnapshot(
+    100,
+    3,
+    snap(2, [ev(2), ev(1)]),
+    start,
+  );
+  assert.equal(snapshotPlan.nextCursor, 3);
+  assert.deepEqual(snapshotPlan.reconcileOptions, { reseed: false });
+  const merged = reconcileReset([ev(3)], snap(2, [ev(2), ev(1)]), 500, snapshotPlan.reconcileOptions);
+  assert.deepEqual(merged.map((e) => e.seq), [3, 2, 1]);
+});
+
+test("SSE reset snapshot failure retries from the pre-reset cursor", () => {
+  const start = planSseResetStart(100, { reason: "gap", max_seq: 25 });
+  const retry = planSseResetSnapshotFailure(start);
+  assert.deepEqual(retry, {
+    retryCursor: 100,
+    restoreCursor: 100,
+  });
 });
 
 // --- safeHref scheme guard (defense-in-depth for webhook-sourced URLs) --------
