@@ -591,6 +591,48 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
   const absent = ghPrBundle("MERGED", "UNKNOWN").item!;
   assert.equal(absent.openReviewThreads, null);
   assert.equal(absent.totalReviewThreads, null);
+
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "PR_rt_detail", apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: {
+      ...prNode("PR_rt_detail", "OPEN", "MERGEABLE"),
+      reviewThreads: {
+        totalCount: 1,
+        pageInfo: { hasNextPage: false },
+        nodes: [
+          {
+            id: "RT_1",
+            isResolved: false,
+            isOutdated: false,
+            path: "src/app.ts",
+            startLine: 10,
+            line: 12,
+            resolvedBy: null,
+            comments: {
+              totalCount: 1,
+              nodes: [
+                {
+                  id: "C_1",
+                  author: { login: "reviewer" },
+                  body: "Please cover this branch.",
+                  url: "https://github.com/o/r/pull/9#discussion_r1",
+                  createdAt: "2026-06-01T01:00:00Z",
+                  updatedAt: "2026-06-01T01:05:00Z",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  };
+  const detail = src.normalize(raw)!.reviewThreads![0]!;
+  assert.equal(detail.externalId, "RT_1");
+  assert.equal(detail.target.externalId, "PR_rt_detail");
+  assert.equal(detail.isResolved, false);
+  assert.equal(detail.path, "src/app.ts");
+  assert.equal(detail.comments[0]!.body, "Please cover this branch.");
 });
 
 test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
@@ -1043,6 +1085,50 @@ test("GitLab: MR approvers normalize into approved review activities", () => {
   assert.deepEqual(reviews.map((a) => a.actor).sort(), ["alice", "bob"]);
   assert.equal(reviews[0]!.occurredAt, "2026-06-05T00:00:00Z", "dated by merged_at when merged");
   assert.equal(reviews[0]!.target?.externalId, "gid:MR_appr");
+});
+
+test("GitLab: resolvable discussions normalize into review-thread detail", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "gid:MR_threads", apiVersion: "gitlab.graphql",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: glNode("gid:MR_threads", "9", {
+      state: "opened", mergedAt: null, draft: false,
+      approved: false, approvalsRequired: 0,
+      resolvableDiscussionsCount: 1,
+      resolvedDiscussionsCount: 0,
+      headPipeline: { status: "SUCCESS" },
+      detailedMergeStatus: "DISCUSSIONS_NOT_RESOLVED",
+      discussions: [
+        {
+          id: "discussion-1",
+          notes: [
+            {
+              id: 101,
+              resolvable: true,
+              resolved: false,
+              body: "Please cover this branch.",
+              web_url: "https://gitlab.com/g/p/-/merge_requests/9#note_101",
+              created_at: "2026-06-01T01:00:00Z",
+              updated_at: "2026-06-01T01:05:00Z",
+              author: { username: "reviewer" },
+              position: { new_path: "src/app.ts", new_line: 12, line_range: { start: { new_line: 10 } } },
+            },
+          ],
+        },
+      ],
+    }),
+  };
+  const bundle = src.normalize(raw)!;
+  assert.equal(bundle.item?.openReviewThreads, 1);
+  const thread = bundle.reviewThreads![0]!;
+  assert.equal(thread.externalId, "discussion-1");
+  assert.equal(thread.isResolved, false);
+  assert.equal(thread.path, "src/app.ts");
+  assert.equal(thread.startLine, 10);
+  assert.equal(thread.line, 12);
+  assert.equal(thread.comments[0]!.author, "reviewer");
+  assert.equal(thread.comments[0]!.body, "Please cover this branch.");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

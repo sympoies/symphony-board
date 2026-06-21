@@ -380,7 +380,7 @@ test("openSqliteStoreReadOnly can read but cannot write or migrate", async () =>
   }
 });
 
-test("SQLite migration v5 backfills cached repo activity bounds from existing activity rows", async () => {
+test("SQLite migrations from v4 backfill cached repo activity bounds and review-thread detail schema", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sb-bounds-migration-"));
   const dbPath = join(dir, "store.db");
   try {
@@ -388,7 +388,7 @@ test("SQLite migration v5 backfills cached repo activity bounds from existing ac
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 5, "opening a v4 store applies the cached-bounds migration");
+    assert.equal(diag.schema_version, 6, "opening a v4 store applies later migrations");
     assert.equal((await db.overview(1)).tables.repo_activity_bounds, 1, "the summary table is backfilled once per repo");
     const bounds = await db.listRepoActivityBounds();
     assert.equal(bounds.length, 1);

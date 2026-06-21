@@ -1690,6 +1690,9 @@ export function applyVisibility(
   const activities = (env.activities ?? []).filter(
     (a) => !hiddenSources.has(a.source_id) && !hiddenRepos.has(repoKey(a.source_id, a.project_path)),
   );
+  const review_threads = (env.review_threads ?? []).filter(
+    (thread) => !hiddenSources.has(thread.source_id) && !hiddenRepos.has(repoKey(thread.source_id, thread.project_path)),
+  );
   const repo_metrics = (env.repo_metrics ?? []).filter(
     (m) => !hiddenSources.has(m.source_id) && !hiddenRepos.has(repoKey(m.source_id, m.project_path)),
   );
@@ -1698,7 +1701,8 @@ export function applyVisibility(
     const to = byId.get(e.to);
     return !(from && isHidden(from)) && !(to && isHidden(to));
   });
-  return env.repo_metrics ? { ...env, items, edges, activities, repo_metrics } : { ...env, items, edges, activities };
+  const next: ContractEnvelope = { ...env, items, edges, activities, review_threads };
+  return env.repo_metrics ? { ...next, repo_metrics } : next;
 }
 
 export function repoMetricKey(source_id: string, project_path: string | null): string {

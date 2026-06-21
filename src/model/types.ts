@@ -102,6 +102,33 @@ export interface CanonicalActivity {
   details: Record<string, unknown> | null;
 }
 
+export interface CanonicalReviewThreadComment {
+  id: string;
+  author: string | null;
+  body: string | null;
+  url: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CanonicalReviewThread {
+  sourceId: string;
+  externalId: string;
+  projectPath: string | null;
+  target: ItemEndpoint;
+  targetIid: number | null;
+  title: string | null;
+  url: string | null;
+  isResolved: boolean;
+  isOutdated: boolean | null;
+  resolvedBy: string | null;
+  path: string | null;
+  line: number | null;
+  startLine: number | null;
+  commentsTotal: number;
+  comments: CanonicalReviewThreadComment[];
+}
+
 // What normalizing one raw record yields: the item, its labels, and any edges
 // it asserts (from either endpoint's point of view), plus any activity records
 // derived from that raw. Activity-only raw records set item to null.
@@ -110,4 +137,5 @@ export interface NormalizedBundle {
   labels: CanonicalLabel[];
   edges: CanonicalEdge[];
   activities: CanonicalActivity[];
+  reviewThreads?: CanonicalReviewThread[];
 }

@@ -239,7 +239,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.0.0`.
+Current major: v4. Current emitted version: `4.1.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -441,6 +441,12 @@ Pages:
   details. Provider-specific signals such as GitHub Verified badges or check
   counts are intentionally omitted until the contract has comparable GitHub and
   GitLab semantics.
+- **Reviews**: current provider review-thread inbox over top-level
+  `review_threads[]`, not a review-event feed. It uses the shared date range and
+  item lens, lists each synced thread with current resolved/outdated state,
+  file/line metadata, and compact comment previews, and shows repo-level
+  thread breakdown/trends. Repo Analytics' non-zero `Threads` cells deep-link
+  here with source/repo/unresolved filters.
 - **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
   the shared date range and source/state/kind/search controls, ranks repos by
   contract `activity_score`, renders compact trend bars from contract series

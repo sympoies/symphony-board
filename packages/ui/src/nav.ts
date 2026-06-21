@@ -23,7 +23,7 @@ import { buildHashRoute, graphFocusHref, parseHashRoute, routeList, type HashRou
 // re-exported here so every cross-page link has a single import home.
 export { graphFocusHref };
 
-export type Page = "live" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings";
+export type Page = "live" | "board" | "graph" | "activity" | "commits" | "reviews" | "repo-analytics" | "settings";
 
 // Where a COLD START lands. A cold start is the app first executing its bundle:
 // a fresh open, a reopen, or a reload — in all of them the in-memory route state
@@ -68,6 +68,7 @@ export function startupRouteHash(restoredHash: string, defaultTab: Page): string
   const route = parseHashRoute(restoredHash);
   if (route.page === "debug" || route.page === "settings") return restoredHash;
   if (route.page === defaultTab) return restoredHash;
+  if (route.page === "reviews" && (route.isource || route.ireview || route.irepo)) return restoredHash;
   if (IDENTITY_FIELDS.some((f) => route[f])) return restoredHash;
   return `#/${defaultTab}`;
 }
@@ -343,14 +344,14 @@ export function activityDrilldownHref(opts: {
   });
 }
 
-// Repo Analytics -> Board drill-down for the review-thread lens. Pins the source
-// facet, the review facet ("unresolved" / "threads"), and the exact repo via
-// `irepo` (no longer relies on the free-text `q` substring, which collided on
-// shared path prefixes) so the landing board shows just that repo's matching items.
-export function boardReviewsHref(opts: { source: string; repo: string | null; range: RangeRoute; value: "threads" | "unresolved" }): string | null {
+// Repo Analytics -> Reviews drill-down for the review-thread inbox. Pins the
+// source facet, the review facet ("unresolved" / "threads"), and the exact repo
+// via `irepo` (no free-text `q` substring, which collided on shared prefixes) so
+// the landing tab shows just that repo's matching threads.
+export function reviewThreadsHref(opts: { source: string; repo: string | null; range: RangeRoute; value: "threads" | "unresolved" }): string | null {
   if (!opts.repo) return null;
   return buildHashRoute({
-    page: "board",
+    page: "reviews",
     isource: opts.source,
     ireview: opts.value,
     irepo: opts.repo,
@@ -359,6 +360,8 @@ export function boardReviewsHref(opts: { source: string; repo: string | null; ra
     preset: opts.range.preset ?? null,
   });
 }
+
+export const boardReviewsHref = reviewThreadsHref;
 
 // Repo Analytics -> Commits drill-down. The Commits page renders source/repo in
 // its own repo combobox, so it reads these route fields directly (single-value,

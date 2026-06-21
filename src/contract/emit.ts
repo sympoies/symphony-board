@@ -48,6 +48,7 @@ export async function buildContractEnvelope(
     labels: await store.listLabels(),
     edges: await store.listLiveEdges(),
     activities: await store.listActivities(),
+    reviewThreads: await store.listLiveReviewThreads(),
     generatedAt,
     sourceColors,
     repoColors,

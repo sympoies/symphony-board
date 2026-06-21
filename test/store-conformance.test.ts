@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Store } from "../src/db/store.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
-import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
+import type { CanonicalActivity, CanonicalItem, CanonicalReviewThread } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
 
@@ -158,6 +158,36 @@ function fixtureActivity(over: Partial<CanonicalActivity> = {}): CanonicalActivi
   };
 }
 
+function fixtureReviewThread(over: Partial<CanonicalReviewThread> = {}): CanonicalReviewThread {
+  return {
+    sourceId: SOURCE,
+    externalId: "THREAD_1",
+    projectPath: "dev-a/repo",
+    target: { sourceId: SOURCE, externalId: "PR_1" },
+    targetIid: 1,
+    title: "Review me",
+    url: "https://example/pr/1#discussion",
+    isResolved: false,
+    isOutdated: false,
+    resolvedBy: null,
+    path: "src/app.ts",
+    line: 12,
+    startLine: 10,
+    commentsTotal: 1,
+    comments: [
+      {
+        id: "COMMENT_1",
+        author: "reviewer",
+        body: "Please cover this branch.",
+        url: "https://example/pr/1#discussion",
+        createdAt: "2026-06-01T00:00:00Z",
+        updatedAt: "2026-06-01T00:00:00Z",
+      },
+    ],
+    ...over,
+  };
+}
+
 for (const driver of DRIVERS) {
   // Each test opens a fresh store seeded with the canonical source row.
   async function fresh(): Promise<Store> {
@@ -255,6 +285,27 @@ for (const driver of DRIVERS) {
     // Re-seeing the same (type, from, to) clears the tombstone.
     await store.upsertEdge(fixtureEdge(), "2026-06-02T00:00:00Z");
     assert.equal((await store.listLiveEdges()).length, 1);
+    await store.close();
+  });
+
+  t("review-thread detail rows upsert, list, tombstone, and revive", async () => {
+    const store = await fresh();
+    await store.upsertReviewThread(fixtureReviewThread(), "2026-06-01T00:00:00Z");
+    await store.upsertReviewThread(
+      fixtureReviewThread({ isResolved: true, resolvedBy: "maintainer", commentsTotal: 2 }),
+      "2026-06-01T00:10:00Z",
+    );
+    const rows = await store.listLiveReviewThreads();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.external_id, "THREAD_1");
+    assert.equal(rows[0]!.is_resolved, true);
+    assert.equal(rows[0]!.resolved_by, "maintainer");
+    assert.equal(JSON.parse(rows[0]!.comments_json)[0].body, "Please cover this branch.");
+
+    assert.equal(await store.softDeleteUnseenReviewThreads(SOURCE, "2026-06-01T00:11:00Z", "2026-06-01T00:20:00Z"), 1);
+    assert.equal((await store.listLiveReviewThreads()).length, 0);
+    await store.upsertReviewThread(fixtureReviewThread(), "2026-06-01T00:30:00Z");
+    assert.equal((await store.listLiveReviewThreads()).length, 1, "re-seeing clears the tombstone");
     await store.close();
   });
 

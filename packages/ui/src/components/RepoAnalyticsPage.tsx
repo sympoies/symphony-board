@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
 import { relativeTime, repoCoverage, repoTrend, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
-import { activityDrilldownHref, commitsDrilldownHref, boardReviewsHref, type ItemRouteFields } from "../nav.ts";
+import { activityDrilldownHref, commitsDrilldownHref, reviewThreadsHref, type ItemRouteFields } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
 import { SourceIcon } from "./SourceIcon.tsx";
 import { StatTile } from "./StatTile.tsx";
@@ -87,10 +87,10 @@ function commitsHref(metric: RepoMetricDTO, range: TimeRange, lens?: ItemRouteFi
   return commitsDrilldownHref({ source: metric.source_id, repo: metric.project_path, range, item: lens });
 }
 
-// Open review threads drill straight to the Board, filtered to this repo's
-// unresolved change_requests — the actionable "what still needs a reply" view.
+// Open review threads drill straight to the Reviews tab, filtered to this repo's
+// unresolved current provider threads — the actionable "what still needs a reply" view.
 function unresolvedThreadsHref(metric: RepoMetricDTO, range: TimeRange): string | null {
-  return boardReviewsHref({ source: metric.source_id, repo: metric.project_path, range, value: "unresolved" });
+  return reviewThreadsHref({ source: metric.source_id, repo: metric.project_path, range, value: "unresolved" });
 }
 
 function MetricValue({ value, href, label }: { value: number; href: string | null; label: string }) {
@@ -327,7 +327,7 @@ export function RepoAnalyticsPage({
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Closed"><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" }, lens)} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Merged"><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" }, lens)} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Reviews" title={`${metric.totals.approvals} approved`}><MetricValue value={metric.totals.reviews} href={activityHref(metric, range, { kind: "review" }, lens)} label={`Open review activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td className="repo-metric-cell repo-metric-primary" data-label="Threads" title="open review threads (resolvable, still unresolved)"><MetricValue value={metric.totals.unresolved_review_threads ?? 0} href={unresolvedThreadsHref(metric, range)} label={`Open the board filtered to unresolved review threads for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-primary" data-label="Threads" title="open review threads (resolvable, still unresolved)"><MetricValue value={metric.totals.unresolved_review_threads ?? 0} href={unresolvedThreadsHref(metric, range)} label={`Open unresolved review threads for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-quality-cell" data-label="Quality"><QualityBadge metric={metric} /></td>
                     <td className="repo-actors-cell" data-label="Actors"><TopActors metric={metric} /></td>
                   </tr>

@@ -45,6 +45,11 @@
       "description": "Developer-significant activity records, sorted newest first. Optional (added in 1.2.0). As of 4.0.0 the static contract WINDOWS this to the last 30 days (anchored to generated_at) — read activity_daily for trailing-12-month views, or /api/range for a wider raw feed. The range API returns the full requested span.",
       "items": { "$ref": "#/$defs/activity" }
     },
+    "review_threads": {
+      "type": "array",
+      "description": "Current provider review-thread detail rows for the emitted item projection. Optional, added in 4.1.0.",
+      "items": { "$ref": "#/$defs/reviewThread" }
+    },
     "activity_daily": {
       "$ref": "#/$defs/activityDaily"
     },
@@ -248,6 +253,64 @@
         "occurred_at": { "type": "string", "format": "date-time" },
         "details": { "type": ["object", "null"] },
         "first_seen_at": { "type": ["string", "null"], "format": "date-time" },
+        "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "reviewThreadComment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "author", "body", "url", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "author": { "type": ["string", "null"] },
+        "body": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "updated_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "reviewThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_id",
+        "external_id",
+        "project_path",
+        "target_ref",
+        "target_iid",
+        "title",
+        "url",
+        "is_resolved",
+        "is_outdated",
+        "resolved_by",
+        "path",
+        "line",
+        "start_line",
+        "comments_total",
+        "comments",
+        "last_seen_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/ref" },
+        "source_id": { "type": "string" },
+        "external_id": { "type": "string" },
+        "project_path": { "type": ["string", "null"] },
+        "target_ref": { "$ref": "#/$defs/ref" },
+        "target_iid": { "type": ["integer", "null"] },
+        "title": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "is_resolved": { "type": "boolean" },
+        "is_outdated": { "type": ["boolean", "null"] },
+        "resolved_by": { "type": ["string", "null"] },
+        "path": { "type": ["string", "null"] },
+        "line": { "type": ["integer", "null"] },
+        "start_line": { "type": ["integer", "null"] },
+        "comments_total": { "type": "integer", "minimum": 0 },
+        "comments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reviewThreadComment" }
+        },
         "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
       }
     },

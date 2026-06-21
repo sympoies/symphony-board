@@ -178,6 +178,7 @@ export async function syncSource(
   const status: "ok" | "partial" = result.complete ? "ok" : "partial";
   const itemBundles = bundles.filter((b) => b.item !== null);
   const activities = bundles.flatMap((b) => b.activities);
+  const reviewThreads = bundles.flatMap((b) => b.reviewThreads ?? []);
   const watermark = capWatermarkAtRunStart(result.watermark, startedAt);
   const report: SyncReport = {
     sourceId,
@@ -217,6 +218,7 @@ export async function syncSource(
       }
       for (const e of edges) await tx.upsertEdge(e, startedAt);
       for (const a of activities) await tx.upsertActivity(a, startedAt);
+      for (const thread of reviewThreads) await tx.upsertReviewThread(thread, startedAt);
 
       // Disappearance handling: only a FULL + COMPLETE sweep may tombstone unseen
       // items AND edges (a partial fetch must never look like a mass deletion).
@@ -226,6 +228,7 @@ export async function syncSource(
         const sweepAt = new Date().toISOString();
         report.softDeleted = await tx.softDeleteUnseenItems(sourceId, startedAt, sweepAt);
         report.softDeletedEdges = await tx.softDeleteUnseenEdges(sourceId, startedAt, sweepAt);
+        await tx.softDeleteUnseenReviewThreads(sourceId, startedAt, sweepAt);
       }
 
       await tx.finishRun(runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, result.error);
