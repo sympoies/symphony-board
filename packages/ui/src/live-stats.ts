@@ -3,7 +3,7 @@
 // rate histogram, the per-window count, category/active tallies, the relative
 // age label — is computed here so the render stays a thin transcription and the
 // math is unit-tested (live-stats.test.ts) rather than smoke-only.
-import type { LiveEvent } from "./model.ts";
+import type { LiveEvent, LiveEventActor } from "./model.ts";
 
 // Provider-neutral category order for the Live filter strip and the Settings
 // "which event types to show" toggles (see LiveEvent.category in model.ts). The
@@ -164,6 +164,73 @@ export function distinctCount(
 // always matches the events it was derived from.
 export function actorKey(e: LiveEvent): string | null {
   return e.actor?.login ?? e.actor?.display_name ?? null;
+}
+
+export interface LiveActorRank {
+  key: string;
+  label: string;
+  count: number;
+  actor: LiveEventActor | null;
+}
+
+export interface LiveRepoRank {
+  key: string;
+  label: string;
+  count: number;
+}
+
+function actorLabel(actor: LiveEventActor | null | undefined, key: string): string {
+  return actor?.display_name ?? actor?.login ?? key;
+}
+
+function richerActor(a: LiveEventActor | null, b: LiveEventActor | null | undefined): LiveEventActor | null {
+  if (!b) return a;
+  if (!a) return b;
+  const score = (actor: LiveEventActor) =>
+    (actor.avatar_url ? 4 : 0) +
+    (actor.profile_url ? 2 : 0) +
+    (actor.display_name ? 1 : 0);
+  return score(b) > score(a) ? b : a;
+}
+
+export function actorActivityRanks(events: LiveEvent[], limit = 5): LiveActorRank[] {
+  const ranks = new Map<string, LiveActorRank>();
+  for (const e of events) {
+    const key = actorKey(e);
+    if (!key) continue;
+    const prev = ranks.get(key);
+    if (!prev) {
+      ranks.set(key, { key, label: actorLabel(e.actor, key), count: 1, actor: e.actor ?? null });
+      continue;
+    }
+    const actor = richerActor(prev.actor, e.actor);
+    ranks.set(key, {
+      ...prev,
+      count: prev.count + 1,
+      actor,
+      label: actorLabel(actor, key),
+    });
+  }
+  return [...ranks.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
+    .slice(0, Math.max(0, limit));
+}
+
+export function repoActivityRanks(events: LiveEvent[], limit = 5): LiveRepoRank[] {
+  const ranks = new Map<string, LiveRepoRank>();
+  for (const e of events) {
+    const key = eventRepo(e);
+    if (!key) continue;
+    const prev = ranks.get(key);
+    if (!prev) {
+      ranks.set(key, { key, label: key, count: 1 });
+      continue;
+    }
+    ranks.set(key, { ...prev, count: prev.count + 1 });
+  }
+  return [...ranks.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
+    .slice(0, Math.max(0, limit));
 }
 
 // The feed's filter selection: category is single-select (null = any); repos and
