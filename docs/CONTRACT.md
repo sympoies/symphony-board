@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.1.0`.
+Current emitted version: `4.2.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.1.0",
+  "contract_version": "4.2.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -89,6 +89,7 @@ package version, to decide compatibility.
         {
           "id": "PRRC_1",
           "author": "reviewer",
+          "avatar_url": "https://avatars.githubusercontent.com/u/1?v=4",
           "body": "Please cover this branch.",
           "url": "https://github.com/sympoies/symphony-board/pull/2#discussion_r1",
           "created_at": "2026-06-08T01:00:00.000Z",
@@ -450,6 +451,17 @@ Version `4.1.0` is additive: a new optional top-level `review_threads[]` detail
 list for current provider review threads. The existing item-level
 `review_threads {open,total}` summary and repo metric semantics are unchanged,
 so old consumers can ignore the new list.
+
+Version `4.2.0` is additive: each `review_threads[].comments[]` entry now carries
+an `avatar_url` — the comment author's avatar URL when the provider reports it,
+else `null`. The producer always emits the key, so the schema keeps it
+required-but-nullable like the sibling comment fields (the `review_threads[]`
+object is itself newly-added in 4.1.0, so old consumers never depended on the
+comment shape). GitHub supplies it from the review comment `author.avatarUrl`
+GraphQL field; GitLab from the discussion note `author.avatar_url`, resolved to an
+absolute URL against the source host for self-hosted instances. It is persisted
+inside the canonical `comments_json` blob (no schema migration), and the Reviews
+UI renders it as the comment author's photo, falling back to initials.
 
 Version `4.0.0` **windows the static contract's `activities[]` to the last 30
 days** (anchored to `generated_at`), down from the full ~16-month history. This

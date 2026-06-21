@@ -55,7 +55,7 @@ const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedA
 // unknown (null) for that PR rather than wrong (see reviewThreadCounts).
 const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes {
   id isResolved isOutdated path line startLine resolvedBy { login }
-  comments(first:10){ totalCount nodes { id author { login } body url createdAt updatedAt } }
+  comments(first:10){ totalCount nodes { id author { login avatarUrl } body url createdAt updatedAt } }
 } }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
@@ -346,6 +346,7 @@ export class GitHubSource implements Source {
         .map((c: any) => ({
           id: String(c.id),
           author: c.author?.login ?? null,
+          avatarUrl: cleanText(c.author?.avatarUrl),
           body: cleanText(c.body),
           url: cleanText(c.url),
           createdAt: cleanText(c.createdAt),

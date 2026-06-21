@@ -105,6 +105,10 @@ export interface CanonicalActivity {
 export interface CanonicalReviewThreadComment {
   id: string;
   author: string | null;
+  // The comment author's avatar URL when the provider reports it (absolute), else
+  // null. Persisted inside the review_thread `comments_json` blob, so no schema
+  // migration is needed. Surfaced in the contract as `avatar_url` (4.2.0+).
+  avatarUrl: string | null;
   body: string | null;
   url: string | null;
   createdAt: string | null;

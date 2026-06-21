@@ -239,7 +239,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.1.0`.
+Current major: v4. Current emitted version: `4.2.0`.
 
 Version `1.1.0` added display metadata:
 

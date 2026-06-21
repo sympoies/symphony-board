@@ -2324,6 +2324,17 @@ a.rf-node-title:hover { color: var(--accent); }
    resolved status. */
 .reviews-live .live-split { margin-top: 4px; }
 
+/* Match the Live tab's width (.live-page caps at 1580 too): cap the whole reviews
+   column — the shared facet chrome AND the master-detail content — so it does not
+   stretch edge-to-edge on a wide monitor. Left-aligned, like .live-page. */
+.reviews-page.reviews-live { max-width: 1580px; }
+.view-chrome[data-page="reviews"] { max-width: 1580px; }
+
+/* Reviews keep avatars only inside the thread (the comment chain), so the list
+   rows and the detail header drop the Live tab's leading avatar column. */
+.reviews-live .live-event { grid-template-columns: minmax(0, 1fr) auto; }
+.reviews-live .live-detail-shell { grid-template-columns: minmax(0, 1fr); }
+
 /* A status list, not a stream: drop the newest-row arrival flash and keep the
    row title on one line (PR/MR titles run long; the badge stays beside it). */
 .reviews-live .live-feed .live-event[data-feed-index="0"] { animation: none; }
@@ -2338,17 +2349,6 @@ a.rf-node-title:hover { color: var(--accent); }
   border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
 }
 
-/* Status glyph fills the avatar column; its hue is the row's --cat. Unresolved
-   gets a soft halo so "needs attention" catches the eye while scanning. */
-.review-status-glyph {
-  width: 12px; height: 12px; margin-top: 5px; border-radius: 50%;
-  justify-self: center; background: var(--cat, var(--muted));
-}
-.review-status-glyph.review-status-unresolved {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--broken) 22%, transparent);
-}
-.review-status-glyph-lg { width: 15px; height: 15px; margin-top: 4px; }
-
 /* Row meta line: repo · commenter · location. */
 .review-row-meta {
   display: flex; flex-wrap: wrap; align-items: center; gap: 1px 10px;
@@ -2359,7 +2359,6 @@ a.rf-node-title:hover { color: var(--accent); }
   max-width: 100%; color: var(--link);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.review-repo-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .review-row-by { color: var(--text); white-space: nowrap; }
 .review-row-loc {
   min-width: 0; max-width: 100%; font-family: var(--mono); color: var(--muted);
@@ -2383,8 +2382,11 @@ a.rf-node-title:hover { color: var(--accent); }
   background: var(--panel-2); padding: 10px 12px;
 }
 .review-comment-head {
-  display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 12px;
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px;
 }
+/* A small author avatar leads each comment so a multi-author thread is scannable. */
+.review-comment-avatar { width: 22px; height: 22px; }
+.review-comment-avatar .live-avatar-fallback { font-size: 9px; }
 .review-comment-head strong { color: var(--link); }
 .review-comment-head time { color: var(--muted); }
 .review-comment-link { margin-left: auto; color: var(--link); white-space: nowrap; }

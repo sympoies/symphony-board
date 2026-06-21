@@ -1415,7 +1415,6 @@ export function App() {
           itemsById={activityItemsById}
           range={activeRange}
           sourceKind={sourceKind}
-          colorOf={colorOf}
           detailRouteOpen={route.reviewDetail === "1"}
           onOpenDetailRoute={openReviewDetailRoute}
           onCloseDetailRoute={closeReviewDetailRoute}

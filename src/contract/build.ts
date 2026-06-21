@@ -152,6 +152,7 @@ function parseReviewThreadComments(raw: string): ReviewThreadCommentDTO[] {
       .map((comment) => ({
         id: String(comment.id),
         author: typeof comment.author === "string" ? comment.author : null,
+        avatar_url: typeof comment.avatarUrl === "string" ? comment.avatarUrl : typeof comment.avatar_url === "string" ? comment.avatar_url : null,
         body: typeof comment.body === "string" ? comment.body : null,
         url: typeof comment.url === "string" ? comment.url : null,
         created_at: typeof comment.createdAt === "string" ? comment.createdAt : typeof comment.created_at === "string" ? comment.created_at : null,
