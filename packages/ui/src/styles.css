@@ -3709,7 +3709,7 @@ a.rf-node-title:hover { color: var(--accent); }
   border-radius: 9px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--cat, var(--live)) 16%, transparent), transparent 56%);
   opacity: 0;
-  animation: live-detail-accent 900ms ease-out;
+  animation: live-detail-accent 1600ms ease-out;
 }
 .live-detail-shell > * {
   position: relative;

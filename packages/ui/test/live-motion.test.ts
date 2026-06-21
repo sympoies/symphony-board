@@ -181,8 +181,8 @@ test("Live motion CSS keeps the feed settle and detail accent durations explicit
   );
   assert.match(
     stylesSource,
-    /\.live-detail-shell::before\s*{[^}]*animation: live-detail-accent 900ms/s,
-    "detail swaps should include a short accent frame/wash for visual continuity",
+    /\.live-detail-shell::before\s*{[^}]*animation: live-detail-accent 1600ms/s,
+    "detail swaps should include a readable accent frame/wash for visual continuity",
   );
   assert.match(
     stylesSource,
