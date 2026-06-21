@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, type ContractLoadMetadata } from "./contract.ts";
-import { dismissBootSplash, setBootSplashStatus } from "./boot-splash.ts";
+import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import {
   emptyFilters,
   activityRouteMatches,
@@ -537,12 +537,23 @@ export function App() {
     };
   }, [serverBaseUrl, reloadKey]);
 
-  // Remove the cold-start boot splash (index.html) once the first real view is
-  // ready: a definitive non-loading state (board / error / onboarding) OR a
-  // contract-independent page (Live / Diagnostics) that renders before the
-  // contract gates. The effect runs after commit, so the splash fades over
-  // already-painted content rather than a blank frame.
-  const bootSplashDone = !loading || route.page === "live" || route.page === "debug";
+  // Remove the cold-start boot splash (index.html) once the first view has actual
+  // CONTENT — never the blank gap between mount and content. The Live page is
+  // contract-independent but still loads its snapshot over the network, so it is
+  // blank until `live.connected` resolves; dismissing on `route.page === "live"`
+  // alone tore the splash off into that blank gap (the reported regression). A
+  // hard timeout guarantees the splash can never strand if a signal never lands.
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setBootTimedOut(true), BOOT_SPLASH_MAX_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const bootSplashDone = bootSplashReady({
+    routePage: route.page,
+    loading,
+    liveConnected: live.connected,
+    timedOut: bootTimedOut,
+  });
   useEffect(() => {
     if (!bootSplashDone || bootDismissed) return;
     dismissBootSplash();
@@ -1274,10 +1285,11 @@ export function App() {
     );
   }
 
-  // While the cold-start splash is still up it covers this, so render nothing
-  // behind the (30%-opacity) veil; once the splash is gone (e.g. a later
-  // server-URL change re-enters loading) show the inline message.
-  if (loading) return bootDismissed ? <div className="state-msg">Loading contract…</div> : null;
+  // The solid cold-start splash covers this during the initial load; it stays a
+  // safe non-blank fallback if the splash is ever dismissed (e.g. the boot
+  // timeout, or a later server-URL change re-entering loading) — never a blank
+  // null frame, which is what made the Live cold start look broken.
+  if (loading) return <div className="state-msg">Loading contract…</div>;
 
   if (error && !env) {
     // First-run onboarding: the server is reachable and editable (the config
