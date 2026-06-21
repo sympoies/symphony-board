@@ -452,15 +452,19 @@ function isApprovalActivity(activity: ActivityDTO): boolean {
 }
 
 function repoActivityScore(stats: RepoMetricStatsDTO): number {
+  // Unweighted sum of in-window event counts. `issuesOpened` subtracts change
+  // requests so a PR/MR is not also counted as an issue (items_opened includes
+  // both); `items_active` and `pushes` stay excluded — active items are
+  // inventory and pushes already overlap with commits.
   const issuesOpened = Math.max(0, stats.items_opened - stats.change_requests_opened);
   return (
-    stats.commits * 0.25 +
-    issuesOpened * 2 +
-    stats.change_requests_opened * 3 +
-    stats.change_requests_merged * 4 +
-    stats.comments * 0.5 +
-    stats.reviews * 1.5 +
-    stats.approvals * 1.5
+    stats.commits +
+    issuesOpened +
+    stats.change_requests_opened +
+    stats.change_requests_merged +
+    stats.comments +
+    stats.reviews +
+    stats.approvals
   );
 }
 

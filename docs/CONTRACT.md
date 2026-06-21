@@ -146,7 +146,7 @@ package version, to decide compatibility.
         "change_requests_closed": 1,
         "change_requests_merged": 1,
         "activities": 24,
-        "activity_score": 20.75,
+        "activity_score": 19,
         "commits": 7,
         "pushes": 3,
         "comments": 5,
@@ -763,24 +763,30 @@ no activity row has a parseable timestamp); the Repo Analytics page renders it a
 "last active" instead of the earliest-observed instant.
 
 Version `2.4.0` added optional `activity_score` to the repo metric stats shape.
-The current producer emits it for every repo metric totals row and series point:
+The current producer emits it for every repo metric totals row and series point
+as an **unweighted sum** of the in-window event counts:
 
 ```text
 activity_score =
-  commits * 0.25 +
-  issues_opened * 2 +
-  change_requests_opened * 3 +
-  change_requests_merged * 4 +
-  comments * 0.5 +
-  reviews * 1.5 +
-  approvals * 1.5
+  commits +
+  issues_opened +
+  change_requests_opened +
+  change_requests_merged +
+  comments +
+  reviews +
+  approvals
 ```
 
-`issues_opened` is `max(0, items_opened - change_requests_opened)`. The score
-is stored as a decimal so consumers can sort by the raw value; UI display may
-round it to a whole number. `items_active` and `pushes` are deliberately not
-included: active items are inventory, while push events are provider-specific
-and commit count already captures code activity.
+`issues_opened` is `max(0, items_opened - change_requests_opened)` so a PR/MR is
+not also counted as an issue. `items_active` and `pushes` are deliberately not
+included: active items are inventory, while push events overlap with commits,
+which already capture code activity. The producer emitted a weighted score
+(commits ×0.25, issues ×2, change requests opened ×3 / merged ×4, comments ×0.5,
+reviews / approvals ×1.5) through contract 4.x; it was simplified to the plain
+sum above because the weighting was opaque and a flat event count is easier to
+reason about. The field type is unchanged (`number`, `>= 0`), so this is a
+producer recalibration, not a contract shape change: every value is now a whole
+number, but consumers must keep treating it as an opaque sortable signal.
 
 Open maps such as `by_activity_kind`, `by_activity_action`, `by_edge_type`,
 `by_review_state`, `by_ci_state`, `by_merge_state`, and `by_label_scope` are
