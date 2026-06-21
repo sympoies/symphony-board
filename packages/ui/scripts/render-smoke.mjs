@@ -1888,9 +1888,26 @@ try {
     })(${JSON.stringify({ dx, dy, selector })})`,
     returnByValue: true,
   })).result.value || {};
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await sleep(120);
   await send("Runtime.evaluate", { expression: "document.querySelector('.live-detail-nav-button[aria-label=\"Show older event\"]')?.click()" });
   await sleep(300);
   const liveMobileNav = await liveMobileDetailState();
+  const liveMobileReducedMotion = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const shell = document.querySelector('.live-detail-shell');
+      const style = shell ? getComputedStyle(shell) : null;
+      return {
+        matches: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        motion: shell?.getAttribute('data-motion') || '',
+        animationName: style?.animationName || '',
+        animationDuration: style?.animationDuration || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+  await sleep(120);
   const liveMobileSwipeDispatch = await dispatchLiveMobileSwipe({ dx: 112 });
   await sleep(300);
   const liveMobileSwipe = await liveMobileDetailState({ dispatch: liveMobileSwipeDispatch });
@@ -2781,6 +2798,7 @@ try {
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileNav.navButtons === 2 && liveMobileNav.motion === "next" && liveMobileNav.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileNav.count || "") && liveMobileNav.selectedMatchesDetail === true && liveMobileNav.newerDisabled === false && liveMobileNav.olderDisabled === false, `live: phone detail Older button advances detail and selected feed row together (${JSON.stringify(liveMobileNav)})`],
+    [liveMobileReducedMotion.matches === true && liveMobileReducedMotion.motion === "next" && liveMobileReducedMotion.animationName === "none", `live: phone detail directional motion respects reduced-motion (${JSON.stringify(liveMobileReducedMotion)})`],
     [liveMobileSwipe.dispatch?.dispatched === true && liveMobileSwipe.motion === "previous" && liveMobileSwipe.selectedIndex === "0" && /1\s*\/\s*\d+/.test(liveMobileSwipe.count || "") && liveMobileSwipe.selectedMatchesDetail === true && liveMobileSwipe.newerDisabled === true && liveMobileSwipe.olderDisabled === false, `live: phone detail right-swipe returns to the newer event and selected feed row (${JSON.stringify(liveMobileSwipe)})`],
     [liveMobileLeftSwipe.dispatch?.dispatched === true && liveMobileLeftSwipe.motion === "next" && liveMobileLeftSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileLeftSwipe.count || "") && liveMobileLeftSwipe.selectedMatchesDetail === true && liveMobileLeftSwipe.newerDisabled === false && liveMobileLeftSwipe.olderDisabled === false, `live: phone detail left-swipe advances to the older event and selected feed row (${JSON.stringify(liveMobileLeftSwipe)})`],
     [liveMobileIgnoredLinkSwipe.dispatch?.dispatched === true && liveMobileIgnoredLinkSwipe.motion === "next" && liveMobileIgnoredLinkSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileIgnoredLinkSwipe.count || "") && liveMobileIgnoredLinkSwipe.selectedMatchesDetail === true && liveMobileIgnoredLinkSwipe.newerDisabled === false && liveMobileIgnoredLinkSwipe.olderDisabled === false, `live: phone detail ignores swipes that start on the title link (${JSON.stringify(liveMobileIgnoredLinkSwipe)})`],

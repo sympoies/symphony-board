@@ -3789,6 +3789,8 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .live-feed[data-animate-shift="true"] .live-event { transition: none; }
   .live-feed .live-event[data-feed-index="0"] { animation: none; }
-  .live-detail-shell { animation: none; }
+  .live-detail-shell,
+  .live-detail-shell[data-motion="next"],
+  .live-detail-shell[data-motion="previous"] { animation: none; }
   .live-split[data-detail-open="true"] .live-detail { animation: none; }
 }
