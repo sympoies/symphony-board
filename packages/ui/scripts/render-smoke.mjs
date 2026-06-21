@@ -21,8 +21,15 @@ import { tmpdir, platform } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
-const HTTP_PORT = 4399;
-const CDP_PORT = 9333;
+function envPort(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`invalid ${name}: ${raw}`);
+  return n;
+}
+const HTTP_PORT = envPort("SYMPHONY_BOARD_SMOKE_HTTP_PORT", 4399);
+const CDP_PORT = envPort("SYMPHONY_BOARD_SMOKE_CDP_PORT", 9333);
 const DEADLINE_MS = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -39,6 +46,7 @@ const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-
 const syncMock = { current: null, last: null, seq: 0 };
 let cachedSyncSources = null;
 let contractRequestCount = 0;
+let liveSnapshotRequestCount = 0;
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -132,18 +140,21 @@ async function configMockDoc() {
 // `url` permalink (a comment), the other only a target url — exercising the
 // `ev.url ?? ev.target?.url` link precision.
 function liveSnapshotMock() {
+  const now = Date.now();
+  const newest = new Date(now - 5_000).toISOString();
+  const outsideTrailingHour = new Date(now - 70 * 60_000).toISOString();
   return {
     schema: "live-snapshot/1",
     max_seq: 2,
-    generated_at: new Date().toISOString(),
+    generated_at: new Date(now).toISOString(),
     events: [
       {
         seq: 2,
         event_id: "smoke-live-2",
         source_id: "github:github.com",
         provider: "github",
-        received_at: new Date().toISOString(),
-        occurred_at: new Date().toISOString(),
+        received_at: newest,
+        occurred_at: newest,
         event_type: "issue_comment",
         action: "created",
         category: "comment",
@@ -158,8 +169,8 @@ function liveSnapshotMock() {
         event_id: "smoke-live-1",
         source_id: "github:github.com",
         provider: "github",
-        received_at: new Date().toISOString(),
-        occurred_at: new Date().toISOString(),
+        received_at: outsideTrailingHour,
+        occurred_at: outsideTrailingHour,
         event_type: "pull_request",
         action: "opened",
         category: "change_request",
@@ -321,6 +332,10 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ contractRequests: contractRequestCount }));
       return;
     }
+    if (p === "/__smoke/live-snapshot-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ liveSnapshotRequests: liveSnapshotRequestCount }));
+      return;
+    }
     // A minimal mock of the live receiver's snapshot surface, so the headless
     // render exercises the #/live page's seed path. The browser EventSource
     // stream itself is not mocked here (CDP has no SSE server to point at), but
@@ -328,6 +343,7 @@ const server = createServer(async (req, res) => {
     // is what this smoke asserts. `live-snapshot/1` schema + a finite max_seq
     // match fetchLiveSnapshot's validation.
     if (p === "/api/live-snapshot") {
+      liveSnapshotRequestCount += 1;
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify(liveSnapshotMock()));
       return;
     }
@@ -406,7 +422,14 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end("not found");
   }
 });
-await new Promise((r) => server.listen(HTTP_PORT, "127.0.0.1", r));
+await new Promise((resolve, reject) => {
+  const onError = (err) => reject(err);
+  server.once("error", onError);
+  server.listen(HTTP_PORT, "127.0.0.1", () => {
+    server.off("error", onError);
+    resolve();
+  });
+});
 
 // --- launch headless Chrome ---
 const userDataDir = mkdtempSync(join(tmpdir(), "sb-render-"));
@@ -513,6 +536,12 @@ try {
       awaitPromise: true,
       returnByValue: true,
     })).result.value || 0;
+  const liveSnapshotRequests = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/live-snapshot-count').then((res) => res.json()).then((body) => body.liveSnapshotRequests || 0)",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || 0;
   const rangeButtonLabels = async () =>
     (await send("Runtime.evaluate", {
       expression: "Array.from(document.querySelectorAll('.time-range-controls .toggle')).map((el) => el.textContent?.trim() || '')",
@@ -541,6 +570,7 @@ try {
     if (!tabs) return null;
     return JSON.stringify({ hash: location.hash, hasLiveTab: !!document.querySelector('.tab-live') });
   })()`);
+  const liveSnapshotRequestsBeforeEnable = await liveSnapshotRequests();
   // Then enable the Live tab (and pin it as the default) the way Settings would,
   // and reload so the rest of the smoke exercises the realtime feed.
   await send("Runtime.evaluate", {
@@ -1363,6 +1393,10 @@ try {
         rendered: !!page,
         rows: rows.length,
         detailLink,
+        activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\s+/g, '') || '',
+        bufferText: Array.from(document.querySelectorAll('.live-card'))
+          .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer')
+          ?.querySelector('.live-figure')?.textContent?.replace(/\s+/g, '') || '',
         statusText: status?.textContent?.trim() || '',
         statusUnavailable: (status?.textContent || '').includes('Unavailable'),
         statusHasTransport: /\\(polling\\)|\\bPOLL\\b/.test(status?.textContent || ''),
@@ -1399,6 +1433,58 @@ try {
     expression: "document.querySelector('.live-detail .live-detail-title-link')?.getAttribute('href') || ''",
     returnByValue: true,
   })).result.value || "";
+  // Settings -> Live event types: hide the comment category through the real UI,
+  // then confirm Live drops the comment row/chip while the raw pulse still counts
+  // the full 5h stream. Restore it before the mobile Live checks below.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.settings-page .settings-type')");
+  const hideCommentType = await waitValue(`(() => {
+    const row = Array.from(document.querySelectorAll('.settings-type')).find((el) => el.textContent?.trim() === 'comment');
+    const box = row?.querySelector('input');
+    if (!box || !box.checked) return null;
+    box.click();
+    return true;
+  })()`);
+  await sleep(200);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.live-page .live-feed')");
+  const liveHiddenType = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const cardValue = (label) => Array.from(document.querySelectorAll('.live-card'))
+        .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === label)
+        ?.querySelector('.live-figure')?.textContent?.replace(/\\s+/g, '') || '';
+      const catLabels = Array.from(document.querySelectorAll('.live-cats .live-cat'))
+        .map((el) => el.textContent?.replace(/\\d+$/, '').trim().toLowerCase() || '');
+      const rowCategories = Array.from(document.querySelectorAll('.live-feed .live-event-category'))
+        .map((el) => el.textContent?.trim().toLowerCase() || '');
+      return {
+        toggled: ${hideCommentType ? "true" : "false"},
+        rows: document.querySelectorAll('.live-feed .live-event').length,
+        allCount: document.querySelector('.live-cat-all .live-cat-n')?.textContent?.trim() || '',
+        hasCommentChip: catLabels.includes('comment'),
+        hasCommentRow: rowCategories.includes('comment'),
+        activityText: cardValue('Activity'),
+        bufferText: cardValue('Buffer'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.settings-page .settings-type')");
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = Array.from(document.querySelectorAll('.settings-type')).find((el) => el.textContent?.trim() === 'comment');
+      const box = row?.querySelector('input');
+      if (box && !box.checked) box.click();
+    })()`,
+  });
+  await sleep(200);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(300);
+  await waitHtml("document.querySelectorAll('.live-feed .live-event').length >= 2");
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
   await sleep(150);
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
@@ -2086,7 +2172,7 @@ try {
   const phoneCommits = portraitCommits.filter((r) => r.preset === "phone-portrait");
   const checks = [
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
-    [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity"); } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity (${liveOffLanding})`],
+    [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],
     // default entry: with Live enabled and pinned as the default, opening with no hash lands on Live.
     [has(defaultLandingHtml, "live-page") && has(defaultLandingHtml, "tab-on") && has(defaultLandingHtml, "Live"), "app: default route opens the configured default tab (Live, once enabled)"],
     [scrollAutoHide.restHidden === true && scrollAutoHide.shownOnPageScroll === true && (scrollAutoHide.hasInner === false || scrollAutoHide.shownOnInnerScroll === true), `app: scrollbars stay hidden at rest and reveal the scroller on scroll (${JSON.stringify(scrollAutoHide)})`],
@@ -2224,8 +2310,10 @@ try {
     [has(liveHtml, "live-page"), "live: page rendered"],
     [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],
     [live.rendered === true && live.rows >= 2, `live: snapshot seeds the feed rows (${live.rows || 0} >= 2)`],
+    [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],
+    [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || "") && /^2\/500$/.test(liveHiddenType.bufferText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
     // event-link precision: the auto-selected newest event (a comment) shows the
     // exact ev.url permalink (#issuecomment-…) in its detail pane …
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],

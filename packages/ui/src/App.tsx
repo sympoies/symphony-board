@@ -135,12 +135,20 @@ type MobileControlPanel = "search" | "filters" | "range" | null;
 // (setRouteFocus), and commits routes carry "?repo=<project_path>" and
 // "?branch=<branch>" for the page-local SCM filters.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
+const readStartupHash = (): string =>
+  startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), loadLiveTabEnabled()));
 const historyStateObject = (): Record<string, unknown> => {
   const state = window.history.state;
   return state && typeof state === "object" && !Array.isArray(state) ? { ...(state as Record<string, unknown>) } : {};
 };
 
 export function App() {
+  // Compute the cold-start hash once and seed every startup consumer from it.
+  // Otherwise the normalized page route and URL-backed search could disagree for
+  // one render when startupRouteHash intentionally drops transient query params.
+  const startupHashRef = useRef<string | null>(null);
+  if (startupHashRef.current === null) startupHashRef.current = readStartupHash();
+  const initialStartupHash = startupHashRef.current;
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
   const [rangeEnv, setRangeEnv] = useState<ContractEnvelope | null>(null);
@@ -151,11 +159,9 @@ export function App() {
   const [refreshingData, setRefreshingData] = useState(false);
   // Seed the search from the hash's "?q=" token if present; the URL is the source
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
-  const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(readHash())));
+  const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(initialStartupHash)));
   const [mobileControlPanel, setMobileControlPanel] = useState<MobileControlPanel>(null);
-  const [hash, setHash] = useState<string>(() =>
-    startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), loadLiveTabEnabled())),
-  );
+  const [hash, setHash] = useState<string>(initialStartupHash);
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
   //   • hidden        — HIDDEN repoKeys
@@ -422,7 +428,7 @@ export function App() {
   // honors the configured default tab over a restored hash — the web counterpart
   // of the desktop launcher in main.tsx — while preserving debug / graph focus.
   useEffect(() => {
-    const target = startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), loadLiveTabEnabled()));
+    const target = startupHashRef.current ?? readStartupHash();
     if (readHash() !== target) window.location.hash = target;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

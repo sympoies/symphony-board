@@ -10,7 +10,7 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { MAX_EVENTS, type LiveState } from "../useLive.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
@@ -366,17 +366,23 @@ export function LivePage({
   // leave the pulse alone). The chip strip, the "All" count, the feed, and the
   // filter option lists read `visibleEvents` so hiding a type removes it tab-wide
   // from what you browse.
-  const visibleEvents = visibleByCategory(events, hiddenEventTypes);
+  const visibleEvents = useMemo(
+    () => visibleByCategory(events, hiddenEventTypes),
+    [events, hiddenEventTypes],
+  );
   const windowTotal = countInWindow(events, now, SPARK_WINDOW_MS);
   const buckets = rateBuckets(events, now, SPARK_BUCKET_MS, SPARK_BUCKETS);
-  const cats = categoryCounts(visibleEvents, LIVE_CATEGORY_ORDER);
-  const repoCount = distinctCount(events, eventRepo);
-  const peopleCount = distinctCount(events, actorKey);
-  const repoOptions = distinctValues(visibleEvents, eventRepo);
-  const peopleOptions = distinctValues(visibleEvents, actorKey);
+  const cats = useMemo(() => categoryCounts(visibleEvents, LIVE_CATEGORY_ORDER), [visibleEvents]);
+  const repoCount = useMemo(() => distinctCount(events, eventRepo), [events]);
+  const peopleCount = useMemo(() => distinctCount(events, actorKey), [events]);
+  const repoOptions = useMemo(() => distinctValues(visibleEvents, eventRepo), [visibleEvents]);
+  const peopleOptions = useMemo(() => distinctValues(visibleEvents, actorKey), [visibleEvents]);
   const latest = events[0];
   const latestInstant = latest ? eventInstant(latest) : null;
-  const shown = visibleEvents.filter((e) => eventMatchesFilters(e, { category, repos, people }));
+  const shown = useMemo(
+    () => visibleEvents.filter((e) => eventMatchesFilters(e, { category, repos, people })),
+    [visibleEvents, category, repos, people],
+  );
 
   const keyOf = (ev: LiveEvent): string => `${ev.source_id}:${ev.event_id}:${ev.seq}`;
   // The detail shows the pinned event; with nothing pinned it auto-follows the
