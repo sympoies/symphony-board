@@ -295,7 +295,7 @@ export function SettingsPage({
                         className="count"
                         title={`${r.count} ${r.count === 1 ? "item" : "items"}${
                           r.last_activity_at
-                            ? ` · last active ${new Date(r.last_activity_at).toLocaleString()}`
+                            ? ` · last active ${new Date(r.last_activity_at).toLocaleString([], { hour12: false })}`
                             : " · no activity recorded"
                         }`}
                       >

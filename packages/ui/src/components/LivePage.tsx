@@ -86,7 +86,7 @@ function statusLabel(
 }
 
 function fmtClock(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function Sparkline({ values, now, bucketMs }: { values: number[]; now: number; bucketMs: number }) {
@@ -218,7 +218,7 @@ function LiveRow({
       {age ? (
         <time
           className="live-event-time"
-          title={instant != null ? new Date(instant).toLocaleString() : undefined}
+          title={instant != null ? new Date(instant).toLocaleString([], { hour12: false }) : undefined}
         >
           {age}
         </time>
@@ -252,7 +252,7 @@ function LiveDetail({ ev, now, following, onFollowLatest, onClose }: { ev: LiveE
       <div className="live-detail-head" style={catStyle(ev.category)}>
         <span className="live-event-category">{humanizeCategory(ev.category)}</span>
         {age ? (
-          <time title={instant != null ? new Date(instant).toLocaleString() : undefined}>{age} ago</time>
+          <time title={instant != null ? new Date(instant).toLocaleString([], { hour12: false }) : undefined}>{age} ago</time>
         ) : null}
       </div>
       {/* The link goes on the TITLE (which names the actual event) — its target can
