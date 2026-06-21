@@ -71,6 +71,11 @@ const LIVE_ROW_BASE_HEIGHT_PX = 74;
 const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
 const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
+// The newest feed row's `live-enter` entrance duration. In follow mode the
+// detail pane holds its content swap for this long so the list's arrival
+// animation plays out BEFORE the detail crossfades to the same event. Keep in
+// sync with `live-enter` in styles.css.
+const LIVE_FEED_ENTER_MS = 650;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
 const LIVE_PANE_MIN_HEIGHT_PX = 320;
 const LIVE_RANK_LIMIT = 6;
@@ -489,6 +494,7 @@ export function LivePage({
   // the "follow latest" control in the detail — releases back to auto-follow.
   const [pinned, setPinned] = useState<LiveEvent | null>(null);
   const isDetailOverlay = useMediaQuery(LIVE_DETAIL_OVERLAY_QUERY);
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   // Drives the NARROW-screen detail overlay; route-backed so Android/browser
   // Back closes detail before leaving the Live tab.
   const detailOpen = isDetailOverlay && detailRouteOpen;
@@ -616,7 +622,53 @@ export function LivePage({
   // newest matching event, so the right pane updates as new data streams in (and
   // is never empty once an event exists).
   const following = pinned === null;
-  const detail = pinned ?? shown[0] ?? null;
+  const newest = shown[0] ?? null;
+  const newestKey = newest ? keyOf(newest) : null;
+  // In follow mode the detail trails the newest event by the feed's enter
+  // duration, so the row's `live-enter` finishes before the detail crossfades to
+  // it. `followed` is that lagged event; a single pending timer settles it to the
+  // CURRENT newest when it fires, so a burst coalesces into one swap-per-window
+  // (a debounce-to-quiet would freeze the pane mid-stream). The hold is bypassed
+  // — swap immediately — for the first event, reduced-motion, and filter changes
+  // (a filter change is a user action, not an arrival, and could otherwise strand
+  // a now-filtered-out event in the pane). Pinning abandons any pending swap.
+  const [followed, setFollowed] = useState<LiveEvent | null>(newest);
+  const newestRef = useRef(newest);
+  newestRef.current = newest;
+  const holdRef = useRef<number | null>(null);
+  const filterKeyRef = useRef(feedResetKey);
+  const clearHold = useCallback(() => {
+    if (holdRef.current != null) {
+      window.clearTimeout(holdRef.current);
+      holdRef.current = null;
+    }
+  }, []);
+  useEffect(() => {
+    if (!following) {
+      clearHold();
+      return;
+    }
+    if (newest == null) {
+      clearHold();
+      setFollowed(null);
+      return;
+    }
+    const filtersChanged = filterKeyRef.current !== feedResetKey;
+    filterKeyRef.current = feedResetKey;
+    if (followed == null || prefersReducedMotion || filtersChanged) {
+      clearHold();
+      setFollowed(newest);
+      return;
+    }
+    if (keyOf(followed) === newestKey) return; // detail already current
+    if (holdRef.current != null) return; // a settle is already pending
+    holdRef.current = window.setTimeout(() => {
+      holdRef.current = null;
+      setFollowed(newestRef.current);
+    }, LIVE_FEED_ENTER_MS);
+  }, [following, newest, newestKey, feedResetKey, prefersReducedMotion, followed, clearHold]);
+  useEffect(() => clearHold, [clearHold]); // clear any pending timer on unmount
+  const detail = pinned ?? followed ?? null;
   const detailKey = detail ? keyOf(detail) : null;
   useEffect(() => {
     if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
@@ -632,6 +684,10 @@ export function LivePage({
   // the detail) back into view at the top of the feed.
   const followLatest = () => {
     setPinned(null);
+    // Explicit action, not a stream arrival: jump the detail to newest now rather
+    // than waiting out the follow hold.
+    clearHold();
+    setFollowed(newestRef.current);
     feedRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 

@@ -3289,7 +3289,7 @@ a.rf-node-title:hover { color: var(--accent); }
    it COMPOSES with the inline transform that positions the row (translateY by
    index) instead of clobbering it. */
 .live-feed .live-event[data-feed-index="0"] {
-  animation: live-enter 440ms cubic-bezier(0.2, 0.7, 0.3, 1), live-arrive 1400ms ease-out;
+  animation: live-enter 650ms cubic-bezier(0.2, 0.7, 0.3, 1), live-arrive 1400ms ease-out;
 }
 .live-feed .live-event[data-feed-index="0"]::before { opacity: 0.85; }
 .live-feed .live-event-selected[data-feed-index="0"]::before { opacity: 0.95; }
@@ -3303,7 +3303,7 @@ a.rf-node-title:hover { color: var(--accent); }
    relative-time tick recomputes the same translateY, so it never re-triggers
    this transition. */
 .live-feed[data-animate-shift="true"] .live-event {
-  transition: transform 240ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  transition: transform 340ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
 @keyframes live-beat {
