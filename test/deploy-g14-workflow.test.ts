@@ -1,97 +1,98 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 
 const workflow = readFileSync(
   new URL("../.github/workflows/deploy-g14.yml", import.meta.url),
   "utf8",
 );
+const workflowLines = workflow.split(/\r?\n/);
 
-function workflowBasenameFunction(): string {
-  const match = workflow.match(
-    /# BEGIN test:resolve_live_config_basename\n(?<body>[\s\S]*?)\n\s*# END test:resolve_live_config_basename/,
-  );
-  assert.ok(match?.groups?.body, "workflow exposes the tested basename parser block");
-  return match.groups.body
-    .split("\n")
-    .map((line) => line.replace(/^ {10}/, ""))
-    .join("\n");
-}
-
-function resolveBasename(envText: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "live-config-"));
-  try {
-    const envPath = join(dir, ".env");
-    const scriptPath = join(dir, "resolve.sh");
-    writeFileSync(envPath, envText, "utf8");
-    writeFileSync(
-      scriptPath,
-      `set -euo pipefail\n${workflowBasenameFunction()}\nresolve_live_config_basename "$1"\n`,
-      "utf8",
-    );
-    return execFileSync("bash", [scriptPath, envPath], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+function topLevelBlock(name: string): string {
+  const start = workflowLines.findIndex((line) => line === `${name}:`);
+  assert.notEqual(start, -1, `workflow has top-level ${name}: block`);
+  const block: string[] = [];
+  for (const line of workflowLines.slice(start + 1)) {
+    if (/^[^\s#]/.test(line)) break;
+    block.push(line);
   }
+  return block.join("\n");
 }
 
-test("deploy-g14 derives the Live allowlist from the configured source basename", () => {
-  assert.match(
-    workflow,
-    /resolve_live_config_basename "\$stack_env"/,
-    "the deploy must honor the stack's configured source basename",
+function deployRunScript(): string {
+  const start = workflowLines.findIndex(
+    (line) => line === "      - name: Pull deploy inputs and run the g14-infra health gate",
+  );
+  assert.notEqual(start, -1, "workflow has the smoke-gated deploy step");
+  const run = workflowLines.findIndex(
+    (line, index) => index > start && line === "        run: |",
+  );
+  assert.notEqual(run, -1, "deploy step has a run block");
+  const script: string[] = [];
+  for (const line of workflowLines.slice(run + 1)) {
+    if (line !== "" && !line.startsWith("          ")) break;
+    script.push(line.replace(/^          /, ""));
+  }
+  return script.join("\n");
+}
+
+function executableLines(script: string): string[] {
+  return script
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+}
+
+test("deploy-g14 delegates deployment to the g14-infra health gate", () => {
+  const lines = executableLines(deployRunScript());
+  const infraRefresh = lines.findIndex((line) =>
+    /^git -C "\$infra"\s+fetch --quiet origin main && git -C "\$infra"\s+reset --hard origin\/main$/.test(
+      line,
+    ),
+  );
+  const secretsRefresh = lines.findIndex((line) =>
+    /^git -C "\$secrets"\s+fetch --quiet origin main && git -C "\$secrets"\s+reset --hard origin\/main$/.test(
+      line,
+    ),
+  );
+  const deploy = lines.indexOf('make -C "$infra" deploy STACK=symphony-board');
+
+  assert.notEqual(infraRefresh, -1, "the deploy runner refreshes the trusted g14-infra checkout");
+  assert.notEqual(secretsRefresh, -1, "the deploy runner refreshes the trusted secrets checkout");
+  assert.notEqual(deploy, -1, "the app workflow calls the g14-infra deploy gate");
+  assert.ok(infraRefresh < deploy, "g14-infra is refreshed before calling the deploy gate");
+  assert.ok(secretsRefresh < deploy, "secrets are refreshed before calling the deploy gate");
+});
+
+test("deploy-g14 does not duplicate the infra deploy implementation", () => {
+  const script = deployRunScript();
+  assert.doesNotMatch(
+    script,
+    /render\.sh" symphony-board/,
+    "rendering secrets is owned by g14-infra make deploy",
   );
   assert.doesNotMatch(
-    workflow,
-    /\$infra\/scripts\/live-config-basename\.sh/,
-    "the deploy job does not check out this repo, so basename parsing must not call a missing external helper",
+    script,
+    /live-allowlist\.sh/,
+    "Live allowlist derivation is owned by g14-infra make deploy",
   );
   assert.doesNotMatch(
-    workflow,
-    /live-allowlist\.sh" "\$infra\/stacks\/symphony-board\/config\/sources\.pg\.json"/,
-    "the allowlist command must not hard-code the default pg source file",
+    script,
+    /resolve_live_config_basename/,
+    "source config basename parsing is owned by g14-infra make deploy",
   );
-  assert.match(
-    workflow,
-    /config\/\$config_basename/,
-    "the allowlist command should read config/$SYMPHONY_CONFIG_BASENAME",
+  assert.doesNotMatch(
+    script,
+    /docker compose --env-file \.env up -d/,
+    "compose reconciliation is owned by the smoke-gated g14-infra make deploy target",
   );
 });
 
-test("live-config-basename resolves defaults, quotes, exports, and last assignment wins", () => {
-  assert.equal(resolveBasename(""), "sources.pg.json");
-  assert.equal(resolveBasename("SYMPHONY_CONFIG_BASENAME=sources.live.json\n"), "sources.live.json");
-  assert.equal(resolveBasename("export SYMPHONY_CONFIG_BASENAME=\"sources.custom.json\"\n"), "sources.custom.json");
-  assert.equal(
-    resolveBasename("SYMPHONY_CONFIG_BASENAME=sources.old.json\nSYMPHONY_CONFIG_BASENAME='sources.new.json'\n"),
-    "sources.new.json",
-  );
-});
-
-test("live-config-basename rejects path-like or empty basenames", () => {
-  for (const value of ["../sources.json", "nested/sources.json", ""]) {
-    const dir = mkdtempSync(join(tmpdir(), "live-config-"));
-    try {
-      const envPath = join(dir, ".env");
-      const scriptPath = join(dir, "resolve.sh");
-      writeFileSync(envPath, `SYMPHONY_CONFIG_BASENAME=${value}\n`, "utf8");
-      writeFileSync(
-        scriptPath,
-        `set -euo pipefail\n${workflowBasenameFunction()}\nresolve_live_config_basename "$1"\n`,
-        "utf8",
-      );
-      assert.throws(
-        () => execFileSync("bash", [scriptPath, envPath], { stdio: "pipe" }),
-        /Command failed/,
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
+test("deploy-g14 remains release/manual only and never runs PR-provided code on g14", () => {
+  const triggers = topLevelBlock("on");
+  assert.match(triggers, /^  workflow_run:\n    workflows: \["publish-image"\]\n    types: \[completed\]/m);
+  assert.match(triggers, /^  workflow_dispatch:/m);
+  assert.doesNotMatch(triggers, /^  pull_request:/m);
+  assert.doesNotMatch(triggers, /^  pull_request_target:/m);
+  assert.doesNotMatch(workflow, /uses:\s*actions\/checkout(?:@|$)/);
 });
