@@ -1465,6 +1465,7 @@ try {
       const detailAvatarImg = detailAvatar?.querySelector('img');
       const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
       const detailRect = document.querySelector('.live-detail-card')?.getBoundingClientRect();
+      const firstRowRect = rows[0]?.getBoundingClientRect();
       const status = document.querySelector('.live-status');
       const avatar = rows[0]?.querySelector('.live-avatar');
       const avatarImg = avatar?.querySelector('img');
@@ -1509,7 +1510,13 @@ try {
         selectedAccent,
         unselectedAccent,
         feedHeight: feedRect?.height || 0,
+        feedTop: feedRect?.top || 0,
+        feedBottom: feedRect?.bottom || 0,
         detailHeight: detailRect?.height || 0,
+        firstRowTop: firstRowRect?.top || 0,
+        firstRowBottom: firstRowRect?.bottom || 0,
+        documentScrollHeight: document.documentElement.scrollHeight,
+        documentClientHeight: document.documentElement.clientHeight,
         activityText: document.querySelector('.live-card-rate .live-figure')?.textContent?.replace(/\\s+/g, '') || '',
         bufferText: Array.from(document.querySelectorAll('.live-card'))
           .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer')
@@ -2486,6 +2493,8 @@ try {
     [has(liveHtml, "live-page"), "live: page rendered"],
     [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],
     [live.rendered === true && live.rows === 3, `live: snapshot seeds every retained feed row (${live.rows || 0} === 3)`],
+    [(live.firstRowTop || 0) >= (live.feedTop || 0) - 1 && (live.firstRowBottom || 0) <= (live.feedBottom || 0) + 1, `live: first virtualized feed row is visible inside the feed viewport (${JSON.stringify({ firstRowTop: live.firstRowTop, firstRowBottom: live.firstRowBottom, feedTop: live.feedTop, feedBottom: live.feedBottom })})`],
+    [(live.documentScrollHeight || 0) <= (live.documentClientHeight || 0) + 2, `live: desktop Live page does not grow taller than the viewport (${JSON.stringify({ scrollHeight: live.documentScrollHeight, clientHeight: live.documentClientHeight })})`],
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
     [(live.rowText || []).some((text) => text.includes("Old widget note")), `live: row outside the 5h pulse remains retained in the 1000-event buffer (${JSON.stringify(live.rowText || [])})`],
     [live.avatarDotContent === "none", `live: feed avatars render without a lower-right category dot (${live.avatarDotContent || "empty"})`],

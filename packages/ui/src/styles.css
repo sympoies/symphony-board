@@ -3090,7 +3090,7 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Each row is a bordered panel card (matching .activity-row), so the feed reads
    as a defined list on the light Paper theme instead of floating on the page. */
 .live-event {
-  position: absolute; left: 0; right: 4px;
+  position: absolute; top: 0; left: 0; right: 4px;
   display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: start;
   padding: 10px 8px 10px 10px; cursor: pointer; border-radius: 8px;
   height: var(--live-row-height);
