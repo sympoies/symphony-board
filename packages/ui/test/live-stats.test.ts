@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   actorKey,
+  actorActivityRanks,
   eventInstant,
   eventRepo,
   countInWindow,
@@ -16,6 +17,7 @@ import {
   distinctCount,
   distinctValues,
   eventMatchesFilters,
+  repoActivityRanks,
   relativeAge,
   visibleByCategory,
   LIVE_CATEGORY_ORDER,
@@ -237,6 +239,44 @@ test("actorKey backs the people options/count with a display_name fallback", () 
   ];
   assert.deepEqual(distinctValues(events, actorKey), ["graysurf", "Robo Committer"]);
   assert.equal(distinctCount(events, actorKey), 2);
+});
+
+test("actorActivityRanks counts the retained buffer by actor, sorted busiest first", () => {
+  const events = [
+    ev({ actor: { login: "beta", avatar_url: null, profile_url: null } }),
+    ev({ actor: { login: "alpha", display_name: "Alpha User", avatar_url: "https://example.test/a.png", profile_url: "https://example.test/alpha" } }),
+    ev({ actor: { login: "beta", display_name: "Beta User", avatar_url: "https://example.test/b.png" } }),
+    ev({ actor: { login: "beta" } }),
+    ev({ actor: { login: "alpha" } }),
+    ev({ actor: null }),
+  ];
+  const ranks = actorActivityRanks(events, 2);
+  assert.deepEqual(
+    ranks.map((rank) => [rank.key, rank.label, rank.count, rank.actor?.avatar_url ?? null]),
+    [
+      ["beta", "Beta User", 3, "https://example.test/b.png"],
+      ["alpha", "Alpha User", 2, "https://example.test/a.png"],
+    ],
+  );
+});
+
+test("repoActivityRanks counts buffer events by repo, sorted by count then name", () => {
+  const events = [
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "o/zeta" } }),
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "o/alpha" } }),
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "o/zeta" } }),
+    ev({ target: { kind: "repo", source_id: "github:github.com", project_path: null } }),
+    ev({ target: { kind: "repo", source_id: "github:github.com", project_path: null } }),
+    ev({ target: null }),
+  ];
+  assert.deepEqual(
+    repoActivityRanks(events).map((rank) => [rank.key, rank.count]),
+    [
+      ["github:github.com", 2],
+      ["o/zeta", 2],
+      ["o/alpha", 1],
+    ],
+  );
 });
 
 test("LIVE_CATEGORY_ORDER is the canonical provider-neutral filter order", () => {

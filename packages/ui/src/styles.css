@@ -954,29 +954,29 @@ a.rf-node-title:hover { color: var(--accent); }
 /* activity page */
 .activity-page { margin: 12px 0; }
 .commits-page { margin: 12px 0; max-width: 1180px; }
-.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 880px; }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 720px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 
-/* The feed keeps a ≤880px reading column while the rhythm panel uses the spare
-   right rail for a full-width heatmap plus range trend. Below ~1530px the panel
+/* The feed keeps a compact reading column while the rhythm panel uses the spare
+   right rail for a full-width heatmap plus range trend. Below ~1450px the panel
    wraps so the feed remains readable instead of crushing the chart; above it the
    feed column flexes first, so the panel keeps its full chart width. */
 .activity-layout {
   display: grid;
-  grid-template-columns: minmax(0, 880px) minmax(560px, 680px);
+  grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 680px);
   justify-content: start;
   align-items: start;
-  gap: 20px;
+  gap: 4px;
 }
 .activity-layout > .activity-list { min-width: 0; }
-@media (min-width: 1531px) {
+@media (min-width: 1451px) {
   .activity-layout { align-items: stretch; }
   .activity-layout > .activity-list {
     min-height: var(--activity-rhythm-height, 0px);
   }
 }
-@media (max-width: 1530px) {
-  .activity-layout { grid-template-columns: minmax(0, 880px); }
+@media (max-width: 1450px) {
+  .activity-layout { grid-template-columns: minmax(0, 720px); }
 }
 
 /* Mobile-only segmented control choosing the single visible pane: the Activity
@@ -989,7 +989,7 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 2px;
   margin: 0 0 12px;
   padding: 3px;
-  max-width: 880px;
+  max-width: 720px;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -1593,8 +1593,8 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 .activity-list {
   position: relative;
-  max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
-  padding-right: 4px;
+  max-height: 74vh; overflow-y: auto; scrollbar-gutter: auto;
+  padding-right: 0;
 }
 .activity-virtual-space {
   position: relative;
@@ -3050,8 +3050,12 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-card-rate { border-color: color-mix(in srgb, var(--live) 30%, var(--line)); }
 .live-card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 5px; }
 .live-figure { font-family: var(--mono); font-size: 26px; line-height: 1.05; letter-spacing: -0.02em; font-weight: 500; }
+.live-figure-compact { font-size: 22px; }
 .live-unit { font-size: 13px; color: var(--muted); margin-left: 5px; font-weight: 400; }
 .live-card-sub { font-size: 12px; color: var(--muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-card-sub-mobile { display: none; }
+.live-card-stat-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.live-card-stat-row .live-card-sub { margin-top: 0; flex: 1 1 auto; text-align: right; }
 .live-spark { display: flex; align-items: flex-end; gap: 2px; height: 38px; margin-top: 8px; }
 .live-spark-bar {
   flex: 1 1 0; min-width: 0; border: 0; padding: 0; border-radius: 2px 2px 0 0;
@@ -3064,6 +3068,134 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-spark-bar:hover,
 .live-spark-bar-sel { background: var(--live); }
 .live-spark-bar:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+
+.live-card-ranked { padding-bottom: 10px; }
+.live-rank-chart {
+  --rank-footer-h: 24px;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  align-items: stretch;
+  column-gap: 7px;
+  height: 76px;
+  margin-top: 7px;
+}
+.live-rank-chart-repos {
+  --rank-footer-h: 34px;
+  grid-template-columns: 25px minmax(0, 1fr);
+  height: 84px;
+}
+.live-rank-axis {
+  position: relative;
+  height: calc(100% - var(--rank-footer-h));
+  margin-bottom: var(--rank-footer-h);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+}
+.live-rank-axis > span {
+  position: absolute;
+  right: 0;
+}
+.live-rank-axis-top { top: 0; }
+.live-rank-axis-mid { top: 50%; transform: translateY(-50%); }
+.live-rank-axis-bottom { bottom: 0; }
+.live-rank-plot {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(26px, 1fr);
+  column-gap: 8px;
+  align-items: stretch;
+}
+.live-rank-chart-repos .live-rank-plot {
+  grid-auto-columns: minmax(34px, 1fr);
+  column-gap: 10px;
+}
+.live-rank-grid,
+.live-rank-baseline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.live-rank-grid {
+  border-top: 1px dashed color-mix(in srgb, var(--muted) 28%, transparent);
+}
+.live-rank-grid-top { top: 0; }
+.live-rank-grid-mid { top: calc((100% - var(--rank-footer-h)) / 2); }
+.live-rank-baseline {
+  bottom: var(--rank-footer-h);
+  border-top: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+}
+.live-rank-item {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) var(--rank-footer-h);
+  justify-items: center;
+  align-items: stretch;
+}
+.live-rank-bar-cell {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.live-rank-bar {
+  width: 16px;
+  min-height: 3px;
+  height: var(--rank-h);
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--live) 54%, var(--panel-2));
+}
+.live-rank-chart-repos .live-rank-bar { width: 14px; }
+.live-rank-footer {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+.live-rank-footer .live-avatar {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
+.live-rank-footer .live-avatar-fallback {
+  max-width: 19px;
+  font-size: 9px;
+}
+.live-rank-chart-repos .live-rank-footer {
+  width: 100%;
+  height: 34px;
+  align-items: start;
+}
+.live-rank-name {
+  max-width: 76px;
+  color: color-mix(in srgb, var(--text) 84%, var(--muted));
+  font-size: 10px;
+  line-height: 1.08;
+  text-align: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.live-rank-empty {
+  min-height: 72px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
 
 .live-cats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .live-cat {
@@ -3084,13 +3216,13 @@ a.rf-node-title:hover { color: var(--accent); }
   list-style: none; margin: 0; padding: 0;
   display: block;
   position: sticky; top: 12px;
-  max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-gutter: stable;
+  max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-gutter: auto;
 }
 .live-virtual-space { pointer-events: none; }
 /* Each row is a bordered panel card (matching .activity-row), so the feed reads
    as a defined list on the light Paper theme instead of floating on the page. */
 .live-event {
-  position: absolute; top: 0; left: 0; right: 4px;
+  position: absolute; top: 0; left: 0; right: 0;
   display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: start;
   padding: 10px 8px 10px 10px; cursor: pointer; border-radius: 8px;
   height: var(--live-row-height);
@@ -3170,7 +3302,11 @@ a.rf-node-title:hover { color: var(--accent); }
      as it, so the filter bar is one line until the categories are expanded. */
   .live-pulse { gap: 8px; margin-bottom: 14px; }
   .live-figure { font-size: 21px; }
+  .live-figure-compact { font-size: 21px; }
   .live-card { padding: 10px 11px; }
+  .live-card-sub-desktop,
+  .live-card-ranked .live-rank-chart { display: none; }
+  .live-card-sub-mobile { display: block; }
   .live-cat, .ms-button { min-height: 32px; }
   .live-filters { flex-wrap: wrap; align-items: center; gap: 8px; position: relative; }
   .live-selects { margin-left: auto; width: auto; }
@@ -3227,7 +3363,7 @@ a.rf-node-title:hover { color: var(--accent); }
    at very wide widths. */
 .live-split {
   --live-pane-height: calc(100vh - 90px);
-  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start;
+  display: grid; grid-template-columns: minmax(400px, 0.48fr) minmax(0, 1fr); gap: 4px; align-items: start;
 }
 .live-feed-empty { margin: 24px 4px; }
 .live-feed { position: sticky; height: var(--live-pane-height); max-height: var(--live-pane-height); }

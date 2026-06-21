@@ -140,8 +140,8 @@ async function configMockDoc() {
 // A small, valid `live-snapshot/1` payload for the #/live seed. Three events
 // with distinct seqs (newest-first) cover the feed rows; one carries an
 // event-level `url` permalink (a comment), one only a target url, and one is
-// outside the 5h pulse window so Buffer can prove it counts the 5h window
-// rather than every retained row.
+// outside the 5h pulse window so Activity proves the rolling-window count while
+// Buffer proves every retained memory-cap row remains counted.
 function liveSnapshotMock() {
   const now = Date.now();
   const newest = new Date(now - 5_000).toISOString();
@@ -1521,6 +1521,14 @@ try {
         bufferText: Array.from(document.querySelectorAll('.live-card'))
           .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer')
           ?.querySelector('.live-figure')?.textContent?.replace(/\\s+/g, '') || '',
+        bufferRanks: Array.from((Array.from(document.querySelectorAll('.live-card'))
+          .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer'))
+          ?.querySelectorAll('.live-rank-item') || [])
+          .map((node) => node.getAttribute('aria-label') || ''),
+        repoRanks: Array.from((Array.from(document.querySelectorAll('.live-card'))
+          .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Active now'))
+          ?.querySelectorAll('.live-rank-item') || [])
+          .map((node) => node.getAttribute('aria-label') || ''),
         statusText: status?.textContent?.trim() || '',
         statusUnavailable: (status?.textContent || '').includes('Unavailable'),
         statusHasTransport: /\\(polling\\)|\\bPOLL\\b/.test(status?.textContent || ''),
@@ -1593,6 +1601,14 @@ try {
         hasCommentRow: rowCategories.includes('comment'),
         activityText: cardValue('Activity'),
         bufferText: cardValue('Buffer'),
+        bufferRanks: Array.from((Array.from(document.querySelectorAll('.live-card'))
+          .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer'))
+          ?.querySelectorAll('.live-rank-item') || [])
+          .map((node) => node.getAttribute('aria-label') || ''),
+        repoRanks: Array.from((Array.from(document.querySelectorAll('.live-card'))
+          .find((card) => card.querySelector('.live-card-label')?.textContent?.trim() === 'Active now'))
+          ?.querySelectorAll('.live-rank-item') || [])
+          .map((node) => node.getAttribute('aria-label') || ''),
       };
     })()`,
     returnByValue: true,
@@ -2503,13 +2519,15 @@ try {
     [(live.selectedAccent?.opacity || 0) > (live.unselectedAccent?.opacity || 0) && live.selectedAccent?.rowBackground !== live.unselectedAccent?.rowBackground, `live: selected row keeps stronger accent/background emphasis (${JSON.stringify({ selected: live.selectedAccent, unselected: live.unselectedAccent })})`],
     [live.detailAvatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.detailAvatarImgSrc || "") && /Octocat/.test(live.detailAvatarLabel || "") && live.detailAvatarDotContent === "none", `live: detail pane renders the selected actor avatar without a dot (${JSON.stringify({ href: live.detailAvatarHref, src: live.detailAvatarImgSrc, label: live.detailAvatarLabel, dot: live.detailAvatarDotContent })})`],
     [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
-    [/^2\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows the 5h count over the retained-event cap (${live.bufferText || "empty"})`],
+    [/^3\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows retained rows over the memory cap (${live.bufferText || "empty"})`],
+    [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
+    [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
     [Math.abs((live.detailHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailHeight || 0}px vs ${live.feedHeight || 0}px)`],
     [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && !url.searchParams.has("since")), `live: snapshot seed requests the retained cap (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
     [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && url.searchParams.get("since") === "3"), `live: polling fallback requests only rows after the cursor (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],
-    [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
+    [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || "") && /^3\/1000$/.test(liveHiddenType.bufferText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
     // event-link precision: the auto-selected newest event (a comment) shows the
     // exact ev.url permalink (#issuecomment-…) in its detail pane …
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],

@@ -10,13 +10,14 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
+  actorActivityRanks,
   actorKey,
   bucketRange,
   categoryCounts,
@@ -29,6 +30,7 @@ import {
   humanizeCategory,
   LIVE_CATEGORY_ORDER,
   rateBuckets,
+  repoActivityRanks,
   relativeAge,
   visibleByCategory,
 } from "../live-stats.ts";
@@ -71,6 +73,7 @@ const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
 const LIVE_PANE_MIN_HEIGHT_PX = 320;
+const LIVE_RANK_LIMIT = 6;
 
 // A custom property carrying an event's category hue; consumers fall back to
 // --muted, so an unforeseen category still renders (its var resolves invalid).
@@ -204,6 +207,79 @@ function LiveAvatar({ actor }: { actor: LiveEventActor | null | undefined }) {
     >
       {body}
     </a>
+  );
+}
+
+function eventCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "event" : "events"}`;
+}
+
+function niceAxisMax(value: number): number {
+  if (value <= 0) return 1;
+  const power = 10 ** Math.floor(Math.log10(value));
+  const scaled = value / power;
+  if (scaled <= 1) return power;
+  if (scaled <= 2) return 2 * power;
+  if (scaled <= 5) return 5 * power;
+  return 10 * power;
+}
+
+function formatAxisValue(value: number): string {
+  if (value >= 1_000_000) return `${Math.round(value / 100_000) / 10}m`;
+  if (value >= 1_000) return `${Math.round(value / 100) / 10}k`;
+  return String(Math.round(value));
+}
+
+function LiveRankChart({
+  items,
+  empty,
+  ariaLabel,
+  className = "",
+}: {
+  items: Array<{ key: string; label: string; count: number; footer: ReactNode }>;
+  empty: string;
+  ariaLabel: string;
+  className?: string;
+}) {
+  if (items.length === 0) {
+    return <div className="live-rank-empty">{empty}</div>;
+  }
+  const max = Math.max(1, ...items.map((item) => item.count));
+  const axisMax = niceAxisMax(max);
+  const axisMid = axisMax / 2;
+  return (
+    <div className={`live-rank-chart ${className}`.trim()}>
+      <div className="live-rank-axis" aria-hidden="true">
+        <span className="live-rank-axis-top">{formatAxisValue(axisMax)}</span>
+        <span className="live-rank-axis-mid">{formatAxisValue(axisMid)}</span>
+        <span className="live-rank-axis-bottom">0</span>
+      </div>
+      <div className="live-rank-plot" role="list" aria-label={ariaLabel}>
+        <span className="live-rank-grid live-rank-grid-top" aria-hidden="true" />
+        <span className="live-rank-grid live-rank-grid-mid" aria-hidden="true" />
+        <span className="live-rank-baseline" aria-hidden="true" />
+        {items.map((item) => {
+          const label = `${item.label} · ${eventCountLabel(item.count)}`;
+          return (
+            <div
+              key={item.key}
+              className="live-rank-item"
+              role="listitem"
+              title={label}
+              aria-label={label}
+            >
+              <span className="live-rank-bar-cell" aria-hidden="true">
+                <span
+                  className="live-rank-bar"
+                  style={{ "--rank-h": `${Math.max(3, Math.round((item.count / axisMax) * 100))}%` } as CSSProperties}
+                />
+              </span>
+              <span className="live-rank-footer">{item.footer}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -439,6 +515,8 @@ export function LivePage({
   const cats = useMemo(() => categoryCounts(visibleEvents, LIVE_CATEGORY_ORDER), [visibleEvents]);
   const repoCount = useMemo(() => distinctCount(events, eventRepo), [events]);
   const peopleCount = useMemo(() => distinctCount(events, actorKey), [events]);
+  const actorRanks = useMemo(() => actorActivityRanks(events, LIVE_RANK_LIMIT), [events]);
+  const repoRanks = useMemo(() => repoActivityRanks(events, LIVE_RANK_LIMIT), [events]);
   const repoOptions = useMemo(() => distinctValues(visibleEvents, eventRepo), [visibleEvents]);
   const peopleOptions = useMemo(() => distinctValues(visibleEvents, actorKey), [visibleEvents]);
   const latest = events[0];
@@ -569,23 +647,50 @@ export function LivePage({
             {latest ? `${humanizeCategory(latest.category)} · ${shortRepo(eventRepo(latest))}` : "waiting…"}
           </div>
         </div>
-        <div className="live-card">
+        <div className="live-card live-card-ranked">
           <div className="live-card-label">Buffer</div>
-          <div className="live-figure">
-            {windowTotal}
-            <span className="live-unit">/ {LIVE_EVENT_BUFFER_LIMIT}</span>
+          <div className="live-card-stat-row">
+            <div className="live-figure live-figure-compact">
+              {events.length}
+              <span className="live-unit">/ {LIVE_EVENT_BUFFER_LIMIT}</span>
+            </div>
+            <div className="live-card-sub live-card-sub-desktop">{peopleCount} {peopleCount === 1 ? "person" : "people"}</div>
           </div>
-          <div className="live-card-sub">events in last {SPARK_WINDOW_HOURS}h · memory cap</div>
+          <div className="live-card-sub live-card-sub-mobile">events in last {SPARK_WINDOW_HOURS}h · memory cap</div>
+          <LiveRankChart
+            ariaLabel="Top people in the retained Live buffer"
+            empty="no people yet"
+            items={actorRanks.map((rank) => ({
+              key: rank.key,
+              label: rank.label,
+              count: rank.count,
+              footer: <LiveAvatar actor={rank.actor} />,
+            }))}
+          />
         </div>
-        <div className="live-card">
+        <div className="live-card live-card-ranked">
           <div className="live-card-label">Active now</div>
-          <div className="live-figure">
-            {repoCount}
-            <span className="live-unit">repos</span>
+          <div className="live-card-stat-row">
+            <div className="live-figure live-figure-compact">
+              {repoCount}
+              <span className="live-unit">repos</span>
+            </div>
+            <div className="live-card-sub live-card-sub-desktop">{events.length} in buffer</div>
           </div>
-          <div className="live-card-sub">
+          <div className="live-card-sub live-card-sub-mobile">
             {peopleCount} {peopleCount === 1 ? "person" : "people"} · in this buffer
           </div>
+          <LiveRankChart
+            className="live-rank-chart-repos"
+            ariaLabel="Top repositories in the retained Live buffer"
+            empty="no repos yet"
+            items={repoRanks.map((rank) => ({
+              key: rank.key,
+              label: rank.label,
+              count: rank.count,
+              footer: <span className="live-rank-name" aria-hidden="true">{shortRepo(rank.label)}</span>,
+            }))}
+          />
         </div>
       </div>
 
