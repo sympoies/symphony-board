@@ -259,7 +259,7 @@
     "reviewThreadComment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "author", "avatar_url", "body", "url", "created_at", "updated_at"],
+      "required": ["id", "author", "body", "url", "created_at", "updated_at"],
       "properties": {
         "id": { "type": "string" },
         "author": { "type": ["string", "null"] },

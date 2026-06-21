@@ -454,10 +454,10 @@ so old consumers can ignore the new list.
 
 Version `4.2.0` is additive: each `review_threads[].comments[]` entry now carries
 an `avatar_url` — the comment author's avatar URL when the provider reports it,
-else `null`. The producer always emits the key, so the schema keeps it
-required-but-nullable like the sibling comment fields (the `review_threads[]`
-object is itself newly-added in 4.1.0, so old consumers never depended on the
-comment shape). GitHub supplies it from the review comment `author.avatarUrl`
+else `null`. The producer always emits the key, but the schema keeps it
+**optional**-and-nullable (not in the comment object's `required` set), like any
+additive minor-version field: a `4.1.0`-emitted contract whose comments predate
+the key must still validate against the `4.2.0` schema. GitHub supplies it from the review comment `author.avatarUrl`
 GraphQL field; GitLab from the discussion note `author.avatar_url`, resolved to an
 absolute URL against the source host for self-hosted instances. It is persisted
 inside the canonical `comments_json` blob (no schema migration), and the Reviews

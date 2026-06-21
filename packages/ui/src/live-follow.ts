@@ -36,9 +36,37 @@ export function resolveLiveFollowDecision({
   if (!following) return { action: "clear-pending" };
   if (newest == null) return { action: "set-followed", event: null };
   if (followed == null || prefersReducedMotion || filtersChanged) return { action: "set-followed", event: newest };
-  if (newestKey == null || liveEventKey(followed) === newestKey) return { action: "keep" };
-  if (pendingHoldKey === newestKey) return { action: "keep" };
+  if (newestKey == null) return { action: "keep" };
+  if (liveEventKey(followed) === newestKey) {
+    // Same logical event. An identical object reference is a no-op; a fresh
+    // object under the same key is a `live-update` replacement (e.g. actor
+    // profile / avatar enrichment broadcast on the same seq), so refresh the
+    // detail in place — it is not a new arrival, so no settle hold.
+    return followed === newest ? { action: "keep" } : { action: "set-followed", event: newest };
+  }
+  // A genuinely newer event. Hold the detail swap so the feed row can settle.
+  // Do NOT reset an already-pending hold on every arrival: under a continuous
+  // stream that would debounce-to-quiet forever and strand the detail on an old
+  // event. Let the pending timer fire on its own schedule (leading-edge
+  // throttle); the arrival after it lands schedules the next swap.
+  if (pendingHoldKey != null) return { action: "keep" };
   return { action: "schedule-hold", holdKey: newestKey };
+}
+
+// The Live feed/detail panes fill the viewport below the split. `min` is a soft
+// target: honor it only when the viewport can fit it. On a short window where
+// less than `min` remains below the split, forcing `min` would push the sticky
+// panes past the viewport and reintroduce document-level scrolling — contrary to
+// the viewport-fit layout — so clamp to the space that actually remains.
+export function clampLivePaneHeight(
+  innerHeight: number,
+  splitTop: number,
+  bottomGutter: number,
+  min: number,
+): number {
+  const available = Math.floor(innerHeight - splitTop - bottomGutter);
+  if (available <= min) return Math.max(0, available);
+  return available;
 }
 
 export function liveFeedSelectedKey(

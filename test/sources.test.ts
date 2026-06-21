@@ -636,6 +636,52 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
   assert.equal(detail.comments[0]!.avatarUrl, "https://avatars.githubusercontent.com/u/1?v=4");
 });
 
+test("GitHub: a PR whose reviewThreads page is truncated marks the sweep incomplete (so the disappearance sweep cannot tombstone its threads)", async () => {
+  const truncatedGql: GqlClient = (async (query: string) => {
+    if (query.includes("pullRequests(")) {
+      return {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { ...prNode("PR_big", "OPEN", "MERGEABLE"), reviewThreads: { totalCount: 150, pageInfo: { hasNextPage: true }, nodes: [] } },
+            ],
+          },
+        },
+      };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, truncatedGql, ["o/r"]);
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(
+    res.complete,
+    false,
+    "a PR with >100 review threads only returns its first page; the sweep must report partial so softDeleteUnseenReviewThreads cannot tombstone the unseen threads",
+  );
+});
+
+test("GitHub: a fully-fetched reviewThreads page keeps the sweep complete", async () => {
+  const wholeGql: GqlClient = (async (query: string) => {
+    if (query.includes("pullRequests(")) {
+      return {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { ...prNode("PR_small", "OPEN", "MERGEABLE"), reviewThreads: { totalCount: 2, pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }, { isResolved: false }] } },
+            ],
+          },
+        },
+      };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, wholeGql, ["o/r"]);
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, true, "a non-truncated review-threads page is a complete sweep");
+});
+
 test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
   const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
   const refreshGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
@@ -1132,6 +1178,62 @@ test("GitLab: resolvable discussions normalize into review-thread detail", () =>
   assert.equal(thread.comments[0]!.body, "Please cover this branch.");
   // A host-relative GitLab avatar resolves to an absolute URL against the source host.
   assert.equal(thread.comments[0]!.avatarUrl, "https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png");
+});
+
+test("GitLab: a null diff line position falls back to the other side instead of line 0", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const threadFor = (position: unknown) => {
+    const raw: RawRecord = {
+      entityKind: "change_request", externalId: "gid:MR_pos", apiVersion: "gitlab.graphql",
+      fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+      payload: glNode("gid:MR_pos", "9", {
+        state: "opened", mergedAt: null, draft: false, approved: false, approvalsRequired: 0,
+        resolvableDiscussionsCount: 1, resolvedDiscussionsCount: 0,
+        headPipeline: { status: "SUCCESS" }, detailedMergeStatus: "DISCUSSIONS_NOT_RESOLVED",
+        discussions: [
+          {
+            id: "d1",
+            notes: [
+              {
+                id: 1, resolvable: true, resolved: false, body: "x",
+                web_url: "https://gitlab.com/g/p/-/merge_requests/9#note_1",
+                created_at: "2026-06-01T01:00:00Z", updated_at: "2026-06-01T01:00:00Z",
+                author: { username: "r" }, position,
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    return src.normalize(raw)!.reviewThreads![0]!;
+  };
+
+  // new_line is null on the deleted side; the real line is old_line. Number(null)
+  // is 0, so the `??` chain used to stop at 0 and emit `file:0`.
+  assert.equal(
+    threadFor({ new_path: "a.ts", old_path: "a.ts", new_line: null, old_line: 7 }).line,
+    7,
+    "a null new_line must fall back to old_line, not coerce to 0",
+  );
+  // Both sides absent: the line is genuinely missing, never 0.
+  assert.equal(
+    threadFor({ new_path: "a.ts", new_line: null, old_line: null }).line,
+    null,
+    "missing line positions stay null",
+  );
+  // The start-of-range fields are guarded the same way.
+  assert.equal(
+    threadFor({ new_path: "a.ts", new_line: 5, line_range: { start: { new_line: null, old_line: 3 } } }).startLine,
+    3,
+    "a null start.new_line must fall back to start.old_line, not 0",
+  );
+});
+
+test("source normalizer versions are bumped for the review-thread avatar output change", () => {
+  // Adding avatarUrl to canonical review-thread comments changed normalization
+  // output, so replay sweeps need a fresh normalizerVersion to target stale rows.
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/4");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/5");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

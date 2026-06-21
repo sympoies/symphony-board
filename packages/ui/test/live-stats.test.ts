@@ -252,10 +252,29 @@ test("actorActivityRanks counts the retained buffer by actor, sorted busiest fir
   ];
   const ranks = actorActivityRanks(events, 2);
   assert.deepEqual(
-    ranks.map((rank) => [rank.key, rank.label, rank.count, rank.actor?.avatar_url ?? null]),
+    ranks.map((rank) => [rank.label, rank.count, rank.actor?.avatar_url ?? null]),
     [
-      ["beta", "Beta User", 3, "https://example.test/b.png"],
-      ["alpha", "Alpha User", 2, "https://example.test/a.png"],
+      ["Beta User", 3, "https://example.test/b.png"],
+      ["Alpha User", 2, "https://example.test/a.png"],
+    ],
+  );
+});
+
+test("actorActivityRanks separates identical logins across sources", () => {
+  // Two providers can mint the same login. They are distinct people and must not
+  // be merged into one bar with whichever avatar/profile happened to win.
+  const events = [
+    ev({ source_id: "github:github.com", provider: "github", actor: { login: "alice", profile_url: "https://github.com/alice" } }),
+    ev({ source_id: "github:github.com", provider: "github", actor: { login: "alice", profile_url: "https://github.com/alice" } }),
+    ev({ source_id: "gitlab:gitlab.com", provider: "gitlab", actor: { login: "alice", profile_url: "https://gitlab.com/alice" } }),
+  ];
+  const ranks = actorActivityRanks(events, 5);
+  assert.equal(ranks.length, 2, "same login on two sources stays two distinct people");
+  assert.deepEqual(
+    ranks.map((rank) => [rank.label, rank.count, rank.actor?.profile_url ?? null]),
+    [
+      ["alice", 2, "https://github.com/alice"],
+      ["alice", 1, "https://gitlab.com/alice"],
     ],
   );
 });
@@ -270,13 +289,34 @@ test("repoActivityRanks counts buffer events by repo, sorted by count then name"
     ev({ target: null }),
   ];
   assert.deepEqual(
-    repoActivityRanks(events).map((rank) => [rank.key, rank.count]),
+    repoActivityRanks(events).map((rank) => [rank.label, rank.count]),
     [
       ["github:github.com", 2],
       ["o/zeta", 2],
       ["o/alpha", 1],
     ],
   );
+});
+
+test("repoActivityRanks separates an identical project_path across sources", () => {
+  // A GitHub repo and a GitLab mirror can share `owner/repo`. They are different
+  // repos and must rank as two bars, not be merged into one (source_id, path) bucket.
+  const events = [
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "owner/repo" } }),
+    ev({ target: { kind: "issue", source_id: "github:github.com", project_path: "owner/repo" } }),
+    ev({ target: { kind: "issue", source_id: "gitlab:gitlab.com", project_path: "owner/repo" } }),
+  ];
+  const ranks = repoActivityRanks(events, 5);
+  assert.equal(ranks.length, 2, "same project_path on two sources stays two distinct repos");
+  assert.deepEqual(
+    ranks.map((rank) => [rank.label, rank.count]),
+    [
+      ["owner/repo", 2],
+      ["owner/repo", 1],
+    ],
+  );
+  // The grouping keys differ even though the labels match.
+  assert.notEqual(ranks[0]!.key, ranks[1]!.key, "the rank keys must be source-scoped");
 });
 
 test("LIVE_CATEGORY_ORDER is the canonical provider-neutral filter order", () => {

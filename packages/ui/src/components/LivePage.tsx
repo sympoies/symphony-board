@@ -38,6 +38,7 @@ import { ACTION_KIND } from "../activity-action-style.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
 import {
   LIVE_FOLLOW_DETAIL_HOLD_MS,
+  clampLivePaneHeight,
   liveFeedSelectedKey,
   resolveLiveFollowDecision,
 } from "../live-follow.ts";
@@ -689,10 +690,7 @@ export function LivePage({
       raf = window.requestAnimationFrame(() => {
         raf = 0;
         const top = split.getBoundingClientRect().top;
-        const next = Math.max(
-          LIVE_PANE_MIN_HEIGHT_PX,
-          Math.floor(window.innerHeight - top - LIVE_PANE_BOTTOM_GUTTER_PX),
-        );
+        const next = clampLivePaneHeight(window.innerHeight, top, LIVE_PANE_BOTTOM_GUTTER_PX, LIVE_PANE_MIN_HEIGHT_PX);
         setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
       });
     };
@@ -719,13 +717,15 @@ export function LivePage({
   const newestKey = newest ? liveEventKey(newest) : null;
   // In follow mode the detail trails the newest event by the feed's visual
   // settle duration, so the row's arrival and selected-color animation finish
-  // before the detail crossfades to it. `followed` is that lagged event; the
-  // pending timer is keyed to the current newest row, so a burst restarts the
-  // hold for the row that is actually selected in the feed. The hold is bypassed
-  // — swap immediately — for the first
-  // event, reduced-motion, and filter changes (a filter change is a user action,
-  // not an arrival, and could otherwise strand a now-filtered-out event in the
-  // pane). Pinning abandons any pending swap.
+  // before the detail crossfades to it. `followed` is that lagged event. The
+  // hold is a leading-edge throttle, NOT a debounce: once a swap is pending it
+  // fires on its own schedule (a continuous burst does not keep resetting it, or
+  // the detail would freeze on an old row until the stream went quiet), and it
+  // swaps to the row it was scheduled for. A same-key replacement (profile/avatar
+  // enrichment) refreshes the detail in place. The hold is bypassed — swap
+  // immediately — for the first event, reduced-motion, and filter changes (a
+  // filter change is a user action, not an arrival, and could otherwise strand a
+  // now-filtered-out event in the pane). Pinning abandons any pending swap.
   const [followed, setFollowed] = useState<LiveEvent | null>(newest);
   const newestRef = useRef(newest);
   newestRef.current = newest;
@@ -762,10 +762,14 @@ export function LivePage({
     } else if (decision.action === "schedule-hold") {
       clearHold();
       holdKeyRef.current = decision.holdKey;
+      // Capture the event being scheduled. The timer must swap to THIS settled
+      // row when it fires — not whatever `newestRef.current` has become, which
+      // could be an even newer row that has not had its 1.4s settle yet.
+      const heldEvent = newest;
       holdRef.current = window.setTimeout(() => {
         holdRef.current = null;
         holdKeyRef.current = null;
-        setFollowed(newestRef.current);
+        setFollowed(heldEvent);
       }, LIVE_FOLLOW_DETAIL_HOLD_MS);
     }
   }, [following, newest, newestKey, feedResetKey, prefersReducedMotion, followed, clearHold]);
