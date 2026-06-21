@@ -23,6 +23,7 @@ import {
   activityViewTab,
   graphView,
   graphViewTab,
+  reviewRepoSearchHref,
   clearFiltersHref,
   startupRouteHash,
   resolveDefaultTab,
@@ -240,7 +241,34 @@ test("review lens: toggleItemFacet round-trips ireview; reviewThreadsHref pins s
   assert.equal(route.q, null, "no free-text q substring on the review threads link");
   assert.ok(href!.includes("irepo=o%2Fr"), `hash carries the encoded irepo pin (${href})`);
   assert.ok(!href!.includes("q="), "hash carries no q= field");
+  const allThreadsRoute = parseHashRoute(reviewThreadsHref({ source: "github:github.com", repo: "o/r", range: {}, value: "threads" })!);
+  assert.equal(allThreadsRoute.page, "reviews");
+  assert.equal(allThreadsRoute.ireview, "threads", "all-thread links use the Reviews thread lens");
   assert.equal(reviewThreadsHref({ source: "s", repo: null, range: { from: null, to: null, preset: null }, value: "unresolved" }), null, "null repo -> no link");
+});
+
+test("reviewRepoSearchHref drives the Reviews search bar for repo breakdown clicks", () => {
+  const href = reviewRepoSearchHref({
+    source: "github:github.com",
+    repo: "sympoies/symphony-board",
+    range: { from: "2026-05-23", to: "2026-06-21", preset: "1mo" },
+    review: "unresolved",
+  });
+  const route = parseHashRoute(href!);
+  assert.equal(route.page, "reviews");
+  assert.equal(route.q, "sympoies/symphony-board");
+  assert.equal(route.isource, "github:github.com");
+  assert.equal(route.ireview, "unresolved");
+  assert.equal(route.irepo, "sympoies/symphony-board");
+  assert.equal(route.from, "2026-05-23");
+  assert.equal(route.to, "2026-06-21");
+  assert.equal(route.preset, "1mo");
+  assert.equal(
+    startupRouteHash(href!, "live"),
+    href,
+    "repo breakdown links survive cold-start default-tab resolution because exact review facets are present",
+  );
+  assert.equal(reviewRepoSearchHref({ source: "s", repo: null, range: {} }), null, "unknown repo -> no link");
 });
 
 // The lens (incl. irepo) threads through the Repo Analytics drill-downs so a

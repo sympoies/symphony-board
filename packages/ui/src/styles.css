@@ -2322,10 +2322,16 @@ a.rf-node-title:hover { color: var(--accent); }
   margin: 10px 0 12px;
 }
 .reviews-layout {
+  --review-pane-height: calc(100vh - 90px);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
   align-items: start;
   gap: 12px;
+}
+.review-queue {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .review-section-head {
   display: flex;
@@ -2340,7 +2346,8 @@ a.rf-node-title:hover { color: var(--accent); }
   font-size: 14px;
 }
 .review-table-wrap {
-  overflow-x: auto;
+  height: var(--review-pane-height);
+  overflow: auto;
   scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2348,7 +2355,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .review-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1180px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -2371,8 +2378,10 @@ a.rf-node-title:hover { color: var(--accent); }
   letter-spacing: .04em;
 }
 .review-table tbody tr:last-child td { border-bottom: none; }
-.review-col-pr { width: 300px; }
+.review-col-pr { width: 320px; }
 .review-col-small { width: 116px; }
+.review-col-seen { width: 92px; }
+.review-col-commenter { width: 132px; }
 .review-col-location { width: 210px; }
 .review-col-preview { width: auto; }
 .review-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
@@ -2407,6 +2416,15 @@ a.rf-node-title:hover { color: var(--accent); }
   align-items: flex-start;
   gap: 4px;
 }
+.review-commenter {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .review-location {
   color: var(--link);
   font-family: var(--mono);
@@ -2416,25 +2434,33 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .review-comment-preview {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
-.review-comment-preview p {
+.review-comment {
   display: grid;
   gap: 2px;
   margin: 0;
-  color: var(--text);
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
-.review-comment-preview strong {
+.review-comment strong {
   color: var(--link);
   font-size: 11px;
+}
+.review-md-preview {
+  color: var(--text);
+}
+.review-md-preview p {
+  margin: 0.2em 0;
 }
 .review-side {
   display: grid;
   gap: 12px;
   min-width: 0;
+  position: sticky;
+  top: 12px;
+  height: var(--review-pane-height);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .review-repo-list {
   display: grid;
@@ -2445,9 +2471,19 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: 8px;
   min-width: 0;
   padding: 10px;
+  color: inherit;
+  text-decoration: none;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+.review-repo-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--hover-soft);
+}
+.review-repo-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .review-repo-main {
   display: flex;
@@ -2483,6 +2519,12 @@ a.rf-node-title:hover { color: var(--accent); }
   border-radius: 3px 3px 0 0;
   background: color-mix(in srgb, var(--open) 68%, var(--accent));
 }
+.review-trend span[data-state="resolved"] {
+  background: color-mix(in srgb, var(--muted) 72%, var(--panel-2));
+}
+.review-trend span[data-state="open"] {
+  background: color-mix(in srgb, var(--open) 68%, var(--accent));
+}
 .review-trend-flat { grid-auto-columns: minmax(0, 1fr); }
 .review-trend-flat span {
   width: 100%;
@@ -2492,7 +2534,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .review-repo-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
 }
@@ -2512,9 +2554,16 @@ a.rf-node-title:hover { color: var(--accent); }
 
 @media (max-width: 980px) {
   .reviews-layout { grid-template-columns: minmax(0, 1fr); }
-  .review-table { min-width: 980px; }
+  .review-queue { order: 1; }
+  .review-side {
+    order: 2;
+    position: static;
+    height: auto;
+    max-height: 42vh;
+  }
+  .review-table { min-width: 1040px; }
   .review-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .review-repo-metrics { grid-template-columns: repeat(5, minmax(48px, 1fr)); }
+  .review-repo-metrics { grid-template-columns: repeat(3, minmax(48px, 1fr)); }
 }
 
 @media (max-width: 620px) {

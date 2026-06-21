@@ -363,6 +363,23 @@ export function reviewThreadsHref(opts: { source: string; repo: string | null; r
 
 export const boardReviewsHref = reviewThreadsHref;
 
+// Reviews Repo Breakdown -> Thread Inbox search. This drives the visible search
+// field (`q`) while also pinning source/repo facets so the link is stable on
+// reload and exact when multiple sources or prefix-sharing repos exist.
+export function reviewRepoSearchHref(opts: { source: string; repo: string | null; range: RangeRoute; review?: "threads" | "unresolved" | null }): string | null {
+  if (!opts.repo) return null;
+  return buildHashRoute({
+    page: "reviews",
+    q: opts.repo,
+    isource: opts.source,
+    ireview: opts.review ?? null,
+    irepo: opts.repo,
+    from: opts.range.from ?? null,
+    to: opts.range.to ?? null,
+    preset: opts.range.preset ?? null,
+  });
+}
+
 // Repo Analytics -> Commits drill-down. The Commits page renders source/repo in
 // its own repo combobox, so it reads these route fields directly (single-value,
 // exact match) — no facet chips involved.

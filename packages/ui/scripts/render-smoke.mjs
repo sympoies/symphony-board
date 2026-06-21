@@ -1294,6 +1294,29 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || { rows: 0, links: [], statuses: [], previews: [], repoBreakdown: 0 };
+  const reviewsRepoClickStart = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = document.querySelector('.reviews-page .review-repo-row[href]');
+      const repo = row?.querySelector('.review-repo-name > span')?.textContent?.trim() || '';
+      const href = row?.getAttribute('href') || '';
+      row?.click();
+      return { repo, href };
+    })()`,
+    returnByValue: true,
+  })).result.value || { repo: "", href: "" };
+  const reviewsRepoClick = (await waitValue(`(() => {
+    const input = document.querySelector('.controls .search');
+    const inputValue = input?.value || '';
+    if (!inputValue) return null;
+    const rows = Array.from(document.querySelectorAll('.reviews-page .review-table tbody tr'));
+    return {
+      hash: location.hash,
+      hashHasQuery: decodeURIComponent(location.hash).includes('q=' + inputValue),
+      inputValue,
+      rowCount: rows.length,
+      rowsMatchRepo: rows.length > 0 && rows.every((row) => (row.textContent || '').includes(inputValue)),
+    };
+  })()`)) || { hash: "", hashHasQuery: false, inputValue: "", rowCount: 0, rowsMatchRepo: false };
   // Page 6 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -2851,6 +2874,8 @@ try {
     [repoLinks.providerLinks.some((href) => href.startsWith("https://")), "repo analytics: repo names link to provider repo pages"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("source=") && href.includes("repo=")), "repo analytics: activity metric links are source-aware"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/commits") && href.includes("source=") && href.includes("repo=")), "repo analytics: commit metric links are source-aware"],
+    [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("kind=review") && href.includes("source=") && href.includes("repo=")), "repo analytics: Reviews activity metric keeps a review Activity drilldown"],
+    [repoLinks.metricLinks.some((href) => href.startsWith("#/reviews") && href.includes("ireview=unresolved") && href.includes("isource=") && href.includes("irepo=")), "repo analytics: Threads metric links to the Reviews unresolved-thread inbox"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [repoQualityBadgeLayout.count >= 1 && repoQualityBadgeLayout.sameWidth === true && repoQualityBadgeLayout.maxWidth <= 56, `repo analytics: quality badges use one compact active-sized width (${repoQualityBadgeLayout.maxWidth || 0}px, ${repoQualityBadgeLayout.texts?.join(", ") || "none"})`],
     [repoTableLayout.tableWidth >= 3200 && Math.abs((repoTableLayout.tableWidth || 0) - (repoTableLayout.wrapWidth || 0)) <= 24 && repoTableLayout.repoWidth >= 300 && repoTableLayout.repoWidth <= 400 && repoTableLayout.trendWidth >= 210 && repoTableLayout.actorsWidth >= 1600 && repoTableLayout.numericMin >= 104 && repoTableLayout.numericMax <= 112 && repoTableLayout.repoShare <= 0.12 && repoTableLayout.actorsShare >= 0.48, `repo analytics: ultra-wide layout caps repo width and gives surplus width to actors (table=${repoTableLayout.tableWidth || 0}px wrap=${repoTableLayout.wrapWidth || 0}px repo=${repoTableLayout.repoWidth || 0}px trend=${repoTableLayout.trendWidth || 0}px actors=${repoTableLayout.actorsWidth || 0}px numeric=${repoTableLayout.numericMin || 0}-${repoTableLayout.numericMax || 0}px shares=${repoTableLayout.repoShare || 0}/${repoTableLayout.actorsShare || 0})`],
@@ -2866,6 +2891,8 @@ try {
     [reviewsSummary.statuses.includes("unresolved"), `reviews: unresolved status badge rendered (${reviewsSummary.statuses.join(", ") || "none"})`],
     [reviewsSummary.previews.some((text) => text.includes("Cache the compiled pattern")), "reviews: comment preview text rendered inline"],
     [reviewsSummary.repoBreakdown >= 1, `reviews: repo breakdown rendered (${reviewsSummary.repoBreakdown || 0})`],
+    [reviewsRepoClickStart.repo !== "" && reviewsRepoClickStart.href.startsWith("#/reviews") && reviewsRepoClickStart.href.includes("q=") && reviewsRepoClickStart.href.includes("isource=") && reviewsRepoClickStart.href.includes("irepo="), `reviews: repo breakdown rows link to exact Reviews search (${JSON.stringify(reviewsRepoClickStart)})`],
+    [reviewsRepoClick.inputValue === reviewsRepoClickStart.repo && reviewsRepoClick.hashHasQuery === true && reviewsRepoClick.rowCount >= 1 && reviewsRepoClick.rowsMatchRepo === true, `reviews: repo breakdown click updates search and filters the inbox (${JSON.stringify(reviewsRepoClick)})`],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     // every linked card also shows its relation count in the meta row — the two
