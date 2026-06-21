@@ -91,12 +91,14 @@ jobs:
           # these checkouts.
           git -C "$infra"   fetch --quiet origin main && git -C "$infra"   reset --hard origin/main
           git -C "$secrets" fetch --quiet origin main && git -C "$secrets" reset --hard origin/main
+          stack="$infra/stacks/symphony-board"
+          stack_env="$stack/.env"
           # Decrypt the central SOPS/age store into the stack's gitignored .env so a
           # token rotation in graysurf/secrets reaches this deploy. The runner user
           # holds the g14 age key at ~/.config/sops/age/keys.txt; it never enters
           # the repo or workflow env. A render failure aborts here (set -e), before
           # compose, so a bad rotation can never deploy a broken stack.
-          "$secrets/bin/render.sh" symphony-board "$infra/stacks/symphony-board/.env"
+          "$secrets/bin/render.sh" symphony-board "$stack_env"
           # The Live receiver watches the same GitHub repos the board tracks:
           # derive its allowlist from the board's own source config (GitHub only —
           # the Live GitLab adapter is a stub) and append it to the rendered .env.
@@ -106,7 +108,32 @@ jobs:
           # derivation must FAIL THE DEPLOY closed rather than silently fall back
           # to the empty compose default and widen the receiver. Log only the repo
           # count, never the derived list, since Actions logs are public.
-          if ! allow="$(bash "$infra/scripts/live-allowlist.sh" "$infra/stacks/symphony-board/config/sources.pg.json")"; then
+          # BEGIN test:resolve_live_config_basename
+          resolve_live_config_basename() {
+            local env_file="${1:?env file required}"
+            local config_basename
+            config_basename="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?SYMPHONY_CONFIG_BASENAME[[:space:]]*=[[:space:]]*//p' "$env_file" | tail -n1)"
+            if [[ -z "$config_basename" ]]; then
+              if grep -Eq '^[[:space:]]*(export[[:space:]]+)?SYMPHONY_CONFIG_BASENAME[[:space:]]*=' "$env_file"; then
+                return 1
+              fi
+              config_basename="sources.pg.json"
+            fi
+            config_basename="${config_basename%\"}"
+            config_basename="${config_basename#\"}"
+            config_basename="${config_basename%\'}"
+            config_basename="${config_basename#\'}"
+            case "$config_basename" in
+              ""|*/*|*..*) return 1 ;;
+            esac
+            printf '%s\n' "$config_basename"
+          }
+          # END test:resolve_live_config_basename
+          if ! config_basename="$(resolve_live_config_basename "$stack_env")"; then
+            echo "::error::Invalid SYMPHONY_CONFIG_BASENAME for Live allowlist derivation." >&2
+            exit 1
+          fi
+          if ! allow="$(bash "$infra/scripts/live-allowlist.sh" "$stack/config/$config_basename")"; then
             echo "::error::Live allowlist derivation failed; refusing to deploy the receiver in accept-all mode." >&2
             exit 1
           fi
@@ -114,9 +141,9 @@ jobs:
             echo "::error::Live allowlist derivation returned empty; refusing to deploy the receiver in accept-all mode." >&2
             exit 1
           fi
-          echo "LIVE_PROJECT_ALLOWLIST=$allow" >> "$infra/stacks/symphony-board/.env"
+          echo "LIVE_PROJECT_ALLOWLIST=$allow" >> "$stack_env"
           echo "Live allowlist derived: $(printf '%s' "$allow" | awk -F, '{print NF}') repo(s)."
-          cd "$infra/stacks/symphony-board"
+          cd "$stack"
           # Pull the freshly published :latest image and reconcile the stack.
           # Reuses the existing named volumes (postgres-data / contract-data).
           docker compose --env-file .env up -d --pull always

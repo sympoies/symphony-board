@@ -1490,6 +1490,35 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
   await sleep(300);
   await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const repo = Array.from(document.querySelectorAll('.live-selects .ms-button'))
+        .find((button) => /Repo/.test(button.textContent || ''));
+      repo?.click();
+    })()`,
+  });
+  await sleep(120);
+  const liveMobileFilterMenu = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const button = Array.from(document.querySelectorAll('.live-selects .ms-button'))
+        .find((candidate) => /Repo/.test(candidate.textContent || ''));
+      const menu = document.querySelector('.live-selects .ms-menu');
+      const rect = menu?.getBoundingClientRect();
+      const buttonRect = button?.getBoundingClientRect();
+      return {
+        buttonEnabled: !!button && !button.disabled,
+        menuPresent: !!menu,
+        left: rect?.left ?? null,
+        right: rect?.right ?? null,
+        viewportWidth: window.innerWidth,
+        buttonLeft: buttonRect?.left ?? null,
+        buttonRight: buttonRect?.right ?? null,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.body.click()" });
+  await sleep(80);
   await send("Runtime.evaluate", { expression: "document.querySelector('.live-feed .live-event')?.click()" });
   await sleep(180);
   const liveMobileOpen = (await send("Runtime.evaluate", {
@@ -2319,6 +2348,7 @@ try {
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],
     // … and selecting a row without an event url falls back to the target url.
     [/\/pull\/\d+$/.test(liveFallbackLink), `live: a selected row without an event url falls back to the target url (${liveFallbackLink || "none"})`],
+    [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileAway.hash === "#/activity" && liveMobileAway.activityVisible === true, `live: phone can leave Live while detail is open (${JSON.stringify(liveMobileAway)})`],
     [liveMobileReturnDetail.detailOpen === "true" && liveMobileReturnDetail.detailDisplay !== "none" && liveMobileReturnDetail.feedRows >= 2 && /[?&]liveDetail=1/.test(liveMobileReturnDetail.hash || ""), `live: phone history.back from another tab returns to the route-backed detail overlay (${JSON.stringify(liveMobileReturnDetail)})`],

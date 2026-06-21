@@ -222,7 +222,7 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
   ): void {
     writeSseHead(res);
     const sub = broadcaster.add(res, maxSeq);
-    res.write(`event: reset\ndata: ${JSON.stringify({ reason, max_seq: maxSeq })}\n\n`);
+    res.write(`id: ${maxSeq}\nevent: reset\ndata: ${JSON.stringify({ reason, max_seq: maxSeq })}\n\n`);
     req.on("close", () => broadcaster.remove(sub.id));
   }
 
@@ -254,6 +254,10 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
     // More backlog than the resume cap: a partial replay would silently drop the
     // middle of the gap, so signal a re-snapshot instead.
     const backlog = store.since(cursor, replayLimit + 1);
+    if (backlog[0] && backlog[0].seq > cursor + 1) {
+      sendReset(req, res, "gap", maxSeq);
+      return;
+    }
     if (backlog.length > replayLimit) {
       sendReset(req, res, "gap", maxSeq);
       return;
