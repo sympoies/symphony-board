@@ -1,6 +1,6 @@
 {
   "name": "@symphony-board/desktop-standalone",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "description": "Fully self-contained macOS app: the symphony-board UI plus the bundled Node sync daemon, SQLite store, and contract server. No Docker, no external server.",
   "type": "module",
