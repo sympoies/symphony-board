@@ -2315,287 +2315,87 @@ a.rf-node-title:hover { color: var(--accent); }
   margin-bottom: 10px;
 }
 .reviews-head h2 { margin: 0; border: none; padding: 0; }
-.review-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px;
-  margin: 10px 0 12px;
-}
-.reviews-layout {
-  --review-pane-height: calc(100vh - 90px);
-  display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
-}
-.review-queue {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.review-section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 8px;
-}
-.review-section-head h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-}
-.review-table-wrap {
-  height: var(--review-pane-height);
-  overflow: auto;
-  scrollbar-gutter: stable;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-.review-table {
-  width: 100%;
-  min-width: 1180px;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-.review-table th,
-.review-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  vertical-align: top;
-}
-.review-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-align: left;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-.review-table tbody tr:last-child td { border-bottom: none; }
-.review-col-pr { width: 320px; }
-.review-col-small { width: 116px; }
-.review-col-seen { width: 92px; }
-.review-col-commenter { width: 132px; }
-.review-col-location { width: 210px; }
-.review-col-preview { width: auto; }
-.review-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
-.review-pr-cell { min-width: 0; }
-.review-pr-title {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-  font-weight: 600;
-  line-height: 1.35;
-}
-.review-pr-title a,
-.review-pr-title span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  text-overflow: ellipsis;
-}
-.review-pr-title a:hover { color: var(--accent); }
-.review-pr-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.review-state-stack {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-.review-commenter {
-  display: inline-block;
-  max-width: 100%;
-  color: var(--text);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.review-location {
-  color: var(--link);
-  font-family: var(--mono);
-  font-size: 12px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.review-comment-preview {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-.review-comment {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-}
-.review-comment strong {
-  color: var(--link);
-  font-size: 11px;
-}
-.review-md-preview {
-  color: var(--text);
-}
-.review-md-preview p {
-  margin: 0.2em 0;
-}
-.review-side {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-  position: sticky;
-  top: 12px;
-  height: var(--review-pane-height);
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-.review-repo-list {
-  display: grid;
-  gap: 8px;
-}
-.review-repo-row {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-  color: inherit;
-  text-decoration: none;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.review-repo-row:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
-  background: var(--hover-soft);
-}
-.review-repo-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.review-repo-main {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-.review-repo-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-weight: 600;
-}
-.review-repo-name span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.review-trend {
-  height: 30px;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  align-items: end;
-  gap: 2px;
-}
-.review-trend span {
-  display: block;
-  min-width: 3px;
-  height: var(--bar-h);
-  border-radius: 3px 3px 0 0;
-  background: color-mix(in srgb, var(--open) 68%, var(--accent));
-}
-.review-trend span[data-state="resolved"] {
-  background: color-mix(in srgb, var(--muted) 72%, var(--panel-2));
-}
-.review-trend span[data-state="open"] {
-  background: color-mix(in srgb, var(--open) 68%, var(--accent));
-}
-.review-trend-flat { grid-auto-columns: minmax(0, 1fr); }
-.review-trend-flat span {
-  width: 100%;
-  height: 3px;
-  border-radius: 999px;
-  opacity: .48;
-}
-.review-repo-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-.review-repo-metrics div { min-width: 0; }
-.review-repo-metrics dt {
-  color: var(--muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-.review-repo-metrics dd {
-  margin: 2px 0 0;
-  color: var(--text);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+/* reviews: master-detail thread inbox. Reuses the Live tab's split/feed/detail
+   chrome (.live-split / .live-feed / .live-event / .live-detail) so the two tabs
+   read and operate the same — including the narrow-screen overlay. The rules
+   below are the review-specific deltas: status drives the row accent (--cat is
+   set per row to the status hue, so the left bar and the detail frame reflect
+   it), and selection uses the neutral accent because green is reserved for the
+   resolved status. */
+.reviews-live .live-split { margin-top: 4px; }
+
+/* A status list, not a stream: drop the newest-row arrival flash and keep the
+   row title on one line (PR/MR titles run long; the badge stays beside it). */
+.reviews-live .live-feed .live-event[data-feed-index="0"] { animation: none; }
+.reviews-live .live-event-head { flex-wrap: nowrap; }
+.reviews-live .live-event-title {
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-@media (max-width: 980px) {
-  .reviews-layout { grid-template-columns: minmax(0, 1fr); }
-  .review-queue { order: 1; }
-  .review-side {
-    order: 2;
-    position: static;
-    height: auto;
-    max-height: 42vh;
-  }
-  .review-table { min-width: 1040px; }
-  .review-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .review-repo-metrics { grid-template-columns: repeat(3, minmax(48px, 1fr)); }
+/* Selection highlight in the neutral accent (not the Live green). */
+.reviews-live .live-event-selected {
+  --live-row-bg: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
 }
+
+/* Status glyph fills the avatar column; its hue is the row's --cat. Unresolved
+   gets a soft halo so "needs attention" catches the eye while scanning. */
+.review-status-glyph {
+  width: 12px; height: 12px; margin-top: 5px; border-radius: 50%;
+  justify-self: center; background: var(--cat, var(--muted));
+}
+.review-status-glyph.review-status-unresolved {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--broken) 22%, transparent);
+}
+.review-status-glyph-lg { width: 15px; height: 15px; margin-top: 4px; }
+
+/* Row meta line: repo · commenter · location. */
+.review-row-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 1px 10px;
+  margin-top: 3px; min-width: 0; font-size: 12px; color: var(--muted);
+}
+.review-row-repo {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+  max-width: 100%; color: var(--link);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.review-repo-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.review-row-by { color: var(--text); white-space: nowrap; }
+.review-row-loc {
+  min-width: 0; max-width: 100%; font-family: var(--mono); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.review-row-nopreview { margin-top: 6px; color: var(--muted); font-size: 13px; }
+
+/* Detail: reference line, location, and the full comment chain. */
+.reviews-live .live-detail-ref {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 4px;
+}
+.review-resolved-by { color: var(--muted); font-size: 12px; }
+.review-detail-dot { color: var(--line); }
+.review-detail-loc {
+  font-family: var(--mono); font-size: 12.5px; color: var(--link);
+  margin: 0 0 14px; overflow-wrap: anywhere;
+}
+.review-comment-thread { display: grid; gap: 12px; max-width: 110ch; }
+.review-comment-card {
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-2); padding: 10px 12px;
+}
+.review-comment-head {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 12px;
+}
+.review-comment-head strong { color: var(--link); }
+.review-comment-head time { color: var(--muted); }
+.review-comment-link { margin-left: auto; color: var(--link); white-space: nowrap; }
+.review-comment-more { margin: 2px 0 0; font-size: 12px; }
 
 @media (max-width: 620px) {
   .reviews-page { margin-top: 6px; }
-  .reviews-head {
-    gap: 4px 8px;
-    margin-bottom: 4px;
-  }
+  .reviews-head { gap: 4px 8px; margin-bottom: 6px; }
   .reviews-head h2 { font-size: 18px; }
-  .review-stat-grid {
-    display: flex;
-    gap: 6px;
-    margin: 4px 0 6px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-  }
-  .review-stat-grid::-webkit-scrollbar { display: none; }
-  .review-stat-grid .stat-tile {
-    flex: 0 0 112px;
-    min-height: 44px;
-    padding: 5px 8px;
-  }
-  .review-stat-grid .stat-label { font-size: 10px; }
-  .review-stat-grid .stat-tile b { font-size: 16px; }
-  .reviews-page .review-section-head { margin-bottom: 4px; }
-  .review-repo-main {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .review-repo-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
 .repo-actors {
   display: flex;
   flex-wrap: wrap;

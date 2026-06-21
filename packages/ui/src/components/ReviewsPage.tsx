@@ -1,81 +1,90 @@
-import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { ItemDTO, RepoMetricDTO, RepoMetricStatsDTO, ReviewThreadDTO } from "@symphony-board/contract";
+// Reviews tab — provider review-thread inbox.
+//
+// Unlike Activity/Commits (which are event feeds), each row here is the LIVE
+// STATE of one resolvable review thread: is it still open (needs attention) or
+// resolved (handled)? The layout mirrors the Live tab's master-detail so the two
+// read and operate the same: a compact thread list on the left (each row a
+// status glyph + the PR/MR it hangs off + a clamped markdown preview of the
+// opening comment) and the selected thread's full comment chain on the right.
+// Status drives the row accent (--cat): salmon = unresolved, green = resolved,
+// muted = resolved-but-outdated — so unhandled vs handled is scannable at a
+// glance. The list virtualizes (fixed-height rows) like the other long feeds.
+//
+// On a narrow screen the detail becomes a route-backed full-screen overlay
+// (?reviewDetail=1) so Android/browser Back closes the thread before leaving the
+// tab — the same affordance the Live tab uses. The shared facet Controls (search
+// + source/repo/state/kind/review-lens chips) live in App above this page, so the
+// FILTER operation stays identical to the other content tabs.
+import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
+import type { ItemDTO, ReviewThreadCommentDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import {
+  activityVirtualRange,
   relativeTime,
-  repoMetricMatches,
   sourceDisplayName,
   type ColorOf,
   type Filters,
   type TimeRange,
 } from "../model.ts";
-import { reviewRepoSearchHref } from "../nav.ts";
+import { safeHref } from "../url.ts";
+import { useListViewport } from "../useListViewport.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { Badge } from "./Badge.tsx";
-import { SourceIcon } from "./SourceIcon.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
-import { StatTile } from "./StatTile.tsx";
 
+// react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
+// stay out of the board/graph bundles — shared with the Live tab's chunk.
 const Markdown = lazy(() => import("./Markdown.tsx"));
 
+// Memoized so an unrelated re-render never re-parses an unchanged body; falls
+// back to the plain text while the markdown chunk loads so a row never flashes
+// empty.
 const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: string; className?: string }) {
   return (
-    <Suspense fallback={<span className="live-md-fallback review-md-preview">{text}</span>}>
+    <Suspense fallback={<div className={className}><div className="live-md-fallback">{text}</div></div>}>
       <Markdown className={className}>{text}</Markdown>
     </Suspense>
   );
 });
 
-const LazyMarkdownPreview = memo(function LazyMarkdownPreview({ text }: { text: string }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+// Keep the row geometry in sync with the CSS: each row is a fixed-height card so
+// the list can virtualize. Mirrors the Live feed's constants.
+const REVIEW_PREVIEW_LINES = 3;
+const REVIEW_ROW_BASE_HEIGHT_PX = 76;
+const REVIEW_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
+const REVIEW_ROW_HEIGHT_PX = REVIEW_ROW_BASE_HEIGHT_PX + REVIEW_PREVIEW_LINES * REVIEW_ROW_PREVIEW_LINE_HEIGHT_PX;
+const REVIEW_ROW_GAP_PX = 6;
+const REVIEW_ROW_STRIDE_PX = REVIEW_ROW_HEIGHT_PX + REVIEW_ROW_GAP_PX;
+const REVIEW_OVERSCAN_ROWS = 8;
+const REVIEW_DEFAULT_VIEWPORT_PX = 640;
+const REVIEW_PANE_BOTTOM_GUTTER_PX = 16;
+const REVIEW_PANE_MIN_HEIGHT_PX = 320;
+// Keep this in sync with the CSS breakpoint where .live-detail becomes a fixed
+// overlay (shared with the Live tab).
+const REVIEW_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
+const REVIEW_DETAIL_SWIPE_MIN_PX = 54;
+const REVIEW_DETAIL_SWIPE_MAX_MS = 1100;
 
-  useEffect(() => {
-    const node = ref.current;
-    if (visible || !node) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { root: null, rootMargin: "240px 0px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [visible]);
-
-  return (
-    <div ref={ref}>
-      {visible ? (
-        <MarkdownBody text={text} className="live-md live-md-preview review-md-preview" />
-      ) : (
-        <span className="live-md-fallback review-md-preview">{text}</span>
-      )}
-    </div>
-  );
-});
+type ReviewDetailMove = "previous" | "next";
+type ReviewDetailMotion = ReviewDetailMove | "neutral";
 
 interface ThreadRow {
   thread: ReviewThreadDTO;
   target: ItemDTO | null;
 }
 
-interface RepoThreadSummary {
-  source_id: string;
-  project_path: string | null;
-  total: number;
-  open: number;
-  resolved: number;
-  comments: number;
-  metric: RepoMetricDTO | null;
+interface ThreadStatus {
+  key: "unresolved" | "resolved" | "outdated";
+  // A custom property carrying the status hue; .live-event::before /
+  // .live-detail-shell::before fall back to --muted, so an unforeseen value
+  // still renders.
+  colorVar: string;
 }
 
-function changesRequested(stats: RepoMetricStatsDTO): number {
-  return stats.by_activity_action["changes_requested"] ?? 0;
+interface ThreadNavigation {
+  position: number;
+  total: number;
+  previous: ThreadRow | null;
+  next: ThreadRow | null;
 }
 
 function lower(value: string | null | undefined): string {
@@ -121,6 +130,9 @@ function timestamp(value: string | null | undefined): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+// Unresolved threads sort first (the inbox is "what still needs attention"),
+// then group by repo and the PR/MR they hang off, newest activity last as a
+// stable tie-break.
 function compareThreads(a: ThreadRow, b: ThreadRow): number {
   if (a.thread.is_resolved !== b.thread.is_resolved) return a.thread.is_resolved ? 1 : -1;
   const repo = (a.thread.project_path ?? "").localeCompare(b.thread.project_path ?? "");
@@ -141,11 +153,19 @@ function lineLabel(thread: ReviewThreadDTO): string | null {
   return thread.path;
 }
 
-function statusBadge(thread: ReviewThreadDTO) {
-  if (!thread.is_resolved) return <Badge text="unresolved" kind="status-error" />;
-  if (thread.is_outdated) return <Badge text="outdated" kind="status-unknown" />;
+function threadStatus(thread: ReviewThreadDTO): ThreadStatus {
+  if (!thread.is_resolved) return { key: "unresolved", colorVar: "var(--broken)" };
+  if (thread.is_outdated) return { key: "outdated", colorVar: "var(--muted)" };
+  return { key: "resolved", colorVar: "var(--fulfilled)" };
+}
+
+function statusBadge(status: ThreadStatus) {
+  if (status.key === "unresolved") return <Badge text="unresolved" kind="status-error" />;
+  if (status.key === "outdated") return <Badge text="outdated" kind="status-unknown" />;
   return <Badge text="resolved" kind="status-ok" />;
 }
+
+const catStyle = (colorVar: string): CSSProperties => ({ "--cat": colorVar }) as CSSProperties;
 
 function commentersLabel(thread: ReviewThreadDTO, target: ItemDTO | null): string {
   const authors: string[] = [];
@@ -159,104 +179,315 @@ function commentersLabel(thread: ReviewThreadDTO, target: ItemDTO | null): strin
   return target?.author ? `@${target.author}` : "unknown";
 }
 
-function ReviewThreadBars({ summary }: { summary: RepoThreadSummary }) {
-  const values = [
-    { key: "resolved", value: summary.resolved, title: `${summary.resolved} resolved threads` },
-    { key: "open", value: summary.open, title: `${summary.open} open threads` },
-  ];
-  const max = Math.max(0, ...values.map((value) => value.value));
-  if (max <= 0) {
-    return (
-      <div className="review-trend review-trend-flat" aria-label="review thread volume">
-        <span title="0 threads" />
-      </div>
-    );
-  }
+function threadTitle(row: ThreadRow): string {
+  const { thread, target } = row;
+  const base = thread.title ?? target?.title ?? "Untitled change request";
+  return thread.target_iid != null ? `#${thread.target_iid} ${base}` : base;
+}
+
+function threadKey(row: ThreadRow): string {
+  return row.thread.id;
+}
+
+function threadNavigation(rows: ThreadRow[], current: ThreadRow | null): ThreadNavigation {
+  const id = current ? current.thread.id : null;
+  const index = id ? rows.findIndex((row) => row.thread.id === id) : -1;
+  return {
+    position: index >= 0 ? index + 1 : 0,
+    total: rows.length,
+    previous: index > 0 ? rows[index - 1]! : null,
+    next: index >= 0 && index + 1 < rows.length ? rows[index + 1]! : null,
+  };
+}
+
+function ReviewRow({
+  row,
+  selected,
+  positionY,
+  index,
+  total,
+  colorOf,
+  sourceKind,
+  onSelect,
+}: {
+  row: ThreadRow;
+  selected: boolean;
+  positionY: number;
+  index: number;
+  total: number;
+  colorOf: ColorOf;
+  sourceKind: ReadonlyMap<string, string>;
+  onSelect: () => void;
+}) {
+  const { thread, target } = row;
+  const status = threadStatus(thread);
+  const location = lineLabel(thread);
+  const preview = thread.comments[0]?.body ?? null;
+  const repoColor = colorOf(thread.source_id, thread.project_path);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+  // Fade the preview's bottom edge ONLY when the body actually overflows the
+  // clamp; measured so it re-checks once the lazy markdown finishes loading.
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setClamped(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [preview]);
   return (
-    <div className="review-trend" aria-label="review thread volume" title={`${summary.total} threads`}>
-      {values.map(({ key, value, title }) => (
-        <span
-          key={key}
-          data-state={key}
-          title={title}
-          style={{ "--bar-h": value > 0 ? `${Math.max(10, Math.round((value / max) * 100))}%` : "0%" } as CSSProperties}
-        />
-      ))}
-    </div>
+    <li
+      className={`live-event${selected ? " live-event-selected" : ""}`}
+      data-status={status.key}
+      data-feed-index={index}
+      style={{ ...catStyle(status.colorVar), transform: `translateY(${positionY}px)` } as CSSProperties}
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-posinset={index + 1}
+      aria-setsize={total}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <span className={`review-status-glyph review-status-${status.key}`} aria-hidden="true" />
+      <div className="live-event-main">
+        <div className="live-event-head">
+          {statusBadge(status)}
+          <span className="live-event-title">{threadTitle(row)}</span>
+        </div>
+        <div className="review-row-meta">
+          <span className="review-row-repo">
+            {repoColor ? <span className="review-repo-swatch" style={{ background: repoColor }} aria-hidden="true" /> : null}
+            <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
+          </span>
+          <span className="review-row-by">{commentersLabel(thread, target)}</span>
+          <span className="review-row-loc">{location ?? "general discussion"}</span>
+        </div>
+        {preview ? (
+          <div
+            ref={previewRef}
+            className={`live-event-preview${clamped ? " is-clamped" : ""}`}
+            style={{ "--preview-lines": REVIEW_PREVIEW_LINES } as CSSProperties}
+          >
+            <MarkdownBody text={preview} className="live-md live-md-preview" />
+          </div>
+        ) : (
+          <div className="review-row-nopreview">No synced comment preview.</div>
+        )}
+      </div>
+      <time className="live-event-time" title={thread.last_seen_at ?? undefined}>
+        {relativeTime(thread.last_seen_at)}
+      </time>
+    </li>
   );
 }
 
-function repoKey(sourceId: string, projectPath: string | null): string {
-  return JSON.stringify([sourceId, projectPath]);
+function blocksDetailSwipe(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("a, button, input, textarea, select, summary, [role='button']"));
 }
 
-function repoSummaries(rows: ThreadRow[], metrics: RepoMetricDTO[], filters: Filters): RepoThreadSummary[] {
-  const metricByRepo = new Map(metrics.map((metric) => [repoKey(metric.source_id, metric.project_path), metric]));
-  const byRepo = new Map<string, RepoThreadSummary>();
-  for (const { thread } of rows) {
-    const key = repoKey(thread.source_id, thread.project_path);
-    let row = byRepo.get(key);
-    if (!row) {
-      row = {
-        source_id: thread.source_id,
-        project_path: thread.project_path,
-        total: 0,
-        open: 0,
-        resolved: 0,
-        comments: 0,
-        metric: metricByRepo.get(key) ?? null,
-      };
-      byRepo.set(key, row);
-    }
-    row.total += 1;
-    if (thread.is_resolved) row.resolved += 1;
-    else row.open += 1;
-    row.comments += thread.comments_total;
-  }
-  for (const metric of metrics) {
-    if (!repoMetricMatches(metric, filters)) continue;
-    const key = repoKey(metric.source_id, metric.project_path);
-    const unresolved = metric.totals.unresolved_review_threads ?? 0;
-    if (!byRepo.has(key) && unresolved > 0) {
-      byRepo.set(key, {
-        source_id: metric.source_id,
-        project_path: metric.project_path,
-        total: unresolved,
-        open: unresolved,
-        resolved: 0,
-        comments: 0,
-        metric,
-      });
-    }
-  }
-  return [...byRepo.values()].sort((a, b) => b.total - a.total || b.open - a.open || a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? ""));
+// A horizontally-scrollable ancestor (a wide code block or markdown table) gets
+// first claim on a horizontal drag, so swiping inside one scrolls it instead of
+// flipping to the next/previous thread. Mirrors LivePage.
+function horizontalSwipeScroller(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const scroller = target.closest("table, pre");
+  if (!(scroller instanceof HTMLElement)) return null;
+  return scroller.scrollWidth > scroller.clientWidth + 2 ? scroller : null;
 }
 
-function reviewLens(filters: Filters): "threads" | "unresolved" | null {
-  if (filters.reviews.has("unresolved")) return "unresolved";
-  if (filters.reviews.has("threads")) return "threads";
-  return null;
+function scrollCanConsumeSwipe(scroller: HTMLElement, scrollLeft: number, dx: number): boolean {
+  const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+  if (maxScrollLeft <= 2) return false;
+  if (dx < 0) return scrollLeft < maxScrollLeft - 2;
+  if (dx > 0) return scrollLeft > 2;
+  return false;
+}
+
+function ReviewDetailNav({
+  position,
+  total,
+  canPrevious,
+  canNext,
+  onNavigate,
+}: {
+  position: number;
+  total: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  onNavigate: (move: ReviewDetailMove) => void;
+}) {
+  if (total <= 1) return null;
+  const handleTouchNavigate = (move: ReviewDetailMove) => (event: TouchEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onNavigate(move);
+  };
+  const stopTouchPropagation = (event: TouchEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
+  return (
+    <nav className="live-detail-nav" aria-label="Review thread navigation">
+      <button
+        type="button"
+        className="live-detail-nav-button"
+        disabled={!canPrevious}
+        aria-label="Show previous thread"
+        title="Show previous thread"
+        onTouchStart={stopTouchPropagation}
+        onTouchEnd={handleTouchNavigate("previous")}
+        onClick={() => onNavigate("previous")}
+      >
+        ‹ <span>Prev</span>
+      </button>
+      <span className="live-detail-nav-count" aria-live="polite">
+        {position > 0 ? position : "—"} / {total}
+      </span>
+      <button
+        type="button"
+        className="live-detail-nav-button"
+        disabled={!canNext}
+        aria-label="Show next thread"
+        title="Show next thread"
+        onTouchStart={stopTouchPropagation}
+        onTouchEnd={handleTouchNavigate("next")}
+        onClick={() => onNavigate("next")}
+      >
+        <span>Next</span> ›
+      </button>
+    </nav>
+  );
+}
+
+function ReviewComment({ comment }: { comment: ReviewThreadCommentDTO }) {
+  const link = safeHref(comment.url);
+  const when = comment.created_at ?? comment.updated_at;
+  return (
+    <article className="review-comment-card">
+      <div className="review-comment-head">
+        <strong>{comment.author ? `@${comment.author}` : "unknown"}</strong>
+        {when ? (
+          <time title={when}>{relativeTime(when)}</time>
+        ) : null}
+        {link ? (
+          <a href={link} target="_blank" rel="noopener noreferrer" className="review-comment-link">
+            view ↗
+          </a>
+        ) : null}
+      </div>
+      <MarkdownBody text={comment.body ?? "(empty comment)"} className="live-md" />
+    </article>
+  );
+}
+
+function ReviewDetail({
+  row,
+  motion,
+  sourceKind,
+  onClose,
+}: {
+  row: ThreadRow;
+  motion: ReviewDetailMotion;
+  sourceKind: ReadonlyMap<string, string>;
+  onClose: () => void;
+}) {
+  const { thread, target } = row;
+  const status = threadStatus(thread);
+  const location = lineLabel(thread);
+  const link = safeHref(thread.url);
+  const hiddenComments = Math.max(0, thread.comments_total - thread.comments.length);
+  return (
+    <article className="live-detail-card">
+      <button type="button" className="live-detail-back" onClick={onClose}>
+        ← Back to threads
+      </button>
+      {/* Keyed on the thread id so the shell REMOUNTS on selection change and
+          replays the reveal crossfade (styles.css), exactly like the Live tab. The
+          prev/next nav is a sibling of this card (see the render below), so the
+          narrow-screen overlay can pin it to the bottom while the card scrolls. */}
+      <div className="live-detail-shell" key={threadKey(row)} data-motion={motion} style={catStyle(status.colorVar)}>
+        <span className={`review-status-glyph review-status-glyph-lg review-status-${status.key}`} aria-hidden="true" />
+        <div className="live-detail-main">
+          <div className="live-detail-head">
+            {statusBadge(status)}
+            {thread.resolved_by ? <span className="review-resolved-by">resolved by @{thread.resolved_by}</span> : null}
+            <time title={thread.last_seen_at ?? undefined}>{relativeTime(thread.last_seen_at)}</time>
+          </div>
+          <h2 className="live-detail-title">
+            {link ? (
+              <a className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
+                {threadTitle(row)}
+                <span className="live-detail-title-arrow" aria-hidden="true"> ↗</span>
+              </a>
+            ) : (
+              threadTitle(row)
+            )}
+          </h2>
+          <div className="live-detail-ref">
+            <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
+            <span className="review-detail-dot" aria-hidden="true">·</span>
+            <span>{sourceDisplayName(thread.source_id)}</span>
+            {target?.author ? (
+              <>
+                <span className="review-detail-dot" aria-hidden="true">·</span>
+                <span>@{target.author}</span>
+              </>
+            ) : null}
+          </div>
+          <div className="review-detail-loc">{location ?? "general discussion"}</div>
+          {thread.comments.length === 0 ? (
+            <p className="muted">No synced comment detail for this thread.</p>
+          ) : (
+            <div className="review-comment-thread">
+              {thread.comments.map((comment) => (
+                <ReviewComment key={comment.id} comment={comment} />
+              ))}
+              {hiddenComments > 0 ? (
+                <p className="muted review-comment-more">
+                  +{hiddenComments} more {hiddenComments === 1 ? "comment" : "comments"} not in the synced preview
+                </p>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
 }
 
 export function ReviewsPage({
   reviewThreads,
   windowItems,
-  metrics,
   filters,
   itemsById,
   range,
   sourceKind,
   colorOf,
+  detailRouteOpen,
+  onOpenDetailRoute,
+  onCloseDetailRoute,
+  onClearDetailRoute,
   emptyState,
 }: {
   reviewThreads: ReviewThreadDTO[];
   windowItems: ItemDTO[];
-  metrics: RepoMetricDTO[];
   filters: Filters;
   itemsById: ReadonlyMap<string, ItemDTO>;
   range: TimeRange;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
+  detailRouteOpen: boolean;
+  onOpenDetailRoute: () => void;
+  onCloseDetailRoute: () => void;
+  onClearDetailRoute: () => void;
   emptyState?: ReactNode;
 }) {
   const windowById = useMemo(() => new Map(windowItems.map((item) => [item.id, item])), [windowItems]);
@@ -268,228 +499,266 @@ export function ReviewsPage({
         .sort(compareThreads),
     [reviewThreads, itemsById, windowById, filters],
   );
-  const summaryRows = useMemo(() => {
-    const summaryFilters = { ...filters, reviews: new Set<string>() };
-    return reviewThreads
-      .map((thread): ThreadRow => ({ thread, target: itemsById.get(thread.target_ref) ?? windowById.get(thread.target_ref) ?? null }))
-      .filter((row) => threadMatches(row, summaryFilters))
-      .sort(compareThreads);
-  }, [reviewThreads, itemsById, windowById, filters]);
-  const summaries = useMemo(() => repoSummaries(summaryRows, metrics, filters), [summaryRows, metrics, filters]);
-  const activeReviewLens = reviewLens(filters);
 
-  const openThreads = threadRows.filter((row) => !row.thread.is_resolved).length;
+  const openThreads = useMemo(() => threadRows.reduce((n, row) => (row.thread.is_resolved ? n : n + 1), 0), [threadRows]);
   const resolvedThreads = threadRows.length - openThreads;
-  const outdatedThreads = threadRows.filter((row) => row.thread.is_outdated === true).length;
-  const commentsTotal = threadRows.reduce((sum, row) => sum + row.thread.comments_total, 0);
-  const previewComments = threadRows.reduce((sum, row) => sum + row.thread.comments.length, 0);
-  const changeRequests = new Set(threadRows.map((row) => row.thread.target_ref)).size;
-  const repos = new Set(threadRows.map((row) => repoKey(row.thread.source_id, row.thread.project_path))).size;
-  const showEmpty = threadRows.length === 0 && summaries.length === 0;
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailMotion, setDetailMotion] = useState<ReviewDetailMotion>("neutral");
+  const isDetailOverlay = useMediaQuery(REVIEW_DETAIL_OVERLAY_QUERY);
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  // The detail follows the selected thread; with nothing selected it shows the
+  // first thread so the right pane is never empty (the inbox always lands on the
+  // top of the queue — the most urgent unresolved thread).
+  const detail = useMemo(() => {
+    if (selectedId != null) {
+      const match = threadRows.find((row) => row.thread.id === selectedId);
+      if (match) return match;
+    }
+    return threadRows[0] ?? null;
+  }, [selectedId, threadRows]);
+  const detailKey = detail ? threadKey(detail) : null;
+  const detailNav = useMemo(() => threadNavigation(threadRows, detail), [threadRows, detail]);
+
+  // Drives the NARROW-screen overlay; route-backed so Back closes detail first.
+  const detailOpen = isDetailOverlay && detailRouteOpen;
+
+  const feedResetKey = useMemo(
+    () =>
+      JSON.stringify({
+        search: filters.search,
+        sources: [...filters.sources].sort(),
+        repos: [...filters.repos].sort(),
+        kinds: [...filters.kinds].sort(),
+        states: [...filters.states].sort(),
+        reviews: [...filters.reviews].sort(),
+      }),
+    [filters],
+  );
+
+  const { listRef: feedRef, scrollTop, viewportHeight, handleScroll } = useListViewport<HTMLUListElement>({
+    defaultViewportPx: REVIEW_DEFAULT_VIEWPORT_PX,
+    resetKey: feedResetKey,
+  });
+  const virtual = useMemo(
+    () =>
+      activityVirtualRange({
+        count: threadRows.length,
+        scrollTop,
+        viewportHeight,
+        rowHeight: REVIEW_ROW_HEIGHT_PX,
+        rowGap: REVIEW_ROW_GAP_PX,
+        overscan: REVIEW_OVERSCAN_ROWS,
+      }),
+    [threadRows.length, scrollTop, viewportHeight],
+  );
+  const visibleRows = useMemo(() => threadRows.slice(virtual.start, virtual.end), [threadRows, virtual.start, virtual.end]);
+
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const split = splitRef.current;
+    if (!split || typeof window === "undefined") return;
+    let raf = 0;
+    const measure = () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        const top = split.getBoundingClientRect().top;
+        const next = Math.max(
+          REVIEW_PANE_MIN_HEIGHT_PX,
+          Math.floor(window.innerHeight - top - REVIEW_PANE_BOTTOM_GUTTER_PX),
+        );
+        setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(split);
+    ro?.observe(document.body);
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, [threadRows.length]);
+
+  // Resizing back to a wide viewport closes a stranded overlay route.
+  useEffect(() => {
+    if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
+  }, [detailRouteOpen, isDetailOverlay, onClearDetailRoute]);
+
+  const openDetail = useCallback(() => {
+    if (!isDetailOverlay || detailRouteOpen) return;
+    onOpenDetailRoute();
+  }, [detailRouteOpen, isDetailOverlay, onOpenDetailRoute]);
+  const closeDetail = useCallback(() => {
+    if (detailRouteOpen) onCloseDetailRoute();
+  }, [detailRouteOpen, onCloseDetailRoute]);
+
+  const scrollRowIntoFeed = useCallback(
+    (id: string) => {
+      const feed = feedRef.current;
+      if (!feed) return;
+      const index = threadRows.findIndex((row) => row.thread.id === id);
+      if (index < 0) return;
+      const viewport = feed.clientHeight || viewportHeight || REVIEW_DEFAULT_VIEWPORT_PX;
+      const targetTop = index * REVIEW_ROW_STRIDE_PX - Math.max(0, (viewport - REVIEW_ROW_HEIGHT_PX) / 2);
+      const maxTop = Math.max(0, virtual.totalHeightPx - viewport);
+      feed.scrollTo({
+        top: Math.min(Math.max(0, targetTop), maxTop),
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    },
+    [feedRef, threadRows, viewportHeight, virtual.totalHeightPx, prefersReducedMotion],
+  );
+
+  const selectThread = useCallback(
+    (row: ThreadRow, motion: ReviewDetailMotion) => {
+      setDetailMotion(motion);
+      setSelectedId(row.thread.id);
+      openDetail();
+      scrollRowIntoFeed(row.thread.id);
+    },
+    [openDetail, scrollRowIntoFeed],
+  );
+  const navigateDetail = useCallback(
+    (move: ReviewDetailMove) => {
+      const target = move === "previous" ? detailNav.previous : detailNav.next;
+      if (!target) return;
+      selectThread(target, move);
+    },
+    [detailNav.next, detailNav.previous, selectThread],
+  );
+
+  // Horizontal swipe on the detail pane flips to the previous/next thread (the
+  // narrow-screen affordance, mirroring the Live tab). Handled on the whole
+  // `.live-detail` wrapper — which holds the scrolling card AND the pinned nav —
+  // so a swipe anywhere in the overlay navigates, except over a control or a
+  // horizontally-scrollable code block / table.
+  const detailTouchRef = useRef<{
+    x: number;
+    y: number;
+    t: number;
+    scroller: HTMLElement | null;
+    scrollLeft: number;
+  } | null>(null);
+  const handleDetailTouchStart = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (!detail || e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
+        detailTouchRef.current = null;
+        return;
+      }
+      const touch = e.touches[0]!;
+      const scroller = horizontalSwipeScroller(e.target);
+      detailTouchRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        t: Date.now(),
+        scroller,
+        scrollLeft: scroller?.scrollLeft ?? 0,
+      };
+    },
+    [detail],
+  );
+  const handleDetailTouchEnd = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      const start = detailTouchRef.current;
+      detailTouchRef.current = null;
+      if (!start || e.changedTouches.length !== 1) return;
+      const touch = e.changedTouches[0]!;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      const elapsed = Date.now() - start.t;
+      if (elapsed > REVIEW_DETAIL_SWIPE_MAX_MS) return;
+      if (Math.abs(dx) < REVIEW_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      if (start.scroller && scrollCanConsumeSwipe(start.scroller, start.scrollLeft, dx)) return;
+      navigateDetail(dx < 0 ? "next" : "previous");
+    },
+    [navigateDetail],
+  );
+  const handleDetailTouchCancel = useCallback(() => {
+    detailTouchRef.current = null;
+  }, []);
+
+  if (threadRows.length === 0) {
+    return (
+      <main className="reviews-page reviews-live">
+        <div className="reviews-head">
+          <h2>Reviews</h2>
+          <span className="count">0 open threads</span>
+          <span className="muted">{range.from} to {range.to}</span>
+        </div>
+        {emptyState ?? <p className="empty">No review threads match the current view.</p>}
+      </main>
+    );
+  }
 
   return (
-    <main className="reviews-page">
+    <main className="reviews-page reviews-live">
       <div className="reviews-head">
         <h2>Reviews</h2>
         <span className="count">{openThreads} open threads</span>
-        <span className="muted">{range.from} to {range.to}</span>
+        <span className="muted">{resolvedThreads} resolved · {threadRows.length} total</span>
       </div>
-      <div className="review-stat-grid">
-        <StatTile label="open threads">{openThreads}</StatTile>
-        <StatTile label="resolved threads">{resolvedThreads}</StatTile>
-        <StatTile label="threaded PR/MRs">{changeRequests}</StatTile>
-        <StatTile label="repos">{repos}</StatTile>
-        <StatTile label="comments">{commentsTotal}</StatTile>
-        <StatTile label="previewed">{previewComments}</StatTile>
-        <StatTile label="outdated">{outdatedThreads}</StatTile>
-        <StatTile label="total threads">{threadRows.length}</StatTile>
-      </div>
-
-      {showEmpty ? (
-        emptyState ?? <p className="empty">No review threads match the current view.</p>
-      ) : (
-        <div className="reviews-layout">
-          <aside className="review-side" aria-label="Review context">
-            <section className="review-repo-section" aria-labelledby="review-repos-title">
-              <div className="review-section-head">
-                <h3 id="review-repos-title">Repo Breakdown</h3>
-                <span className="muted">{summaries.length} repos</span>
-              </div>
-              {summaries.length === 0 ? (
-                <p className="empty">No repo review threads in this range.</p>
-              ) : (
-                <div className="review-repo-list">
-                  {summaries.map((summary) => {
-                    const metric = summary.metric;
-                    const repoHref = reviewRepoSearchHref({ source: summary.source_id, repo: summary.project_path, range, review: activeReviewLens });
-                    const accentColor = colorOf(summary.source_id, summary.project_path);
-                    const rowClass = `review-repo-row${accentColor ? " review-row-accent" : ""}`;
-                    const rowStyle = { "--repo-color": accentColor ?? undefined } as CSSProperties;
-                    const rowContent = (
-                      <>
-                        <div className="review-repo-main">
-                          <span className="review-repo-name">
-                            <SourceIcon kind={sourceKind.get(summary.source_id)} />
-                            <span>{summary.project_path ?? "(unknown repo)"}</span>
-                          </span>
-                          <span className="muted">{sourceDisplayName(summary.source_id)}</span>
-                        </div>
-                        <ReviewThreadBars summary={summary} />
-                        <dl className="review-repo-metrics">
-                          <div>
-                            <dt>threads</dt>
-                            <dd>{summary.total}</dd>
-                          </div>
-                          <div>
-                            <dt>open</dt>
-                            <dd>{summary.open}</dd>
-                          </div>
-                          <div>
-                            <dt>resolved</dt>
-                            <dd>{summary.resolved}</dd>
-                          </div>
-                          <div>
-                            <dt>comments</dt>
-                            <dd>{summary.comments}</dd>
-                          </div>
-                          <div>
-                            <dt>reviews</dt>
-                            <dd>{metric?.totals.reviews ?? 0}</dd>
-                          </div>
-                          <div>
-                            <dt>changes</dt>
-                            <dd>{metric ? changesRequested(metric.totals) : 0}</dd>
-                          </div>
-                        </dl>
-                      </>
-                    );
-                    return repoHref ? (
-                      <a
-                        key={`${summary.source_id}|${summary.project_path ?? ""}`}
-                        href={repoHref}
-                        className={rowClass}
-                        style={rowStyle}
-                        aria-label={`Search review threads in ${summary.project_path ?? "repo"}`}
-                      >
-                        {rowContent}
-                      </a>
-                    ) : (
-                      <article
-                        key={`${summary.source_id}|${summary.project_path ?? ""}`}
-                        className={rowClass}
-                        style={rowStyle}
-                      >
-                        {rowContent}
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </aside>
-
-          <section className="review-queue" aria-labelledby="review-queue-title">
-            <div className="review-section-head">
-              <h3 id="review-queue-title">Thread Inbox</h3>
-              <span className="muted">{openThreads} unresolved / {resolvedThreads} resolved</span>
-            </div>
-            {threadRows.length === 0 ? (
-              <p className="empty">No synced review-thread detail matches the current filters.</p>
-            ) : (
-              <div className="review-table-wrap">
-                <table className="review-table">
-                  <colgroup>
-                    <col className="review-col-small" />
-                    <col className="review-col-seen" />
-                    <col className="review-col-pr" />
-                    <col className="review-col-commenter" />
-                    <col className="review-col-location" />
-                    <col className="review-col-preview" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Seen</th>
-                      <th>Thread</th>
-                      <th>Commenter</th>
-                      <th>Location</th>
-                      <th>Preview</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {threadRows.map(({ thread, target }) => {
-                      const accentColor = colorOf(thread.source_id, thread.project_path);
-                      const label = lineLabel(thread);
-                      const title = thread.title ?? target?.title ?? "Untitled change request";
-                      return (
-                        <tr
-                          key={thread.id}
-                          className={accentColor ? "review-row-accent" : ""}
-                          style={{ "--repo-color": accentColor ?? undefined } as CSSProperties}
-                        >
-                          <td data-label="Status">
-                            <span className="review-state-stack">
-                              {statusBadge(thread)}
-                              {thread.resolved_by ? <span className="muted">@{thread.resolved_by}</span> : null}
-                            </span>
-                          </td>
-                          <td data-label="Seen">
-                            <time title={thread.last_seen_at ?? undefined}>{relativeTime(thread.last_seen_at)}</time>
-                          </td>
-                          <td className="review-pr-cell" data-label="Thread">
-                            <span className="review-pr-title">
-                              {thread.url ? (
-                                <a href={thread.url} target="_blank" rel="noopener noreferrer">
-                                  {thread.target_iid != null ? `#${thread.target_iid} ` : ""}
-                                  {title}
-                                </a>
-                              ) : (
-                                <span>
-                                  {thread.target_iid != null ? `#${thread.target_iid} ` : ""}
-                                  {title}
-                                </span>
-                              )}
-                            </span>
-                            <span className="review-pr-meta">
-                              <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
-                              {target?.author ? <span>@{target.author}</span> : null}
-                            </span>
-                          </td>
-                          <td data-label="Commenter">
-                            <span className="review-commenter" title="First synced thread comment author; falls back to the PR/MR author">
-                              {commentersLabel(thread, target)}
-                            </span>
-                          </td>
-                          <td data-label="Location">
-                            <span className="review-location">{label ?? "general discussion"}</span>
-                          </td>
-                          <td data-label="Preview">
-                            {thread.comments.length === 0 ? (
-                              <span className="muted">No synced comment preview.</span>
-                            ) : (
-                              <div className="review-comment-preview">
-                                {thread.comments.slice(0, 2).map((comment) => (
-                                  <div className="review-comment" key={comment.id}>
-                                    {comment.author ? <strong>@{comment.author}</strong> : null}
-                                    <LazyMarkdownPreview text={comment.body ?? "(empty comment)"} />
-                                  </div>
-                                ))}
-                                {thread.comments_total > thread.comments.length ? (
-                                  <span className="muted">+{thread.comments_total - thread.comments.length} more comments</span>
-                                ) : null}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+      <div
+        ref={splitRef}
+        className="live-split"
+        data-detail-open={detailOpen ? "true" : "false"}
+        style={paneHeight == null ? undefined : ({ "--live-pane-height": `${paneHeight}px` } as CSSProperties)}
+      >
+        <ul
+          className="live-feed"
+          ref={feedRef}
+          onScroll={handleScroll}
+          style={{ "--live-row-height": `${REVIEW_ROW_HEIGHT_PX}px` } as CSSProperties}
+        >
+          <li className="live-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }} aria-hidden="true" />
+          {visibleRows.map((row, offset) => {
+            const index = virtual.start + offset;
+            return (
+              <ReviewRow
+                key={threadKey(row)}
+                row={row}
+                selected={threadKey(row) === detailKey}
+                positionY={index * REVIEW_ROW_STRIDE_PX}
+                index={index}
+                total={threadRows.length}
+                colorOf={colorOf}
+                sourceKind={sourceKind}
+                onSelect={() => selectThread(row, "neutral")}
+              />
+            );
+          })}
+        </ul>
+        <div
+          className="live-detail"
+          onTouchStart={handleDetailTouchStart}
+          onTouchEnd={handleDetailTouchEnd}
+          onTouchCancel={handleDetailTouchCancel}
+        >
+          {detail ? (
+            <>
+              <ReviewDetail
+                row={detail}
+                motion={detailMotion}
+                sourceKind={sourceKind}
+                onClose={closeDetail}
+              />
+              <ReviewDetailNav
+                position={detailNav.position}
+                total={detailNav.total}
+                canPrevious={detailNav.previous !== null}
+                canNext={detailNav.next !== null}
+                onNavigate={navigateDetail}
+              />
+            </>
+          ) : (
+            <div className="live-detail-empty">Select a thread to read its discussion.</div>
+          )}
         </div>
-      )}
+      </div>
     </main>
   );
 }

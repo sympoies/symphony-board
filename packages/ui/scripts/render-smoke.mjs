@@ -1295,49 +1295,60 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  // Page 5 — Reviews: synced provider review-thread detail with inline comment
-  // previews. Keep this after Repo Analytics so the threads metric can be
-  // validated independently of the repo table.
+  // Page 5 — Reviews: provider review-thread inbox as a master-detail (thread
+  // list left, selected thread's full comment chain right), mirroring the Live
+  // tab. Each row is one thread's live resolution state; selecting a row swaps
+  // the detail pane to that thread. Keep this after Repo Analytics so the threads
+  // metric is validated independently.
   await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/reviews?ireview=unresolved'" });
   await sleep(300);
-  const reviewsHtml = await waitHtml("document.querySelector('.reviews-page .review-table tbody tr')");
+  const reviewsHtml = await waitHtml("document.querySelector('.reviews-page .live-feed .live-event')");
   const reviewsRangeButtons = await rangeButtonLabels();
   const reviewsCountText = await textOf(".reviews-head .count");
   const reviewsSummary = (await send("Runtime.evaluate", {
-    expression: `(() => ({
-      rows: document.querySelectorAll('.reviews-page .review-table tbody tr').length,
-      links: Array.from(document.querySelectorAll('.reviews-page .review-pr-title a')).map((el) => el.getAttribute('href') || ''),
-      statuses: Array.from(document.querySelectorAll('.reviews-page .review-state-stack .badge')).map((el) => (el.textContent || '').trim()),
-      previews: Array.from(document.querySelectorAll('.reviews-page .review-comment-preview')).map((el) => el.textContent || ''),
-      repoBreakdown: document.querySelectorAll('.reviews-page .review-repo-row').length,
-    }))()`,
-    returnByValue: true,
-  })).result.value || { rows: 0, links: [], statuses: [], previews: [], repoBreakdown: 0 };
-  const reviewsRepoClickStart = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const row = document.querySelector('.reviews-page .review-repo-row[href]');
-      const repo = row?.querySelector('.review-repo-name > span')?.textContent?.trim() || '';
-      const href = row?.getAttribute('href') || '';
-      row?.click();
-      return { repo, href };
+      const detail = document.querySelector('.reviews-page .live-detail');
+      const card = detail?.querySelector('.live-detail-card') || null;
+      const nav = detail?.querySelector('.live-detail-nav') || null;
+      return {
+        rows: document.querySelectorAll('.reviews-page .live-feed .live-event').length,
+        statuses: Array.from(document.querySelectorAll('.reviews-page .live-feed .live-event .badge')).map((el) => (el.textContent || '').trim()),
+        previews: Array.from(document.querySelectorAll('.reviews-page .live-feed .live-event-preview')).map((el) => el.textContent || ''),
+        detailLink: document.querySelector('.reviews-page .live-detail .live-detail-title-link')?.getAttribute('href') || '',
+        detailComments: document.querySelectorAll('.reviews-page .live-detail .review-comment-card').length,
+        // The prev/next nav must be a SIBLING of the card (a direct child of
+        // .live-detail), not nested inside it — that is what lets the shared
+        // narrow-overlay flex rules pin it as the footer (mirrors the Live tab).
+        navInsideCard: !!(card && nav && card.contains(nav)),
+        navIsDetailChild: !!(detail && nav && nav.parentElement === detail),
+      };
     })()`,
     returnByValue: true,
-  })).result.value || { repo: "", href: "" };
-  const reviewsRepoClick = (await waitValue(`(() => {
-    const input = document.querySelector('.controls .search');
-    const inputValue = input?.value || '';
-    if (!inputValue) return null;
-    const rows = Array.from(document.querySelectorAll('.reviews-page .review-table tbody tr'));
+  })).result.value || { rows: 0, statuses: [], previews: [], detailLink: "", detailComments: 0, navInsideCard: true, navIsDetailChild: false };
+  // Selecting a different thread row swaps the detail pane to that thread's chain.
+  const reviewsRowClick = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.reviews-page .live-feed .live-event'));
+      const row = rows[1] || rows[0];
+      if (!row) return { rowTitle: '' };
+      const rowTitle = row.querySelector('.live-event-title')?.textContent?.trim() || '';
+      row.click();
+      return { rowTitle };
+    })()`,
+    returnByValue: true,
+  })).result.value || { rowTitle: "" };
+  const reviewsSelect = (await waitValue(`(() => {
+    const sel = document.querySelector('.reviews-page .live-feed .live-event-selected');
+    const detailTitle = document.querySelector('.reviews-page .live-detail .live-detail-title')?.textContent?.trim() || '';
+    if (!sel || !detailTitle) return null;
     return {
-      hash: location.hash,
-      hashHasQuery: decodeURIComponent(location.hash).includes('q=' + inputValue),
-      inputValue,
-      rowCount: rows.length,
-      rowsMatchRepo: rows.length > 0 && rows.every((row) => (row.textContent || '').includes(inputValue)),
+      selectedTitle: sel.querySelector('.live-event-title')?.textContent?.trim() || '',
+      detailTitle,
+      comments: document.querySelectorAll('.reviews-page .live-detail .review-comment-card').length,
     };
-  })()`)) || { hash: "", hashHasQuery: false, inputValue: "", rowCount: 0, rowsMatchRepo: false };
+  })()`)) || { selectedTitle: "", detailTitle: "", comments: 0 };
   // Page 6 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -2252,7 +2263,7 @@ try {
                   : pageName === 'repo-analytics'
                     ? document.querySelector('.repo-table-wrap')
                     : pageName === 'reviews'
-                      ? document.querySelector('.review-table-wrap')
+                      ? document.querySelector('.reviews-page .live-feed')
                     : null;
           const primarySurfaceRect = primarySurface?.getBoundingClientRect();
           const heatmapMaxScroll = heatmapScroll ? Math.max(0, heatmapScroll.scrollWidth - heatmapScroll.clientWidth) : 0;
@@ -3006,16 +3017,16 @@ try {
     // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
     // (2.5.0) rather than the old earliest-observed "since" timestamp.
     [/active \d/.test(repoHtml), "repo analytics: repo row renders the 'last active' timestamp label"],
-    // page 5: Reviews uses synced provider review-thread detail rows.
+    // page 5: Reviews is a master-detail thread inbox (list + detail), like Live.
     [has(reviewsHtml, "reviews-page"), "reviews: page rendered"],
     [sameRangeButtons(reviewsRangeButtons), `reviews: shared range quick presets rendered without all (${reviewsRangeButtons.join(", ")})`],
     [reviewsSummary.rows >= 1 && /open threads/.test(reviewsCountText), `reviews: unresolved thread rows rendered (${reviewsSummary.rows || 0}, ${reviewsCountText || "empty"})`],
-    [reviewsSummary.links.some((href) => href.includes("/pull/15#discussion_")), "reviews: thread title links to provider discussion"],
+    [reviewsSummary.detailLink.includes("/pull/15#discussion_"), `reviews: detail title links to provider discussion (${reviewsSummary.detailLink || "none"})`],
     [reviewsSummary.statuses.includes("unresolved"), `reviews: unresolved status badge rendered (${reviewsSummary.statuses.join(", ") || "none"})`],
     [reviewsSummary.previews.some((text) => text.includes("Cache the compiled pattern")), "reviews: comment preview text rendered inline"],
-    [reviewsSummary.repoBreakdown >= 1, `reviews: repo breakdown rendered (${reviewsSummary.repoBreakdown || 0})`],
-    [reviewsRepoClickStart.repo !== "" && reviewsRepoClickStart.href.startsWith("#/reviews") && reviewsRepoClickStart.href.includes("q=") && reviewsRepoClickStart.href.includes("isource=") && reviewsRepoClickStart.href.includes("irepo="), `reviews: repo breakdown rows link to exact Reviews search (${JSON.stringify(reviewsRepoClickStart)})`],
-    [reviewsRepoClick.inputValue === reviewsRepoClickStart.repo && reviewsRepoClick.hashHasQuery === true && reviewsRepoClick.rowCount >= 1 && reviewsRepoClick.rowsMatchRepo === true, `reviews: repo breakdown click updates search and filters the inbox (${JSON.stringify(reviewsRepoClick)})`],
+    [reviewsSummary.detailComments >= 1, `reviews: detail pane renders the selected thread's comment chain (${reviewsSummary.detailComments || 0})`],
+    [reviewsSummary.navInsideCard === false && reviewsSummary.navIsDetailChild === true, `reviews: detail nav is a card sibling so the shared overlay pins it (${JSON.stringify({ navInsideCard: reviewsSummary.navInsideCard, navIsDetailChild: reviewsSummary.navIsDetailChild })})`],
+    [reviewsRowClick.rowTitle !== "" && reviewsSelect.detailTitle.includes(reviewsRowClick.rowTitle) && reviewsSelect.comments >= 1, `reviews: selecting a thread row swaps the detail pane (${JSON.stringify(reviewsSelect)})`],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     // every linked card also shows its relation count in the meta row — the two

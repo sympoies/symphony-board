@@ -207,6 +207,7 @@ export interface HashRoute {
   preset: TimeRangePresetId | null; // quick preset that produced from/to, for UI tie-breaks
   tab: string | null; // a sub-tab within a page (Settings: "sources" | default display)
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
+  reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
 }
 
 const routeParam = (value: string | null | undefined): string | null => {
@@ -240,10 +241,11 @@ export function parseHashRoute(hash: string): HashRoute {
     preset: isTimeRangePresetId(preset) ? preset : null,
     tab: routeParam(params?.get("tab")),
     liveDetail: routeParam(params?.get("liveDetail")),
+    reviewDetail: routeParam(params?.get("reviewDetail")),
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -263,6 +265,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const preset = route.preset && isTimeRangePresetId(route.preset) ? route.preset : null;
   const tab = routeParam(route.tab);
   const liveDetail = routeParam(route.liveDetail);
+  const reviewDetail = routeParam(route.reviewDetail);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (source) params.push(`source=${encodeURIComponent(source)}`);
@@ -281,6 +284,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (preset) params.push(`preset=${encodeURIComponent(preset)}`);
   if (tab) params.push(`tab=${encodeURIComponent(tab)}`);
   if (liveDetail) params.push(`liveDetail=${encodeURIComponent(liveDetail)}`);
+  if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 

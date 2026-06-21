@@ -959,6 +959,48 @@ export function App() {
     replaceLiveDetailRouteClosed();
   }
 
+  // Reviews phone-overlay route, mirroring the Live detail route above: the
+  // narrow-screen thread detail is a full-screen overlay whose open/closed state
+  // is route-backed (?reviewDetail=1) so Android/browser Back closes the detail
+  // before leaving the Reviews tab. Wide screens render the detail inline and
+  // ignore this flag (the page clears a stray one).
+  function reviewDetailHash(open: boolean): string | null {
+    const current = parseHashRoute(readHash());
+    if (current.page !== "reviews") return null;
+    return buildHashRoute({ ...current, page: "reviews", reviewDetail: open ? "1" : null });
+  }
+
+  function openReviewDetailRoute() {
+    if (typeof window === "undefined") return;
+    const next = reviewDetailHash(true);
+    if (!next || readHash() === next) return;
+    window.history.pushState({ ...historyStateObject(), symphonyReviewDetail: true }, "", next);
+    setHash(next);
+  }
+
+  function replaceReviewDetailRouteClosed() {
+    if (typeof window === "undefined") return;
+    const next = reviewDetailHash(false);
+    if (!next || readHash() === next) return;
+    const state = historyStateObject();
+    delete state.symphonyReviewDetail;
+    window.history.replaceState(state, "", next);
+    setHash(next);
+  }
+
+  function closeReviewDetailRoute() {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    if (current.page !== "reviews" || current.reviewDetail !== "1") return;
+    const next = reviewDetailHash(false);
+    if ((window.history.state as { symphonyReviewDetail?: unknown } | null)?.symphonyReviewDetail === true) {
+      window.history.back();
+      if (next) setHash(next);
+      return;
+    }
+    replaceReviewDetailRouteClosed();
+  }
+
   function setRouteSearch(q: string) {
     setFilters((f) => ({ ...f, search: q }));
     if (typeof window === "undefined") return;
@@ -1369,12 +1411,15 @@ export function App() {
         <ReviewsPage
           reviewThreads={visibleEnv.review_threads ?? []}
           windowItems={primaryItems}
-          metrics={repoMetrics}
           filters={itemFilters}
           itemsById={activityItemsById}
           range={activeRange}
           sourceKind={sourceKind}
           colorOf={colorOf}
+          detailRouteOpen={route.reviewDetail === "1"}
+          onOpenDetailRoute={openReviewDetailRoute}
+          onCloseDetailRoute={closeReviewDetailRoute}
+          onClearDetailRoute={closeReviewDetailRoute}
           emptyState={
             <EmptyState
               noun="review threads"
