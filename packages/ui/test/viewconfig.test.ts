@@ -10,13 +10,14 @@ import {
   loadDefaultTab, saveDefaultTab,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
-  loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope,
+  loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
-import { TIME_RANGE_PRESETS } from "../src/model.ts";
+import { TIME_RANGE_PRESETS, activeTimeRangePresetId, staticContractTimeRange, windowQuickPreset } from "../src/model.ts";
+import type { ContractEnvelope } from "@symphony-board/contract";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
 // install a tiny in-memory Storage shim and (for the failure paths) a throwing
@@ -210,6 +211,60 @@ test("clampDefaultRangeToBoardScope shrinks an oversized default to fit, leaving
   const clamped3d = clampDefaultRangeToBoardScope("3mo", "3d", now);
   assert.equal(clamped3d, "this-week", "largest preset that fits a 3d window on a Monday");
   assert.equal(presetExceedsBoardScope(clamped3d, "3d", now), false, "the clamped default fits the 3d window");
+});
+
+test("boardWindowRange pins the loaded window to the contract clock so it lines up with its named preset (mobile windowed-range regression)", () => {
+  // A windowed mobile board FETCHES /api/range with the live clock (Date.now),
+  // but every quick preset, the active-preset highlight, and the synthetic
+  // window button resolve against the contract's generated_at. When the load
+  // crosses local midnight — or the contract is stale / a fixture with an older
+  // generated_at — those two instants land on different days, so a window built
+  // from item_window (fetch clock for `from`, generated_at for `to`) drifts off
+  // its same-named preset. The UI then injects a SECOND identically-labelled
+  // quick button (the duplicate "1mo" in the bug report) and mis-hides longer
+  // presets. boardWindowRange resolves the window on generated_at — the same
+  // clock the presets use — so it always equals its preset.
+  const generatedAt = Date.parse("2026-06-08T12:00:00Z"); // a Monday
+  const windowedScopes = [["1d", "today"], ["7d", "1w"], ["1mo", "1mo"], ["3mo", "3mo"], ["6mo", "6mo"], ["1y", "1y"]] as const;
+  for (const [scope, preset] of windowedScopes) {
+    const win = boardWindowRange(scope, generatedAt);
+    assert.ok(win, `${scope} is windowed -> has a window`);
+    assert.equal(windowQuickPreset(win, generatedAt, scope), null, `${scope} window == ${preset} preset -> no duplicate quick button`);
+    assert.equal(activeTimeRangePresetId(win, generatedAt, null), preset, `${scope} window highlights the ${preset} preset`);
+  }
+  // 3d is the one windowed scope with no built-in equivalent, so it keeps its own
+  // synthetic "whole window" button (this is the button's intended purpose).
+  const threeDay = boardWindowRange("3d", generatedAt)!;
+  assert.deepEqual(windowQuickPreset(threeDay, generatedAt, "3d"), { label: "3d", range: threeDay });
+  // Unwindowed scopes (off / full) have no fixed window.
+  assert.equal(boardWindowRange("off", generatedAt), null);
+  assert.equal(boardWindowRange("full", generatedAt), null);
+
+  // Contrast — the OLD derivation that produced the bug: a 1mo window fetched the
+  // day AFTER generated_at builds a mixed-clock range via item_window (since =
+  // 2026-05-11 from the fetch clock; to = 2026-06-08 from generated_at). That
+  // range no longer equals the generated_at-based "1mo" preset (2026-05-10..06-08),
+  // so a duplicate "1mo" button is surfaced — exactly what boardWindowRange avoids.
+  const staleAfterMidnight: ContractEnvelope = {
+    contract_version: "2.0.0",
+    generated_at: "2026-06-08T12:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [],
+    edges: [],
+    item_window: {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-05-11T00:00:00.000Z", days: 30, edge_filter: null },
+      primary_items: 0,
+      edge_endpoint_items: 0,
+      total_items: 0,
+      truncated: false,
+    },
+  };
+  const mixedClockWindow = staticContractTimeRange(staleAfterMidnight); // { from: "2026-05-11", to: "2026-06-08" }
+  assert.notEqual(activeTimeRangePresetId(mixedClockWindow, generatedAt, null), "1mo", "the mixed-clock window misses the 1mo preset (the bug)");
+  assert.deepEqual(windowQuickPreset(mixedClockWindow, generatedAt, "1mo"), { label: "1mo", range: mixedClockWindow }, "the mixed-clock window injects a duplicate 1mo button (the bug)");
+  assert.equal(activeTimeRangePresetId(boardWindowRange("1mo", generatedAt)!, generatedAt, null), "1mo", "boardWindowRange avoids the drift");
 });
 
 test("wide layout is a device-local setting that is OFF by default", () => {
