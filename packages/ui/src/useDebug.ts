@@ -103,11 +103,13 @@ const EMPTY_LIVE_INFO: LiveSnapshotInfo = {
   newestAt: null,
 };
 
-export function useLiveSnapshotInfo(serverBaseUrl: string | null): {
+export interface LiveSnapshotState {
   info: LiveSnapshotInfo;
   loading: boolean;
   refresh: () => void;
-} {
+}
+
+export function useLiveSnapshotInfo(serverBaseUrl: string | null): LiveSnapshotState {
   const [info, setInfo] = useState<LiveSnapshotInfo>(EMPTY_LIVE_INFO);
   const [loading, setLoading] = useState(true);
   const [epoch, setEpoch] = useState(0);
