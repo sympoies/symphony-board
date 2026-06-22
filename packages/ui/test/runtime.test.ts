@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyAndroidSafeAreaInsets,
+  applyWideViewport,
   internalRouteHashFromHref,
   shouldOpenExternalHttpHref,
   wideViewportContent,
@@ -65,4 +66,49 @@ test("wideViewportContent forces a desktop width only for the Android client wit
   assert.equal(wideViewportContent(true, "desktop"), null, "desktop shell stays resizable");
   assert.equal(wideViewportContent(true, null), null, "web (no client kind) stays responsive");
   assert.ok(WIDE_VIEWPORT_WIDTH >= 1180, "the forced width must reach the desktop multi-column CSS breakpoint");
+});
+
+test("applyWideViewport forces the fixed width on Android and restores the responsive meta when off", () => {
+  // The DOM-side-effecting applier (not just the pure wideViewportContent core):
+  // the OFF path's restore string lives only here, and toggling wide off must put
+  // the responsive meta back without an app restart.
+  const makeWindow = () => {
+    const meta = new Map<string, string>([["content", "width=device-width, initial-scale=1.0"]]);
+    const datasetTarget: Record<string, string> = {};
+    const doc = {
+      querySelector: (sel: string) =>
+        sel === 'meta[name="viewport"]'
+          ? {
+              setAttribute: (name: string, value: string) => meta.set(name, value),
+              getAttribute: (name: string) => meta.get(name) ?? null,
+            }
+          : null,
+      documentElement: {
+        dataset: datasetTarget,
+        removeAttribute: (name: string) => {
+          if (name === "data-wide-viewport") delete datasetTarget.wideViewport;
+        },
+      },
+    };
+    return { win: { document: doc } as unknown as Window, meta, datasetTarget };
+  };
+
+  // ON (Android): fixed desktop width + the wide-viewport dataset flag.
+  const on = makeWindow();
+  applyWideViewport(true, "android", on.win);
+  assert.equal(on.meta.get("content"), `width=${WIDE_VIEWPORT_WIDTH}`);
+  assert.equal(on.datasetTarget.wideViewport, "true");
+
+  // OFF (Android): restore the responsive meta and drop the flag.
+  const off = makeWindow();
+  off.datasetTarget.wideViewport = "true";
+  applyWideViewport(false, "android", off.win);
+  assert.equal(off.meta.get("content"), "width=device-width, initial-scale=1.0");
+  assert.equal(off.datasetTarget.wideViewport, undefined);
+
+  // Non-Android: no-op — the browser and desktop shell keep their responsive meta.
+  const web = makeWindow();
+  applyWideViewport(true, null, web.win);
+  applyWideViewport(true, "desktop", web.win);
+  assert.equal(web.meta.get("content"), "width=device-width, initial-scale=1.0");
 });

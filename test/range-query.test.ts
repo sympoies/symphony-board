@@ -281,6 +281,14 @@ test("buildRangeContract keeps data_quality coverage all-time when no activity f
   assert.equal(dq?.last_activity_at, "2026-02-01T00:00:00Z");
   assert.equal(metric?.totals.activities, 0, "in-window activity totals stay range-scoped");
   assert.equal(dq?.notes.some((n) => n.includes("No activity rows observed")) ?? false, false, "no missing-activity note when all-time activity exists");
+  // activity_daily follows the IN-RANGE activities (none here), while aggregates
+  // follows the FULL item set — the two must not be conflated. With no in-range
+  // activity but a (full-set) item present, activity_daily is an empty-but-valid
+  // panel and aggregates still populate, so the mobile windowed board renders.
+  assert.equal(env.activity_daily?.total, 0, "activity_daily counts only in-range activities (none)");
+  assert.equal(env.activity_daily?.days.length, 0, "no in-range activity -> no day buckets");
+  assert.equal(env.activity_daily?.to, "2026-06-08", "activity_daily anchors to the generatedAt calendar day");
+  assert.ok((env.aggregates?.length ?? 0) > 0, "aggregates stay full-set even when no activity is in range");
   assert.deepEqual(validateContract(env), []);
 });
 
@@ -300,6 +308,37 @@ test("buildRangeContract carries the configured timezone onto the envelope and r
   });
   assert.equal(env.timezone, "Asia/Taipei");
   assert.deepEqual(env.range_query, { kind: "time_range", timezone: "Asia/Taipei", from: "2026-04-30T16:00:00.000Z", to: "2026-05-31T15:59:59.999Z" });
+  assert.deepEqual(validateContract(env), []);
+});
+
+test("buildRangeContract buckets activity_daily by the configured zone's calendar day", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  // Two events 1h apart that straddle Taipei (+08:00) midnight: 15:30Z is
+  // 2026-06-08 23:30 local, 16:30Z is 2026-06-09 00:30 local. Under UTC both land
+  // on 2026-06-08; under Asia/Taipei they split across two calendar days. This
+  // pins activity_daily's zone bucketing (distinct from repo_metrics, covered
+  // separately), and that `to` anchors to the zoned generatedAt day.
+  const env = buildRangeContract({
+    sources: [source],
+    items: [itemRow({ item_id: 1, updated_at: "2026-06-09T00:00:00Z" })],
+    labels: [],
+    edges: [],
+    activities: [
+      activityRow({ external_id: "before-midnight", occurred_at: "2026-06-08T15:30:00Z" }),
+      activityRow({ external_id: "after-midnight", occurred_at: "2026-06-08T16:30:00Z" }),
+    ],
+    generatedAt: "2026-06-09T12:00:00Z",
+    timezone: "Asia/Taipei",
+    range: { from: "2026-06-08T00:00:00.000Z", to: "2026-06-09T23:59:59.999Z" },
+  });
+  assert.equal(env.activity_daily?.timezone, "Asia/Taipei");
+  assert.equal(env.activity_daily?.total, 2, "both in-range events are counted");
+  assert.equal(env.activity_daily?.to, "2026-06-09", "to anchors to the zoned generatedAt day");
+  assert.deepEqual(
+    env.activity_daily?.days.map((d) => d.date),
+    ["2026-06-08", "2026-06-09"],
+    "events split across the Taipei midnight boundary, not bucketed as one UTC day",
+  );
   assert.deepEqual(validateContract(env), []);
 });
 

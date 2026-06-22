@@ -371,10 +371,13 @@ export interface ActivityDailyBucketDTO {
 // activity history (added in 4.0.0). The Activity Overview (trailing-12-month
 // block, heatmap, by-kind totals, busiest day, active days) reads this instead
 // of the raw `activities[]` feed, which 4.0.0 windows to 30 days. Anchored to
-// the contract `generated_at`: `to` is its calendar day in `timezone`, and the
-// bucket totals reconcile with the full canonical activity set (so the overview
-// numbers are unchanged by the raw-activity windowing). Optional: the static
-// `contract.json` always emits it, but the `/api/range` projection does not.
+// the contract `generated_at`: `to` is its calendar day in `timezone`. Optional,
+// and emitted by BOTH the static `contract.json` and the `/api/range` projection,
+// but the totals are scope-dependent: on `contract.json` they reconcile with the
+// FULL canonical activity set (so the overview numbers are unchanged by the
+// raw-activity windowing); on `/api/range` they reconcile with the in-range
+// `activities[]` the response carries, so a windowed mobile board renders an
+// in-range Activity Overview instead of blank panels.
 export interface ActivityDailyDTO {
   // IANA timezone the days are bucketed in (equals the envelope `timezone`).
   timezone: string;
@@ -383,7 +386,9 @@ export interface ActivityDailyDTO {
   // `to` when there is no activity at all).
   from: string;
   to: string;
-  // Total events across every bucket; reconciles with the full canonical count.
+  // Total events across every bucket. On `contract.json` this reconciles with the
+  // full canonical count; on `/api/range` it reconciles with the in-range
+  // `activities[]` the response carries (see the interface note above).
   total: number;
   // Aggregate per-kind totals across every bucket (== sum of days[].by_kind).
   by_kind: Record<string, number>;
@@ -420,10 +425,11 @@ export interface ContractEnvelope {
   // small synced comment preview. Added in 4.1.0. Optional so older v4 payloads
   // stay readable.
   review_threads?: ReviewThreadDTO[];
-  // Pre-computed per-day / per-kind activity counts over the FULL canonical
-  // activity history (added in 4.0.0), so the Activity Overview no longer needs
-  // the full raw `activities[]`. Optional: the static `contract.json` always
-  // emits it; the `/api/range` projection omits it. Read as `env.activity_daily`.
+  // Pre-computed per-day / per-kind activity counts (added in 4.0.0), so the
+  // Activity Overview no longer needs the full raw `activities[]`. Optional and
+  // emitted by BOTH the static `contract.json` (bucketing the full canonical
+  // history) and the `/api/range` projection (bucketing the in-range
+  // `activities[]`, for a windowed mobile board). Read as `env.activity_daily`.
   activity_daily?: ActivityDailyDTO;
   // Per-repo display metadata (currently: highlight color). Sparse — only
   // configured repos appear. The producer always emits it (possibly empty);

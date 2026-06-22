@@ -16,6 +16,7 @@ import {
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
+import { TIME_RANGE_PRESETS } from "../src/model.ts";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
 // install a tiny in-memory Storage shim and (for the failure paths) a throwing
@@ -133,6 +134,20 @@ test("live metrics disclosure is a device-local setting that is OPEN by default"
   // (the strict !== "true" rule), never throws.
   store._raw("symphony-board:live-pulse-open", "yes");
   assert.equal(loadLivePulseOpen(), false, "non-boolean stored value -> collapsed");
+});
+
+test("boardScopeDays stays in lockstep with the matching TIME_RANGE_PRESETS day counts", () => {
+  // boardScopeDays hand-maps a windowed scope to trailing days; the same day
+  // counts are independently declared by the rolling quick-range presets in
+  // model.ts. The two live in different files, so pin the overlapping ids equal to
+  // catch drift (e.g. tuning a preset's `days`) before it desyncs a windowed fetch
+  // from the matching on-page preset. (1d/3d are board-scope-only — no preset.)
+  const presetDays = (id: string) => TIME_RANGE_PRESETS.find((p) => p.id === id)?.days;
+  assert.equal(boardScopeDays("7d"), presetDays("1w"), "7d window == 1w preset");
+  assert.equal(boardScopeDays("1mo"), presetDays("1mo"));
+  assert.equal(boardScopeDays("3mo"), presetDays("3mo"));
+  assert.equal(boardScopeDays("6mo"), presetDays("6mo"));
+  assert.equal(boardScopeDays("1y"), presetDays("1y"));
 });
 
 test("board scope is a device-local setting with off/window/full semantics", () => {
