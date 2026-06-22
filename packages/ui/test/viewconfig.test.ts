@@ -11,12 +11,13 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
+  isWindowedRangeEnv, boardDisplayRange,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
-import { TIME_RANGE_PRESETS, activeTimeRangePresetId, staticContractTimeRange, windowQuickPreset } from "../src/model.ts";
+import { TIME_RANGE_PRESETS, activeTimeRangePresetId, staticContractTimeRange, timeRangeForPreset, windowQuickPreset } from "../src/model.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
@@ -211,6 +212,75 @@ test("clampDefaultRangeToBoardScope shrinks an oversized default to fit, leaving
   const clamped3d = clampDefaultRangeToBoardScope("3mo", "3d", now);
   assert.equal(clamped3d, "this-week", "largest preset that fits a 3d window on a Monday");
   assert.equal(presetExceedsBoardScope(clamped3d, "3d", now), false, "the clamped default fits the 3d window");
+});
+
+test("clampDefaultRangeToBoardScope keeps today visible when same-span presets tie (3d-window regression)", () => {
+  // A 3d Board window: clamping an oversized default ranks fitting presets by span,
+  // tie-broken by latest end — NOT by earliest start. The earliest-start tie-break
+  // is a bug: when the only fitting named presets are the 1-day "today" and
+  // "yesterday" (same span), earliest-start picks "yesterday", so App opens on
+  // yesterday's overlay and hides today's board items even though "today" fits.
+  // This happens on Sunday and Wednesday–Saturday, when "this week" reaches before
+  // the 3-day window and drops out, leaving only today/yesterday.
+  for (const [label, iso] of [
+    ["Sunday", "2026-06-07T12:00:00Z"],
+    ["Wednesday", "2026-06-10T12:00:00Z"],
+    ["Saturday", "2026-06-13T12:00:00Z"],
+  ] as const) {
+    const day = Date.parse(iso);
+    const clamped = clampDefaultRangeToBoardScope("3mo", "3d", day);
+    assert.notEqual(clamped, "yesterday", `${label}: must not clamp to yesterday and hide today`);
+    const range = timeRangeForPreset(clamped, day);
+    const today = timeRangeForPreset("today", day);
+    assert.equal(range.to, today.to, `${label}: the clamped default still reaches today`);
+    assert.equal(presetExceedsBoardScope(clamped, "3d", day), false, `${label}: the clamped default fits the 3d window`);
+  }
+});
+
+test("boardDisplayRange windows the display only for an actual /api/range env, not an uploaded contract", () => {
+  // staticRange must window the display ONLY when the loaded env is itself a
+  // /api/range projection (it carries range_query). A device whose default board
+  // scope is windowed (Android) can still load a full / uploaded contract.json via
+  // loadFile; that env is NOT a range response, so it must keep its true
+  // item_window extent — otherwise the range control and empty-state extent claim
+  // only the device window is loaded and hide the larger presets the file fills.
+  const now = Date.parse("2026-06-08T12:00:00Z");
+  const baseEnv = {
+    contract_version: "2.0.0",
+    generated_at: "2026-06-08T12:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [],
+    edges: [],
+    item_window: {
+      scope: "boardWindow",
+      window: { kind: "active_since", basis: "item_updated_at", since: "2026-03-10T00:00:00.000Z", days: 90, edge_filter: null },
+      primary_items: 0,
+      edge_endpoint_items: 0,
+      total_items: 0,
+      truncated: false,
+    },
+  } as const;
+
+  // An uploaded / full contract: no range_query. On a windowed device it must keep
+  // its real ~90-day item_window extent, not a synthetic 1mo device window.
+  const uploaded = { ...baseEnv } as unknown as ContractEnvelope;
+  assert.equal(isWindowedRangeEnv(uploaded, "1mo"), false, "an env without range_query is never a windowed range env");
+  assert.deepEqual(boardDisplayRange(uploaded, "1mo", now), staticContractTimeRange(uploaded), "uploaded contract keeps its item_window extent on a windowed device");
+
+  // A genuine /api/range projection: carries range_query. The display is the
+  // synthetic, preset-aligned window (unchanged behavior).
+  const rangeEnv = {
+    ...baseEnv,
+    range_query: { kind: "time_range", timezone: "UTC", from: "2026-05-10", to: "2026-06-08" },
+  } as unknown as ContractEnvelope;
+  assert.equal(isWindowedRangeEnv(rangeEnv, "1mo"), true, "an env with range_query on a windowed scope IS a windowed range env");
+  assert.deepEqual(boardDisplayRange(rangeEnv, "1mo", now), boardWindowRange("1mo", now), "a range env keeps the preset-aligned synthetic window");
+
+  // Unwindowed scopes never window the display, range_query or not.
+  assert.equal(isWindowedRangeEnv(rangeEnv, "full"), false, "full scope is never windowed");
+  assert.equal(isWindowedRangeEnv(rangeEnv, "off"), false, "off scope is never windowed");
+  assert.deepEqual(boardDisplayRange(rangeEnv, "full", now), staticContractTimeRange(rangeEnv), "full scope keeps the item_window extent");
 });
 
 test("boardWindowRange pins the loaded window to the contract clock so it lines up with its named preset (mobile windowed-range regression)", () => {
