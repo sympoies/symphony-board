@@ -150,6 +150,47 @@ test("fetchLiveSnapshot does not retry a parse error on a settled body", async (
   assert.equal(sleeps.length, 0);
 });
 
+// A body read that DROPS mid-stream (connection cut before the 12s abort fires)
+// rejects with a network error, NOT a SyntaxError, and the per-attempt signal is
+// not yet aborted. That interrupted read is transient — exactly like a thrown
+// fetch — and must be RETRIED, mirroring loadContractAttempt's rule. The old
+// `transient: signal.aborted` mis-classified this as definitive and stranded a
+// cold-start blip on "unavailable".
+test("fetchLiveSnapshot retries a dropped (non-SyntaxError) body read before the abort fires", async () => {
+  let calls = 0;
+  const sleeps: number[] = [];
+  globalThis.fetch = ((_url: string, _init?: RequestInit) => {
+    calls += 1;
+    if (calls < 2) {
+      // headers arrived (200, ok), then the connection drops mid-body: json()
+      // rejects with a network error while the abort signal is NOT yet aborted.
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new TypeError("network connection lost mid-body");
+        },
+      } as unknown as Response);
+    }
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ schema: "live-snapshot/1", events: [{ seq: 1 }], max_seq: 1, generated_at: "x" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }) as typeof fetch;
+  const snap = await fetchLiveSnapshot(null, undefined, undefined, {
+    retries: 3,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
+  });
+  assert.ok(snap, "the dropped body read is transient -> the retry recovers the snapshot");
+  assert.equal(snap?.max_seq, 1);
+  assert.equal(calls, 2, "one dropped-body failure + one success");
+  assert.equal(sleeps.length, 1, "one backoff between the dropped read and the retry");
+});
+
 // fetchLiveSnapshotResult exposes WHY a probe failed so the cold-start seed can
 // tell a retriable cold-link blip from a deployment that simply has no receiver.
 test("fetchLiveSnapshotResult classifies transient vs definitive failures", async () => {

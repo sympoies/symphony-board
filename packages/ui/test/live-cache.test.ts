@@ -1,6 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
+  clearCachedLiveSnapshot,
   loadCachedLiveSnapshot,
   saveCachedLiveSnapshot,
   LIVE_SNAPSHOT_CACHE_MAX_EVENTS,
@@ -102,4 +103,21 @@ test("saving never throws when storage is unavailable", () => {
   (globalThis as { localStorage?: unknown }).localStorage = undefined;
   assert.doesNotThrow(() => saveCachedLiveSnapshot("https://srv", [ev(1)], 1, 0));
   assert.equal(loadCachedLiveSnapshot("https://srv", 0), null);
+});
+
+// When the FIRST authoritative snapshot is empty, the persist effect early-returns
+// on empty (it never writes an empty entry), so a prior non-empty cache entry would
+// otherwise survive and resurface pruned events every cold start until the TTL.
+// clearCachedLiveSnapshot removes the entry so an empty authoritative snapshot
+// clears the stale cache.
+test("clearCachedLiveSnapshot removes a prior entry so an empty snapshot clears stale rows", () => {
+  saveCachedLiveSnapshot("https://srv", [ev(3), ev(2), ev(1)], 3, 0);
+  assert.ok(loadCachedLiveSnapshot("https://srv", 0), "precondition: the cache holds the stale rows");
+  clearCachedLiveSnapshot();
+  assert.equal(loadCachedLiveSnapshot("https://srv", 0), null, "the stale entry is gone -> next cold start has no rows to resurface");
+});
+
+test("clearCachedLiveSnapshot never throws when storage is unavailable", () => {
+  (globalThis as { localStorage?: unknown }).localStorage = undefined;
+  assert.doesNotThrow(() => clearCachedLiveSnapshot());
 });

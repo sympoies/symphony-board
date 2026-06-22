@@ -16,7 +16,7 @@ import {
   LIVE_SNAPSHOT_PROBE_RETRIES,
   type LiveSnapshotFetchResult,
 } from "./contract.ts";
-import { loadCachedLiveSnapshot, saveCachedLiveSnapshot } from "./live-cache.ts";
+import { clearCachedLiveSnapshot, loadCachedLiveSnapshot, saveCachedLiveSnapshot } from "./live-cache.ts";
 import { LIVE_EVENT_BUFFER_LIMIT, LIVE_SEED_LIMIT } from "./live-config.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
@@ -262,6 +262,24 @@ export function resolveProbeFailure(opts: { everOpened: boolean; transient: bool
   return opts.transient ? "keep-connecting" : "unavailable";
 }
 
+// The EventSource readyState that means the browser has stopped reconnecting. A
+// pre-open `onerror` while still CONNECTING (0) is the browser auto-retrying; only
+// CLOSED (2) means it gave up. (Numeric literal so the module loads under test
+// runtimes that don't define a global EventSource.)
+const EVENT_SOURCE_CLOSED = 2;
+
+// What a FAILED EventSource `onerror` means for the connection tri-state — the SSE
+// analogue of resolveProbeFailure. EventSource has no transient flag, but its
+// readyState carries the same signal: CONNECTING (0) = the browser is auto-
+// reconnecting (transient -> keep "Connecting…" before the first open), CLOSED (2)
+// = it gave up (definitive -> unavailable). After a prior open, any error is a
+// reconnect. This is the cold-start fix for the SSE path: a pre-open blip that the
+// browser is already retrying must NOT latch `connected=false` and bounce a Live
+// deploy — it stays null until the retry opens or the browser closes for good.
+export function resolveSseError(opts: { everOpened: boolean; readyState: number }): ProbeFailureAction {
+  return resolveProbeFailure({ everOpened: opts.everOpened, transient: opts.readyState !== EVENT_SOURCE_CLOSED });
+}
+
 export type SnapshotFold =
   // The FIRST authoritative snapshot after a provisional stale-cache seed:
   // REPLACE the cached rows wholesale so a cached row the server no longer returns
@@ -407,17 +425,38 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       });
       seededFromCache.current = false;
       lastSeq.current = fold.cursor;
-      if (fold.kind === "replace") setEvents(fold.events);
-      else setEvents((prev) => appendCapped(fold.reset ? [] : prev, fold.ingest, LIVE_EVENT_BUFFER_LIMIT));
+      if (fold.kind === "replace") {
+        // The FIRST authoritative snapshot REPLACES the provisional cache seed. If
+        // it is EMPTY, the persist effect below early-returns on the empty buffer
+        // and never overwrites the cache — so a prior non-empty entry would survive
+        // and resurface pruned rows on every cold start until the 24h TTL. Clear it
+        // explicitly so an empty authoritative state clears the stale cache. A
+        // non-empty replace keeps the existing behavior (the persist effect rewrites
+        // the cache with the fresh rows).
+        if (fold.events.length === 0) clearCachedLiveSnapshot();
+        setEvents(fold.events);
+      } else {
+        setEvents((prev) => appendCapped(fold.reset ? [] : prev, fold.ingest, LIVE_EVENT_BUFFER_LIMIT));
+      }
     };
 
-    // Apply a FAILED probe's meaning to the connection state (see
+    // Apply a resolved failure action to the connection state. "reconnecting" ->
+    // show the reconnect badge (a drop after a prior open); "unavailable" ->
+    // resolve false (no receiver — hides the tab / bounces #/live); "keep-
+    // connecting" -> leave `connected` at null so the cold-start retry can recover
+    // (the regression fix). Shared by the probe (snapshot/poll), prewarm, and SSE
+    // pre-open paths so none of them invents its own classification.
+    const applyFailureAction = (action: ProbeFailureAction): void => {
+      if (action === "reconnecting") setReconnecting(true);
+      else if (action === "unavailable") setConnected(false);
+      // "keep-connecting" is intentionally a no-op: `connected` stays null.
+    };
+
+    // Apply a FAILED snapshot/poll probe's meaning to the connection state (see
     // resolveProbeFailure): a transient cold-start failure keeps "Connecting…" so
     // the loop can recover; a definitive failure resolves to unavailable.
     const applyProbeFailure = (transient: boolean): void => {
-      const action = resolveProbeFailure({ everOpened: everOpened.current, transient });
-      if (action === "reconnecting") setReconnecting(true);
-      else if (action === "unavailable") setConnected(false);
+      applyFailureAction(resolveProbeFailure({ everOpened: everOpened.current, transient }));
     };
 
     const ingest = (incoming: LiveEvent[]): void => {
@@ -506,9 +545,12 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       es.onerror = () => {
         if (cancelled) return;
         // A drop after a successful open is a transient reconnect (EventSource
-        // retries on its own); only a stream that NEVER opened is unavailable.
-        if (everOpened.current) setReconnecting(true);
-        else setConnected(false);
+        // retries on its own). Before the first open, classify by readyState (see
+        // resolveSseError): a pre-open error while the browser is still CONNECTING
+        // is transient — keep `connected` at null and let EventSource auto-
+        // reconnect — so a cold-start blip does NOT latch unavailable and bounce a
+        // Live deploy; only a CLOSED stream (the browser gave up) is unavailable.
+        applyFailureAction(resolveSseError({ everOpened: everOpened.current, readyState: es.readyState }));
       };
     };
 
@@ -547,12 +589,12 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       const seed = await seedSnapshot();
       if (cancelled) return;
       if (mode === "snapshot") {
-        // Prewarm is a one-shot probe (no retry loop). It is inactive, so a failure
-        // never bounces — it only leaves the tab hidden until the next re-probe.
-        if (!seed.snapshot) {
-          if (everOpened.current) setReconnecting(true);
-          else setConnected(false);
-        }
+        // Prewarm is a one-shot probe (no retry loop here). A TRANSIENT failure must
+        // stay "Connecting…" (resolves null), NOT latch unavailable — otherwise a
+        // cold-start blip hides the Live tab for the whole session until the next
+        // re-probe. Only a DEFINITIVE failure (no receiver) resolves unavailable.
+        // Shares the SAME classification as the poll path (applyProbeFailure).
+        if (!seed.snapshot) applyProbeFailure(seed.transientFailure);
         return;
       }
       if (transportKind === "sse") {

@@ -18,6 +18,7 @@ import {
   planLiveConnection,
   planSnapshotFold,
   resolveProbeFailure,
+  resolveSseError,
   reconcileReset,
   parseResetEvent,
 } from "../src/useLive.ts";
@@ -152,6 +153,60 @@ test("resolveProbeFailure keeps a transient cold-start failure connecting, not u
     resolveProbeFailure({ everOpened: true, transient: false }),
     "reconnecting",
     "even a definitive failure after a prior open is a reconnect, not a fresh unavailable",
+  );
+});
+
+// The inactive PREWARM seed (planLiveConnection -> "snapshot") shares the SAME
+// failure classification as the active poll path: a TRANSIENT prewarm failure must
+// stay "Connecting…" (resolves null, NOT false) so a cold-start blip does not latch
+// the Live tab hidden for the whole session; only a DEFINITIVE failure resolves
+// unavailable. The prewarm branch routes its seed.transientFailure through
+// resolveProbeFailure (via applyProbeFailure) exactly like the poll branch, so the
+// pure decision below is the single source of truth both paths consume.
+test("a transient prewarm failure stays connecting (null), a definitive one is unavailable", () => {
+  // Prewarm runs before any open (everOpened === false), so its decision is read
+  // off the transient flag alone — identical to the poll path's first probe.
+  assert.equal(
+    resolveProbeFailure({ everOpened: false, transient: true }),
+    "keep-connecting",
+    "a transient prewarm failure must NOT latch connected=false (would hide the tab for the session)",
+  );
+  assert.equal(
+    resolveProbeFailure({ everOpened: false, transient: false }),
+    "unavailable",
+    "a definitive prewarm failure (no receiver) still resolves unavailable",
+  );
+});
+
+// An EventSource `onerror` that fires BEFORE the first `onopen` must not latch
+// `connected=false` (which hides the Live tab and bounces a stale #/live) on a
+// transient pre-open blip. EventSource auto-reconnects while readyState is
+// CONNECTING (0), so a pre-open error there is transient -> stay "Connecting…"
+// (null). Only a CLOSED (2) readyState — the browser gave up — is a definitive
+// pre-open failure that resolves unavailable. After a prior open, any error is a
+// reconnect, never a fresh unavailable. Mirrors resolveProbeFailure / the poll path.
+test("resolveSseError keeps a transient pre-open SSE error connecting, not unavailable", () => {
+  const CONNECTING = 0;
+  const CLOSED = 2;
+  assert.equal(
+    resolveSseError({ everOpened: false, readyState: CONNECTING }),
+    "keep-connecting",
+    "pre-open error while the browser is still auto-reconnecting -> stay Connecting (null)",
+  );
+  assert.equal(
+    resolveSseError({ everOpened: false, readyState: CLOSED }),
+    "unavailable",
+    "pre-open error with the connection CLOSED (browser gave up) -> unavailable",
+  );
+  assert.equal(
+    resolveSseError({ everOpened: true, readyState: CONNECTING }),
+    "reconnecting",
+    "a drop after a successful open is a transient reconnect, never unavailable",
+  );
+  assert.equal(
+    resolveSseError({ everOpened: true, readyState: CLOSED }),
+    "reconnecting",
+    "even a closed connection after a prior open is a reconnect, not a fresh unavailable",
   );
 });
 

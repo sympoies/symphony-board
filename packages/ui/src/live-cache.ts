@@ -94,3 +94,17 @@ export function saveCachedLiveSnapshot(
     /* storage unavailable / over quota — the cache just won't persist this time */
   }
 }
+
+// Drop the cached snapshot entirely. The persist effect early-returns on an empty
+// buffer (it never writes an empty entry), so without an explicit removal a prior
+// non-empty entry would survive and resurface pruned events on every cold start
+// until the TTL expires. When the FIRST authoritative snapshot is empty, the hook
+// calls this so an empty authoritative state clears the stale cache instead of
+// painting yesterday's rows. Silent on any failure, like the writers above.
+export function clearCachedLiveSnapshot(): void {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+  } catch {
+    /* storage unavailable — nothing to clear */
+  }
+}
