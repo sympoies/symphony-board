@@ -1164,6 +1164,44 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(mr1men[0]!.to.externalId, "gid:MR1");
 });
 
+test("GitLab resolve pass overlaps per-item round-trips up to the concurrency bound", async () => {
+  const prev = process.env.SYNC_RESOLVE_CONCURRENCY;
+  process.env.SYNC_RESOLVE_CONCURRENCY = "2";
+  try {
+    const N = 6;
+    let inFlight = 0;
+    let peak = 0;
+    const issues = Array.from({ length: N }, (_, i) => glNode(`gid:I${i}`, String(i)));
+    const trackingGql: GqlClient = (async (query: string) => {
+      if (query.includes("mergeRequests(")) {
+        return { project: { mergeRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+      }
+      if (query.includes("issues(")) {
+        return { project: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: issues } } };
+      }
+      if (query.includes("issue(iid")) {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await Promise.resolve();
+        await Promise.resolve();
+        inFlight--;
+        return { project: { issue: { relatedMergeRequests: { nodes: [] }, notes: { nodes: [] } } } };
+      }
+      return {};
+    }) as GqlClient;
+    const src = new GitLabSource(GL_DESC, trackingGql, ["g/p"]);
+    const res = await src.fetch({ since: null, full: true });
+    assert.equal(res.complete, true);
+    assert.equal(res.records.length, N, "every collected item still produces exactly one record");
+    assert.deepEqual(res.records.map((r) => r.externalId), issues.map((n) => n.id), "records stay in collected (input) order");
+    assert.ok(peak > 1, `expected real overlap, peak in-flight was ${peak}`);
+    assert.ok(peak <= 2, `peak in-flight ${peak} exceeded the configured bound 2`);
+  } finally {
+    if (prev === undefined) delete process.env.SYNC_RESOLVE_CONCURRENCY;
+    else process.env.SYNC_RESOLVE_CONCURRENCY = prev;
+  }
+});
+
 test("GitLab: MR approvers normalize into approved review activities", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {

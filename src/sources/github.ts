@@ -22,6 +22,7 @@ import { deriveActorKey } from "../model/actor.ts";
 import { providerPushUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
+import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
 import { log } from "../log.ts";
 
 const API_VERSION = "github.graphql.v4";
@@ -229,41 +230,52 @@ export class GitHubSource implements Source {
   }
 
   async fetchRefresh(candidates: RefreshCandidate[], _opts: FetchOptions): Promise<FetchResult> {
-    const records: RawRecord[] = [];
     const now = new Date().toISOString();
     const configuredProjects = new Set(this.projects);
+    // Filter + dedupe first (cheap, pure), then resolve the survivors at a
+    // bounded concurrency — each is an independent per-PR round-trip.
     const seen = new Set<string>();
-    let complete = true;
-    let firstError: string | null = null;
-
-    for (const candidate of candidates) {
-      if (!configuredProjects.has(candidate.projectPath)) continue;
+    const targets = candidates.filter((candidate) => {
+      if (!configuredProjects.has(candidate.projectPath)) return false;
       const key = `${candidate.projectPath}#${candidate.iid}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) return false;
       seen.add(key);
-
       const [owner, name] = candidate.projectPath.split("/");
-      if (!owner || !name) continue;
+      return Boolean(owner && name);
+    });
+
+    const results = await mapWithConcurrency(targets, resolveConcurrency(), async (candidate) => {
+      const [owner, name] = candidate.projectPath.split("/");
       const { gql } = this.clientsFor(candidate.projectPath);
       try {
         const data: any = await gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.iid });
         const node = data?.repository?.pullRequest;
-        if (!node) continue;
+        if (!node) return { record: null as RawRecord | null, error: null as string | null };
         const payload = JSON.stringify(node);
-        records.push({
+        const record: RawRecord = {
           entityKind: "change_request",
           externalId: node.id,
           apiVersion: API_VERSION,
           fetchedAt: now,
           payload: node,
           contentHash: hash(payload),
-        });
+        };
+        return { record, error: null as string | null };
       } catch (err) {
-        complete = false;
-        firstError ??= `${candidate.projectPath} #${candidate.iid} ci refresh: ${(err as Error).message}`;
+        return { record: null as RawRecord | null, error: `${candidate.projectPath} #${candidate.iid} ci refresh: ${(err as Error).message}` };
       }
-    }
+    });
 
+    const records: RawRecord[] = [];
+    let complete = true;
+    let firstError: string | null = null;
+    for (const r of results) {
+      if (r.error) {
+        complete = false;
+        firstError ??= r.error;
+      }
+      if (r.record) records.push(r.record);
+    }
     return { records, watermark: null, complete, error: firstError };
   }
 
