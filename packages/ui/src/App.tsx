@@ -318,11 +318,12 @@ export function App() {
     () => (env ? (boardScopeWindowed ? boardWindowRange(boardScope, generatedNowMs, tz) : staticContractTimeRange(env)) : null),
     [env, boardScopeWindowed, boardScope, generatedNowMs, tz],
   );
-  // True data extents for the UNWINDOWED Activity / Commits feeds (staticRange is
-  // only the 90-day item window, so it would understate older history and make
-  // "Show all" / the extent copy overpromise). Board / Graph / Repo stay on
-  // staticRange since their data is item-windowed. Fall back to staticRange when
-  // there are no activities to measure.
+  // True data extents for the UNWINDOWED Activity / Commits feeds. staticRange is
+  // a bounded window — the generated_at rolling window for a windowed scope, or the
+  // item_window extent (≤ ~90 days) for full/off — so it would understate older
+  // history and make "Show all" / the extent copy overpromise. Board / Graph / Repo
+  // stay on staticRange since their data is window-bounded. Fall back to staticRange
+  // when there are no activities to measure.
   // Measure the true activity span from activity_daily (full history) rather than
   // the raw activities[] feed, which 4.0.0 windows to 30 days — otherwise
   // "Show all" / the extent copy would understate older history. Fall back to the
