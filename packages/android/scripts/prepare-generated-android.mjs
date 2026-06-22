@@ -63,6 +63,15 @@ class MainActivity : TauriActivity() {
         super.onWebViewCreate(webView)
         webView.addJavascriptInterface(SafeAreaBridge(), "symphonyAndroidInsets")
 
+        // Honor a fixed-width viewport meta (width=N) and scale it to fit the screen.
+        // With the default width=device-width meta this is a no-op (the normal
+        // responsive phone layout is unchanged); it lets the "Wide layout" setting
+        // force a desktop-width viewport so a large e-reader renders the desktop
+        // layout the CSS breakpoints gate on instead of the phone layout it falls
+        // into at its small native device-width.
+        webView.settings.useWideViewPort = true
+        webView.settings.loadWithOverviewMode = true
+
         // Listen on the decor view, not the WebView. Inside wry's view hierarchy the
         // WebView is not reliably in the window-inset dispatch path, so a listener on
         // it never observed a non-zero status-bar inset and the page kept drawing

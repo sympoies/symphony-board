@@ -4,6 +4,8 @@ import {
   applyAndroidSafeAreaInsets,
   internalRouteHashFromHref,
   shouldOpenExternalHttpHref,
+  wideViewportContent,
+  WIDE_VIEWPORT_WIDTH,
 } from "../src/runtime.ts";
 
 // The desktop cold-start landing decision now lives in `startupRouteHash`
@@ -51,4 +53,16 @@ test("Android safe-area bridge writes CSS inset variables", () => {
   assert.equal(style.get("--android-safe-area-bottom"), "16.00px");
   assert.equal(style.get("--android-safe-area-left"), "0.00px");
   assert.equal(doc.documentElement.dataset.androidSystemInsets, "true");
+});
+
+test("wideViewportContent forces a desktop width only for the Android client with wide layout on", () => {
+  // The gate: only the Android client, and only when the user turned wide layout
+  // on, gets a fixed desktop-width viewport. Everything else keeps the responsive
+  // default (null) — the browser and desktop shell must stay resizable, and the
+  // default Android layout stays the responsive phone layout.
+  assert.equal(wideViewportContent(true, "android"), `width=${WIDE_VIEWPORT_WIDTH}`);
+  assert.equal(wideViewportContent(false, "android"), null, "wide off -> responsive default");
+  assert.equal(wideViewportContent(true, "desktop"), null, "desktop shell stays resizable");
+  assert.equal(wideViewportContent(true, null), null, "web (no client kind) stays responsive");
+  assert.ok(WIDE_VIEWPORT_WIDTH >= 1451, "the forced width must reach the full-desktop CSS breakpoint");
 });

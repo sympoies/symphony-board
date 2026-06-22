@@ -24,6 +24,8 @@ import {
   isDefaultTab,
   BOARD_SCOPE_VALUES,
   isBoardScope,
+  currentClientKind,
+  ANDROID_CLIENT_KIND,
   type BoardScope,
   type ViewTheme,
 } from "../viewconfig.ts";
@@ -46,6 +48,8 @@ interface Props {
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
   boardScope: BoardScope; // how much of the contract this device loads (off / window / full)
   onBoardScope: (scope: BoardScope) => void;
+  wideLayout: boolean; // force the wide (desktop) layout on this device (Android app only)
+  onWideLayout: (wide: boolean) => void;
   theme: ViewTheme;
   onTheme: (theme: ViewTheme) => void;
   livePreviewLines: number; // lines of an event body the Live feed shows before clamping
@@ -121,6 +125,8 @@ export function SettingsPage({
   onDefaultRangePreset,
   boardScope,
   onBoardScope,
+  wideLayout,
+  onWideLayout,
   theme,
   onTheme,
   livePreviewLines,
@@ -141,6 +147,9 @@ export function SettingsPage({
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
   const sourceMeta = new Map(sources.map((s) => [s.source_id, s]));
+  // The wide-layout toggle only does anything in the Android WebView (the browser
+  // and desktop shell are freely resizable), so it is shown only there.
+  const isAndroid = currentClientKind() === ANDROID_CLIENT_KIND;
 
   // Group repos by source, preserving deriveRepos' (source, path) ordering.
   const bySource = new Map<string, RepoOption[]>();
@@ -203,6 +212,26 @@ export function SettingsPage({
           ))}
         </select>
       </div>
+
+      {isAndroid ? (
+        <div className="settings-pref">
+          <div>
+            <h3>Wide layout</h3>
+            <p className="muted">
+              Render the full desktop layout instead of the phone layout — for a large screen such as
+              an e-reader. Leave off on a phone. Saved on this device only.
+            </p>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={wideLayout}
+              onChange={(e) => onWideLayout(e.target.checked)}
+              aria-label="Use the wide desktop layout"
+            />
+          </label>
+        </div>
+      ) : null}
 
       <div className="settings-pref">
         <div>

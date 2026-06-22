@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContract, fetchRangeContractWithMetadata, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
+import { applyWideViewport } from "./runtime.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
   emptyFilters,
@@ -89,6 +90,9 @@ import {
   loadBoardScope,
   saveBoardScope,
   boardScopeDays,
+  loadWideLayout,
+  saveWideLayout,
+  currentClientKind,
   loadHiddenEventTypes,
   saveHiddenEventTypes,
   loadDefaultTab,
@@ -207,6 +211,10 @@ export function App() {
   // WebView does not OOM), or "full" (./contract.json). Device-local; Android
   // defaults to "7d", desktop/web to "full". Drives the init load below.
   const [boardScope, setBoardScope] = useState<BoardScope>(loadBoardScope);
+  // Force the wide (desktop) layout on this device (Android WebView only). Persisted
+  // device-local; main.tsx applies it before mount, and the effect below re-applies
+  // it when toggled at runtime so the layout flips without an app restart.
+  const [wideLayout, setWideLayout] = useState<boolean>(loadWideLayout);
   const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<string>>(loadHiddenEventTypes);
   const [defaultTab, setDefaultTab] = useState<Page>(loadDefaultTab);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
@@ -501,6 +509,12 @@ export function App() {
   useEffect(() => {
     saveBoardScope(boardScope);
   }, [boardScope]);
+  // Persist + re-apply the wide-layout preference. useLayoutEffect so the viewport
+  // change lands before the browser paints the toggled layout. A no-op off Android.
+  useLayoutEffect(() => {
+    saveWideLayout(wideLayout);
+    applyWideViewport(wideLayout, currentClientKind());
+  }, [wideLayout]);
   useEffect(() => {
     saveHiddenEventTypes(hiddenEventTypes);
   }, [hiddenEventTypes]);
@@ -1405,6 +1419,8 @@ export function App() {
       onDefaultRangePreset={setDefaultRangePreset}
       boardScope={boardScope}
       onBoardScope={setBoardScope}
+      wideLayout={wideLayout}
+      onWideLayout={setWideLayout}
       theme={theme}
       onTheme={setTheme}
       livePreviewLines={livePreviewLines}

@@ -36,6 +36,12 @@ const LIVE_PULSE_OPEN_KEY = "symphony-board:live-pulse-open";
 // without a hash). Device-local, like the theme.
 const DEFAULT_TAB_KEY = "symphony-board:default-tab";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
+// Whether THIS device forces the wide (desktop) layout. A large e-reader can host
+// the desktop multi-column layout the CSS breakpoints gate on, but reports a small
+// device-width and so falls into the phone layout; turning this on sets a fixed
+// desktop-width viewport (Android WebView only — see runtime.applyWideViewport).
+// Device-local, like the theme. Off by default.
+const WIDE_LAYOUT_KEY = "symphony-board:wide-layout";
 // How much of the board contract this device loads. The full ~90-day contract can
 // be tens of MB decoded and OOM a weak WebView (an e-ink Android tablet), so a
 // device may load only a recent time window via /api/range, or skip the contract
@@ -276,6 +282,27 @@ export function loadBoardScope(): BoardScope {
 export function saveBoardScope(scope: BoardScope): void {
   try {
     localStorage.setItem(BOARD_SCOPE_KEY, scope);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// Force the wide (desktop) layout on this device. Off by default — only an exact
+// stored "true" turns it on, so a missing / hand-edited value reads as off (the
+// normal responsive layout). Device-local, like the theme.
+export const DEFAULT_WIDE_LAYOUT = false;
+
+export function loadWideLayout(): boolean {
+  try {
+    return localStorage.getItem(WIDE_LAYOUT_KEY) === "true";
+  } catch {
+    return DEFAULT_WIDE_LAYOUT;
+  }
+}
+
+export function saveWideLayout(wide: boolean): void {
+  try {
+    localStorage.setItem(WIDE_LAYOUT_KEY, wide ? "true" : "false");
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

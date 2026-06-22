@@ -11,6 +11,7 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope,
+  loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
@@ -161,6 +162,17 @@ test("board scope is a device-local setting with off/window/full semantics", () 
   assert.equal(loadBoardScope(), "full", "invalid stored value -> default");
 });
 
+test("wide layout is a device-local setting that is OFF by default", () => {
+  assert.equal(loadWideLayout(), false, "default: responsive layout (no stored value)");
+  saveWideLayout(true);
+  assert.equal(loadWideLayout(), true, "an explicit wide-layout choice is remembered across reopens");
+  saveWideLayout(false);
+  assert.equal(loadWideLayout(), false);
+  // Only the exact string "true" enables it, so a stale / hand-edited value reads as off.
+  store._raw("symphony-board:wide-layout", "yes");
+  assert.equal(loadWideLayout(), false, "non-boolean stored value -> off");
+});
+
 test("hidden event types round-trip and default to nothing hidden (all visible)", () => {
   assert.deepEqual([...loadHiddenEventTypes()], [], "default: no category hidden");
   saveHiddenEventTypes(new Set(["commit", "pipeline"]));
@@ -210,11 +222,13 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
   assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
   assert.equal(loadBoardScope(), "full", "board scope load degrades to the full default");
+  assert.equal(loadWideLayout(), false, "wide layout load degrades to off");
   assert.deepEqual([...loadHiddenEventTypes()], [], "hidden event types degrade to empty");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveLiveTabEnabled(true));
   assert.doesNotThrow(() => saveLivePulseOpen(false));
   assert.doesNotThrow(() => saveBoardScope("7d"));
+  assert.doesNotThrow(() => saveWideLayout(true));
   assert.doesNotThrow(() => saveHiddenEventTypes(new Set(["commit"])));
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
   assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));

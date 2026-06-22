@@ -57,6 +57,41 @@ export function installAndroidSafeAreaInsets(): void {
   document.addEventListener("visibilitychange", apply);
 }
 
+// --- wide (desktop) layout for the Android app --------------------------------
+// A large e-reader can host the desktop multi-column layout the CSS breakpoints
+// gate on, but reports a small device-width and so falls into the phone layout.
+// The user can turn on a per-device "Wide layout" setting that forces a fixed
+// desktop-width viewport — but ONLY in the Android WebView: the browser and the
+// desktop shell are freely resizable and must keep the responsive
+// width=device-width meta. The fixed width is >= the full-desktop breakpoint
+// (1451px in styles.css). The native shell sets useWideViewPort +
+// loadWithOverviewMode so the WebView honors this width and scales it to fit.
+export const WIDE_VIEWPORT_WIDTH = 1500;
+
+// The viewport `content` to apply for a layout preference + client, or null to
+// keep the responsive default. Only the Android client with wide layout ON gets a
+// fixed width; every other combination returns null. Pure + unit-tested so the
+// gate cannot silently leak onto the browser / desktop / default Android layout.
+// (Compares against "android" — the value of viewconfig.ANDROID_CLIENT_KIND, not
+// imported here to avoid a viewconfig <-> runtime import cycle.)
+export function wideViewportContent(wide: boolean, clientKind: string | null): string | null {
+  if (!wide || clientKind !== "android") return null;
+  return `width=${WIDE_VIEWPORT_WIDTH}`;
+}
+
+// Apply the wide-layout preference to the document's viewport meta. A no-op on the
+// browser and desktop shell (they keep the responsive index.html meta); on Android
+// it sets the fixed desktop width when ON and restores width=device-width when OFF,
+// so toggling the setting flips the layout without an app restart.
+export function applyWideViewport(wide: boolean, clientKind: string | null, targetWindow: Window = window): void {
+  if (clientKind !== "android" || typeof targetWindow === "undefined") return;
+  const meta = targetWindow.document?.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  meta.setAttribute("content", wideViewportContent(wide, clientKind) ?? "width=device-width, initial-scale=1.0");
+  if (wide) targetWindow.document.documentElement.dataset.wideViewport = "true";
+  else targetWindow.document.documentElement.removeAttribute("data-wide-viewport");
+}
+
 function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
