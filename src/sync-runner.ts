@@ -9,7 +9,7 @@
 // contract, and a failed run must never present stale derived data as fresh.
 
 import type { AppConfig, SourceConfig } from "./config.ts";
-import { sourceEnabled, tokensForSource } from "./config.ts";
+import { projectPaths, sourceEnabled, sourceTokenEnvNames, tokensForProject, tokensForSource } from "./config.ts";
 import type { Store } from "./db/store.ts";
 import { openConfiguredStore } from "./db/factory.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
@@ -215,13 +215,17 @@ export async function runConfiguredSync(
       continue;
     }
     const tokens = tokensForSource(sc);
-    if (tokens.length === 0) {
-      const envNames = [sc.token_env, ...(sc.fallback_token_envs ?? [])].join(", ");
+    const projectTokens = sc.kind === "github"
+      ? new Map(projectPaths(sc).map((projectPath) => [projectPath, tokensForProject(sc, projectPath)]))
+      : new Map<string, ReturnType<typeof tokensForProject>>();
+    const hasAnyTokens = tokens.length > 0 || (sc.kind === "github" && [...projectTokens.values()].some((projectTokenSet) => projectTokenSet.length > 0));
+    if (!hasAnyTokens) {
+      const envNames = sourceTokenEnvNames(sc).join(", ");
       log.warn(`skip ${sc.source_id}: none of token envs [${envNames}] are set`);
       skipped.push(sc.source_id);
       continue;
     }
-    prepared.push({ config: sc, source: buildSource(sc, tokens) });
+    prepared.push({ config: sc, source: buildSource(sc, tokens, projectTokens) });
   }
 
   const store = await openStore(cfg);

@@ -7,9 +7,14 @@ import { dirname, resolve } from "node:path";
 import { isValidTimezone } from "./lib/tz.ts";
 
 // A project entry is either a bare "owner/name" path or an object that also
-// carries a per-repo highlight color. Most stay bare strings; only the few
-// repos worth highlighting take the object form.
-export type ProjectConfig = string | { path: string; color?: string };
+// carries per-repo metadata. Most stay bare strings; only the few repos worth
+// highlighting or routing to a named token pool take the object form.
+export type ProjectConfig = string | { path: string; color?: string; token_pool?: string };
+
+export interface TokenPoolConfig {
+  token_env: string;
+  fallback_token_envs?: string[];
+}
 
 export interface SourceConfig {
   source_id: string;
@@ -23,11 +28,15 @@ export interface SourceConfig {
   // own inherits it; resolution (override -> repo -> source) lives in the
   // consumer. Display-only metadata — never stored in the DB.
   color?: string;
-  token_env: string; // name of the env var holding the PAT
+  token_env: string; // name of the env var holding the default PAT
   // Optional fallback PAT env vars. The primary token_env is tried first; these
   // are only used when the provider clearly reports a primary rate-limit
   // exhaustion for the current token.
   fallback_token_envs?: string[];
+  // Optional named token pools. A project object may set `token_pool` to route
+  // just that repo through a different primary/fallback env-var set; omitted
+  // projects keep using token_env + fallback_token_envs.
+  token_pools?: Record<string, TokenPoolConfig>;
   graphql_url: string;
   // Optional REST base URL. Defaults by provider/host when omitted; used for
   // activity surfaces such as commits and project/repository events.
@@ -100,6 +109,44 @@ const DEFAULT_PATH = "config/sources.json";
 // emits and keeps the contract's repo/source color a plain hex string.
 const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function tokenEnvNamesFromPool(pool: TokenPoolConfig): string[] {
+  return [pool.token_env, ...(pool.fallback_token_envs ?? [])].filter((env) => env.trim().length > 0);
+}
+
+function validateTokenPool(pool: unknown, poolLabel: string, errors: string[]): void {
+  if (!isPlainObject(pool)) {
+    errors.push(`${poolLabel} must be an object`);
+    return;
+  }
+  if (typeof pool.token_env !== "string" || pool.token_env.trim().length === 0) {
+    errors.push(`${poolLabel} missing "token_env"`);
+  }
+  if (pool.fallback_token_envs !== undefined) {
+    if (!Array.isArray(pool.fallback_token_envs)) {
+      errors.push(`${poolLabel} fallback_token_envs must be an array when set`);
+    } else {
+      const seenTokenEnvNames = new Set<string>();
+      if (typeof pool.token_env === "string") seenTokenEnvNames.add(pool.token_env.trim());
+      for (const envName of pool.fallback_token_envs) {
+        if (typeof envName !== "string" || envName.trim().length === 0) {
+          errors.push(`${poolLabel} fallback_token_envs entries must be non-empty strings`);
+          continue;
+        }
+        const trimmed = envName.trim();
+        if (seenTokenEnvNames.has(trimmed)) {
+          errors.push(`${poolLabel} fallback_token_envs must not repeat token_env or another fallback token env`);
+          continue;
+        }
+        seenTokenEnvNames.add(trimmed);
+      }
+    }
+  }
+}
+
 // The path loadConfig would read and the config control plane writes: explicit
 // argument, then SYMPHONY_CONFIG, then the repo-relative default.
 export function resolveConfigPath(explicitPath?: string | null): string {
@@ -113,7 +160,7 @@ export function resolveConfigPath(explicitPath?: string | null): string {
 // guards that would cascade into noise (a non-array `sources`) stop early.
 export function configErrors(raw: unknown, label: string): string[] {
   const errors: string[] = [];
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  if (!isPlainObject(raw)) {
     return [`${label} is not an object`];
   }
   const cfg = raw as Partial<AppConfig>;
@@ -147,23 +194,17 @@ export function configErrors(raw: unknown, label: string): string[] {
       if (s.commit_branches !== undefined && s.commit_branches !== "all" && s.commit_branches !== "default") {
         errors.push(`${label}: source "${s.source_id}" commit_branches must be "all" or "default" when set`);
       }
-      if (s.fallback_token_envs !== undefined) {
-        if (!Array.isArray(s.fallback_token_envs)) {
-          errors.push(`${label}: source "${s.source_id}" fallback_token_envs must be an array when set`);
+      validateTokenPool(s, `${label}: source "${s.source_id}"`, errors);
+      if (s.token_pools !== undefined) {
+        if (!isPlainObject(s.token_pools)) {
+          errors.push(`${label}: source "${s.source_id}" token_pools must be an object when set`);
         } else {
-          const seenTokenEnvNames = new Set<string>();
-          if (typeof s.token_env === "string") seenTokenEnvNames.add(s.token_env.trim());
-          for (const envName of s.fallback_token_envs) {
-            if (typeof envName !== "string" || envName.trim().length === 0) {
-              errors.push(`${label}: source "${s.source_id}" fallback_token_envs entries must be non-empty strings`);
+          for (const [poolName, pool] of Object.entries(s.token_pools)) {
+            if (poolName.trim().length === 0) {
+              errors.push(`${label}: source "${s.source_id}" token_pools contains an empty pool name`);
               continue;
             }
-            const trimmed = envName.trim();
-            if (seenTokenEnvNames.has(trimmed)) {
-              errors.push(`${label}: source "${s.source_id}" fallback_token_envs must not repeat token_env or another fallback token env`);
-              continue;
-            }
-            seenTokenEnvNames.add(trimmed);
+            validateTokenPool(pool, `${label}: source "${s.source_id}" token_pools.${poolName}`, errors);
           }
         }
       }
@@ -179,6 +220,13 @@ export function configErrors(raw: unknown, label: string): string[] {
         }
         if (typeof entry !== "string" && entry.color !== undefined && !HEX_COLOR.test(entry.color)) {
           errors.push(`${label}: project "${projPath}" color "${entry.color}" is not a hex color (#rgb or #rrggbb)`);
+        }
+        if (typeof entry !== "string" && entry.token_pool !== undefined) {
+          if (typeof entry.token_pool !== "string" || entry.token_pool.trim().length === 0) {
+            errors.push(`${label}: project "${projPath}" token_pool must be a non-empty string when set`);
+          } else if (!isPlainObject(s.token_pools) || !Object.prototype.hasOwnProperty.call(s.token_pools, entry.token_pool)) {
+            errors.push(`${label}: project "${projPath}" references unknown token_pool "${entry.token_pool}"`);
+          }
         }
       }
     }
@@ -237,6 +285,10 @@ export function saveConfig(cfg: AppConfig, path: string): void {
 // The fetch layer only needs paths to query; color is an emit/consumer concern.
 export function projectPaths(s: SourceConfig): string[] {
   return s.projects.map((p) => (typeof p === "string" ? p : p.path));
+}
+
+function projectEntryForPath(s: SourceConfig, projectPath: string): ProjectConfig | undefined {
+  return s.projects.find((p) => (typeof p === "string" ? p : p.path) === projectPath);
 }
 
 // The (source_id, project_path) pairs currently declared across every source.
@@ -347,14 +399,38 @@ export function tokenFor(s: SourceConfig): string | null {
 }
 
 export function tokensForSource(s: SourceConfig): ResolvedToken[] {
+  return tokensForPool(s);
+}
+
+function tokensForPool(pool: TokenPoolConfig): ResolvedToken[] {
   const overlay = readSecretsOverlay(resolveSecretsPath());
-  const envNames = [s.token_env, ...(s.fallback_token_envs ?? [])];
   const out: ResolvedToken[] = [];
-  for (const rawEnvName of envNames) {
+  for (const rawEnvName of tokenEnvNamesFromPool(pool)) {
     const envName = rawEnvName.trim();
     if (envName.length === 0) continue;
     const value = secretValueForEnv(envName, overlay);
     if (value) out.push({ env: envName, value });
+  }
+  return out;
+}
+
+export function tokensForProject(s: SourceConfig, projectPath: string): ResolvedToken[] {
+  const entry = projectEntryForPath(s, projectPath);
+  const poolName = typeof entry === "string" ? undefined : entry?.token_pool;
+  if (!poolName) return tokensForSource(s);
+  const pool = s.token_pools?.[poolName];
+  return pool ? tokensForPool(pool) : [];
+}
+
+export function sourceTokenEnvNames(s: SourceConfig): string[] {
+  const out: string[] = [];
+  const push = (envName: string): void => {
+    const trimmed = envName.trim();
+    if (trimmed.length > 0 && !out.includes(trimmed)) out.push(trimmed);
+  };
+  for (const envName of tokenEnvNamesFromPool(s)) push(envName);
+  for (const pool of Object.values(s.token_pools ?? {})) {
+    for (const envName of tokenEnvNamesFromPool(pool)) push(envName);
   }
   return out;
 }

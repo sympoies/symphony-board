@@ -201,6 +201,8 @@ $EDITOR config/sources.json
 
 export GITHUB_TOKEN="$(gh auth token)"
 export GITHUB_TOKEN_BACKUP="ghp_xxx"  # optional: use a different GitHub account
+export GITHUB_TOKEN_SYMPOIES="ghp_xxx"  # optional: named repo token pool
+export GITHUB_TOKEN_SYMPOIES_BACKUP="ghp_xxx"
 export GITLAB_TOKEN="glpat_xxx"   # only when a GitLab source is configured
 ```
 
@@ -210,6 +212,9 @@ Do not inline tokens in `config/sources.json`. For GitHub, add optional
 when GitHub clearly reports primary rate-limit exhaustion for the current token.
 Use a PAT from a different GitHub account; multiple PATs from the same account
 share the same user quota.
+GitHub sources may also define `token_pools`, then set a project object's
+`token_pool` to route that repo through a named PAT pool. A project without
+`token_pool` keeps using the source-level `token_env` / `fallback_token_envs`.
 
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers (for

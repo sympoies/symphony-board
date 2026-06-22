@@ -118,6 +118,7 @@ export class GitHubSource implements Source {
   private projects: string[];
   private rest: RestClient | null;
   private commitBranches: "all" | "default";
+  private projectClients: ReadonlyMap<string, { gql: GqlClient; rest: RestClient | null }>;
 
   constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[], rest: RestClient | null = null, opts: SourceOptions = {}) {
     this.descriptor = descriptor;
@@ -125,6 +126,11 @@ export class GitHubSource implements Source {
     this.projects = projects;
     this.rest = rest;
     this.commitBranches = opts.commitBranches ?? "all";
+    this.projectClients = opts.projectClients ?? new Map();
+  }
+
+  private clientsFor(project: string): { gql: GqlClient; rest: RestClient | null } {
+    return this.projectClients.get(project) ?? { gql: this.gql, rest: this.rest };
   }
 
   async fetch(opts: FetchOptions): Promise<FetchResult> {
@@ -138,13 +144,14 @@ export class GitHubSource implements Source {
     for (const project of this.projects) {
       log.info(`[${this.descriptor.sourceId}] project ${project}: GraphQL fetch start`);
       const [owner, name] = project.split("/");
+      const { gql } = this.clientsFor(project);
       for (const kind of ["issue", "change_request"] as const) {
         const before = records.length;
         let failed = false;
         try {
           let cursor: string | null = null;
           for (let page = 0; page < MAX_PAGES; page++) {
-            const data: any = await this.gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor });
+            const data: any = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor });
             const conn = data?.repository?.[kind === "issue" ? "issues" : "pullRequests"];
             if (!conn) break;
             let stop = false;
@@ -188,19 +195,19 @@ export class GitHubSource implements Source {
         }
       }
     }
-    if (this.rest) {
-      for (const project of this.projects) {
-        log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetch start`);
-        try {
-          const activity = await this.fetchRepoActivity(project, since, now);
-          records.push(...activity.records);
-          if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
-          log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetched ${activity.records.length} records`);
-        } catch (err) {
-          log.warn(`[${this.descriptor.sourceId}] project ${project}: activity fetch failed: ${(err as Error).message}`);
-          complete = false;
-          firstError ??= `${project} activity: ${(err as Error).message}`;
-        }
+    for (const project of this.projects) {
+      const { rest } = this.clientsFor(project);
+      if (!rest) continue;
+      log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetch start`);
+      try {
+        const activity = await this.fetchRepoActivity(project, since, now, rest);
+        records.push(...activity.records);
+        if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
+        log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetched ${activity.records.length} records`);
+      } catch (err) {
+        log.warn(`[${this.descriptor.sourceId}] project ${project}: activity fetch failed: ${(err as Error).message}`);
+        complete = false;
+        firstError ??= `${project} activity: ${(err as Error).message}`;
       }
     }
     return { records, watermark: latest, complete, error: firstError };
@@ -222,8 +229,9 @@ export class GitHubSource implements Source {
 
       const [owner, name] = candidate.projectPath.split("/");
       if (!owner || !name) continue;
+      const { gql } = this.clientsFor(candidate.projectPath);
       try {
-        const data: any = await this.gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.iid });
+        const data: any = await gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.iid });
         const node = data?.repository?.pullRequest;
         if (!node) continue;
         const payload = JSON.stringify(node);
@@ -384,10 +392,9 @@ export class GitHubSource implements Source {
     return out;
   }
 
-  private async fetchRepoActivity(project: string, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
-    if (!this.rest) return { records: [], latest: null };
+  private async fetchRepoActivity(project: string, since: string | null, now: string, rest: RestClient): Promise<{ records: RawRecord[]; latest: string | null }> {
     const [owner, name] = project.split("/");
-    const defaultBranch = await this.fetchDefaultBranch(owner, name);
+    const defaultBranch = await this.fetchDefaultBranch(owner, name, rest);
     const records: RawRecord[] = [];
     let latest: string | null = null;
 
@@ -401,7 +408,7 @@ export class GitHubSource implements Source {
     // sweep backfills at most this one page of push history. `year` is still
     // the widest window the API offers, so the full sweep asks for it.
     const pushEvents: any[] = [];
-    const repoActivity = await this.rest<any[]>(`repos/${owner}/${name}/activity`, {
+    const repoActivity = await rest<any[]>(`repos/${owner}/${name}/activity`, {
       per_page: 100,
       time_period: since ? "month" : "year",
     });
@@ -424,7 +431,7 @@ export class GitHubSource implements Source {
       });
     }
 
-    const commentActivity = await this.fetchRepoCommentActivity(project, owner, name, since, now);
+    const commentActivity = await this.fetchRepoCommentActivity(project, owner, name, since, now, rest);
     records.push(...commentActivity.records);
     if (commentActivity.latest && (!latest || commentActivity.latest > latest)) latest = commentActivity.latest;
 
@@ -442,7 +449,7 @@ export class GitHubSource implements Source {
     };
 
     for (let page = 1; page <= MAX_REST_PAGES; page++) {
-      const commits = await this.rest<any[]>(`repos/${owner}/${name}/commits`, {
+      const commits = await rest<any[]>(`repos/${owner}/${name}/commits`, {
         per_page: 100,
         page,
         ...(since ? { since } : {}),
@@ -458,7 +465,7 @@ export class GitHubSource implements Source {
     for (const branch of this.sideBranches(pushEvents, defaultBranch, since)) {
       try {
         for (let page = 1; page <= MAX_COMPARE_PAGES; page++) {
-          const cmp = await this.rest<any>(
+          const cmp = await rest<any>(
             `repos/${owner}/${name}/compare/${encodeURIComponent(defaultBranch!)}...${encodeURIComponent(branch)}`,
             { per_page: 100, page },
           );
@@ -495,8 +502,8 @@ export class GitHubSource implements Source {
     return { records, latest };
   }
 
-  private async fetchRepoCommentActivity(project: string, owner: string | undefined, name: string | undefined, since: string | null, now: string): Promise<{ records: RawRecord[]; latest: string | null }> {
-    if (!this.rest || !owner || !name) return { records: [], latest: null };
+  private async fetchRepoCommentActivity(project: string, owner: string | undefined, name: string | undefined, since: string | null, now: string, rest: RestClient): Promise<{ records: RawRecord[]; latest: string | null }> {
+    if (!owner || !name) return { records: [], latest: null };
     const records: RawRecord[] = [];
     let latest: string | null = null;
     const surfaces = [
@@ -506,7 +513,7 @@ export class GitHubSource implements Source {
 
     for (const surface of surfaces) {
       for (let page = 1; page <= MAX_REST_PAGES; page++) {
-        const comments = await this.rest<any[]>(surface.path, {
+        const comments = await rest<any[]>(surface.path, {
           per_page: 100,
           page,
           sort: "updated",
@@ -557,10 +564,10 @@ export class GitHubSource implements Source {
       .sort();
   }
 
-  private async fetchDefaultBranch(owner: string | undefined, name: string | undefined): Promise<string | null> {
-    if (!this.rest || !owner || !name) return null;
+  private async fetchDefaultBranch(owner: string | undefined, name: string | undefined, rest: RestClient): Promise<string | null> {
+    if (!owner || !name) return null;
     try {
-      const repo = await this.rest<any>(`repos/${owner}/${name}`);
+      const repo = await rest<any>(`repos/${owner}/${name}`);
       return cleanText(repo?.default_branch);
     } catch {
       return null;

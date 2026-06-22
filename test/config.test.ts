@@ -11,8 +11,10 @@ import {
   resolveConfigPath,
   saveConfig,
   saveSecret,
+  sourceTokenEnvNames,
   tokenFor,
   tokensForSource,
+  tokensForProject,
   upsertEnvText,
   type AppConfig,
 } from "../src/config.ts";
@@ -101,6 +103,80 @@ test("accepts fallback_token_envs and rejects malformed token pools", () => {
   assert.match(
     configErrors({ db_path: "x", sources: [baseSource({ token_env: "GITHUB_TOKEN", fallback_token_envs: ["GITHUB_TOKEN"] })] }, "config")[0]!,
     /must not repeat token_env/,
+  );
+});
+
+test("accepts named token pools and resolves repo-specific tokens", () => {
+  const sourcePath = writeConfig(
+    baseSource({
+      token_env: "CONFIG_POOL_DEFAULT",
+      fallback_token_envs: ["CONFIG_POOL_DEFAULT_BACKUP"],
+      token_pools: {
+        sympoies: {
+          token_env: "CONFIG_POOL_SYMPOIES",
+          fallback_token_envs: ["CONFIG_POOL_SYMPOIES_BACKUP"],
+        },
+      },
+      projects: [
+        "default/repo",
+        { path: "sympoies/repo", color: "#abc", token_pool: "sympoies" },
+      ],
+    }),
+  );
+  const { cfg } = loadConfig(sourcePath);
+  const source = cfg.sources[0]!;
+  process.env.CONFIG_POOL_DEFAULT = "default-primary";
+  process.env.CONFIG_POOL_DEFAULT_BACKUP = "default-backup";
+  process.env.CONFIG_POOL_SYMPOIES = "sympoies-primary";
+  process.env.CONFIG_POOL_SYMPOIES_BACKUP = "sympoies-backup";
+  try {
+    assert.deepEqual(projectPaths(source), ["default/repo", "sympoies/repo"]);
+    assert.deepEqual(sourceTokenEnvNames(source), [
+      "CONFIG_POOL_DEFAULT",
+      "CONFIG_POOL_DEFAULT_BACKUP",
+      "CONFIG_POOL_SYMPOIES",
+      "CONFIG_POOL_SYMPOIES_BACKUP",
+    ]);
+    assert.deepEqual(tokensForProject(source, "default/repo"), [
+      { env: "CONFIG_POOL_DEFAULT", value: "default-primary" },
+      { env: "CONFIG_POOL_DEFAULT_BACKUP", value: "default-backup" },
+    ]);
+    assert.deepEqual(tokensForProject(source, "sympoies/repo"), [
+      { env: "CONFIG_POOL_SYMPOIES", value: "sympoies-primary" },
+      { env: "CONFIG_POOL_SYMPOIES_BACKUP", value: "sympoies-backup" },
+    ]);
+    assert.deepEqual(tokensForSource(source), [
+      { env: "CONFIG_POOL_DEFAULT", value: "default-primary" },
+      { env: "CONFIG_POOL_DEFAULT_BACKUP", value: "default-backup" },
+    ], "source-level default pool remains unchanged");
+  } finally {
+    delete process.env.CONFIG_POOL_DEFAULT;
+    delete process.env.CONFIG_POOL_DEFAULT_BACKUP;
+    delete process.env.CONFIG_POOL_SYMPOIES;
+    delete process.env.CONFIG_POOL_SYMPOIES_BACKUP;
+  }
+});
+
+test("rejects malformed named token pools and unknown project token_pool refs", () => {
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ token_pools: [] })] }, "config")[0]!,
+    /token_pools must be an object/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ token_pools: { bad: { fallback_token_envs: [] } } })] }, "config")[0]!,
+    /token_pools\.bad missing "token_env"/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ token_pools: { bad: { token_env: "GH", fallback_token_envs: "NOPE" } } })] }, "config")[0]!,
+    /token_pools\.bad fallback_token_envs must be an array/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ token_pools: { dup: { token_env: "GH", fallback_token_envs: ["GH"] } } })] }, "config")[0]!,
+    /token_pools\.dup fallback_token_envs must not repeat token_env/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sources: [baseSource({ projects: [{ path: "o/r", token_pool: "missing" }] })] }, "config")[0]!,
+    /project "o\/r" references unknown token_pool "missing"/,
   );
 });
 

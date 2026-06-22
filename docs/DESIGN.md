@@ -649,14 +649,17 @@ unknown future keys — round-trip through GET -> PUT untouched.
 **Secrets are write-only.** Token values never appear in `config/sources.json`
 (unchanged rule) and never cross the read surface: `GET /api/secrets` reports
 set/unset booleans per env name only. Writes land in the `SYMPHONY_SECRETS_FILE`
-KEY=VALUE file (created owner-only, comments preserved), and `tokensForSource`
-overlays a **fresh read of that file over `process.env` at sync time** for
-`token_env` plus any `fallback_token_envs` — the standalone shell passes
-`secrets.env` as spawn env, so the fresh overlay is what makes a token set
-in-app apply without restarting the app. GitHub fallback PATs are used only
-when GitHub clearly reports primary rate-limit exhaustion for the active token;
-secondary rate limits remain a partial run/backoff condition, not a token
-rotation trigger.
+KEY=VALUE file (created owner-only, comments preserved). `tokensForSource`
+overlays a **fresh read of that file over `process.env` at sync time** for the
+source-level `token_env` plus any `fallback_token_envs`, and `tokensForProject`
+does the same for optional GitHub `token_pools`. A GitHub project may name a
+`token_pool`; that repo's GraphQL and REST activity requests use the named pool,
+while projects without a pool keep using the source-level PAT pool. The
+standalone shell passes `secrets.env` as spawn env, so the fresh overlay is what
+makes a token set in-app apply without restarting the app. GitHub fallback PATs
+are used only when GitHub clearly reports primary rate-limit exhaustion for the
+active token; secondary rate limits remain a partial run/backoff condition, not
+a token rotation trigger.
 
 **Edits apply on the next run.** Both daemons re-read config per run (the
 Docker daemon was aligned to app-server's existing behavior), so a control

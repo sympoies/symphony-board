@@ -2393,7 +2393,12 @@ export function pluralize(count: number, singular: string, plural = `${singular}
 // validation is authoritative; these types stay liberal mirrors of the
 // daemon's /api/config JSON, like the sync types above.
 
-export type ConfigProjectEntry = string | { path: string; color?: string };
+export type ConfigProjectEntry = string | { path: string; color?: string; token_pool?: string };
+
+export interface ConfigTokenPoolDoc {
+  token_env: string;
+  fallback_token_envs?: string[];
+}
 
 export interface ConfigSourceDoc {
   source_id: string;
@@ -2404,6 +2409,7 @@ export interface ConfigSourceDoc {
   color?: string;
   token_env: string;
   fallback_token_envs?: string[];
+  token_pools?: Record<string, ConfigTokenPoolDoc>;
   graphql_url: string;
   rest_url?: string;
   projects: ConfigProjectEntry[];
@@ -2423,13 +2429,22 @@ export interface ConfigDocument {
 // source counts as token-present when ANY of these is set (see
 // `isSourceTokenSet`) — the daemon's `runConfiguredSync` will use a fallback
 // even when the primary is absent.
-export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs">): string[] {
-  return [source.token_env, ...(source.fallback_token_envs ?? [])].filter((env) => env.length > 0);
+export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools">): string[] {
+  const out: string[] = [];
+  const push = (env: string): void => {
+    const trimmed = env.trim();
+    if (trimmed.length > 0 && !out.includes(trimmed)) out.push(trimmed);
+  };
+  for (const env of [source.token_env, ...(source.fallback_token_envs ?? [])]) push(env);
+  for (const pool of Object.values(source.token_pools ?? {})) {
+    for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+  }
+  return out;
 }
 
 // True when ANY of a source's token envs (primary or fallback) has a secret set.
 export function isSourceTokenSet(
-  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs">,
+  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools">,
   secrets: Record<string, boolean>,
 ): boolean {
   return sourceTokenEnvs(source).some((env) => secrets[env] === true);

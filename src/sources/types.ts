@@ -10,6 +10,8 @@
 // re-fetching — see DESIGN.md).
 
 import type { NormalizedBundle } from "../model/types.ts";
+import type { GqlClient } from "./graphql.ts";
+import type { RestClient } from "./rest.ts";
 
 export interface SourceDescriptor {
   sourceId: string; // stable handle, e.g. "github:github.com" (no '|')
@@ -25,6 +27,9 @@ export interface SourceOptions {
   // push events and fetched as branch-unique compare sets; "default" keeps the
   // commit feed restricted to the default branch (the pre-expansion behavior).
   commitBranches?: "all" | "default";
+  // Optional per-project clients. Providers that do not need repo-level token
+  // routing ignore it; projects not present here use source-level default clients.
+  projectClients?: ReadonlyMap<string, { gql: GqlClient; rest: RestClient | null }>;
 }
 
 export interface FetchOptions {

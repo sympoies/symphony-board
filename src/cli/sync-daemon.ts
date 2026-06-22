@@ -27,7 +27,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { AppConfig, SourceConfig } from "../config.ts";
-import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret, sourceEnabled } from "../config.ts";
+import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret, sourceEnabled, sourceTokenEnvNames } from "../config.ts";
 import {
   runConfiguredSync,
   type SyncMode,
@@ -444,7 +444,7 @@ export async function handleControlRequest(
     try {
       const { cfg } = loadConfig(cc.path);
       for (const s of cfg.sources) {
-        for (const envName of [s.token_env, ...(s.fallback_token_envs ?? [])]) secrets[envName] = false;
+        for (const envName of sourceTokenEnvNames(s)) secrets[envName] = false;
       }
     } catch {
       // no config yet: report only the names present in the secrets file
