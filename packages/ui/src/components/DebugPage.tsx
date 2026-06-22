@@ -73,8 +73,13 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
     }
   };
 
+  // The Sync runs and Daemon log tabs hold one tall scroller each; let them fill
+  // the viewport (the panel scrolls internally) instead of capping the log or
+  // leaving dead space below a short runs table. Other tabs keep natural height.
+  const fillViewport = tab === "sync" || tab === "log";
+
   return (
-    <main className="debug-page">
+    <main className={`debug-page${fillViewport ? " debug-page-fill" : ""}`}>
       <div className="debug-head">
         <h2>Diagnostics</h2>
         <span className="muted">hidden page — toggle with ⌘/ (Ctrl+/)</span>
