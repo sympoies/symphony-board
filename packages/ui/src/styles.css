@@ -2571,12 +2571,16 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Tabs with one tall scroller (Sync runs, Daemon log) fill the viewport so the
    table/log extends to the bottom edge and scrolls internally, rather than the
    log capping at a fixed height or a short runs table leaving dead space below.
-   The subtracted chrome is .app-wide's 16px top+bottom padding plus this page's
-   12px top+bottom margin (32 + 24 = 56px). Only the fill tabs get the height;
-   the others keep their natural, content-sized layout. A definite height (not
-   min-height) is what lets the inner scroller cap at the viewport and scroll
-   internally instead of growing the whole page. */
-.debug-page-fill { height: calc(100vh - 56px); height: calc(100dvh - 56px); }
+   Make the page's OWN wrapper a viewport-height flex column — scoped with :has
+   so every other page's .app-wide is untouched — and let the page flex to fill
+   it. Deriving the height from the real box (the wrapper is border-box) makes
+   .app-wide's padding subtract automatically, including the narrower mobile
+   padding and the Android safe-area insets it folds in (see .app-wide), so there
+   is no magic chrome offset to drift. A definite height up the chain is what
+   lets the inner scroller cap at the viewport and scroll internally instead of
+   growing the whole page. Other Diagnostics tabs keep their natural height. */
+.app-wide:has(> .debug-page-fill) { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
+.debug-page-fill { flex: 1; min-height: 0; }
 .debug-head { display: flex; align-items: baseline; gap: 12px; }
 .debug-head h2 { margin: 0; }
 .debug-close { margin-left: auto; }
@@ -2699,10 +2703,13 @@ a.rf-node-title:hover { color: var(--accent); }
 .debug-section-fill > .debug-runs-wrap,
 .debug-section-fill > .debug-log { flex: 1; min-height: 0; }
 .debug-section-fill > .debug-runs-wrap { overflow: auto; }
+/* Drop the standalone .debug-log 420px cap (set above) so flex sizing governs
+   the height when the log fills the viewport. */
 .debug-section-fill > .debug-log { max-height: none; }
-/* The runs table now scrolls vertically, so pin its header row while scrolling
-   (the header cells already paint an opaque --panel-2 background). */
-.debug-section-fill > .debug-runs-wrap .debug-table thead th { position: sticky; top: 0; z-index: 1; }
+/* The runs table now scrolls vertically, so pin its header row while scrolling.
+   Paint an opaque background on the pinned cells directly (rather than leaning
+   on the sibling .debug-table th rule) so scrolled rows can never bleed through. */
+.debug-section-fill > .debug-runs-wrap .debug-table thead th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); }
 
 @media (max-width: 1180px) {
   .board-7 {

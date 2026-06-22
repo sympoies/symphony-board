@@ -47,6 +47,41 @@ let contractResponseDelayMs = 0;
 // (current -> last), so the UI shows running, then reloaded.
 const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 const syncMock = { current: null, last: null, seq: 0 };
+// The hidden #/debug fill-height tabs read these two writer-daemon surfaces:
+// GET /api/stats feeds the Sync runs table (stats.sync_runs) and GET /api/logs
+// feeds the Daemon log tail. Enough rows/lines to overflow any viewport so the
+// fill panels actually scroll internally (the fill-height assertions below
+// depend on the content exceeding the viewport-capped panel height).
+const STORE_STATS_MOCK = (() => {
+  const sources = ["github", "gitlab:gitlab.com", "gitlab:gitlab.gamania.com"];
+  const sync_runs = Array.from({ length: 40 }, (_, i) => ({
+    run_id: 40 - i,
+    source_id: sources[i % sources.length],
+    mode: i % 4 === 0 ? "full" : "incremental",
+    status: i % 7 === 0 ? "error" : "ok",
+    started_at: `2026-06-23T05:${String(59 - (i % 60)).padStart(2, "0")}:00Z`,
+    finished_at: `2026-06-23T05:${String(59 - (i % 60)).padStart(2, "0")}:04Z`,
+    items_seen: 1800 + i,
+    edges_seen: 2300 + i,
+    activities_seen: 11000 + i * 3,
+    error: i % 7 === 0 ? "rate limited: secondary limit hit, backing off" : null,
+  }));
+  return {
+    generated_at: "2026-06-23T05:02:00Z",
+    db: { driver: "postgres", schema_version: 9 },
+    tables: {},
+    items: { live: 1836, tombstoned: 0, by_kind: {}, by_state: {}, by_source: {} },
+    edges: { live: 2368, tombstoned: 0, by_type: {}, by_lifecycle: {} },
+    activities: { total: 11670, by_kind: {}, earliest: null, latest: null },
+    sync_runs,
+  };
+})();
+const DAEMON_LOG_MOCK = Array.from({ length: 200 }, (_, i) => ({
+  seq: i + 1,
+  ts: `2026-06-22T21:32:${String(i % 60).padStart(2, "0")}.000Z`,
+  level: i % 41 === 0 ? "error" : i % 23 === 0 ? "warn" : "info",
+  message: `[gitlab:gitlab.gamania.com] project terrylin/repo-${i % 9}: activity fetched ${i % 5} records`,
+}));
 let cachedSyncSources = null;
 let contractRequestCount = 0;
 let liveSnapshotRequestCount = 0;
@@ -475,6 +510,16 @@ const server = createServer(async (req, res) => {
       liveSnapshotRequestCount += 1;
       liveSnapshotRequestUrls.push(req.url || "/api/live-snapshot");
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify(liveSnapshotMock()));
+      return;
+    }
+    if (p === "/api/stats") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify(STORE_STATS_MOCK));
+      return;
+    }
+    if (p === "/api/logs") {
+      const after = Number(new URL(req.url, "http://smoke.local").searchParams.get("after") || 0);
+      const entries = Number.isFinite(after) && after > 0 ? DAEMON_LOG_MOCK.filter((e) => e.seq > after) : DAEMON_LOG_MOCK;
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, entries, latest_seq: DAEMON_LOG_MOCK.length, capacity: 1000 }));
       return;
     }
     if (p === "/api/sync-control") {
@@ -2735,6 +2780,55 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // --- Diagnostics fill-height tabs (Sync runs, Daemon log) ----------------
+  // These two #/debug tabs size to the viewport and scroll INTERNALLY (the log
+  // no longer caps at 420px; a short runs table no longer leaves dead space).
+  // The fill height derives from the real box, so it must hold under the
+  // narrower mobile .app-wide padding AND the Android safe-area insets — check a
+  // desktop viewport, a phone, and a simulated bottom inset, asserting the
+  // document itself never scrolls (the panel absorbs the overflow) and the
+  // runs-table header stays pinned.
+  const debugFillResults = [];
+  const debugFillCases = [
+    { name: "desktop", width: 1440, height: 900, dpr: 1, mobile: false, insetBottom: "0px" },
+    { name: "phone", width: 384, height: 854, dpr: 3, mobile: true, insetBottom: "0px" },
+    { name: "phone-inset", width: 384, height: 854, dpr: 3, mobile: true, insetBottom: "48px" },
+  ];
+  const debugFillTabs = [
+    { id: "sync", scroller: ".debug-runs-wrap", sticky: true },
+    { id: "log", scroller: ".debug-log", sticky: false },
+  ];
+  for (const c of debugFillCases) {
+    await send("Emulation.setDeviceMetricsOverride", { width: c.width, height: c.height, deviceScaleFactor: c.dpr, mobile: c.mobile });
+    await send("Runtime.evaluate", { expression: `document.documentElement.style.setProperty('--android-safe-area-bottom', ${JSON.stringify(c.insetBottom)})` });
+    for (const tab of debugFillTabs) {
+      await send("Runtime.evaluate", { expression: `location.hash = '#/debug?tab=${tab.id}'` });
+      await sleep(250);
+      await waitHtml(`document.querySelector(${JSON.stringify(tab.scroller)})`);
+      const r = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const doc = document.documentElement;
+          const page = document.querySelector('.debug-page-fill');
+          const scroller = document.querySelector(${JSON.stringify(tab.scroller)});
+          if (!page || !scroller) return { found: false };
+          const pr = page.getBoundingClientRect();
+          const th = ${tab.sticky} ? document.querySelector(${JSON.stringify(tab.scroller + " thead th")}) : null;
+          return {
+            found: true,
+            pageBottomGap: Math.round(window.innerHeight - pr.bottom),
+            docOverflowY: Math.max(0, doc.scrollHeight - doc.clientHeight),
+            scrollerScrolls: scroller.scrollHeight > scroller.clientHeight + 2,
+            scrollerOverflowY: getComputedStyle(scroller).overflowY,
+            stickyHeader: th ? getComputedStyle(th).position : 'n/a',
+          };
+        })()`,
+        returnByValue: true,
+      })).result.value || { found: false };
+      debugFillResults.push({ case: c.name, tab: tab.id, ...r });
+    }
+  }
+  await send("Runtime.evaluate", { expression: "document.documentElement.style.removeProperty('--android-safe-area-bottom')" });
+
   await send("Emulation.clearDeviceMetricsOverride");
   ws.close();
 
@@ -2803,7 +2897,25 @@ try {
   const phoneActivity = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "activity") || {};
   const portraitCommits = portraitResults.filter((r) => r.page === "commits");
   const phoneCommits = portraitCommits.filter((r) => r.preset === "phone-portrait");
+  // Each fill case/tab must: render the page + scroller, keep the document from
+  // scrolling (the panel absorbs the overflow), scroll the panel internally, and
+  // reach near the viewport bottom (the gap is just the page margin + .app-wide
+  // padding + any bottom inset, so allow up to ~90px for the inset case).
+  const debugFillChecks = debugFillResults.flatMap((r) => {
+    const where = `debug fill ${r.case}/${r.tab}`;
+    return [
+      [r.found, `${where}: page + scroller rendered`],
+      [r.found && r.docOverflowY <= 2, `${where}: document does not scroll (overflow ${r.docOverflowY ?? "?"}px)`],
+      [r.found && r.scrollerScrolls, `${where}: scroller scrolls internally`],
+      [r.found && ["auto", "scroll"].includes(r.scrollerOverflowY), `${where}: scroller overflowY=${r.scrollerOverflowY}`],
+      [r.found && r.pageBottomGap >= 0 && r.pageBottomGap <= 90, `${where}: fills near viewport bottom (gap ${r.pageBottomGap}px)`],
+    ];
+  });
+  const debugSync = debugFillResults.find((r) => r.tab === "sync" && r.found);
+  const debugStickyCheck = [!!debugSync && debugSync.stickyHeader === "sticky", `debug fill: Sync runs header sticky (${debugSync ? debugSync.stickyHeader : "n/a"})`];
   const checks = [
+    ...debugFillChecks,
+    debugStickyCheck,
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],
     // default entry: with Live enabled and pinned as the default, opening with no hash lands on Live.
