@@ -150,6 +150,44 @@ test("fetchLiveSnapshot does not retry a parse error on a settled body", async (
   assert.equal(sleeps.length, 0);
 });
 
+// A body read that throws a NON-SyntaxError — the connection dropped mid-body
+// AFTER headers arrived but BEFORE the per-attempt abort fired, so signal.aborted
+// is still false — is the same transient network case as a thrown fetch and must
+// be RETRIED, not classified as a definitive content error. Mirrors
+// loadContractAttempt's body-read classification (signal.aborted || !SyntaxError).
+test("fetchLiveSnapshotResult treats a dropped-body read (non-SyntaxError, not aborted) as transient", async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 1) {
+      // Headers arrived (ok/200); then the socket dropped mid-body so json()
+      // rejects with a TypeError, and the 12s per-attempt abort has NOT fired.
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new TypeError("terminated: other side closed");
+        },
+      } as unknown as Response;
+    }
+    return new Response(
+      JSON.stringify({ schema: "live-snapshot/1", events: [{ seq: 1 }], max_seq: 1, generated_at: "x" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as unknown as typeof fetch;
+  const sleeps: number[] = [];
+  const res = await fetchLiveSnapshotResult(null, undefined, undefined, {
+    retries: 2,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
+  });
+  assert.ok(res.snapshot, "the retry after a dropped-body read recovers the snapshot");
+  assert.equal(res.snapshot?.max_seq, 1);
+  assert.equal(res.transientFailure, false, "success on the retry, not a definitive failure");
+  assert.equal(calls, 2, "a dropped-body read is transient -> retried (not failed definitively)");
+});
+
 // fetchLiveSnapshotResult exposes WHY a probe failed so the cold-start seed can
 // tell a retriable cold-link blip from a deployment that simply has no receiver.
 test("fetchLiveSnapshotResult classifies transient vs definitive failures", async () => {

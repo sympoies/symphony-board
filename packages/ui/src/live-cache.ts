@@ -94,3 +94,22 @@ export function saveCachedLiveSnapshot(
     /* storage unavailable / over quota — the cache just won't persist this time */
   }
 }
+
+// Drop THIS server's cached snapshot. Called when an authoritative revalidation
+// returns an empty buffer: leaving the prior entry would re-paint deleted/pruned
+// rows on every cold start until the TTL expires. Server-scoped to mirror the
+// loader — the store holds a single entry keyed by serverBaseUrl, so clearing one
+// server's now-empty feed must never wipe a different server's still-valid cache.
+// Silent on any failure: the cache is a best-effort accelerator, never a
+// correctness dependency.
+export function removeCachedLiveSnapshot(serverBaseUrl: string | null): void {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { serverBaseUrl?: string | null };
+    if ((parsed?.serverBaseUrl ?? null) !== (serverBaseUrl ?? null)) return;
+    localStorage.removeItem(CACHE_KEY);
+  } catch {
+    /* storage unavailable / malformed — nothing to remove */
+  }
+}
