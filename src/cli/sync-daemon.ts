@@ -37,6 +37,7 @@ import {
   type SyncRunTotals,
 } from "../sync-runner.ts";
 import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
+import { probeTokenRateLimits } from "../server/token-rate-limits.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -372,6 +373,26 @@ export async function handleControlRequest(
     const afterRaw = Number(url.searchParams.get("after") ?? "0");
     const after = Number.isFinite(afterRaw) && afterRaw > 0 ? Math.trunc(afterRaw) : 0;
     sendJson(res, 200, { enabled: true, entries: recentLogs(after), latest_seq: latestLogSeq(), capacity: LOG_BUFFER_CAPACITY });
+    return;
+  }
+
+  // On-demand GitHub GraphQL rate-limit probe for the Diagnostics "Rate limit"
+  // tab. Fires one lightweight `{ rateLimit }` query per configured GitHub token
+  // and reports each token's budget by env-var name (never the value). Like the
+  // other operational surfaces it needs no auth; a deployment that does not serve
+  // it (an older build, or the static read-only path) simply 404s and the UI
+  // shows the tab as unavailable. Config is read fresh so a token edit applies
+  // without a restart; a broken config reports the error instead of 500-ing.
+  if (method === "GET" && path === "/api/token-rate-limits") {
+    let cfg: AppConfig;
+    try {
+      cfg = loadConfig(ctx.configControl.path).cfg;
+    } catch (err) {
+      sendJson(res, 200, { generated_at: null, tokens: [], error: (err as Error).message });
+      return;
+    }
+    const result = await probeTokenRateLimits(cfg);
+    sendJson(res, 200, result);
     return;
   }
 
