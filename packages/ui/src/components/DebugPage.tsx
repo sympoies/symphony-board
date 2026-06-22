@@ -1,13 +1,18 @@
 // The hidden Diagnostics page (#/debug, toggled with Cmd+/ / Ctrl+/). Not in
 // the page-tabs nav on purpose: it is an operator surface, not a product page.
-// Sections degrade independently where their backing data is unavailable:
-//   • Contract payload — loaded contract size, shape, windowing, source health
+// The page now holds several distinct diagnostics surfaces, so they are split
+// into sub-tabs (URL-backed through the shared `tab` route field, like Settings)
+// instead of one long scroll — each tab degrades independently where its backing
+// data is unavailable:
+//   • Contract — loaded contract size, shape, windowing, source health
 //   • Store — sizes, row counts, and breakdowns from GET /api/stats
+//   • Live — the live receiver snapshot (buffer / cursor / category mix)
 //   • Sync runs — the recent sync_run history (status / totals / error)
 //   • Daemon log — the writer's in-memory recent-log tail from GET /api/logs
-// Unlike every other page it does its own fetching (useDebug.ts): no other
-// page shares this data, and it must render with no contract loaded — that is
-// exactly when it is needed.
+// The summary strip stays pinned above the tabs as an at-a-glance header. Unlike
+// every other page it does its own fetching (useDebug.ts): no other page shares
+// this data, and it must render with no contract loaded — that is exactly when it
+// is needed, so the tab bar stays reachable even then.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
@@ -16,14 +21,47 @@ import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, for
 import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo } from "../useDebug.ts";
 import { resolveEndpoint } from "../contract.ts";
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
+import { DEBUG_TAB_IDS, type DebugTab } from "../nav.ts";
 import { Badge } from "./Badge.tsx";
+
+// The tab labels live with the rendering; the ids and their display ORDER (Live
+// first, which is also the default landing tab) plus the route parsing are the
+// pure navigation contract in nav.ts (tested in nav.test.ts).
+const DEBUG_TAB_LABELS: Record<DebugTab, string> = {
+  live: "Live",
+  contract: "Contract",
+  store: "Store",
+  sync: "Sync runs",
+  log: "Daemon log",
+};
 
 interface Props {
   serverBaseUrl: string | null;
   env: ContractEnvelope | null;
   contractMeta: ContractLoadMetadata | null;
+  tab: DebugTab;
+  onTab: (tab: DebugTab) => void;
   onRefreshData: () => Promise<boolean>;
   onClose: () => void;
+}
+
+function DebugTabs({ active, onTab }: { active: DebugTab; onTab: (tab: DebugTab) => void }) {
+  return (
+    <nav className="debug-tabs" role="tablist" aria-label="Diagnostics sections">
+      {DEBUG_TAB_IDS.map((id) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={active === id}
+          className={`debug-tab${active === id ? " debug-tab-active" : ""}`}
+          onClick={() => onTab(id)}
+        >
+          {DEBUG_TAB_LABELS[id]}
+        </button>
+      ))}
+    </nav>
+  );
 }
 
 function CountsTable({ title, counts }: { title: string; counts: Record<string, number> }) {
@@ -232,7 +270,7 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
   );
 }
 
-export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onClose }: Props) {
+export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefreshData, onClose }: Props) {
   const { stats, loading, refresh } = useStoreStats(serverBaseUrl);
   const live = useLiveSnapshotInfo(serverBaseUrl);
   const logs = useDaemonLogs(serverBaseUrl);
@@ -341,6 +379,9 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
         </section>
       ) : null}
 
+      <DebugTabs active={tab} onTab={onTab} />
+
+      {tab === "contract" ? (
       <section className="debug-section">
         <h3>Contract payload</h3>
         {!env ? (
@@ -387,7 +428,9 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
           </>
         )}
       </section>
+      ) : null}
 
+      {tab === "store" ? (
       <section className="debug-section">
         <h3>
           Store {stats ? <span className="count">— {storeLabel(stats.db)}</span> : null}
@@ -439,7 +482,9 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
           </>
         )}
       </section>
+      ) : null}
 
+      {tab === "live" ? (
       <section className="debug-section">
         <h3>
           Live receiver{" "}
@@ -486,12 +531,18 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
           </>
         )}
       </section>
+      ) : null}
 
+      {tab === "sync" ? (
       <section className="debug-section">
         <h3>
           Sync runs {stats && stats.sync_runs.length > 0 ? <span className="count">— last {stats.sync_runs.length}</span> : null}
         </h3>
-        {!stats || stats.sync_runs.length === 0 ? (
+        {loading ? (
+          <p className="muted">Loading sync runs…</p>
+        ) : !stats ? (
+          <p className="empty">Sync history unavailable: no /api/stats endpoint on this deployment, or no store yet (run a sync first).</p>
+        ) : stats.sync_runs.length === 0 ? (
           <p className="empty">No sync runs recorded.</p>
         ) : (
           <div className="debug-runs-wrap">
@@ -530,7 +581,9 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
           </div>
         )}
       </section>
+      ) : null}
 
+      {tab === "log" ? (
       <section className="debug-section">
         <h3>Daemon log</h3>
         {logs.enabled === null ? (
@@ -567,6 +620,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, onRefreshData, onC
           </>
         )}
       </section>
+      ) : null}
     </main>
   );
 }

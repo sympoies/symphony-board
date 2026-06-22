@@ -58,12 +58,15 @@ import {
   clearFiltersHref,
   startupRouteHash,
   resolveDefaultTab,
+  parseDebugTab,
+  debugTabField,
   ITEM_REVIEW_VALUES,
   type ActivityFacetDim,
   type ActivityView,
   type GraphView,
   type ItemFacetDim,
   type Page,
+  type DebugTab,
 } from "./nav.ts";
 import {
   loadHidden,
@@ -375,6 +378,15 @@ export function App() {
   const setSettingsTab = useCallback((tab: "display" | "sources") => {
     const current = parseHashRoute(readHash());
     const next = buildHashRoute({ ...current, page: "settings", tab: tab === "sources" ? "sources" : null });
+    if (readHash() !== next) window.location.hash = next;
+  }, []);
+  // Diagnostics sub-tab, URL-backed through the same `tab` field so a refresh —
+  // common on an operator console — keeps you on the surface you were reading.
+  // The default tab maps to no `tab` param so #/debug stays clean.
+  const debugTab = parseDebugTab(route.tab);
+  const setDebugTab = useCallback((tab: DebugTab) => {
+    const current = parseHashRoute(readHash());
+    const next = buildHashRoute({ ...current, page: "debug", tab: debugTabField(tab) });
     if (readHash() !== next) window.location.hash = next;
   }, []);
   // Activity mobile sub-view (Feed default / Overview), URL-backed through the
@@ -1248,7 +1260,7 @@ export function App() {
   if (route.page === "debug") {
     return (
       <div className="app app-wide">
-        <DebugPage serverBaseUrl={serverBaseUrl} env={env} contractMeta={contractMeta} onRefreshData={reloadData} onClose={toggleDebug} />
+        <DebugPage serverBaseUrl={serverBaseUrl} env={env} contractMeta={contractMeta} tab={debugTab} onTab={setDebugTab} onRefreshData={reloadData} onClose={toggleDebug} />
       </div>
     );
   }
