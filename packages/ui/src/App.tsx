@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, type ContractLoadMetadata } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
@@ -1317,8 +1317,11 @@ export function App() {
   // The solid cold-start splash covers this during the initial load; it stays a
   // safe non-blank fallback if the splash is ever dismissed (e.g. the boot
   // timeout, or a later server-URL change re-entering loading) — never a blank
-  // null frame, which is what made the Live cold start look broken.
-  if (loading) return <div className="state-msg">Loading contract…</div>;
+  // null frame, which is what made the Live cold start look broken. Gated on "no
+  // content yet" (contractLoadingViewVisible), NOT `loading` alone, so a board the
+  // cold-start cache already painted is never hidden behind this overlay while the
+  // background revalidation fetch runs — see the helper for the full rationale.
+  if (contractLoadingViewVisible(loading, env !== null)) return <div className="state-msg">Loading contract…</div>;
 
   if (error && !env) {
     // First-run onboarding: the server is reachable and editable (the config
