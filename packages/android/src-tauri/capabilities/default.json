@@ -14,6 +14,18 @@
         { "url": "http://*:*" },
         { "url": "https://*:*" }
       ]
+    },
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "$APPLOCALDATA/*" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "$APPLOCALDATA/*" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "$APPLOCALDATA/*" }]
     }
   ]
 }
