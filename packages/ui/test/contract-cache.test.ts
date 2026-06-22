@@ -1,10 +1,11 @@
 // The contract cache lets a COLD start paint the last (stale) board instantly,
 // before the ~1.5MB gzip contract download resolves, then revalidate. The 15MB
-// decoded envelope is far over the localStorage quota, so the cache lives in
-// IndexedDB; this suite drives the pure load/save logic against an injected
-// in-memory async KV, the same "test the logic, not the browser" convention the
-// live-cache suite uses. node has no IndexedDB — the module must also degrade to
-// "no cache" when no store is available.
+// decoded envelope is far over the localStorage quota, so the default backend
+// stores it gzip-compressed (~1.5MB) in localStorage. Most cases drive the pure
+// load/save logic against an injected in-memory async KV (the "test the logic,
+// not the browser" convention the live-cache suite uses); one case shims
+// localStorage to exercise the real default backend end to end. The module must
+// also degrade to "no cache" when no store is available.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -29,6 +30,22 @@ class FakeKV implements AsyncKV {
   }
   _keys(): string[] {
     return [...this.m.keys()];
+  }
+}
+
+// In-memory Storage shim: node has no localStorage, but the DEFAULT cache
+// backend persists to it (gzip-compressed). Lets us exercise the real
+// compress -> store -> decompress -> parse path without a browser.
+class MemStorage {
+  private m = new Map<string, string>();
+  getItem(k: string): string | null {
+    return this.m.has(k) ? this.m.get(k)! : null;
+  }
+  setItem(k: string, v: string): void {
+    this.m.set(k, String(v));
+  }
+  removeItem(k: string): void {
+    this.m.delete(k);
   }
 }
 
@@ -117,8 +134,8 @@ test("a malformed cached entry is ignored, not thrown", async () => {
 });
 
 test("load returns null and save is a no-op when no store is available", async () => {
-  // No kv injected and node has no global indexedDB: the cache must degrade to
-  // "no cache" silently rather than throw.
+  // No kv injected and node has no global localStorage: the cache must degrade
+  // to "no cache" silently rather than throw.
   assert.equal(await loadCachedContract("https://srv", { now: 1 }), null);
   await assert.doesNotReject(saveCachedContract("https://srv", env(), { now: 1 }));
 });
@@ -135,6 +152,26 @@ test("save never throws even when the underlying store rejects", async () => {
     },
   };
   await assert.doesNotReject(saveCachedContract("https://srv", env(), { kv: failingKv, now: 1 }));
+});
+
+test("the default backend persists to localStorage (gzip-compressed) and round-trips", async () => {
+  // The Android WebView does not reliably persist IndexedDB but DOES persist
+  // localStorage, so the default backend stores the contract there, gzipped to
+  // fit the ~5MB quota (a 15MB contract compresses to ~1.5MB). No injected kv:
+  // this drives the real default path.
+  const store = new MemStorage();
+  (globalThis as { localStorage?: unknown }).localStorage = store;
+  try {
+    await saveCachedContract("https://srv", env("4.2.0"));
+    const got = await loadCachedContract("https://srv");
+    assert.ok(got, "the contract round-trips through the default localStorage backend");
+    assert.equal(got.contract_version, "4.2.0");
+    const stored = store.getItem("symphony-board:contract-cache");
+    assert.ok(stored, "something was persisted to localStorage");
+    assert.ok(stored![0] !== "{", "the stored value is compressed, not raw JSON");
+  } finally {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
 });
 
 test("pickColdStartEnv keeps a fetched env and never clobbers it with the cache", () => {

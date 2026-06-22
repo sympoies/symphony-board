@@ -5,24 +5,25 @@
 // no-store`) is the dominant cold-start cost on a phone; decode + JSON.parse are
 // cheap. This cache takes that download OFF the first-paint critical path.
 //
-// Unlike the Live snapshot cache (live-cache.ts, ~300 stripped events that fit
-// localStorage), the full contract is ~15MB decoded — far over the ~5MB
-// localStorage quota — so it lives in IndexedDB, which has a much larger quota
-// and stores structured-cloned objects (read-back needs no JSON.parse). The
-// store is abstracted behind a tiny async KV so the pure load/save logic is
-// unit-tested with an in-memory fake; the default impl is a no-op when no
-// IndexedDB exists (SSR / node tests), so this is always a safe import.
+// The full contract is ~15MB decoded — far over the ~5MB localStorage quota — so
+// it is stored GZIP-COMPRESSED (~1.5MB, well under quota). localStorage is the
+// deliberate choice over IndexedDB: the Tauri Android WebView does NOT reliably
+// persist IndexedDB across app restarts (it silently dropped the cache, so every
+// cold start re-fetched the contract), but it DOES persist localStorage (the
+// server URL / theme survive a force-quit). The store is abstracted behind a
+// tiny async KV so the pure load/save logic is unit-tested with an in-memory
+// fake; the default impl is a no-op when no localStorage exists (SSR / some node
+// tests), so this is always a safe import.
 //
 // The cache is a DISPLAY accelerator only: the init fetch always re-loads the
 // full contract and REPLACES the painted env wholesale, so a stale row the
 // server no longer returns cannot linger. It is keyed by the active
 // serverBaseUrl so switching servers never paints another server's board.
+import { gzipSync, gunzipSync, strToU8, strFromU8 } from "fflate";
 import { majorOf, SUPPORTED_MAJOR, isContractEnvelopeShape } from "./contract.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 
 const CACHE_KEY = "symphony-board:contract-cache";
-const DB_NAME = "symphony-board";
-const STORE = "kv";
 
 // Ignore a cache older than this so a long-dormant client never flashes a
 // genuinely ancient board before the fresh fetch lands. The fetch revalidates
@@ -30,8 +31,9 @@ const STORE = "kv";
 // "instant repeat launches" against "do not surface week-old data as if live".
 export const CONTRACT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Minimal async key/value store. The default impl wraps IndexedDB; tests inject
-// an in-memory fake so the load/save logic runs without a browser.
+// Minimal async key/value store. The default impl wraps localStorage (gzip-
+// compressed); tests inject an in-memory fake so the load/save logic runs
+// without a browser.
 export interface AsyncKV {
   get(key: string): Promise<unknown>;
   set(key: string, val: unknown): Promise<void>;
@@ -61,56 +63,23 @@ export function pickColdStartEnv(
   return current ?? cached;
 }
 
-// Memoize ONE connection for the page lifetime and reuse it for every
-// transaction; it is closed implicitly on page unload. No db.close() / no
-// onversionchange handler is needed while DB_NAME/version are fixed at 1 (the
-// schema is static, so no runtime upgrade can block another tab). Revisit both
-// if a version 2 is ever introduced.
-let dbPromise: Promise<IDBDatabase> | null = null;
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-function getDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = openDb().catch((err) => {
-      // Let a later call retry rather than caching a rejected handle forever.
-      dbPromise = null;
-      throw err;
-    });
-  }
-  return dbPromise;
-}
-
-// IndexedDB-backed KV, or null when no IndexedDB exists (node tests / SSR) so
-// callers degrade to "no cache" without a browser dependency.
+// localStorage-backed KV, or null when no localStorage exists (SSR / some node
+// tests) so callers degrade to "no cache" without a browser dependency. The
+// value is gzipped (a 15MB contract -> ~1.5MB) and stored as a latin1 byte
+// string so it fits the quota without base64's 33% overhead. A get on a corrupt
+// or legacy entry throws out of gunzip/JSON.parse and is caught by the caller
+// (treated as a miss), so a bad entry can never strand the loader.
 function defaultKv(): AsyncKV | null {
-  if (typeof indexedDB === "undefined") return null;
+  if (typeof localStorage === "undefined") return null;
   return {
     async get(key) {
-      const db = await getDb();
-      return new Promise((resolve, reject) => {
-        const req = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
+      const stored = localStorage.getItem(key);
+      if (stored == null) return undefined;
+      return JSON.parse(strFromU8(gunzipSync(strToU8(stored, true))));
     },
     async set(key, val) {
-      const db = await getDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, "readwrite");
-        tx.objectStore(STORE).put(val, key);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      });
+      const gz = gzipSync(strToU8(JSON.stringify(val)));
+      localStorage.setItem(key, strFromU8(gz, true));
     },
   };
 }
