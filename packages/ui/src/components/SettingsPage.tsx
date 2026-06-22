@@ -46,6 +46,7 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
+  disabledRangePresets: ReadonlySet<TimeRangePresetId>; // presets larger than Board data — not selectable
   boardScope: BoardScope; // how much of the contract this device loads (off / window / full)
   onBoardScope: (scope: BoardScope) => void;
   wideLayout: boolean; // force the wide (desktop) layout on this device (Android app only)
@@ -127,6 +128,7 @@ export function SettingsPage({
   onClearColor,
   defaultRangePreset,
   onDefaultRangePreset,
+  disabledRangePresets,
   boardScope,
   onBoardScope,
   wideLayout,
@@ -327,6 +329,9 @@ export function SettingsPage({
         <div>
           <h3>Default range</h3>
           <p className="muted">Used when the URL does not include from/to dates.</p>
+          {disabledRangePresets.size > 0 ? (
+            <p className="muted">Ranges larger than Board data are unavailable on this device.</p>
+          ) : null}
         </div>
         <select
           className="settings-select"
@@ -336,7 +341,7 @@ export function SettingsPage({
           }}
         >
           {TIME_RANGE_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
+            <option key={preset.id} value={preset.id} disabled={disabledRangePresets.has(preset.id)}>
               {preset.label}
             </option>
           ))}

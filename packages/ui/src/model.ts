@@ -425,6 +425,26 @@ export function presetBeyondLoadedWindow(presetRange: TimeRange, windowFrom: str
   return windowFrom != null && presetRange.from < windowFrom;
 }
 
+export interface WindowQuickPreset {
+  label: string;
+  range: TimeRange;
+}
+
+// A synthetic quick-range button equal to the loaded board window, for a windowed
+// Board data scope that no built-in preset already represents. Most windows line
+// up with a preset (1d == "today", 7d == "1w", 1mo/3mo/6mo/1y == the rolling
+// presets), but the in-between ones (e.g. 3d) have no button — selecting "1w" is
+// disabled because it reaches past the loaded data, leaving no one-click way back
+// to "everything this device loaded". This fills that gap, labelled with the scope
+// (e.g. "3d"). Returns null when a built-in preset already equals the window (so we
+// never add a duplicate) or for the unwindowed scopes (off / full pass a null
+// range). Pure: `now` is the contract's generated-at, so it stays replayable.
+export function windowQuickPreset(windowRange: TimeRange | null, now: number, label: string, tz: string = DEFAULT_TIMEZONE): WindowQuickPreset | null {
+  if (windowRange == null) return null;
+  if (activeTimeRangePresetId(windowRange, now, null, tz) != null) return null;
+  return { label, range: windowRange };
+}
+
 export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {
   const matchingPresetIds = TIME_RANGE_PRESETS
     .filter((candidate) => sameTimeRange(range, timeRangeForPreset(candidate.id, now, tz)))

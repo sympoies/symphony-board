@@ -12,7 +12,7 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, type TimeRangePresetId } from "./model.ts";
+import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
 
@@ -269,6 +269,32 @@ export function boardScopeDays(scope: BoardScope): number | null {
     default:
       return null;
   }
+}
+
+// Whether a Default range preset reaches further back than a Board data scope's
+// loaded window — i.e. it is "larger than Board data" and so must not be selectable
+// (the device never loaded data that old). A non-windowed scope (full / off) has no
+// ceiling, so nothing exceeds it. `now` (the contract's generated-at) and `tz`
+// resolve the calendar presets to concrete days for the comparison.
+export function presetExceedsBoardScope(preset: TimeRangePresetId, scope: BoardScope, now: number, tz?: string): boolean {
+  const days = boardScopeDays(scope);
+  if (days == null) return false;
+  return presetBeyondLoadedWindow(timeRangeForPreset(preset, now, tz), timeRangeForDays(days, now, tz).from);
+}
+
+// The Default range preset shrunk to fit a Board data scope: kept as-is when it
+// already fits, otherwise the largest preset still inside the loaded window (the one
+// starting earliest, then ending latest). Lowering Board data below the current
+// Default range pulls the default down with it; a default already within the window
+// is untouched, and raising Board data never grows it back. Falls back to the
+// unchanged preset if somehow nothing fits.
+export function clampDefaultRangeToBoardScope(preset: TimeRangePresetId, scope: BoardScope, now: number, tz?: string): TimeRangePresetId {
+  if (!presetExceedsBoardScope(preset, scope, now, tz)) return preset;
+  const windowFrom = timeRangeForDays(boardScopeDays(scope)!, now, tz).from;
+  const fitting = TIME_RANGE_PRESETS.map((p) => ({ id: p.id, range: timeRangeForPreset(p.id, now, tz) }))
+    .filter(({ range }) => range.from >= windowFrom)
+    .sort((a, b) => a.range.from.localeCompare(b.range.from) || b.range.to.localeCompare(a.range.to));
+  return fitting[0]?.id ?? preset;
 }
 
 // The default scope for a client kind when nothing is stored: Android renders on

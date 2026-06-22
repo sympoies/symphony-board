@@ -15,6 +15,7 @@ import {
   timeRangeForPreset,
   timeRangeForDays,
   presetBeyondLoadedWindow,
+  windowQuickPreset,
   timeRangeToIso,
   isDateOnly,
   normalizeTimeRange,
@@ -614,6 +615,21 @@ test("activityDisplay exposes commit and ref details without fake #iid labels", 
   assert.equal(pushDisplay.title, "branch chore/deploy-test-full-flow-agent-9001");
   assert.equal([...pushDisplay.meta, ...pushDisplay.chips].some((part) => part.includes("#1936")), false);
   assert.deepEqual(pushDisplay.chips, ["ref chore/deploy-test-full-flow-agent-9001", "from 4eae5cc5"]);
+});
+
+test("windowQuickPreset surfaces a board-window button only when no built-in preset already matches it", () => {
+  const now = Date.parse("2026-06-08T12:00:00Z"); // a Monday
+  // A 3d board window has no built-in equivalent (1d == today, 7d == 1w), so it
+  // gets its own one-click "whole loaded window" button labelled with the scope.
+  const threeDay = timeRangeForDays(3, now);
+  assert.deepEqual(windowQuickPreset(threeDay, now, "3d"), { label: "3d", range: threeDay }, "3d window has no matching preset -> inject");
+  // 1d window == the "today" calendar preset, 7d == the "1w" rolling preset, and
+  // 30d == "1mo": each is already a button, so no duplicate is injected.
+  assert.equal(windowQuickPreset(timeRangeForDays(1, now), now, "1d"), null, "1d window == today preset -> no inject");
+  assert.equal(windowQuickPreset(timeRangeForDays(7, now), now, "7d"), null, "7d window == 1w preset -> no inject");
+  assert.equal(windowQuickPreset(timeRangeForDays(30, now), now, "1mo"), null, "30d window == 1mo preset -> no inject");
+  // Unwindowed scopes (off / full) pass a null range -> nothing to surface.
+  assert.equal(windowQuickPreset(null, now, "full"), null, "null window (off/full) -> no inject");
 });
 
 test("date ranges are route-backed and filter inclusive timestamp bounds", () => {

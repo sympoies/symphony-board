@@ -10,7 +10,7 @@ import {
   loadDefaultTab, saveDefaultTab,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
-  loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope,
+  loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -179,6 +179,37 @@ test("board scope is a device-local setting with off/window/full semantics", () 
   // Hand-edited / stale garbage falls back to the default.
   store._raw("symphony-board:board-scope", "5d");
   assert.equal(loadBoardScope(), "full", "invalid stored value -> default");
+});
+
+test("presetExceedsBoardScope flags only ranges larger than the Board data window", () => {
+  const now = Date.parse("2026-06-08T12:00:00Z"); // a Monday
+  assert.equal(presetExceedsBoardScope("3mo", "1mo", now), true, "3mo is larger than a 1mo board");
+  assert.equal(presetExceedsBoardScope("1y", "3mo", now), true);
+  assert.equal(presetExceedsBoardScope("1w", "1mo", now), false, "1w fits inside a 1mo board");
+  assert.equal(presetExceedsBoardScope("1mo", "1mo", now), false, "1mo exactly fits a 1mo board");
+  assert.equal(presetExceedsBoardScope("today", "1d", now), false);
+  // Full / off have no window ceiling, so no preset is ever out of range.
+  assert.equal(presetExceedsBoardScope("3mo", "full", now), false, "Full board has no ceiling");
+  assert.equal(presetExceedsBoardScope("3mo", "off", now), false, "Off has no board to bound");
+});
+
+test("clampDefaultRangeToBoardScope shrinks an oversized default to fit, leaving smaller ones alone", () => {
+  const now = Date.parse("2026-06-08T12:00:00Z");
+  // Larger than the window -> pulled down: Board 1y -> 1mo clamps a 3mo default to 1mo.
+  assert.equal(clampDefaultRangeToBoardScope("3mo", "1mo", now), "1mo");
+  // Already within the window -> untouched (no auto-grow, no needless shrink).
+  assert.equal(clampDefaultRangeToBoardScope("1w", "1mo", now), "1w");
+  assert.equal(clampDefaultRangeToBoardScope("3mo", "1y", now), "3mo");
+  // Full board and Off have no window to bound, so they never clamp.
+  assert.equal(clampDefaultRangeToBoardScope("1y", "full", now), "1y");
+  assert.equal(clampDefaultRangeToBoardScope("1y", "off", now), "1y", "off has no board to clamp");
+  // A window with no exact preset (3d) clamps to the largest preset that still fits.
+  // On this Monday that is "this week" (Sun–Mon, 2 days, inside the 3-day window);
+  // today/yesterday also fit but are smaller. Pin the value so the calendar-vs-rolling
+  // tie-break is documented, and confirm the result itself fits the window.
+  const clamped3d = clampDefaultRangeToBoardScope("3mo", "3d", now);
+  assert.equal(clamped3d, "this-week", "largest preset that fits a 3d window on a Monday");
+  assert.equal(presetExceedsBoardScope(clamped3d, "3d", now), false, "the clamped default fits the 3d window");
 });
 
 test("wide layout is a device-local setting that is OFF by default", () => {

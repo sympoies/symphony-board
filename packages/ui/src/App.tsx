@@ -12,6 +12,7 @@ import {
   commitRepoOptions,
   commitBranchOptions,
   preferredDefaultTimeRange,
+  TIME_RANGE_PRESETS,
   timeRangeForDays,
   staticContractTimeRange,
   activityDailyExtent,
@@ -40,6 +41,7 @@ import {
   relationCounts,
   routeTimeRange,
   sameTimeRange,
+  windowQuickPreset,
   sourceDisplayName,
   type TimeRangePresetId,
   type TimeRange,
@@ -91,6 +93,8 @@ import {
   loadBoardScope,
   saveBoardScope,
   boardScopeDays,
+  clampDefaultRangeToBoardScope,
+  presetExceedsBoardScope,
   loadWideLayout,
   saveWideLayout,
   currentClientKind,
@@ -317,13 +321,42 @@ export function App() {
         : null,
     [env, tz, staticRange],
   );
-  // When the board scope is a time window, the loaded env IS that window, so the
-  // default range is the env's own static window (staticRange). Matching it keeps
-  // customRange false and avoids a redundant /api/range overlay fetch on top of an
-  // already-windowed env. "full" / desktop keep the configured quick-preset default.
-  const defaultRange = useMemo(
-    () => (env ? (boardScopeWindowed ? staticRange : preferredDefaultTimeRange(env, defaultRangePreset)) : null),
-    [env, boardScopeWindowed, staticRange, defaultRangePreset],
+  // The instant calendar quick presets resolve against — the contract's generated-at
+  // (stable per load), falling back to "now" only before the first contract arrives.
+  const generatedNowMs = env ? (Number.isFinite(Date.parse(env.generated_at)) ? Date.parse(env.generated_at) : Date.now()) : Date.now();
+  // Board data is a ceiling on the range: a windowed scope opens on the Default range
+  // but never earlier than the loaded window. When the default reaches the window
+  // start — which it does whenever it is >= the window, since it is auto-clamped to
+  // never exceed it — the landing IS the window, so reuse staticRange and keep
+  // customRange false (no overlay fetch). A default the user deliberately keeps
+  // strictly smaller opens on that sub-range, served by the range overlay.
+  const defaultRange = useMemo(() => {
+    if (!env) return null;
+    if (!boardScopeWindowed) return preferredDefaultTimeRange(env, defaultRangePreset);
+    if (!staticRange) return null;
+    const presetRange = preferredDefaultTimeRange(env, defaultRangePreset);
+    return presetRange.from <= staticRange.from ? staticRange : presetRange;
+  }, [env, boardScopeWindowed, staticRange, defaultRangePreset]);
+  // Auto-shrink the stored Default range when Board data drops below it (e.g. Board
+  // 1y -> 1mo pulls a 3mo default down to 1mo); a default already within the window is
+  // left untouched. Persisted by the defaultRangePreset save effect.
+  useEffect(() => {
+    if (!env) return;
+    const clamped = clampDefaultRangeToBoardScope(defaultRangePreset, boardScope, generatedNowMs, tz);
+    if (clamped !== defaultRangePreset) setDefaultRangePreset(clamped);
+  }, [env, boardScope, defaultRangePreset, generatedNowMs, tz]);
+  // Default range options the Settings control disables: those larger than the
+  // current Board data window. Empty for full / off (no ceiling).
+  const disabledRangePresets = useMemo(
+    () => new Set(TIME_RANGE_PRESETS.filter((p) => presetExceedsBoardScope(p.id, boardScope, generatedNowMs, tz)).map((p) => p.id)),
+    [boardScope, generatedNowMs, tz],
+  );
+  // A windowed scope whose length no fixed quick preset names (e.g. "3d") gets a
+  // synthetic "show the whole loaded window" quick button; full/off and windows that
+  // already line up with a preset (1d == today, 7d == 1w, …) get none.
+  const windowPreset = useMemo(
+    () => (env && boardScopeWindowed ? windowQuickPreset(staticRange, generatedNowMs, boardScope, tz) : null),
+    [env, boardScopeWindowed, staticRange, boardScope, generatedNowMs, tz],
   );
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
@@ -1423,6 +1456,7 @@ export function App() {
       onClearColor={clearColorOverride}
       defaultRangePreset={defaultRangePreset}
       onDefaultRangePreset={setDefaultRangePreset}
+      disabledRangePresets={disabledRangePresets}
       boardScope={boardScope}
       onBoardScope={setBoardScope}
       wideLayout={wideLayout}
@@ -1644,6 +1678,9 @@ export function App() {
             // staticRange.from — so cap the quick-range presets there (disable +
             // hint beyond it). Full board passes null (no cap; it fetches on demand).
             loadedFrom={boardScopeWindowed ? (staticRange?.from ?? null) : null}
+            // For a windowed scope no fixed preset names (e.g. 3d), a synthetic quick
+            // button equal to the loaded window — the one-click way back to it.
+            windowPreset={windowPreset}
             // On narrow/portrait, collapse the date controls behind a summary
             // disclosure on every page that shows them — the first screen should
             // be content (the feed, board, graph, …), not a tall stack of date
