@@ -2,66 +2,70 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bootSplashReady } from "../src/boot-splash.ts";
 
-// The cold-start splash covers only the SHELL — bounded work (the contract
-// load) — never the open-ended live stream. The Live page renders its own
-// connecting skeleton, so the splash dismisses INTO it rather than holding for a
-// network stream whose connect time is unbounded. Holding for the stream is what
-// produced the reported regression: a 12s splash cap that timed out and revealed
-// a Live page still stuck on "Connecting…" for ~a minute.
-test("bootSplashReady covers only the shell, never the live stream", () => {
-  // Live page: contract-independent and renders its own skeleton immediately, so
-  // the splash never waits on the live connection — dismiss as soon as the shell
-  // can paint, whatever the contract/stream state.
+// The cold-start splash must KEEP COVERING the live route until the page has real
+// CONTENT to show — never the blank/"Connecting…" gap. Dismissing immediately
+// (the earlier regression) tore the splash off into a still-connecting Live feed.
+// Content can arrive two ways: the per-server cache paints last-known events
+// instantly (warm launch -> dismiss at once), or the (now small + bounded) probe
+// resolves the connection. A hard timeout still prevents stranding.
+test("bootSplashReady holds the live route until it has content or the probe resolves", () => {
+  // Cold launch, no cache, still connecting -> HOLD (this is the fix).
   assert.equal(
-    bootSplashReady({ routePage: "live", loading: true, timedOut: false }),
-    true,
-    "live renders its own connecting skeleton -> never gate the splash on the stream",
-  );
-  assert.equal(
-    bootSplashReady({ routePage: "live", loading: false, timedOut: false }),
-    true,
-  );
-
-  // Contract-backed pages: hold until the contract load resolves (bounded work).
-  assert.equal(
-    bootSplashReady({ routePage: "activity", loading: true, timedOut: false }),
+    bootSplashReady({ routePage: "live", loading: true, liveConnected: null, liveHasContent: false, timedOut: false }),
     false,
-    "contract page still loading -> keep the splash over the blank gap",
+    "live + connecting + no content -> keep the splash covering the blank gap",
   );
+  // Cache painted last-known events -> dismiss at once (warm launch).
   assert.equal(
-    bootSplashReady({ routePage: "activity", loading: false, timedOut: false }),
+    bootSplashReady({ routePage: "live", loading: true, liveConnected: null, liveHasContent: true, timedOut: false }),
     true,
-    "contract page loaded -> dismiss",
+    "live + cached content present -> dismiss into real content immediately",
+  );
+  // Connection resolved up -> ready feed.
+  assert.equal(
+    bootSplashReady({ routePage: "live", loading: false, liveConnected: true, liveHasContent: false, timedOut: false }),
+    true,
+    "live + connected -> dismiss into the seeded feed",
+  );
+  // Probe resolved unavailable -> the page shows its status (and the app may bounce).
+  assert.equal(
+    bootSplashReady({ routePage: "live", loading: false, liveConnected: false, liveHasContent: false, timedOut: false }),
+    true,
+    "live + unavailable -> dismiss; the page renders its Offline state / redirect fires",
+  );
+
+  // Contract-backed pages: hold until the contract load resolves; never gated on Live.
+  assert.equal(
+    bootSplashReady({ routePage: "activity", loading: true, liveConnected: null, liveHasContent: false, timedOut: false }),
+    false,
+    "contract page still loading -> keep the splash",
   );
   assert.equal(
-    bootSplashReady({ routePage: "board", loading: false, timedOut: false }),
+    bootSplashReady({ routePage: "activity", loading: false, liveConnected: null, liveHasContent: false, timedOut: false }),
+    true,
+    "contract page loaded -> dismiss regardless of Live",
+  );
+  assert.equal(
+    bootSplashReady({ routePage: "board", loading: false, liveConnected: null, liveHasContent: false, timedOut: false }),
     true,
   );
 
-  // A non-Live landing is NEVER held hostage to Live readiness anymore: the
-  // contract-backed page has its own content and Live prewarms in the background.
+  // Debug is self-contained.
   assert.equal(
-    bootSplashReady({ routePage: "activity", loading: false, timedOut: false }),
-    true,
-    "non-Live landing dismisses on contract readiness regardless of Live prewarm",
-  );
-
-  // The hidden diagnostics page is self-contained — never gate it on data.
-  assert.equal(
-    bootSplashReady({ routePage: "debug", loading: true, timedOut: false }),
+    bootSplashReady({ routePage: "debug", loading: true, liveConnected: null, liveHasContent: false, timedOut: false }),
     true,
     "debug renders immediately regardless of load state",
   );
 
-  // The hard timeout overrides everything so a never-arriving signal cannot
-  // strand the splash over the app.
+  // The hard timeout overrides everything so a never-arriving signal cannot strand.
   assert.equal(
-    bootSplashReady({ routePage: "activity", loading: true, timedOut: true }),
+    bootSplashReady({ routePage: "live", loading: true, liveConnected: null, liveHasContent: false, timedOut: true }),
     true,
-    "timeout dismisses even while the contract is still loading",
+    "timeout dismisses even while live is still connecting",
   );
   assert.equal(
-    bootSplashReady({ routePage: "live", loading: true, timedOut: true }),
+    bootSplashReady({ routePage: "activity", loading: true, liveConnected: null, liveHasContent: false, timedOut: true }),
     true,
+    "timeout dismisses even while the contract is still loading",
   );
 });

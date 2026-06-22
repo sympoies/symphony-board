@@ -17,7 +17,7 @@ import {
   type LiveSnapshotFetchResult,
 } from "./contract.ts";
 import { loadCachedLiveSnapshot, saveCachedLiveSnapshot } from "./live-cache.ts";
-import { LIVE_EVENT_BUFFER_LIMIT } from "./live-config.ts";
+import { LIVE_EVENT_BUFFER_LIMIT, LIVE_SEED_LIMIT } from "./live-config.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
 
@@ -471,7 +471,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
           setEvents([]);
         }
         void (async () => {
-          const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT);
+          const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_SEED_LIMIT);
           if (cancelled) return;
           if (!snap) {
             const retry = planSseResetSnapshotFailure(resetStart);
@@ -531,8 +531,10 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       // The cold-start seed is the patient one-shot probe: a transient blip on a
       // cold link retries a couple of times (bounded) rather than failing the tab
       // out on the first stall. The steady-state poll below stays retry-free — its
-      // 3s interval is its own retry.
-      const result = await fetchLiveSnapshotResult(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT, undefined, {
+      // 3s interval is its own retry. It fetches LIVE_SEED_LIMIT (not the buffer
+      // cap) so the first paint isn't a ~26MB download; the buffer grows from
+      // there as events stream in.
+      const result = await fetchLiveSnapshotResult(serverBaseUrl, LIVE_SEED_LIMIT, undefined, {
         retries: LIVE_SNAPSHOT_PROBE_RETRIES,
       });
       if (cancelled || !result.snapshot) return result;

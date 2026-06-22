@@ -8,6 +8,15 @@ import assert from "node:assert/strict";
 import { fetchLiveSnapshot, fetchLiveSnapshotResult, LIVE_SNAPSHOT_RETRY_BASE_MS } from "../src/contract.ts";
 import { liveAvatarModel } from "../src/live-avatar.ts";
 import { appendCapped, liveStreamUrl, pickLiveTransport } from "../src/useLive.ts";
+import { LIVE_SEED_LIMIT, LIVE_EVENT_BUFFER_LIMIT } from "../src/live-config.ts";
+
+// The cold-start seed must stay well below the buffer cap: a seed sized at the
+// 1000-event cap was the ~26MB download that stranded Live on launch. Guard the
+// two constants so a refactor can't silently let them converge again.
+test("the cold-start seed limit stays well under the buffer cap", () => {
+  assert.ok(LIVE_SEED_LIMIT < LIVE_EVENT_BUFFER_LIMIT, "seed must be smaller than the buffer cap");
+  assert.ok(LIVE_SEED_LIMIT > 0, "seed must fetch at least some events");
+});
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
