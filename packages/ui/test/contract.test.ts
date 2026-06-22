@@ -19,7 +19,19 @@ import {
   initLoadRetryDelayMs,
   INIT_LOAD_RETRY_BASE_MS,
   INIT_LOAD_RETRY_MAX_MS,
+  contractLoadingViewVisible,
 } from "../src/contract.ts";
+
+// The blocking "Loading contract…" view must show ONLY while there is no content
+// yet — never on top of a board the cold-start cache already painted. Gating it on
+// `loading` alone hid the cached board behind the overlay for the whole background
+// refetch (the bug that made every cache backend look broken on Android).
+test("the contract-loading overlay shows only when there is no content yet", () => {
+  assert.equal(contractLoadingViewVisible(true, false), true, "loading + no env -> show overlay");
+  assert.equal(contractLoadingViewVisible(true, true), false, "loading + cached env present -> render the board, revalidate behind it");
+  assert.equal(contractLoadingViewVisible(false, true), false, "loaded + env -> board");
+  assert.equal(contractLoadingViewVisible(false, false), false, "not loading + no env -> a different state (error/onboarding) owns the screen");
+});
 
 test("majorOf reads the leading integer of a version string (never NaN)", () => {
   assert.equal(SUPPORTED_MAJOR, 4);

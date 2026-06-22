@@ -17,6 +17,17 @@ export function majorOf(version: string): number {
   return Number(version.split(".")[0] ?? "0");
 }
 
+// Whether the blocking "Loading contract…" view should cover the app. Gated on
+// "no content yet", NOT on `loading` alone: the per-server cache can paint a
+// (stale) env on cold start while the background revalidation fetch keeps
+// `loading` true for its whole duration — gating on `loading` alone then hid the
+// cached board behind the overlay until the fetch resolved (the bug that made
+// every cache backend look broken on Android). With content present, render the
+// board and revalidate behind it. Pure + unit-tested so it can't regress.
+export function contractLoadingViewVisible(loading: boolean, hasEnv: boolean): boolean {
+  return loading && !hasEnv;
+}
+
 export function resolveEndpoint(url: string, serverBaseUrl: string | null = loadServerBaseUrl()): string {
   if (/^[a-z][a-z\d+.-]*:\/\//i.test(url)) return url;
   if (!serverBaseUrl) return url;
