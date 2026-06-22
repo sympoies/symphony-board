@@ -33,12 +33,17 @@ export const BOOT_SPLASH_MAX_MS = 12_000;
 //     of a bare "Connecting…" page. Made viable by the small, bounded seed (a
 //     full 1000-event snapshot was ~26MB and held the splash to its cap); the
 //     hard timeout below still prevents stranding if a signal never lands.
-//   - every other (contract-backed) page: until the contract load resolves; never
-//     gated on Live (a contract page has its own content; Live prewarms behind it).
+//   - every other (contract-backed) page: as soon as there is CONTENT to show.
+//     The per-server IndexedDB cache paints the last (stale) contract instantly
+//     on a warm launch (`hasContent` true while the revalidation fetch is still
+//     in flight), so the splash dismisses INTO the board rather than holding for
+//     the ~1.5MB download; a cold launch with no cache still holds until the
+//     fetch resolves (`!loading`). Never gated on Live (Live prewarms behind it).
 //   - timedOut: a hard ceiling so a never-arriving signal can't strand the splash.
 export function bootSplashReady(opts: {
   routePage: string;
   loading: boolean;
+  hasContent: boolean;
   liveConnected: boolean | null;
   liveHasContent: boolean;
   timedOut: boolean;
@@ -46,7 +51,7 @@ export function bootSplashReady(opts: {
   if (opts.timedOut) return true;
   if (opts.routePage === "debug") return true;
   if (opts.routePage === "live") return opts.liveHasContent || opts.liveConnected !== null;
-  return !opts.loading;
+  return opts.hasContent || !opts.loading;
 }
 
 // Update the splash's status line (e.g. "Loading…" -> "Reconnecting…"). No-op
