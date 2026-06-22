@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { activeTimeRangePresetId, isDateOnly, normalizeTimeRange, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "../model.ts";
+import { activeTimeRangePresetId, isDateOnly, normalizeTimeRange, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "../model.ts";
 
 const DISPLAY_DATE_PATTERN = "\\d{4}/\\d{2}/\\d{2}";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -74,6 +74,7 @@ export function TimeRangeControls({
   loading,
   error,
   suspended,
+  loadedFrom,
   collapsibleOnNarrow,
   mobilePanel,
   onRange,
@@ -85,6 +86,12 @@ export function TimeRangeControls({
   preferredPresetId?: TimeRangePresetId | null;
   loading?: boolean;
   error?: string | null;
+  // The earliest day this device actually loaded (Board data window start), or null
+  // for no cap (Full board / desktop). Quick-range presets that reach further back
+  // than this are DISABLED with a hint — the loaded board has no data that old, and
+  // selecting one would otherwise force a larger refetch. The manual from/to inputs
+  // are deliberately NOT capped (an explicit escape hatch).
+  loadedFrom?: string | null;
   // True while the current view ignores the time range (the graph's focus view
   // shows an item's FULL neighbourhood). The selection is KEPT — the active
   // preset stays highlighted — but the whole control dims and interaction is
@@ -223,8 +230,18 @@ export function TimeRangeControls({
       .filter(({ option }) => option.group === group)
       .map(({ option, range: preset }) => {
         const active = option.id === activePresetId;
+        // Beyond the loaded board window: keep it visible but disabled, with a hint
+        // that the data is not loaded (raise Board data in Settings to reach it).
+        const beyond = presetBeyondLoadedWindow(preset, loadedFrom ?? null);
         return (
-          <button key={option.id} type="button" className={`toggle${active ? " toggle-on" : ""}`} disabled={suspended} onClick={() => onRange(preset, option.id)}>
+          <button
+            key={option.id}
+            type="button"
+            className={`toggle${active ? " toggle-on" : ""}`}
+            disabled={suspended || beyond}
+            title={beyond ? "Beyond the data this device loaded — raise Board data in Settings to view further back." : undefined}
+            onClick={() => onRange(preset, option.id)}
+          >
             {option.label}
           </button>
         );

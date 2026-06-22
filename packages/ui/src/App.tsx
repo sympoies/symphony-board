@@ -1640,6 +1640,10 @@ export function App() {
             // so the range is visibly suspended there — selection kept, dimmed,
             // interaction off. Route-backed (?focus=), so reload/back agree.
             suspended={page === "graph" && route.focus != null}
+            // When the board scope is a window, the loaded data only goes back to
+            // staticRange.from — so cap the quick-range presets there (disable +
+            // hint beyond it). Full board passes null (no cap; it fetches on demand).
+            loadedFrom={boardScopeWindowed ? (staticRange?.from ?? null) : null}
             // On narrow/portrait, collapse the date controls behind a summary
             // disclosure on every page that shows them — the first screen should
             // be content (the feed, board, graph, …), not a tall stack of date

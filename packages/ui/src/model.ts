@@ -415,6 +415,15 @@ export function timeRangeForDays(days: number, now: number, tz: string = DEFAULT
   return { from: shiftDateOnly(to, -(span - 1)), to };
 }
 
+// Whether a quick-range preset reaches further back than the board window this
+// device loaded (Board data), so selecting it would need data that is not loaded.
+// Used to DISABLE such presets in the range control. `windowFrom` is the loaded
+// window's earliest day, or null for no cap (Full board / desktop) — where nothing
+// is out of range. Date-only strings (YYYY-MM-DD) compare lexicographically.
+export function presetBeyondLoadedWindow(presetRange: TimeRange, windowFrom: string | null): boolean {
+  return windowFrom != null && presetRange.from < windowFrom;
+}
+
 export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {
   const matchingPresetIds = TIME_RANGE_PRESETS
     .filter((candidate) => sameTimeRange(range, timeRangeForPreset(candidate.id, now, tz)))
