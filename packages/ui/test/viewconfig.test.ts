@@ -265,6 +265,17 @@ test("boardWindowRange pins the loaded window to the contract clock so it lines 
   assert.notEqual(activeTimeRangePresetId(mixedClockWindow, generatedAt, null), "1mo", "the mixed-clock window misses the 1mo preset (the bug)");
   assert.deepEqual(windowQuickPreset(mixedClockWindow, generatedAt, "1mo"), { label: "1mo", range: mixedClockWindow }, "the mixed-clock window injects a duplicate 1mo button (the bug)");
   assert.equal(activeTimeRangePresetId(boardWindowRange("1mo", generatedAt)!, generatedAt, null), "1mo", "boardWindowRange avoids the drift");
+
+  // tz is threaded end to end. Resolve in a non-UTC zone whose local day differs
+  // from the UTC day (Taipei is UTC+8, so 18:00Z is already the next local day) —
+  // the exact midnight-crossing condition the bug is named for. The windowed scope
+  // must still map to its named preset, not drift off it.
+  const taipeiAcrossMidnight = Date.parse("2026-06-08T18:00:00Z");
+  assert.equal(
+    activeTimeRangePresetId(boardWindowRange("1mo", taipeiAcrossMidnight, "Asia/Taipei")!, taipeiAcrossMidnight, null, "Asia/Taipei"),
+    "1mo",
+    "boardWindowRange threads tz so a windowed scope aligns to its preset across a UTC/local day boundary",
+  );
 });
 
 test("wide layout is a device-local setting that is OFF by default", () => {
