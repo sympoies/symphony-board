@@ -205,11 +205,24 @@ async function probePrecompressedContractMetadata(target: string, signal: AbortS
   }
 }
 
+// The minimal structural test for a contract envelope: an `items` array and a
+// string `contract_version`. Exported as the single source of truth so callers
+// that need a non-throwing shape check (e.g. the cold-start cache guard) cannot
+// drift from what `asContractEnvelope` enforces.
+export function isContractEnvelopeShape(body: unknown): body is ContractEnvelope {
+  return (
+    !!body &&
+    typeof body === "object" &&
+    Array.isArray((body as { items?: unknown }).items) &&
+    typeof (body as { contract_version?: unknown }).contract_version === "string"
+  );
+}
+
 function asContractEnvelope(body: unknown): ContractEnvelope {
-  if (!body || typeof body !== "object" || !Array.isArray((body as { items?: unknown }).items) || typeof (body as { contract_version?: unknown }).contract_version !== "string") {
+  if (!isContractEnvelopeShape(body)) {
     throw new Error("not a symphony-board contract (missing contract_version / items)");
   }
-  return body as ContractEnvelope;
+  return body;
 }
 
 export interface ContractLoadMetadata {

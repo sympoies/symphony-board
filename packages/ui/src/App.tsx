@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
+import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
   emptyFilters,
   activityRouteMatches,
@@ -303,6 +304,7 @@ export function App() {
       .then((loaded) => {
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
+        void saveCachedContract(serverBaseUrl, loaded.env);
         setError(null);
         loadedContract = true;
       })
@@ -489,6 +491,23 @@ export function App() {
     setLoading(true);
   }, []);
 
+  // Cold-start accelerator: paint the last (stale) contract for this server from
+  // the IndexedDB cache the instant we mount, so the board shows immediately
+  // while the init fetch below revalidates and REPLACES it (the dominant launch
+  // cost is the ~1.5MB download, not parsing). Only fills a STILL-EMPTY env — a
+  // fetch that already won is authoritative and must not be clobbered — and is
+  // per-server, so switching servers never paints another server's board.
+  useEffect(() => {
+    let cancelled = false;
+    void loadCachedContract(serverBaseUrl).then((cached) => {
+      if (cancelled || !cached) return;
+      setEnv((cur) => pickColdStartEnv(cur, cached));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverBaseUrl]);
+
   useEffect(() => {
     let cancelled = false;
     // A missing server URL on an Android client is a configuration error, not a
@@ -508,6 +527,9 @@ export function App() {
         initAttemptRef.current = 0;
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
+        // Refresh the cold-start cache so the NEXT launch paints this board
+        // before its download resolves. Best-effort; never blocks the render.
+        void saveCachedContract(serverBaseUrl, loaded.env);
         setError(null);
         setRetrying(false);
         setLoading(false);
@@ -556,6 +578,7 @@ export function App() {
   const bootSplashDone = bootSplashReady({
     routePage: route.page,
     loading,
+    hasContent: env !== null,
     liveConnected: live.connected,
     liveHasContent: live.events.length > 0,
     timedOut: bootTimedOut,
