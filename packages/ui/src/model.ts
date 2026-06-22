@@ -2535,6 +2535,28 @@ export interface DaemonLogsInfo {
   capacity: number;
 }
 
+// One configured GitHub token's GraphQL rate-limit budget, as probed on demand
+// by GET /api/token-rate-limits. Identified by env-var NAME only — the token
+// value never crosses this boundary. `ok: false` carries the probe `error`
+// instead of the budget fields.
+export interface TokenRateLimit {
+  source_id: string;
+  source_display: string;
+  env: string;
+  ok: boolean;
+  limit?: number;
+  remaining?: number;
+  used?: number;
+  reset_at?: string; // ISO 8601
+  error?: string;
+}
+
+export interface TokenRateLimitsInfo {
+  generated_at: string | null;
+  tokens: TokenRateLimit[];
+  error?: string; // a config-load failure on the server (no tokens probed)
+}
+
 // --- live event stream (the #/live page) ---
 // View-model mirror of the receiver's `live-event/1` record. Independent of the
 // product contract: the Live page renders from these alone, with no contract

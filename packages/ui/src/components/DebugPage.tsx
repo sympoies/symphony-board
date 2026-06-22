@@ -18,7 +18,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { ContractLoadMetadata } from "../contract.ts";
 import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, runDuration } from "../model.ts";
-import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo } from "../useDebug.ts";
+import type { TokenRateLimit } from "../model.ts";
+import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo, useTokenRateLimits } from "../useDebug.ts";
 import { resolveEndpoint } from "../contract.ts";
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import { DEBUG_TAB_IDS, type DebugTab } from "../nav.ts";
@@ -32,6 +33,7 @@ const DEBUG_TAB_LABELS: Record<DebugTab, string> = {
   contract: "Contract",
   store: "Store",
   sync: "Sync runs",
+  ratelimit: "Rate limit",
   log: "Daemon log",
 };
 
@@ -277,10 +279,27 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
   );
 }
 
+// "resets in 42m" for a FUTURE instant — relativeTime only renders the past, and
+// a GitHub GraphQL window always resets within the hour. now is injectable only
+// so this stays a pure formatter; the live render uses Date.now().
+function resetsIn(iso: string | undefined, now: number = Date.now()): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const sec = Math.round((t - now) / 1000);
+  if (sec <= 0) return "now";
+  if (sec < 60) return `in ${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `in ${min}m`;
+  return `in ${Math.round(min / 60)}h`;
+}
+
 export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefreshData, onClose }: Props) {
   const { stats, loading, refresh } = useStoreStats(serverBaseUrl);
   const live = useLiveSnapshotInfo(serverBaseUrl);
   const logs = useDaemonLogs(serverBaseUrl);
+  // On-demand: probes the provider only while its tab is active (see useDebug).
+  const tokenRates = useTokenRateLimits(serverBaseUrl, tab === "ratelimit");
   const [follow, setFollow] = useState(true);
   const [refreshingDiagnostics, setRefreshingDiagnostics] = useState(false);
   const logRef = useRef<HTMLPreElement | null>(null);
@@ -586,6 +605,80 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+      ) : null}
+
+      {tab === "ratelimit" ? (
+      <section className="debug-section">
+        <h3>
+          Rate limit
+          {tokenRates.info && tokenRates.info.tokens.length > 0 ? (
+            <span className="count">
+              {" "}
+              — {tokenRates.info.tokens.length} token{tokenRates.info.tokens.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </h3>
+        {tokenRates.loading ? (
+          <p className="muted">Probing each GitHub token's GraphQL budget…</p>
+        ) : !tokenRates.info ? (
+          <p className="empty">
+            Token rate limits unavailable: no <code>/api/token-rate-limits</code> on this deployment (a static read-only
+            board, or a build without the probe).
+          </p>
+        ) : tokenRates.info.error ? (
+          <p className="empty">Config error: {tokenRates.info.error}</p>
+        ) : tokenRates.info.tokens.length === 0 ? (
+          <p className="empty">No GitHub tokens configured to probe.</p>
+        ) : (
+          <>
+            <div className="debug-runs-wrap">
+              <table className="debug-table">
+                <thead>
+                  <tr>
+                    <th>source</th>
+                    <th>token (env)</th>
+                    <th className="num">remaining</th>
+                    <th className="num">used</th>
+                    <th>resets</th>
+                    <th>status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tokenRates.info.tokens.map((t: TokenRateLimit) => (
+                    <tr key={`${t.source_id}|${t.env}`}>
+                      <td>{t.source_display}</td>
+                      <td>
+                        <code>{t.env}</code>
+                      </td>
+                      <td className="num">
+                        {t.ok && t.remaining != null ? `${t.remaining.toLocaleString()} / ${(t.limit ?? 0).toLocaleString()}` : "—"}
+                      </td>
+                      <td className="num">{t.ok && t.used != null ? t.used.toLocaleString() : "—"}</td>
+                      <td title={t.reset_at}>{t.ok ? resetsIn(t.reset_at) : "—"}</td>
+                      <td className="debug-run-error">
+                        {t.ok ? (
+                          <Badge text="ok" kind="status-ok" />
+                        ) : (
+                          <>
+                            <Badge text="error" kind="status-error" /> <span title={t.error}>{t.error}</span>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted debug-foot">
+              <button type="button" className="toggle" onClick={tokenRates.refresh}>
+                Refresh
+              </button>{" "}
+              probed {tokenRates.info.generated_at ? relativeTime(tokenRates.info.generated_at) : "—"} · one lightweight GraphQL{" "}
+              <code>rateLimit</code> query per token (does not meaningfully spend the budget it reports)
+            </p>
+          </>
         )}
       </section>
       ) : null}

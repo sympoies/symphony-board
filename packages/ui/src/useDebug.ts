@@ -5,10 +5,10 @@
 // page is hidden, so nothing polls in normal use.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchStoreStats, fetchDaemonLogs, fetchLiveSnapshot } from "./contract.ts";
+import { fetchStoreStats, fetchDaemonLogs, fetchLiveSnapshot, fetchTokenRateLimits } from "./contract.ts";
 import { LIVE_EVENT_BUFFER_LIMIT } from "./live-config.ts";
 import { actorKey, categoryCounts, distinctCount, eventInstant, eventRepo } from "./live-stats.ts";
-import type { StoreStats, DaemonLogEntry } from "./model.ts";
+import type { StoreStats, DaemonLogEntry, TokenRateLimitsInfo } from "./model.ts";
 
 const LOG_POLL_INTERVAL_MS = 2000;
 // Client-side cap, matching the server buffer: the tail view never grows
@@ -41,6 +41,41 @@ export function useStoreStats(serverBaseUrl: string | null): StoreStatsState {
 
   const refresh = useCallback(() => setEpoch((e) => e + 1), []);
   return { stats, loading, refresh };
+}
+
+export interface TokenRateLimitsState {
+  info: TokenRateLimitsInfo | null; // null after a failed probe = endpoint unavailable on this deployment
+  loading: boolean;
+  refresh: () => void;
+}
+
+// The GitHub token GraphQL rate-limit probe. Unlike the store/log hooks this is
+// truly on-demand: it fires ONLY while its tab is active (and on a manual
+// Refresh), because each probe reaches out to the provider once per token —
+// opening the Diagnostics page on another tab must not spend that. Passing
+// `active` (tab === "ratelimit") gates the effect; switching to the tab triggers
+// a fresh probe, which is exactly when the operator wants the current budget.
+export function useTokenRateLimits(serverBaseUrl: string | null, active: boolean): TokenRateLimitsState {
+  const [info, setInfo] = useState<TokenRateLimitsInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    setLoading(true);
+    void fetchTokenRateLimits(serverBaseUrl).then((next) => {
+      if (cancelled) return;
+      setInfo(next);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverBaseUrl, active, epoch]);
+
+  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  return { info, loading, refresh };
 }
 
 // A one-shot snapshot probe of the live receiver for the Diagnostics page — the
