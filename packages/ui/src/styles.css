@@ -2568,6 +2568,15 @@ a.rf-node-title:hover { color: var(--accent); }
    operational: a compact summary strip first, grouped key/value tables next,
    and raw breakdowns below for drill-down. */
 .debug-page { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+/* Tabs with one tall scroller (Sync runs, Daemon log) fill the viewport so the
+   table/log extends to the bottom edge and scrolls internally, rather than the
+   log capping at a fixed height or a short runs table leaving dead space below.
+   The subtracted chrome is .app-wide's 16px top+bottom padding plus this page's
+   12px top+bottom margin (32 + 24 = 56px). Only the fill tabs get the height;
+   the others keep their natural, content-sized layout. A definite height (not
+   min-height) is what lets the inner scroller cap at the viewport and scroll
+   internally instead of growing the whole page. */
+.debug-page-fill { height: calc(100vh - 56px); height: calc(100dvh - 56px); }
 .debug-head { display: flex; align-items: baseline; gap: 12px; }
 .debug-head h2 { margin: 0; }
 .debug-close { margin-left: auto; }
@@ -2682,6 +2691,18 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .debug-log .log-warn { color: var(--warn); }
 .debug-log .log-error { color: var(--broken); }
+/* Inside a fill tab (see .debug-page-fill) the panel section grows to fill the
+   viewport-height page and its scroll container takes the remaining space,
+   scrolling internally. min-height: 0 lets the scroller shrink below its content
+   so the overflow actually scrolls instead of pushing the page taller. */
+.debug-section-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.debug-section-fill > .debug-runs-wrap,
+.debug-section-fill > .debug-log { flex: 1; min-height: 0; }
+.debug-section-fill > .debug-runs-wrap { overflow: auto; }
+.debug-section-fill > .debug-log { max-height: none; }
+/* The runs table now scrolls vertically, so pin its header row while scrolling
+   (the header cells already paint an opaque --panel-2 background). */
+.debug-section-fill > .debug-runs-wrap .debug-table thead th { position: sticky; top: 0; z-index: 1; }
 
 @media (max-width: 1180px) {
   .board-7 {

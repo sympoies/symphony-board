@@ -523,7 +523,7 @@ export function LivePanel({ live, serverBaseUrl }: { live: LiveSnapshotState; se
 
 export function SyncPanel({ stats, loading }: Pick<StoreStatsState, "stats" | "loading">) {
   return (
-    <section className="debug-section">
+    <section className="debug-section debug-section-fill">
       <h3>
         Sync runs {stats && stats.sync_runs.length > 0 ? <span className="count">— last {stats.sync_runs.length}</span> : null}
       </h3>
@@ -667,7 +667,7 @@ export function LogPanel({ logs }: { logs: DaemonLogsState }) {
   }, [logs.entries, follow]);
 
   return (
-    <section className="debug-section">
+    <section className="debug-section debug-section-fill">
       <h3>Daemon log</h3>
       {logs.enabled === null ? (
         <p className="muted">Probing the log endpoint…</p>
