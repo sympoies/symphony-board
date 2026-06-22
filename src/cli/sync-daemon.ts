@@ -37,7 +37,7 @@ import {
   type SyncRunTotals,
 } from "../sync-runner.ts";
 import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
-import { probeTokenRateLimits } from "../server/token-rate-limits.ts";
+import { probeTokenRateLimits, tokenRateLimitsConfigError } from "../server/token-rate-limits.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -388,7 +388,7 @@ export async function handleControlRequest(
     try {
       cfg = loadConfig(ctx.configControl.path).cfg;
     } catch (err) {
-      sendJson(res, 200, { generated_at: null, tokens: [], error: (err as Error).message });
+      sendJson(res, 200, tokenRateLimitsConfigError((err as Error).message));
       return;
     }
     const result = await probeTokenRateLimits(cfg);

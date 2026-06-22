@@ -51,8 +51,21 @@ export interface TokenRateLimit {
 }
 
 export interface TokenRateLimitsResult {
-  generated_at: string;
+  // null only on the config-error response below; a successful probe always
+  // stamps an ISO instant.
+  generated_at: string | null;
   tokens: TokenRateLimit[];
+  // Present only when the server could not load config to enumerate tokens; the
+  // probe itself never sets it (a per-token failure is an ok:false row instead).
+  error?: string;
+}
+
+// The response when the server cannot even load config to enumerate tokens — a
+// 200 with no tokens and the reason, so the tab degrades to a message rather
+// than erroring. Owned here so the route's success and error shapes share one
+// compile-checked type instead of drifting as inline literals.
+export function tokenRateLimitsConfigError(message: string): TokenRateLimitsResult {
+  return { generated_at: null, tokens: [], error: message };
 }
 
 // Inject-able so tests exercise the enumeration + shaping without a network call.
