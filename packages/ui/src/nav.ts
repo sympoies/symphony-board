@@ -85,6 +85,33 @@ export function resolveDefaultTab(defaultTab: Page, liveTabEnabled: boolean): Pa
   return defaultTab === "live" && !liveTabEnabled ? "activity" : defaultTab;
 }
 
+// --- Diagnostics sub-tabs --------------------------------------------------
+//
+// The hidden #/debug console is split into sub-tabs (see DebugPage.tsx), URL-
+// backed through the shared `tab` field like Settings. The ORDER here is the
+// display order, and the FIRST entry is the default landing tab — it maps to no
+// `tab` param so #/debug stays clean. Kept pure (ids + parsing only; the labels
+// live with the rendering in DebugPage) so the route<->tab contract is tested in
+// nav.test.ts, the same as every other navigation rule.
+export type DebugTab = "live" | "contract" | "store" | "sync" | "log";
+
+export const DEBUG_TAB_IDS = ["live", "contract", "store", "sync", "log"] as const satisfies readonly DebugTab[];
+
+export const DEFAULT_DEBUG_TAB: DebugTab = DEBUG_TAB_IDS[0];
+
+// A route `tab` value -> the active diagnostics tab. Anything unrecognized (or
+// absent) falls to the default, so a stale or hand-typed hash never blanks the
+// page.
+export function parseDebugTab(tab: string | null): DebugTab {
+  return DEBUG_TAB_IDS.includes(tab as DebugTab) ? (tab as DebugTab) : DEFAULT_DEBUG_TAB;
+}
+
+// The `tab` route value for a diagnostics tab: the default maps to null (no
+// param) so #/debug is clean and a fresh open lands on the default.
+export function debugTabField(tab: DebugTab): string | null {
+  return tab === DEFAULT_DEBUG_TAB ? null : tab;
+}
+
 // The active time range a navigation should carry. `preset` is the quick-preset
 // id that produced from/to, kept only as a UI tie-break.
 export interface RangeRoute {

@@ -27,6 +27,10 @@ import {
   clearFiltersHref,
   startupRouteHash,
   resolveDefaultTab,
+  parseDebugTab,
+  debugTabField,
+  DEBUG_TAB_IDS,
+  DEFAULT_DEBUG_TAB,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -408,4 +412,42 @@ test("resolveDefaultTab falls back off Live only when the Live tab is disabled",
   assert.equal(resolveDefaultTab("board", false), "board", "a non-Live default is never rewritten");
   assert.equal(resolveDefaultTab("activity", false), "activity");
   assert.equal(resolveDefaultTab("commits", true), "commits");
+});
+
+// The hidden Diagnostics console is split into sub-tabs, URL-backed through the
+// shared `tab` field. The first id is the default landing tab and Live leads.
+test("DEBUG_TAB_IDS lists every diagnostics tab with Live first as the default", () => {
+  assert.deepEqual([...DEBUG_TAB_IDS], ["live", "contract", "store", "sync", "log"]);
+  assert.equal(DEFAULT_DEBUG_TAB, "live", "Live is first, so it is the default landing tab");
+  assert.equal(DEBUG_TAB_IDS[0], DEFAULT_DEBUG_TAB);
+});
+
+// parseDebugTab is total: a known id round-trips, and anything else (absent,
+// stale, hand-typed, or another page's `tab` value) falls to the default so the
+// page never blanks.
+test("parseDebugTab maps known ids and falls back to the default otherwise", () => {
+  for (const id of DEBUG_TAB_IDS) assert.equal(parseDebugTab(id), id);
+  assert.equal(parseDebugTab(null), DEFAULT_DEBUG_TAB);
+  assert.equal(parseDebugTab(""), DEFAULT_DEBUG_TAB);
+  assert.equal(parseDebugTab("nope"), DEFAULT_DEBUG_TAB);
+  assert.equal(parseDebugTab("sources"), DEFAULT_DEBUG_TAB, "another page's tab value is not a debug tab");
+});
+
+// The default tab carries no `tab` param (clean #/debug); every other tab does.
+// Together with parseDebugTab this is a lossless round-trip through the hash.
+test("debugTabField drops the default and round-trips every other debug tab through the hash", () => {
+  assert.equal(debugTabField(DEFAULT_DEBUG_TAB), null);
+  for (const id of DEBUG_TAB_IDS) {
+    const hash = buildHashRoute({ page: "debug", tab: debugTabField(id) });
+    assert.equal(parseDebugTab(parseHashRoute(hash).tab), id, `#/debug round-trips ${id}`);
+  }
+  assert.equal(buildHashRoute({ page: "debug", tab: debugTabField(DEFAULT_DEBUG_TAB) }), "#/debug", "default tab keeps #/debug clean");
+  assert.equal(buildHashRoute({ page: "debug", tab: debugTabField("store") }), "#/debug?tab=store");
+});
+
+// A restored #/debug hash is always an intentional destination — its sub-tab
+// must survive a cold start (reload / reopen), not snap back to a default tab.
+test("startupRouteHash keeps a debug sub-tab verbatim across a cold start", () => {
+  assert.equal(startupRouteHash("#/debug?tab=store", "activity"), "#/debug?tab=store");
+  assert.equal(startupRouteHash("#/debug?tab=log", "live"), "#/debug?tab=log");
 });
