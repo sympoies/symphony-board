@@ -339,3 +339,61 @@ test("app-server degrades cleanly when the config is missing", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The Diagnostics Rate limit tab probes GET /api/token-rate-limits. The compose
+// deployment serves it from the writer daemon (sync-daemon.ts) behind nginx; the
+// standalone app must serve the same route from its bundled app-server so the tab
+// works there too (#401). The probe's enumeration/shaping is covered network-free
+// in token-rate-limits.test.ts; here we cover the ROUTE wiring on app-server:
+// fresh config read, the token-less success shape, and the config-error degrade.
+test("app-server serves /api/token-rate-limits: token-less success and config-error degrade to 200", async () => {
+  // Success path: a valid config whose GitHub source has an UNSET token env
+  // resolves to no tokens, so the probe runs with nothing to call -> 200, a
+  // stamped generated_at, an empty tokens array, and no network request.
+  delete process.env.APP_SERVER_TEST_TOKEN_UNSET;
+  const { dir, opts } = await sandbox();
+  const server = createAppServer(new SyncController({ run: () => Promise.resolve(okResult()) }), opts);
+  const base = await listen(server);
+  try {
+    const res = await fetch(`${base}/api/token-rate-limits`);
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.deepEqual(body.tokens, [], "unset token env -> nothing to probe");
+    assert.equal(typeof body.generated_at, "string", "success stamps generated_at");
+    assert.equal(body.error, undefined);
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // Config-error path: a broken config degrades to 200 + error (never 500), so
+  // the tab shows a message instead of a fetch failure — unlike /api/range,
+  // which 500s on the same broken config.
+  const dir2 = mkdtempSync(join(tmpdir(), "app-server-trl-"));
+  mkdirSync(join(dir2, "config"), { recursive: true });
+  const badPath = join(dir2, "config", "sources.json");
+  writeFileSync(badPath, "{ not valid json", "utf8");
+  const opts2: AppServerOptions = {
+    configPath: badPath,
+    contractOut: join(dir2, "data", "contract.json"),
+    controlEnabled: true,
+    configControlEnabled: true,
+    logsEnabled: false,
+    secretsPath: null,
+    intervalSeconds: 120,
+    fullEvery: 30,
+  };
+  const server2 = createAppServer(new SyncController({ run: () => Promise.resolve(okResult()) }), opts2);
+  const base2 = await listen(server2);
+  try {
+    const res = await fetch(`${base2}/api/token-rate-limits`);
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.deepEqual(body.tokens, []);
+    assert.equal(body.generated_at, null);
+    assert.ok(typeof body.error === "string" && body.error.length > 0, "config error surfaced");
+  } finally {
+    await close(server2);
+    rmSync(dir2, { recursive: true, force: true });
+  }
+});
