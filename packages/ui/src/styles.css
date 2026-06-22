@@ -2446,8 +2446,22 @@ a.rf-node-title:hover { color: var(--accent); }
 .settings-pref h3 { margin: 0 0 2px; font-size: 13px; }
 .settings-pref p { margin: 0; }
 .settings-select {
-  flex: none; background: var(--panel-2); color: var(--text);
-  border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit;
+  flex: none; background-color: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 24px 5px 8px; font: inherit;
+  /* Reset the OS appearance so mobile WebKit/Blink (iOS Safari, the Android
+     WebView this board runs in) actually paint the panel background, border, and
+     radius above. Left native, the control ignores them and falls back to a plain
+     grey system dropdown — the "CSS not applied" look on phones, even though
+     desktop browsers honor the same rules. With the native arrow gone, draw our
+     own caret from two gradient halves so it tracks the theme's --muted in both
+     Night Owl and Paper. */
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 13px center, right 8px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
 }
 /* The dropdown popup follows the inherited color-scheme (dark for Night Owl); also
    paint the option rows in the panel palette where the WebView honors it (Chromium
