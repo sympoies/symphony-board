@@ -2956,7 +2956,10 @@ try {
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
     [Math.abs((live.detailHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailHeight || 0}px vs ${live.feedHeight || 0}px)`],
-    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && !url.searchParams.has("since")), `live: snapshot seed requests the retained cap (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
+    // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
+    // the buffer cap, so the first paint isn't a ~26MB download; the poll-since
+    // request still uses the buffer cap (it returns only rows after the cursor).
+    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "200" && !url.searchParams.has("since")), `live: cold-start seed requests the small seed limit (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
     [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && url.searchParams.get("since") === "3"), `live: polling fallback requests only rows after the cursor (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],

@@ -20,27 +20,32 @@ let dismissed = false;
 // network on the Live tab) can't leave the splash covering the app forever.
 export const BOOT_SPLASH_MAX_MS = 12_000;
 
-// Whether the cold-start splash may be dismissed. The splash covers only the
-// SHELL — bounded work (the contract load) — never the open-ended live stream.
-// Pure + unit-tested (boot-splash.test.ts) so the readiness rule can't silently
-// regress.
+// Whether the cold-start splash may be dismissed: only once the first view has
+// actual CONTENT to show, never the blank/"Connecting…" gap between mount and
+// content. Pure + unit-tested (boot-splash.test.ts) so the readiness rule can't
+// silently regress.
 //   - debug: self-contained, renders immediately.
-//   - live: contract-INDEPENDENT and renders its OWN connecting skeleton on
-//     mount, so the splash dismisses INTO it. It must NOT wait for the live
-//     connection: that connect time is unbounded (snapshot probe + SSE/poll over
-//     a possibly-cold link), and holding for it is exactly what stranded the
-//     splash on its 12s cap and then revealed a Live page still "Connecting…" for
-//     ~a minute. The Live page owns its loading/connecting/offline states.
-//   - every other (contract-backed) page: until the contract load resolves.
+//   - live: the feed is contract-INDEPENDENT but blank until it has events, so
+//     keep the splash covering it until it has CONTENT — the per-server cache
+//     paints last-known events instantly (warm launch dismisses at once),
+//     otherwise hold until the connection probe resolves (`liveConnected !==
+//     null`). This is what makes a cold start dismiss INTO a ready feed instead
+//     of a bare "Connecting…" page. Made viable by the small, bounded seed (a
+//     full 1000-event snapshot was ~26MB and held the splash to its cap); the
+//     hard timeout below still prevents stranding if a signal never lands.
+//   - every other (contract-backed) page: until the contract load resolves; never
+//     gated on Live (a contract page has its own content; Live prewarms behind it).
 //   - timedOut: a hard ceiling so a never-arriving signal can't strand the splash.
 export function bootSplashReady(opts: {
   routePage: string;
   loading: boolean;
+  liveConnected: boolean | null;
+  liveHasContent: boolean;
   timedOut: boolean;
 }): boolean {
   if (opts.timedOut) return true;
   if (opts.routePage === "debug") return true;
-  if (opts.routePage === "live") return true;
+  if (opts.routePage === "live") return opts.liveHasContent || opts.liveConnected !== null;
   return !opts.loading;
 }
 

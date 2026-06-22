@@ -541,12 +541,13 @@ export function App() {
     };
   }, [serverBaseUrl, reloadKey]);
 
-  // Remove the cold-start boot splash (index.html) once the SHELL can paint. The
-  // splash covers only bounded work (the contract load); the Live page renders its
-  // own connecting skeleton and streams in behind it, so the splash dismisses INTO
-  // Live rather than waiting on an unbounded connection (the old hold-for-`live.
-  // connected` rule timed out on its 12s cap and revealed a still-"Connecting…"
-  // page). A hard timeout guarantees the splash can never strand on the contract.
+  // Remove the cold-start boot splash (index.html) once the first view has actual
+  // CONTENT — never the blank/"Connecting…" gap. On the Live route that means the
+  // feed has events: the per-server cache paints them instantly on a warm launch,
+  // otherwise the splash holds until the (now small + bounded) snapshot probe
+  // resolves the connection, so a cold start dismisses INTO a ready feed rather
+  // than a bare "Connecting…". A hard timeout guarantees the splash can never
+  // strand if a signal never lands.
   const [bootTimedOut, setBootTimedOut] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setBootTimedOut(true), BOOT_SPLASH_MAX_MS);
@@ -555,6 +556,8 @@ export function App() {
   const bootSplashDone = bootSplashReady({
     routePage: route.page,
     loading,
+    liveConnected: live.connected,
+    liveHasContent: live.events.length > 0,
     timedOut: bootTimedOut,
   });
   useEffect(() => {
