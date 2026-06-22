@@ -38,6 +38,30 @@ test("bootSplashReady holds the splash until the first view has content", () => 
     true,
   );
 
+  // Android can cold-start on Activity/Board while Live is enabled. In that
+  // case the first usable app frame still includes Live readiness, so do not
+  // drop the splash before the Live snapshot has either seeded or failed.
+  assert.equal(
+    bootSplashReady({ routePage: "activity", loading: false, liveConnected: null, liveEnabled: true, timedOut: false }),
+    false,
+    "non-Live landing + Live enabled + Live still unknown -> keep the splash",
+  );
+  assert.equal(
+    bootSplashReady({ routePage: "activity", loading: false, liveConnected: true, liveEnabled: true, timedOut: false }),
+    true,
+    "non-Live landing + Live enabled + Live seeded -> dismiss",
+  );
+  assert.equal(
+    bootSplashReady({ routePage: "activity", loading: false, liveConnected: false, liveEnabled: true, timedOut: false }),
+    true,
+    "non-Live landing + Live enabled + Live unavailable -> dismiss with the visible app",
+  );
+  assert.equal(
+    bootSplashReady({ routePage: "activity", loading: false, liveConnected: null, liveEnabled: false, timedOut: false }),
+    true,
+    "Live disabled in Settings -> never wait on Live readiness",
+  );
+
   // The hidden diagnostics page is self-contained — never gate it on data.
   assert.equal(
     bootSplashReady({ routePage: "debug", loading: true, liveConnected: null, timedOut: false }),

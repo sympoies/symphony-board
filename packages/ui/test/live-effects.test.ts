@@ -15,6 +15,7 @@ import {
   planSseResetSnapshot,
   planSseResetSnapshotFailure,
   planSseResetStart,
+  planLiveConnection,
   reconcileReset,
   parseResetEvent,
 } from "../src/useLive.ts";
@@ -91,6 +92,34 @@ test("planPollIngest reseeds when max_seq drops below the cursor", () => {
   assert.equal(pruned.reset, true);
   assert.deepEqual(pruned.ingest.map((e) => e.seq), [2, 1]);
   assert.equal(pruned.nextCursor, 2);
+});
+
+test("planLiveConnection prewarms inactive Live with one snapshot only", () => {
+  assert.equal(
+    planLiveConnection({ available: true, active: false, prewarm: true, endpointBlocked: false }),
+    "snapshot",
+    "Live enabled but not currently shown should seed once for cold-start readiness",
+  );
+  assert.equal(
+    planLiveConnection({ available: true, active: true, prewarm: true, endpointBlocked: false }),
+    "stream",
+    "the visible Live tab still opens the normal stream/poll lifecycle",
+  );
+  assert.equal(
+    planLiveConnection({ available: true, active: false, prewarm: false, endpointBlocked: false }),
+    "off",
+    "without prewarm, inactive Live remains closed",
+  );
+  assert.equal(
+    planLiveConnection({ available: null, active: false, prewarm: true, endpointBlocked: false }),
+    "off",
+    "availability must resolve before any snapshot is requested",
+  );
+  assert.equal(
+    planLiveConnection({ available: true, active: false, prewarm: true, endpointBlocked: true }),
+    "off",
+    "Android without a configured server URL must not issue a relative request",
+  );
 });
 
 // --- SSE reset re-seed -------------------------------------------------------

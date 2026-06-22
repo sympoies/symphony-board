@@ -352,7 +352,11 @@ export function App() {
   // every visit. `liveAvailable` (tri-state) gates connect-vs-unavailable; the
   // third arg opens the SSE/poll stream ONLY while the Live tab is shown, so a
   // polling transport (Tauri) does not poll in the background on other tabs.
-  const live = useLive(serverBaseUrl, liveAvailable, route.page === "live");
+  // The fourth arg is a one-shot cold-start prewarm for users who enabled Live
+  // but land on a non-Live default tab: it seeds `/api/live-snapshot` once and
+  // then stops, so Settings opt-out still costs zero requests and inactive Live
+  // never holds a persistent connection.
+  const live = useLive(serverBaseUrl, liveAvailable, route.page === "live", liveTabEnabled);
   // A host WITHOUT the live receiver (the standalone app, or any deploy missing
   // it) must never strand the user on a dead Live page — which can happen now
   // that the default tab can be Live and the cold-start redirect honors it. When
@@ -552,6 +556,7 @@ export function App() {
     routePage: route.page,
     loading,
     liveConnected: live.connected,
+    liveEnabled: liveTabEnabled,
     timedOut: bootTimedOut,
   });
   useEffect(() => {

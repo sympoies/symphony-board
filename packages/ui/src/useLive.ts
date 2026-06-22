@@ -221,6 +221,19 @@ export interface LiveState {
   transport: "sse" | "poll" | null;
 }
 
+export type LiveConnectionMode = "off" | "snapshot" | "stream";
+
+export function planLiveConnection(opts: {
+  available: boolean | null;
+  active: boolean;
+  prewarm: boolean;
+  endpointBlocked: boolean;
+}): LiveConnectionMode {
+  if (opts.available !== true || opts.endpointBlocked) return "off";
+  if (opts.active) return "stream";
+  return opts.prewarm ? "snapshot" : "off";
+}
+
 // App mounts this hook once at the always-present shell so the event BUFFER
 // survives tab switches (instant, current return to Live). Two gates:
 //   • `available` — the receiver-availability tri-state from App's probe:
@@ -231,7 +244,10 @@ export interface LiveState {
 //       poll) opens only while active, so a polling transport (Tauri thin
 //       clients) does NOT keep a 3s /api/live-snapshot interval running on
 //       background tabs. The buffer is retained across active toggles.
-export function useLive(serverBaseUrl: string | null, available: boolean | null = true, active = true): LiveState {
+//   • `prewarm`   — one-shot inactive snapshot seed. This is for cold-start
+//       readiness when the Live tab is enabled but the default landing is a
+//       contract-backed page. It never opens SSE and never starts the poll timer.
+export function useLive(serverBaseUrl: string | null, available: boolean | null = true, active = true, prewarm = false): LiveState {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -262,14 +278,21 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
   }, [serverBaseUrl, available]);
 
   // Connection lifecycle. Opens the SSE / poll stream only while the receiver is
-  // reachable AND the Live tab is active; the cleanup tears it down when the tab
-  // is left WITHOUT clearing the buffer above. On (re)open it seeds from the
-  // snapshot and advances the cursor, so returning renders the retained buffer
-  // instantly and catches up missed events with no duplicates (appendCapped keys
-  // by seq; the cursor never regresses).
+  // reachable AND the Live tab is active. When inactive but prewarm is true, it
+  // performs exactly one snapshot seed and stops: no SSE, no Tauri poll interval.
+  // The cleanup tears down any active transport when the tab is left WITHOUT
+  // clearing the buffer above. On (re)open it seeds from the snapshot and
+  // advances the cursor, so returning renders the retained buffer instantly and
+  // catches up missed events with no duplicates (appendCapped keys by seq; the
+  // cursor never regresses).
   useEffect(() => {
-    if (available !== true || !active) return;
-    if (endpointRequiresServerUrl("./api/live", serverBaseUrl, null)) return;
+    const mode = planLiveConnection({
+      available,
+      active,
+      prewarm,
+      endpointBlocked: endpointRequiresServerUrl("./api/live", serverBaseUrl, null),
+    });
+    if (mode === "off") return;
     let cancelled = false;
     let source: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -293,7 +316,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       tauri: isTauriRuntime(),
       hasEventSource: typeof EventSource !== "undefined",
     });
-    setTransport(transportKind);
+    if (mode === "stream") setTransport(transportKind);
 
     const startSse = (sinceSeq: number): void => {
       const es = new EventSource(liveStreamUrl(serverBaseUrl, sinceSeq));
@@ -399,18 +422,30 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       ingest(plan.ingest);
     };
 
-    void (async () => {
+    const seedSnapshot = async (): Promise<LiveSnapshot | null> => {
       const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT);
+      if (cancelled) return null;
+      if (!snap) return null;
+      markUp();
+      const plan = planPollIngest(lastSeq.current, snap);
+      if (plan.reset) {
+        lastSeq.current = 0;
+        setEvents([]);
+      }
+      lastSeq.current = plan.nextCursor;
+      ingest(plan.ingest);
+      return snap;
+    };
+
+    void (async () => {
+      const snap = await seedSnapshot();
       if (cancelled) return;
-      if (snap) {
-        markUp();
-        const plan = planPollIngest(lastSeq.current, snap);
-        if (plan.reset) {
-          lastSeq.current = 0;
-          setEvents([]);
+      if (mode === "snapshot") {
+        if (!snap) {
+          if (everOpened.current) setReconnecting(true);
+          else setConnected(false);
         }
-        lastSeq.current = plan.nextCursor;
-        ingest(plan.ingest);
+        return;
       }
       if (transportKind === "sse") {
         startSse(lastSeq.current);
@@ -426,7 +461,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       if (source) source.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [serverBaseUrl, available, active]);
+  }, [serverBaseUrl, available, active, prewarm]);
 
   return { events, connected, reconnecting, transport };
 }

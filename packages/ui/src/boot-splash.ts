@@ -27,17 +27,22 @@ export const BOOT_SPLASH_MAX_MS = 12_000;
 //   - live: the page is contract-INDEPENDENT but still needs its snapshot, so it
 //     is blank until the connection probe resolves (connected !== null). Holding
 //     here is the fix for the "splash flashes then blank Live page" regression.
+//   - non-live landing with Live enabled: the app should not reveal a loaded
+//     contract shell while the opt-in Live tab is still unknown; wait for the
+//     one-shot Live prewarm to seed or fail.
 //   - every other (contract-backed) page: until the contract load resolves.
 //   - timedOut: a hard ceiling so a never-arriving signal can't strand the splash.
 export function bootSplashReady(opts: {
   routePage: string;
   loading: boolean;
   liveConnected: boolean | null;
+  liveEnabled?: boolean;
   timedOut: boolean;
 }): boolean {
   if (opts.timedOut) return true;
   if (opts.routePage === "debug") return true;
   if (opts.routePage === "live") return opts.liveConnected !== null;
+  if (opts.liveEnabled && opts.liveConnected === null) return false;
   return !opts.loading;
 }
 
