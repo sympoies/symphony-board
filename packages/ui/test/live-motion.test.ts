@@ -217,6 +217,30 @@ test("Live pulse strip collapses to two columns before the ranked charts would o
   );
 });
 
+test("Live pulse strip is collapsible on a phone and stays open on desktop", () => {
+  // The four metric cards push the feed far down a phone screen. On mobile they
+  // hide behind a tap-to-collapse disclosure (default open); the collapsed state
+  // is carried by data-open="false" and only takes effect inside the phone
+  // breakpoint, so desktop always shows the strip regardless of the toggle.
+  assert.match(
+    stylesSource,
+    /@media \(max-width: 760px\)\s*{[\s\S]*?\.live-pulse\[data-open="false"\]\s*{[^}]*display:\s*none;/,
+    "a collapsed pulse strip should be hidden only within the phone breakpoint",
+  );
+  // The toggle reuses the shared collapsed-filter chrome, which is display:none
+  // on desktop — so the disclosure never appears on a wide screen.
+  assert.match(
+    stylesSource,
+    /\.filter-summary-disclosure\s*{\s*display:\s*none;\s*}/,
+    "the shared disclosure chrome should be hidden by default (desktop)",
+  );
+  assert.match(
+    stylesSource,
+    /@media \(max-width: 760px\)\s*{[\s\S]*?\.live-pulse-disclosure\s*{[^}]*width:\s*100%;/,
+    "the pulse disclosure should be a full-width header bar on a phone",
+  );
+});
+
 test("Live detail navigation is mobile-only and centered in the detail pane", () => {
   assert.match(
     stylesSource,
