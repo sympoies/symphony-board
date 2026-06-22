@@ -47,7 +47,7 @@ services:
     restart: unless-stopped
     environment:
       SYNC_MODE: loop
-      INTERVAL: "120"
+      INTERVAL: "${SYNC_INTERVAL:-300}"
       FULL_EVERY: "30"
       SYNC_FETCH_TIMEOUT_MS: "30000"
       SYMPHONY_CONFIG: config/${SYMPHONY_CONFIG_BASENAME:-sources.pg.json}

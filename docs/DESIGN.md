@@ -511,14 +511,17 @@ There is intentionally no external cron and no second writer **of the canonical
 store**. The `live` receiver is the single writer of its own, separate `live.db`
 (see Live Event Stream below); it never opens or writes the canonical store.
 
-Default loop cadence:
+Default compose loop cadence:
 
-- `INTERVAL=120`
-- `FULL_EVERY=30`
+- `docker/compose.yaml`: `INTERVAL=120`
+- `docker/compose.pg.yaml`: `INTERVAL=${SYNC_INTERVAL:-300}`
+- both stacks: `FULL_EVERY=30`
 
-That gives a full sweep on the first iteration and roughly hourly, with
-incremental syncs about every 2 minutes between. Set `FULL_EVERY=1` for every
-iteration to be full.
+That gives a full sweep on the first iteration and every `FULL_EVERY`
+iterations, with incremental syncs between. With defaults, the SQLite stack
+runs incrementals about every 2 minutes and full sweeps roughly hourly; the
+Postgres stack runs incrementals about every 5 minutes and full sweeps roughly
+every 2.5 hours. Set `FULL_EVERY=1` for every iteration to be full.
 
 ## UI-Triggered Sync Control Plane
 
