@@ -703,6 +703,35 @@ test("GitHub fetch routes each repo through its configured project client", asyn
   );
 });
 
+test("a partial run (some projects omitted for missing tokens) does not advance the watermark", async () => {
+  // The fresh issue would normally push the watermark to 2026-06-10. But this
+  // run was forced partial (a configured repo was omitted because its token was
+  // missing). Advancing the per-source watermark here would make the next
+  // incremental start past the omitted repo's older, still-unread events.
+  const partial = new GitHubSource(DESC, gql, ["o/r"], null, {
+    partialReason: "default-token repo omitted (secret missing); covered repos still synced",
+  });
+  const partialRes = await partial.fetch({ since: "2026-03-01T00:00:00Z", full: false });
+
+  assert.equal(partialRes.complete, false, "an omitted-project run reports an incomplete sweep");
+  assert.ok(partialRes.records.length > 0, "covered projects are still read");
+  assert.equal(
+    partialRes.watermark,
+    null,
+    "a partial run must leave the stored watermark unchanged (COALESCE/GREATEST keeps it) so the next incremental re-reads the omitted repo",
+  );
+
+  // Same data, no partialReason: the watermark advances normally.
+  const whole = new GitHubSource(DESC, gql, ["o/r"]);
+  const wholeRes = await whole.fetch({ since: "2026-03-01T00:00:00Z", full: false });
+  assert.equal(wholeRes.complete, true);
+  assert.equal(
+    wholeRes.watermark,
+    "2026-06-10T00:00:00Z",
+    "a non-partial run advances the watermark to the max updatedAt seen",
+  );
+});
+
 test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
   const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
   const refreshGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
