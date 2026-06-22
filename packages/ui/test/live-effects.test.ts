@@ -16,6 +16,8 @@ import {
   planSseResetSnapshotFailure,
   planSseResetStart,
   planLiveConnection,
+  planSnapshotFold,
+  resolveProbeFailure,
   reconcileReset,
   parseResetEvent,
 } from "../src/useLive.ts";
@@ -94,32 +96,114 @@ test("planPollIngest reseeds when max_seq drops below the cursor", () => {
   assert.equal(pruned.nextCursor, 2);
 });
 
-test("planLiveConnection prewarms inactive Live with one snapshot only", () => {
+// Availability is no longer a separate probe: `useLive` owns the one snapshot
+// that both decides reachability AND seeds the buffer, gated solely on the user's
+// `enabled` opt-in. An enabled-but-inactive tab still prewarms a single snapshot;
+// a disabled tab (or a server-less Android client) issues NO request at all.
+test("planLiveConnection gates the single live probe on the enabled opt-in", () => {
   assert.equal(
-    planLiveConnection({ available: true, active: false, prewarm: true, endpointBlocked: false }),
+    planLiveConnection({ enabled: true, active: false, endpointBlocked: false }),
     "snapshot",
-    "Live enabled but not currently shown should seed once for cold-start readiness",
+    "Live enabled but not currently shown -> seed once for cold-start readiness",
   );
   assert.equal(
-    planLiveConnection({ available: true, active: true, prewarm: true, endpointBlocked: false }),
+    planLiveConnection({ enabled: true, active: true, endpointBlocked: false }),
     "stream",
-    "the visible Live tab still opens the normal stream/poll lifecycle",
+    "the visible Live tab opens the normal stream/poll lifecycle",
   );
   assert.equal(
-    planLiveConnection({ available: true, active: false, prewarm: false, endpointBlocked: false }),
+    planLiveConnection({ enabled: false, active: false, endpointBlocked: false }),
     "off",
-    "without prewarm, inactive Live remains closed",
+    "Live disabled in Settings -> never connect, never probe",
   );
   assert.equal(
-    planLiveConnection({ available: null, active: false, prewarm: true, endpointBlocked: false }),
+    planLiveConnection({ enabled: false, active: true, endpointBlocked: false }),
     "off",
-    "availability must resolve before any snapshot is requested",
+    "a stale #/live with Live disabled must not open a connection",
   );
   assert.equal(
-    planLiveConnection({ available: true, active: false, prewarm: true, endpointBlocked: true }),
+    planLiveConnection({ enabled: true, active: false, endpointBlocked: true }),
     "off",
     "Android without a configured server URL must not issue a relative request",
   );
+});
+
+// The cold-start regression guard: `connected` is the availability signal that
+// hides the Live tab and bounces a stale #/live, so a TRANSIENT probe failure on
+// the cold-start path must stay "Connecting…" (the poll loop recovers) and must
+// NOT resolve to unavailable and bounce the user off a genuinely-Live deploy.
+test("resolveProbeFailure keeps a transient cold-start failure connecting, not unavailable", () => {
+  assert.equal(
+    resolveProbeFailure({ everOpened: false, transient: true }),
+    "keep-connecting",
+    "first-probe transient failure (cold link) -> stay Connecting, let the loop retry",
+  );
+  assert.equal(
+    resolveProbeFailure({ everOpened: false, transient: false }),
+    "unavailable",
+    "first-probe definitive failure (no receiver) -> unavailable (hides tab / bounces)",
+  );
+  assert.equal(
+    resolveProbeFailure({ everOpened: true, transient: true }),
+    "reconnecting",
+    "a drop after a successful open is a transient reconnect, never unavailable",
+  );
+  assert.equal(
+    resolveProbeFailure({ everOpened: true, transient: false }),
+    "reconnecting",
+    "even a definitive failure after a prior open is a reconnect, not a fresh unavailable",
+  );
+});
+
+// The stale-while-revalidate cache handoff: the FIRST authoritative snapshot
+// REPLACES the provisional cache seed wholesale so a cached row the server no
+// longer returns cannot linger; otherwise it folds normally (merge / reseed).
+test("planSnapshotFold replaces a cache seed but merges/reseeds otherwise", () => {
+  // Replace: a cached-only event (seq 99, absent from the server snapshot) must
+  // NOT survive the first authoritative snapshot.
+  const replace = planSnapshotFold({
+    cursor: 99,
+    snapshot: snap(7, [ev(7), ev(6)]),
+    seededFromCache: true,
+    cap: 10,
+  });
+  assert.equal(replace.kind, "replace");
+  if (replace.kind === "replace") {
+    assert.deepEqual(replace.events.map((e) => e.seq), [7, 6], "buffer is exactly the server snapshot");
+    assert.equal(replace.cursor, 7, "cursor follows the snapshot, not the stale cache");
+  }
+
+  // Replace honors the cap (newest-first).
+  const capped = planSnapshotFold({
+    cursor: 0,
+    snapshot: snap(5, [ev(5), ev(4), ev(3)]),
+    seededFromCache: true,
+    cap: 2,
+  });
+  assert.equal(capped.kind === "replace" && capped.events.length, 2);
+
+  // Merge (steady state): snapshot ahead of the cursor -> ingest only the tail.
+  const merge = planSnapshotFold({
+    cursor: 5,
+    snapshot: snap(7, [ev(7), ev(6), ev(5)]),
+    seededFromCache: false,
+    cap: 10,
+  });
+  assert.equal(merge.kind, "merge");
+  if (merge.kind === "merge") {
+    assert.equal(merge.reset, false);
+    assert.deepEqual(merge.ingest.map((e) => e.seq), [7, 6]);
+    assert.equal(merge.cursor, 7);
+  }
+
+  // Reseed: snapshot behind the cursor (receiver restarted/pruned) -> reset.
+  const reseed = planSnapshotFold({
+    cursor: 9,
+    snapshot: snap(2, [ev(2), ev(1)]),
+    seededFromCache: false,
+    cap: 10,
+  });
+  assert.equal(reseed.kind === "merge" && reseed.reset, true);
 });
 
 // --- SSE reset re-seed -------------------------------------------------------

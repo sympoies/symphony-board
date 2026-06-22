@@ -622,51 +622,128 @@ export async function fetchDaemonLogs(after: number, serverBaseUrl: string | nul
 }
 
 // --- live event stream (the #/live page) ---
-// Snapshot GET that seeds the Live page and the Tauri polling fallback. Null on
-// ANY failure (route missing, no receiver, network error) so the page reports
-// "live unavailable" instead of erroring — mirrors the diagnostics probes. The
-// browser path streams via EventSource against ./api/live directly (it cannot
-// go through appFetch); only the snapshot uses this client.
+
+// Bounded timeouts + a small classified retry for the snapshot probe. Unlike the
+// contract loader these are SHORT: the snapshot is a small JSON probe whose only
+// caller that wants patience is the one-shot cold-start seed; the 3s poll loop is
+// its own retry, so the steady-state poll passes `retries: 0`.
+export const LIVE_SNAPSHOT_CONNECT_TIMEOUT_MS = 5_000;
+export const LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS = 12_000;
+export const LIVE_SNAPSHOT_PROBE_RETRIES = 2;
+export const LIVE_SNAPSHOT_RETRY_BASE_MS = 500;
+const LIVE_SNAPSHOT_RETRY_MAX_MS = 4_000;
+
+export interface LiveSnapshotFetchOptions {
+  retries?: number; // extra attempts after the first, only on a TRANSIENT failure
+  retryBaseDelayMs?: number;
+  requestTimeoutMs?: number; // per-attempt overall ceiling (browser + desktop)
+  connectTimeoutMs?: number; // per-attempt connect bound (desktop only)
+  sleep?: (ms: number) => Promise<void>; // injectable for tests
+}
+
+// Validate the snapshot shape the seed/poll/reset paths and the local cache rely
+// on: a `live-snapshot/1` schema string, an events array, and a finite max_seq
+// cursor. A wrong shape is treated as unavailable, mirroring the other probe
+// clients — the UI then renders "live unavailable" rather than seeding from a
+// bogus cursor. Exported so the offline cache validates the same shape.
+export function isLiveSnapshot(body: unknown): body is LiveSnapshot {
+  return (
+    !!body &&
+    typeof body === "object" &&
+    typeof (body as LiveSnapshot).schema === "string" &&
+    (body as LiveSnapshot).schema.startsWith("live-snapshot/1") &&
+    Array.isArray((body as LiveSnapshot).events) &&
+    typeof (body as LiveSnapshot).max_seq === "number" &&
+    Number.isFinite((body as LiveSnapshot).max_seq)
+  );
+}
+
+// One bounded snapshot attempt. Returns the snapshot on success, or null tagged
+// with whether the failure is worth a retry: a thrown fetch (network error /
+// abort from the per-attempt timeout) and a 5xx are TRANSIENT; a 4xx (no receiver
+// on this deploy) and a 200 whose body is not a snapshot are DEFINITIVE.
+async function fetchLiveSnapshotAttempt(
+  target: string,
+  requestTimeoutMs: number,
+  connectTimeoutMs: number,
+): Promise<{ snapshot: LiveSnapshot | null; transient: boolean }> {
+  const signal = createAttemptTimeoutSignal(requestTimeoutMs);
+  let res: Response;
+  try {
+    res = await appFetch(target, { cache: "no-store", signal, connectTimeout: connectTimeoutMs });
+  } catch {
+    return { snapshot: null, transient: true };
+  }
+  if (!res.ok) return { snapshot: null, transient: res.status >= 500 };
+  let body: unknown;
+  try {
+    body = await readJson(res);
+  } catch {
+    // An interrupted body read (timeout / dropped connection mid-body) is
+    // transient; a SyntaxError on a fully-received body is a definitive content
+    // error and not worth retrying.
+    return { snapshot: null, transient: signal.aborted };
+  }
+  return isLiveSnapshot(body) ? { snapshot: body, transient: false } : { snapshot: null, transient: false };
+}
+
+export interface LiveSnapshotFetchResult {
+  snapshot: LiveSnapshot | null;
+  // When `snapshot` is null: true if the LAST attempt failed transiently
+  // (network / abort / 5xx) and is worth retrying; false if it failed
+  // definitively (4xx — no receiver on this deploy — or a wrong-shape body).
+  // The cold-start seed uses this to keep "Connecting…" + retry on a transient
+  // failure rather than resolving to "unavailable" and bouncing off a Live deploy.
+  transientFailure: boolean;
+}
+
+// Snapshot GET that seeds the Live page and the Tauri polling fallback, returning
+// the snapshot AND why it failed. The browser path streams via EventSource against
+// ./api/live directly (it cannot go through appFetch); only the snapshot uses this
+// client. The per-attempt timeout is the key cold-start fix: an unbounded request
+// hung for ~a minute on a cold link and left the Live page stuck on "Connecting…";
+// now it aborts and (for the patient one-shot probe) retries on a transient
+// failure instead of stranding.
+export async function fetchLiveSnapshotResult(
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  limit?: number,
+  sinceSeq?: number,
+  opts: LiveSnapshotFetchOptions = {},
+): Promise<LiveSnapshotFetchResult> {
+  const requestTimeoutMs = opts.requestTimeoutMs ?? LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS;
+  const connectTimeoutMs = opts.connectTimeoutMs ?? LIVE_SNAPSHOT_CONNECT_TIMEOUT_MS;
+  const retries = Math.max(0, opts.retries ?? 0);
+  const retryBaseDelayMs = opts.retryBaseDelayMs ?? LIVE_SNAPSHOT_RETRY_BASE_MS;
+  const sleep = opts.sleep ?? defaultSleep;
+
+  const params = new URLSearchParams();
+  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+    params.set("limit", String(Math.trunc(limit)));
+  }
+  if (typeof sinceSeq === "number" && Number.isFinite(sinceSeq) && sinceSeq >= 0) {
+    params.set("since", String(Math.trunc(sinceSeq)));
+  }
+  const query = params.toString();
+  const path = query ? `./api/live-snapshot?${query}` : "./api/live-snapshot";
+  const target = resolveEndpoint(path, serverBaseUrl);
+
+  for (let attempt = 0; ; attempt++) {
+    const { snapshot, transient } = await fetchLiveSnapshotAttempt(target, requestTimeoutMs, connectTimeoutMs);
+    if (snapshot !== null) return { snapshot, transientFailure: false };
+    if (!transient || attempt >= retries) return { snapshot: null, transientFailure: transient };
+    await sleep(Math.min(retryBaseDelayMs * 2 ** attempt, LIVE_SNAPSHOT_RETRY_MAX_MS));
+  }
+}
+
+// Snapshot-or-null convenience wrapper for callers that don't need the failure
+// classification (the SSE reset refetch, tests).
 export async function fetchLiveSnapshot(
   serverBaseUrl: string | null = loadServerBaseUrl(),
   limit?: number,
   sinceSeq?: number,
+  opts: LiveSnapshotFetchOptions = {},
 ): Promise<LiveSnapshot | null> {
-  try {
-    const params = new URLSearchParams();
-    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-      params.set("limit", String(Math.trunc(limit)));
-    }
-    if (typeof sinceSeq === "number" && Number.isFinite(sinceSeq) && sinceSeq >= 0) {
-      params.set("since", String(Math.trunc(sinceSeq)));
-    }
-    const query = params.toString();
-    const path = query ? `./api/live-snapshot?${query}` : "./api/live-snapshot";
-    const res = await appFetch(resolveEndpoint(path, serverBaseUrl), {
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as LiveSnapshot | null;
-    // Validate the snapshot shape the re-seed/poll paths rely on: a
-    // `live-snapshot/1` schema string, an events array, and a finite max_seq
-    // cursor. A wrong shape is treated as unavailable (null), mirroring the
-    // other probe clients — the UI then renders "live unavailable" rather than
-    // seeding from a bogus cursor.
-    if (
-      !body ||
-      typeof body !== "object" ||
-      typeof body.schema !== "string" ||
-      !body.schema.startsWith("live-snapshot/1") ||
-      !Array.isArray(body.events) ||
-      typeof body.max_seq !== "number" ||
-      !Number.isFinite(body.max_seq)
-    ) {
-      return null;
-    }
-    return body;
-  } catch {
-    return null;
-  }
+  return (await fetchLiveSnapshotResult(serverBaseUrl, limit, sinceSeq, opts)).snapshot;
 }
 
 // Parse a contract the user dropped in via the file picker.

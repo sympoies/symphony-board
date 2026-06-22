@@ -20,29 +20,27 @@ let dismissed = false;
 // network on the Live tab) can't leave the splash covering the app forever.
 export const BOOT_SPLASH_MAX_MS = 12_000;
 
-// Whether the cold-start splash may be dismissed: only once the first view has
-// actual CONTENT to show, never the blank gap between mount and content. Pure +
-// unit-tested (boot-splash.test.ts) so the readiness rule can't silently regress.
+// Whether the cold-start splash may be dismissed. The splash covers only the
+// SHELL — bounded work (the contract load) — never the open-ended live stream.
+// Pure + unit-tested (boot-splash.test.ts) so the readiness rule can't silently
+// regress.
 //   - debug: self-contained, renders immediately.
-//   - live: the page is contract-INDEPENDENT but still needs its snapshot, so it
-//     is blank until the connection probe resolves (connected !== null). Holding
-//     here is the fix for the "splash flashes then blank Live page" regression.
-//   - non-live landing with Live enabled: the app should not reveal a loaded
-//     contract shell while the opt-in Live tab is still unknown; wait for the
-//     one-shot Live prewarm to seed or fail.
+//   - live: contract-INDEPENDENT and renders its OWN connecting skeleton on
+//     mount, so the splash dismisses INTO it. It must NOT wait for the live
+//     connection: that connect time is unbounded (snapshot probe + SSE/poll over
+//     a possibly-cold link), and holding for it is exactly what stranded the
+//     splash on its 12s cap and then revealed a Live page still "Connecting…" for
+//     ~a minute. The Live page owns its loading/connecting/offline states.
 //   - every other (contract-backed) page: until the contract load resolves.
 //   - timedOut: a hard ceiling so a never-arriving signal can't strand the splash.
 export function bootSplashReady(opts: {
   routePage: string;
   loading: boolean;
-  liveConnected: boolean | null;
-  liveEnabled?: boolean;
   timedOut: boolean;
 }): boolean {
   if (opts.timedOut) return true;
   if (opts.routePage === "debug") return true;
-  if (opts.routePage === "live") return opts.liveConnected !== null;
-  if (opts.liveEnabled && opts.liveConnected === null) return false;
+  if (opts.routePage === "live") return true;
   return !opts.loading;
 }
 
