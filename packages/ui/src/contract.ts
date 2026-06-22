@@ -264,7 +264,16 @@ export interface LoadedContract {
 // with exponential backoff; a definitive answer (a 4xx, or a 200 whose body is
 // not a contract) is surfaced immediately rather than retried.
 export const CONTRACT_CONNECT_TIMEOUT_MS = 10_000;
-export const CONTRACT_REQUEST_TIMEOUT_MS = 30_000;
+// Per-attempt ceiling for the whole fetch + body read. Sized for the mobile
+// worst case: the contract is ~1.5MB gzip, and an Android client on a slow /
+// relayed tailnet link transfers it at a fraction of LAN speed. At the old 30s
+// ceiling that transfer could abort mid-body, and because an abort is transient
+// the outer loop just re-fetched the full 1.5MB again — a "Loading contract…"
+// retry storm that never settled (the smaller Live snapshot fit and succeeded,
+// so Live worked while contract pages did not). 60s gives a slow-but-progressing
+// download room to finish on the first attempt instead of looping. A healthy
+// link still resolves in ~1s; this ceiling only matters when the link is slow.
+export const CONTRACT_REQUEST_TIMEOUT_MS = 60_000;
 export const CONTRACT_LOAD_RETRIES = 2;
 export const CONTRACT_RETRY_BASE_DELAY_MS = 1_000;
 const CONTRACT_RETRY_MAX_DELAY_MS = 8_000;
