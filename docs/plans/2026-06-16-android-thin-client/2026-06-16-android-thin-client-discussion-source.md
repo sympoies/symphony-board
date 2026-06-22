@@ -66,7 +66,7 @@ delivery.
   `src-tauri/capabilities/default.json` and allowed URLs can be constrained:
   <https://v2.tauri.app/plugin/http-client/>.
 - [W4] Tailscale Serve docs say Serve shares a local service within a tailnet,
-  can reverse-proxy local ports, and is distinct from public Funnel exposure:
+  can reverse-proxy local ports, and is distinct from public internet exposure:
   <https://tailscale.com/docs/reference/tailscale-cli/serve> and
   <https://tailscale.com/docs/features/tailscale-serve>.
 - [A1] `agent-docs preflight --intent project-dev` passed with required policy
@@ -104,7 +104,7 @@ deployment over Tailscale.
 - compose-pg binds web and Postgres ports to loopback by default; this is a good
   baseline, but phones cannot reach Ubuntu `127.0.0.1` directly. [F4]
 - Tailscale Serve can proxy a local service into the tailnet without making it a
-  public Funnel service. [W4]
+  public internet service. [W4]
 
 ## Decisions
 
@@ -148,7 +148,7 @@ deployment over Tailscale.
 - DB schema or sync engine changes.
 - Provider write-backs.
 - Any direct Android connection to Postgres.
-- Public Internet exposure through Tailscale Funnel, reverse proxies, or
+- Public Internet exposure through public HTTPS ingress, reverse proxies, or
   `0.0.0.0` compose bindings.
 
 ## Implementation Boundaries
@@ -235,4 +235,3 @@ README/DESIGN content.
 - `packages/ui/src/viewconfig.ts`
 - `packages/ui/src/styles.css`
 - `docker/compose.pg.yaml`
-

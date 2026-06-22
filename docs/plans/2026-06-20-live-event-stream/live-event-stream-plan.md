@@ -13,11 +13,11 @@ It is fully separate from the `raw → canonical → contract` pipeline,
 `contract.json`, the contract schema, and the Activity tab. The existing
 periodic sync stays the canonical reconciliation/backstop; the live feed is
 freshness, not the state of record. GitHub lands first; the GitLab adapter is
-designed as an interface only. Public ingress is Tailscale Funnel, path-scoped
+designed as an interface only. Public ingress is a dedicated public HTTPS route
 to the webhook route on its own port; SSE/snapshot stay tailnet-only.
 
 All settled decisions, the live-event schema, the API shape, verified
-provider/SSE/Funnel facts, and the security model live in the source document —
+provider/SSE/public ingress facts, and the security model live in the source document —
 read it first.
 
 ## Read First
@@ -45,7 +45,7 @@ read it first.
   service (public `POST /webhooks/github`, tailnet `GET /api/live` SSE +
   `GET /api/live-snapshot` + `/healthz`); a new contract-independent Live UI
   page (web/standalone same-origin; thin-client polling fallback); the Docker
-  `live` service + nginx `/api/live*` + `.env.example`; g14 Funnel/serve wiring
+  `live` service + nginx `/api/live*` + `.env.example`; private deployment host ingress wiring
   (documented); a GitLab adapter interface stub; the `docs/DESIGN.md`
   trust-boundary promotion.
 - Out of scope: any change to `contract.json`, the contract schema,
@@ -62,9 +62,9 @@ read it first.
    the `store-conformance` suite, so the Postgres gates do not apply to it.
 2. The GitHub source is configured as an organization webhook with a single
    shared HMAC secret referenced by env-var name (Decision 5).
-3. Public ingress is Tailscale Funnel on a dedicated funnel port, path-scoped to
-   `/webhooks` (Decision 4); the `funnel` node attribute is granted in the
-   tailnet policy by an admin before deploy.
+3. Public ingress is a dedicated public HTTPS route scoped to `/webhooks`
+   (Decision 4); any required public-ingress enablement is handled by a
+   deployment admin before deploy.
 4. The standalone macOS app has no public ingress, so the Live receiver is
    absent/disabled there (Decision 9); the page is hidden when the live
    capability is unavailable.
@@ -365,7 +365,7 @@ browser/standalone, and falls back to polling on Tauri thin clients.
 
 ---
 
-## Sprint 5: Deployment (Docker + nginx + Funnel) + DESIGN promotion
+## Sprint 5: Deployment (Docker + nginx + public ingress) + DESIGN promotion
 
 **Goal**: the `live` service runs in compose, SSE is reachable tailnet-only
 through nginx, the webhook path is the only public surface, and the trust-boundary
@@ -375,7 +375,7 @@ change is recorded in `docs/DESIGN.md`.
 
 - Command(s): `pnpm --filter @symphony-board/ui run build`; compose up the
   default stack; a manual signed `curl` to the receiver.
-- Verify: `/api/live` streams through nginx without buffering; the funnel exposes
+- Verify: `/api/live` streams through nginx without buffering; the public ingress exposes
   only `/webhooks/*`; `/api/live*` is unreachable from the public URL.
 
 ### Task 5.1: Compose `live` service + entrypoint dispatch
@@ -403,7 +403,7 @@ change is recorded in `docs/DESIGN.md`.
 - **Validation**:
   - `shellcheck` on the entrypoint; a compose config lint / up smoke locally.
 
-### Task 5.2: nginx `/api/live*` route + g14 Funnel/serve + DESIGN promotion
+### Task 5.2: nginx `/api/live*` route + private deployment host ingress + DESIGN promotion
 
 - **Location**:
   - `docker/ui-nginx.conf`
@@ -412,18 +412,18 @@ change is recorded in `docs/DESIGN.md`.
 - **Description**: add an nginx `location /api/live` (and `/api/live-snapshot`)
   with `proxy_buffering off; proxy_http_version 1.1;` and a raised
   `proxy_read_timeout`, proxying to the `live` service (tailnet-only). Document the
-  g14 step: `tailscale funnel` on a dedicated funnel port (443/8443/10000),
-  path-scoped `--set-path=/webhooks`, to the `live` service; the existing
-  `tailscale serve` (UI) stays on its own port; SSE/snapshot are never funneled;
-  grant the `funnel` node attribute (admin). Promote the trust-boundary decision
-  into `docs/DESIGN.md`. (The g14-infra `serve.sh` change lives in that external
-  repo and is documented, not edited here.)
+  deployment step: configure public HTTPS ingress on a dedicated listener,
+  path-scoped `--set-path=/webhooks`, to the `live` service; the existing private
+  UI ingress stays on its own port; SSE/snapshot are never publicly exposed.
+  Promote the trust-boundary decision into `docs/DESIGN.md`. (The deployment
+  ingress script change lives in that external repo and is documented, not edited
+  here.)
 - **Dependencies**:
   - Task 5.1
 - **Complexity**: 4
 - **Acceptance criteria**:
   - `/api/live` streams through nginx without buffering stalls (tailnet).
-  - The public funnel URL serves only `/webhooks/*`; `/api/live*` and the UI are
+  - The public ingress URL serves only `/webhooks/*`; `/api/live*` and the UI are
     not reachable from it.
   - `docs/DESIGN.md` records the new subsystem and the read-only/tailnet-only
     trust-boundary change.
@@ -491,5 +491,5 @@ build implements the same contract, without wiring it into the receiver.
 - The live store is a separate SQLite store (not the canonical `Store`), so
   `test:pg-e2e` / `test:pg-compose` and `store-conformance` are NOT required for
   v1 — state this explicitly in each PR.
-- End-to-end (real org webhook to g14): under `test/e2e/` or a deploy smoke,
+- End-to-end (real org webhook to private deployment host): under `test/e2e/` or a deploy smoke,
   env-gated and self-skipping; never the default `pnpm test` glob.

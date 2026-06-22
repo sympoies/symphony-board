@@ -105,14 +105,14 @@ services:
       start_period: 10s
 
   # Least-privilege Live receiver: verifies inbound GitHub webhooks, owns its OWN
-  # live.db (the live-data volume), and serves the tailnet-only SSE + snapshot. It
+  # live.db (the live-data volume), and serves the private SSE + snapshot. It
   # mounts NO config and holds NO provider token — only the webhook secret(s). It
   # never opens the canonical store. It runs TWO listeners (see
   # src/live/receiver.ts): the reads listener (LIVE_PORT, /api/live*) reached only
   # by the web sidecar over the compose network, and the webhook listener
   # (LIVE_WEBHOOK_PORT, /webhooks/*) which is the ONLY surface published to the
-  # host — on loopback, for the host Tailscale Funnel. Because the webhook
-  # listener carries no read routes, the Funnel needs no path scoping and the
+  # host, on loopback, for deployment-owned public HTTPS ingress. Because the
+  # webhook listener carries no read routes, no path scoping is required and the
   # event stream can never leak through it.
   #
   # The webhook secret is filled by `environment:` interpolation, NOT env_file
@@ -121,8 +121,8 @@ services:
   # that is `docker/.env`, NOT the repo-root `.env` that board/api load via
   # env_file. So for a direct run, put WEBHOOK_GITHUB_SECRET in docker/.env or
   # pass it in the shell env (e.g. `WEBHOOK_GITHUB_SECRET=… docker compose …`).
-  # The g14 deployment renders it into the stack-dir .env, which IS the project
-  # dir there, so interpolation picks it up.
+  # A deployment can render it into the stack-dir .env, which IS the project dir
+  # there, so interpolation picks it up.
   live:
     image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
     build:
@@ -143,8 +143,8 @@ services:
     volumes:
       - live-data:/app/data
     ports:
-      # Loopback-only host port for the host Tailscale Funnel, mapped to the
-      # WEBHOOK listener (8091) — never the reads listener. Never 0.0.0.0.
+      # Loopback-only host port for deployment-owned public HTTPS ingress, mapped
+      # to the WEBHOOK listener (8091) — never the reads listener. Never 0.0.0.0.
       # /api/live* is reached only via the web sidecar over the compose network
       # and is never published here.
       - "${SYMPHONY_LIVE_BIND:-127.0.0.1}:${SYMPHONY_LIVE_PORT:-18090}:8091"

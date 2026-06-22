@@ -8,7 +8,7 @@
 
 ## Purpose
 
-`contract.json` is ~17.5 MB locally / ~19.5 MB on g14 because it inlines the
+`contract.json` is ~17.5 MB locally / ~19.5 MB on private deployment host because it inlines the
 **full ~16-month activity history** on every page load. Shrink the per-load
 contract and let the UI reach a full year of data **without** a separate archive
 file, by: windowing raw activities in the static contract, pre-computing the
@@ -18,7 +18,7 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
 ## Confirmed facts (with evidence)
 
 - **Size:** `data/contract.json` 17.5 MB raw / ~1.6 MB gz local; **19.5 MB** on
-  g14. `activities` is **87%** (~12.4 MB; `id`/`url`/`summary`/`details.body`
+  private deployment host. `activities` is **87%** (~12.4 MB; `id`/`url`/`summary`/`details.body`
   are the heavy fields). Measured.
 - **Windowing today:** `items[]` is windowed to **90 days** (contract v2.0.0,
   `CONTRACT_ITEM_WINDOW_DAYS=90` in `src/contract/build.ts`). `activities[]` is
@@ -27,7 +27,7 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
 - **Store retention:** the canonical store keeps everything (~16 months); the
   `activity` table has no `deleted_at` and is never age-pruned. Only items/edges
   are soft-deleted on a full sweep (`src/sync-engine.ts`).
-- **`/api/range` works and is whole-site.** Measured on g14: a 180-day request
+- **`/api/range` works and is whole-site.** Measured on private deployment host: a 180-day request
   returns the full envelope (items 2107, activities 12285, edges 2283),
   gzipped. Mounted on the standalone server (`src/cli/app-server.ts:117-129`)
   and proxied by nginx in compose (`docker/ui-nginx.conf`). It reads the full
@@ -36,7 +36,7 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
 - **nginx already gzips** `contract.json` and `/api/range` (measured
   `Content-Encoding: gzip`). The **standalone `app-server` serves raw**
   (`src/cli/app-server.ts:67`) — the only un-gzipped path.
-- **UI range behavior (reproduced via headless Chrome on g14):**
+- **UI range behavior (reproduced via headless Chrome on private deployment host):**
   - `activeEnv = needsRangeEnv ? rangeEnv : env` (`App.tsx:398`);
     `customRange = activeRange !== staticRange` → the UI fetches `/api/range`
     **whenever the range differs from the 90-day static window, even when it is
@@ -128,7 +128,7 @@ ranges through `/api/range`, and making `/api/range` cheap at the SQL layer.
 
 1. With raw activities windowed to 30d, the Activity Overview 12-month block,
    heatmap, by-kind totals, busiest day, and active-days render **correct
-   numbers** (match the pre-change values measured on g14: ~13,781 events,
+   numbers** (match the pre-change values measured on private deployment host: ~13,781 events,
    busiest 510, 265/370 active days, commit/CR/review split) — sourced from
    `activity_daily`.
 2. **1w and 1mo views perform NO `/api/range` round-trip** (served by local

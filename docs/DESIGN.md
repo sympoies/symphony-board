@@ -767,7 +767,7 @@ public/tailnet boundary does not depend on out-of-repo proxy config alone:
   trailing-slash footgun and a single-point reliance on proxy config, so the
   listener split supersedes it. The concrete public-ingress mechanism belongs
   in the deployment repo or operator runbook, not in this public app repo.
-- **Tailnet-only (never funneled) — the reads listener:** `GET /api/live` (SSE)
+- **Private network only — the reads listener:** `GET /api/live` (SSE)
   and `GET /api/live-snapshot` (+ `/healthz`) on a separate port, reachable only
   by the `web` nginx sidecar over the compose network (`proxy_buffering off`). v1
   relies on the tailnet boundary for SSE authz, as the rest of the UI does. The

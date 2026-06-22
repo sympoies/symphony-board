@@ -9,14 +9,14 @@
 // Defense-in-depth (#313): the receiver is served on TWO listeners that share
 // one store + broadcaster but expose disjoint routes:
 //   - webhookServer: POST /webhooks/<provider> (+ /healthz). The ONLY public
-//     surface — the host Tailscale Funnel targets this listener's loopback port
-//     directly, so even a "funnel the whole port" misconfig cannot reach the
-//     event stream, and no Funnel path-rewrite is needed.
+//     surface — deployment-owned public ingress targets this listener's loopback
+//     port directly, so even exposing the whole listener port cannot reach the
+//     event stream, and no path rewrite is needed.
 //   - readServer: GET /api/live (SSE) + /api/live-snapshot (+ /healthz). The
-//     tailnet-only reads, proxied by the web sidecar over the compose network.
+//     private reads, proxied by the web sidecar over the compose network.
 // Neither listener serves the other's routes (a webhook POST to readServer or an
 // /api/live GET to webhookServer is a 404), so the public/tailnet split is
-// enforced in-app, not only by out-of-repo proxy config.
+// enforced in-app, not only by out-of-repo ingress config.
 import {
   createServer,
   type IncomingMessage,
@@ -63,7 +63,7 @@ export interface ReceiverOptions {
   // SSE resume replay bound; beyond it a `reset` re-snapshot is signalled.
   replayLimit?: number;
   // Public webhook listener abuse controls. An unauthenticated POST flood on the
-  // Funnel must not be able to hold sockets open or exhaust the process.
+  // public ingress must not be able to hold sockets open or exhaust the process.
   webhookRequestTimeoutMs?: number;
   headersTimeoutMs?: number;
   maxWebhookConnections?: number;
@@ -71,7 +71,7 @@ export interface ReceiverOptions {
 }
 
 export interface LiveReceiver {
-  // Public webhook ingress (the only Funnel-facing surface).
+  // Public webhook ingress (the only public-facing surface).
   webhookServer: Server;
   // Tailnet-only SSE + snapshot reads (proxied by the web sidecar).
   readServer: Server;
@@ -321,7 +321,7 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
   }
 
   // Public webhook ingress: POST /webhooks/<provider> (+ /healthz) only. No read
-  // routes, so this listener can face the Funnel directly. Abuse controls bound
+  // routes, so this listener can face public ingress directly. Abuse controls bound
   // an unauthenticated POST flood (per-request + headers timeouts, conn cap).
   const webhookServer = createServer((req, res) => {
     const method = req.method ?? "GET";
