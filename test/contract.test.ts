@@ -4,6 +4,7 @@ import { buildContract } from "../src/contract/build.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
 import { validateContract } from "../src/contract/validate.ts";
 import { deriveActorKey } from "../src/model/actor.ts";
+import type { ReviewThreadCommentDTO } from "@symphony-board/contract";
 import type { ActivityRow, ItemRow, LabelRow, EdgeRow, ReviewThreadRow, SourceRow } from "../src/db/store.ts";
 
 function itemRow(over: Partial<ItemRow>): ItemRow {
@@ -564,6 +565,25 @@ test("review-thread comment schema tolerates a 4.1.0 comment with no avatar_url 
   // Drop the producer-emitted key to simulate a contract from before 4.2.0.
   delete (env.review_threads![0]!.comments[0] as { avatar_url?: unknown }).avatar_url;
   assert.deepEqual(validateContract(env), [], "a comment without avatar_url must still validate under 4.2.0");
+});
+
+test("ReviewThreadCommentDTO mirrors the schema by accepting an omitted avatar_url", () => {
+  // Type-level guard (compiled by the root `tsc --noEmit` typecheck, which
+  // includes test/**): the schema's reviewThreadComment `required` set omits
+  // avatar_url (4.1.0-shaped comments must validate under 4.2.0), so the mirrored
+  // DTO must NOT make the field required. A literal without the key has to
+  // type-check; if avatar_url were required this assignment would fail tsc.
+  const withoutAvatar: ReviewThreadCommentDTO = {
+    id: "PRRC_legacy",
+    author: "reviewer",
+    body: "A 4.1.0-shaped comment.",
+    url: "https://github.com/dev-a/repo/pull/8#discussion_r1",
+    created_at: "2026-06-01T01:00:00Z",
+    updated_at: "2026-06-01T01:05:00Z",
+  };
+  // Consumers reading the widened field get string | null | undefined.
+  const url: string | null | undefined = withoutAvatar.avatar_url;
+  assert.equal(url, undefined);
 });
 
 test("repo metrics emit provider repo URLs for nested GitLab paths and null for malformed paths", () => {
