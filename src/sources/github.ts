@@ -215,7 +215,17 @@ export class GitHubSource implements Source {
         firstError ??= `${project} activity: ${(err as Error).message}`;
       }
     }
-    return { records, watermark: latest, complete, error: firstError };
+    // When configured projects were omitted for a missing token (partialReason),
+    // this sweep only saw a subset of the source. The watermark is strictly
+    // per-source, so advancing it to the max updatedAt of the covered repos
+    // would make the next incremental start past the omitted repo's older,
+    // still-unread events — silently skipping them once its token is added.
+    // Return null so updateSyncState's COALESCE/GREATEST keeps the prior
+    // watermark and the next incremental re-reads from where it was. A non-
+    // partial run (including a partial-for-other-reasons sweep, e.g. a PR with
+    // >100 review threads, which still covers every project) advances normally.
+    const watermark = this.partialReason ? null : latest;
+    return { records, watermark, complete, error: firstError };
   }
 
   async fetchRefresh(candidates: RefreshCandidate[], _opts: FetchOptions): Promise<FetchResult> {
