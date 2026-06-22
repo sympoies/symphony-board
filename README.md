@@ -333,6 +333,14 @@ The daemon defaults to `INTERVAL=120` seconds and `FULL_EVERY=30`, which means a
 full sweep on the first loop and then about once per hour, with incremental
 runs about every 2 minutes in between. Set `FULL_EVERY=1` to always full-sweep.
 
+Within a single source's sweep, the per-item resolve pass (the extra round-trip
+each issue/MR/PR needs after the bulk page fetch) runs at a bounded concurrency
+of `SYNC_RESOLVE_CONCURRENCY` (default 4; a value below 1 or non-integer falls
+back to the default, read fresh each run). Raising it shortens that pass on
+large repos but risks a provider's secondary / abuse rate limit — page fetches
+stay sequential regardless, and `SYNC_RESOLVE_CONCURRENCY=1` restores the
+fully-sequential behavior.
+
 Only full, complete sweeps can tombstone disappeared items and intra-source
 edges. Partial, failed, and incremental runs never delete.
 

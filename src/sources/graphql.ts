@@ -35,6 +35,10 @@ function gqlOptions(input: number | GqlClientOptions | undefined, url: string): 
 export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: number | GqlClientOptions): GqlClient {
   const tokens = normalizeAuthTokens(tokenInput);
   const { timeoutMs, provider } = gqlOptions(opts, url);
+  // Shared across all callers of this client, now including the bounded-concurrent
+  // resolve passes (lib/concurrency.ts). Writes are idempotent cooldown stamps and
+  // reads only pick an available token, so concurrent callers racing on it is
+  // benign: the worst case is several each re-stamping the same cooldown.
   const blockedUntil = new Map<number, number>();
 
   return async function gql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {

@@ -18,6 +18,10 @@ export type RestClient = <T = any>(path: string, params?: Record<string, string 
 export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, provider: "github" | "gitlab", timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS): RestClient {
   const base = baseUrl.replace(/\/+$/, "");
   const tokens = normalizeAuthTokens(tokenInput);
+  // Shared across all callers of this client, now including the bounded-concurrent
+  // resolve passes (lib/concurrency.ts). Writes are idempotent cooldown stamps and
+  // reads only pick an available token, so concurrent callers racing on it is
+  // benign: the worst case is several each re-stamping the same cooldown.
   const blockedUntil = new Map<number, number>();
 
   return async function rest<T = any>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {

@@ -8,6 +8,20 @@ import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
 
 const DESC: SourceDescriptor = { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null };
 
+// Run a body with SYNC_RESOLVE_CONCURRENCY set, restoring it afterwards so the
+// per-item resolve concurrency bound can be exercised without leaking the
+// setting across tests in this file.
+async function withResolveConcurrency(value: string, fn: () => Promise<void>): Promise<void> {
+  const prev = process.env.SYNC_RESOLVE_CONCURRENCY;
+  process.env.SYNC_RESOLVE_CONCURRENCY = value;
+  try {
+    await fn();
+  } finally {
+    if (prev === undefined) delete process.env.SYNC_RESOLVE_CONCURRENCY;
+    else process.env.SYNC_RESOLVE_CONCURRENCY = prev;
+  }
+}
+
 function issueNode(id: string, updatedAt: string) {
   return {
     __typename: "Issue", id, number: 1, title: id, url: `https://x/${id}`, state: "OPEN",
@@ -752,6 +766,39 @@ test("GitHub CI refresh fetches configured PR candidates without advancing the w
   assert.equal(src.normalize(res.records[0]!)?.item?.ciState, "passing");
 });
 
+test("GitHub CI refresh folds per-candidate errors in input order and bounds concurrency", async () => {
+  await withResolveConcurrency("2", async () => {
+    // #1 (early) rejects slowly, #3 (later) rejects fast — completion order is
+    // #3 then #1, but firstError must reflect INPUT order (#1).
+    const failDelayMs: Record<number, number> = { 1: 20, 3: 0 };
+    let inFlight = 0;
+    let peak = 0;
+    const refreshGql: GqlClient = (async (_query: string, vars?: Record<string, unknown>) => {
+      const number = Number(vars?.number);
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      try {
+        if (number in failDelayMs) {
+          await new Promise((r) => setTimeout(r, failDelayMs[number]));
+          throw new Error(`boom#${number}`);
+        }
+        return { repository: { pullRequest: prNode(`PR_${number}`, "OPEN", "MERGEABLE") } };
+      } finally {
+        inFlight--;
+      }
+    }) as GqlClient;
+    const src = new GitHubSource(DESC, refreshGql, ["o/r"]);
+    const res = await src.fetchRefresh(
+      [1, 2, 3, 4].map((iid) => ({ externalId: `PR_${iid}`, projectPath: "o/r", iid, reason: "ci_unresolved" as const })),
+      { since: null, full: false },
+    );
+    assert.equal(res.complete, false, "a failed candidate degrades the sweep");
+    assert.match(res.error ?? "", /#1 ci refresh:/, "firstError is the earliest-input failure (#1), not the first to reject (#3)");
+    assert.deepEqual(res.records.map((r) => r.externalId), ["PR_2", "PR_4"], "only survivors record, in input order");
+    assert.ok(peak > 1 && peak <= 2, `peak in-flight ${peak} should be bounded by 2`);
+  });
+});
+
 test("GitHub: submitted PR reviews normalize into review activities", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {
@@ -1165,9 +1212,7 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
 });
 
 test("GitLab resolve pass overlaps per-item round-trips up to the concurrency bound", async () => {
-  const prev = process.env.SYNC_RESOLVE_CONCURRENCY;
-  process.env.SYNC_RESOLVE_CONCURRENCY = "2";
-  try {
+  await withResolveConcurrency("2", async () => {
     const N = 6;
     let inFlight = 0;
     let peak = 0;
@@ -1196,10 +1241,75 @@ test("GitLab resolve pass overlaps per-item round-trips up to the concurrency bo
     assert.deepEqual(res.records.map((r) => r.externalId), issues.map((n) => n.id), "records stay in collected (input) order");
     assert.ok(peak > 1, `expected real overlap, peak in-flight was ${peak}`);
     assert.ok(peak <= 2, `peak in-flight ${peak} exceeded the configured bound 2`);
-  } finally {
-    if (prev === undefined) delete process.env.SYNC_RESOLVE_CONCURRENCY;
-    else process.env.SYNC_RESOLVE_CONCURRENCY = prev;
-  }
+  });
+});
+
+test("GitLab resolve folds per-item errors in input order and still records every item", async () => {
+  await withResolveConcurrency("2", async () => {
+    const N = 4;
+    const issues = Array.from({ length: N }, (_, i) => glNode(`gid:I${i}`, String(i)));
+    // #0 (early) rejects slowly, #2 (later) rejects fast — so completion order
+    // is #2 then #0, but firstError must reflect INPUT order (#0).
+    const failDelayMs: Record<string, number> = { "0": 20, "2": 0 };
+    let inFlight = 0;
+    let peak = 0;
+    const mixedGql: GqlClient = (async (query: string, vars: any) => {
+      if (query.includes("mergeRequests(")) {
+        return { project: { mergeRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+      }
+      if (query.includes("issues(")) {
+        return { project: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: issues } } };
+      }
+      if (query.includes("issue(iid")) {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        try {
+          if (vars.iid in failDelayMs) {
+            await new Promise((r) => setTimeout(r, failDelayMs[vars.iid]));
+            throw new Error(`boom#${vars.iid}`);
+          }
+          return { project: { issue: { relatedMergeRequests: { nodes: [] }, notes: { nodes: [] } } } };
+        } finally {
+          inFlight--;
+        }
+      }
+      return {};
+    }) as GqlClient;
+    const src = new GitLabSource(GL_DESC, mixedGql, ["g/p"]);
+    const res = await src.fetch({ since: null, full: true });
+    assert.equal(res.complete, false, "a per-item resolve failure degrades the sweep to partial");
+    assert.match(res.error ?? "", /issue#0 resolve:/, "firstError is the earliest-input failure (#0), not the first to reject (#2)");
+    assert.equal(res.records.length, N, "GitLab pass-2 still emits a record per item, even failed ones");
+    assert.deepEqual(res.records.map((r) => r.externalId), issues.map((n) => n.id), "records stay in collected (input) order");
+    assert.ok(peak > 1 && peak <= 2, `peak in-flight ${peak} should be bounded by 2`);
+  });
+});
+
+test("GitLab CI refresh folds per-candidate errors in input order, dropping failed records", async () => {
+  await withResolveConcurrency("2", async () => {
+    const okNode = (iid: string) => glNode(`gid:MR_${iid}`, iid, {
+      state: "merged", mergedAt: "2026-06-01T00:00:00Z", draft: false,
+      approved: false, approvalsRequired: 0, headPipeline: { status: "SUCCESS" }, detailedMergeStatus: "NOT_OPEN",
+    });
+    const failDelayMs: Record<string, number> = { "1": 20, "3": 0 }; // #1 slow, #3 fast
+    const mixedGql: GqlClient = (async (_query: string, vars?: Record<string, unknown>) => {
+      const iid = String(vars?.iid);
+      if (iid in failDelayMs) {
+        await new Promise((r) => setTimeout(r, failDelayMs[iid]));
+        throw new Error(`boom!${iid}`);
+      }
+      return { project: { mergeRequest: okNode(iid) } };
+    }) as GqlClient;
+    const src = new GitLabSource(GL_DESC, mixedGql, ["g/p"]);
+    const res = await src.fetchRefresh(
+      [1, 2, 3, 4].map((iid) => ({ externalId: `gid:MR_${iid}`, projectPath: "g/p", iid, reason: "ci_unresolved" as const })),
+      { since: null, full: false },
+    );
+    assert.equal(res.complete, false, "a failed candidate degrades the sweep");
+    assert.match(res.error ?? "", /!1 ci refresh:/, "firstError is the earliest-input failure (!1), not the first to reject (!3)");
+    assert.deepEqual(res.records.map((r) => r.externalId), ["gid:MR_2", "gid:MR_4"], "only survivors record, in input order");
+    assert.equal(res.watermark, null);
+  });
 });
 
 test("GitLab: MR approvers normalize into approved review activities", () => {

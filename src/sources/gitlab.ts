@@ -30,7 +30,7 @@
 // `complete:false` with the error and never corrupts/soft-deletes data.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
+import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -264,8 +264,11 @@ export class GitLabSource implements Source {
     // here on, so the parallel tasks share it safely; per-item errors are folded
     // back into `complete`/`firstError` (in input order) after the map so a
     // single bad item still degrades to complete:false instead of aborting.
-    let resolved = 0;
-    const resolvedRecords = await mapWithConcurrency(collected, resolveConcurrency(), async ({ kind, node, project }) => {
+    // `processed` is a completion-order tally (each task bumps it exactly once;
+    // single-threaded, so no lost increments) used only for progress logging — it
+    // is NOT an input-order index, since tasks can finish out of order.
+    let processed = 0;
+    const resolvedRecords = await mapWithConcurrency<typeof collected[number], ResolveOutcome>(collected, resolveConcurrency(), async ({ kind, node, project }) => {
       let error: string | null = null;
       try {
         if (kind === "issue") {
@@ -292,14 +295,14 @@ export class GitLabSource implements Source {
       node.__relates = relates;
       const payload = JSON.stringify(node);
       const record: RawRecord = { entityKind: kind, externalId: node.id, apiVersion: API_VERSION, fetchedAt: now, payload: node, contentHash: hash(payload) };
-      resolved++;
-      if (resolved === collected.length || resolved % 25 === 0) {
-        log.info(`[${this.descriptor.sourceId}] resolve progress ${resolved}/${collected.length} items`);
+      processed++;
+      if (processed === collected.length || processed % 25 === 0) {
+        log.info(`[${this.descriptor.sourceId}] resolve progress ${processed}/${collected.length} items`);
       }
       return { record, error };
     });
     for (const r of resolvedRecords) {
-      records.push(r.record);
+      if (r.record) records.push(r.record);
       if (r.error) {
         complete = false;
         firstError ??= r.error;
@@ -337,11 +340,11 @@ export class GitLabSource implements Source {
       return true;
     });
 
-    const results = await mapWithConcurrency(targets, resolveConcurrency(), async (candidate) => {
+    const results = await mapWithConcurrency<RefreshCandidate, ResolveOutcome>(targets, resolveConcurrency(), async (candidate) => {
       try {
         const data: any = await this.gql(MR_BY_IID_Q, { path: candidate.projectPath, iid: String(candidate.iid) });
         const node = data?.project?.mergeRequest;
-        if (!node) return { record: null as RawRecord | null, error: null as string | null };
+        if (!node) return { record: null, error: null };
         node.__projectPath = candidate.projectPath;
         node.__mentions = [];
         node.__relates = [];
@@ -355,9 +358,9 @@ export class GitLabSource implements Source {
           payload: node,
           contentHash: hash(payload),
         };
-        return { record, error: null as string | null };
+        return { record, error: null };
       } catch (err) {
-        return { record: null as RawRecord | null, error: `${candidate.projectPath} !${candidate.iid} ci refresh: ${(err as Error).message}` };
+        return { record: null, error: `${candidate.projectPath} !${candidate.iid} ci refresh: ${(err as Error).message}` };
       }
     });
 

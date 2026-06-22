@@ -4,7 +4,7 @@
 // and pr.closingIssuesReferences) so reconcileEdges converges them.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
+import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -240,17 +240,19 @@ export class GitHubSource implements Source {
       const key = `${candidate.projectPath}#${candidate.iid}`;
       if (seen.has(key)) return false;
       seen.add(key);
-      const [owner, name] = candidate.projectPath.split("/");
-      return Boolean(owner && name);
+      return true;
     });
 
-    const results = await mapWithConcurrency(targets, resolveConcurrency(), async (candidate) => {
+    const results = await mapWithConcurrency<RefreshCandidate, ResolveOutcome>(targets, resolveConcurrency(), async (candidate) => {
+      // Parse the path once, here, so the validate-and-use pair can't drift; a
+      // malformed path yields nothing rather than erroring the sweep.
       const [owner, name] = candidate.projectPath.split("/");
+      if (!owner || !name) return { record: null, error: null };
       const { gql } = this.clientsFor(candidate.projectPath);
       try {
         const data: any = await gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.iid });
         const node = data?.repository?.pullRequest;
-        if (!node) return { record: null as RawRecord | null, error: null as string | null };
+        if (!node) return { record: null, error: null };
         const payload = JSON.stringify(node);
         const record: RawRecord = {
           entityKind: "change_request",
@@ -260,9 +262,9 @@ export class GitHubSource implements Source {
           payload: node,
           contentHash: hash(payload),
         };
-        return { record, error: null as string | null };
+        return { record, error: null };
       } catch (err) {
-        return { record: null as RawRecord | null, error: `${candidate.projectPath} #${candidate.iid} ci refresh: ${(err as Error).message}` };
+        return { record: null, error: `${candidate.projectPath} #${candidate.iid} ci refresh: ${(err as Error).message}` };
       }
     });
 
