@@ -20,6 +20,7 @@ import type { ItemDTO, ReviewThreadCommentDTO, ReviewThreadDTO } from "@symphony
 import {
   activityVirtualRange,
   relativeTime,
+  reviewThreadDisplayTime,
   type Filters,
   type TimeRange,
 } from "../model.ts";
@@ -129,6 +130,15 @@ function timestamp(value: string | null | undefined): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+function threadTimeTitle(thread: ReviewThreadDTO): string | undefined {
+  const displayTime = reviewThreadDisplayTime(thread);
+  if (!displayTime) return undefined;
+  if (thread.last_seen_at && thread.last_seen_at !== displayTime) {
+    return `last synced comment: ${displayTime}\nsync saw thread: ${thread.last_seen_at}`;
+  }
+  return displayTime;
+}
+
 // Unresolved threads sort first (the inbox is "what still needs attention"),
 // then group by repo and the PR/MR they hang off, newest activity last as a
 // stable tie-break.
@@ -140,7 +150,7 @@ function compareThreads(a: ThreadRow, b: ThreadRow): number {
   if (target !== 0) return target;
   const path = (a.thread.path ?? "").localeCompare(b.thread.path ?? "");
   if (path !== 0) return path;
-  return timestamp(b.thread.last_seen_at) - timestamp(a.thread.last_seen_at);
+  return timestamp(reviewThreadDisplayTime(b.thread)) - timestamp(reviewThreadDisplayTime(a.thread));
 }
 
 function lineLabel(thread: ReviewThreadDTO): string | null {
@@ -242,6 +252,7 @@ function ReviewRow({
   const status = threadStatus(thread);
   const location = lineLabel(thread);
   const preview = thread.comments[0]?.body ?? null;
+  const displayTime = reviewThreadDisplayTime(thread);
   const previewRef = useRef<HTMLDivElement>(null);
   const [clamped, setClamped] = useState(false);
   // Fade the preview's bottom edge ONLY when the body actually overflows the
@@ -298,8 +309,8 @@ function ReviewRow({
           <div className="review-row-nopreview">No synced comment preview.</div>
         )}
       </div>
-      <time className="live-event-time" title={thread.last_seen_at ?? undefined}>
-        {relativeTime(thread.last_seen_at)}
+      <time className="live-event-time" title={threadTimeTitle(thread)}>
+        {relativeTime(displayTime)}
       </time>
     </li>
   );
@@ -423,6 +434,7 @@ function ReviewDetail({
   const location = lineLabel(thread);
   const link = safeHref(thread.url);
   const hiddenComments = Math.max(0, thread.comments_total - thread.comments.length);
+  const displayTime = reviewThreadDisplayTime(thread);
   return (
     <article className="live-detail-card">
       <button type="button" className="live-detail-back" onClick={onClose}>
@@ -437,7 +449,7 @@ function ReviewDetail({
           <div className="live-detail-head">
             {statusBadge(status)}
             {thread.resolved_by ? <span className="review-resolved-by">resolved by @{thread.resolved_by}</span> : null}
-            <time title={thread.last_seen_at ?? undefined}>{relativeTime(thread.last_seen_at)}</time>
+            <time title={threadTimeTitle(thread)}>{relativeTime(displayTime)}</time>
           </div>
           <h2 className="live-detail-title">
             {link ? (

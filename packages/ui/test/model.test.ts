@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, ActivityDailyDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, SourceDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, ReviewThreadDTO, SourceDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
   DEFAULT_TIME_RANGE_PRESET_ID,
@@ -61,6 +61,7 @@ import {
   computeBoardWindowStats,
   computeGraphStats,
   relativeTime,
+  reviewThreadDisplayTime,
   resetsIn,
   pluralize,
   buildGraph,
@@ -151,6 +152,29 @@ function activity(over: Partial<ActivityDTO> = {}): ActivityDTO {
     target_iid: 13, title: "Closed issue", url: "https://x", actor: "dev-a",
     occurred_at: "2026-06-07T00:00:00Z", details: { sha: "abc1234" },
     first_seen_at: "2026-06-07T00:00:00Z", last_seen_at: "2026-06-07T00:00:00Z", ...over,
+  };
+}
+
+function reviewThread(over: Partial<ReviewThreadDTO> = {}): ReviewThreadDTO {
+  return {
+    id: "github:github.com|THREAD",
+    source_id: "github:github.com",
+    external_id: "THREAD",
+    project_path: "o/r",
+    target_ref: "github:github.com|PR",
+    target_iid: 42,
+    title: "Review target",
+    url: "https://example.com/thread",
+    is_resolved: true,
+    is_outdated: false,
+    resolved_by: "maintainer",
+    path: "src/app.ts",
+    line: 12,
+    start_line: null,
+    comments_total: 2,
+    comments: [],
+    last_seen_at: "2026-06-10T11:55:00Z",
+    ...over,
   };
 }
 
@@ -1123,6 +1147,38 @@ test("relativeTime renders coarse buckets from an injected now", () => {
   assert.equal(relativeTime("2026-06-07T00:00:00Z", now), "3d ago");
   assert.equal(relativeTime("2026-06-09T23:59:40Z", now), "just now");
   assert.equal(relativeTime(null, now), "—");
+});
+
+test("reviewThreadDisplayTime prefers the newest synced comment over last_seen_at", () => {
+  const thread = reviewThread({
+    last_seen_at: "2026-06-10T11:55:00Z",
+    comments: [
+      {
+        id: "c1",
+        author: "reviewer",
+        avatar_url: null,
+        body: "Earlier comment",
+        url: null,
+        created_at: "2026-06-10T08:00:00Z",
+        updated_at: "2026-06-10T08:30:00Z",
+      },
+      {
+        id: "c2",
+        author: "maintainer",
+        avatar_url: null,
+        body: "Latest comment",
+        url: null,
+        created_at: "2026-06-10T09:00:00Z",
+        updated_at: "2026-06-10T09:00:00Z",
+      },
+    ],
+  });
+
+  assert.equal(reviewThreadDisplayTime(thread), "2026-06-10T09:00:00Z");
+});
+
+test("reviewThreadDisplayTime falls back to last_seen_at when no comment timestamp is available", () => {
+  assert.equal(reviewThreadDisplayTime(reviewThread()), "2026-06-10T11:55:00Z");
 });
 
 // resetsIn is the future-facing mirror of relativeTime (the rate-limit tab's
