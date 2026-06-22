@@ -1,6 +1,6 @@
 [package]
 name = "symphony-board-desktop-standalone"
-version = "1.7.4"
+version = "1.8.0"
 description = "Standalone macOS app for symphony-board: UI + bundled sync daemon"
 authors = ["sympoies"]
 edition = "2021"
