@@ -3546,7 +3546,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-mode-release { background: none; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text); font: inherit; font-size: 12px; border-radius: 999px; padding: 2px 11px; cursor: pointer; }
 .live-mode-release:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .live-detail-nav {
-  display: flex; align-items: center; gap: 8px; margin: 10px 2px 0;
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px 2px 0;
 }
 .live-detail-nav-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;

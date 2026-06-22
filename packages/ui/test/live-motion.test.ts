@@ -217,6 +217,14 @@ test("Live pulse strip collapses to two columns before the ranked charts would o
   );
 });
 
+test("Live detail navigation stays centered in the detail pane", () => {
+  assert.match(
+    stylesSource,
+    /\.live-detail-nav\s*{[^}]*justify-content:\s*center;/s,
+    "the detail pagination controls should be centered in the detail pane",
+  );
+});
+
 test("Live motion CSS keeps the feed settle and detail accent durations explicit", () => {
   assert.match(
     stylesSource,
