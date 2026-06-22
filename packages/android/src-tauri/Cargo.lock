@@ -3566,6 +3566,7 @@ version = "1.7.2"
 dependencies = [
  "tauri",
  "tauri-build",
+ "tauri-plugin-fs",
  "tauri-plugin-http",
  "tauri-plugin-opener",
 ]

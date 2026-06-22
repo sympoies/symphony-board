@@ -12,6 +12,7 @@ import {
   loadCachedContract,
   saveCachedContract,
   pickColdStartEnv,
+  selectCacheBackend,
   CONTRACT_CACHE_TTL_MS,
   type AsyncKV,
 } from "../src/contract-cache.ts";
@@ -155,10 +156,11 @@ test("save never throws even when the underlying store rejects", async () => {
 });
 
 test("the default backend persists to localStorage (gzip-compressed) and round-trips", async () => {
-  // The Android WebView does not reliably persist IndexedDB but DOES persist
-  // localStorage, so the default backend stores the contract there, gzipped to
-  // fit the ~5MB quota (a 15MB contract compresses to ~1.5MB). No injected kv:
-  // this drives the real default path.
+  // The default backend selects localStorage here because node's import.meta.env
+  // is undefined, so currentClientKind() returns null (not "android") and
+  // selectCacheBackend picks localStorage. The contract is stored gzipped to fit
+  // the ~5MB quota (a 15MB contract compresses to ~1.5MB). No injected kv: this
+  // drives the real default path.
   const store = new MemStorage();
   (globalThis as { localStorage?: unknown }).localStorage = store;
   try {
@@ -172,6 +174,21 @@ test("the default backend persists to localStorage (gzip-compressed) and round-t
   } finally {
     delete (globalThis as { localStorage?: unknown }).localStorage;
   }
+});
+
+test("selectCacheBackend routes the Android client to the native filesystem", () => {
+  // The Android WebView can't hold the cache in IndexedDB or a ~1.5MB
+  // localStorage value, so it uses the native FS; desktop/web keep localStorage
+  // where it persists.
+  assert.equal(selectCacheBackend("android", false), "fs", "Android uses FS even without localStorage");
+  assert.equal(selectCacheBackend("android", true), "fs");
+  // Case-insensitive: a stray-cased client kind must still route Android to FS,
+  // not silently fall back to the localStorage backend this fix avoids.
+  assert.equal(selectCacheBackend("Android", true), "fs", "mixed-case android still routes to FS");
+  assert.equal(selectCacheBackend("ANDROID", false), "fs");
+  assert.equal(selectCacheBackend(null, true), "localStorage", "web/desktop use localStorage when present");
+  assert.equal(selectCacheBackend("desktop", true), "localStorage");
+  assert.equal(selectCacheBackend(null, false), "none", "no backend usable -> no cache");
 });
 
 test("pickColdStartEnv keeps a fetched env and never clobbers it with the cache", () => {

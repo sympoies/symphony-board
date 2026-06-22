@@ -12,6 +12,12 @@
 // and stripped of heavy `raw` payloads to stay well under the localStorage quota;
 // the fresh fetch restores full fidelity within seconds. All DOM/storage access is
 // guarded so importing or calling this in a non-browser test is a safe no-op.
+//
+// This cache stays on localStorage on EVERY platform, including Android — unlike
+// the contract cache (contract-cache.ts), which moves to the native filesystem on
+// Android because the WebView can't hold its ~1.5MB payload there. This snapshot
+// is bounded (LIVE_SNAPSHOT_CACHE_MAX_EVENTS, raw stripped) so it stays small
+// enough to fit the Android localStorage quota; no FS backend is needed here.
 import { isLiveSnapshot } from "./contract.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
 

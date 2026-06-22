@@ -22,3 +22,8 @@ tauri = { version = "2", features = [] }
 # desktop and standalone crates.
 tauri-plugin-http = { version = "2", features = ["gzip"] }
 tauri-plugin-opener = "2"
+# Native filesystem cache for the contract: the Android WebView does not reliably
+# persist IndexedDB or hold a ~1.5MB localStorage value, so the cold-start cache
+# is written to the app's AppLocalData dir (no quota, survives a force-quit). Only
+# the Android shell needs it — desktop/web keep the WebView localStorage cache.
+tauri-plugin-fs = "2"

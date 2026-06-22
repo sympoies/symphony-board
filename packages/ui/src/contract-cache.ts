@@ -5,15 +5,17 @@
 // no-store`) is the dominant cold-start cost on a phone; decode + JSON.parse are
 // cheap. This cache takes that download OFF the first-paint critical path.
 //
-// The full contract is ~15MB decoded — far over the ~5MB localStorage quota — so
-// it is stored GZIP-COMPRESSED (~1.5MB, well under quota). localStorage is the
-// deliberate choice over IndexedDB: the Tauri Android WebView does NOT reliably
-// persist IndexedDB across app restarts (it silently dropped the cache, so every
-// cold start re-fetched the contract), but it DOES persist localStorage (the
-// server URL / theme survive a force-quit). The store is abstracted behind a
-// tiny async KV so the pure load/save logic is unit-tested with an in-memory
-// fake; the default impl is a no-op when no localStorage exists (SSR / some node
-// tests), so this is always a safe import.
+// The backend differs by client because the Tauri Android WebView's built-in
+// storage is unreliable for a payload this size: it does NOT persist IndexedDB
+// across app restarts, and it silently drops a ~1.5MB localStorage value (the
+// quota is too small) — yet it persists SMALL localStorage (the server URL /
+// theme survive a force-quit). So the Android client writes to the native
+// filesystem (AppLocalData, no quota); desktop and web WebViews persist
+// localStorage fine, so they keep it, gzip-compressed (a 15MB contract -> ~1.5MB,
+// stored as a latin1 byte string). The store is abstracted behind a tiny async
+// KV so the pure load/save logic is unit-tested with an in-memory fake, and the
+// FS plugin is imported lazily; the default backend is null when none is usable
+// (SSR / some node tests), so this is always a safe import.
 //
 // The cache is a DISPLAY accelerator only: the init fetch always re-loads the
 // full contract and REPLACES the painted env wholesale, so a stale row the
@@ -21,9 +23,13 @@
 // serverBaseUrl so switching servers never paints another server's board.
 import { gzipSync, gunzipSync, strToU8, strFromU8 } from "fflate";
 import { majorOf, SUPPORTED_MAJOR, isContractEnvelopeShape } from "./contract.ts";
+import { currentClientKind, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 
 const CACHE_KEY = "symphony-board:contract-cache";
+// AppLocalData filename for the native-FS backend (Android). A flat filename, not
+// the colon-bearing CACHE_KEY, so it is a valid path on every platform.
+const CACHE_FILE = "contract-cache.json";
 
 // Ignore a cache older than this so a long-dormant client never flashes a
 // genuinely ancient board before the fresh fetch lands. The fetch revalidates
@@ -63,14 +69,30 @@ export function pickColdStartEnv(
   return current ?? cached;
 }
 
-// localStorage-backed KV, or null when no localStorage exists (SSR / some node
-// tests) so callers degrade to "no cache" without a browser dependency. The
-// value is gzipped (a 15MB contract -> ~1.5MB) and stored as a latin1 byte
-// string so it fits the quota without base64's 33% overhead. A get on a corrupt
-// or legacy entry throws out of gunzip/JSON.parse and is caught by the caller
-// (treated as a miss), so a bad entry can never strand the loader.
-function defaultKv(): AsyncKV | null {
-  if (typeof localStorage === "undefined") return null;
+// Which storage backend the default cache uses. The Android WebView does not
+// reliably persist IndexedDB and silently drops a ~1.5MB localStorage value, so
+// the Android client writes to the native filesystem instead (no quota, survives
+// a force-quit). Desktop and web WebViews persist localStorage fine, so they keep
+// it (gzipped). Pure + exported so the routing decision is unit-tested without a
+// Tauri/Android runtime.
+export function selectCacheBackend(
+  clientKind: string | null,
+  hasLocalStorage: boolean,
+): "fs" | "localStorage" | "none" {
+  // Case-insensitive so a stray-cased VITE_SYMPHONY_BOARD_CLIENT can't silently
+  // route the Android client to the localStorage backend this fix exists to
+  // avoid (currentClientKind already lowercases — don't depend on it staying so).
+  if (clientKind?.toLowerCase() === ANDROID_CLIENT_KIND) return "fs";
+  if (hasLocalStorage) return "localStorage";
+  return "none";
+}
+
+// localStorage-backed KV. The value is gzipped (a 15MB contract -> ~1.5MB) and
+// stored as a latin1 byte string so it fits the quota without base64's 33%
+// overhead. A get on a corrupt or legacy entry throws out of gunzip/JSON.parse
+// and is caught by the caller (treated as a miss), so a bad entry can never
+// strand the loader.
+function localStorageGzipKv(): AsyncKV {
   return {
     async get(key) {
       const stored = localStorage.getItem(key);
@@ -82,6 +104,41 @@ function defaultKv(): AsyncKV | null {
       localStorage.setItem(key, strFromU8(gz, true));
     },
   };
+}
+
+// Native-filesystem KV (Android only), writing one JSON file under AppLocalData.
+// Stores RAW JSON (unlike localStorageGzipKv) because the native FS has no quota,
+// so the gzip needed to fit the localStorage limit is unnecessary here. The
+// plugin is imported lazily so the module stays a safe import on web / in tests;
+// this is gated by selectCacheBackend on the "android" client kind, which only
+// ships inside the Tauri Android shell where tauri-plugin-fs is wired (Cargo +
+// lib.rs + capability) — a mismatch would reject the import, which the callers
+// swallow as a miss rather than crash. This is a SINGLE-ENTRY store: it ignores
+// the KV key and always uses CACHE_FILE (the module persists exactly one entry;
+// per-server discrimination is the serverBaseUrl field inside the entry). A read
+// of a missing file resolves to undefined; a corrupt file throws into the
+// caller's catch (a miss).
+function tauriFsKv(): AsyncKV {
+  return {
+    async get() {
+      const { readTextFile, exists, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+      if (!(await exists(CACHE_FILE, { baseDir: BaseDirectory.AppLocalData }))) return undefined;
+      return JSON.parse(await readTextFile(CACHE_FILE, { baseDir: BaseDirectory.AppLocalData }));
+    },
+    async set(_key, val) {
+      const { writeTextFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+      await writeTextFile(CACHE_FILE, JSON.stringify(val), { baseDir: BaseDirectory.AppLocalData });
+    },
+  };
+}
+
+// The default backend for this runtime, or null when none is usable (SSR / some
+// node tests) so callers degrade to "no cache".
+function defaultKv(): AsyncKV | null {
+  const backend = selectCacheBackend(currentClientKind(), typeof localStorage !== "undefined");
+  if (backend === "fs") return tauriFsKv();
+  if (backend === "localStorage") return localStorageGzipKv();
+  return null;
 }
 
 // Read the cached contract for `serverBaseUrl`, or null when absent, for a
