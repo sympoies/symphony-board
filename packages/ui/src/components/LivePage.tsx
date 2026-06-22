@@ -596,6 +596,11 @@ export function LivePage({
   // Mobile-only: the category pills are collapsed behind a disclosure by default
   // (they're shown inline on desktop). Tap the summary to reveal them.
   const [catsOpen, setCatsOpen] = useState(false);
+  // Mobile-only: the four metric cards (Activity / Last event / Buffer / Active
+  // now) push the feed far down a phone screen, so they collapse behind a
+  // disclosure — OPEN by default, tap to hide and bring the feed list up. Desktop
+  // shows the strip inline (the disclosure is display:none there).
+  const [pulseOpen, setPulseOpen] = useState(true);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -883,7 +888,25 @@ export function LivePage({
         </div>
       </header>
 
-      <div className="live-pulse">
+      {/* Mobile-only: tap to collapse the metric strip and bring the feed list up.
+          Open by default; on desktop the disclosure is hidden and the strip is
+          always shown. Mirrors the category-pills disclosure chrome below. */}
+      <button
+        type="button"
+        className="filter-summary-disclosure live-pulse-disclosure"
+        aria-expanded={pulseOpen}
+        aria-controls="live-pulse-cards"
+        onClick={() => setPulseOpen((o) => !o)}
+      >
+        <span className="filter-summary-disclosure-label">metrics</span>
+        <span className="filter-summary-disclosure-summary">
+          {windowTotal}/{SPARK_WINDOW_HOURS}h
+          {latestInstant != null ? ` · ${relativeAge(latestInstant, now)} ago` : ""}
+        </span>
+        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
+      </button>
+
+      <div className="live-pulse" id="live-pulse-cards" data-open={pulseOpen ? "true" : "false"}>
         <div className="live-card live-card-rate">
           <div className="live-card-label">Activity</div>
           <div className="live-figure">

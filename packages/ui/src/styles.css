@@ -3428,6 +3428,12 @@ a.rf-node-title:hover { color: var(--accent); }
      tap-to-open disclosure and keep the Repo / People dropdowns on the same row
      as it, so the filter bar is one line until the categories are expanded. */
   .live-pulse { gap: 8px; margin-bottom: 14px; }
+  /* The metric strip is collapsible (default open) so the feed list can sit
+     higher; the disclosure is a full-width header bar above it. Collapsing only
+     hides the strip on a phone — desktop keeps the disclosure display:none and
+     the strip always visible. */
+  .live-pulse-disclosure { display: inline-flex; width: 100%; justify-content: flex-start; margin-bottom: 10px; }
+  .live-pulse[data-open="false"] { display: none; }
   .live-figure { font-size: 21px; }
   .live-figure-compact { font-size: 21px; }
   .live-card { padding: 10px 11px; }
