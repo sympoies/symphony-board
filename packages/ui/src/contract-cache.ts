@@ -17,7 +17,7 @@
 // full contract and REPLACES the painted env wholesale, so a stale row the
 // server no longer returns cannot linger. It is keyed by the active
 // serverBaseUrl so switching servers never paints another server's board.
-import { majorOf, SUPPORTED_MAJOR } from "./contract.ts";
+import { majorOf, SUPPORTED_MAJOR, isContractEnvelopeShape } from "./contract.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 
 const CACHE_KEY = "symphony-board:contract-cache";
@@ -44,16 +44,28 @@ interface ContractCacheEntry {
 }
 
 // A stale contract is only safe to paint if its major matches what this build
-// renders — a pre-upgrade 3.x entry must never paint into a v4 UI. Mirrors
-// asContractEnvelope's shape check plus the supported-major gate.
+// renders — a pre-upgrade 3.x entry must never paint into a v4 UI. Reuses the
+// shared envelope shape predicate so it can't drift from asContractEnvelope.
 function isSupportedContract(body: unknown): body is ContractEnvelope {
-  if (!body || typeof body !== "object") return false;
-  const b = body as { items?: unknown; contract_version?: unknown };
-  if (!Array.isArray(b.items)) return false;
-  if (typeof b.contract_version !== "string") return false;
-  return majorOf(b.contract_version) === SUPPORTED_MAJOR;
+  return isContractEnvelopeShape(body) && majorOf(body.contract_version) === SUPPORTED_MAJOR;
 }
 
+// Cold-start merge rule: keep the current env if a fetch already resolved one
+// (it is authoritative and must not be clobbered by the slower cache read),
+// otherwise paint the cached one. Pure + unit-tested so the anti-clobber
+// guarantee can't silently regress to a plain `setEnv(cached)`.
+export function pickColdStartEnv(
+  current: ContractEnvelope | null,
+  cached: ContractEnvelope,
+): ContractEnvelope {
+  return current ?? cached;
+}
+
+// Memoize ONE connection for the page lifetime and reuse it for every
+// transaction; it is closed implicitly on page unload. No db.close() / no
+// onversionchange handler is needed while DB_NAME/version are fixed at 1 (the
+// schema is static, so no runtime upgrade can block another tab). Revisit both
+// if a version 2 is ever introduced.
 let dbPromise: Promise<IDBDatabase> | null = null;
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

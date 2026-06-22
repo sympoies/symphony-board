@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
-import { loadCachedContract, saveCachedContract } from "./contract-cache.ts";
+import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
   emptyFilters,
   activityRouteMatches,
@@ -501,7 +501,7 @@ export function App() {
     let cancelled = false;
     void loadCachedContract(serverBaseUrl).then((cached) => {
       if (cancelled || !cached) return;
-      setEnv((cur) => cur ?? cached);
+      setEnv((cur) => pickColdStartEnv(cur, cached));
     });
     return () => {
       cancelled = true;
