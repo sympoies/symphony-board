@@ -2552,6 +2552,16 @@ test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties
     sourceTokenEnvs({ token_env: "GH_TOKEN", fallback_token_envs: ["GH_BACKUP", "GH_THIRD"] }),
     ["GH_TOKEN", "GH_BACKUP", "GH_THIRD"],
   );
+  assert.deepEqual(
+    sourceTokenEnvs({
+      token_env: "GH_TOKEN",
+      fallback_token_envs: ["GH_BACKUP"],
+      token_pools: {
+        sympoies: { token_env: "GH_SYMPOIES", fallback_token_envs: ["GH_SYMPOIES_BACKUP"] },
+      },
+    }),
+    ["GH_TOKEN", "GH_BACKUP", "GH_SYMPOIES", "GH_SYMPOIES_BACKUP"],
+  );
   assert.deepEqual(sourceTokenEnvs({ token_env: "", fallback_token_envs: ["GH_BACKUP", ""] }), ["GH_BACKUP"]);
 });
 
@@ -2561,6 +2571,13 @@ test("isSourceTokenSet is true when the primary OR any fallback env secret is se
   // would use the fallback), so Settings must not show it as token-missing.
   assert.equal(isSourceTokenSet(source, { GH_BACKUP: true }), true);
   assert.equal(isSourceTokenSet(source, { GH_TOKEN: true }), true);
+  assert.equal(
+    isSourceTokenSet(
+      { token_env: "GH_TOKEN", token_pools: { sympoies: { token_env: "GH_SYMPOIES" } } },
+      { GH_SYMPOIES: true },
+    ),
+    true,
+  );
   assert.equal(isSourceTokenSet(source, { GH_TOKEN: false, GH_BACKUP: false }), false);
   assert.equal(isSourceTokenSet(source, {}), false);
   // No fallback configured: only the primary counts.

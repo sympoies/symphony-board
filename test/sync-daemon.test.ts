@@ -470,8 +470,16 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
       host: "github.com",
       token_env: tokenEnv,
       fallback_token_envs: fallbackTokenEnvs,
+      token_pools: id === "github:github.com"
+        ? {
+            sympoies: {
+              token_env: "SECRETS_TEST_TOKEN_POOL",
+              fallback_token_envs: ["SECRETS_TEST_TOKEN_POOL_BACKUP"],
+            },
+          }
+        : undefined,
       graphql_url: "https://api.github.com/graphql",
-      projects: ["a/b"],
+      projects: id === "github:github.com" ? ["a/b", { path: "sympoies/repo", token_pool: "sympoies" }] : ["a/b"],
     });
     const cfgPut = await fetch(`${base}/api/config`, {
       method: "PUT",
@@ -491,7 +499,13 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
     assert.deepEqual(listed, {
       enabled: true,
       writable: true,
-      secrets: { SECRETS_TEST_TOKEN_A: false, SECRETS_TEST_TOKEN_A_BACKUP: false, SECRETS_TEST_TOKEN_B: false },
+      secrets: {
+        SECRETS_TEST_TOKEN_A: false,
+        SECRETS_TEST_TOKEN_A_BACKUP: false,
+        SECRETS_TEST_TOKEN_POOL: false,
+        SECRETS_TEST_TOKEN_POOL_BACKUP: false,
+        SECRETS_TEST_TOKEN_B: false,
+      },
     });
 
     // guards: header required, env name and value validated

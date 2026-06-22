@@ -9,7 +9,13 @@ import { defaultRestUrl, makeRestClient } from "./rest.ts";
 import { GitHubSource } from "./github.ts";
 import { GitLabSource } from "./gitlab.ts";
 
-export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[]): Source {
+export type ProjectTokenMap = ReadonlyMap<string, AuthToken[]>;
+
+function tokenKey(tokens: AuthToken[]): string {
+  return tokens.map((token) => token.env).join("\0");
+}
+
+export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[], projectTokens: ProjectTokenMap = new Map()): Source {
   const descriptor: SourceDescriptor = {
     sourceId: cfg.source_id,
     kind: cfg.kind,
@@ -21,7 +27,33 @@ export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[]): So
   switch (cfg.kind) {
     case "github": {
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), tokens, "github");
-      return new GitHubSource(descriptor, gql, paths, rest, { commitBranches: cfg.commit_branches });
+      const defaultTokens = Array.isArray(tokens) ? tokens : [{ env: "token", value: tokens }];
+      const defaultKey = tokenKey(defaultTokens);
+      const activePaths: string[] = [];
+      const missingAuthPaths: string[] = [];
+      const clientsByKey = new Map<string, { gql: typeof gql; rest: typeof rest }>();
+      const projectClients = new Map<string, { gql: typeof gql; rest: typeof rest }>();
+      for (const path of paths) {
+        const repoTokens = projectTokens.get(path) ?? defaultTokens;
+        if (repoTokens.length === 0) {
+          missingAuthPaths.push(path);
+          continue;
+        }
+        activePaths.push(path);
+        const key = tokenKey(repoTokens);
+        if (key === defaultKey) continue;
+        let clients = clientsByKey.get(key);
+        if (!clients) {
+          clients = {
+            gql: makeGqlClient(cfg.graphql_url, repoTokens, { provider: cfg.kind }),
+            rest: makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), repoTokens, "github"),
+          };
+          clientsByKey.set(key, clients);
+        }
+        projectClients.set(path, clients);
+      }
+      const partialReason = missingAuthPaths.length > 0 ? `missing token for projects: ${missingAuthPaths.join(", ")}` : null;
+      return new GitHubSource(descriptor, gql, activePaths, rest, { commitBranches: cfg.commit_branches, projectClients, partialReason });
     }
     case "gitlab": {
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), tokens, "gitlab");

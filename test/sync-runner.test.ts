@@ -161,6 +161,45 @@ test("runConfiguredSync builds sources with primary and fallback tokens", async 
   }
 });
 
+test("runConfiguredSync builds GitHub sources when only a repo token pool is set", async () => {
+  const cfg: AppConfig = {
+    db_path: "unused.db",
+    sources: [{
+      source_id: "github:github.com",
+      kind: "github",
+      host: "github.com",
+      token_env: "RUNNER_DEFAULT_POOL_MISSING",
+      token_pools: {
+        sympoies: { token_env: "RUNNER_PROJECT_POOL" },
+      },
+      graphql_url: "https://api.github.com/graphql",
+      projects: ["default/repo", { path: "sympoies/repo", token_pool: "sympoies" }],
+    }],
+  };
+  const seen: Array<{ tokens: unknown; projectTokens: unknown }> = [];
+  process.env.RUNNER_PROJECT_POOL = "repo-token";
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: true, sourceId: null }, null, {
+      openStore: () => openSqliteStore(":memory:"),
+      buildSource: (sc, tokens, projectTokens) => {
+        seen.push({ tokens, projectTokens: [...(projectTokens ?? new Map()).entries()] });
+        return prepared(sc.source_id, [item("A1")]).source;
+      },
+    });
+
+    assert.equal(result.status, "ok");
+    assert.deepEqual(seen, [{
+      tokens: [],
+      projectTokens: [
+        ["default/repo", []],
+        ["sympoies/repo", [{ env: "RUNNER_PROJECT_POOL", value: "repo-token" }]],
+      ],
+    }]);
+  } finally {
+    delete process.env.RUNNER_PROJECT_POOL;
+  }
+});
+
 test("runConfiguredSync skips disabled sources even when tokens are configured", async () => {
   const cfg: AppConfig = {
     db_path: "unused.db",

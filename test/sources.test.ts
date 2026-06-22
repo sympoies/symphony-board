@@ -682,6 +682,27 @@ test("GitHub: a fully-fetched reviewThreads page keeps the sweep complete", asyn
   assert.equal(res.complete, true, "a non-truncated review-threads page is a complete sweep");
 });
 
+test("GitHub fetch routes each repo through its configured project client", async () => {
+  const calls: Array<{ client: string; owner: unknown; name: unknown }> = [];
+  const emptyConn = { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] };
+  const gqlFor = (client: string): GqlClient => (async (query: string, vars?: Record<string, unknown>) => {
+    calls.push({ client, owner: vars?.owner, name: vars?.name });
+    if (query.includes("pullRequests(")) return { repository: { pullRequests: emptyConn } };
+    return { repository: { issues: emptyConn } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, gqlFor("default"), ["default/repo", "sympoies/repo"], null, {
+    projectClients: new Map([["sympoies/repo", { gql: gqlFor("sympoies"), rest: null }]]),
+  });
+
+  const res = await src.fetch({ since: null, full: true });
+
+  assert.equal(res.complete, true);
+  assert.deepEqual(
+    calls.map((c) => `${c.owner}/${c.name}:${c.client}`),
+    ["default/repo:default", "default/repo:default", "sympoies/repo:sympoies", "sympoies/repo:sympoies"],
+  );
+});
+
 test("GitHub CI refresh fetches configured PR candidates without advancing the watermark", async () => {
   const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
   const refreshGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
