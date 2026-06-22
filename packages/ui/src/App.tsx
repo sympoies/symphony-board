@@ -93,6 +93,7 @@ import {
   loadBoardScope,
   saveBoardScope,
   boardScopeDays,
+  boardWindowRange,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
   loadWideLayout,
@@ -287,7 +288,6 @@ export function App() {
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
   const tz = env?.timezone ?? "UTC";
-  const staticRange = useMemo(() => (env ? staticContractTimeRange(env) : null), [env]);
   // board-scope derived flags. "off" loads no contract (Live-only); a windowed
   // scope ("1d"/"3d"/"7d") loads a small /api/range AS the primary env; "full"
   // loads ./contract.json. Desktop/web are always "full" (boardScopeWindowed is
@@ -296,6 +296,22 @@ export function App() {
   const contractEnabled = !contractDisabled;
   const boardScopeDaysValue = boardScopeDays(boardScope);
   const boardScopeWindowed = boardScopeDaysValue !== null;
+  // The instant calendar quick presets resolve against — the contract's generated-at
+  // (stable per load), falling back to "now" only before the first contract arrives.
+  const generatedNowMs = env ? (Number.isFinite(Date.parse(env.generated_at)) ? Date.parse(env.generated_at) : Date.now()) : Date.now();
+  // The loaded board window. A windowed scope is FETCHED with the live Date.now()
+  // (no env yet on first load), so its env.item_window carries the fetch clock —
+  // but the quick presets, the active-preset highlight, and the synthetic window
+  // button all resolve against generated_at. Reading the window off item_window
+  // (staticContractTimeRange) splits those clocks and, when a load crosses local
+  // midnight or the contract is stale, drifts the window off its same-named preset
+  // (a duplicate "1mo" button, longer presets mis-hidden). So for a windowed scope
+  // resolve the window on generatedNowMs too (boardWindowRange), keeping it
+  // byte-identical to its preset. "full" / "off" keep the true item-window extent.
+  const staticRange = useMemo(
+    () => (env ? (boardScopeWindowed ? boardWindowRange(boardScope, generatedNowMs, tz) : staticContractTimeRange(env)) : null),
+    [env, boardScopeWindowed, boardScope, generatedNowMs, tz],
+  );
   // True data extents for the UNWINDOWED Activity / Commits feeds (staticRange is
   // only the 90-day item window, so it would understate older history and make
   // "Show all" / the extent copy overpromise). Board / Graph / Repo stay on
@@ -321,9 +337,6 @@ export function App() {
         : null,
     [env, tz, staticRange],
   );
-  // The instant calendar quick presets resolve against — the contract's generated-at
-  // (stable per load), falling back to "now" only before the first contract arrives.
-  const generatedNowMs = env ? (Number.isFinite(Date.parse(env.generated_at)) ? Date.parse(env.generated_at) : Date.now()) : Date.now();
   // Board data is a ceiling on the range: a windowed scope opens on the Default range
   // but never earlier than the loaded window. When the default reaches the window
   // start — which it does whenever it is >= the window, since it is auto-clamped to

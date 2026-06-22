@@ -12,7 +12,7 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRangePresetId } from "./model.ts";
+import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
 
@@ -295,6 +295,28 @@ export function clampDefaultRangeToBoardScope(preset: TimeRangePresetId, scope: 
     .filter(({ range }) => range.from >= windowFrom)
     .sort((a, b) => a.range.from.localeCompare(b.range.from) || b.range.to.localeCompare(a.range.to));
   return fitting[0]?.id ?? preset;
+}
+
+// The loaded board window as the UI should DISPLAY and compare it: exactly
+// boardScopeDays(scope) days ending at `now` — the contract's generated-at, the
+// SAME instant every quick preset, the active-preset highlight, and the synthetic
+// window button resolve against. Returns null for the unwindowed scopes (off /
+// full), which have no fixed window.
+//
+// Why not derive it from the loaded env's item_window? A windowed scope FETCHES
+// /api/range with the live Date.now() (there is no env yet on first load), so
+// item_window carries the fetch clock. staticContractTimeRange then builds a range
+// whose `from` is the fetch clock but whose `to` is generated_at — two clocks in
+// one range. When a load crosses local midnight, or the contract is stale / a
+// fixture with an older generated_at, that range drifts off its same-named preset:
+// windowQuickPreset stops recognising it and injects a duplicate quick button
+// (e.g. a second "1mo"), and presetBeyondLoadedWindow mis-hides longer presets.
+// Resolving the window on `now` keeps it byte-identical to its preset
+// (1d == today, 7d == 1w, 1mo/3mo/6mo/1y == the rolling presets; only 3d has no
+// built-in equivalent), so no duplicate appears and the highlight stays in sync.
+export function boardWindowRange(scope: BoardScope, now: number, tz?: string): TimeRange | null {
+  const days = boardScopeDays(scope);
+  return days == null ? null : timeRangeForDays(days, now, tz);
 }
 
 // The default scope for a client kind when nothing is stored: Android renders on
