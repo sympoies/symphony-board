@@ -538,7 +538,11 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
         <h3>
           Sync runs {stats && stats.sync_runs.length > 0 ? <span className="count">— last {stats.sync_runs.length}</span> : null}
         </h3>
-        {!stats || stats.sync_runs.length === 0 ? (
+        {loading ? (
+          <p className="muted">Loading sync runs…</p>
+        ) : !stats ? (
+          <p className="empty">Sync history unavailable: no /api/stats endpoint on this deployment, or no store yet (run a sync first).</p>
+        ) : stats.sync_runs.length === 0 ? (
           <p className="empty">No sync runs recorded.</p>
         ) : (
           <div className="debug-runs-wrap">
