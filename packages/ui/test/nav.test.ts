@@ -27,6 +27,7 @@ import {
   clearFiltersHref,
   startupRouteHash,
   resolveDefaultTab,
+  liveTabVisible,
   parseDebugTab,
   debugTabField,
   DEBUG_TAB_IDS,
@@ -412,6 +413,19 @@ test("resolveDefaultTab falls back off Live only when the Live tab is disabled",
   assert.equal(resolveDefaultTab("board", false), "board", "a non-Live default is never rewritten");
   assert.equal(resolveDefaultTab("activity", false), "activity");
   assert.equal(resolveDefaultTab("commits", true), "commits");
+});
+
+test("liveTabVisible shows the Live tab while connecting, hides it only when definitively unavailable", () => {
+  // Connecting (null) keeps the tab visible so a slow seed never strands the user
+  // with no way into Live (the chicken-and-egg fix).
+  assert.equal(liveTabVisible(true, null), true, "enabled + connecting -> tab shown");
+  assert.equal(liveTabVisible(true, true), true, "enabled + connected -> tab shown");
+  // connected === false is the definitive "unavailable" (disabled / no server URL /
+  // a 4xx no-receiver deploy) -> hide.
+  assert.equal(liveTabVisible(true, false), false, "enabled + definitively unavailable -> hidden");
+  // The opt-in must be on regardless of the connection state.
+  assert.equal(liveTabVisible(false, null), false, "disabled -> hidden even while a stale probe is pending");
+  assert.equal(liveTabVisible(false, true), false, "disabled -> hidden even if connected");
 });
 
 // The hidden Diagnostics console is split into sub-tabs, URL-backed through the

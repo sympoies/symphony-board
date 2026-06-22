@@ -85,6 +85,19 @@ export function resolveDefaultTab(defaultTab: Page, liveTabEnabled: boolean): Pa
   return defaultTab === "live" && !liveTabEnabled ? "activity" : defaultTab;
 }
 
+// Whether the Live top-nav tab should render. Requires the user's opt-in, and
+// hides the tab ONLY when the connection is DEFINITIVELY unavailable — the hook's
+// `connected === false` (Live disabled, no server URL, or a 4xx "no receiver on
+// this deploy"). Critically it KEEPS the tab visible while CONNECTING
+// (`connected === null`): on slow hardware the ~200-event snapshot seed can take a
+// while, and gating the tab on `connected === true` created a chicken-and-egg —
+// the tab was hidden while connecting, so the user could not open Live to drive
+// the retrying stream that actually establishes the connection (a background
+// prewarm probe is one-shot, with no retry). Pure + unit-tested.
+export function liveTabVisible(liveTabEnabled: boolean, liveConnected: boolean | null): boolean {
+  return liveTabEnabled && liveConnected !== false;
+}
+
 // --- Diagnostics sub-tabs --------------------------------------------------
 //
 // The hidden #/debug console is split into sub-tabs (see DebugPage.tsx), URL-

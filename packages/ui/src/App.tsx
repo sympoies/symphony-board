@@ -60,6 +60,7 @@ import {
   clearFiltersHref,
   startupRouteHash,
   resolveDefaultTab,
+  liveTabVisible,
   parseDebugTab,
   debugTabField,
   ITEM_REVIEW_VALUES,
@@ -411,6 +412,11 @@ export function App() {
   // a Live deploy (see resolveProbeFailure); only a definitive failure resolves
   // false. Weigh that when changing how the hook resolves `connected`.
   const liveAvailable = live.connected;
+  // Whether the Live tab is shown. Visible while connecting too (see liveTabVisible)
+  // so a slow seed never hides the tab and strands the user with no way into Live;
+  // only a definitive "unavailable" (connected === false) hides it. The bounce below
+  // still keys off liveAvailable === false (definitive), so connecting never bounces.
+  const liveTabShown = liveTabVisible(liveTabEnabled, liveAvailable);
   // A host WITHOUT the live receiver (the standalone app, or any deploy missing
   // it) must never strand the user on a dead Live page — which can happen now
   // that the default tab can be Live and the cold-start redirect honors it. When
@@ -1360,7 +1366,7 @@ export function App() {
   // answers (liveAvailable). routeHref carries search/range/lens across the hop.
   const pageTabs = (
     <nav className="page-tabs">
-      {liveAvailable ? (
+      {liveTabShown ? (
         <a className={`tab tab-live${page === "live" ? " tab-on" : ""}`} href={routeHref("live")}>
           <span className="tab-live-dot" aria-hidden="true" />
           Live
