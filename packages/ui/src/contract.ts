@@ -725,11 +725,14 @@ async function fetchLiveSnapshotAttempt(
   let body: unknown;
   try {
     body = await readJson(res);
-  } catch {
-    // An interrupted body read (timeout / dropped connection mid-body) is
-    // transient; a SyntaxError on a fully-received body is a definitive content
-    // error and not worth retrying.
-    return { snapshot: null, transient: signal.aborted };
+  } catch (err) {
+    // An interrupted body read is transient: the per-attempt timeout fired
+    // (signal.aborted), OR the connection dropped mid-body before that abort —
+    // which throws a non-SyntaxError (e.g. a TypeError) with signal.aborted still
+    // false. Only a SyntaxError on a fully-received body is a definitive content
+    // error and not worth retrying. Mirrors loadContractAttempt so a dropped
+    // cold-link body read keeps retrying instead of bouncing a live deploy.
+    return { snapshot: null, transient: signal.aborted || !(err instanceof SyntaxError) };
   }
   return isLiveSnapshot(body) ? { snapshot: body, transient: false } : { snapshot: null, transient: false };
 }

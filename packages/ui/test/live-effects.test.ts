@@ -17,6 +17,7 @@ import {
   planSseResetStart,
   planLiveConnection,
   planSnapshotFold,
+  planLiveCachePersist,
   resolveProbeFailure,
   reconcileReset,
   parseResetEvent,
@@ -152,6 +153,41 @@ test("resolveProbeFailure keeps a transient cold-start failure connecting, not u
     resolveProbeFailure({ everOpened: true, transient: false }),
     "reconnecting",
     "even a definitive failure after a prior open is a reconnect, not a fresh unavailable",
+  );
+});
+
+// The offline-cache write decision the persist effect delegates to. The bug this
+// pins: when the first authoritative snapshot empties the buffer, the old guard
+// (`events.length === 0` -> skip) left the stale cache in place, so deleted rows
+// reappeared on every cold start until the 24h TTL. An authoritative empty buffer
+// must REMOVE the cache; a provisional cache seed must never rewrite it.
+test("planLiveCachePersist removes the cache on an authoritative empty buffer, saves otherwise", () => {
+  // Disabled / provisional: never touch the cache.
+  assert.equal(
+    planLiveCachePersist({ enabled: false, seededFromCache: false, eventCount: 5 }),
+    "skip",
+    "disabled Live issues no cache write",
+  );
+  assert.equal(
+    planLiveCachePersist({ enabled: true, seededFromCache: true, eventCount: 0 }),
+    "skip",
+    "while showing the provisional cache seed (cursor 0) we must not rewrite or remove it",
+  );
+  assert.equal(
+    planLiveCachePersist({ enabled: true, seededFromCache: true, eventCount: 5 }),
+    "skip",
+    "a provisional seed never overwrites the cache regardless of count",
+  );
+  // Authoritative (not provisional) results drive the cache.
+  assert.equal(
+    planLiveCachePersist({ enabled: true, seededFromCache: false, eventCount: 0 }),
+    "remove",
+    "an authoritative empty buffer clears the stale cache so deleted rows do not reappear",
+  );
+  assert.equal(
+    planLiveCachePersist({ enabled: true, seededFromCache: false, eventCount: 3 }),
+    "save",
+    "a non-empty authoritative buffer persists for the next cold start",
   );
 });
 

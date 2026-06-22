@@ -16,7 +16,7 @@ import {
   LIVE_SNAPSHOT_PROBE_RETRIES,
   type LiveSnapshotFetchResult,
 } from "./contract.ts";
-import { loadCachedLiveSnapshot, saveCachedLiveSnapshot } from "./live-cache.ts";
+import { loadCachedLiveSnapshot, saveCachedLiveSnapshot, removeCachedLiveSnapshot } from "./live-cache.ts";
 import { LIVE_EVENT_BUFFER_LIMIT, LIVE_SEED_LIMIT } from "./live-config.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
@@ -262,6 +262,22 @@ export function resolveProbeFailure(opts: { everOpened: boolean; transient: bool
   return opts.transient ? "keep-connecting" : "unavailable";
 }
 
+// What the offline-cache persist effect should do with the current buffer.
+// `seededFromCache` means the provisional cache seed (cursor 0) is still in place:
+// never rewrite or remove it. Once an authoritative snapshot has landed, an EMPTY
+// buffer must REMOVE the stale cache — otherwise deleted/pruned rows linger and
+// re-paint on every cold start until the 24h TTL — while a non-empty buffer is
+// SAVED so the next cold start paints instantly.
+export type LiveCachePersistAction = "skip" | "save" | "remove";
+export function planLiveCachePersist(opts: {
+  enabled: boolean;
+  seededFromCache: boolean;
+  eventCount: number;
+}): LiveCachePersistAction {
+  if (!opts.enabled || opts.seededFromCache) return "skip";
+  return opts.eventCount === 0 ? "remove" : "save";
+}
+
 export type SnapshotFold =
   // The FIRST authoritative snapshot after a provisional stale-cache seed:
   // REPLACE the cached rows wholesale so a cached row the server no longer returns
@@ -360,9 +376,17 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
   // only the PROVISIONAL cache seed (cursor 0, about to be replaced) so we never
   // rewrite the cache with a regressed cursor.
   useEffect(() => {
-    if (!enabled || events.length === 0 || seededFromCache.current) return;
+    const action = planLiveCachePersist({
+      enabled,
+      seededFromCache: seededFromCache.current,
+      eventCount: events.length,
+    });
+    if (action === "skip") return;
     const timer = setTimeout(() => {
-      saveCachedLiveSnapshot(serverBaseUrl, events, lastSeq.current);
+      // An authoritative empty buffer drops the stale cache so deleted rows do not
+      // reappear next cold start; a non-empty buffer persists for instant paint.
+      if (action === "remove") removeCachedLiveSnapshot(serverBaseUrl);
+      else saveCachedLiveSnapshot(serverBaseUrl, events, lastSeq.current);
     }, LIVE_CACHE_PERSIST_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [enabled, serverBaseUrl, events]);
@@ -433,7 +457,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
     });
     if (mode === "stream") setTransport(transportKind);
 
-    const startSse = (sinceSeq: number): void => {
+    const startSse = (sinceSeq: number, seedWasDefinitiveFailure = false): void => {
       const es = new EventSource(liveStreamUrl(serverBaseUrl, sinceSeq));
       source = es;
       es.onopen = () => {
@@ -505,10 +529,14 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       });
       es.onerror = () => {
         if (cancelled) return;
-        // A drop after a successful open is a transient reconnect (EventSource
-        // retries on its own); only a stream that NEVER opened is unavailable.
-        if (everOpened.current) setReconnecting(true);
-        else setConnected(false);
+        // Same classifier the poll/prewarm probes use (applyProbeFailure ->
+        // resolveProbeFailure). After a successful open, any drop is a transient
+        // reconnect (EventSource retries on its own). BEFORE the first open, a
+        // transient failure stays "Connecting…" and lets EventSource auto-
+        // reconnect — only a DEFINITIVE seed failure (no receiver on this deploy)
+        // resolves to unavailable, so a transient pre-open blip never bounces a
+        // Live cold start off the route.
+        applyProbeFailure(!seedWasDefinitiveFailure);
       };
     };
 
@@ -547,18 +575,21 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       const seed = await seedSnapshot();
       if (cancelled) return;
       if (mode === "snapshot") {
-        // Prewarm is a one-shot probe (no retry loop). It is inactive, so a failure
-        // never bounces — it only leaves the tab hidden until the next re-probe.
-        if (!seed.snapshot) {
-          if (everOpened.current) setReconnecting(true);
-          else setConnected(false);
-        }
+        // Prewarm is a one-shot probe (no retry loop), inactive so it never
+        // bounces. Classify a failure like every other probe (applyProbeFailure ->
+        // resolveProbeFailure): a TRANSIENT prewarm failure stays "Connecting…"
+        // (connected stays null) so one timed-out background probe does not hide
+        // the Live tab for the whole session; only a DEFINITIVE failure (no
+        // receiver) marks it unavailable.
+        if (!seed.snapshot) applyProbeFailure(seed.transientFailure);
         return;
       }
       if (transportKind === "sse") {
-        // SSE decides reachability itself (onopen -> up, onerror-before-open ->
-        // unavailable); a failed seed just means we open from scratch.
-        startSse(lastSeq.current);
+        // SSE decides reachability itself (onopen -> up). A failed seed just opens
+        // from scratch; pass whether the seed failed DEFINITIVELY so a pre-open
+        // onerror only resolves unavailable for a real no-receiver deploy, not for
+        // a transient cold-link blip the EventSource can auto-reconnect through.
+        startSse(lastSeq.current, !seed.snapshot && !seed.transientFailure);
       } else {
         // Poll: a TRANSIENT seed failure stays "Connecting…" and the 3s loop
         // recovers (the cold-start fix — never bounce a Live deploy); only a

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   loadCachedLiveSnapshot,
   saveCachedLiveSnapshot,
+  removeCachedLiveSnapshot,
   LIVE_SNAPSHOT_CACHE_MAX_EVENTS,
   LIVE_SNAPSHOT_CACHE_TTL_MS,
 } from "../src/live-cache.ts";
@@ -102,4 +103,34 @@ test("saving never throws when storage is unavailable", () => {
   (globalThis as { localStorage?: unknown }).localStorage = undefined;
   assert.doesNotThrow(() => saveCachedLiveSnapshot("https://srv", [ev(1)], 1, 0));
   assert.equal(loadCachedLiveSnapshot("https://srv", 0), null);
+});
+
+// When the first authoritative snapshot empties the buffer, useLive removes this
+// server's cache so the deleted/pruned rows do not reappear on the next cold
+// start until the TTL expires. The removal is server-scoped (the store holds one
+// entry keyed by serverBaseUrl) so clearing one server never wipes another's.
+test("removeCachedLiveSnapshot drops this server's entry so a now-empty feed is not resurrected", () => {
+  saveCachedLiveSnapshot("https://srv", [ev(2), ev(1)], 2, 0);
+  assert.ok(loadCachedLiveSnapshot("https://srv", 0), "precondition: the cache exists");
+  removeCachedLiveSnapshot("https://srv");
+  assert.equal(loadCachedLiveSnapshot("https://srv", 0), null, "the stale cache is gone after removal");
+});
+
+test("removeCachedLiveSnapshot only clears the matching server, never another server's cache", () => {
+  saveCachedLiveSnapshot("https://a", [ev(1)], 1, 0);
+  removeCachedLiveSnapshot("https://b");
+  assert.ok(loadCachedLiveSnapshot("https://a", 0), "removing server B must not wipe server A's entry");
+  removeCachedLiveSnapshot("https://a");
+  assert.equal(loadCachedLiveSnapshot("https://a", 0), null);
+});
+
+test("removeCachedLiveSnapshot is a no-op when absent and never throws on bad storage", () => {
+  assert.doesNotThrow(() => removeCachedLiveSnapshot("https://srv"));
+  // A present-but-malformed entry: the JSON.parse throw is swallowed and the
+  // junk is left untouched (the loader already reads it as no-cache).
+  store._raw("symphony-board:live-snapshot-cache", "{not json");
+  assert.doesNotThrow(() => removeCachedLiveSnapshot("https://srv"));
+  assert.equal(store.getItem("symphony-board:live-snapshot-cache"), "{not json", "a malformed entry never throws and is left as-is");
+  (globalThis as { localStorage?: unknown }).localStorage = undefined;
+  assert.doesNotThrow(() => removeCachedLiveSnapshot("https://srv"));
 });
