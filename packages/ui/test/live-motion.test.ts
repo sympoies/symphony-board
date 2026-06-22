@@ -217,10 +217,15 @@ test("Live pulse strip collapses to two columns before the ranked charts would o
   );
 });
 
-test("Live detail navigation stays centered in the detail pane", () => {
+test("Live detail navigation is mobile-only and centered in the detail pane", () => {
   assert.match(
     stylesSource,
-    /\.live-detail-nav\s*{[^}]*justify-content:\s*center;/s,
+    /\.live-detail-nav\s*{[^}]*display:\s*none;[^}]*justify-content:\s*center;/s,
+    "the detail pagination controls should stay hidden outside the mobile overlay",
+  );
+  assert.match(
+    stylesSource,
+    /@media \(max-width: 900px\)\s*{[\s\S]*?\.live-detail-nav\s*{[^}]*display:\s*flex;[^}]*margin:\s*10px 0 0;/,
     "the detail pagination controls should be centered in the detail pane",
   );
 });

@@ -3546,7 +3546,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-mode-release { background: none; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text); font: inherit; font-size: 12px; border-radius: 999px; padding: 2px 11px; cursor: pointer; }
 .live-mode-release:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .live-detail-nav {
-  display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px 2px 0;
+  display: none; align-items: center; justify-content: center; gap: 8px; margin: 10px 2px 0;
 }
 .live-detail-nav-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -3615,7 +3615,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-detail { position: static; height: auto; max-height: none; }
   .live-detail-card { min-height: 0; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }
-  .live-detail-nav { margin: 10px 0 0; }
+  .live-detail-nav { display: flex; margin: 10px 0 0; }
   .live-detail-nav-button { flex: 1 1 0; min-width: 0; height: 40px; font-size: 13px; }
   .live-split:not([data-detail-open="true"]) .live-detail { display: none; }
   /* Full-screen detail overlay: pad past the system status / nav bars via the
