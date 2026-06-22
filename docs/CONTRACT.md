@@ -519,6 +519,26 @@ A consumer aligns its trailing-window rendering to the contract `generated_at`
 (via `to`), not the viewer's wall clock, so the buckets and the rendered window
 agree.
 
+### `GET /api/activity-daily`
+
+The read-only API surface (the Docker `api` sidecar and the standalone
+`app-server`) also serves the **full-history** `activity_daily` on its own:
+
+```
+GET /api/activity-daily  ->  { "activity_daily": ActivityDaily | null }
+```
+
+It reads the aggregate straight from the daemon-emitted `contract.json` (the same
+file `/contract.json` serves), so the returned `activity_daily` always reconciles
+with the FULL canonical history, never a window. It exists because a device with a
+bounded **Board data** scope loads a `/api/range` projection as its primary
+contract, whose embedded `activity_daily` covers only the requested window — which
+would shrink the fixed trailing-12-month Activity Overview. The UI fetches this
+route to keep the overview a true 12 months without downloading the whole contract;
+`activity_daily` is `null` for a pre-`4.0.0` contract, and the route is `404` until
+the first emit. It needs no store access (the aggregate is already computed at
+emit), so it adds no query, driver, or schema surface.
+
 ## Aggregates
 
 Version `1.3.0` added optional `aggregates[]`. These rows provide

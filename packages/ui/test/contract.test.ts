@@ -15,6 +15,7 @@ import {
   saveConfigDocument,
   fetchSecrets,
   saveSecretValue,
+  fetchActivityDaily,
   SYNC_CONTROL_HEADER,
   initLoadRetryDelayMs,
   INIT_LOAD_RETRY_BASE_MS,
@@ -110,6 +111,36 @@ test("fetchContract parses the JSON on a 2xx and throws with the status on a non
 
     globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
     await assert.rejects(() => fetchContract("./missing.json", null), /could not load .* HTTP 404/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchActivityDaily returns the full aggregate on 2xx and null on any failure", async () => {
+  const realFetch = globalThis.fetch;
+  const daily = { timezone: "UTC", from: "2025-06-23", to: "2026-06-23", total: 42, by_kind: { commit: 42 }, days: [{ date: "2026-06-23", count: 42, by_kind: { commit: 42 } }] };
+  try {
+    // 2xx with the wrapped aggregate -> returned verbatim.
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ activity_daily: daily }) })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchActivityDaily(null), daily);
+
+    // pre-4.0.0 contract: 2xx with null -> null (caller falls back to env.activity_daily).
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ activity_daily: null }) })) as unknown as typeof fetch;
+    assert.equal(await fetchActivityDaily(null), null);
+
+    // malformed aggregate (missing days[]) -> null, never a half-shaped object.
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ activity_daily: { total: 1 } }) })) as unknown as typeof fetch;
+    assert.equal(await fetchActivityDaily(null), null);
+
+    // route missing on a pure-static deploy -> null.
+    globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    assert.equal(await fetchActivityDaily(null), null);
+
+    // network error -> null (probe pattern, never throws).
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    assert.equal(await fetchActivityDaily(null), null);
   } finally {
     globalThis.fetch = realFetch;
   }

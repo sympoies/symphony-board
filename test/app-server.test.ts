@@ -292,6 +292,53 @@ test("app-server gzips /api/range for Accept-Encoding: gzip and serves raw other
   }
 });
 
+test("app-server serves the full-history activity_daily on /api/activity-daily", async () => {
+  const { dir, opts } = await sandbox();
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createAppServer(controller, opts);
+  const base = await listen(server);
+  try {
+    // 404 until the first emit, like /contract.json.
+    const missing = await fetch(`${base}/api/activity-daily`);
+    assert.equal(missing.status, 404);
+    assert.equal((await json(missing)).error, "no_contract");
+
+    // A 4.0.0 contract carrying the aggregate: the route returns it verbatim,
+    // independent of any board window (it reads the static contract file).
+    const daily = {
+      timezone: "UTC",
+      from: "2025-06-23",
+      to: "2026-06-23",
+      total: 1234,
+      by_kind: { commit: 1000, review: 234 },
+      days: [{ date: "2026-06-23", count: 12, by_kind: { commit: 10, review: 2 } }],
+    };
+    writeFileSync(opts.contractOut, JSON.stringify({ contract_version: "4.0.0", items: [], activity_daily: daily }));
+    const served = await fetch(`${base}/api/activity-daily`);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get("cache-control"), "no-store");
+    assert.deepEqual((await json(served)).activity_daily, daily);
+
+    // gzip negotiated like the other JSON surfaces.
+    const gz = await getRaw(base, "/api/activity-daily", { "Accept-Encoding": "gzip" });
+    assert.equal(gz.headers["content-encoding"], "gzip");
+    assert.deepEqual(JSON.parse(gunzipSync(gz.body).toString("utf8")).activity_daily, daily);
+
+    // A pre-4.0.0 contract carries no aggregate: 200 with null, so the UI falls
+    // back to its primary env's activity_daily. The mtime advances so the parse
+    // cache refreshes.
+    writeFileSync(opts.contractOut, JSON.stringify({ contract_version: "3.0.0", items: [] }));
+    const future = new Date(Date.now() + 5000);
+    utimesSync(opts.contractOut, future, future);
+    const legacy = await fetch(`${base}/api/activity-daily`);
+    assert.equal(legacy.status, 200);
+    assert.equal((await json(legacy)).activity_daily, null);
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("app-server degrades cleanly when the config is missing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "app-server-test-"));
   const opts: AppServerOptions = {

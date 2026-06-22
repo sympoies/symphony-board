@@ -47,6 +47,7 @@ import {
 import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
+import { handleActivityDailyRequest } from "../server/activity-daily.ts";
 import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
 
@@ -168,6 +169,15 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
 
     if ((method === "GET" || method === "HEAD") && path === "/contract.json.gz") {
       servePrecompressedContract(res, opts.contractOut, method);
+      return;
+    }
+
+    // Full-history activity_daily, read straight from the emitted contract file
+    // (no store access, no config needed). Lets the Activity Overview render a true
+    // trailing 12 months even when this device's Board data scope loaded a windowed
+    // range as its primary env. See src/server/activity-daily.ts.
+    if (method === "GET" && path === "/api/activity-daily") {
+      handleActivityDailyRequest(opts.contractOut, res, req.headers["accept-encoding"]);
       return;
     }
 

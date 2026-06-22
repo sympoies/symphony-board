@@ -89,6 +89,10 @@ services:
       SYNC_MODE: api
       SYMPHONY_CONFIG: config/sources.json
       PORT: "8081"
+      # The board daemon's emitted contract, mounted read-only below at the same
+      # path it writes. Source for GET /api/activity-daily (the full-history
+      # activity_daily aggregate); must match the board's CONTRACT_OUT.
+      CONTRACT_OUT: data/contract.json
     volumes:
       - ../config:/app/config:ro
       - ../data:/app/data:ro

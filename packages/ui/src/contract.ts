@@ -3,7 +3,7 @@
 // accepts (it does not re-validate — producers validate strictly; see
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
-import type { ContractEnvelope } from "@symphony-board/contract";
+import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
 import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, LiveSnapshot } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
@@ -659,6 +659,25 @@ export async function saveSecretValue(env: string, value: string | null, serverB
 // Probe-pattern GETs like the control planes above: null on ANY failure (route
 // missing, no store yet, network error) so the page renders "unavailable"
 // instead of erroring — the common case for a static deploy.
+
+// The full-history activity_daily aggregate, served independently of the board
+// window. The Activity Overview is fixed to the trailing 12 months, but a windowed
+// Board data scope loads a /api/range projection as the primary env, whose
+// activity_daily covers only that window. This probe fetches the full aggregate so
+// the overview stays a true 12 months; null on ANY failure (route missing on a
+// pure-static deploy, no server, network error, pre-4.0.0 contract) so the caller
+// falls back to the primary env's own activity_daily — the prior behavior.
+export async function fetchActivityDaily(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ActivityDailyDTO | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/activity-daily", serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as { activity_daily?: ActivityDailyDTO | null } | null;
+    const daily = body?.activity_daily ?? null;
+    return daily && typeof daily === "object" && Array.isArray(daily.days) && typeof daily.total === "number" ? daily : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchStoreStats(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<StoreStats | null> {
   try {
