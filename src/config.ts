@@ -196,6 +196,9 @@ export function configErrors(raw: unknown, label: string): string[] {
       }
       validateTokenPool(s, `${label}: source "${s.source_id}"`, errors);
       if (s.token_pools !== undefined) {
+        if (s.kind !== "github") {
+          errors.push(`${label}: source "${s.source_id}" token_pools are only supported for GitHub sources`);
+        }
         if (!isPlainObject(s.token_pools)) {
           errors.push(`${label}: source "${s.source_id}" token_pools must be an object when set`);
         } else {
@@ -224,6 +227,8 @@ export function configErrors(raw: unknown, label: string): string[] {
         if (typeof entry !== "string" && entry.token_pool !== undefined) {
           if (typeof entry.token_pool !== "string" || entry.token_pool.trim().length === 0) {
             errors.push(`${label}: project "${projPath}" token_pool must be a non-empty string when set`);
+          } else if (s.kind !== "github") {
+            errors.push(`${label}: project "${projPath}" token_pool is only supported for GitHub sources`);
           } else if (!isPlainObject(s.token_pools) || !Object.prototype.hasOwnProperty.call(s.token_pools, entry.token_pool)) {
             errors.push(`${label}: project "${projPath}" references unknown token_pool "${entry.token_pool}"`);
           }

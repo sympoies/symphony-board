@@ -47,6 +47,48 @@ test("a gitlab config builds a GitLabSource", () => {
   assert.equal(src.descriptor.kind, "gitlab");
 });
 
+test("a github config with tokenless projects marks the source partial", async () => {
+  const calls: Array<{ url: string; method: string; auth: string | null; body: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({
+      url,
+      method,
+      auth: init?.headers instanceof Headers ? init.headers.get("authorization") : (init?.headers as Record<string, string> | undefined)?.Authorization ?? null,
+      body: String(init?.body ?? ""),
+    });
+    if (method !== "POST") {
+      const restPayload = url.endsWith("/repos/sympoies/repo") ? { default_branch: "main" } : [];
+      return new Response(JSON.stringify(restPayload), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const payload = String(init?.body ?? "").includes("pullRequests(")
+      ? { data: { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } }
+      : { data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } };
+    return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const src = buildSource(
+      cfg({ projects: ["default/repo", { path: "sympoies/repo", token_pool: "sympoies" }] }),
+      [],
+      new Map([["default/repo", []], ["sympoies/repo", [{ env: "RUNNER_PROJECT_POOL", value: "repo-token" }]]]),
+    );
+
+    const result = await src.fetch({ since: null, full: true });
+
+    assert.equal(result.complete, false);
+    assert.match(result.error ?? "", /missing token for projects: default\/repo/);
+    const graphqlCalls = calls.filter((call) => call.method === "POST");
+    assert.equal(graphqlCalls.length, 2, "only the token-covered repo is fetched over GraphQL");
+    assert.ok(calls.every((call) => call.auth === "Bearer repo-token"));
+    assert.ok(graphqlCalls.every((call) => call.body.includes('"owner":"sympoies"') && call.body.includes('"name":"repo"')));
+    assert.ok(calls.every((call) => !call.url.includes("default/repo") && !call.body.includes('"owner":"default"')));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("an unknown source kind throws and names the offending source", () => {
   assert.throws(
     () => buildSource(cfg({ kind: "bitbucket", source_id: "bb:x" }), "tok"),

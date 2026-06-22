@@ -30,11 +30,15 @@ export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[], pro
       const defaultTokens = Array.isArray(tokens) ? tokens : [{ env: "token", value: tokens }];
       const defaultKey = tokenKey(defaultTokens);
       const activePaths: string[] = [];
+      const missingAuthPaths: string[] = [];
       const clientsByKey = new Map<string, { gql: typeof gql; rest: typeof rest }>();
       const projectClients = new Map<string, { gql: typeof gql; rest: typeof rest }>();
       for (const path of paths) {
         const repoTokens = projectTokens.get(path) ?? defaultTokens;
-        if (repoTokens.length === 0) continue;
+        if (repoTokens.length === 0) {
+          missingAuthPaths.push(path);
+          continue;
+        }
         activePaths.push(path);
         const key = tokenKey(repoTokens);
         if (key === defaultKey) continue;
@@ -48,7 +52,8 @@ export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[], pro
         }
         projectClients.set(path, clients);
       }
-      return new GitHubSource(descriptor, gql, activePaths, rest, { commitBranches: cfg.commit_branches, projectClients });
+      const partialReason = missingAuthPaths.length > 0 ? `missing token for projects: ${missingAuthPaths.join(", ")}` : null;
+      return new GitHubSource(descriptor, gql, activePaths, rest, { commitBranches: cfg.commit_branches, projectClients, partialReason });
     }
     case "gitlab": {
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), tokens, "gitlab");

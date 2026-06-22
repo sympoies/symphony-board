@@ -30,6 +30,10 @@ export interface SourceOptions {
   // Optional per-project clients. Providers that do not need repo-level token
   // routing ignore it; projects not present here use source-level default clients.
   projectClients?: ReadonlyMap<string, { gql: GqlClient; rest: RestClient | null }>;
+  // If auth resolution forced the registry to omit configured projects from this
+  // source, the provider fetch can still run for covered projects but must
+  // report an incomplete sweep so full runs never tombstone the omitted repos.
+  partialReason?: string | null;
 }
 
 export interface FetchOptions {

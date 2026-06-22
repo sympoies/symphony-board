@@ -180,6 +180,19 @@ test("rejects malformed named token pools and unknown project token_pool refs", 
   );
 });
 
+test("rejects repo token pools on non-GitHub sources", () => {
+  const gitlab = baseSource({
+    source_id: "gitlab:gitlab.com",
+    kind: "gitlab",
+    host: "gitlab.com",
+    token_pools: { group: { token_env: "GITLAB_GROUP_TOKEN" } },
+    projects: [{ path: "g/p", token_pool: "group" }],
+  });
+  const errors = configErrors({ db_path: "x", sources: [gitlab] }, "config");
+  assert.ok(errors.some((err) => /source "gitlab:gitlab\.com" token_pools are only supported for GitHub sources/.test(err)));
+  assert.ok(errors.some((err) => /project "g\/p" token_pool is only supported for GitHub sources/.test(err)));
+});
+
 test("repo token pools fall back to source tokens when no pool token is set", () => {
   const sourcePath = writeConfig(
     baseSource({

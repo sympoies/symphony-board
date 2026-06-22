@@ -119,6 +119,7 @@ export class GitHubSource implements Source {
   private rest: RestClient | null;
   private commitBranches: "all" | "default";
   private projectClients: ReadonlyMap<string, { gql: GqlClient; rest: RestClient | null }>;
+  private partialReason: string | null;
 
   constructor(descriptor: SourceDescriptor, gql: GqlClient, projects: string[], rest: RestClient | null = null, opts: SourceOptions = {}) {
     this.descriptor = descriptor;
@@ -127,6 +128,7 @@ export class GitHubSource implements Source {
     this.rest = rest;
     this.commitBranches = opts.commitBranches ?? "all";
     this.projectClients = opts.projectClients ?? new Map();
+    this.partialReason = opts.partialReason ?? null;
   }
 
   private clientsFor(project: string): { gql: GqlClient; rest: RestClient | null } {
@@ -138,8 +140,11 @@ export class GitHubSource implements Source {
     const records: RawRecord[] = [];
     const now = new Date().toISOString();
     let latest: string | null = null;
-    let complete = true;
-    let firstError: string | null = null;
+    let complete = this.partialReason === null;
+    let firstError: string | null = this.partialReason;
+    if (this.partialReason) {
+      log.warn(`[${this.descriptor.sourceId}] ${this.partialReason}; marking sweep partial so unseen projects are not tombstoned`);
+    }
 
     for (const project of this.projects) {
       log.info(`[${this.descriptor.sourceId}] project ${project}: GraphQL fetch start`);
