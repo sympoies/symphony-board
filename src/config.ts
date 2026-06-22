@@ -440,3 +440,20 @@ export function sourceTokenEnvNames(s: SourceConfig): string[] {
   }
   return out;
 }
+
+// Every distinct token a source can authenticate with — its default pool AND
+// every named token pool — resolved to a live value (secrets-file overlay over
+// the process env), keyed by env-var name and deduped. Like tokensForSource it
+// drops env names that resolve to nothing, so the result is exactly the tokens
+// that could make a request. The token-rate-limit probe uses this to check each
+// token's GraphQL budget; the VALUES are returned so the probe can authenticate
+// and MUST never be exposed past it (the surface reports env names only).
+export function resolveSourceTokens(s: SourceConfig): ResolvedToken[] {
+  const overlay = readSecretsOverlay(resolveSecretsPath());
+  const out: ResolvedToken[] = [];
+  for (const envName of sourceTokenEnvNames(s)) {
+    const value = secretValueForEnv(envName, overlay);
+    if (value) out.push({ env: envName, value });
+  }
+  return out;
+}

@@ -2379,6 +2379,22 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   return `${Math.round(mo / 12)}y ago`;
 }
 
+// "resets in 42m" for a FUTURE instant — the mirror of relativeTime (which only
+// renders the past). Used by the Diagnostics rate-limit tab, where a GitHub
+// GraphQL window always resets within the hour. A non-positive delta clamps to
+// "now"; an unparseable value echoes through. now is injectable for testing.
+export function resetsIn(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const sec = Math.round((t - now) / 1000);
+  if (sec <= 0) return "now";
+  if (sec < 60) return `in ${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `in ${min}m`;
+  return `in ${Math.round(min / 60)}h`;
+}
+
 // The noun for a count: singular when exactly one, else `plural` (default the
 // regular "+s"). Returns only the word — callers render the number themselves —
 // so it composes both as `{n} {pluralize(n, "repo")}` and standalone. Pass an
@@ -2533,6 +2549,28 @@ export interface DaemonLogsInfo {
   entries: DaemonLogEntry[];
   latest_seq: number;
   capacity: number;
+}
+
+// One configured GitHub token's GraphQL rate-limit budget, as probed on demand
+// by GET /api/token-rate-limits. Identified by env-var NAME only — the token
+// value never crosses this boundary. `ok: false` carries the probe `error`
+// instead of the budget fields.
+export interface TokenRateLimit {
+  source_id: string;
+  source_display: string;
+  env: string;
+  ok: boolean;
+  limit?: number;
+  remaining?: number;
+  used?: number;
+  reset_at?: string; // ISO 8601
+  error?: string;
+}
+
+export interface TokenRateLimitsInfo {
+  generated_at: string | null;
+  tokens: TokenRateLimit[];
+  error?: string; // a config-load failure on the server (no tokens probed)
 }
 
 // --- live event stream (the #/live page) ---

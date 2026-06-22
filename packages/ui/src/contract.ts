@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, LiveSnapshot } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, LiveSnapshot } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl } from "./viewconfig.ts";
 
@@ -649,6 +649,20 @@ export async function fetchDaemonLogs(after: number, serverBaseUrl: string | nul
     if (!res.ok) return null;
     const body = (await readJson(res)) as DaemonLogsInfo | null;
     return body && typeof body.enabled === "boolean" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+// On-demand GitHub GraphQL rate-limit probe. null on ANY failure (route missing
+// on this deployment, or network error) so the tab renders "unavailable" rather
+// than erroring — the same probe discipline as the store/log surfaces above.
+export async function fetchTokenRateLimits(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<TokenRateLimitsInfo | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/token-rate-limits", serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await readJson(res)) as TokenRateLimitsInfo | null;
+    return body && Array.isArray((body as { tokens?: unknown }).tokens) ? body : null;
   } catch {
     return null;
   }

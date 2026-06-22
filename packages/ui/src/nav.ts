@@ -93,9 +93,9 @@ export function resolveDefaultTab(defaultTab: Page, liveTabEnabled: boolean): Pa
 // `tab` param so #/debug stays clean. Kept pure (ids + parsing only; the labels
 // live with the rendering in DebugPage) so the route<->tab contract is tested in
 // nav.test.ts, the same as every other navigation rule.
-export type DebugTab = "live" | "contract" | "store" | "sync" | "log";
+export type DebugTab = "live" | "contract" | "store" | "sync" | "ratelimit" | "log";
 
-export const DEBUG_TAB_IDS = ["live", "contract", "store", "sync", "log"] as const satisfies readonly DebugTab[];
+export const DEBUG_TAB_IDS = ["live", "contract", "store", "sync", "ratelimit", "log"] as const satisfies readonly DebugTab[];
 
 export const DEFAULT_DEBUG_TAB: DebugTab = DEBUG_TAB_IDS[0];
 

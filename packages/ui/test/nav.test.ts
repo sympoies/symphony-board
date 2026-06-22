@@ -417,7 +417,7 @@ test("resolveDefaultTab falls back off Live only when the Live tab is disabled",
 // The hidden Diagnostics console is split into sub-tabs, URL-backed through the
 // shared `tab` field. The first id is the default landing tab and Live leads.
 test("DEBUG_TAB_IDS lists every diagnostics tab with Live first as the default", () => {
-  assert.deepEqual([...DEBUG_TAB_IDS], ["live", "contract", "store", "sync", "log"]);
+  assert.deepEqual([...DEBUG_TAB_IDS], ["live", "contract", "store", "sync", "ratelimit", "log"]);
   assert.equal(DEFAULT_DEBUG_TAB, "live", "Live is first, so it is the default landing tab");
   assert.equal(DEBUG_TAB_IDS[0], DEFAULT_DEBUG_TAB);
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -601,5 +601,70 @@ test("GET /api/logs hides the tail when disabled and serves seq-windowed deltas 
     assert.equal(none.latest_seq, delta.latest_seq);
   } finally {
     await close(on);
+  }
+});
+
+// --- the token rate-limit probe route (GET /api/token-rate-limits) ---
+//
+// The probe's enumeration/shaping is covered network-free in
+// token-rate-limits.test.ts; here we cover the ROUTE wiring: fresh config read,
+// the config-error degrade-to-200 path, and the on-success shape — without
+// touching the network. A GitHub source whose token env is UNSET resolves to no
+// tokens, so the success path runs and returns an empty `tokens` array with no
+// provider call.
+test("GET /api/token-rate-limits degrades a broken config to 200+error and shapes a token-less success", async () => {
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const dir = mkdtempSync(join(tmpdir(), "trl-route-"));
+
+  // Broken config -> 200 with an error and no tokens (never a 500), so the tab
+  // shows a message instead of failing.
+  const badPath = join(dir, "broken.json");
+  writeFileSync(badPath, "{ not valid json", "utf8");
+  const broken = createControlServer(controller, ctx(false, { enabled: true, path: badPath, secretsPath: null }));
+  const brokenBase = await listen(broken);
+  try {
+    const res = await fetch(`${brokenBase}/api/token-rate-limits`);
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.deepEqual(body.tokens, []);
+    assert.equal(body.generated_at, null);
+    assert.ok(typeof body.error === "string" && body.error.length > 0, "config error surfaced");
+  } finally {
+    await close(broken);
+  }
+
+  // Valid GitHub source whose token env is unset -> the probe runs but has
+  // nothing to probe: 200, a stamped generated_at, no tokens, no network call.
+  delete process.env.TRL_ROUTE_UNSET_TOKEN;
+  const okPath = join(dir, "sources.json");
+  writeFileSync(
+    okPath,
+    JSON.stringify({
+      db_path: join(dir, "x.db"),
+      sources: [
+        {
+          source_id: "github:github.com",
+          kind: "github",
+          host: "github.com",
+          token_env: "TRL_ROUTE_UNSET_TOKEN",
+          graphql_url: "https://api.github.com/graphql",
+          projects: ["o/r"],
+        },
+      ],
+    }),
+    "utf8",
+  );
+  const okServer = createControlServer(controller, ctx(false, { enabled: true, path: okPath, secretsPath: null }));
+  const okBase = await listen(okServer);
+  try {
+    const res = await fetch(`${okBase}/api/token-rate-limits`);
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.deepEqual(body.tokens, [], "no token value resolved -> nothing to probe");
+    assert.equal(typeof body.generated_at, "string", "success stamps generated_at");
+    assert.equal(body.error, undefined);
+  } finally {
+    await close(okServer);
+    rmSync(dir, { recursive: true, force: true });
   }
 });
