@@ -10,6 +10,12 @@ import { loadConfig } from "../config.ts";
 import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
+import { handleActivityDailyRequest } from "../server/activity-daily.ts";
+
+// The daemon-emitted contract file, mounted read-only into this sidecar (the same
+// data dir the writer emits to). Source for the full-history /api/activity-daily
+// aggregate; matches the CONTRACT_OUT the board daemon writes.
+const contractOut = process.env.CONTRACT_OUT ?? "data/contract.json";
 
 interface Args {
   config: string | null;
@@ -61,6 +67,10 @@ const server = createServer((req, res) => {
   }
   if (req.method === "GET" && url.pathname === "/api/review-candidates") {
     void handleReviewCandidatesRequest(cfg, url, res);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/activity-daily") {
+    handleActivityDailyRequest(contractOut, res, req.headers["accept-encoding"]);
     return;
   }
   if (req.method !== "GET" || url.pathname !== "/api/range") {

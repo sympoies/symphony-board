@@ -137,6 +137,30 @@ if (stats.db?.schema_version !== 7) {
 }
 ' "$stats"
 
+# The full-history activity_daily aggregate, served by the api sidecar from the
+# contract volume (mounted read-only) and proxied by nginx. Proves the route is
+# reachable end to end AND that its total reconciles with the static contract's
+# activity_daily — i.e. it is the FULL history, not a windowed projection.
+activity_daily="$WORKDIR/activity-daily.json"
+curl -fsS "$base/api/activity-daily" >"$activity_daily"
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
+node -e '
+const fs = require("fs");
+const body = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const daily = body.activity_daily;
+if (!daily || typeof daily.total !== "number" || !Array.isArray(daily.days)) {
+  console.error("expected /api/activity-daily to return { activity_daily: { total, days[] } }");
+  process.exit(1);
+}
+const contract = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const expected = contract.activity_daily?.total;
+if (daily.total !== expected) {
+  console.error(`expected activity-daily total ${expected} (full contract), got ${daily.total}`);
+  process.exit(1);
+}
+' "$activity_daily" "$contract"
+
 curl -fsS "$base/api/sync-control" >/dev/null
 
 curl -fsS "$base/api/config" >"$config_probe"

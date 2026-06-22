@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContract, fetchRangeContractWithMetadata, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
+import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
+import { fetchContractWithMetadata, fetchRangeContract, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
@@ -176,6 +176,12 @@ export function App() {
   const [rangeEnv, setRangeEnv] = useState<ContractEnvelope | null>(null);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
+  // Full-history activity_daily for the Activity Overview, fetched independently of
+  // the board window. Only populated when the primary env is itself windowed (a
+  // bounded Board data scope loads a /api/range projection whose activity_daily
+  // covers only the window); null otherwise, so the overview reads env.activity_daily
+  // directly. See the fetch effect below and ./contract.ts fetchActivityDaily.
+  const [fullActivityDaily, setFullActivityDaily] = useState<ActivityDailyDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshingData, setRefreshingData] = useState(false);
@@ -321,12 +327,17 @@ export function App() {
   // the raw activities[] feed, which 4.0.0 windows to 30 days — otherwise
   // "Show all" / the extent copy would understate older history. Fall back to the
   // raw feed for a pre-4.0.0 contract that carries no activity_daily.
+  // Prefer the full-history overlay (when a windowed Board data scope made
+  // env.activity_daily cover only the window) so the extent copy reaches the true
+  // span, matching the Activity Overview.
   const activityDataExtent = useMemo(
-    () =>
-      env
-        ? (env.activity_daily ? activityDailyExtent(env.activity_daily) : activityOccurredExtent(env.activities ?? [], tz)) ?? staticRange
-        : null,
-    [env, tz, staticRange],
+    () => {
+      const daily = fullActivityDaily ?? env?.activity_daily;
+      return env
+        ? (daily ? activityDailyExtent(daily) : activityOccurredExtent(env.activities ?? [], tz)) ?? staticRange
+        : null;
+    },
+    [env, fullActivityDaily, tz, staticRange],
   );
   const commitDataExtent = useMemo(
     () =>
@@ -775,6 +786,27 @@ export function App() {
       cancelled = true;
     };
   }, [activeRange, needsRangeEnv, serverBaseUrl, staticRange]);
+
+  // Keep the Activity Overview a true trailing 12 months even when a bounded Board
+  // data scope makes the primary env a windowed /api/range projection (whose
+  // activity_daily covers only the window). The full aggregate is small and
+  // board-scope-independent, so fetch it separately from /api/activity-daily; on any
+  // failure it stays null and the overview falls back to env.activity_daily (the
+  // prior behavior). With scope "full"/"off" the primary env already carries the full
+  // aggregate (or there is no contract), so no overlay fetch is needed.
+  useEffect(() => {
+    if (contractDisabled || !boardScopeWindowed) {
+      setFullActivityDaily(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchActivityDaily(serverBaseUrl).then((daily) => {
+      if (!cancelled) setFullActivityDaily(daily);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [contractDisabled, boardScopeWindowed, serverBaseUrl, reloadKey]);
 
   const activeEnv = needsRangeEnv ? rangeEnv : env;
   const chromeEnv = activeEnv ?? env;
@@ -1722,10 +1754,10 @@ export function App() {
         <ActivityPage
           activities={filteredActivities}
           allActivities={env.activities ?? activeEnv.activities ?? []}
-          activityDaily={env.activity_daily ?? null}
+          activityDaily={fullActivityDaily ?? env.activity_daily ?? null}
           generatedAt={env.generated_at}
           windowTotal={windowedActivities.length}
-          totalActivities={env.activity_daily?.total ?? env.activities?.length ?? activeEnv.activities?.length ?? 0}
+          totalActivities={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? activeEnv.activities?.length ?? 0}
           range={activeRange}
           timezone={tz}
           sourceKind={sourceKind}
@@ -1734,7 +1766,7 @@ export function App() {
           view={activityViewValue}
           onView={setActivityView}
           emptyState={
-            <EmptyState noun="activity" total={env.activity_daily?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
+            <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
           }
         />
       ) : page === "commits" ? (

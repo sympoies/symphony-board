@@ -92,11 +92,18 @@ services:
       SYMPHONY_CONFIG: config/${SYMPHONY_CONFIG_BASENAME:-sources.pg.json}
       SYMPHONY_DB_URL: ${SYMPHONY_DB_URL:-postgres://symphony:symphony@postgres:5432/symphony_board}
       PORT: "8081"
+      # The board daemon's emitted contract, mounted read-only below. Source for
+      # GET /api/activity-daily (the full-history activity_daily aggregate); must
+      # match the board's CONTRACT_OUT.
+      CONTRACT_OUT: data/contract.json
     env_file:
       - path: ${SYMPHONY_ENV_FILE:-../.env}
         required: false
     volumes:
       - ${SYMPHONY_CONFIG_DIR:-../config}:/app/config:ro
+      # Read-only access to the contract volume the board daemon writes, so the
+      # api sidecar can serve /api/activity-daily without a store query.
+      - contract-data:/app/data:ro
     depends_on:
       postgres:
         condition: service_healthy
