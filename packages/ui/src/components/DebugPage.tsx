@@ -159,6 +159,13 @@ function InlineNote({ children }: { children: ReactNode }) {
   return <span className="muted debug-inline-note">  {children}</span>;
 }
 
+// Shared empty-state for the Store and Sync tabs, which both read the single
+// /api/stats probe: a null `stats` means the endpoint is absent or the store
+// is unseeded, distinct from a present-but-empty result.
+function StatsUnavailable({ lead }: { lead: string }) {
+  return <p className="empty">{lead}: no /api/stats endpoint on this deployment, or no store yet (run a sync first).</p>;
+}
+
 function sourceSummary(counts: Record<string, number>): ReactNode {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   const detail = Object.entries(counts)
@@ -438,7 +445,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
         {loading ? (
           <p className="muted">Loading store stats…</p>
         ) : !stats ? (
-          <p className="empty">Store stats unavailable: no /api/stats endpoint on this deployment, or no store yet (run a sync first).</p>
+          <StatsUnavailable lead="Store stats unavailable" />
         ) : (
           <>
             <section className="debug-summary-strip debug-section-summary" aria-label="Store summary">
@@ -541,7 +548,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
         {loading ? (
           <p className="muted">Loading sync runs…</p>
         ) : !stats ? (
-          <p className="empty">Sync history unavailable: no /api/stats endpoint on this deployment, or no store yet (run a sync first).</p>
+          <StatsUnavailable lead="Sync history unavailable" />
         ) : stats.sync_runs.length === 0 ? (
           <p className="empty">No sync runs recorded.</p>
         ) : (
