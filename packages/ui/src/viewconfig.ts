@@ -12,9 +12,10 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "./model.ts";
+import { DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, staticContractTimeRange, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
+import type { ContractEnvelope } from "@symphony-board/contract";
 
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
@@ -283,17 +284,27 @@ export function presetExceedsBoardScope(preset: TimeRangePresetId, scope: BoardS
 }
 
 // The Default range preset shrunk to fit a Board data scope: kept as-is when it
-// already fits, otherwise the largest preset still inside the loaded window (the one
-// starting earliest, then ending latest). Lowering Board data below the current
-// Default range pulls the default down with it; a default already within the window
-// is untouched, and raising Board data never grows it back. Falls back to the
+// already fits, otherwise the largest preset still inside the loaded window (widest
+// span first, then ending latest). Lowering Board data below the current Default
+// range pulls the default down with it; a default already within the window is
+// untouched, and raising Board data never grows it back. Falls back to the
 // unchanged preset if somehow nothing fits.
+//
+// Rank by SPAN, not earliest start. Earliest-start is only a proxy for "widest"
+// when every fitting preset ends at `now`; "yesterday" ends a day early, so on a
+// 3d window whose only fitting named presets are the 1-day "today" and "yesterday"
+// (Sunday and Wed–Sat, when "this week" reaches before the window), earliest-start
+// picks "yesterday" — App then opens on yesterday's overlay and hides today's
+// board items even though "today" fits. Widest-span, then latest-end, keeps today
+// visible; for a full span+end tie the stable sort keeps TIME_RANGE_PRESETS order
+// (e.g. "today" before "this-week"), the more conservative persisted default.
 export function clampDefaultRangeToBoardScope(preset: TimeRangePresetId, scope: BoardScope, now: number, tz?: string): TimeRangePresetId {
   if (!presetExceedsBoardScope(preset, scope, now, tz)) return preset;
   const windowFrom = timeRangeForDays(boardScopeDays(scope)!, now, tz).from;
+  const spanMs = (range: TimeRange): number => Date.parse(range.to) - Date.parse(range.from);
   const fitting = TIME_RANGE_PRESETS.map((p) => ({ id: p.id, range: timeRangeForPreset(p.id, now, tz) }))
     .filter(({ range }) => range.from >= windowFrom)
-    .sort((a, b) => a.range.from.localeCompare(b.range.from) || b.range.to.localeCompare(a.range.to));
+    .sort((a, b) => spanMs(b.range) - spanMs(a.range) || b.range.to.localeCompare(a.range.to));
   return fitting[0]?.id ?? preset;
 }
 
@@ -317,6 +328,28 @@ export function clampDefaultRangeToBoardScope(preset: TimeRangePresetId, scope: 
 export function boardWindowRange(scope: BoardScope, now: number, tz?: string): TimeRange | null {
   const days = boardScopeDays(scope);
   return days == null ? null : timeRangeForDays(days, now, tz);
+}
+
+// Whether the loaded env should be DISPLAYED through the windowed board scope. The
+// scope governs what a launch FETCHES (a small /api/range projection on mobile),
+// but a windowed device can still load a full / uploaded contract.json via
+// loadFile — that env is NOT a range response. Window the display only when the
+// scope is windowed AND the env is itself a /api/range projection, which it
+// signals by carrying `range_query` (only buildRangeContract emits it). Otherwise
+// the range control, the synthetic window button, and the empty-state extent would
+// claim only the device window is loaded and hide the larger presets the file
+// actually fills.
+export function isWindowedRangeEnv(env: ContractEnvelope | null | undefined, scope: BoardScope): boolean {
+  return env != null && boardScopeDays(scope) !== null && env.range_query != null;
+}
+
+// The window the UI should DISPLAY for the loaded env: the preset-aligned rolling
+// window (boardWindowRange) for a genuine windowed /api/range env, else the env's
+// true item_window extent (staticContractTimeRange). Centralises the
+// isWindowedRangeEnv decision so an uploaded/static contract keeps its real extent
+// even on a device whose default board scope is windowed.
+export function boardDisplayRange(env: ContractEnvelope, scope: BoardScope, now: number, tz?: string): TimeRange {
+  return isWindowedRangeEnv(env, scope) ? boardWindowRange(scope, now, tz)! : staticContractTimeRange(env);
 }
 
 // The default scope for a client kind when nothing is stored: Android renders on

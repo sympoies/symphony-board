@@ -14,7 +14,6 @@ import {
   preferredDefaultTimeRange,
   TIME_RANGE_PRESETS,
   timeRangeForDays,
-  staticContractTimeRange,
   activityDailyExtent,
   activityOccurredExtent,
   boardCommitTotal,
@@ -93,7 +92,8 @@ import {
   loadBoardScope,
   saveBoardScope,
   boardScopeDays,
-  boardWindowRange,
+  boardDisplayRange,
+  isWindowedRangeEnv,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
   loadWideLayout,
@@ -296,12 +296,19 @@ export function App() {
   const tz = env?.timezone ?? "UTC";
   // board-scope derived flags. "off" loads no contract (Live-only); a windowed
   // scope ("1d"/"3d"/"7d") loads a small /api/range AS the primary env; "full"
-  // loads ./contract.json. Desktop/web are always "full" (boardScopeWindowed is
-  // false), so every load path below stays byte-identical to before for them.
+  // loads ./contract.json. Desktop/web are always "full" (never windowed), so every
+  // load path below stays byte-identical to before for them.
   const contractDisabled = boardScope === "off";
   const contractEnabled = !contractDisabled;
   const boardScopeDaysValue = boardScopeDays(boardScope);
-  const boardScopeWindowed = boardScopeDaysValue !== null;
+  // Whether the LOADED env is displayed as a window. A windowed device scope governs
+  // what a launch FETCHES, but the user can still load a full/uploaded contract.json
+  // via loadFile on a windowed device — that env is not a /api/range projection, so it
+  // must keep its true item_window extent. windowedEnv is true only when the scope is
+  // windowed AND the env actually IS a range response (carries range_query); every
+  // display derivation below keys off it so an uploaded contract is never sliced to a
+  // synthetic device window. Fetch/cache/Settings paths keep using boardScope itself.
+  const windowedEnv = isWindowedRangeEnv(env, boardScope);
   // The instant calendar quick presets resolve against — the contract's generated-at
   // (stable per load), falling back to "now" only before the first contract arrives.
   const generatedNowMs = env ? (Number.isFinite(Date.parse(env.generated_at)) ? Date.parse(env.generated_at) : Date.now()) : Date.now();
@@ -311,12 +318,13 @@ export function App() {
   // button all resolve against generated_at. Reading the window off item_window
   // (staticContractTimeRange) splits those clocks and, when a load crosses local
   // midnight or the contract is stale, drifts the window off its same-named preset
-  // (a duplicate "1mo" button, longer presets mis-hidden). So for a windowed scope
-  // resolve the window on generatedNowMs too (boardWindowRange), keeping it
-  // byte-identical to its preset. "full" / "off" keep the true item-window extent.
+  // (a duplicate "1mo" button, longer presets mis-hidden). So for a windowed range
+  // env resolve the window on generatedNowMs too (boardWindowRange), keeping it
+  // byte-identical to its preset; "full" / "off" and uploaded contracts keep the true
+  // item-window extent. boardDisplayRange centralises this windowedEnv decision.
   const staticRange = useMemo(
-    () => (env ? (boardScopeWindowed ? boardWindowRange(boardScope, generatedNowMs, tz) : staticContractTimeRange(env)) : null),
-    [env, boardScopeWindowed, boardScope, generatedNowMs, tz],
+    () => (env ? boardDisplayRange(env, boardScope, generatedNowMs, tz) : null),
+    [env, boardScope, generatedNowMs, tz],
   );
   // True data extents for the UNWINDOWED Activity / Commits feeds. staticRange is
   // a bounded window — the generated_at rolling window for a windowed scope, or the
@@ -357,11 +365,11 @@ export function App() {
   // strictly smaller opens on that sub-range, served by the range overlay.
   const defaultRange = useMemo(() => {
     if (!env) return null;
-    if (!boardScopeWindowed) return preferredDefaultTimeRange(env, defaultRangePreset);
+    if (!windowedEnv) return preferredDefaultTimeRange(env, defaultRangePreset);
     if (!staticRange) return null;
     const presetRange = preferredDefaultTimeRange(env, defaultRangePreset);
     return presetRange.from <= staticRange.from ? staticRange : presetRange;
-  }, [env, boardScopeWindowed, staticRange, defaultRangePreset]);
+  }, [env, windowedEnv, staticRange, defaultRangePreset]);
   // Auto-shrink the stored Default range when Board data drops below it (e.g. Board
   // 1y -> 1mo pulls a 3mo default down to 1mo); a default already within the window is
   // left untouched. Persisted by the defaultRangePreset save effect.
@@ -376,12 +384,13 @@ export function App() {
     () => new Set(TIME_RANGE_PRESETS.filter((p) => presetExceedsBoardScope(p.id, boardScope, generatedNowMs, tz)).map((p) => p.id)),
     [boardScope, generatedNowMs, tz],
   );
-  // A windowed scope whose length no fixed quick preset names (e.g. "3d") gets a
-  // synthetic "show the whole loaded window" quick button; full/off and windows that
-  // already line up with a preset (1d == today, 7d == 1w, …) get none.
+  // A windowed range env whose length no fixed quick preset names (e.g. "3d") gets a
+  // synthetic "show the whole loaded window" quick button; full/off, uploaded
+  // contracts, and windows that already line up with a preset (1d == today, 7d == 1w,
+  // …) get none.
   const windowPreset = useMemo(
-    () => (env && boardScopeWindowed ? windowQuickPreset(staticRange, generatedNowMs, boardScope, tz) : null),
-    [env, boardScopeWindowed, staticRange, boardScope, generatedNowMs, tz],
+    () => (env && windowedEnv ? windowQuickPreset(staticRange, generatedNowMs, boardScope, tz) : null),
+    [env, windowedEnv, staticRange, boardScope, generatedNowMs, tz],
   );
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
@@ -796,7 +805,7 @@ export function App() {
   // prior behavior). With scope "full"/"off" the primary env already carries the full
   // aggregate (or there is no contract), so no overlay fetch is needed.
   useEffect(() => {
-    if (contractDisabled || !boardScopeWindowed) {
+    if (contractDisabled || !windowedEnv) {
       setFullActivityDaily(null);
       return;
     }
@@ -807,7 +816,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [contractDisabled, boardScopeWindowed, serverBaseUrl, reloadKey]);
+  }, [contractDisabled, windowedEnv, serverBaseUrl, reloadKey]);
 
   const activeEnv = needsRangeEnv ? rangeEnv : env;
   const chromeEnv = activeEnv ?? env;
@@ -1720,10 +1729,11 @@ export function App() {
             // so the range is visibly suspended there — selection kept, dimmed,
             // interaction off. Route-backed (?focus=), so reload/back agree.
             suspended={page === "graph" && route.focus != null}
-            // When the board scope is a window, the loaded data only goes back to
+            // When a windowed range env is loaded, the data only goes back to
             // staticRange.from — so cap the quick-range presets there (disable +
-            // hint beyond it). Full board passes null (no cap; it fetches on demand).
-            loadedFrom={boardScopeWindowed ? (staticRange?.from ?? null) : null}
+            // hint beyond it). Full board and uploaded contracts pass null (no cap;
+            // the full extent is loaded / fetched on demand).
+            loadedFrom={windowedEnv ? (staticRange?.from ?? null) : null}
             // For a windowed scope no fixed preset names (e.g. 3d), a synthetic quick
             // button equal to the loaded window — the one-click way back to it.
             windowPreset={windowPreset}
