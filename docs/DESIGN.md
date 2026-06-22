@@ -757,17 +757,17 @@ The split is enforced **in-app by two listeners** that share one store +
 broadcaster but expose disjoint routes (`src/live/receiver.ts`), so the
 public/tailnet boundary does not depend on out-of-repo proxy config alone:
 
-- **Public (Tailscale Funnel) — the webhook listener:** `POST /webhooks/<provider>`
+- **Public HTTPS ingress — the webhook listener:** `POST /webhooks/<provider>`
   (+ `/healthz`) on its own port, authenticated by the provider HMAC over the raw
   bytes (constant-time compare, no permissive fallback, dual-secret rotation).
   This listener serves **no** read routes, so the compose `live` service publishes
-  only this port to the host and the Funnel targets it directly with **no
-  `--set-path`** — even funneling the whole port cannot reach the event stream.
-  (Earlier drafts path-scoped a shared port with `--set-path=/webhooks`; that was
-  both a Go-ServeMux trailing-slash footgun and a single-point reliance on proxy
-  config, so the listener split supersedes it.) Granting the `funnel` node
-  attribute is a one-time tailnet-policy admin action.
-- **Tailnet-only (never funneled) — the reads listener:** `GET /api/live` (SSE)
+  only this port to the host. The public ingress should target this listener
+  directly, so even exposing the whole listener port cannot reach the event
+  stream. Earlier drafts path-scoped a shared port; that was both a router
+  trailing-slash footgun and a single-point reliance on proxy config, so the
+  listener split supersedes it. The concrete public-ingress mechanism belongs
+  in the deployment repo or operator runbook, not in this public app repo.
+- **Private network only — the reads listener:** `GET /api/live` (SSE)
   and `GET /api/live-snapshot` (+ `/healthz`) on a separate port, reachable only
   by the `web` nginx sidecar over the compose network (`proxy_buffering off`). v1
   relies on the tailnet boundary for SSE authz, as the rest of the UI does. The

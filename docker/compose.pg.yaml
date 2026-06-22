@@ -116,7 +116,8 @@ services:
   # the Postgres store: no SYMPHONY_DB_URL, no config mount, no provider token
   # (only the webhook secret by name, via `environment:` interpolation). It runs
   # two listeners (reads vs webhooks); only the webhook listener is published to
-  # the host, for the Funnel. See docker/compose.yaml for the secret-source note.
+  # the host, for deployment-owned public ingress. See docker/compose.yaml for
+  # the secret-source note.
   live:
     image: ghcr.io/sympoies/symphony-board:${SYMPHONY_IMAGE_TAG:-dev}
     build:
@@ -137,8 +138,8 @@ services:
     volumes:
       - live-data:/app/data
     ports:
-      # Loopback-only host port for the host Tailscale Funnel, mapped to the
-      # WEBHOOK listener (8091). Never 0.0.0.0. /api/live* is reached only via the
+      # Loopback-only host port for deployment-owned public HTTPS ingress, mapped
+      # to the WEBHOOK listener (8091). Never 0.0.0.0. /api/live* is reached only via the
       # web sidecar. The default differs from the SQLite stack's 18090 so both
       # stacks can run on one host without a host-port collision (#316 item 9).
       - "${SYMPHONY_PG_LIVE_BIND:-127.0.0.1}:${SYMPHONY_PG_LIVE_PORT:-18091}:8091"

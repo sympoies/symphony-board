@@ -49,7 +49,7 @@ and from the existing Activity tab.
   control plane, internal port 8080), `api` (read-only sidecar, 8081), `web`
   (nginx: serves the UI + `/contract.json`, reverse-proxies `/api/*` to `board`
   or `api`). Only `web` is published, **loopback-only**; tailnet exposure is done
-  **outside compose** via `tailscale serve` on the host. No published port binds
+  **outside compose** via `private-network UI ingress` on the host. No published port binds
   `0.0.0.0`. [F: `docker/compose.yaml`, `docker/ui-nginx.conf`, `README.md`]
 - The standalone macOS app (`src/cli/app-server.ts`) collapses all roles into
   one **loopback-only** (`127.0.0.1:8787`) process with **no inbound ingress**.
@@ -63,7 +63,7 @@ and from the existing Activity tab.
   are greenfield. [A: seam map]
 - Tokens/secrets are referenced by **env-var name** and read from the
   environment, never inlined or committed; a write-only secrets surface never
-  reads values back. The g14 deployment additionally keeps secrets in a SOPS/age
+  reads values back. A private deployment may additionally keep secrets in a SOPS/age
   store. [F: `AGENTS.md`, `docs/DESIGN.md`]
 
 ### Verified external facts (corroborated against official docs, 2026-06-20)
@@ -136,20 +136,21 @@ pass]:
   Auth on the stream is limited to cookies or a URL token unless you abandon
   native EventSource for a `fetch()`+ReadableStream client.
 
-Tailscale Funnel [W: tailscale.com/kb; A: verification pass]:
+Dedicated public HTTPS ingress [W: provider docs; A: verification pass]:
 
-- Funnel exposes a tailnet node to the **public internet over HTTPS** (TLS
-  terminated on the node; the relay is a pass-through). It listens on **only
-  ports 443, 8443, 10000**, can be **path-scoped** via `--set-path`, and
-  requires the **`funnel` node attribute** in the tailnet policy (admin action).
+- The selected public ingress exposes a private-network node to the **public
+  internet over HTTPS** while forwarding the request to a local listener. It can
+  be scoped to a dedicated webhook route or, preferably, to a dedicated listener
+  that serves only webhooks.
 - Public/private is **per PORT, not per path**: you cannot have one path on a
-  port be Funnel-public while another path on the *same* port stays Serve-only —
+  port be public while another path on the *same* port stays private -
   most-recent-command-wins flips the whole port. To expose only the webhook path
-  publicly, run **Funnel on its own dedicated port** (path-scoped) and keep the
-  existing `tailscale serve` (tailnet-only) on a **different** port.
-- The backend behind Funnel receives the **original headers + raw body intact**
+  publicly, run **public ingress on its own dedicated listener** and keep the
+  existing private UI ingress on a **different** port.
+- The backend behind public ingress receives the **original headers + raw body intact**
   (so raw-body HMAC verification works), but **not** the original client IP
-  unless `--proxy-protocol` is enabled. Funnel has non-configurable bandwidth
+  unless proxy-protocol support is enabled. The selected public ingress may have
+  non-configurable bandwidth
   limits and **no built-in per-request rate-limiting or access logging** — the
   endpoint must do its own signature/auth/abuse handling.
 
@@ -187,15 +188,15 @@ re-open them.
    deployment later wants the live store on Postgres too, that is an additive
    follow-up, not a v1 requirement.
 
-4. **Public ingress via Tailscale Funnel, path-scoped, on its own port.** [U,
-   chosen] Funnel exposes **only** the inbound webhook path
-   (e.g. `https://<g14-node>.<tailnet>.ts.net:8443/webhooks/github`) on a
-   dedicated funnel-enabled port; the existing UI (and the new SSE/snapshot
-   routes) stay on the existing `tailscale serve` (tailnet-only) port,
-   **never funneled**. Granting the `funnel` node attribute is a one-time admin
+4. **Public ingress via a dedicated public HTTPS route on its own listener.** [U,
+   chosen] Public ingress exposes **only** the inbound webhook path
+   (e.g. `https://<deploy-host>.<tailnet>.ts.net:8443/webhooks/github`) on a
+   dedicated public listener; the existing UI (and the new SSE/snapshot routes)
+   stay on the private UI ingress port, **never publicly exposed**. Enabling
+   public ingress is a one-time deployment/admin
    change to the tailnet policy. An external verify-and-forward relay (small
    VPS / Cloudflare Worker / smee-style) is recorded as a documented alternative
-   if zero public ingress on g14 is later required.
+   if zero public ingress on the deployment host is later required.
 
 5. **Org/group-level webhook + single shared HMAC secret per provider.** [U,
    chosen] One GitHub **organization webhook** (e.g. `sympoies`) covers all
@@ -258,10 +259,10 @@ re-open them.
   provider-adapter interface.
 - A dedicated append-only live-event store (SQLite) with TTL prune.
 - A provider-neutral, independently-versioned live-event record schema.
-- A tailnet-only snapshot HTTP endpoint + an SSE stream with resumable replay.
+- A private-network snapshot HTTP endpoint + an SSE stream with resumable replay.
 - A new contract-independent "Live" UI page (web + standalone same-origin; thin
   clients fall back to polling).
-- Docker `live` service + Funnel/serve deployment shape for g14.
+- Docker `live` service + deployment-owned ingress shape.
 - A GitLab adapter **interface design** (no implementation in v1).
 
 ## Non-scope
@@ -284,7 +285,7 @@ re-open them.
                          PUBLIC INTERNET                       TAILNET-ONLY
 github.com org webhook ───────────────┐              ┌──────────────────────────┐
                                        │              │                          │
-   Tailscale Funnel (dedicated port,   ▼              │   tailscale serve (UI)   │
+   public HTTPS ingress (dedicated port)   ▼              │   private UI ingress (UI)           │
    --set-path=/webhooks) ───► POST /webhooks/github   │            │             │
                                        │              │            ▼             │
                               ┌────────┴───────────────────────────┴──────────┐  │
@@ -317,7 +318,7 @@ github.com org webhook ───────────────┐         
   own sole writer (the `board` daemon). The two pipelines share nothing but the
   `source_id` vocabulary.
 - The public surface is **only** `POST /webhooks/<provider>`. SSE/snapshot are
-  tailnet-only and **must never** be funneled.
+  private-network only and **must never** be publicly exposed.
 
 ### Provider adapter interface
 
@@ -417,14 +418,14 @@ GitHub specifics the adapter must encode: `issue_comment` disambiguation via
 
 ### HTTP / SSE API shape
 
-Public (funneled, path-scoped):
+Public (publicly exposed, path-scoped):
 
 | Route | Method | Auth | Behavior |
 | --- | --- | --- | --- |
 | `/webhooks/github` | POST | **HMAC `X-Hub-Signature-256`** over raw body, constant-time | Verify → ack **202 within 10 s** → (async) dedupe, adapt, append, broadcast. `ping` → 200. Invalid/missing signature → 401/403, no parse-first. Unknown event/action → 204/ignore. |
 | `/webhooks/gitlab` | POST | signing-token HMAC (`webhook-signature`) preferred; legacy `X-Gitlab-Token` only if unavoidable | **v1: stub** (interface only). |
 
-Tailnet-only (proxied by nginx `web`, `proxy_buffering off`; **never funneled**):
+Private-network only (proxied by nginx `web`, `proxy_buffering off`; **never publicly exposed**):
 
 | Route | Method | Behavior |
 | --- | --- | --- |
@@ -465,7 +466,7 @@ writes frames on a kept-open socket and tears down on `res.on("close")`.
   `raw` sits behind an expand affordance; a redaction/collapse toggle is a
   follow-up (required once private GitLab content is ingested — Decision 11).
 
-### Deployment requirements (g14 / Docker)
+### Deployment requirements (private deployment host / Docker)
 
 - New 4th compose service `live` (e.g. `SYNC_MODE=live` dispatched in
   `docker/docker-entrypoint.sh`, new entrypoint `src/cli/live-receiver.ts`):
@@ -476,16 +477,16 @@ writes frames on a kept-open socket and tears down on `res.on("close")`.
   - Run with resource limits (cgroup mem/cpu), read-only rootfs, dropped
     capabilities.
 - Binds **loopback only**, like every other service. Public exposure is
-  host-level **Tailscale Funnel on a dedicated funnel port (443/8443/10000),
-  path-scoped to `/webhooks`** → the `live` service. The existing
-  `tailscale serve` (UI) stays on its own port (tailnet-only). Add the
+  host-level **public HTTPS ingress on a dedicated public listener,
+  scoped to `/webhooks`** -> the `live` service. The existing private UI ingress
+  stays on its own port. Add the
   receiver's bind env to `.env.example` following the `SYMPHONY_PG_WEB_*`
-  precedent. The g14-infra `serve.sh` owns the actual funnel/serve wiring.
+  precedent. The deployment repo owns the actual ingress wiring.
 - nginx `web` gains an `/api/live` + `/api/live-snapshot` location proxying to
   the `live` service with `proxy_buffering off; proxy_http_version 1.1;
   proxy_read_timeout` raised; `/api/live*` is **tailnet-only**.
-- Funnel requires the one-time `funnel` node attribute in the tailnet policy
-  (admin action). The public URL is `https://<g14-node>.<tailnet>.ts.net:<port>/webhooks/github`.
+- Public ingress enablement is a deployment/admin task. The public URL is
+  `https://<deploy-host>.<tailnet>.ts.net:<port>/webhooks/github`.
 - **Standalone app:** Live receiver absent/disabled (no public ingress); keep
   its periodic sync.
 
@@ -510,7 +511,8 @@ writes frames on a kept-open socket and tears down on `res.on("close")`.
   before HMAC work; bounded concurrent SSE connections with backpressure.
 - **Data exposure:** strip secret-bearing fields from `raw` before persist; TTL
   prune; co-locate `live.db` under the same at-rest protection posture as the
-  rest of g14-infra. SSE/snapshot tailnet-only, **never funneled**.
+  rest of the deployment secret store. SSE/snapshot are private-network only,
+  **never publicly exposed**.
 - **Isolation invariants (assert in tests):** the receiver cannot acquire the
   canonical writer lease, cannot soft-delete, and cannot mutate canonical
   items/edges; the secret never appears in stored events or logs.
@@ -561,7 +563,7 @@ writes frames on a kept-open socket and tears down on `res.on("close")`.
 - The Live UI page + `useLive` hook + `fetchLiveSnapshot` client fn, contract-
   independent, with the Tauri polling fallback.
 - Compose `live` service + nginx `/api/live*` location (`proxy_buffering off`) +
-  `.env.example` entries; g14 Funnel/serve wiring (serve.sh, out of repo).
+  `.env.example` entries; private deployment host ingress wiring (deployment ingress script, out of repo).
 - GitLab adapter **interface** present and documented; not wired.
 
 ## Acceptance criteria
@@ -585,7 +587,7 @@ writes frames on a kept-open socket and tears down on `res.on("close")`.
   **no** config mount; tests assert it cannot acquire the canonical lease,
   soft-delete, or mutate canonical data, and that the secret never lands in
   stored events or logs.
-- Funnel exposes **only** `/webhooks/*`; SSE/snapshot are unreachable from the
+- public ingress exposes **only** `/webhooks/*`; SSE/snapshot are unreachable from the
   public URL. The contract schema, `contract.json`, canonical store, and Activity
   tab are unchanged.
 - The standalone app builds and runs with the Live page disabled (no receiver).
@@ -607,15 +609,15 @@ writes frames on a kept-open socket and tears down on `res.on("close")`.
   put on Postgres. State this explicitly in the PR.
 - Docs sanity for this handoff: `git diff --check` and a Markdown lint if the
   repo runs one (none is wired today — see final response).
-- A live end-to-end check (real org webhook → g14 receiver) belongs under
+- A live end-to-end check (real org webhook → private deployment host receiver) belongs under
   `test/e2e/` (env-gated, self-skipping) or a manual deploy smoke, never the
   default glob.
 
 ## Risks and guardrails
 
-- **First public ingress onto g14** (which also holds the canonical store,
+- **First public ingress onto private deployment host** (which also holds the canonical store,
   tokens, and SOPS/age secrets). *Guard:* least-privilege `live` service with no
-  access to those; Funnel path-scoped to `/webhooks` on its own port; the
+  access to those; public ingress path-scoped to `/webhooks` on its own port; the
   external verify-and-forward relay remains the fallback if the residual
   blast-radius is unacceptable.
 - **Confidential content at rest / in flight.** Storing full raw payloads and
@@ -655,11 +657,11 @@ sequence as the implementation.
 - `packages/ui/src/{App.tsx,nav.ts,runtime.ts,contract.ts}` and
   `components/ActivityPage.tsx`, `useSync.ts`, `useDebug.ts` — page/route/hook
   patterns; the `debug` early-return precedent for a contract-independent page.
-- `docs/g14-infra` / `serve.sh` (external repo) — Tailscale serve/funnel IaC.
+- deployment repo / ingress script (external) — deployment-owned ingress IaC.
 - Official docs (verified 2026-06-20): GitHub webhook events
   (docs.github.com/webhooks) + signature validation; GitLab webhook events +
   signing token (docs.gitlab.com); SSE/EventSource (html.spec.whatwg.org, MDN) +
-  nginx `proxy_buffering`; Tailscale Funnel (tailscale.com/kb/1223, /1311).
+  nginx `proxy_buffering`; public HTTPS ingress (tailscale.com/kb/1223, /1311).
 
 ## Execution
 
@@ -676,7 +678,7 @@ sequence as the implementation.
   4. **Sprint 4** — Live UI page + `useLive` hook + `fetchLiveSnapshot` (contract-
      independent; Tauri polling fallback).
   5. **Sprint 5** — Docker `live` service + nginx `/api/live*` (`proxy_buffering
-     off`) + `.env.example`; g14 Funnel/serve wiring (serve.sh) + `docs/DESIGN.md`
+     off`) + `.env.example`; deployment-owned ingress wiring + `docs/DESIGN.md`
      trust-boundary promotion.
   6. **Sprint 6** — GitLab `WebhookProvider` adapter **interface stub** (not
      wired; rollout gated by Decision 11).

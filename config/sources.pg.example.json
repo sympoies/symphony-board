@@ -19,9 +19,9 @@
           "token_env": "GITHUB_TOKEN_EXAMPLE_PUBLIC",
           "fallback_token_envs": ["GITHUB_TOKEN_EXAMPLE_PUBLIC_BACKUP"]
         },
-        "sympoies": {
-          "token_env": "GITHUB_TOKEN_SYMPOIES",
-          "fallback_token_envs": ["GITHUB_TOKEN_SYMPOIES_BACKUP"]
+        "example_partner": {
+          "token_env": "GITHUB_TOKEN_EXAMPLE_PARTNER",
+          "fallback_token_envs": ["GITHUB_TOKEN_EXAMPLE_PARTNER_BACKUP"]
         }
       },
       "graphql_url": "https://api.github.com/graphql",
@@ -29,9 +29,8 @@
       "projects": [
         { "path": "example-org/public-roadmap", "token_pool": "example_public" },
         "example-org/service-api",
-        { "path": "sympoies/nils-cli", "token_pool": "sympoies" },
-        { "path": "sympoies/nils-alfredworkflow", "token_pool": "sympoies" },
-        { "path": "sympoies/symphony-board", "color": "#e0af68", "token_pool": "sympoies" }
+        { "path": "partner-org/mobile-client", "token_pool": "example_partner" },
+        { "path": "partner-org/internal-tools", "color": "#e0af68", "token_pool": "example_partner" }
       ]
     },
     {

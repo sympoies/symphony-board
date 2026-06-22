@@ -3,7 +3,7 @@
 ## Overview
 
 Shrink the per-load `contract.json` (currently ~17.5 MB local / ~19.5 MB on
-g14, 87% of it the full ~16-month activity history) and let the UI reach a full
+private deployment host, 87% of it the full ~16-month activity history) and let the UI reach a full
 year of data without a separate archive file. Window raw `activities[]` in the
 static contract to 30 days, pre-compute the Activity Overview stats as a new
 `activity_daily` aggregate, serve ranges that fit the static window locally
@@ -177,7 +177,7 @@ depends on the full raw activity history.
 - **Acceptance criteria**:
   - The 12-month overview block, heatmap, busiest-day, active-days, and by-kind
     totals render correctly from `activity_daily` with raw activities windowed to
-    30 days; numbers match the pre-change g14 values.
+    30 days; numbers match the pre-change private deployment host values.
   - The overview no longer reads the full raw `activities[]`.
   - Rendering is anchored to the contract `generated_at`, not the UI clock.
 - **Validation**:

@@ -7,10 +7,10 @@
 - Target scope: a new independent realtime Live mechanism — dedicated
   append-only live-event store + neutral `live-event/1` record, a GitHub
   `WebhookProvider` adapter with raw-body HMAC verification, a least-privilege
-  `live` receiver service serving `POST /webhooks/github` (public, funneled) plus
+  `live` receiver service serving `POST /webhooks/github` (public, publicly exposed) plus
   tailnet-only `GET /api/live` (SSE) / `/api/live-snapshot`, a contract-
   independent Live UI page with a Tauri polling fallback, the Docker `live`
-  service + nginx `/api/live*` + g14 Funnel/serve wiring, a `docs/DESIGN.md`
+  service + nginx `/api/live*` + private deployment host ingress wiring, a `docs/DESIGN.md`
   trust-boundary promotion, and a GitLab adapter interface stub.
 - Execution window: Sprint 1 store + schema → Sprint 2 GitHub adapter + verifier
   (pure) → Sprint 3 receiver + SSE/snapshot → Sprint 4 Live UI page → Sprint 5
@@ -51,7 +51,7 @@
     `Store`, so `pnpm run test:pg-e2e` / `pnpm run test:pg-compose` and
     `store-conformance` do NOT apply for v1. State this in each PR.
 - End-to-end:
-  - Real org webhook → g14 receiver under `test/e2e/` or a deploy smoke,
+  - Real org webhook → private deployment host receiver under `test/e2e/` or a deploy smoke,
     env-gated and self-skipping; never the default `pnpm test` glob.
 
 ## Task Ledger
@@ -68,5 +68,5 @@
 | 4.1 | done | `useLive` hook + `fetchLiveSnapshot` client | PR (sprint4); ui build+test(181)+smoke pass; test-first verified | EventSource (browser) vs polling (Tauri); capability probe. |
 | 4.2 | done | `LivePage` component + nav/router wiring | PR (sprint4); ui build+test(181)+smoke pass; test-first verified | Early-return before contract gates; `page !== "live"` chrome guards; Decision 10 presentation. |
 | 5.1 | done | Compose `live` service + entrypoint dispatch | PR (sprint5); shellcheck + compose config + live up --wait healthy under read_only | `SYNC_MODE=live`; loopback bind; no token/config/store mount; `.env.example`. |
-| 5.2 | done | nginx `/api/live*` + g14 Funnel/serve + DESIGN promotion | PR (sprint5); shellcheck + compose config + live up --wait healthy under read_only | `proxy_buffering off`; funnel path-scoped to `/webhooks`; trust-boundary note. |
+| 5.2 | done | nginx `/api/live*` + private deployment host ingress + DESIGN promotion | PR (sprint5); shellcheck + compose config + live up --wait healthy under read_only | `proxy_buffering off`; public ingress path-scoped to `/webhooks`; trust-boundary note. |
 | 6.1 | done | GitLab `WebhookProvider` interface stub | PR (sprint6); test/live-gitlab.test.ts (348 pass); test-first verified | Signing-token HMAC design; `webhook-id` dedupe; work_item branch; Decision 11 rollout gate; not wired. |
