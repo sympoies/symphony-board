@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { ContractLoadMetadata } from "../contract.ts";
-import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, runDuration } from "../model.ts";
+import { contractSectionSizes, contractSourceHealth, contractTopLevelCounts, formatBytes, relativeTime, resetsIn, runDuration } from "../model.ts";
 import type { TokenRateLimit } from "../model.ts";
 import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo, useTokenRateLimits } from "../useDebug.ts";
 import { resolveEndpoint } from "../contract.ts";
@@ -277,21 +277,6 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
       </table>
     </div>
   );
-}
-
-// "resets in 42m" for a FUTURE instant — relativeTime only renders the past, and
-// a GitHub GraphQL window always resets within the hour. now is injectable only
-// so this stays a pure formatter; the live render uses Date.now().
-function resetsIn(iso: string | undefined, now: number = Date.now()): string {
-  if (!iso) return "—";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return iso;
-  const sec = Math.round((t - now) / 1000);
-  if (sec <= 0) return "now";
-  if (sec < 60) return `in ${sec}s`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `in ${min}m`;
-  return `in ${Math.round(min / 60)}h`;
 }
 
 export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefreshData, onClose }: Props) {

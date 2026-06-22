@@ -2379,6 +2379,22 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   return `${Math.round(mo / 12)}y ago`;
 }
 
+// "resets in 42m" for a FUTURE instant — the mirror of relativeTime (which only
+// renders the past). Used by the Diagnostics rate-limit tab, where a GitHub
+// GraphQL window always resets within the hour. A non-positive delta clamps to
+// "now"; an unparseable value echoes through. now is injectable for testing.
+export function resetsIn(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const sec = Math.round((t - now) / 1000);
+  if (sec <= 0) return "now";
+  if (sec < 60) return `in ${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `in ${min}m`;
+  return `in ${Math.round(min / 60)}h`;
+}
+
 // The noun for a count: singular when exactly one, else `plural` (default the
 // regular "+s"). Returns only the word — callers render the number themselves —
 // so it composes both as `{n} {pluralize(n, "repo")}` and standalone. Pass an

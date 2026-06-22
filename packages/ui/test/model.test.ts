@@ -59,6 +59,7 @@ import {
   computeBoardWindowStats,
   computeGraphStats,
   relativeTime,
+  resetsIn,
   pluralize,
   buildGraph,
   buildAdjacency,
@@ -1108,6 +1109,21 @@ test("relativeTime renders coarse buckets from an injected now", () => {
   assert.equal(relativeTime("2026-06-07T00:00:00Z", now), "3d ago");
   assert.equal(relativeTime("2026-06-09T23:59:40Z", now), "just now");
   assert.equal(relativeTime(null, now), "—");
+});
+
+// resetsIn is the future-facing mirror of relativeTime (the rate-limit tab's
+// "resets in …"); every branch from an injected now.
+test("resetsIn renders a future delta and clamps the past to 'now'", () => {
+  const now = Date.parse("2026-06-10T00:00:00Z");
+  const at = (sec: number) => new Date(now + sec * 1000).toISOString();
+  assert.equal(resetsIn(at(30), now), "in 30s");
+  assert.equal(resetsIn(at(5 * 60), now), "in 5m");
+  assert.equal(resetsIn(at(90 * 60), now), "in 2h", "rounds to the nearest hour");
+  assert.equal(resetsIn(at(0), now), "now");
+  assert.equal(resetsIn(at(-120), now), "now", "a past reset clamps to now, never a negative");
+  assert.equal(resetsIn(null, now), "—");
+  assert.equal(resetsIn(undefined, now), "—");
+  assert.equal(resetsIn("not-a-date", now), "not-a-date", "unparseable echoes through");
 });
 
 test("pluralize returns the singular only for exactly one, with irregular plurals", () => {
