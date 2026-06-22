@@ -244,6 +244,14 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.repo_metrics?.[0]?.totals.items_active, 1);
   assert.equal(env.repo_metrics?.[0]?.totals.activities, 1);
   assert.equal(env.repo_metrics?.[0]?.totals.activity_score, 0);
+  // A windowed range response now also carries the board-wide aggregates and a
+  // calendar activity_daily so a mobile client that loads it AS its primary env
+  // (the board-scope setting) gets working Board/Graph stat bars and an Activity
+  // Overview instead of blank panels. activity_daily counts the SAME in-range
+  // activities the response emits (one here), never the out-of-range rows.
+  assert.ok((env.aggregates?.length ?? 0) > 0, "range response carries board-wide aggregates");
+  assert.ok(env.activity_daily != null, "range response carries activity_daily");
+  assert.equal(env.activity_daily?.total, 1, "activity_daily reconciles with the in-range activities (the out-of-range row is excluded)");
 });
 
 test("buildRangeContract keeps data_quality coverage all-time when no activity falls inside the range", () => {

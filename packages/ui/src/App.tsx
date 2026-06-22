@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContract, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContract, fetchRangeContractWithMetadata, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
@@ -11,6 +11,7 @@ import {
   commitRepoOptions,
   commitBranchOptions,
   preferredDefaultTimeRange,
+  timeRangeForDays,
   staticContractTimeRange,
   activityDailyExtent,
   activityOccurredExtent,
@@ -85,6 +86,9 @@ import {
   saveLivePreviewLines,
   loadLiveTabEnabled,
   saveLiveTabEnabled,
+  loadBoardScope,
+  saveBoardScope,
+  boardScopeDays,
   loadHiddenEventTypes,
   saveHiddenEventTypes,
   loadDefaultTab,
@@ -92,6 +96,7 @@ import {
   loadServerBaseUrl,
   saveServerBaseUrl,
   normalizeServerBaseUrl,
+  type BoardScope,
   type ViewTheme,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
@@ -197,6 +202,11 @@ export function App() {
   // the snapshot probe. `hiddenEventTypes` is the persistent per-category Live
   // filter (an independent layer, like hidden sources).
   const [liveTabEnabled, setLiveTabEnabled] = useState<boolean>(loadLiveTabEnabled);
+  // How much of the contract THIS device loads: "off" (Live-only, no contract),
+  // a recent time window ("1d"/"3d"/"7d", fetched small via /api/range so a weak
+  // WebView does not OOM), or "full" (./contract.json). Device-local; Android
+  // defaults to "7d", desktop/web to "full". Drives the init load below.
+  const [boardScope, setBoardScope] = useState<BoardScope>(loadBoardScope);
   const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<string>>(loadHiddenEventTypes);
   const [defaultTab, setDefaultTab] = useState<Page>(loadDefaultTab);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
@@ -265,6 +275,14 @@ export function App() {
   // match the configured timezone.
   const tz = env?.timezone ?? "UTC";
   const staticRange = useMemo(() => (env ? staticContractTimeRange(env) : null), [env]);
+  // board-scope derived flags. "off" loads no contract (Live-only); a windowed
+  // scope ("1d"/"3d"/"7d") loads a small /api/range AS the primary env; "full"
+  // loads ./contract.json. Desktop/web are always "full" (boardScopeWindowed is
+  // false), so every load path below stays byte-identical to before for them.
+  const contractDisabled = boardScope === "off";
+  const contractEnabled = !contractDisabled;
+  const boardScopeDaysValue = boardScopeDays(boardScope);
+  const boardScopeWindowed = boardScopeDaysValue !== null;
   // True data extents for the UNWINDOWED Activity / Commits feeds (staticRange is
   // only the 90-day item window, so it would understate older history and make
   // "Show all" / the extent copy overpromise). Board / Graph / Repo stay on
@@ -290,7 +308,14 @@ export function App() {
         : null,
     [env, tz, staticRange],
   );
-  const defaultRange = useMemo(() => (env ? preferredDefaultTimeRange(env, defaultRangePreset) : null), [env, defaultRangePreset]);
+  // When the board scope is a time window, the loaded env IS that window, so the
+  // default range is the env's own static window (staticRange). Matching it keeps
+  // customRange false and avoids a redundant /api/range overlay fetch on top of an
+  // already-windowed env. "full" / desktop keep the configured quick-preset default.
+  const defaultRange = useMemo(
+    () => (env ? (boardScopeWindowed ? staticRange : preferredDefaultTimeRange(env, defaultRangePreset)) : null),
+    [env, boardScopeWindowed, staticRange, defaultRangePreset],
+  );
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
@@ -301,13 +326,29 @@ export function App() {
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
   const reloadData = useCallback(async (): Promise<boolean> => {
+    // board-scope OFF: no contract to reload (Live-only) — a manual refresh /
+    // post-sync reload is a no-op for the (absent) board, never an error.
+    if (contractDisabled) {
+      setEnv(null);
+      setContractMeta(null);
+      setError(null);
+      return false;
+    }
     const pending: Promise<void>[] = [];
     let loadedContract = false;
-    pending.push(fetchContractWithMetadata(undefined, serverBaseUrl)
+    // A windowed scope loads a small /api/range AS the primary env; "full" loads
+    // ./contract.json. Only "full" touches the cold-start cache — a windowed env is
+    // small and fast, and never overwriting the cache keeps a stale full payload
+    // from being painted (and OOM-ing) on a later windowed launch.
+    const primaryLoad =
+      boardScopeDaysValue !== null
+        ? fetchRangeContractWithMetadata(timeRangeForDays(boardScopeDaysValue, Date.now(), tz), serverBaseUrl)
+        : fetchContractWithMetadata(undefined, serverBaseUrl);
+    pending.push(primaryLoad
       .then((loaded) => {
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
-        void saveCachedContract(serverBaseUrl, loaded.env);
+        if (boardScope === "full") void saveCachedContract(serverBaseUrl, loaded.env);
         setError(null);
         loadedContract = true;
       })
@@ -325,7 +366,7 @@ export function App() {
     }
     await Promise.all(pending);
     return loadedContract;
-  }, [needsRangeEnv, activeRange, serverBaseUrl]);
+  }, [contractDisabled, boardScope, boardScopeDaysValue, tz, needsRangeEnv, activeRange, serverBaseUrl]);
   const reloadDataAfterSync = useCallback(async () => {
     await reloadData();
   }, [reloadData]);
@@ -458,6 +499,9 @@ export function App() {
     saveLiveTabEnabled(liveTabEnabled);
   }, [liveTabEnabled]);
   useEffect(() => {
+    saveBoardScope(boardScope);
+  }, [boardScope]);
+  useEffect(() => {
     saveHiddenEventTypes(hiddenEventTypes);
   }, [hiddenEventTypes]);
   // A "live" default with the Live tab off is resolved AT READ TIME — the landing
@@ -510,6 +554,11 @@ export function App() {
   // fetch that already won is authoritative and must not be clobbered — and is
   // per-server, so switching servers never paints another server's board.
   useEffect(() => {
+    // Only the "full" scope uses the cold-start cache. A windowed scope loads a
+    // small /api/range fast (no accelerator needed), and painting the cached env —
+    // which may be a stale FULL payload from a previous "full" session — could OOM
+    // a weak WebView; "off" wants no board at all.
+    if (boardScope !== "full") return;
     let cancelled = false;
     void loadCachedContract(serverBaseUrl).then((cached) => {
       if (cancelled || !cached) return;
@@ -518,10 +567,24 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [serverBaseUrl]);
+  }, [serverBaseUrl, boardScope]);
 
   useEffect(() => {
     let cancelled = false;
+    // board-scope OFF: load no contract (Live-only). Clear loading so the app
+    // renders Live / Settings / the "board data off" panel instead of hanging on
+    // the "Loading contract…" gate (which never resolves with no fetch in flight).
+    if (contractDisabled) {
+      initAttemptRef.current = 0;
+      setEnv(null);
+      setContractMeta(null);
+      setError(null);
+      setRetrying(false);
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     // A missing server URL on an Android client is a configuration error, not a
     // transient one — surface it so the user sets a server, and do NOT loop on it.
     const definitiveConfigError = endpointRequiresServerUrl("./contract.json", serverBaseUrl);
@@ -531,17 +594,25 @@ export function App() {
     if (!env && !definitiveConfigError && initAttemptRef.current < INIT_LOAD_PATIENT_ATTEMPTS) {
       setLoading(true);
     }
-    // Single fetch per outer round (retries: 0) so the visible status reflects
-    // each try; this effect owns the spacing + retry between rounds.
-    fetchContractWithMetadata(undefined, serverBaseUrl, undefined, { retries: 0 })
+    // Single fetch per outer round (retries: 0) so the visible status reflects each
+    // try; this effect owns the spacing + retry between rounds. A windowed scope
+    // loads a small /api/range AS the primary env (avoids the full-contract OOM on
+    // weak hardware); "full" loads ./contract.json. tz is unknown before the first
+    // env, so the window is computed in UTC — the server re-zones it to its own
+    // timezone, and the loaded env then drives the displayed range.
+    const primaryLoad =
+      boardScopeDaysValue !== null
+        ? fetchRangeContractWithMetadata(timeRangeForDays(boardScopeDaysValue, Date.now(), env?.timezone ?? "UTC"), serverBaseUrl, { retries: 0 })
+        : fetchContractWithMetadata(undefined, serverBaseUrl, undefined, { retries: 0 });
+    primaryLoad
       .then((loaded) => {
         if (cancelled) return;
         initAttemptRef.current = 0;
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
-        // Refresh the cold-start cache so the NEXT launch paints this board
-        // before its download resolves. Best-effort; never blocks the render.
-        void saveCachedContract(serverBaseUrl, loaded.env);
+        // Refresh the cold-start cache so the NEXT launch paints this board before
+        // its download resolves (full scope only — see the cache effect above).
+        if (boardScope === "full") void saveCachedContract(serverBaseUrl, loaded.env);
         setError(null);
         setRetrying(false);
         setLoading(false);
@@ -573,7 +644,7 @@ export function App() {
         initRetryTimerRef.current = null;
       }
     };
-  }, [serverBaseUrl, reloadKey]);
+  }, [serverBaseUrl, reloadKey, contractDisabled, boardScope, boardScopeDaysValue]);
 
   // Remove the cold-start boot splash (index.html) once the first view has actual
   // CONTENT — never the blank/"Connecting…" gap. On the Live route that means the
@@ -590,7 +661,10 @@ export function App() {
   const bootSplashDone = bootSplashReady({
     routePage: route.page,
     loading,
-    hasContent: env !== null,
+    // With board-scope OFF there is no contract to wait for — Live and Settings
+    // render immediately — so treat "content" as satisfied to dismiss the splash
+    // instead of holding it until the hard timeout.
+    hasContent: env !== null || contractDisabled,
     liveConnected: live.connected,
     liveHasContent: live.events.length > 0,
     timedOut: bootTimedOut,
@@ -1278,28 +1352,76 @@ export function App() {
           Live
         </a>
       ) : null}
-      <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
-        Activity
-      </a>
-      <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
-        Commits
-      </a>
-      <a className={`tab${page === "reviews" ? " tab-on" : ""}`} href={routeHref("reviews")}>
-        Reviews
-      </a>
-      <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
-        Board
-      </a>
-      <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
-        Graph
-      </a>
-      <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
-        Analytics
-      </a>
+      {/* The contract-backed tabs only appear when board data is enabled. With
+          board-scope OFF (Live-only) they are hidden — there is no contract to
+          view — leaving just Live + Settings. */}
+      {contractEnabled ? (
+        <>
+          <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
+            Activity
+          </a>
+          <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
+            Commits
+          </a>
+          <a className={`tab${page === "reviews" ? " tab-on" : ""}`} href={routeHref("reviews")}>
+            Reviews
+          </a>
+          <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
+            Board
+          </a>
+          <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
+            Graph
+          </a>
+          <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
+            Analytics
+          </a>
+        </>
+      ) : null}
       <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
         Settings
       </a>
     </nav>
+  );
+
+  // Settings is built once and rendered BOTH from the early return below (so it is
+  // reachable when the contract is off / still loading / failed — exactly when the
+  // board-scope control is needed) and, for symmetry, in the loaded shell. Every
+  // prop it reads is env-independent except the repo lists, which are empty until a
+  // contract loads (env?.sources / allRepos already degrade to []).
+  const settingsPageEl = (
+    <SettingsPage
+      sources={env?.sources ?? []}
+      repos={allRepos}
+      hidden={hidden}
+      onToggle={toggleRepo}
+      onSetVisible={setReposVisible}
+      hiddenSources={hiddenSources}
+      onToggleSource={toggleSource}
+      colorOf={colorOf}
+      colorOverrides={colorOverrides}
+      onSetColor={setColorOverride}
+      onClearColor={clearColorOverride}
+      defaultRangePreset={defaultRangePreset}
+      onDefaultRangePreset={setDefaultRangePreset}
+      boardScope={boardScope}
+      onBoardScope={setBoardScope}
+      theme={theme}
+      onTheme={setTheme}
+      livePreviewLines={livePreviewLines}
+      onLivePreviewLines={setLivePreviewLines}
+      liveTabEnabled={liveTabEnabled}
+      onLiveTabEnabled={setLiveTabEnabled}
+      hiddenEventTypes={hiddenEventTypes}
+      onToggleEventType={toggleEventType}
+      defaultTab={defaultTab}
+      onDefaultTab={setDefaultTab}
+      serverBaseUrl={serverBaseUrl}
+      onServerBaseUrl={applyServerBaseUrl}
+      sync={sync}
+      config={configState}
+      tab={settingsTab}
+      onTab={setSettingsTab}
+    />
   );
 
   // The Live tab renders BEFORE the contract gates: it is contract-independent
@@ -1322,6 +1444,41 @@ export function App() {
           onCloseDetailRoute={closeLiveDetailRoute}
           onClearDetailRoute={closeLiveDetailRoute}
         />
+      </div>
+    );
+  }
+
+  // Settings also renders BEFORE the contract gates so it stays reachable when the
+  // contract is off, still loading, or failed — that is exactly when the user needs
+  // it (to pick a board-scope window, turn board data off/on, or fix the server
+  // URL). Its repo lists are empty until a contract loads; every other control works.
+  if (route.page === "settings") {
+    return (
+      <div className="app app-wide">
+        {env ? (
+          <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
+        ) : null}
+        {pageTabs}
+        {settingsPageEl}
+      </div>
+    );
+  }
+
+  // board-scope OFF on a contract-backed route: there is no board data to show, so
+  // render a clear "board data is off" panel (with the tab bar) instead of hanging
+  // on the "Loading contract…" gate below — which never resolves with no fetch in
+  // flight. Live and Settings are handled above; this covers Activity/Board/etc.
+  if (contractDisabled) {
+    return (
+      <div className="app app-wide">
+        {pageTabs}
+        <div className="state-msg">
+          <p>Board data is turned off on this device.</p>
+          <p className="muted">
+            {liveAvailable ? "Live is available. " : ""}To load issues, PRs, and the board, pick a data range in{" "}
+            <a href={routeHref("settings")}>Settings → Display</a>.
+          </p>
+        </div>
       </div>
     );
   }
@@ -1482,37 +1639,9 @@ export function App() {
       ) : !contentEnv ? (
         null
       ) : page === "settings" ? (
-        <SettingsPage
-          sources={env.sources}
-          repos={allRepos}
-          hidden={hidden}
-          onToggle={toggleRepo}
-          onSetVisible={setReposVisible}
-          hiddenSources={hiddenSources}
-          onToggleSource={toggleSource}
-          colorOf={colorOf}
-          colorOverrides={colorOverrides}
-          onSetColor={setColorOverride}
-          onClearColor={clearColorOverride}
-          defaultRangePreset={defaultRangePreset}
-          onDefaultRangePreset={setDefaultRangePreset}
-          theme={theme}
-          onTheme={setTheme}
-          livePreviewLines={livePreviewLines}
-          onLivePreviewLines={setLivePreviewLines}
-          liveTabEnabled={liveTabEnabled}
-          onLiveTabEnabled={setLiveTabEnabled}
-          hiddenEventTypes={hiddenEventTypes}
-          onToggleEventType={toggleEventType}
-          defaultTab={defaultTab}
-          onDefaultTab={setDefaultTab}
-          serverBaseUrl={serverBaseUrl}
-          onServerBaseUrl={applyServerBaseUrl}
-          sync={sync}
-          config={configState}
-          tab={settingsTab}
-          onTab={setSettingsTab}
-        />
+        // Settings is handled by the early return above (so it works without a
+        // contract); this branch stays only for completeness of the page switch.
+        settingsPageEl
       ) : page === "activity" ? (
         <ActivityPage
           activities={filteredActivities}

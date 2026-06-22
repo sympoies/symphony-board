@@ -490,8 +490,17 @@ export function parseContractWithMetadata(text: string, url = "uploaded contract
 }
 
 export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<ContractEnvelope> {
+  return (await fetchRangeContractWithMetadata(range, serverBaseUrl, opts)).env;
+}
+
+// The metadata-carrying range fetch. A mobile client whose board-scope is a time
+// window loads this AS its primary contract (instead of ./contract.json), so it
+// needs the same LoadedContract shape (env + load metadata for Diagnostics) the
+// full loader returns. Reuses the same resilient loader (timeouts/retries), so
+// the Android per-attempt ceiling applies here too.
+export async function fetchRangeContractWithMetadata(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<LoadedContract> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
-  return fetchContract(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
+  return fetchContractWithMetadata(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
 }
 
 // --- UI-triggered manual sync control plane client ---

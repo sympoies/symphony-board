@@ -28,10 +28,19 @@ const THEME_KEY = "symphony-board:theme";
 // How many lines of an event body the Live feed shows before clamping (the full
 // body is one click away in the detail pane). Device-local, like the theme.
 const LIVE_PREVIEW_LINES_KEY = "symphony-board:live-preview-lines";
+// Whether the Live page's mobile "metrics" disclosure (the four pulse cards) is
+// expanded. Device-local, like the theme: a phone user who collapses it to bring
+// the feed up keeps it collapsed across reopens. Open by default.
+const LIVE_PULSE_OPEN_KEY = "symphony-board:live-pulse-open";
 // Which tab the app lands on when the URL has no page (a fresh open / share link
 // without a hash). Device-local, like the theme.
 const DEFAULT_TAB_KEY = "symphony-board:default-tab";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
+// How much of the board contract this device loads. The full ~90-day contract can
+// be tens of MB decoded and OOM a weak WebView (an e-ink Android tablet), so a
+// device may load only a recent time window via /api/range, or skip the contract
+// entirely (Live-only). Device-local, like the theme. See BoardScope below.
+const BOARD_SCOPE_KEY = "symphony-board:board-scope";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
 // auto-collapse without being persisted (they re-open when an item lands), so
 // this set holds only explicit collapses of non-empty columns.
@@ -192,6 +201,81 @@ export function loadLiveTabEnabled(): boolean {
 export function saveLiveTabEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(LIVE_TAB_ENABLED_KEY, enabled ? "true" : "false");
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// The Live mobile "metrics" disclosure remembers its open/closed state across
+// reopens (device-local). Open by default — a MISSING value reads as open, so a
+// fresh install shows the metric cards; only an explicit "false" collapses them.
+export const DEFAULT_LIVE_PULSE_OPEN = true;
+
+export function loadLivePulseOpen(): boolean {
+  try {
+    const raw = localStorage.getItem(LIVE_PULSE_OPEN_KEY);
+    return raw === null ? DEFAULT_LIVE_PULSE_OPEN : raw === "true";
+  } catch {
+    return DEFAULT_LIVE_PULSE_OPEN;
+  }
+}
+
+export function saveLivePulseOpen(open: boolean): void {
+  try {
+    localStorage.setItem(LIVE_PULSE_OPEN_KEY, open ? "true" : "false");
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// How much of the board contract to load on THIS device:
+//   • "off"  — load no contract at all (Live-only); the contract tabs are hidden
+//   • "1d" / "3d" / "7d" — load only that recent window via /api/range (small,
+//     so a weak WebView does not OOM on the full payload)
+//   • "full" — the full contract (./contract.json), the historical behavior
+// Device-local, like the theme. Android defaults to a 7-day window (weak e-ink
+// hardware); desktop/web default to "full" (they have the memory).
+export type BoardScope = "off" | "1d" | "3d" | "7d" | "full";
+export const BOARD_SCOPE_VALUES: readonly BoardScope[] = ["off", "1d", "3d", "7d", "full"];
+
+export function isBoardScope(value: unknown): value is BoardScope {
+  return typeof value === "string" && (BOARD_SCOPE_VALUES as readonly string[]).includes(value);
+}
+
+// Day-count for a WINDOWED scope (a /api/range fetch of this many trailing days),
+// or null for "off" / "full" — neither of which is a time window.
+export function boardScopeDays(scope: BoardScope): number | null {
+  switch (scope) {
+    case "1d":
+      return 1;
+    case "3d":
+      return 3;
+    case "7d":
+      return 7;
+    default:
+      return null;
+  }
+}
+
+// The default scope for a client kind when nothing is stored: Android renders on
+// (often) weak e-ink hardware where the full contract can OOM the WebView, so it
+// starts on a small 7-day window; every other client keeps the full board.
+export function defaultBoardScope(clientKind: string | null = currentClientKind()): BoardScope {
+  return clientKind === ANDROID_CLIENT_KIND ? "7d" : "full";
+}
+
+export function loadBoardScope(): BoardScope {
+  try {
+    const raw = localStorage.getItem(BOARD_SCOPE_KEY);
+    return isBoardScope(raw) ? raw : defaultBoardScope();
+  } catch {
+    return defaultBoardScope();
+  }
+}
+
+export function saveBoardScope(scope: BoardScope): void {
+  try {
+    localStorage.setItem(BOARD_SCOPE_KEY, scope);
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

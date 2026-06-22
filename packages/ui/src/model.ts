@@ -402,7 +402,17 @@ export function timeRangeForPreset(presetId: TimeRangePresetId, now: number, tz:
   }
   // Rolling window: exactly `days` calendar days ending today (inclusive), so
   // `1w` spans 7 local days (today and the 6 before it), not 8.
-  return { from: shiftDateOnly(to, -(preset.days - 1)), to };
+  return timeRangeForDays(preset.days, now, tz);
+}
+
+// A rolling window of exactly `days` calendar days ending "now" (inclusive), in
+// the given zone — e.g. 7 spans today and the 6 days before it. Shared by the
+// `rolling` quick presets above and the mobile board-scope window (which fetches
+// a small `/api/range` instead of the full contract). `days` is clamped to >= 1.
+export function timeRangeForDays(days: number, now: number, tz: string = DEFAULT_TIMEZONE): TimeRange {
+  const to = zonedDateOnly(now, tz);
+  const span = Math.max(1, Math.floor(days));
+  return { from: shiftDateOnly(to, -(span - 1)), to };
 }
 
 export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {

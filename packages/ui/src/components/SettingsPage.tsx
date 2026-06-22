@@ -22,6 +22,9 @@ import {
   MAX_LIVE_PREVIEW_LINES,
   DEFAULT_TAB_OPTIONS,
   isDefaultTab,
+  BOARD_SCOPE_VALUES,
+  isBoardScope,
+  type BoardScope,
   type ViewTheme,
 } from "../viewconfig.ts";
 import { LIVE_CATEGORY_ORDER, humanizeCategory } from "../live-stats.ts";
@@ -41,6 +44,8 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
+  boardScope: BoardScope; // how much of the contract this device loads (off / window / full)
+  onBoardScope: (scope: BoardScope) => void;
   theme: ViewTheme;
   onTheme: (theme: ViewTheme) => void;
   livePreviewLines: number; // lines of an event body the Live feed shows before clamping
@@ -65,6 +70,17 @@ interface Props {
 // only in that case, so deployments without the capability see the classic
 // single-page Settings unchanged.
 export type SettingsTab = "display" | "sources";
+
+// Human labels for the board-scope select (how much of the contract this device
+// loads). A window keeps the payload small on a limited-memory device; "off" is
+// Live-only; "full" is the whole board.
+const BOARD_SCOPE_LABELS: Record<BoardScope, string> = {
+  off: "Off (Live only)",
+  "1d": "Last 1 day",
+  "3d": "Last 3 days",
+  "7d": "Last 7 days",
+  full: "Full board",
+};
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
 // the picker with a neutral grey when there's nothing to inherit from.
@@ -103,6 +119,8 @@ export function SettingsPage({
   onClearColor,
   defaultRangePreset,
   onDefaultRangePreset,
+  boardScope,
+  onBoardScope,
   theme,
   onTheme,
   livePreviewLines,
@@ -287,6 +305,29 @@ export function SettingsPage({
           {TIME_RANGE_PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
               {preset.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Board data</h3>
+          <p className="muted">
+            How much of the board this device loads. A smaller window keeps the app fast and
+            avoids running out of memory on a limited device; “Off” shows only the Live feed.
+          </p>
+        </div>
+        <select
+          className="settings-select"
+          value={boardScope}
+          onChange={(e) => {
+            if (isBoardScope(e.target.value)) onBoardScope(e.target.value);
+          }}
+        >
+          {BOARD_SCOPE_VALUES.map((scope) => (
+            <option key={scope} value={scope}>
+              {BOARD_SCOPE_LABELS[scope]}
             </option>
           ))}
         </select>

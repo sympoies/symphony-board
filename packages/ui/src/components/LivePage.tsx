@@ -35,6 +35,7 @@ import {
   visibleByCategory,
 } from "../live-stats.ts";
 import { ACTION_KIND } from "../activity-action-style.ts";
+import { loadLivePulseOpen, saveLivePulseOpen } from "../viewconfig.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
 import {
   LIVE_FOLLOW_DETAIL_HOLD_MS,
@@ -599,8 +600,13 @@ export function LivePage({
   // Mobile-only: the four metric cards (Activity / Last event / Buffer / Active
   // now) push the feed far down a phone screen, so they collapse behind a
   // disclosure — OPEN by default, tap to hide and bring the feed list up. Desktop
-  // shows the strip inline (the disclosure is display:none there).
-  const [pulseOpen, setPulseOpen] = useState(true);
+  // shows the strip inline (the disclosure is display:none there). The choice is
+  // device-local and remembered across reopens (loadLivePulseOpen), so a phone
+  // user who collapsed it does not have to re-collapse it every launch.
+  const [pulseOpen, setPulseOpen] = useState(loadLivePulseOpen);
+  useEffect(() => {
+    saveLivePulseOpen(pulseOpen);
+  }, [pulseOpen]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
