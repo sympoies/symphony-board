@@ -325,9 +325,12 @@ export interface ReviewThreadCommentDTO {
   id: string;
   author: string | null;
   // The comment author's avatar URL when the provider reported it, else null.
-  // Added in 4.2.0; the producer always emits the key (null when absent), so the
-  // schema keeps it required-but-nullable like the sibling comment fields.
-  avatar_url: string | null;
+  // Added in 4.2.0; the producer always emits the key (null when absent), but the
+  // schema keeps it OPTIONAL-and-nullable (not in reviewThreadComment.required) as
+  // an additive minor-version field — a 4.1.0-emitted comment that predates the
+  // key must still validate under 4.2.0. Optional here to mirror that, so a
+  // consumer reads it as `comment.avatar_url ?? null`.
+  avatar_url?: string | null;
   body: string | null;
   url: string | null;
   created_at: string | null;
