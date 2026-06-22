@@ -12,6 +12,7 @@ import type {
   EdgeDTO,
   RepoMetricDTO,
   RepoMetricSeriesPointDTO,
+  ReviewThreadDTO,
   ReviewThreadsDTO,
   SourceDTO,
 } from "@symphony-board/contract";
@@ -1326,6 +1327,25 @@ function joinDistinct(parts: Array<string | null>): string {
 export function reviewThreadsLabel(threads: ReviewThreadsDTO | null | undefined): string | null {
   if (!threads || threads.total <= 0) return null;
   return threads.open > 0 ? `${threads.open} open thread${threads.open === 1 ? "" : "s"}` : "threads resolved";
+}
+
+function validInstant(value: string | null | undefined): { value: string; ms: number } | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? { value, ms } : null;
+}
+
+function reviewThreadCommentInstant(comment: ReviewThreadDTO["comments"][number]): { value: string; ms: number } | null {
+  return validInstant(comment.updated_at) ?? validInstant(comment.created_at);
+}
+
+export function reviewThreadDisplayTime(thread: ReviewThreadDTO): string | null {
+  let latest: { value: string; ms: number } | null = null;
+  for (const comment of thread.comments) {
+    const candidate = reviewThreadCommentInstant(comment);
+    if (candidate && (!latest || candidate.ms > latest.ms)) latest = candidate;
+  }
+  return latest?.value ?? thread.last_seen_at;
 }
 
 // Stable composite key for an activity row (React keys, expanded-row tracking).
