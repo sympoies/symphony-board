@@ -94,29 +94,33 @@ test("planPollIngest reseeds when max_seq drops below the cursor", () => {
   assert.equal(pruned.nextCursor, 2);
 });
 
-test("planLiveConnection prewarms inactive Live with one snapshot only", () => {
+// Availability is no longer a separate probe: `useLive` owns the one snapshot
+// that both decides reachability AND seeds the buffer, gated solely on the user's
+// `enabled` opt-in. An enabled-but-inactive tab still prewarms a single snapshot;
+// a disabled tab (or a server-less Android client) issues NO request at all.
+test("planLiveConnection gates the single live probe on the enabled opt-in", () => {
   assert.equal(
-    planLiveConnection({ available: true, active: false, prewarm: true, endpointBlocked: false }),
+    planLiveConnection({ enabled: true, active: false, endpointBlocked: false }),
     "snapshot",
-    "Live enabled but not currently shown should seed once for cold-start readiness",
+    "Live enabled but not currently shown -> seed once for cold-start readiness",
   );
   assert.equal(
-    planLiveConnection({ available: true, active: true, prewarm: true, endpointBlocked: false }),
+    planLiveConnection({ enabled: true, active: true, endpointBlocked: false }),
     "stream",
-    "the visible Live tab still opens the normal stream/poll lifecycle",
+    "the visible Live tab opens the normal stream/poll lifecycle",
   );
   assert.equal(
-    planLiveConnection({ available: true, active: false, prewarm: false, endpointBlocked: false }),
+    planLiveConnection({ enabled: false, active: false, endpointBlocked: false }),
     "off",
-    "without prewarm, inactive Live remains closed",
+    "Live disabled in Settings -> never connect, never probe",
   );
   assert.equal(
-    planLiveConnection({ available: null, active: false, prewarm: true, endpointBlocked: false }),
+    planLiveConnection({ enabled: false, active: true, endpointBlocked: false }),
     "off",
-    "availability must resolve before any snapshot is requested",
+    "a stale #/live with Live disabled must not open a connection",
   );
   assert.equal(
-    planLiveConnection({ available: true, active: false, prewarm: true, endpointBlocked: true }),
+    planLiveConnection({ enabled: true, active: false, endpointBlocked: true }),
     "off",
     "Android without a configured server URL must not issue a relative request",
   );

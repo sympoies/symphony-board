@@ -91,7 +91,7 @@ import {
   type ViewTheme,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
-import { useLive, useLiveAvailable } from "./useLive.ts";
+import { useLive } from "./useLive.ts";
 import { useConfig } from "./useConfig.ts";
 import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
@@ -339,28 +339,24 @@ export function App() {
     setReloadKey((k) => k + 1);
   }, []);
   const sync = useSync(reloadDataAfterSync, serverBaseUrl);
-  // Probe the live receiver so the Live tab appears only where it is reachable
-  // (hidden on the standalone app and any deployment without the receiver). The
-  // enable flag short-circuits the probe: with the Live tab off we never even ask
-  // /api/live-snapshot, so the opt-out costs no requests — and `false` cascades to
-  // hide the tab (pageTabs), keep the stream closed (useLive), and bounce a stale
-  // #/live to Activity (the redirect below).
-  const liveAvailable = useLiveAvailable(serverBaseUrl, liveTabEnabled);
   // The live stream lives HERE, at the always-mounted shell — not inside LivePage
   // — so the event buffer survives tab switches: switching to Live is instant and
   // current instead of re-seeding from /api/live-snapshot (a >1s empty flash) on
-  // every visit. `liveAvailable` (tri-state) gates connect-vs-unavailable; the
-  // third arg opens the SSE/poll stream ONLY while the Live tab is shown, so a
-  // polling transport (Tauri) does not poll in the background on other tabs.
-  // The fourth arg is a one-shot cold-start prewarm for users who enabled Live
-  // but land on a non-Live default tab: it seeds `/api/live-snapshot` once and
-  // then stops, so Settings opt-out still costs zero requests and inactive Live
-  // never holds a persistent connection.
-  const live = useLive(serverBaseUrl, liveAvailable, route.page === "live", liveTabEnabled);
+  // every visit. The hook owns the WHOLE Live lifecycle off two gates: the Settings
+  // opt-in (`liveTabEnabled` — off costs zero requests and never connects) and
+  // whether the Live tab is currently shown (the third arg opens the SSE/poll
+  // stream only while active; enabled-but-inactive does one cold-start prewarm).
+  const live = useLive(serverBaseUrl, liveTabEnabled, route.page === "live");
+  // Receiver availability is the SAME signal as the stream's connect tri-state:
+  // the single snapshot the hook probes doubles as the reachability check, so
+  // there is no separate probe. null = still probing, false = unavailable
+  // (disabled / no receiver / server-less), true = reachable. It gates the Live
+  // tab (pageTabs) and the stale-#/live redirect below.
+  const liveAvailable = live.connected;
   // A host WITHOUT the live receiver (the standalone app, or any deploy missing
   // it) must never strand the user on a dead Live page — which can happen now
   // that the default tab can be Live and the cold-start redirect honors it. When
-  // the probe resolves unavailable while we're on Live, fall back to Activity (the
+  // availability resolves false while we're on Live, fall back to Activity (the
   // old desktop default). Only fires on a confirmed-false probe, so a host that
   // DOES have Live (liveAvailable null -> true) is never bounced.
   useEffect(() => {
@@ -541,12 +537,12 @@ export function App() {
     };
   }, [serverBaseUrl, reloadKey]);
 
-  // Remove the cold-start boot splash (index.html) once the first view has actual
-  // CONTENT — never the blank gap between mount and content. The Live page is
-  // contract-independent but still loads its snapshot over the network, so it is
-  // blank until `live.connected` resolves; dismissing on `route.page === "live"`
-  // alone tore the splash off into that blank gap (the reported regression). A
-  // hard timeout guarantees the splash can never strand if a signal never lands.
+  // Remove the cold-start boot splash (index.html) once the SHELL can paint. The
+  // splash covers only bounded work (the contract load); the Live page renders its
+  // own connecting skeleton and streams in behind it, so the splash dismisses INTO
+  // Live rather than waiting on an unbounded connection (the old hold-for-`live.
+  // connected` rule timed out on its 12s cap and revealed a still-"Connecting…"
+  // page). A hard timeout guarantees the splash can never strand on the contract.
   const [bootTimedOut, setBootTimedOut] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setBootTimedOut(true), BOOT_SPLASH_MAX_MS);
@@ -555,8 +551,6 @@ export function App() {
   const bootSplashDone = bootSplashReady({
     routePage: route.page,
     loading,
-    liveConnected: live.connected,
-    liveEnabled: liveTabEnabled,
     timedOut: bootTimedOut,
   });
   useEffect(() => {

@@ -12,7 +12,9 @@ import {
   endpointRequiresServerUrl,
   fetchLiveSnapshot,
   resolveEndpoint,
+  LIVE_SNAPSHOT_PROBE_RETRIES,
 } from "./contract.ts";
+import { loadCachedLiveSnapshot, saveCachedLiveSnapshot } from "./live-cache.ts";
 import { LIVE_EVENT_BUFFER_LIMIT } from "./live-config.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { LiveEvent, LiveSnapshot } from "./model.ts";
@@ -223,31 +225,39 @@ export interface LiveState {
 
 export type LiveConnectionMode = "off" | "snapshot" | "stream";
 
+// One snapshot probe doubles as the availability check AND the buffer seed, gated
+// solely on the user's `enabled` opt-in (the Live tab is off by default):
+//   • disabled, or an endpoint with no server URL to reach -> "off": never
+//     connect, never probe (Settings opt-out and a server-less Android client both
+//     cost zero requests).
+//   • the visible Live tab (active) -> "stream": the normal SSE/poll lifecycle.
+//   • enabled but not currently shown -> "snapshot": one cold-start prewarm seed,
+//     no SSE and no poll timer.
 export function planLiveConnection(opts: {
-  available: boolean | null;
+  enabled: boolean;
   active: boolean;
-  prewarm: boolean;
   endpointBlocked: boolean;
 }): LiveConnectionMode {
-  if (opts.available !== true || opts.endpointBlocked) return "off";
-  if (opts.active) return "stream";
-  return opts.prewarm ? "snapshot" : "off";
+  if (!opts.enabled || opts.endpointBlocked) return "off";
+  return opts.active ? "stream" : "snapshot";
 }
 
 // App mounts this hook once at the always-present shell so the event BUFFER
-// survives tab switches (instant, current return to Live). Two gates:
-//   • `available` — the receiver-availability tri-state from App's probe:
-//       null  = still probing  -> "connecting", no stream yet
-//       false = no receiver here -> "unavailable", never connect
-//       true  = reachable -> connect (while active)
-//   • `active`    — whether the Live tab is currently shown. The stream (SSE or
-//       poll) opens only while active, so a polling transport (Tauri thin
+// survives tab switches (instant, current return to Live). It owns the WHOLE Live
+// lifecycle — availability, seed, stream, and the offline cache — off two gates:
+//   • `enabled`   — the user's Settings opt-in (the Live tab is off by default).
+//       When false, the hook NEVER probes or connects and reports `connected:
+//       false` (unavailable), so the tab is hidden and a stale #/live bounces
+//       away — opting out costs zero requests. This replaces the old separate
+//       availability probe: the single snapshot the hook fetches doubles as the
+//       reachability check, so `connected` IS the availability tri-state (null
+//       probing / false unavailable / true reachable).
+//   • `active`    — whether the Live tab is currently shown. The full stream (SSE
+//       or poll) opens only while active, so a polling transport (Tauri thin
 //       clients) does NOT keep a 3s /api/live-snapshot interval running on
-//       background tabs. The buffer is retained across active toggles.
-//   • `prewarm`   — one-shot inactive snapshot seed. This is for cold-start
-//       readiness when the Live tab is enabled but the default landing is a
-//       contract-backed page. It never opens SSE and never starts the poll timer.
-export function useLive(serverBaseUrl: string | null, available: boolean | null = true, active = true, prewarm = false): LiveState {
+//       background tabs. While enabled-but-inactive it performs exactly one
+//       cold-start prewarm snapshot. The buffer is retained across active toggles.
+export function useLive(serverBaseUrl: string | null, enabled = true, active = true): LiveState {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -258,28 +268,55 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
   // without the receiver — so onerror surfaces "reconnecting…", not
   // "Unavailable" (EventSource auto-reconnects in the background).
   const everOpened = useRef(false);
+  // True while the buffer holds only PROVISIONAL stale-cache rows that the first
+  // authoritative snapshot must replace (so a cached row the server no longer
+  // returns cannot linger and push live rows past the cap).
+  const seededFromCache = useRef(false);
 
-  // Buffer lifecycle. Resets the in-memory buffer + cursor ONLY when the
-  // deployment or its availability changes — never on an `active` toggle — so the
-  // buffer is retained across tab switches. Also owns the disabled / probing
-  // state: a host without the receiver (or Android with no server URL) reads as
-  // unavailable (false); a still-probing host as connecting (null).
+  // Buffer lifecycle. Re-seeds the in-memory buffer + cursor ONLY when the
+  // deployment or the enabled opt-in changes — never on an `active` toggle — so
+  // the buffer is retained across tab switches. Also owns the disabled / probing
+  // state: disabled in Settings (or Android with no server URL) reads as
+  // unavailable (false) with no request; an enabled host as connecting (null).
   useEffect(() => {
-    lastSeq.current = 0;
     everOpened.current = false;
-    setEvents([]);
+    seededFromCache.current = false;
     setReconnecting(false);
     setTransport(null);
-    if (available === false || endpointRequiresServerUrl("./api/live", serverBaseUrl, null)) {
+    lastSeq.current = 0;
+    if (!enabled || endpointRequiresServerUrl("./api/live", serverBaseUrl, null)) {
+      setEvents([]);
       setConnected(false);
       return;
     }
+    // Enabled: paint the last known events instantly from the per-server cache
+    // (stale-while-revalidate) so a cold start is never an empty "Connecting…"
+    // frame. The cursor stays 0 so the first snapshot is fetched in FULL and
+    // REPLACES these provisional rows (see seedSnapshot); `connected` stays null
+    // — the cached rows show under a "Connecting…" badge until the receiver
+    // confirms.
+    const cached = loadCachedLiveSnapshot(serverBaseUrl);
+    if (cached) {
+      seededFromCache.current = true;
+      setEvents(cached.events.slice(0, LIVE_EVENT_BUFFER_LIMIT));
+    } else {
+      setEvents([]);
+    }
     setConnected(null);
-  }, [serverBaseUrl, available]);
+  }, [serverBaseUrl, enabled]);
 
-  // Connection lifecycle. Opens the SSE / poll stream only while the receiver is
-  // reachable AND the Live tab is active. When inactive but prewarm is true, it
-  // performs exactly one snapshot seed and stops: no SSE, no Tauri poll interval.
+  // Persist the live buffer to the per-server cache so the NEXT cold start paints
+  // instantly. Both snapshot-derived ingests and SSE frames flow through
+  // `events`, so watching it captures the whole buffer. Skipped when Live is
+  // disabled (no connection, nothing worth caching).
+  useEffect(() => {
+    if (!enabled || events.length === 0) return;
+    saveCachedLiveSnapshot(serverBaseUrl, events, lastSeq.current);
+  }, [enabled, serverBaseUrl, events]);
+
+  // Connection lifecycle. Opens the SSE / poll stream only while Live is enabled
+  // AND the tab is active. When enabled but inactive it performs exactly one
+  // snapshot seed and stops: no SSE, no Tauri poll interval.
   // The cleanup tears down any active transport when the tab is left WITHOUT
   // clearing the buffer above. On (re)open it seeds from the snapshot and
   // advances the cursor, so returning renders the retained buffer instantly and
@@ -287,9 +324,8 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
   // cursor never regresses).
   useEffect(() => {
     const mode = planLiveConnection({
-      available,
+      enabled,
       active,
-      prewarm,
       endpointBlocked: endpointRequiresServerUrl("./api/live", serverBaseUrl, null),
     });
     if (mode === "off") return;
@@ -303,6 +339,17 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       everOpened.current = true;
       setConnected(true);
       setReconnecting(false);
+    };
+
+    // The first AUTHORITATIVE snapshot replaces the provisional stale-cache seed:
+    // drop the cached rows and reset the cursor so planPollIngest re-seeds from
+    // the server's full snapshot. A no-op once revalidated (or when nothing was
+    // seeded from cache), so steady-state poll/SSE ingest is untouched.
+    const dropStaleCacheSeed = (): void => {
+      if (!seededFromCache.current) return;
+      seededFromCache.current = false;
+      lastSeq.current = 0;
+      setEvents([]);
     };
 
     const ingest = (incoming: LiveEvent[]): void => {
@@ -412,6 +459,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
         return;
       }
       markUp();
+      dropStaleCacheSeed();
       const plan = planPollIngest(lastSeq.current, snap);
       if (plan.reset) {
         // Receiver restarted / pruned below our cursor — reset and reseed.
@@ -423,10 +471,17 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
     };
 
     const seedSnapshot = async (): Promise<LiveSnapshot | null> => {
-      const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT);
+      // The cold-start seed is the patient one-shot probe: a transient blip on a
+      // cold link retries a couple of times (bounded) rather than failing the tab
+      // out on the first stall. The steady-state poll below stays retry-free — its
+      // 3s interval is its own retry.
+      const snap = await fetchLiveSnapshot(serverBaseUrl, LIVE_EVENT_BUFFER_LIMIT, undefined, {
+        retries: LIVE_SNAPSHOT_PROBE_RETRIES,
+      });
       if (cancelled) return null;
       if (!snap) return null;
       markUp();
+      dropStaleCacheSeed();
       const plan = planPollIngest(lastSeq.current, snap);
       if (plan.reset) {
         lastSeq.current = 0;
@@ -461,37 +516,7 @@ export function useLive(serverBaseUrl: string | null, available: boolean | null 
       if (source) source.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [serverBaseUrl, available, active, prewarm]);
+  }, [serverBaseUrl, enabled, active]);
 
   return { events, connected, reconnecting, transport };
-}
-
-// One-shot capability probe for App-level nav gating: the Live tab is shown only
-// when the receiver answers (so a deployment without it — e.g. the standalone
-// app — never shows a dead tab). null = still probing.
-//
-// `enabled` is the user's opt-in (the Live tab is off by default): when false we
-// skip the probe entirely and report unavailable, so opting out makes no network
-// request and the tab/stream/redirect all treat Live as absent.
-export function useLiveAvailable(serverBaseUrl: string | null, enabled = true): boolean | null {
-  const [available, setAvailable] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setAvailable(null);
-    if (!enabled) {
-      setAvailable(false);
-      return;
-    }
-    if (endpointRequiresServerUrl("./api/live-snapshot", serverBaseUrl, null)) {
-      setAvailable(false);
-      return;
-    }
-    void fetchLiveSnapshot(serverBaseUrl).then((snap) => {
-      if (!cancelled) setAvailable(snap !== null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [serverBaseUrl, enabled]);
-  return available;
 }

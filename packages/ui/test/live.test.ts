@@ -63,6 +63,92 @@ test("fetchLiveSnapshot returns null when the request throws", async () => {
   assert.equal(await fetchLiveSnapshot(null), null);
 });
 
+// A live snapshot probe must NOT hang forever on a slow cold-start link (the
+// reported Android symptom: ~60s stuck on "Connecting…"). It carries a bounded
+// per-attempt timeout, so a request that never settles is aborted and reported
+// unavailable instead of stranding the page. The `{ timeout }` here makes the
+// case fail loudly against an unbounded implementation rather than hanging the run.
+test("fetchLiveSnapshot aborts a hung request within its bounded timeout", { timeout: 3000 }, async () => {
+  let sawSignal = false;
+  globalThis.fetch = ((_url: string, init?: RequestInit) =>
+    new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal) {
+        sawSignal = true;
+        signal.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      }
+      // never resolves on its own — only the timeout abort settles it
+    })) as typeof fetch;
+  const snap = await fetchLiveSnapshot(null, undefined, undefined, {
+    requestTimeoutMs: 40,
+    retries: 0,
+  });
+  assert.equal(snap, null, "a hung request resolves to null via the timeout, not a hang");
+  assert.ok(sawSignal, "the snapshot fetch must pass an abort signal so it can be bounded");
+});
+
+// A transient failure (network blip / timeout) on the cold-start probe should be
+// retried a bounded number of times before giving up, so a momentary blip does
+// not hide the Live tab. Backoff sleep is injected so the test stays instant.
+test("fetchLiveSnapshot retries a transient failure then succeeds", async () => {
+  let calls = 0;
+  globalThis.fetch = ((_url: string) => {
+    calls += 1;
+    if (calls === 1) return Promise.reject(new Error("transient network"));
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ schema: "live-snapshot/1", events: [{ seq: 1 }], max_seq: 1, generated_at: "x" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }) as typeof fetch;
+  const sleeps: number[] = [];
+  const snap = await fetchLiveSnapshot(null, undefined, undefined, {
+    retries: 2,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
+  });
+  assert.ok(snap, "the retry recovers the snapshot");
+  assert.equal(snap?.max_seq, 1);
+  assert.equal(calls, 2, "one failure + one success");
+  assert.equal(sleeps.length, 1, "backoff slept once between the two attempts");
+});
+
+// A DEFINITIVE answer must not be retried: a 404 (no receiver on this deploy) or a
+// wrong-shape 200 is reported unavailable immediately, so the availability probe
+// does not waste retry rounds on a deployment that simply has no Live receiver.
+test("fetchLiveSnapshot does not retry a definitive non-ok or wrong-shape response", async () => {
+  let calls = 0;
+  const sleeps: number[] = [];
+  const sleep = async (ms: number) => {
+    sleeps.push(ms);
+  };
+
+  globalThis.fetch = ((_url: string) => {
+    calls += 1;
+    return Promise.resolve(new Response(JSON.stringify({ error: "nope" }), { status: 404 }));
+  }) as typeof fetch;
+  assert.equal(await fetchLiveSnapshot(null, undefined, undefined, { retries: 5, sleep }), null);
+  assert.equal(calls, 1, "a 404 is definitive -> no retry");
+
+  calls = 0;
+  globalThis.fetch = ((_url: string) => {
+    calls += 1;
+    return Promise.resolve(
+      new Response(JSON.stringify({ schema: "live-snapshot/1", events: {}, max_seq: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  }) as typeof fetch;
+  assert.equal(await fetchLiveSnapshot(null, undefined, undefined, { retries: 5, sleep }), null);
+  assert.equal(calls, 1, "a wrong-shape 200 is definitive -> no retry");
+  assert.equal(sleeps.length, 0, "no backoff for definitive answers");
+});
+
 test("pickLiveTransport chooses sse only in a browser with EventSource", () => {
   assert.equal(pickLiveTransport({ tauri: false, hasEventSource: true }), "sse");
   assert.equal(pickLiveTransport({ tauri: true, hasEventSource: true }), "poll");
