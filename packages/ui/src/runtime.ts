@@ -63,10 +63,12 @@ export function installAndroidSafeAreaInsets(): void {
 // The user can turn on a per-device "Wide layout" setting that forces a fixed
 // desktop-width viewport — but ONLY in the Android WebView: the browser and the
 // desktop shell are freely resizable and must keep the responsive
-// width=device-width meta. The fixed width is >= the full-desktop breakpoint
-// (1451px in styles.css). The native shell sets useWideViewPort +
-// loadWithOverviewMode so the WebView honors this width and scales it to fit.
-export const WIDE_VIEWPORT_WIDTH = 1500;
+// width=device-width meta. The fixed width crosses into the desktop multi-column
+// tiers (>= 1180px in styles.css) while staying narrow enough that the scaled-down
+// text stays readable on a smaller e-reader (1500px scaled ~0.45x was too small).
+// The native shell sets useWideViewPort + loadWithOverviewMode so the WebView
+// honors this width and scales it to fit.
+export const WIDE_VIEWPORT_WIDTH = 1280;
 
 // The viewport `content` to apply for a layout preference + client, or null to
 // keep the responsive default. Only the Android client with wide layout ON gets a

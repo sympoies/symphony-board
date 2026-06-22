@@ -64,5 +64,5 @@ test("wideViewportContent forces a desktop width only for the Android client wit
   assert.equal(wideViewportContent(false, "android"), null, "wide off -> responsive default");
   assert.equal(wideViewportContent(true, "desktop"), null, "desktop shell stays resizable");
   assert.equal(wideViewportContent(true, null), null, "web (no client kind) stays responsive");
-  assert.ok(WIDE_VIEWPORT_WIDTH >= 1451, "the forced width must reach the full-desktop CSS breakpoint");
+  assert.ok(WIDE_VIEWPORT_WIDTH >= 1180, "the forced width must reach the desktop multi-column CSS breakpoint");
 });
