@@ -143,6 +143,10 @@ test("board scope is a device-local setting with off/window/full semantics", () 
   assert.equal(boardScopeDays("1d"), 1);
   assert.equal(boardScopeDays("3d"), 3);
   assert.equal(boardScopeDays("7d"), 7);
+  assert.equal(boardScopeDays("1mo"), 30);
+  assert.equal(boardScopeDays("3mo"), 90);
+  assert.equal(boardScopeDays("6mo"), 180);
+  assert.equal(boardScopeDays("1y"), 365);
   // Per-client default: Android (weak e-ink hardware) starts on a 7-day window;
   // every other client keeps the full board.
   assert.equal(defaultBoardScope("android"), "7d");

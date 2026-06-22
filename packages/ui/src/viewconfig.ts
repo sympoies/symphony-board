@@ -241,8 +241,8 @@ export function saveLivePulseOpen(open: boolean): void {
 //   • "full" — the full contract (./contract.json), the historical behavior
 // Device-local, like the theme. Android defaults to a 7-day window (weak e-ink
 // hardware); desktop/web default to "full" (they have the memory).
-export type BoardScope = "off" | "1d" | "3d" | "7d" | "full";
-export const BOARD_SCOPE_VALUES: readonly BoardScope[] = ["off", "1d", "3d", "7d", "full"];
+export type BoardScope = "off" | "1d" | "3d" | "7d" | "1mo" | "3mo" | "6mo" | "1y" | "full";
+export const BOARD_SCOPE_VALUES: readonly BoardScope[] = ["off", "1d", "3d", "7d", "1mo", "3mo", "6mo", "1y", "full"];
 
 export function isBoardScope(value: unknown): value is BoardScope {
   return typeof value === "string" && (BOARD_SCOPE_VALUES as readonly string[]).includes(value);
@@ -258,6 +258,14 @@ export function boardScopeDays(scope: BoardScope): number | null {
       return 3;
     case "7d":
       return 7;
+    case "1mo":
+      return 30;
+    case "3mo":
+      return 90;
+    case "6mo":
+      return 180;
+    case "1y":
+      return 365;
     default:
       return null;
   }

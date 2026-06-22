@@ -83,6 +83,10 @@ const BOARD_SCOPE_LABELS: Record<BoardScope, string> = {
   "1d": "Last 1 day",
   "3d": "Last 3 days",
   "7d": "Last 7 days",
+  "1mo": "Last 1 month",
+  "3mo": "Last 3 months",
+  "6mo": "Last 6 months",
+  "1y": "Last 1 year",
   full: "Full board",
 };
 
