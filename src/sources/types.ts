@@ -55,6 +55,18 @@ export interface RawRecord {
   contentHash: string | null; // optional: lets the engine skip unchanged rows
 }
 
+// One source's per-item resolve result, collected from a bounded-concurrency
+// pass (see lib/concurrency.ts) and reduced afterwards. `record` is null when
+// the item yielded nothing to store (e.g. a refresh candidate that 404'd or a
+// malformed path); `error` is non-null when the per-item resolve failed. The
+// reduction folds `error` into the sweep's `complete`/`firstError` in input
+// order so a single bad item degrades the run instead of aborting it, and
+// always guards `record` with a null check before pushing.
+export interface ResolveOutcome {
+  record: RawRecord | null;
+  error: string | null;
+}
+
 export interface FetchResult {
   records: RawRecord[];
   // New watermark to persist for the next incremental run (e.g. max updatedAt

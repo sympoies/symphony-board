@@ -30,7 +30,7 @@
 // `complete:false` with the error and never corrupts/soft-deletes data.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate } from "./types.ts";
+import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -48,6 +48,7 @@ import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
+import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
 import { log } from "../log.ts";
 
 const API_VERSION = "gitlab.graphql";
@@ -258,8 +259,17 @@ export class GitLabSource implements Source {
     // then turn the notes into resolved mention/relate endpoints on the payload ---
     const records: RawRecord[] = [];
     log.info(`[${this.descriptor.sourceId}] resolve start (${collected.length} items)`);
-    let resolved = 0;
-    for (const { kind, node, project } of collected) {
+    // Each item's resolve is an independent round-trip (an N+1); overlap them at
+    // a bounded concurrency rather than one-at-a-time. `index` is read-only from
+    // here on, so the parallel tasks share it safely; per-item errors are folded
+    // back into `complete`/`firstError` (in input order) after the map so a
+    // single bad item still degrades to complete:false instead of aborting.
+    // `processed` is a completion-order tally (each task bumps it exactly once;
+    // single-threaded, so no lost increments) used only for progress logging — it
+    // is NOT an input-order index, since tasks can finish out of order.
+    let processed = 0;
+    const resolvedRecords = await mapWithConcurrency<typeof collected[number], ResolveOutcome>(collected, resolveConcurrency(), async ({ kind, node, project }) => {
+      let error: string | null = null;
       try {
         if (kind === "issue") {
           const d: any = await this.gql(ISSUE_RESOLVE_Q, { path: project, iid: String(node.iid) });
@@ -274,8 +284,7 @@ export class GitLabSource implements Source {
         }
       } catch (err) {
         log.warn(`[${this.descriptor.sourceId}] project ${project}: ${kind}#${node.iid} resolve failed: ${(err as Error).message}`);
-        complete = false;
-        firstError ??= `${project} ${kind}#${node.iid} resolve: ${(err as Error).message}`;
+        error = `${project} ${kind}#${node.iid} resolve: ${(err as Error).message}`;
         node.relatedMergeRequests ??= { nodes: [] };
         node.approvedBy ??= { nodes: [] };
         node.notes ??= { nodes: [] };
@@ -285,10 +294,18 @@ export class GitLabSource implements Source {
       node.__mentions = mentions;
       node.__relates = relates;
       const payload = JSON.stringify(node);
-      records.push({ entityKind: kind, externalId: node.id, apiVersion: API_VERSION, fetchedAt: now, payload: node, contentHash: hash(payload) });
-      resolved++;
-      if (resolved === collected.length || resolved % 25 === 0) {
-        log.info(`[${this.descriptor.sourceId}] resolve progress ${resolved}/${collected.length} items`);
+      const record: RawRecord = { entityKind: kind, externalId: node.id, apiVersion: API_VERSION, fetchedAt: now, payload: node, contentHash: hash(payload) };
+      processed++;
+      if (processed === collected.length || processed % 25 === 0) {
+        log.info(`[${this.descriptor.sourceId}] resolve progress ${processed}/${collected.length} items`);
+      }
+      return { record, error };
+    });
+    for (const r of resolvedRecords) {
+      if (r.record) records.push(r.record);
+      if (r.error) {
+        complete = false;
+        firstError ??= r.error;
       }
     }
     if (this.rest) {
@@ -310,42 +327,53 @@ export class GitLabSource implements Source {
   }
 
   async fetchRefresh(candidates: RefreshCandidate[], _opts: FetchOptions): Promise<FetchResult> {
-    const records: RawRecord[] = [];
     const now = new Date().toISOString();
     const configuredProjects = new Set(this.projects);
+    // Filter + dedupe first (cheap, pure), then resolve the survivors at a
+    // bounded concurrency — each is an independent per-MR round-trip.
     const seen = new Set<string>();
-    let complete = true;
-    let firstError: string | null = null;
-
-    for (const candidate of candidates) {
-      if (!configuredProjects.has(candidate.projectPath)) continue;
+    const targets = candidates.filter((candidate) => {
+      if (!configuredProjects.has(candidate.projectPath)) return false;
       const key = `${candidate.projectPath}#${candidate.iid}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) return false;
       seen.add(key);
+      return true;
+    });
 
+    const results = await mapWithConcurrency<RefreshCandidate, ResolveOutcome>(targets, resolveConcurrency(), async (candidate) => {
       try {
         const data: any = await this.gql(MR_BY_IID_Q, { path: candidate.projectPath, iid: String(candidate.iid) });
         const node = data?.project?.mergeRequest;
-        if (!node) continue;
+        if (!node) return { record: null, error: null };
         node.__projectPath = candidate.projectPath;
         node.__mentions = [];
         node.__relates = [];
         node.discussions = shouldFetchReviewDiscussions(node) ? await this.fetchMergeRequestDiscussions(candidate.projectPath, String(candidate.iid)) : [];
         const payload = JSON.stringify(node);
-        records.push({
+        const record: RawRecord = {
           entityKind: "change_request",
           externalId: node.id,
           apiVersion: API_VERSION,
           fetchedAt: now,
           payload: node,
           contentHash: hash(payload),
-        });
+        };
+        return { record, error: null };
       } catch (err) {
-        complete = false;
-        firstError ??= `${candidate.projectPath} !${candidate.iid} ci refresh: ${(err as Error).message}`;
+        return { record: null, error: `${candidate.projectPath} !${candidate.iid} ci refresh: ${(err as Error).message}` };
       }
-    }
+    });
 
+    const records: RawRecord[] = [];
+    let complete = true;
+    let firstError: string | null = null;
+    for (const r of results) {
+      if (r.error) {
+        complete = false;
+        firstError ??= r.error;
+      }
+      if (r.record) records.push(r.record);
+    }
     return { records, watermark: null, complete, error: firstError };
   }
 
