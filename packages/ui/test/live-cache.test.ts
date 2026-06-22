@@ -88,6 +88,16 @@ test("a missing or junk cache reads as no cache", () => {
   assert.equal(loadCachedLiveSnapshot("https://srv", 0), null, "garbage -> null, never throws");
 });
 
+test("a well-formed entry whose snapshot fails the shape guard reads as no cache", () => {
+  // Defends the seed against a forward/backward-incompatible cached snapshot: the
+  // entry parses and matches the server + TTL, but the snapshot shape is invalid.
+  store._raw(
+    "symphony-board:live-snapshot-cache",
+    JSON.stringify({ serverBaseUrl: "https://srv", cachedAt: 0, snapshot: { schema: "live-snapshot/1", events: {}, max_seq: 1 } }),
+  );
+  assert.equal(loadCachedLiveSnapshot("https://srv", 0), null, "bad snapshot shape -> null, never seeds from it");
+});
+
 test("saving never throws when storage is unavailable", () => {
   (globalThis as { localStorage?: unknown }).localStorage = undefined;
   assert.doesNotThrow(() => saveCachedLiveSnapshot("https://srv", [ev(1)], 1, 0));

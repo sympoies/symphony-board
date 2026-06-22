@@ -351,7 +351,11 @@ export function App() {
   // the single snapshot the hook probes doubles as the reachability check, so
   // there is no separate probe. null = still probing, false = unavailable
   // (disabled / no receiver / server-less), true = reachable. It gates the Live
-  // tab (pageTabs) and the stale-#/live redirect below.
+  // tab (pageTabs) and the stale-#/live redirect below — so `useLive`'s `connected`
+  // semantics carry navigation blast radius: a cold-start TRANSIENT probe failure
+  // is deliberately kept at null (not false) so it never hides the tab or bounces
+  // a Live deploy (see resolveProbeFailure); only a definitive failure resolves
+  // false. Weigh that when changing how the hook resolves `connected`.
   const liveAvailable = live.connected;
   // A host WITHOUT the live receiver (the standalone app, or any deploy missing
   // it) must never strand the user on a dead Live page — which can happen now

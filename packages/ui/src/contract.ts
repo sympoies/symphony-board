@@ -687,20 +687,29 @@ async function fetchLiveSnapshotAttempt(
   return isLiveSnapshot(body) ? { snapshot: body, transient: false } : { snapshot: null, transient: false };
 }
 
-// Snapshot GET that seeds the Live page and the Tauri polling fallback. Null on
-// ANY failure (route missing, no receiver, network error) so the page reports
-// "live unavailable" instead of erroring — mirrors the diagnostics probes. The
-// browser path streams via EventSource against ./api/live directly (it cannot go
-// through appFetch); only the snapshot uses this client. The per-attempt timeout
-// is the key cold-start fix: an unbounded request hung for ~a minute on a cold
-// link and left the Live page stuck on "Connecting…"; now it aborts and (for the
-// patient one-shot probe) retries on a transient failure instead of stranding.
-export async function fetchLiveSnapshot(
+export interface LiveSnapshotFetchResult {
+  snapshot: LiveSnapshot | null;
+  // When `snapshot` is null: true if the LAST attempt failed transiently
+  // (network / abort / 5xx) and is worth retrying; false if it failed
+  // definitively (4xx — no receiver on this deploy — or a wrong-shape body).
+  // The cold-start seed uses this to keep "Connecting…" + retry on a transient
+  // failure rather than resolving to "unavailable" and bouncing off a Live deploy.
+  transientFailure: boolean;
+}
+
+// Snapshot GET that seeds the Live page and the Tauri polling fallback, returning
+// the snapshot AND why it failed. The browser path streams via EventSource against
+// ./api/live directly (it cannot go through appFetch); only the snapshot uses this
+// client. The per-attempt timeout is the key cold-start fix: an unbounded request
+// hung for ~a minute on a cold link and left the Live page stuck on "Connecting…";
+// now it aborts and (for the patient one-shot probe) retries on a transient
+// failure instead of stranding.
+export async function fetchLiveSnapshotResult(
   serverBaseUrl: string | null = loadServerBaseUrl(),
   limit?: number,
   sinceSeq?: number,
   opts: LiveSnapshotFetchOptions = {},
-): Promise<LiveSnapshot | null> {
+): Promise<LiveSnapshotFetchResult> {
   const requestTimeoutMs = opts.requestTimeoutMs ?? LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS;
   const connectTimeoutMs = opts.connectTimeoutMs ?? LIVE_SNAPSHOT_CONNECT_TIMEOUT_MS;
   const retries = Math.max(0, opts.retries ?? 0);
@@ -720,10 +729,21 @@ export async function fetchLiveSnapshot(
 
   for (let attempt = 0; ; attempt++) {
     const { snapshot, transient } = await fetchLiveSnapshotAttempt(target, requestTimeoutMs, connectTimeoutMs);
-    if (snapshot !== null) return snapshot;
-    if (!transient || attempt >= retries) return null;
+    if (snapshot !== null) return { snapshot, transientFailure: false };
+    if (!transient || attempt >= retries) return { snapshot: null, transientFailure: transient };
     await sleep(Math.min(retryBaseDelayMs * 2 ** attempt, LIVE_SNAPSHOT_RETRY_MAX_MS));
   }
+}
+
+// Snapshot-or-null convenience wrapper for callers that don't need the failure
+// classification (the SSE reset refetch, tests).
+export async function fetchLiveSnapshot(
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  limit?: number,
+  sinceSeq?: number,
+  opts: LiveSnapshotFetchOptions = {},
+): Promise<LiveSnapshot | null> {
+  return (await fetchLiveSnapshotResult(serverBaseUrl, limit, sinceSeq, opts)).snapshot;
 }
 
 // Parse a contract the user dropped in via the file picker.

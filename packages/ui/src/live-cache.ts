@@ -2,9 +2,10 @@
 // paint real (if stale) content the instant the Live page mounts — before any
 // network round-trip resolves — then revalidate from the live receiver. This is
 // what removes the empty "Connecting…" gap on launch: the feed shows the last
-// known events immediately, and the fresh seed/poll merges over them by seq (the
-// cursor is carried, so an unchanged server ingests nothing and a restarted one
-// reseeds via planPollIngest).
+// known events immediately. The cache is a DISPLAY accelerator only — the first
+// authoritative snapshot always re-fetches in full and REPLACES the cached rows
+// wholesale (planSnapshotFold's "replace" branch), so a cached row the server no
+// longer returns cannot linger; the cache cursor is not used to skip the fetch.
 //
 // Stored as ONE entry keyed by the active serverBaseUrl, so switching servers (or
 // an Android client with no server) never reads another server's events. Capped

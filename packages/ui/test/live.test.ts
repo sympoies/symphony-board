@@ -5,7 +5,7 @@
 // render" convention.
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { fetchLiveSnapshot } from "../src/contract.ts";
+import { fetchLiveSnapshot, fetchLiveSnapshotResult, LIVE_SNAPSHOT_RETRY_BASE_MS } from "../src/contract.ts";
 import { liveAvatarModel } from "../src/live-avatar.ts";
 import { appendCapped, liveStreamUrl, pickLiveTransport } from "../src/useLive.ts";
 
@@ -115,6 +115,51 @@ test("fetchLiveSnapshot retries a transient failure then succeeds", async () => 
   assert.equal(snap?.max_seq, 1);
   assert.equal(calls, 2, "one failure + one success");
   assert.equal(sleeps.length, 1, "backoff slept once between the two attempts");
+  assert.equal(sleeps[0], LIVE_SNAPSHOT_RETRY_BASE_MS, "first backoff is the base delay (base * 2^0)");
+});
+
+// A 200 whose body is not valid JSON (a fully-received but unparseable body) is a
+// DEFINITIVE content error, surfaced immediately without burning retry rounds —
+// distinct from an interrupted/aborted body read, which is transient.
+test("fetchLiveSnapshot does not retry a parse error on a settled body", async () => {
+  let calls = 0;
+  const sleeps: number[] = [];
+  globalThis.fetch = ((_url: string) => {
+    calls += 1;
+    return Promise.resolve(
+      new Response("not json{", { status: 200, headers: { "content-type": "application/json" } }),
+    );
+  }) as typeof fetch;
+  const snap = await fetchLiveSnapshot(null, undefined, undefined, {
+    retries: 5,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
+  });
+  assert.equal(snap, null);
+  assert.equal(calls, 1, "a SyntaxError on a settled body is definitive -> no retry");
+  assert.equal(sleeps.length, 0);
+});
+
+// fetchLiveSnapshotResult exposes WHY a probe failed so the cold-start seed can
+// tell a retriable cold-link blip from a deployment that simply has no receiver.
+test("fetchLiveSnapshotResult classifies transient vs definitive failures", async () => {
+  globalThis.fetch = (async () => {
+    throw new Error("network");
+  }) as typeof fetch;
+  const network = await fetchLiveSnapshotResult(null, undefined, undefined, { retries: 0 });
+  assert.equal(network.snapshot, null);
+  assert.equal(network.transientFailure, true, "a thrown fetch is transient (worth retrying)");
+
+  stubFetch(404, { error: "nope" });
+  const missing = await fetchLiveSnapshotResult(null, undefined, undefined, { retries: 0 });
+  assert.equal(missing.snapshot, null);
+  assert.equal(missing.transientFailure, false, "a 404 is definitive (no receiver) — do not keep connecting");
+
+  stubFetch(200, { schema: "live-snapshot/1", events: [{ seq: 1 }], max_seq: 1, generated_at: "x" });
+  const ok = await fetchLiveSnapshotResult(null);
+  assert.ok(ok.snapshot);
+  assert.equal(ok.transientFailure, false);
 });
 
 // A DEFINITIVE answer must not be retried: a 404 (no receiver on this deploy) or a
