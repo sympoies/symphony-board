@@ -9,10 +9,14 @@ import {
   loadTheme, saveTheme,
   loadDefaultTab, saveDefaultTab,
   loadLiveTabEnabled, saveLiveTabEnabled,
+  loadLivePulseOpen, saveLivePulseOpen,
+  loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope,
+  loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
+import { TIME_RANGE_PRESETS } from "../src/model.ts";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
 // install a tiny in-memory Storage shim and (for the failure paths) a throwing
@@ -120,6 +124,74 @@ test("live tab enabled is a device-local setting that is OFF by default", () => 
   assert.equal(loadLiveTabEnabled(), false, "non-boolean value -> default off");
 });
 
+test("live metrics disclosure is a device-local setting that is OPEN by default", () => {
+  assert.equal(loadLivePulseOpen(), true, "default: metrics cards expanded (no stored value)");
+  saveLivePulseOpen(false);
+  assert.equal(loadLivePulseOpen(), false, "an explicit collapse is remembered across reopens");
+  saveLivePulseOpen(true);
+  assert.equal(loadLivePulseOpen(), true);
+  // Only the exact strings round-trip; any other stored value reads as collapsed
+  // (the strict !== "true" rule), never throws.
+  store._raw("symphony-board:live-pulse-open", "yes");
+  assert.equal(loadLivePulseOpen(), false, "non-boolean stored value -> collapsed");
+});
+
+test("boardScopeDays stays in lockstep with the matching TIME_RANGE_PRESETS day counts", () => {
+  // boardScopeDays hand-maps a windowed scope to trailing days; the same day
+  // counts are independently declared by the rolling quick-range presets in
+  // model.ts. The two live in different files, so pin the overlapping ids equal to
+  // catch drift (e.g. tuning a preset's `days`) before it desyncs a windowed fetch
+  // from the matching on-page preset. (1d/3d are board-scope-only — no preset.)
+  const presetDays = (id: string) => TIME_RANGE_PRESETS.find((p) => p.id === id)?.days;
+  assert.equal(boardScopeDays("7d"), presetDays("1w"), "7d window == 1w preset");
+  assert.equal(boardScopeDays("1mo"), presetDays("1mo"));
+  assert.equal(boardScopeDays("3mo"), presetDays("3mo"));
+  assert.equal(boardScopeDays("6mo"), presetDays("6mo"));
+  assert.equal(boardScopeDays("1y"), presetDays("1y"));
+});
+
+test("board scope is a device-local setting with off/window/full semantics", () => {
+  // Day-count mapping: only the windowed scopes are a /api/range window; off/full
+  // are not (they load nothing / the full contract respectively).
+  assert.equal(boardScopeDays("off"), null);
+  assert.equal(boardScopeDays("full"), null);
+  assert.equal(boardScopeDays("1d"), 1);
+  assert.equal(boardScopeDays("3d"), 3);
+  assert.equal(boardScopeDays("7d"), 7);
+  assert.equal(boardScopeDays("1mo"), 30);
+  assert.equal(boardScopeDays("3mo"), 90);
+  assert.equal(boardScopeDays("6mo"), 180);
+  assert.equal(boardScopeDays("1y"), 365);
+  // Per-client default: Android (weak e-ink hardware) starts on a 7-day window;
+  // every other client keeps the full board.
+  assert.equal(defaultBoardScope("android"), "7d");
+  assert.equal(defaultBoardScope("desktop"), "full");
+  assert.equal(defaultBoardScope(null), "full");
+  // Round-trip + the type guard.
+  assert.equal(isBoardScope("7d"), true);
+  assert.equal(isBoardScope("2w"), false);
+  // No client kind in the test env -> the non-Android default ("full").
+  assert.equal(loadBoardScope(), "full", "default with no stored value and no Android client kind");
+  saveBoardScope("3d");
+  assert.equal(loadBoardScope(), "3d");
+  saveBoardScope("off");
+  assert.equal(loadBoardScope(), "off");
+  // Hand-edited / stale garbage falls back to the default.
+  store._raw("symphony-board:board-scope", "5d");
+  assert.equal(loadBoardScope(), "full", "invalid stored value -> default");
+});
+
+test("wide layout is a device-local setting that is OFF by default", () => {
+  assert.equal(loadWideLayout(), false, "default: responsive layout (no stored value)");
+  saveWideLayout(true);
+  assert.equal(loadWideLayout(), true, "an explicit wide-layout choice is remembered across reopens");
+  saveWideLayout(false);
+  assert.equal(loadWideLayout(), false);
+  // Only the exact string "true" enables it, so a stale / hand-edited value reads as off.
+  store._raw("symphony-board:wide-layout", "yes");
+  assert.equal(loadWideLayout(), false, "non-boolean stored value -> off");
+});
+
 test("hidden event types round-trip and default to nothing hidden (all visible)", () => {
   assert.deepEqual([...loadHiddenEventTypes()], [], "default: no category hidden");
   saveHiddenEventTypes(new Set(["commit", "pipeline"]));
@@ -167,9 +239,15 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadTheme(), "night-owl", "theme load degrades to default");
   assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
+  assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
+  assert.equal(loadBoardScope(), "full", "board scope load degrades to the full default");
+  assert.equal(loadWideLayout(), false, "wide layout load degrades to off");
   assert.deepEqual([...loadHiddenEventTypes()], [], "hidden event types degrade to empty");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveLiveTabEnabled(true));
+  assert.doesNotThrow(() => saveLivePulseOpen(false));
+  assert.doesNotThrow(() => saveBoardScope("7d"));
+  assert.doesNotThrow(() => saveWideLayout(true));
   assert.doesNotThrow(() => saveHiddenEventTypes(new Set(["commit"])));
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
   assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));

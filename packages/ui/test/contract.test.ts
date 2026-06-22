@@ -20,6 +20,12 @@ import {
   INIT_LOAD_RETRY_BASE_MS,
   INIT_LOAD_RETRY_MAX_MS,
   contractLoadingViewVisible,
+  contractRequestTimeoutMs,
+  liveSnapshotRequestTimeoutMs,
+  CONTRACT_REQUEST_TIMEOUT_MS,
+  CONTRACT_REQUEST_TIMEOUT_MS_ANDROID,
+  LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS,
+  LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS_ANDROID,
 } from "../src/contract.ts";
 
 // The blocking "Loading contract…" view must show ONLY while there is no content
@@ -31,6 +37,21 @@ test("the contract-loading overlay shows only when there is no content yet", () 
   assert.equal(contractLoadingViewVisible(true, true), false, "loading + cached env present -> render the board, revalidate behind it");
   assert.equal(contractLoadingViewVisible(false, true), false, "loaded + env -> board");
   assert.equal(contractLoadingViewVisible(false, false), false, "not loading + no env -> a different state (error/onboarding) owns the screen");
+});
+
+// The Android thin client decodes the ~15MB contract / ~4.8MB live seed across the
+// Tauri Android IPC bridge on weak (e-ink) hardware, which can exceed the desktop
+// ceilings even when the gzip download is sub-second; it gets a larger per-attempt
+// ceiling while desktop/web keep theirs. Pure routing, case-insensitive.
+test("contract/live request timeouts use a larger ceiling for the Android client only", () => {
+  assert.ok(CONTRACT_REQUEST_TIMEOUT_MS_ANDROID > CONTRACT_REQUEST_TIMEOUT_MS, "Android contract ceiling is larger");
+  assert.ok(LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS_ANDROID > LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS, "Android live ceiling is larger");
+  assert.equal(contractRequestTimeoutMs("android"), CONTRACT_REQUEST_TIMEOUT_MS_ANDROID);
+  assert.equal(contractRequestTimeoutMs("ANDROID"), CONTRACT_REQUEST_TIMEOUT_MS_ANDROID, "case-insensitive");
+  assert.equal(contractRequestTimeoutMs("desktop"), CONTRACT_REQUEST_TIMEOUT_MS);
+  assert.equal(contractRequestTimeoutMs(null), CONTRACT_REQUEST_TIMEOUT_MS, "no client kind -> shared default");
+  assert.equal(liveSnapshotRequestTimeoutMs("android"), LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS_ANDROID);
+  assert.equal(liveSnapshotRequestTimeoutMs(null), LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS, "no client kind -> shared default");
 });
 
 test("majorOf reads the leading integer of a version string (never NaN)", () => {

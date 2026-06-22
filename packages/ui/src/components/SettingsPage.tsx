@@ -22,6 +22,11 @@ import {
   MAX_LIVE_PREVIEW_LINES,
   DEFAULT_TAB_OPTIONS,
   isDefaultTab,
+  BOARD_SCOPE_VALUES,
+  isBoardScope,
+  currentClientKind,
+  ANDROID_CLIENT_KIND,
+  type BoardScope,
   type ViewTheme,
 } from "../viewconfig.ts";
 import { LIVE_CATEGORY_ORDER, humanizeCategory } from "../live-stats.ts";
@@ -41,6 +46,10 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
+  boardScope: BoardScope; // how much of the contract this device loads (off / window / full)
+  onBoardScope: (scope: BoardScope) => void;
+  wideLayout: boolean; // force the wide (desktop) layout on this device (Android app only)
+  onWideLayout: (wide: boolean) => void;
   theme: ViewTheme;
   onTheme: (theme: ViewTheme) => void;
   livePreviewLines: number; // lines of an event body the Live feed shows before clamping
@@ -65,6 +74,21 @@ interface Props {
 // only in that case, so deployments without the capability see the classic
 // single-page Settings unchanged.
 export type SettingsTab = "display" | "sources";
+
+// Human labels for the board-scope select (how much of the contract this device
+// loads). A window keeps the payload small on a limited-memory device; "off" is
+// Live-only; "full" is the whole board.
+const BOARD_SCOPE_LABELS: Record<BoardScope, string> = {
+  off: "Off (Live only)",
+  "1d": "Last 1 day",
+  "3d": "Last 3 days",
+  "7d": "Last 7 days",
+  "1mo": "Last 1 month",
+  "3mo": "Last 3 months",
+  "6mo": "Last 6 months",
+  "1y": "Last 1 year",
+  full: "Full board",
+};
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
 // the picker with a neutral grey when there's nothing to inherit from.
@@ -103,6 +127,10 @@ export function SettingsPage({
   onClearColor,
   defaultRangePreset,
   onDefaultRangePreset,
+  boardScope,
+  onBoardScope,
+  wideLayout,
+  onWideLayout,
   theme,
   onTheme,
   livePreviewLines,
@@ -123,6 +151,9 @@ export function SettingsPage({
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
   const sourceMeta = new Map(sources.map((s) => [s.source_id, s]));
+  // The wide-layout toggle only does anything in the Android WebView (the browser
+  // and desktop shell are freely resizable), so it is shown only there.
+  const isAndroid = currentClientKind() === ANDROID_CLIENT_KIND;
 
   // Group repos by source, preserving deriveRepos' (source, path) ordering.
   const bySource = new Map<string, RepoOption[]>();
@@ -185,6 +216,26 @@ export function SettingsPage({
           ))}
         </select>
       </div>
+
+      {isAndroid ? (
+        <div className="settings-pref">
+          <div>
+            <h3>Wide layout</h3>
+            <p className="muted">
+              Render the full desktop layout instead of the phone layout — for a large screen such as
+              an e-reader. Leave off on a phone. Saved on this device only.
+            </p>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={wideLayout}
+              onChange={(e) => onWideLayout(e.target.checked)}
+              aria-label="Use the wide desktop layout"
+            />
+          </label>
+        </div>
+      ) : null}
 
       <div className="settings-pref">
         <div>
@@ -287,6 +338,29 @@ export function SettingsPage({
           {TIME_RANGE_PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
               {preset.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Board data</h3>
+          <p className="muted">
+            How much of the board this device loads. A smaller window keeps the app fast and
+            avoids running out of memory on a limited device; “Off” shows only the Live feed.
+          </p>
+        </div>
+        <select
+          className="settings-select"
+          value={boardScope}
+          onChange={(e) => {
+            if (isBoardScope(e.target.value)) onBoardScope(e.target.value);
+          }}
+        >
+          {BOARD_SCOPE_VALUES.map((scope) => (
+            <option key={scope} value={scope}>
+              {BOARD_SCOPE_LABELS[scope]}
             </option>
           ))}
         </select>

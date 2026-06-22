@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import {
+  applyWideViewport,
   installAndroidSafeAreaInsets,
   internalRouteHashFromHref,
   isTauriRuntime,
@@ -10,7 +11,7 @@ import {
   shouldOpenExternalHttpHref,
 } from "./runtime.ts";
 import { startupRouteHash, resolveDefaultTab } from "./nav.ts";
-import { loadDefaultTab, loadLiveTabEnabled } from "./viewconfig.ts";
+import { currentClientKind, loadDefaultTab, loadLiveTabEnabled, loadWideLayout } from "./viewconfig.ts";
 import "./styles.css";
 
 // Desktop only: land on the configured default tab before React mounts (the web
@@ -19,6 +20,10 @@ import "./styles.css";
 // setting while preserving the debug console and graph deep-links.
 normalizeDesktopStartupRoute(startupRouteHash(window.location.hash, resolveDefaultTab(loadDefaultTab(), loadLiveTabEnabled())));
 installAndroidSafeAreaInsets();
+// Apply the per-device wide-layout preference BEFORE React mounts so the first
+// paint is already at the right viewport (no mobile->desktop reflow flash). A
+// no-op off Android; App re-applies it when the setting is toggled at runtime.
+applyWideViewport(loadWideLayout(), currentClientKind());
 
 document.addEventListener(
   "click",

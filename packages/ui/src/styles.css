@@ -2449,6 +2449,10 @@ a.rf-node-title:hover { color: var(--accent); }
   flex: none; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit;
 }
+/* The dropdown popup follows the inherited color-scheme (dark for Night Owl); also
+   paint the option rows in the panel palette where the WebView honors it (Chromium
+   on Android), so the native picker reads as part of the dark UI, not a grey sheet. */
+.settings-select option { background: var(--panel-2); color: var(--text); }
 /* a boolean Settings control (the Live-tab enable switch): a slightly larger
    accent checkbox, right-aligned like the selects. */
 .settings-toggle { flex: none; display: inline-flex; align-items: center; }

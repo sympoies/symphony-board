@@ -13,6 +13,8 @@ import {
   preferredDefaultTimeRange,
   staticContractTimeRange,
   timeRangeForPreset,
+  timeRangeForDays,
+  presetBeyondLoadedWindow,
   timeRangeToIso,
   isDateOnly,
   normalizeTimeRange,
@@ -641,6 +643,18 @@ test("date ranges are route-backed and filter inclusive timestamp bounds", () =>
   assert.deepEqual(timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-02", to: "2026-06-08" }, "1w is exactly 7 days ending today (today and the 6 before)");
   assert.deepEqual(timeRangeForPreset("6mo", Date.parse("2026-06-08T12:00:00Z")), { from: "2025-12-11", to: "2026-06-08" }, "6mo is exactly 180 days ending today");
   assert.deepEqual(timeRangeForPreset("1y", Date.parse("2026-06-08T12:00:00Z")), { from: "2025-06-09", to: "2026-06-08" }, "1y is exactly 365 days ending today");
+  // timeRangeForDays is the rolling-window primitive shared by the rolling presets
+  // and the mobile board-scope window: exactly N calendar days ending today.
+  assert.deepEqual(timeRangeForDays(1, Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-08", to: "2026-06-08" }, "1 day = today only");
+  assert.deepEqual(timeRangeForDays(3, Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-06", to: "2026-06-08" }, "3 days = today and the 2 before");
+  assert.deepEqual(timeRangeForDays(7, Date.parse("2026-06-08T12:00:00Z")), timeRangeForPreset("1w", Date.parse("2026-06-08T12:00:00Z")), "7 days matches the 1w rolling preset");
+  assert.deepEqual(timeRangeForDays(0, Date.parse("2026-06-08T12:00:00Z")), { from: "2026-06-08", to: "2026-06-08" }, "days clamps to >= 1");
+  // presetBeyondLoadedWindow disables quick presets that reach before the loaded
+  // board window (Board data). windowFrom null = no cap (Full board).
+  assert.equal(presetBeyondLoadedWindow({ from: "2026-03-01", to: "2026-06-08" }, "2026-05-10"), true, "a preset starting before the loaded window is out of range");
+  assert.equal(presetBeyondLoadedWindow({ from: "2026-05-20", to: "2026-06-08" }, "2026-05-10"), false, "a preset within the loaded window is allowed");
+  assert.equal(presetBeyondLoadedWindow({ from: "2026-05-10", to: "2026-06-08" }, "2026-05-10"), false, "a preset starting exactly at the window edge is allowed");
+  assert.equal(presetBeyondLoadedWindow({ from: "2025-01-01", to: "2026-06-08" }, null), false, "null windowFrom (Full board) never caps");
   assert.equal(isDateOnly("2026-06-07"), true);
   assert.equal(isDateOnly("2026-02-31"), false);
   assert.deepEqual(normalizeTimeRange(range), range);

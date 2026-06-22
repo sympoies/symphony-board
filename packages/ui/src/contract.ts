@@ -6,7 +6,7 @@
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, LiveSnapshot } from "./model.ts";
 import { appFetch } from "./runtime.ts";
-import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl } from "./viewconfig.ts";
+import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
 
 // The major this UI understands. The contract versions independently; if a
 // future emit bumps the MAJOR, the UI should branch (or warn) rather than
@@ -285,7 +285,29 @@ export const CONTRACT_CONNECT_TIMEOUT_MS = 10_000;
 // download room to finish on the first attempt instead of looping. A healthy
 // link still resolves in ~1s; this ceiling only matters when the link is slow.
 export const CONTRACT_REQUEST_TIMEOUT_MS = 60_000;
+// The Android thin client needs a far larger ceiling. The 60s above assumed the
+// cost was a slow LINK; in practice the link is fine (the ~1.5MB gzip arrives in
+// well under a second) and the time goes to CLIENT-SIDE work: gunzip to ~15MB,
+// marshal that ~15MB body across the Tauri Android IPC bridge, then JSON.parse.
+// On weak hardware (an e-ink tablet) that exceeds 60s, so the attempt aborts and
+// the outer loop re-fetches forever — the "Loading contract…" / "Failed to fetch"
+// retry storm. Desktop/web have no IPC hop and decode fast, so they keep 60s; the
+// connect timeout still fails an unreachable server fast, so this larger ceiling
+// only ever applies to a connected-but-slow-to-decode Android device.
+export const CONTRACT_REQUEST_TIMEOUT_MS_ANDROID = 240_000;
 export const CONTRACT_LOAD_RETRIES = 2;
+
+// True for the Android thin client (case-insensitive, matching currentClientKind).
+function isAndroidClient(clientKind: string | null): boolean {
+  return clientKind?.toLowerCase() === ANDROID_CLIENT_KIND;
+}
+
+// Per-attempt contract-load ceiling for a client kind: the larger Android ceiling
+// for the Android thin client, the shared default otherwise. Pure + exported so
+// the routing is unit-testable without a Tauri/Android runtime.
+export function contractRequestTimeoutMs(clientKind: string | null): number {
+  return isAndroidClient(clientKind) ? CONTRACT_REQUEST_TIMEOUT_MS_ANDROID : CONTRACT_REQUEST_TIMEOUT_MS;
+}
 export const CONTRACT_RETRY_BASE_DELAY_MS = 1_000;
 const CONTRACT_RETRY_MAX_DELAY_MS = 8_000;
 
@@ -412,7 +434,7 @@ export async function fetchContractWithMetadata(
   const target = resolveEndpoint(url, serverBaseUrl);
   const retries = opts.retries ?? CONTRACT_LOAD_RETRIES;
   const baseDelay = opts.retryBaseDelayMs ?? CONTRACT_RETRY_BASE_DELAY_MS;
-  const requestTimeoutMs = opts.requestTimeoutMs ?? CONTRACT_REQUEST_TIMEOUT_MS;
+  const requestTimeoutMs = opts.requestTimeoutMs ?? contractRequestTimeoutMs(clientKind);
   const connectTimeoutMs = opts.connectTimeoutMs ?? CONTRACT_CONNECT_TIMEOUT_MS;
   const sleep = opts.sleep ?? defaultSleep;
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -468,8 +490,17 @@ export function parseContractWithMetadata(text: string, url = "uploaded contract
 }
 
 export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<ContractEnvelope> {
+  return (await fetchRangeContractWithMetadata(range, serverBaseUrl, opts)).env;
+}
+
+// The metadata-carrying range fetch. A mobile client whose board-scope is a time
+// window loads this AS its primary contract (instead of ./contract.json), so it
+// needs the same LoadedContract shape (env + load metadata for Diagnostics) the
+// full loader returns. Reuses the same resilient loader (timeouts/retries), so
+// the Android per-attempt ceiling applies here too.
+export async function fetchRangeContractWithMetadata(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<LoadedContract> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
-  return fetchContract(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
+  return fetchContractWithMetadata(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
 }
 
 // --- UI-triggered manual sync control plane client ---
@@ -676,6 +707,16 @@ export async function fetchTokenRateLimits(serverBaseUrl: string | null = loadSe
 // its own retry, so the steady-state poll passes `retries: 0`.
 export const LIVE_SNAPSHOT_CONNECT_TIMEOUT_MS = 5_000;
 export const LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS = 12_000;
+// The Android thin client needs a larger snapshot ceiling for the same reason as
+// the contract (see CONTRACT_REQUEST_TIMEOUT_MS_ANDROID): the cold-start seed is
+// ~4.8MB decoded, and the gunzip + Tauri IPC marshal + JSON.parse can exceed 12s
+// on weak e-ink hardware, leaving Live stuck "Connecting…" and re-probing forever.
+// Desktop/web decode fast and keep 12s.
+export const LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS_ANDROID = 60_000;
+// Per-attempt live-snapshot ceiling for a client kind (see contractRequestTimeoutMs).
+export function liveSnapshotRequestTimeoutMs(clientKind: string | null): number {
+  return isAndroidClient(clientKind) ? LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS_ANDROID : LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS;
+}
 export const LIVE_SNAPSHOT_PROBE_RETRIES = 2;
 export const LIVE_SNAPSHOT_RETRY_BASE_MS = 500;
 const LIVE_SNAPSHOT_RETRY_MAX_MS = 4_000;
@@ -760,7 +801,7 @@ export async function fetchLiveSnapshotResult(
   sinceSeq?: number,
   opts: LiveSnapshotFetchOptions = {},
 ): Promise<LiveSnapshotFetchResult> {
-  const requestTimeoutMs = opts.requestTimeoutMs ?? LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS;
+  const requestTimeoutMs = opts.requestTimeoutMs ?? liveSnapshotRequestTimeoutMs(currentClientKind());
   const connectTimeoutMs = opts.connectTimeoutMs ?? LIVE_SNAPSHOT_CONNECT_TIMEOUT_MS;
   const retries = Math.max(0, opts.retries ?? 0);
   const retryBaseDelayMs = opts.retryBaseDelayMs ?? LIVE_SNAPSHOT_RETRY_BASE_MS;

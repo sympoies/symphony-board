@@ -247,9 +247,9 @@ Top-level fields:
   window whenever the endpoint belongs to a tracked item.
 - `activities`: optional developer-significant event feed, added in `1.2.0`. As
   of `4.0.0` the static contract windows it to the last 30 days (see Activities).
-- `activity_daily`: optional pre-computed per-day/per-kind activity counts over
-  the full canonical history, added in `4.0.0` (see Activity Daily). The static
-  contract always emits it; `/api/range` omits it.
+- `activity_daily`: optional pre-computed per-day/per-kind activity counts, added
+  in `4.0.0` (see Activity Daily). Emitted by both the static contract (over the
+  full canonical history) and `/api/range` (over the in-range activities).
 - `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
 - `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 - `item_window`: required v2 metadata describing the primary loaded item window.
@@ -491,8 +491,12 @@ activity history. It exists so the Activity Overview (the fixed trailing-12-mont
 heatmap, by-kind totals, busiest day, active days) renders without the raw
 `activities[]` feed, which `4.0.0` windows to 30 days.
 
-The static `contract.json` always emits it; the `/api/range` projection omits it
-(a range response carries the full raw `activities[]` for its window instead).
+Both the static `contract.json` and the `/api/range` projection emit it, but with
+different scope: `contract.json` buckets the **full** canonical history (its
+`total` reconciles with the full canonical count), while `/api/range` buckets the
+**in-range** `activities[]` the response carries (its `total` reconciles with that
+windowed set), so a windowed mobile board that loads a range response as its
+primary env still renders the Activity Overview instead of a blank panel.
 
 Fields:
 
@@ -612,8 +616,11 @@ The range response is a projection, not a second schema:
   `window_reasons: ["edge_endpoint"]` when they are outside the primary item
   set.
 - `activities[]` is filtered by `occurred_at` inside `[from, to]`.
-- `aggregates[]` is empty in range responses; consumers compute scoped visible
-  stats from the returned rows.
+- `aggregates[]` is populated in range responses from the full live item/edge
+  set (the same computation the static contract uses), so a windowed board keeps
+  working stat bars; consumers may still compute scoped visible stats locally.
+- `activity_daily` is populated in range responses, bucketing the in-range
+  `activities[]` above (see Activity Daily).
 - `repo_stats[]` remains the full canonical repo inventory, not only loaded
   range rows.
 

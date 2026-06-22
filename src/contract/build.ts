@@ -1360,8 +1360,18 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     edges: ranged.edges,
     activities: ranged.activities,
     review_threads: reviewThreadsForItems(mapped.reviewThreads, ranged.items),
+    // activity_daily over the projected in-range activities (the SAME set emitted
+    // as `activities`, so the Overview totals reconcile), so a client that loads a
+    // windowed range AS its primary env (the mobile board-scope setting) still gets
+    // the Activity Overview / trend instead of a blank panel. The desktop range
+    // overlay ignores this (it reads the full contract's activity_daily).
+    activity_daily: buildActivityDaily(ranged.activities, input.generatedAt, timezone),
     repos: mapped.repos,
-    aggregates: [],
+    // Board-wide aggregates over the FULL live set (the same call buildContract
+    // makes) — small, and only consumed when this range response is itself the
+    // primary env (mobile board-scope). The desktop range overlay reads the full
+    // contract's aggregates and gates these off (compatibleAggregates: !customRange).
+    aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
     repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC", coverageBounds, configuredRepoKeys),
