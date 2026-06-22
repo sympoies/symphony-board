@@ -180,6 +180,28 @@ test("rejects malformed named token pools and unknown project token_pool refs", 
   );
 });
 
+test("repo token pools fall back to source tokens when no pool token is set", () => {
+  const sourcePath = writeConfig(
+    baseSource({
+      token_env: "CONFIG_POOL_FALLBACK_DEFAULT",
+      token_pools: {
+        sympoies: { token_env: "CONFIG_POOL_FALLBACK_MISSING" },
+      },
+      projects: [{ path: "sympoies/repo", token_pool: "sympoies" }],
+    }),
+  );
+  const { cfg } = loadConfig(sourcePath);
+  const source = cfg.sources[0]!;
+  process.env.CONFIG_POOL_FALLBACK_DEFAULT = "default-token";
+  try {
+    assert.deepEqual(tokensForProject(source, "sympoies/repo"), [
+      { env: "CONFIG_POOL_FALLBACK_DEFAULT", value: "default-token" },
+    ]);
+  } finally {
+    delete process.env.CONFIG_POOL_FALLBACK_DEFAULT;
+  }
+});
+
 test("accepts source enabled boolean and rejects malformed enabled values", () => {
   assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ enabled: true })] }, "config"), []);
   assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ enabled: false })] }, "config"), []);

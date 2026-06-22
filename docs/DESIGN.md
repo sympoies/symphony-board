@@ -654,7 +654,8 @@ overlays a **fresh read of that file over `process.env` at sync time** for the
 source-level `token_env` plus any `fallback_token_envs`, and `tokensForProject`
 does the same for optional GitHub `token_pools`. A GitHub project may name a
 `token_pool`; that repo's GraphQL and REST activity requests use the named pool,
-while projects without a pool keep using the source-level PAT pool. The
+while projects without a pool, or whose named pool has no resolved token values,
+keep using the source-level PAT pool. The
 standalone shell passes `secrets.env` as spawn env, so the fresh overlay is what
 makes a token set in-app apply without restarting the app. GitHub fallback PATs
 are used only when GitHub clearly reports primary rate-limit exhaustion for the

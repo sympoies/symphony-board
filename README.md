@@ -214,7 +214,9 @@ Use a PAT from a different GitHub account; multiple PATs from the same account
 share the same user quota.
 GitHub sources may also define `token_pools`, then set a project object's
 `token_pool` to route that repo through a named PAT pool. A project without
-`token_pool` keeps using the source-level `token_env` / `fallback_token_envs`.
+`token_pool` keeps using the source-level `token_env` / `fallback_token_envs`;
+an assigned pool with no set token values also falls back to the source-level
+pool so rollout can happen before every new secret is populated.
 
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers (for

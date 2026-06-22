@@ -419,7 +419,8 @@ export function tokensForProject(s: SourceConfig, projectPath: string): Resolved
   const poolName = typeof entry === "string" ? undefined : entry?.token_pool;
   if (!poolName) return tokensForSource(s);
   const pool = s.token_pools?.[poolName];
-  return pool ? tokensForPool(pool) : [];
+  const poolTokens = pool ? tokensForPool(pool) : [];
+  return poolTokens.length > 0 ? poolTokens : tokensForSource(s);
 }
 
 export function sourceTokenEnvNames(s: SourceConfig): string[] {
