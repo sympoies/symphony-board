@@ -18,6 +18,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, normalize } from "node:path";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
+// Source of truth for the seed/buffer sizes, so the assertions below track the
+// constants (a retune updates here, not a frozen literal that could rot).
+import { LIVE_SEED_LIMIT, LIVE_EVENT_BUFFER_LIMIT } from "../src/live-config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
@@ -2959,8 +2962,8 @@ try {
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
     // the buffer cap, so the first paint isn't a ~26MB download; the poll-since
     // request still uses the buffer cap (it returns only rows after the cursor).
-    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "200" && !url.searchParams.has("since")), `live: cold-start seed requests the small seed limit (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
-    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === "1000" && url.searchParams.get("since") === "3"), `live: polling fallback requests only rows after the cursor (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
+    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === String(LIVE_SEED_LIMIT) && !url.searchParams.has("since")), `live: cold-start seed requests the small seed limit (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
+    [hasLiveSnapshotUrl((url) => url.pathname === "/api/live-snapshot" && url.searchParams.get("limit") === String(LIVE_EVENT_BUFFER_LIMIT) && url.searchParams.get("since") === "3"), `live: polling fallback requests only rows after the cursor (${liveSnapshotUrlsAfterPoll.join(", ") || "none"})`],
     [live.statusUnavailable === false, `live: a seeded feed never reads Unavailable (${live.statusText || "empty"})`],
     [live.statusText === "Streaming" && live.statusHasTransport === false, `live: polling status pill renders only Streaming (${live.statusText || "empty"})`],
     [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || "") && /^3\/1000$/.test(liveHiddenType.bufferText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
