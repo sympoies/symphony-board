@@ -22,8 +22,8 @@
 - Next task: 1.1 — `verifyGitlabSignature` (Standard-Webhooks HMAC over raw
   bytes).
 - Last updated: 2026-06-24
-- Branch/commit/PR: branch `docs/live-tab-gitlab-source-plan`; bundle commit
-  `bb1371f7`; bundle-delivery PR pending.
+- Branch/commit/PR: branch `docs/live-tab-gitlab-source-plan`; bundle-delivery
+  PR pending.
 - Source document: `docs/plans/2026-06-24-live-tab-gitlab-source/live-tab-gitlab-source-discussion-source.md`
 - Plan document: `docs/plans/2026-06-24-live-tab-gitlab-source/live-tab-gitlab-source-plan.md`
 - Direct source-doc execution waiver: not applicable.
