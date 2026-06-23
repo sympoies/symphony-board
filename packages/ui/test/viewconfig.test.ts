@@ -386,10 +386,14 @@ test("windowedRangeTailUnfetched flags a windowed env whose displayed tail exten
   // alignment is untouched and no needless overlay fetch fires.
   assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-10", "2026-06-08"), "1mo", generatedAt, "UTC"), false, "fetched tail == displayed tail -> no overlay");
 
-  // FETCH AHEAD: the fetch reached LATER than generated_at (e.g. a stale fixture whose
-  // generated_at predates the fetch day). The displayed window is a subset of fetched
-  // data, so there is no gap to fill. Must stay false.
-  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-11", "2026-06-09"), "1mo", generatedAt, "UTC"), false, "displayed tail within fetched data -> no overlay");
+  // FETCH AHEAD (#417): the fetch clock ran LATER than generated_at, so the fetched
+  // window is shifted one day later than the displayed window. The two windows share
+  // the SAME span (boardScopeDays), so a later fetch is NOT a superset — it drops the
+  // displayed HEAD day instead of the tail. Here display 2026-05-10..06-08 vs fetched
+  // 2026-05-11..06-09: the head day 05-10 was never fetched, so the overlay IS needed.
+  // The old `to`-only check wrongly returned false (06-08 > 06-09 is false) and left
+  // the head day reading empty under client-ahead clock skew.
+  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-11", "2026-06-09"), "1mo", generatedAt, "UTC"), true, "fetch-ahead drops the displayed head day (05-10 never fetched) -> overlay needed");
 
   // Unwindowed scopes never overlay, range_query or not.
   assert.equal(windowedRangeTailUnfetched(drifted, "full", generatedAt, "UTC"), false, "full scope is never windowed");
@@ -406,6 +410,42 @@ test("windowedRangeTailUnfetched flags a windowed env whose displayed tail exten
   assert.equal(boardWindowRange("1mo", taipeiGenerated, "Asia/Taipei")!.to, "2026-06-09", "Taipei display window ends on the local generated_at day");
   const taipeiDrift = { ...rangeEnv("2026-05-10", "2026-06-08", "Asia/Taipei"), generated_at: "2026-06-08T18:00:00Z" } as unknown as ContractEnvelope;
   assert.equal(windowedRangeTailUnfetched(taipeiDrift, "1mo", taipeiGenerated, "Asia/Taipei"), true, "tz-aware: the Taipei displayed tail (06-09) was never fetched (06-08)");
+});
+
+test("windowedRangeTailUnfetched is a both-ends coverage check, not tail-only (#417 client-ahead skew)", () => {
+  // The displayed window (boardWindowRange, on generated_at) and the fetched window
+  // (range_query, on the fetch clock) share the SAME span. So a clock skew shifts the
+  // fetched window relative to the displayed one without changing its length: a fetch
+  // BEHIND drops the displayed tail (#414), a fetch AHEAD drops the displayed head, and
+  // a large-enough skew drops both (no overlap). The helper must flag a gap at EITHER
+  // end, so the overlay refetches the displayed window the user actually sees.
+  const rangeEnv = (fetchFrom: string, fetchTo: string, tz = "UTC"): ContractEnvelope =>
+    ({
+      contract_version: "2.0.0",
+      generated_at: "2026-06-08T00:30:00Z",
+      generator: "t",
+      sources: [],
+      items: [],
+      edges: [],
+      range_query: { kind: "time_range", timezone: tz, ...timeRangeToIso({ from: fetchFrom, to: fetchTo }, tz) },
+    }) as unknown as ContractEnvelope;
+
+  // 1mo display window ending on the generated_at day 2026-06-08 (so from = 2026-05-10).
+  const generatedAt = Date.parse("2026-06-08T00:30:00Z");
+  assert.equal(boardWindowRange("1mo", generatedAt, "UTC")!.from, "2026-05-10", "display window starts 05-10");
+  assert.equal(boardWindowRange("1mo", generatedAt, "UTC")!.to, "2026-06-08", "display window ends 06-08");
+
+  // HEAD uncovered (client clock one day ahead): fetched 05-11..06-09 leaves 05-10 out.
+  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-11", "2026-06-09"), "1mo", generatedAt, "UTC"), true, "fetch-ahead by 1 day -> head day 05-10 unfetched");
+
+  // No overlap at all on a 1d scope (display window is the single generated_at day, a
+  // one-day-ahead fetch lands entirely on the next day): the whole displayed day is unfetched.
+  assert.equal(boardWindowRange("1d", generatedAt, "UTC")!.from, "2026-06-08", "1d display window is the generated_at day");
+  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-06-09", "2026-06-09"), "1d", generatedAt, "UTC"), true, "1d fetch-ahead -> displayed day never fetched (no overlap)");
+
+  // Fully covered: a fetched window that contains the displayed window on BOTH ends
+  // (only possible if the fetch span is wider, e.g. a larger fixture) needs no overlay.
+  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-01", "2026-06-20"), "1mo", generatedAt, "UTC"), false, "displayed window fully inside fetched data -> no overlay");
 });
 
 test("wide layout is a device-local setting that is OFF by default", () => {
