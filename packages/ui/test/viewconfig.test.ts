@@ -11,13 +11,13 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
-  isWindowedRangeEnv, boardDisplayRange,
+  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
-import { TIME_RANGE_PRESETS, activeTimeRangePresetId, staticContractTimeRange, timeRangeForPreset, windowQuickPreset } from "../src/model.ts";
+import { TIME_RANGE_PRESETS, activeTimeRangePresetId, staticContractTimeRange, timeRangeForPreset, timeRangeToIso, windowQuickPreset } from "../src/model.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
@@ -346,6 +346,66 @@ test("boardWindowRange pins the loaded window to the contract clock so it lines 
     "1mo",
     "boardWindowRange threads tz so a windowed scope aligns to its preset across a UTC/local day boundary",
   );
+});
+
+test("windowedRangeTailUnfetched flags a windowed env whose displayed tail extends past the fetched range_query day (#414 fetch-vs-display drift)", () => {
+  // A windowed mobile board FETCHES /api/range with the live Date.now() clock, but
+  // the DISPLAYED window (boardWindowRange) resolves on the contract's generated_at
+  // — two clocks in one load. When a load crosses local midnight (or under client /
+  // server clock skew) the generated_at day lands LATER than the fetched `to` day,
+  // so staticRange claims a trailing day the env never fetched. The landing range
+  // equals staticRange (customRange false), so without this signal no range overlay
+  // would fill the gap and today's items read as missing. windowedRangeTailUnfetched
+  // detects exactly that case so App can force the overlay refetch (#414, option 2).
+
+  // range_query mirrors the server: from/to are the fetch-clock calendar days
+  // expanded to the zone's day boundaries (parseRange -> zonedDay{Start,End}Iso),
+  // which timeRangeToIso reproduces. Only `to` matters to the helper.
+  const rangeEnv = (fetchFrom: string, fetchTo: string, tz = "UTC"): ContractEnvelope =>
+    ({
+      contract_version: "2.0.0",
+      generated_at: "2026-06-08T00:30:00Z", // a hair past UTC midnight
+      generator: "t",
+      sources: [],
+      items: [],
+      edges: [],
+      range_query: { kind: "time_range", timezone: tz, ...timeRangeToIso({ from: fetchFrom, to: fetchTo }, tz) },
+    }) as unknown as ContractEnvelope;
+
+  // DRIFT: generated just after local midnight on 2026-06-08, but the /api/range
+  // fetch fired just BEFORE midnight, so it requested a 1mo window ending 2026-06-07.
+  // The displayed 1mo window ends 2026-06-08 (generated_at) -> its tail day was never
+  // fetched, and no overlay would otherwise fill it.
+  const generatedAt = Date.parse("2026-06-08T00:30:00Z");
+  assert.equal(boardWindowRange("1mo", generatedAt, "UTC")!.to, "2026-06-08", "display window ends on the generated_at day");
+  const drifted = rangeEnv("2026-05-09", "2026-06-07");
+  assert.equal(windowedRangeTailUnfetched(drifted, "1mo", generatedAt, "UTC"), true, "displayed tail (06-08) was never fetched (06-07) -> overlay needed");
+
+  // NO DRIFT (the common case): fetch and generated_at land on the SAME day, so the
+  // displayed window is exactly what was fetched. Must stay false so #407's preset
+  // alignment is untouched and no needless overlay fetch fires.
+  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-10", "2026-06-08"), "1mo", generatedAt, "UTC"), false, "fetched tail == displayed tail -> no overlay");
+
+  // FETCH AHEAD: the fetch reached LATER than generated_at (e.g. a stale fixture whose
+  // generated_at predates the fetch day). The displayed window is a subset of fetched
+  // data, so there is no gap to fill. Must stay false.
+  assert.equal(windowedRangeTailUnfetched(rangeEnv("2026-05-11", "2026-06-09"), "1mo", generatedAt, "UTC"), false, "displayed tail within fetched data -> no overlay");
+
+  // Unwindowed scopes never overlay, range_query or not.
+  assert.equal(windowedRangeTailUnfetched(drifted, "full", generatedAt, "UTC"), false, "full scope is never windowed");
+  assert.equal(windowedRangeTailUnfetched(drifted, "off", generatedAt, "UTC"), false, "off scope is never windowed");
+
+  // An uploaded / full contract carries no range_query -> never an overlay candidate.
+  assert.equal(windowedRangeTailUnfetched({ ...drifted, range_query: undefined } as unknown as ContractEnvelope, "1mo", generatedAt, "UTC"), false, "an env without range_query is not a windowed range env");
+
+  // tz threaded end to end: in Asia/Taipei (UTC+8) the generated_at instant 18:00Z is
+  // already the next LOCAL day (06-09 02:00). A fetch that ended 06-08 (local) is one
+  // local day behind the displayed window -> the cross-midnight gap the bug is named
+  // for, detected in a non-UTC zone.
+  const taipeiGenerated = Date.parse("2026-06-08T18:00:00Z");
+  assert.equal(boardWindowRange("1mo", taipeiGenerated, "Asia/Taipei")!.to, "2026-06-09", "Taipei display window ends on the local generated_at day");
+  const taipeiDrift = { ...rangeEnv("2026-05-10", "2026-06-08", "Asia/Taipei"), generated_at: "2026-06-08T18:00:00Z" } as unknown as ContractEnvelope;
+  assert.equal(windowedRangeTailUnfetched(taipeiDrift, "1mo", taipeiGenerated, "Asia/Taipei"), true, "tz-aware: the Taipei displayed tail (06-09) was never fetched (06-08)");
 });
 
 test("wide layout is a device-local setting that is OFF by default", () => {
