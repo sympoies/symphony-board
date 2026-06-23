@@ -94,6 +94,7 @@ import {
   boardScopeDays,
   boardDisplayRange,
   isWindowedRangeEnv,
+  windowedRangeTailUnfetched,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
   loadWideLayout,
@@ -395,7 +396,18 @@ export function App() {
   const explicitRange = useMemo(() => routeTimeRange(route), [route]);
   const activeRange = explicitRange ?? defaultRange;
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
-  const needsRangeEnv = customRange && page !== "settings";
+  // #414: a windowed range env is FETCHED on the live Date.now() clock but DISPLAYED on
+  // the contract's generated_at (boardWindowRange, so the window stays byte-identical to
+  // its named preset — #407). When a load crosses local midnight, or client/server clock
+  // skew lands the two on different local days, staticRange can claim a trailing day the
+  // fetch never requested. On the landing range customRange is false (activeRange ==
+  // staticRange), so the overlay below would not fire and the Activity feed would filter
+  // to a window whose last day was never fetched (today reads empty). Detect that gap and
+  // force the range overlay to refetch the displayed window so the tail is actually
+  // loaded. customRange itself is left untouched so the windowed env's full-set aggregates
+  // (compatibleAggregates) are still trusted; only the overlay fetch is forced.
+  const windowTailUnfetched = windowedRangeTailUnfetched(env, boardScope, generatedNowMs, tz);
+  const needsRangeEnv = (customRange || windowTailUnfetched) && page !== "settings";
 
   // Reload the active data in place after a successful manual sync. It only
   // re-fetches the contract (and the range response for a custom range); the
