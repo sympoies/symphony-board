@@ -353,36 +353,49 @@ export function boardDisplayRange(env: ContractEnvelope, scope: BoardScope, now:
   return isWindowedRangeEnv(env, scope) ? boardWindowRange(scope, now, tz)! : staticContractTimeRange(env);
 }
 
-// Whether the DISPLAYED windowed range extends past the day the env actually
-// FETCHED — the two-clock gap behind #414. A windowed /api/range env is fetched on
-// the live Date.now() clock (no contract exists yet on first load), but its display
-// window resolves on the contract's generated_at (boardWindowRange, so it stays
-// byte-identical to its named preset — the #407 fix). When a load crosses local
-// midnight, or client/server clock skew lands the two on different local days, the
-// generated_at day can be LATER than the fetched `range_query.to` day: staticRange
-// then claims a trailing day the fetch never requested. Because the landing range
-// equals staticRange, customRange is false and no range overlay fills the gap, so
-// the Activity feed filters to a window whose last day was never fetched (today
-// reads empty). App ORs this into needsRangeEnv to force the overlay refetch of the
-// displayed window (#414, option 2). Returns false for any non-windowed env, a
-// missing range_query, and — crucially — the common no-drift case (fetched day ==
-// displayed day) and the fetch-ahead case (displayed window is a subset of fetched
-// data), so #407's preset alignment and the single-fetch fast path are untouched
-// whenever the clocks agree. `range_query.to` is the fetch day expanded to the
-// zone's day END (server parseRange), so map it back to a calendar day in the same
-// zone before the date-only comparison.
+// Whether the DISPLAYED windowed range is NOT fully covered by the day range the env
+// actually FETCHED — the two-clock gap behind #414, generalised to both ends in #417.
+// A windowed /api/range env is fetched on the live Date.now() clock (no contract exists
+// yet on first load), but its display window resolves on the contract's generated_at
+// (boardWindowRange, so it stays byte-identical to its named preset — the #407 fix).
+// The displayed window and the fetched window share the SAME span (both are
+// boardScopeDays long), so client/server clock skew SHIFTS the fetched window relative
+// to the displayed one without resizing it — it is never a strict superset of a
+// same-span displayed window:
+//   • fetch BEHIND (generated_at day > fetched `to` day, e.g. a load crossing local
+//     midnight): the displayed TAIL day was never fetched (the original #414 case);
+//   • fetch AHEAD (generated_at day < fetched `from` day, client clock runs fast): the
+//     displayed HEAD day was never fetched — the #417 case the old `to`-only check
+//     missed (it returned false because `display.to <= fetched.to`, leaving the head day
+//     reading empty);
+//   • a large enough skew leaves NO overlap at all (most visible on a 1d scope).
+// Because the landing range equals staticRange, customRange is false and no range
+// overlay would otherwise fill the gap, so the Activity feed filters to a window whose
+// edge day was never fetched (it reads empty). App ORs this into needsRangeEnv to force
+// the overlay refetch of the displayed window (#414, option 2). Returns false for any
+// non-windowed env, a missing range_query, and the common no-drift case (displayed
+// window fully within the fetched range), so #407's preset alignment and the
+// single-fetch fast path are untouched whenever the clocks agree. `range_query.from` /
+// `.to` are the fetch days expanded to the zone's day START / END (server parseRange),
+// so map each back to a calendar day in the same zone before the date-only comparison.
 export function windowedRangeTailUnfetched(env: ContractEnvelope | null | undefined, scope: BoardScope, now: number, tz?: string): boolean {
   if (!isWindowedRangeEnv(env, scope)) return false;
   const fetchedTo = env!.range_query?.to;
   if (fetchedTo == null) return false;
-  const fetchedMs = Date.parse(fetchedTo);
-  if (!Number.isFinite(fetchedMs)) return false;
+  const fetchedToMs = Date.parse(fetchedTo);
+  if (!Number.isFinite(fetchedToMs)) return false;
   const display = boardWindowRange(scope, now, tz);
   if (display == null) return false;
+  const zone = tz ?? DEFAULT_TIMEZONE;
   // Both sides are calendar days in the same zone; date-only strings compare
-  // lexicographically. `display.to` is already date-only; `fetchedTo` is the server's
-  // day-END instant, so re-zone it to its calendar day first.
-  return display.to > zonedDateOnly(fetchedMs, tz ?? DEFAULT_TIMEZONE);
+  // lexicographically. `display.{from,to}` are already date-only; the fetched instants
+  // are re-zoned to their calendar day first. Tail uncovered (fetch behind):
+  if (display.to > zonedDateOnly(fetchedToMs, zone)) return true;
+  // Head uncovered (fetch ahead): the displayed window starts before the fetched one.
+  const fetchedFrom = env!.range_query?.from;
+  const fetchedFromMs = fetchedFrom != null ? Date.parse(fetchedFrom) : NaN;
+  if (Number.isFinite(fetchedFromMs) && display.from < zonedDateOnly(fetchedFromMs, zone)) return true;
+  return false;
 }
 
 // The default scope for a client kind when nothing is stored: Android renders on

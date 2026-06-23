@@ -193,6 +193,12 @@ export function App() {
   // a background retry is pending; `bootDismissed` tracks whether the cold-start
   // splash has been removed yet.
   const [reloadKey, setReloadKey] = useState(0);
+  // Bumps after every in-place data reload (reloadData: manual refresh / post-sync /
+  // daemon fresh-data). Unlike reloadKey it does NOT re-run the init fetch — it only
+  // re-triggers the side aggregates a reload must refresh but that key off neither env
+  // nor reloadKey, namely the full-history Activity overlay (#409). Kept separate so a
+  // reload does not pay for a full cold-start init round.
+  const [dataReloadEpoch, setDataReloadEpoch] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [bootDismissed, setBootDismissed] = useState(false);
   const initAttemptRef = useRef(0);
@@ -453,6 +459,13 @@ export function App() {
         .finally(() => setRangeLoading(false)));
     }
     await Promise.all(pending);
+    // The primary env (and the range overlay) are refreshed above, but the
+    // full-history Activity overlay (fullActivityDaily) is fetched by a separate effect
+    // that keys off windowedEnv — which is unchanged across a reload (same scope, the
+    // new /api/range env still carries range_query). Bump the reload epoch so that
+    // effect re-runs and the Activity Overview reflects the freshly emitted contract
+    // instead of staying pinned to the pre-reload aggregate (#409).
+    setDataReloadEpoch((e) => e + 1);
     return loadedContract;
   }, [contractDisabled, boardScope, boardScopeDaysValue, tz, needsRangeEnv, activeRange, serverBaseUrl]);
   const reloadDataAfterSync = useCallback(async () => {
@@ -816,6 +829,10 @@ export function App() {
   // failure it stays null and the overview falls back to env.activity_daily (the
   // prior behavior). With scope "full"/"off" the primary env already carries the full
   // aggregate (or there is no contract), so no overlay fetch is needed.
+  // dataReloadEpoch is in the deps so an in-place reload (manual refresh / post-sync /
+  // daemon fresh-data, via reloadData) refetches this overlay too — without it the
+  // windowedEnv gate stays true->true across a reload, the effect never re-runs, and
+  // the Activity Overview would stay pinned to the pre-reload aggregate (#409).
   useEffect(() => {
     if (contractDisabled || !windowedEnv) {
       setFullActivityDaily(null);
@@ -828,7 +845,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [contractDisabled, windowedEnv, serverBaseUrl, reloadKey]);
+  }, [contractDisabled, windowedEnv, serverBaseUrl, reloadKey, dataReloadEpoch]);
 
   const activeEnv = needsRangeEnv ? rangeEnv : env;
   const chromeEnv = activeEnv ?? env;
