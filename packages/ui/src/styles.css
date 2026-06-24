@@ -2410,6 +2410,17 @@ a.rf-node-title:hover { color: var(--accent); }
 .review-comment-head time { color: var(--muted); }
 .review-comment-link { margin-left: auto; color: var(--link); white-space: nowrap; }
 .review-comment-more { margin: 2px 0 0; font-size: 12px; }
+/* Trailing "resolved" event closing the comment chain — a thin hairline-topped
+   row, not a comment card, so it reads as a status event. Green echoes the
+   resolved status; an outdated resolution dims to the muted hue. */
+.review-thread-resolution {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--fulfilled); font-size: 13px;
+}
+.review-thread-resolution.is-outdated { color: var(--muted); }
+.review-thread-resolution-mark { font-weight: 700; }
 
 @media (max-width: 620px) {
   .reviews-page { margin-top: 6px; }

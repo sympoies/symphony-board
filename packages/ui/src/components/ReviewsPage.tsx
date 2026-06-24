@@ -21,6 +21,7 @@ import {
   activityVirtualRange,
   relativeTime,
   reviewThreadComparator,
+  reviewResolution,
   reviewThreadDisplayTime,
   type Filters,
   type ReviewSort,
@@ -418,6 +419,7 @@ function ReviewDetail({
   const link = safeHref(thread.url);
   const hiddenComments = Math.max(0, thread.comments_total - thread.comments.length);
   const displayTime = reviewThreadDisplayTime(thread);
+  const resolution = reviewResolution(thread);
   return (
     <article className="live-detail-card">
       <button type="button" className="live-detail-back" onClick={onClose}>
@@ -468,6 +470,19 @@ function ReviewDetail({
               ) : null}
             </div>
           )}
+          {/* Echo the resolution at the END of the chain (the providers' "marked
+              this conversation as resolved" trailing event), so the outcome is
+              visible without scrolling back to the header. Timeless — the contract
+              carries no resolved_at. Outdated-resolved dims to the muted hue. */}
+          {resolution ? (
+            <div className={`review-thread-resolution${resolution.outdated ? " is-outdated" : ""}`} role="note">
+              <span className="review-thread-resolution-mark" aria-hidden="true">✓</span>
+              <span>
+                {resolution.label}
+                {resolution.outdated ? " · outdated" : ""}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
     </article>

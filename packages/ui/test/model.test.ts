@@ -67,6 +67,7 @@ import {
   compareReviewThreadsRecent,
   compareReviewThreadsGrouped,
   reviewThreadComparator,
+  reviewResolution,
   resetsIn,
   pluralize,
   buildGraph,
@@ -1296,6 +1297,39 @@ test("compareReviewThreadsGrouped keeps unresolved-first, repo + item grouping (
 test("reviewThreadComparator selects the comparator for the active sort", () => {
   assert.equal(reviewThreadComparator("recent"), compareReviewThreadsRecent);
   assert.equal(reviewThreadComparator("grouped"), compareReviewThreadsGrouped);
+});
+
+// reviewResolution drives the thread-detail's trailing "resolved" row: it returns
+// null for an unresolved thread (no row), and otherwise a ready-to-render label
+// echoing who resolved it (the contract carries no resolved_at, so it is timeless).
+test("reviewResolution returns null for an unresolved thread", () => {
+  assert.equal(reviewResolution(reviewThread({ is_resolved: false, resolved_by: null })), null);
+  // resolved_by present but still open -> no resolution row (open state wins)
+  assert.equal(reviewResolution(reviewThread({ is_resolved: false, resolved_by: "someone" })), null);
+});
+
+test("reviewResolution labels a resolved thread by its resolver", () => {
+  assert.deepEqual(reviewResolution(reviewThread({ is_resolved: true, is_outdated: false, resolved_by: "dobi-bot[bot]" })), {
+    by: "dobi-bot[bot]",
+    outdated: false,
+    label: "Resolved by @dobi-bot[bot]",
+  });
+});
+
+test("reviewResolution falls back to a generic label when the resolver is unknown", () => {
+  assert.deepEqual(reviewResolution(reviewThread({ is_resolved: true, is_outdated: false, resolved_by: null })), {
+    by: null,
+    outdated: false,
+    label: "Marked as resolved",
+  });
+  // whitespace-only resolver is treated as unknown
+  assert.equal(reviewResolution(reviewThread({ is_resolved: true, resolved_by: "  " }))?.by, null);
+});
+
+test("reviewResolution flags a resolved-but-outdated thread", () => {
+  const r = reviewResolution(reviewThread({ is_resolved: true, is_outdated: true, resolved_by: "maintainer" }));
+  assert.equal(r?.outdated, true);
+  assert.equal(r?.label, "Resolved by @maintainer");
 });
 
 // resetsIn is the future-facing mirror of relativeTime (the rate-limit tab's
