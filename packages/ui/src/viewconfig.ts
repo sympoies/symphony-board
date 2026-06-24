@@ -439,6 +439,18 @@ export function rangeOverlayAllowed(source: "network" | "file" | null | undefine
   return !staticDeployment && rangeOverlayAllowedForSource(source);
 }
 
+// The window length (in days) the primary contract load should request, or null
+// to load the full ./contract.json. A static, server-less deployment (#432) 404s
+// ./api/range, so it must load the full bundled contract even when a windowed
+// Board scope is stored — the windowed primary load fetches /api/range, which
+// does not exist on the Pages demo and would strand a fresh visitor on a
+// contract-load error. A normal deployment keeps the windowed primary load. Pure
+// so the gate is unit-tested; App passes boardScopeDays(boardScope) and
+// isStaticDeployment().
+export function primaryLoadWindowDays(boardScopeDays: number | null, staticDeployment: boolean): number | null {
+  return staticDeployment ? null : boardScopeDays;
+}
+
 // The default scope for a client kind when nothing is stored: Android renders on
 // (often) weak e-ink hardware where the full contract can OOM the WebView, so it
 // starts on a small 7-day window; every other client keeps the full board.

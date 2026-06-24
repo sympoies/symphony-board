@@ -74,6 +74,7 @@ export function TimeRangeControls({
   loading,
   error,
   suspended,
+  suspendedReason = "focus",
   loadedFrom,
   windowPreset,
   collapsibleOnNarrow,
@@ -103,6 +104,10 @@ export function TimeRangeControls({
   // disabled, so the user sees their range is remembered yet not in effect.
   // Clearing focus flips this back without losing the selection.
   suspended?: boolean;
+  // Why the range is suspended, selecting the dimmed-control wording: "focus" (a
+  // graph item is focused) or "static" (a static, server-less deployment pins the
+  // range to the full loaded extent — #432). Defaults to "focus".
+  suspendedReason?: "focus" | "static";
   // On narrow/portrait, collapse the range fields + quick presets behind a
   // disclosure that summarizes the active range, so a long-feed page (Commits)
   // doesn't spend the first screen on date controls. Desktop always shows them.
@@ -327,7 +332,7 @@ export function TimeRangeControls({
         {calendarButtons.length > 0 && rollingButtons.length > 0 ? <span className="toggle-separator" aria-hidden="true" /> : null}
         {rollingButtons}
       </div>
-      {suspended ? <span className="muted">not applied in focus</span> : null}
+      {suspended ? <span className="muted">{suspendedReason === "static" ? "showing all demo data" : "not applied in focus"}</span> : null}
       {loading ? <span className="muted">loading range...</span> : null}
       {error ? <span className="range-error">{error}</span> : null}
     </div>
@@ -337,7 +342,7 @@ export function TimeRangeControls({
       ref={controlsRef}
       className={`time-range-controls${suspended ? " range-suspended" : ""}`}
       data-range-collapsed={collapsibleOnNarrow && !rangeOpen ? "true" : undefined}
-      title={suspended ? "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable." : undefined}
+      title={suspended ? (suspendedReason === "static" ? "This is a static demo with no server, so it shows the full bundled contract — the time range can't be narrowed here." : "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable.") : undefined}
     >
       {collapsibleOnNarrow ? (
         <button

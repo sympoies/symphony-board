@@ -1324,13 +1324,22 @@ function mapRows(input: BuildInput): {
   const mappedItems = input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? []));
   const items = configuredRepoKeys ? mappedItems.filter((it) => repoAllowed(it.source_id, it.project_path)) : mappedItems;
   // Ids of LOADED items the gate drops, so an edge touching a de-configured repo
-  // drops too. Edges whose endpoints are not loaded at all (cross-window, or
-  // cross-source to a tombstoned item) are left to the projection logic exactly
-  // as before — we only remove edges that touch a known de-configured item.
+  // drops too. Edges whose endpoints are not loaded at all (cross-window, or a
+  // tombstoned item within a CONFIGURED source) are left to the projection logic
+  // exactly as before — we only remove edges that touch a known de-configured item.
   const droppedItemIds = configuredRepoKeys
     ? new Set(mappedItems.filter((it) => !repoAllowed(it.source_id, it.project_path)).map((it) => it.id))
     : null;
-  const mappedEdges = input.edges.map(toEdgeDTO);
+  // Gate edges by the configured SOURCE set first: an edge endpoint can belong to
+  // a de-configured source whose item is not loaded at all (a tombstoned or
+  // untracked endpoint the edge model allows), which droppedItemIds — built only
+  // from LOADED items — cannot catch. Without this, edges[] and the graph
+  // aggregates would still expose a source already gated out of sources[]/items[]
+  // (#430).
+  const sourceGatedEdges = configuredSourceIds
+    ? input.edges.filter((e) => configuredSourceIds.has(e.from_source_id) && configuredSourceIds.has(e.to_source_id))
+    : input.edges;
+  const mappedEdges = sourceGatedEdges.map(toEdgeDTO);
   const edges = droppedItemIds ? mappedEdges.filter((e) => !droppedItemIds.has(e.from) && !droppedItemIds.has(e.to)) : mappedEdges;
 
   const mappedActivities = (input.activities ?? []).map(toActivityDTO);

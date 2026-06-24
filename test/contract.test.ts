@@ -1050,3 +1050,36 @@ test("buildContract projects only configured sources/repos; a de-configured sour
   assert.deepEqual([...new Set((filtered.activities ?? []).map((a) => a.source_id))], ["github:github.com"], "activities config-gated");
   assert.equal(filtered.edges.length, 0, "edges touching a de-configured repo are dropped");
 });
+
+test("buildContract drops edges to a de-configured source whose endpoint item is not loaded (#430)", () => {
+  // gitlab.com was removed from config but its source row stays (append-only
+  // registry). An edge can name a gitlab endpoint that is NOT in items[] — a
+  // tombstoned or untracked endpoint the edge model explicitly allows. The edge
+  // gate built only from LOADED de-configured items cannot catch it, so without
+  // gating edges by the configured SOURCE set the edge (and the hidden gitlab
+  // source it names) would still surface in edges[] and graph aggregates even
+  // though sources[] and items[] are config-gated.
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GitLab", last_success_at: null, last_status: "partial" },
+  ];
+  // Only the configured github item is loaded; the gitlab endpoint below is a
+  // tombstone (no row in items[]).
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, source_id: "github:github.com", external_id: "GH_1", project_path: "o/configured" }),
+  ];
+  const edges: EdgeRow[] = [
+    // github (configured) -> gitlab (de-configured source, endpoint not loaded) -> must drop
+    { type: "relates", from_source_id: "github:github.com", from_external_id: "GH_1", to_source_id: "gitlab:gitlab.com", to_external_id: "GL_TOMB", from_state: null, to_state: null, lifecycle: null },
+  ];
+  const generatedAt = "2026-06-08T00:00:00.000Z";
+
+  const filtered = buildContract({
+    sources, items, labels: [], edges, activities: [], generatedAt,
+    configuredRepos: [{ source_id: "github:github.com", project_path: "o/configured" }],
+  });
+  assert.deepEqual(filtered.sources.map((s) => s.source_id), ["github:github.com"], "de-configured source dropped from sources[]");
+  assert.equal(filtered.edges.length, 0, "edge to a de-configured source's tombstoned endpoint is dropped");
+  const edgeRefs = filtered.edges.flatMap((e) => [e.from, e.to]);
+  assert.ok(!edgeRefs.some((ref) => ref.startsWith("gitlab:gitlab.com|")), "no edge ref exposes the de-configured gitlab source");
+});

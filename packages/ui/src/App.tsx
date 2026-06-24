@@ -98,6 +98,7 @@ import {
   windowedRangeTailUnfetched,
   rangeOverlayAllowed,
   isStaticDeployment,
+  primaryLoadWindowDays,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
   loadWideLayout,
@@ -411,7 +412,12 @@ export function App() {
     () => (env && windowedEnv ? windowQuickPreset(staticRange, generatedNowMs, boardScope, tz) : null),
     [env, windowedEnv, staticRange, boardScope, generatedNowMs, tz],
   );
-  const explicitRange = useMemo(() => routeTimeRange(route), [route]);
+  // #432: a static deployment cannot project a sub-range (./api/range 404s) and
+  // its pre-aggregated repo_metrics cannot be re-windowed client-side, so a picked
+  // sub-range would silently leave the views on the full bundled contract. Ignore
+  // any route range there and pin the active range to the full loaded extent; the
+  // range control is suspended (below) so the lock is visible, not silent.
+  const explicitRange = useMemo(() => (staticDeployment ? null : routeTimeRange(route)), [route, staticDeployment]);
   const activeRange = explicitRange ?? defaultRange;
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
   // #414: a windowed range env is FETCHED on the live Date.now() clock but DISPLAYED on
@@ -456,9 +462,13 @@ export function App() {
     // ./contract.json. Only "full" touches the cold-start cache — a windowed env is
     // small and fast, and never overwriting the cache keeps a stale full payload
     // from being painted (and OOM-ing) on a later windowed launch.
+    // #432: a static deployment (Pages demo) 404s ./api/range, so load the full
+    // ./contract.json even under a windowed scope — primaryLoadWindowDays returns
+    // null there. A normal deployment keeps the windowed /api/range primary load.
+    const primaryWindowDays = primaryLoadWindowDays(boardScopeDaysValue, staticDeployment);
     const primaryLoad =
-      boardScopeDaysValue !== null
-        ? fetchRangeContractWithMetadata(timeRangeForDays(boardScopeDaysValue, Date.now(), tz), serverBaseUrl)
+      primaryWindowDays !== null
+        ? fetchRangeContractWithMetadata(timeRangeForDays(primaryWindowDays, Date.now(), tz), serverBaseUrl)
         : fetchContractWithMetadata(undefined, serverBaseUrl);
     pending.push(primaryLoad
       .then((loaded) => {
@@ -499,7 +509,7 @@ export function App() {
       setDataReloadEpoch((e) => e + 1);
     }
     return loadedContract;
-  }, [contractDisabled, boardScope, boardScopeDaysValue, tz, needsRangeEnv, activeRange, serverBaseUrl]);
+  }, [contractDisabled, boardScope, boardScopeDaysValue, staticDeployment, tz, needsRangeEnv, activeRange, serverBaseUrl]);
   const reloadDataAfterSync = useCallback(async () => {
     await reloadData();
   }, [reloadData]);
@@ -744,9 +754,13 @@ export function App() {
     // weak hardware); "full" loads ./contract.json. tz is unknown before the first
     // env, so the window is computed in UTC — the server re-zones it to its own
     // timezone, and the loaded env then drives the displayed range.
+    // #432: static deployment loads the full ./contract.json even under a windowed
+    // scope (./api/range 404s on the Pages demo), so a fresh visitor lands on data
+    // instead of a contract-load error.
+    const primaryWindowDays = primaryLoadWindowDays(boardScopeDaysValue, staticDeployment);
     const primaryLoad =
-      boardScopeDaysValue !== null
-        ? fetchRangeContractWithMetadata(timeRangeForDays(boardScopeDaysValue, Date.now(), env?.timezone ?? "UTC"), serverBaseUrl, { retries: 0 })
+      primaryWindowDays !== null
+        ? fetchRangeContractWithMetadata(timeRangeForDays(primaryWindowDays, Date.now(), env?.timezone ?? "UTC"), serverBaseUrl, { retries: 0 })
         : fetchContractWithMetadata(undefined, serverBaseUrl, undefined, { retries: 0 });
     primaryLoad
       .then((loaded) => {
@@ -788,7 +802,7 @@ export function App() {
         initRetryTimerRef.current = null;
       }
     };
-  }, [serverBaseUrl, reloadKey, contractDisabled, boardScope, boardScopeDaysValue]);
+  }, [serverBaseUrl, reloadKey, contractDisabled, boardScope, boardScopeDaysValue, staticDeployment]);
 
   // Remove the cold-start boot splash (index.html) once the first view has actual
   // CONTENT — never the blank/"Connecting…" gap. On the Live route that means the
@@ -1788,8 +1802,12 @@ export function App() {
             error={rangeError}
             // A focused graph item shows its FULL neighbourhood (no time window),
             // so the range is visibly suspended there — selection kept, dimmed,
-            // interaction off. Route-backed (?focus=), so reload/back agree.
-            suspended={page === "graph" && route.focus != null}
+            // interaction off. Route-backed (?focus=), so reload/back agree. A
+            // static deployment (#432) also suspends it: the range is pinned to the
+            // full loaded extent, so the control is shown dimmed rather than
+            // implying a sub-range filter that cannot run server-side.
+            suspended={(page === "graph" && route.focus != null) || staticDeployment}
+            suspendedReason={page === "graph" && route.focus != null ? "focus" : "static"}
             // When a windowed range env is loaded, the data only goes back to
             // staticRange.from — so cap the quick-range presets there (disable +
             // hint beyond it). Full board and uploaded contracts pass null (no cap;
