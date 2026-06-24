@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ItemDTO } from "@symphony-board/contract";
-import { parseHashRoute, buildHashRoute } from "../src/model.ts";
+import { parseHashRoute, buildHashRoute, reviewSortFromRoute } from "../src/model.ts";
 import {
   ACTIVITY_FACET_DIMS,
   activityFacets,
@@ -346,6 +346,21 @@ test("Graph view round-trips through the hash, and a fresh tab hop resets to the
   assert.equal(graphView(parseHashRoute(canvas)), "graph", "the canvas view survives reload / a shared link");
   // a top-nav hop drops page-local `tab` -> back to the list (the default browse surface)
   assert.equal(graphView(parseHashRoute(tabHref("graph", {}))), "list");
+});
+
+// The Reviews sort toggle is route-backed (?reviewSort=grouped) so a reload and a
+// shared link preserve the choice; recency is the default, so the URL stays clean
+// for it (the App maps "recent" -> null before building the hash).
+test("Reviews sort round-trips through the hash; recency is the clean default", () => {
+  assert.equal(buildHashRoute({ page: "reviews", reviewSort: null }), "#/reviews", "recency default -> no reviewSort field");
+  const grouped = buildHashRoute({ page: "reviews", reviewSort: "grouped" });
+  assert.equal(grouped, "#/reviews?reviewSort=grouped");
+  assert.equal(
+    reviewSortFromRoute(parseHashRoute(grouped).reviewSort),
+    "grouped",
+    "the chosen sort survives reload / a shared link",
+  );
+  assert.equal(reviewSortFromRoute(parseHashRoute("#/reviews").reviewSort), "recent");
 });
 
 // The "default tab" setting decides where the app LANDS on a cold start (a fresh

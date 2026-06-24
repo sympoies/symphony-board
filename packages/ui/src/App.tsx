@@ -43,9 +43,11 @@ import {
   sameTimeRange,
   windowQuickPreset,
   sourceDisplayName,
+  reviewSortFromRoute,
   type TimeRangePresetId,
   type TimeRange,
   type Filters,
+  type ReviewSort,
 } from "./model.ts";
 import {
   activityFacets,
@@ -1388,6 +1390,18 @@ export function App() {
     replaceReviewDetailRouteClosed();
   }
 
+  // Reviews list order (?reviewSort=grouped). Route-backed like reviewDetail so a
+  // reload / shared link preserves it; recency is the default, so it maps to a
+  // null field and keeps the URL clean. Spreads the current route to preserve the
+  // page's facets and the shared item lens, mirroring reviewDetailHash.
+  function setReviewSort(next: ReviewSort) {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    if (current.page !== "reviews") return;
+    const nextHash = buildHashRoute({ ...current, page: "reviews", reviewSort: next === "grouped" ? "grouped" : null });
+    if (readHash() !== nextHash) window.location.hash = nextHash;
+  }
+
   function setRouteSearch(q: string) {
     setFilters((f) => ({ ...f, search: q }));
     if (typeof window === "undefined") return;
@@ -1887,6 +1901,8 @@ export function App() {
           itemsById={activityItemsById}
           range={activeRange}
           sourceKind={sourceKind}
+          sort={reviewSortFromRoute(route.reviewSort)}
+          onSortChange={setReviewSort}
           detailRouteOpen={route.reviewDetail === "1"}
           onOpenDetailRoute={openReviewDetailRoute}
           onCloseDetailRoute={closeReviewDetailRoute}

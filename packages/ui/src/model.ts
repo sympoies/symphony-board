@@ -209,6 +209,7 @@ export interface HashRoute {
   tab: string | null; // a sub-tab within a page (Settings: "sources" | default display)
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
+  reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-PR layout.
 }
 
 const routeParam = (value: string | null | undefined): string | null => {
@@ -243,10 +244,11 @@ export function parseHashRoute(hash: string): HashRoute {
     tab: routeParam(params?.get("tab")),
     liveDetail: routeParam(params?.get("liveDetail")),
     reviewDetail: routeParam(params?.get("reviewDetail")),
+    reviewSort: routeParam(params?.get("reviewSort")),
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -267,6 +269,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const tab = routeParam(route.tab);
   const liveDetail = routeParam(route.liveDetail);
   const reviewDetail = routeParam(route.reviewDetail);
+  const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (source) params.push(`source=${encodeURIComponent(source)}`);
@@ -286,6 +289,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (tab) params.push(`tab=${encodeURIComponent(tab)}`);
   if (liveDetail) params.push(`liveDetail=${encodeURIComponent(liveDetail)}`);
   if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
+  if (reviewSort) params.push(`reviewSort=${encodeURIComponent(reviewSort)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
 
@@ -1388,6 +1392,63 @@ export function reviewThreadDisplayTime(thread: ReviewThreadDTO): string | null 
     if (candidate && (!latest || candidate.ms > latest.ms)) latest = candidate;
   }
   return latest?.value ?? thread.last_seen_at;
+}
+
+// --- Reviews list order -----------------------------------------------------
+//
+// The Reviews inbox sorts two ways. "recent" (the default) orders strictly by
+// latest comment time across every source, so GitHub and GitLab interleave by
+// recency — what a reviewer scanning "what happened lately" expects, and what
+// every other list view already does. "grouped" keeps the legacy by-PR layout:
+// unresolved-first, then bucketed by repo and the PR/MR each thread hangs off.
+// The buckets only LOOK chronological within one repo (higher item iid ≈ newer
+// item) — a correlation that breaks the moment two repos or two sources mix.
+export type ReviewSort = "recent" | "grouped";
+
+export const DEFAULT_REVIEW_SORT: ReviewSort = "recent";
+
+// Normalize the ?reviewSort route token. Only "grouped" leaves the default, so
+// an absent / empty / unknown value (and the explicit "recent") all land on
+// recency — keeping the URL clean for the common case.
+export function reviewSortFromRoute(value: string | null | undefined): ReviewSort {
+  return value === "grouped" ? "grouped" : "recent";
+}
+
+// Recency order: newest synced comment first, GLOBALLY across sources. Ties
+// (e.g. two threads that both fall back to a last_seen_at from the same sweep)
+// break on a stable, deterministic chain — repo, then item iid, then thread id —
+// so the list never wobbles between renders. Unresolved-vs-resolved is NOT a
+// sort key here: it is a visible filter (the review lens) and a row accent, so
+// recency stays the single ordering axis.
+export function compareReviewThreadsRecent(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
+  const aMs = timestampMs(reviewThreadDisplayTime(a));
+  const bMs = timestampMs(reviewThreadDisplayTime(b));
+  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
+  if (aMs !== null && bMs === null) return -1;
+  if (aMs === null && bMs !== null) return 1;
+  const repo = (a.project_path ?? "").localeCompare(b.project_path ?? "");
+  if (repo !== 0) return repo;
+  const target = (b.target_iid ?? 0) - (a.target_iid ?? 0);
+  if (target !== 0) return target;
+  return a.id.localeCompare(b.id);
+}
+
+// Legacy by-PR order: unresolved threads first (the inbox is "what still needs
+// attention"), then grouped by repo and the PR/MR they hang off, newest activity
+// last as a stable tie-break. Preserved as the opt-in "By pull request" mode.
+export function compareReviewThreadsGrouped(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
+  if (a.is_resolved !== b.is_resolved) return a.is_resolved ? 1 : -1;
+  const repo = (a.project_path ?? "").localeCompare(b.project_path ?? "");
+  if (repo !== 0) return repo;
+  const target = (b.target_iid ?? 0) - (a.target_iid ?? 0);
+  if (target !== 0) return target;
+  const path = (a.path ?? "").localeCompare(b.path ?? "");
+  if (path !== 0) return path;
+  return (timestampMs(reviewThreadDisplayTime(b)) ?? 0) - (timestampMs(reviewThreadDisplayTime(a)) ?? 0);
+}
+
+export function reviewThreadComparator(sort: ReviewSort): (a: ReviewThreadDTO, b: ReviewThreadDTO) => number {
+  return sort === "grouped" ? compareReviewThreadsGrouped : compareReviewThreadsRecent;
 }
 
 // Stable composite key for an activity row (React keys, expanded-row tracking).

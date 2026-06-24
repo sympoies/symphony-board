@@ -2327,6 +2327,12 @@ a.rf-node-title:hover { color: var(--accent); }
   margin-bottom: 10px;
 }
 .reviews-head h2 { margin: 0; border: none; padding: 0; }
+/* The sort toggle floats to the trailing edge of the head row; on a narrow
+   screen the head wraps (flex-wrap) so it drops to its own line, full width. */
+.reviews-head .reviews-sort { margin-left: auto; }
+@media (max-width: 560px) {
+  .reviews-head .reviews-sort { margin-left: 0; flex-basis: 100%; }
+}
 /* reviews: master-detail thread inbox. Reuses the Live tab's split/feed/detail
    chrome (.live-split / .live-feed / .live-event / .live-detail) so the two tabs
    read and operate the same — including the narrow-screen overlay. The rules

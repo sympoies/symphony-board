@@ -20,8 +20,10 @@ import type { ItemDTO, ReviewThreadCommentDTO, ReviewThreadDTO } from "@symphony
 import {
   activityVirtualRange,
   relativeTime,
+  reviewThreadComparator,
   reviewThreadDisplayTime,
   type Filters,
+  type ReviewSort,
   type TimeRange,
 } from "../model.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
@@ -125,11 +127,6 @@ function threadMatches(row: ThreadRow, filters: Filters): boolean {
   return !q || threadText(row).includes(q);
 }
 
-function timestamp(value: string | null | undefined): number {
-  const ms = Date.parse(value ?? "");
-  return Number.isFinite(ms) ? ms : 0;
-}
-
 function threadTimeTitle(thread: ReviewThreadDTO): string | undefined {
   const displayTime = reviewThreadDisplayTime(thread);
   if (!displayTime) return undefined;
@@ -137,20 +134,6 @@ function threadTimeTitle(thread: ReviewThreadDTO): string | undefined {
     return `last synced comment: ${displayTime}\nsync saw thread: ${thread.last_seen_at}`;
   }
   return displayTime;
-}
-
-// Unresolved threads sort first (the inbox is "what still needs attention"),
-// then group by repo and the PR/MR they hang off, newest activity last as a
-// stable tie-break.
-function compareThreads(a: ThreadRow, b: ThreadRow): number {
-  if (a.thread.is_resolved !== b.thread.is_resolved) return a.thread.is_resolved ? 1 : -1;
-  const repo = (a.thread.project_path ?? "").localeCompare(b.thread.project_path ?? "");
-  if (repo !== 0) return repo;
-  const target = (b.thread.target_iid ?? 0) - (a.thread.target_iid ?? 0);
-  if (target !== 0) return target;
-  const path = (a.thread.path ?? "").localeCompare(b.thread.path ?? "");
-  if (path !== 0) return path;
-  return timestamp(reviewThreadDisplayTime(b.thread)) - timestamp(reviewThreadDisplayTime(a.thread));
 }
 
 function lineLabel(thread: ReviewThreadDTO): string | null {
@@ -498,6 +481,8 @@ export function ReviewsPage({
   itemsById,
   range,
   sourceKind,
+  sort,
+  onSortChange,
   detailRouteOpen,
   onOpenDetailRoute,
   onCloseDetailRoute,
@@ -510,6 +495,8 @@ export function ReviewsPage({
   itemsById: ReadonlyMap<string, ItemDTO>;
   range: TimeRange;
   sourceKind: ReadonlyMap<string, string>;
+  sort: ReviewSort;
+  onSortChange: (sort: ReviewSort) => void;
   detailRouteOpen: boolean;
   onOpenDetailRoute: () => void;
   onCloseDetailRoute: () => void;
@@ -517,14 +504,13 @@ export function ReviewsPage({
   emptyState?: ReactNode;
 }) {
   const windowById = useMemo(() => new Map(windowItems.map((item) => [item.id, item])), [windowItems]);
-  const threadRows = useMemo(
-    () =>
-      reviewThreads
-        .map((thread): ThreadRow => ({ thread, target: itemsById.get(thread.target_ref) ?? windowById.get(thread.target_ref) ?? null }))
-        .filter((row) => threadMatches(row, filters))
-        .sort(compareThreads),
-    [reviewThreads, itemsById, windowById, filters],
-  );
+  const threadRows = useMemo(() => {
+    const compare = reviewThreadComparator(sort);
+    return reviewThreads
+      .map((thread): ThreadRow => ({ thread, target: itemsById.get(thread.target_ref) ?? windowById.get(thread.target_ref) ?? null }))
+      .filter((row) => threadMatches(row, filters))
+      .sort((a, b) => compare(a.thread, b.thread));
+  }, [reviewThreads, itemsById, windowById, filters, sort]);
 
   const openThreads = useMemo(() => threadRows.reduce((n, row) => (row.thread.is_resolved ? n : n + 1), 0), [threadRows]);
   const resolvedThreads = threadRows.length - openThreads;
@@ -558,8 +544,11 @@ export function ReviewsPage({
         kinds: [...filters.kinds].sort(),
         states: [...filters.states].sort(),
         reviews: [...filters.reviews].sort(),
+        // Reordering the whole list -> scroll back to the top, so the user lands on
+        // the new head (the most recent thread) instead of mid-list.
+        sort,
       }),
-    [filters],
+    [filters, sort],
   );
 
   const { listRef: feedRef, scrollTop, viewportHeight, handleScroll } = useListViewport<HTMLUListElement>({
@@ -727,6 +716,27 @@ export function ReviewsPage({
         <h2>Reviews</h2>
         <span className="count">{openThreads} open threads</span>
         <span className="muted">{resolvedThreads} resolved · {threadRows.length} total</span>
+        <div className="reviews-sort toggle-group" role="group" aria-label="Sort review threads">
+          <span className="toggle-label">Sort</span>
+          <button
+            type="button"
+            className={`toggle${sort === "recent" ? " toggle-on" : ""}`}
+            aria-pressed={sort === "recent"}
+            onClick={() => onSortChange("recent")}
+            title="Newest comment first, across every source"
+          >
+            Recent
+          </button>
+          <button
+            type="button"
+            className={`toggle${sort === "grouped" ? " toggle-on" : ""}`}
+            aria-pressed={sort === "grouped"}
+            onClick={() => onSortChange("grouped")}
+            title="Group threads by the pull request / merge request they hang off"
+          >
+            By PR
+          </button>
+        </div>
       </div>
       <div
         ref={splitRef}
