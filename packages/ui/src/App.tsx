@@ -477,7 +477,17 @@ export function App() {
     // new /api/range env still carries range_query). Bump the reload epoch so that
     // effect re-runs and the Activity Overview reflects the freshly emitted contract
     // instead of staying pinned to the pre-reload aggregate (#409).
-    setDataReloadEpoch((e) => e + 1);
+    //
+    // Gate the bump on a successful primary load: on failure the catch only sets
+    // `error` and leaves env on the PRE-reload contract, so refetching the overlay
+    // would paint a fresher /api/activity-daily aggregate against the unchanged env.
+    // The overlay is derived only from env (never rangeEnv — see fullActivityDaily
+    // below), so the primary load is the complete coverage check: a successful range
+    // overlay with a failed primary must NOT refetch. Skip the bump so the overlay
+    // stays consistent with the (unchanged) env.
+    if (loadedContract) {
+      setDataReloadEpoch((e) => e + 1);
+    }
     return loadedContract;
   }, [contractDisabled, boardScope, boardScopeDaysValue, tz, needsRangeEnv, activeRange, serverBaseUrl]);
   const reloadDataAfterSync = useCallback(async () => {
