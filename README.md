@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-live-82aaff)](https://sympoies.github.io/symphony-board/)
 
-[![activity](docs/assets/readme-activity.png)](docs/assets/readme-activity.png)
+[![activity](docs/assets/readme-activity.png)](https://sympoies.github.io/symphony-board/demo/)
 
 Read-only cross-provider workflow board for GitHub and GitLab. `symphony-board`
 coordinates issues, pull requests, merge requests, activity, and typed
@@ -14,6 +15,7 @@ a web UI from that contract.
 The product surface is the contract plus UI. The database is an implementation
 store, not the consumer API.
 
+- Live demo: <https://sympoies.github.io/symphony-board/> — landing page plus a read-only board on a bundled sample contract
 - Design rationale: [docs/DESIGN.md](docs/DESIGN.md)
 - Contract rules: [docs/CONTRACT.md](docs/CONTRACT.md)
 - Developer guide: [DEVELOPMENT.md](DEVELOPMENT.md)
