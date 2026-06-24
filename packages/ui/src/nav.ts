@@ -68,7 +68,10 @@ export function startupRouteHash(restoredHash: string, defaultTab: Page): string
   const route = parseHashRoute(restoredHash);
   if (route.page === "debug" || route.page === "settings") return restoredHash;
   if (route.page === defaultTab) return restoredHash;
-  if (route.page === "reviews" && (route.isource || route.ireview || route.irepo)) return restoredHash;
+  // reviewSort is a deliberate Reviews view preference (the Recent/Grouped
+  // toggle), route-backed so a shared link / reload keeps it — so a bare
+  // ?reviewSort=grouped cold start must land on Reviews, not the default tab.
+  if (route.page === "reviews" && (route.isource || route.ireview || route.irepo || route.reviewSort)) return restoredHash;
   if (IDENTITY_FIELDS.some((f) => route[f])) return restoredHash;
   return `#/${defaultTab}`;
 }
