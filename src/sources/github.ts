@@ -57,6 +57,7 @@ const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedA
 const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes {
   id isResolved isOutdated path line startLine resolvedBy { login }
   comments(first:10){ totalCount nodes { id author { login avatarUrl } body url createdAt updatedAt } }
+  latestComment: comments(last:1){ nodes { createdAt updatedAt } }
 } }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
@@ -400,6 +401,14 @@ export class GitHubSource implements Source {
           createdAt: cleanText(c.createdAt),
           updatedAt: cleanText(c.updatedAt),
         }));
+      // The preview is `comments(first:10)` (the OLDEST ten), so for a >10-comment
+      // thread it omits the newest comment. `latestComment` is a `comments(last:1)`
+      // alias on the same connection, fetched purely to recover the true newest
+      // comment instant for recency sorting, independent of the preview size.
+      const latestComment = (t.latestComment?.nodes ?? []).find((c: any) => c) ?? null;
+      const lastCommentAt = latestComment
+        ? (cleanText(latestComment.updatedAt) ?? cleanText(latestComment.createdAt))
+        : null;
       out.push({
         sourceId: this.descriptor.sourceId,
         externalId: String(t.id),
@@ -416,6 +425,7 @@ export class GitHubSource implements Source {
         startLine: typeof t.startLine === "number" ? t.startLine : null,
         commentsTotal: typeof t.comments?.totalCount === "number" ? t.comments.totalCount : comments.length,
         comments,
+        lastCommentAt,
       });
     }
     return out;

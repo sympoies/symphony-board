@@ -131,6 +131,12 @@ export interface CanonicalReviewThread {
   startLine: number | null;
   commentsTotal: number;
   comments: CanonicalReviewThreadComment[];
+  // The thread's true newest-comment instant (ISO), captured by the source
+  // independent of the `comments` preview window (which holds the OLDEST
+  // `commentsTotal` rows). null when the source reported no datable comment.
+  // Persisted on its own review_thread column (the preview blob can't carry it
+  // for a long thread), and surfaced as `last_comment_at` (4.3.0+).
+  lastCommentAt: string | null;
 }
 
 // What normalizing one raw record yields: the item, its labels, and any edges

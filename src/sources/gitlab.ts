@@ -525,6 +525,21 @@ export class GitLabSource implements Source {
           createdAt: cleanText(n.created_at),
           updatedAt: cleanText(n.updated_at),
         }));
+      // The discussions endpoint returns every note, so `comments` already holds
+      // the whole thread (the preview is complete). The true latest-comment
+      // instant is the newest note activity across them — compared by parsed time
+      // because GitLab note timestamps can carry a non-UTC offset.
+      let lastCommentAt: string | null = null;
+      let lastCommentMs = -Infinity;
+      for (const c of comments) {
+        const instant = c.updatedAt ?? c.createdAt;
+        if (!instant) continue;
+        const ms = Date.parse(instant);
+        if (Number.isFinite(ms) && ms > lastCommentMs) {
+          lastCommentMs = ms;
+          lastCommentAt = instant;
+        }
+      }
       out.push({
         sourceId: this.descriptor.sourceId,
         externalId: String(discussion.id),
@@ -541,6 +556,7 @@ export class GitLabSource implements Source {
         startLine: lineNumber(position?.line_range?.start?.new_line) ?? lineNumber(position?.line_range?.start?.old_line),
         commentsTotal: comments.length,
         comments,
+        lastCommentAt,
       });
     }
     return out;

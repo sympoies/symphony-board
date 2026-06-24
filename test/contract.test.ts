@@ -96,6 +96,7 @@ function reviewThreadRow(over: Partial<ReviewThreadRow> = {}): ReviewThreadRow {
         updatedAt: "2026-06-01T01:05:00Z",
       },
     ]),
+    last_comment_at: "2026-06-01T01:05:00Z",
     last_seen_at: "2026-06-01T02:00:00Z",
     ...over,
   };
@@ -489,6 +490,8 @@ test("buildContract emits current review-thread detail rows for loaded change_re
   assert.equal(thread.comments_total, 1);
   assert.equal(thread.comments[0]!.author, "reviewer");
   assert.equal(thread.comments[0]!.body, "Please cover this branch.");
+  // last_comment_at (4.3.0) carries the true newest-comment instant from the row.
+  assert.equal(thread.last_comment_at, "2026-06-01T01:05:00Z");
 });
 
 test("review-thread comment carries the author avatar URL through to the contract DTO (4.2.0)", () => {

@@ -354,6 +354,14 @@ export interface ReviewThreadDTO {
   start_line: number | null;
   comments_total: number;
   comments: ReviewThreadCommentDTO[];
+  // The thread's TRUE newest-comment instant (ISO), independent of the
+  // `comments` preview size. The preview is the OLDEST `comments_total` rows, so
+  // for a thread with more comments than the preview holds it omits the newest
+  // one; this carries the real latest-comment time the source observed. Consumers
+  // sorting by recency should prefer it over scanning `comments`. Added in 4.3.0;
+  // optional so a pre-4.3.0 payload (no key) still type-checks — read it as
+  // `thread.last_comment_at ?? null`, falling back to the preview / `last_seen_at`.
+  last_comment_at?: string | null;
   last_seen_at: string | null;
 }
 

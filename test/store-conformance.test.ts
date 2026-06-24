@@ -185,6 +185,7 @@ function fixtureReviewThread(over: Partial<CanonicalReviewThread> = {}): Canonic
         updatedAt: "2026-06-01T00:00:00Z",
       },
     ],
+    lastCommentAt: "2026-06-01T00:00:00Z",
     ...over,
   };
 }
@@ -302,6 +303,7 @@ for (const driver of DRIVERS) {
     assert.equal(rows[0]!.is_resolved, true);
     assert.equal(rows[0]!.resolved_by, "maintainer");
     assert.equal(JSON.parse(rows[0]!.comments_json)[0].body, "Please cover this branch.");
+    assert.equal(rows[0]!.last_comment_at, "2026-06-01T00:00:00Z");
 
     assert.equal(await store.softDeleteUnseenReviewThreads(SOURCE, "2026-06-01T00:11:00Z", "2026-06-01T00:20:00Z"), 1);
     assert.equal((await store.listLiveReviewThreads()).length, 0);
