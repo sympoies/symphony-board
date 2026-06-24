@@ -414,6 +414,31 @@ export function rangeOverlayAllowedForSource(source: "network" | "file" | null |
   return source !== "file";
 }
 
+// Whether this build is served as a fully STATIC artifact with NO API backend —
+// the GitHub Pages demo (built with VITE_SYMPHONY_BOARD_STATIC). Such a host
+// serves ./contract.json but 404s ./api/range, so — exactly like a file-loaded
+// env (#424) — the UI must filter the full payload client-side and never fire
+// the range overlay, and it should land on the contract's full extent so a fresh
+// visitor sees data instead of an out-of-window empty range that 404s. A normal
+// deployment (Docker web sidecar, standalone app, Android client) leaves the flag
+// unset, so import.meta.env is absent / falsy and this is false — the historical
+// behaviour is untouched.
+export function isStaticDeployment(): boolean {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  const raw = env?.VITE_SYMPHONY_BOARD_STATIC?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+// The ./api/range overlay may fire only when the env's source allows it (#424)
+// AND this is not a static, server-less deployment. A static host (the Pages
+// demo) 404s ./api/range, so the overlay must stay off there even for a
+// network-loaded contract — the views filter the loaded contract to the active
+// range client-side, the same as the file-env path. Pure so the gate is
+// unit-tested; App passes isStaticDeployment().
+export function rangeOverlayAllowed(source: "network" | "file" | null | undefined, staticDeployment: boolean): boolean {
+  return !staticDeployment && rangeOverlayAllowedForSource(source);
+}
+
 // The default scope for a client kind when nothing is stored: Android renders on
 // (often) weak e-ink hardware where the full contract can OOM the WebView, so it
 // starts on a small 7-day window; every other client keeps the full board.
