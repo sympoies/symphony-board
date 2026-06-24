@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.2.0`.
+Current emitted version: `4.2.1`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.2.0",
+  "contract_version": "4.2.1",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -641,8 +641,8 @@ The range response is a projection, not a second schema:
   working stat bars; consumers may still compute scoped visible stats locally.
 - `activity_daily` is populated in range responses, bucketing the in-range
   `activities[]` above (see Activity Daily).
-- `repo_stats[]` remains the full canonical repo inventory, not only loaded
-  range rows.
+- `repo_stats[]` remains the full canonical repo inventory (over configured
+  repos; see Config-Gated Projection), not only loaded range rows.
 
 The API validates the date query and opens SQLite read-only; it is not a writer
 and does not mutate sync state.
@@ -688,6 +688,32 @@ Each row is keyed by `(source_id, project_path)` and contains:
 - `by_state`: full item counts by normalized state.
 - `by_kind`: full item counts by kind.
 
+"Full" here means un-windowed (every live item, not just the board window), not
+un-filtered: as of `4.2.1` `repo_stats[]` is the full live count over the
+**configured** repos only (see Config-Gated Projection).
+
+## Config-Gated Projection
+
+Version `4.2.1` makes config the source of truth for *what the contract
+surfaces*. The producer hands the builder the configured
+`(source_id, project_path)` set from `config/sources.json`; any source, repo,
+item, edge, or activity that config no longer declares is omitted from every
+contract surface — `sources[]`, `repo_stats[]`, `repo_metrics[]`, `items[]`,
+`edges[]`, and `activities[]` — on the static contract, `GET /api/range`, and
+the review-candidates discovery surface.
+
+This is a producer behavior change, not a schema change (no field is added,
+removed, or repurposed), hence a **patch** bump like `3.1.1`: the shape is
+identical and a consumer that reads the same envelope keeps working — it simply
+sees fewer rows when config is narrowed. Two properties follow:
+
+- It is computed at emit time and never persisted (like colors / identities).
+  The canonical store keeps every row of a removed source/repo, so re-adding it
+  to config makes its already-synced history reappear with no re-sync — there is
+  still no purge (see DESIGN.md "Removal semantics").
+- A disabled source (`"enabled": false`) stays declared in config and therefore
+  keeps appearing; only ABSENCE from config hides a source or repo.
+
 ## Repo Metrics
 
 Version `2.2.0` added optional `repo_metrics[]` for the Repo Analytics page and
@@ -695,7 +721,8 @@ external consumers that need per-repo trends. Each row is keyed by
 `(source_id, project_path)`, matching `repo_stats[]`, but the semantics are
 different:
 
-- `repo_stats[]` is full inventory over the canonical live item set.
+- `repo_stats[]` is full inventory over the canonical live item set of the
+  configured repos (see Config-Gated Projection).
 - `repo_metrics[]` is scoped to one time window and must not be used as full
   inventory.
 

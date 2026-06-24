@@ -239,7 +239,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.2.0`.
+Current major: v4. Current emitted version: `4.2.1`.
 
 Version `1.1.0` added display metadata:
 
@@ -678,6 +678,20 @@ so clients can render the state without losing the source entry.
 already-synced history: the disappearance rule only tombstones via a full +
 complete sweep of a configured source, and an unconfigured source is never
 swept. An explicit purge is deliberately out of scope.
+
+Config is, however, the source of truth for the *projection*. The emitted
+contract surfaces ONLY configured sources/repos: `buildContract` /
+`buildRangeContract` are handed the configured `(source_id, project_path)` set
+(via `configuredRepoRefs(cfg)`), and `mapRows` drops any source, repo, item,
+edge, or activity that config no longer declares — across `sources[]`,
+`repo_stats`, `repo_metrics`, `items`, `edges`, and `activities`, on every
+contract surface (static contract, `/api/range`, and review-candidates
+discovery). This is computed at emit time and never persisted, exactly like
+colors/identities; the store rows stay untouched, so re-adding a source or
+project to config makes its already-synced history reappear with no re-sync.
+A disabled source (`"enabled": false`) stays declared in config, so it keeps
+appearing (the operational-pause contract above) — only ABSENCE from config
+hides a source/repo. Added in contract `4.2.1`.
 
 **First-run onboarding.** The standalone app no longer seeds a config template;
 a missing config plus an enabled capability is the onboarding state: the UI
