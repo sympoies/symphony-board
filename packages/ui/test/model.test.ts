@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityDTO, ActivityDailyDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, ReviewThreadDTO, SourceDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, ReviewThreadCommentDTO, ReviewThreadDTO, SourceDTO } from "@symphony-board/contract";
 import {
   DEFAULT_TIME_RANGE_DAYS,
   DEFAULT_TIME_RANGE_PRESET_ID,
@@ -63,6 +63,10 @@ import {
   computeGraphStats,
   relativeTime,
   reviewThreadDisplayTime,
+  reviewSortFromRoute,
+  compareReviewThreadsRecent,
+  compareReviewThreadsGrouped,
+  reviewThreadComparator,
   resetsIn,
   pluralize,
   buildGraph,
@@ -175,6 +179,21 @@ function reviewThread(over: Partial<ReviewThreadDTO> = {}): ReviewThreadDTO {
     comments_total: 2,
     comments: [],
     last_seen_at: "2026-06-10T11:55:00Z",
+    ...over,
+  };
+}
+
+function reviewComment(over: Partial<ReviewThreadCommentDTO> = {}): ReviewThreadCommentDTO {
+  // updated_at is null by default so created_at is the comment instant
+  // (reviewThreadCommentInstant prefers updated_at when present).
+  return {
+    id: "c",
+    author: "reviewer",
+    avatar_url: null,
+    body: "comment",
+    url: null,
+    created_at: "2026-06-10T08:00:00Z",
+    updated_at: null,
     ...over,
   };
 }
@@ -1197,6 +1216,88 @@ test("reviewThreadDisplayTime falls back to last_seen_at when no comment timesta
   assert.equal(reviewThreadDisplayTime(reviewThread()), "2026-06-10T11:55:00Z");
 });
 
+// --- Reviews sort -----------------------------------------------------------
+//
+// The Reviews inbox can sort two ways. "recent" (the default) orders strictly
+// by latest comment time across every source, so GitHub and GitLab interleave
+// by recency. "grouped" keeps the legacy by-PR layout (unresolved-first, then
+// repo + item). reviewSortFromRoute normalizes the URL token; only "grouped"
+// leaves the default.
+
+test("reviewSortFromRoute defaults to recency and only 'grouped' selects by-PR", () => {
+  assert.equal(reviewSortFromRoute(null), "recent");
+  assert.equal(reviewSortFromRoute(undefined), "recent");
+  assert.equal(reviewSortFromRoute(""), "recent");
+  assert.equal(reviewSortFromRoute("recent"), "recent");
+  assert.equal(reviewSortFromRoute("nonsense"), "recent");
+  assert.equal(reviewSortFromRoute("grouped"), "grouped");
+});
+
+test("compareReviewThreadsRecent orders by latest comment time globally across sources", () => {
+  // The multi-source recency case the inbox got wrong: a fresh GitHub thread must
+  // outrank a stale GitLab thread regardless of source, repo, or item number —
+  // grouped order led with project_path, so every GitLab thread sorted first.
+  const freshGithub = reviewThread({
+    id: "github:github.com|T_fresh",
+    source_id: "github:github.com",
+    project_path: "sympoies/symphony-board",
+    target_iid: 7,
+    comments: [reviewComment({ id: "g1", created_at: "2026-06-23T10:00:00Z" })],
+    last_seen_at: "2026-06-23T10:00:00Z",
+  });
+  const staleGitlab = reviewThread({
+    id: "gitlab:gitlab.com|T_stale",
+    source_id: "gitlab:gitlab.com",
+    project_path: "gitlab-org/labkit",
+    target_iid: 999,
+    comments: [reviewComment({ id: "l1", created_at: "2026-02-01T10:00:00Z" })],
+    last_seen_at: "2026-02-01T10:00:00Z",
+  });
+  const sorted = [staleGitlab, freshGithub].sort(compareReviewThreadsRecent);
+  assert.deepEqual(
+    sorted.map((t) => t.id),
+    ["github:github.com|T_fresh", "gitlab:gitlab.com|T_stale"],
+  );
+});
+
+test("compareReviewThreadsRecent uses the newest comment, not item iid, within one repo", () => {
+  // #519 was commented on more recently than #523, so it sorts first even though
+  // its iid is lower — breaking the higher-iid≈newer correlation grouped relied on.
+  const newer519 = reviewThread({ id: "t519", target_iid: 519, comments: [reviewComment({ created_at: "2026-06-17T00:00:00Z" })] });
+  const older523 = reviewThread({ id: "t523", target_iid: 523, comments: [reviewComment({ created_at: "2026-06-11T00:00:00Z" })] });
+  const sorted = [older523, newer519].sort(compareReviewThreadsRecent);
+  assert.deepEqual(
+    sorted.map((t) => t.id),
+    ["t519", "t523"],
+  );
+});
+
+test("compareReviewThreadsRecent breaks exact-time ties deterministically", () => {
+  // Two threads sharing a last_seen_at from the same sweep (no comment instants)
+  // must keep a stable, antisymmetric order across renders, not wobble.
+  const a = reviewThread({ id: "t_a", project_path: "o/r", target_iid: 2, comments: [], last_seen_at: "2026-06-10T11:55:00Z" });
+  const b = reviewThread({ id: "t_b", project_path: "o/r", target_iid: 2, comments: [], last_seen_at: "2026-06-10T11:55:00Z" });
+  assert.notEqual(compareReviewThreadsRecent(a, b), 0);
+  assert.equal(Math.sign(compareReviewThreadsRecent(a, b)), -Math.sign(compareReviewThreadsRecent(b, a)));
+});
+
+test("compareReviewThreadsGrouped keeps unresolved-first, repo + item grouping (legacy by-PR order)", () => {
+  const unresolved = reviewThread({ id: "t_open", project_path: "o/r", target_iid: 5, is_resolved: false, comments: [] });
+  const resolvedHighIid = reviewThread({ id: "t_done_hi", project_path: "o/r", target_iid: 9, is_resolved: true, comments: [] });
+  const resolvedOtherRepo = reviewThread({ id: "t_done_a", project_path: "a/r", target_iid: 1, is_resolved: true, comments: [] });
+  const sorted = [resolvedHighIid, unresolved, resolvedOtherRepo].sort(compareReviewThreadsGrouped);
+  // unresolved first; then resolved grouped by repo (a/ before o/), item iid desc within a repo.
+  assert.deepEqual(
+    sorted.map((t) => t.id),
+    ["t_open", "t_done_a", "t_done_hi"],
+  );
+});
+
+test("reviewThreadComparator selects the comparator for the active sort", () => {
+  assert.equal(reviewThreadComparator("recent"), compareReviewThreadsRecent);
+  assert.equal(reviewThreadComparator("grouped"), compareReviewThreadsGrouped);
+});
+
 // resetsIn is the future-facing mirror of relativeTime (the rate-limit tab's
 // "resets in …"); every branch from an injected now.
 test("resetsIn renders a future delta and clamps the past to 'now'", () => {
@@ -1709,7 +1810,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null };
+  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, reviewSort: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -1752,6 +1853,8 @@ test("parseHashRoute splits page from optional deep-link and range params", () =
   assert.deepEqual(parseHashRoute("#/live?liveDetail=%20"), { page: "live", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/reviews?reviewDetail=1"), { page: "reviews", ...emptyRoute, reviewDetail: "1" });
   assert.deepEqual(parseHashRoute("#/reviews?reviewDetail=%20"), { page: "reviews", ...emptyRoute });
+  assert.deepEqual(parseHashRoute("#/reviews?reviewSort=grouped"), { page: "reviews", ...emptyRoute, reviewSort: "grouped" });
+  assert.deepEqual(parseHashRoute("#/reviews?reviewSort=%20"), { page: "reviews", ...emptyRoute });
 });
 
 test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
@@ -1775,6 +1878,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.equal(buildHashRoute({ page: "settings", q: "  " }), "#/settings");
   assert.equal(buildHashRoute({ page: "live", liveDetail: "1" }), "#/live?liveDetail=1");
   assert.equal(buildHashRoute({ page: "reviews", reviewDetail: "1" }), "#/reviews?reviewDetail=1");
+  assert.equal(buildHashRoute({ page: "reviews", reviewSort: "grouped" }), "#/reviews?reviewSort=grouped");
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "", q: "owner/repo #13" })), {
     page: "",
     source: null,
@@ -1796,6 +1900,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     tab: null,
     liveDetail: null,
     reviewDetail: null,
+    reviewSort: null,
   });
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "board", q: "owner/repo #13" })), {
     page: "board",
@@ -1818,6 +1923,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     tab: null,
     liveDetail: null,
     reviewDetail: null,
+    reviewSort: null,
   });
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", source: "github:github.com", repo: "owner/repo", branch: "main" })), {
     page: "commits",
@@ -1840,6 +1946,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     tab: null,
     liveDetail: null,
     reviewDetail: null,
+    reviewSort: null,
   });
 });
 
@@ -1858,7 +1965,7 @@ test("graphFocusHref round-trips an item's id through parseHashRoute without tou
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, reviewSort: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden
