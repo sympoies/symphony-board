@@ -2,11 +2,16 @@ name: pages
 
 # Publish the project website to GitHub Pages:
 #   /        -> the static landing page (site/index.html)
-#   /demo/   -> the real read-only UI, built and served against the tracked
-#               sample contract (packages/ui/public/contract.json). Backend-only
-#               features (live refresh, /api/range, the writer control plane)
-#               have no server here and gate themselves off; the contract-driven
-#               board renders fully.
+#   /demo/   -> the real read-only UI, built once and then served against the
+#               frozen real-data demo contract (site/demo-contract.json): a
+#               one-shot snapshot of public repos (the sympoies org on GitHub +
+#               gitlab-org/labkit on GitLab.com), so every item / commit / review /
+#               activity links to a live provider URL. The assemble step overwrites
+#               the tiny dev sample (packages/ui/public/contract.json) that vite
+#               bundles. Regenerate the snapshot with scripts/demo/build-demo-contract.sh.
+#               Backend-only features (live refresh, /api/range, the writer control
+#               plane) have no server here and gate themselves off; the
+#               contract-driven board renders fully.
 # Deploys from main via the Actions artifact flow (no gh-pages branch). The UI's
 # vite base is "./" (relative), so it works unchanged under the /symphony-board/
 # project sub-path.
@@ -60,6 +65,11 @@ jobs:
           cp docs/assets/readme-activity.png _site/readme-activity.png
           cp packages/ui/public/favicon.svg _site/favicon.svg
           cp -R packages/ui/dist/. _site/demo/
+          # Serve the frozen real-data demo contract, not the dev sample vite just
+          # bundled into dist/contract.json. This MUST run after the dist copy so it
+          # wins; the mv also clears the stray copy `cp -R site/.` left at the root.
+          test -f _site/demo-contract.json
+          mv _site/demo-contract.json _site/demo/contract.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

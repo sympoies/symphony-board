@@ -44,6 +44,16 @@ scripts/release.sh --dry-run
 scripts/release.sh --execute
 ```
 
+## Demo Helper
+
+| Script | What it does |
+| --- | --- |
+| `demo/build-demo-contract.sh` | Regenerates the frozen GitHub Pages demo contract (`site/demo-contract.json`) by running the normal sync → emit pipeline against the **public-only** sources in `config/sources.demo.json` (the sympoies org on GitHub + `gitlab-org/labkit` on GitLab.com). The result is a committed one-shot snapshot, so every item / commit / review / activity on the demo links to a live provider URL. Requires `GITHUB_TOKEN` and a gitlab.com `GITLAB_TOKEN` (env-ref only); writes a throwaway `data/demo.db`. |
+
+```sh
+GITHUB_TOKEN=$(gh auth token) GITLAB_TOKEN=glpat-... scripts/demo/build-demo-contract.sh
+```
+
 ## CI Helpers
 
 | Script | What it does |

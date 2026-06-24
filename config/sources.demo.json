@@ -1,0 +1,39 @@
+{
+  "$comment": "Public-only sources used to generate the GitHub Pages demo contract (site/demo-contract.json). EVERY project here MUST be public — the emitted contract is committed and published. Tokens are env-ref only (GITHUB_TOKEN / GITLAB_TOKEN), never inlined. Regenerate with scripts/demo/build-demo-contract.sh; the result is a frozen one-shot snapshot, so the demo renders identical data and dates on every visit.",
+  "db_path": "data/demo.db",
+  "timezone": "UTC",
+  "sources": [
+    {
+      "source_id": "github:github.com",
+      "kind": "github",
+      "host": "github.com",
+      "display_name": "GitHub",
+      "color": "#1f6feb",
+      "token_env": "GITHUB_TOKEN",
+      "commit_branches": "default",
+      "graphql_url": "https://api.github.com/graphql",
+      "rest_url": "https://api.github.com",
+      "projects": [
+        "sympoies/symphony-board",
+        "sympoies/nils-cli",
+        "sympoies/nils-alfredworkflow",
+        "sympoies/homebrew-tap"
+      ]
+    },
+    {
+      "source_id": "gitlab:gitlab.com",
+      "kind": "gitlab",
+      "host": "gitlab.com",
+      "display_name": "GitLab",
+      "color": "#fc6d26",
+      "token_env": "GITLAB_TOKEN",
+      "commit_branches": "default",
+      "graphql_url": "https://gitlab.com/api/graphql",
+      "rest_url": "https://gitlab.com/api/v4",
+      "projects": [
+        "gitlab-org/labkit"
+      ]
+    }
+  ],
+  "exclude_actors": ["dependabot", "renovate*", "github-actions"]
+}
