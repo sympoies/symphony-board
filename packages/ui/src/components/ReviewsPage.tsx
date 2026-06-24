@@ -732,9 +732,9 @@ export function ReviewsPage({
             className={`toggle${sort === "grouped" ? " toggle-on" : ""}`}
             aria-pressed={sort === "grouped"}
             onClick={() => onSortChange("grouped")}
-            title="Group threads by the pull request / merge request they hang off"
+            title="Unresolved first, grouped by repo and the PR/MR each thread hangs off"
           >
-            By PR
+            Grouped
           </button>
         </div>
       </div>
