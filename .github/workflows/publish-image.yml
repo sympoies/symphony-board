@@ -150,8 +150,14 @@ jobs:
             -v "$PWD/packages/ui/public/contract.json:/srv/data/contract.json:ro" \
             symphony-board-web:smoke
           for _ in $(seq 1 30); do
+            # Read the body to a file before grepping: piping `curl | grep -q` lets
+            # grep close the pipe on its first match, and with `set -o pipefail`
+            # curl's resulting EPIPE (exit 23) fails the whole condition. Harmless
+            # for a tiny body, but the demo contract grew past the pipe buffer (~240KB)
+            # so curl reliably loses the write race and the check never passed.
             if curl -fsS http://127.0.0.1:8080/ >/dev/null &&
-               curl -fsS http://127.0.0.1:8080/contract.json | grep -q '"contract_version":'; then
+               curl -fsS http://127.0.0.1:8080/contract.json -o "$smoke_dir/web-contract.json" &&
+               grep -q '"contract_version":' "$smoke_dir/web-contract.json"; then
               exit 0
             fi
             sleep 1
