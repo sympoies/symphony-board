@@ -420,7 +420,10 @@ export function App() {
   // would OVERWRITE the uploaded payload with the configured server's response (or fail
   // on a static/offline host / an Android client with no server URL). The views already
   // filter the loaded env to activeRange client-side, so a file env never needs the
-  // server projection: gate the overlay off for it. Network envs are unaffected.
+  // server projection: gate the overlay off for it. customRange itself stays true (only
+  // the overlay fetch is gated), so compatibleAggregates stays [] and the board computes
+  // its window stats client-side from the loaded items — correct for a file env, which
+  // already carries the full payload. Network envs are unaffected.
   const needsRangeEnv = (customRange || windowTailUnfetched) && page !== "settings" && rangeOverlayAllowedForSource(contractMeta?.source);
 
   // Reload the active data in place after a successful manual sync. It only
