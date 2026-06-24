@@ -93,13 +93,45 @@
     .card p { margin: 0; color: var(--muted); font-size: .95rem; }
     .card code { color: var(--green); background: rgba(173,219,103,.08); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
 
-    /* Pipeline */
-    .pipe {
-      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 24px; overflow-x: auto;
+    /* Pipeline — vertical layered flow */
+    .flow { display: flex; flex-direction: column; max-width: 660px; }
+    .flow-edge {
+      color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .82rem; letter-spacing: .2px; padding-left: 2px;
     }
-    .pipe pre { margin: 0; color: var(--muted); font-size: .9rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.7; }
-    .pipe pre b { color: var(--accent); }
+    .flow-edge.in { margin-bottom: 10px; }
+    .flow-edge.out { margin-top: 12px; padding-left: 39px; }
+    .flow-edge .tok { color: var(--accent-2); }
+    .flow-edge .arr { color: var(--accent); font-weight: 700; }
+    .layer {
+      display: flex; align-items: center; gap: 16px;
+      background: linear-gradient(180deg, var(--panel), var(--bg-2));
+      border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px;
+    }
+    .layer-num {
+      flex: none; width: 36px; height: 36px; border-radius: 10px;
+      display: grid; place-items: center; font-weight: 700; font-size: 1.05rem;
+      color: #06131f; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      font-variant-numeric: tabular-nums; box-shadow: 0 4px 14px rgba(130,170,255,.25);
+    }
+    .layer-body h3 { margin: 0 0 3px; font-size: 1.05rem; color: var(--fg); }
+    .layer-body p { margin: 0; color: var(--muted); font-size: .92rem; }
+    .layer-body code {
+      color: var(--green); background: rgba(173,219,103,.08);
+      padding: 1px 6px; border-radius: 5px; font-size: .82em;
+    }
+    .flow-link { display: flex; align-items: center; gap: 12px; height: 46px; padding-left: 37px; }
+    .flow-link .rail {
+      flex: none; width: 2px; height: 100%;
+      background: linear-gradient(var(--border), var(--accent)); border-radius: 2px; position: relative;
+    }
+    .flow-link .rail::after {
+      content: "▾"; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+      color: var(--accent); font-size: .8rem; line-height: 1;
+    }
+    .flow-link .lbl { color: var(--muted); font-size: .88rem; }
+    .flow-link .lbl b { color: var(--accent); font-weight: 600; }
+    .flow-link .lbl em { font-style: normal; color: var(--faint); }
 
     /* Demo note */
     .note {
@@ -197,14 +229,32 @@
     <section id="how">
       <h2>How it works</h2>
       <p class="sub">Three separate layers — raw store, canonical DB, versioned contract — keep the data model honest end to end.</p>
-      <div class="pipe">
-<pre>providers ──fetch──▶ <b>[1] raw store</b>      opaque provider payloads
-                          │ normalize (pure)
-                          ▼
-                     <b>[2] canonical DB</b>   item / edge / activity / label / sync_*
-                          │ buildContract (pure)
-                          ▼
-                     <b>[3] contract</b>       versioned JSON ──▶ UI / consumers</pre>
+      <div class="flow">
+        <div class="flow-edge in">providers <span class="tok">fetch</span> <span class="arr">▶</span></div>
+        <div class="layer">
+          <span class="layer-num">1</span>
+          <div class="layer-body">
+            <h3>Raw store</h3>
+            <p>Opaque provider payloads, kept verbatim — replay insurance for re-normalizing without re-fetching.</p>
+          </div>
+        </div>
+        <div class="flow-link"><span class="rail"></span><span class="lbl"><b>normalize</b> <em>(pure)</em></span></div>
+        <div class="layer">
+          <span class="layer-num">2</span>
+          <div class="layer-body">
+            <h3>Canonical DB</h3>
+            <p>Provider-agnostic rows: <code>item</code> · <code>edge</code> · <code>activity</code> · <code>label</code> · <code>sync_*</code></p>
+          </div>
+        </div>
+        <div class="flow-link"><span class="rail"></span><span class="lbl"><b>buildContract</b> <em>(pure)</em></span></div>
+        <div class="layer">
+          <span class="layer-num">3</span>
+          <div class="layer-body">
+            <h3>Contract</h3>
+            <p>A validated, versioned JSON envelope — the consumer API.</p>
+          </div>
+        </div>
+        <div class="flow-edge out"><span class="arr">▶</span> UI / consumers</div>
       </div>
     </section>
 
