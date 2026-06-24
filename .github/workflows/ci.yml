@@ -118,19 +118,15 @@ jobs:
         run: pnpm coverage
         env:
           COVERAGE_FAIL_UNDER_LINES: "85"
-      # Job summary + sticky PR comment (worst-covered files first). Runs even
-      # when the gate failed — coverage/lcov.info is written before the check.
+      # Job summary (worst-covered files first). Runs even when the gate failed
+      # — coverage/lcov.info is written before the check. The summary lives in
+      # the Actions run (and the README badge); no PR comment, to avoid emailing
+      # the PR author on every run.
       - name: Coverage summary
         if: always() && hashFiles('coverage/lcov.info') != ''
         run: |
           GITHUB_STEP_SUMMARY=coverage/summary.md bash scripts/ci/coverage-summary.sh coverage/lcov.info
           cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
-      - name: PR comment (sticky coverage summary)
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && hashFiles('coverage/summary.md') != ''
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: coverage
-          path: coverage/summary.md
       - name: Upload coverage LCOV
         if: always() && hashFiles('coverage/lcov.info') != ''
         uses: actions/upload-artifact@v7
