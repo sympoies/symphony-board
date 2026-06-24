@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Symphony Board — read-only cross-provider workflow board</title>
+  <meta name="description" content="Symphony Board aggregates issues, pull/merge requests, activity, and typed relationships from GitHub and GitLab into a canonical store, emits a versioned JSON contract, and serves a read-only web UI from it." />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <meta property="og:title" content="Symphony Board" />
+  <meta property="og:description" content="Read-only cross-provider workflow board for GitHub and GitLab." />
+  <meta property="og:type" content="website" />
+  <style>
+    :root {
+      --bg: #011627;
+      --bg-2: #0b2540;
+      --panel: #0e2942;
+      --panel-2: #112d4e;
+      --border: #1d3b5c;
+      --fg: #d6deeb;
+      --muted: #8badc1;
+      --faint: #5f7e95;
+      --accent: #82aaff;
+      --accent-2: #7fdbca;
+      --green: #addb67;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--fg);
+      background:
+        radial-gradient(900px 480px at 50% -8%, #0b3056 0%, rgba(11,48,86,0) 60%),
+        var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
+    header.site {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 22px 0; gap: 16px; flex-wrap: wrap;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.1rem; letter-spacing: .2px; }
+    .brand img { width: 34px; height: 34px; display: block; }
+    nav.top a { color: var(--muted); margin-left: 20px; font-size: .94rem; }
+    nav.top a:hover { color: var(--fg); }
+
+    /* Hero */
+    .hero { text-align: center; padding: 56px 0 8px; }
+    .hero h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.1; margin: 0 0 14px; letter-spacing: -.5px; }
+    .hero h1 .accent { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero p.lede { font-size: clamp(1.05rem, 2.2vw, 1.3rem); color: var(--muted); max-width: 720px; margin: 0 auto 28px; }
+    .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 22px; border-radius: 999px; font-weight: 600; font-size: 1rem;
+      border: 1px solid transparent; cursor: pointer; transition: transform .08s ease, background .15s ease;
+    }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); }
+    .btn-primary { background: linear-gradient(90deg, var(--accent), #5b8bff); color: #06131f; }
+    .btn-primary:hover { background: linear-gradient(90deg, #93b6ff, #6f9bff); }
+    .btn-ghost { background: rgba(255,255,255,.04); border-color: var(--border); color: var(--fg); }
+    .btn-ghost:hover { background: rgba(255,255,255,.08); }
+    .pill { display: inline-block; margin: 0 0 22px; padding: 5px 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent-2); font-size: .82rem; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; background: rgba(127,219,202,.06); }
+
+    /* Screenshot */
+    .shot { margin: 44px 0 12px; }
+    .shot figure { margin: 0; }
+    .shot img {
+      width: 100%; height: auto; display: block; border-radius: var(--radius);
+      border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0,0,0,.45);
+    }
+    .shot figcaption { text-align: center; color: var(--faint); font-size: .85rem; margin-top: 12px; }
+
+    /* Sections */
+    section { padding: 52px 0; }
+    section h2 { font-size: 1.6rem; margin: 0 0 8px; }
+    section .sub { color: var(--muted); margin: 0 0 28px; max-width: 760px; }
+
+    /* Feature grid */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+    .card {
+      background: linear-gradient(180deg, var(--panel), var(--bg-2));
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 22px;
+    }
+    .card h3 { margin: 0 0 8px; font-size: 1.08rem; color: var(--fg); }
+    .card h3 .ico { color: var(--accent-2); margin-right: 8px; }
+    .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+    .card code { color: var(--green); background: rgba(173,219,103,.08); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
+
+    /* Pipeline */
+    .pipe {
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 24px; overflow-x: auto;
+    }
+    .pipe pre { margin: 0; color: var(--muted); font-size: .9rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.7; }
+    .pipe pre b { color: var(--accent); }
+
+    /* Demo note */
+    .note {
+      display: flex; gap: 14px; align-items: flex-start;
+      background: rgba(130,170,255,.06); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+      border-radius: 10px; padding: 16px 18px; color: var(--muted); font-size: .92rem;
+    }
+    .note strong { color: var(--fg); }
+
+    /* Footer */
+    footer.site { border-top: 1px solid var(--border); padding: 34px 0 48px; color: var(--faint); font-size: .9rem; }
+    footer.site .cols { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    footer.site a { color: var(--muted); }
+    footer.site a:hover { color: var(--fg); }
+    footer.site .links a { margin-right: 18px; }
+
+    @media (max-width: 600px) {
+      nav.top { display: none; }
+      .hero { padding-top: 34px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <div class="brand">
+        <img src="./favicon.svg" alt="" />
+        <span>Symphony Board</span>
+      </div>
+      <nav class="top">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="./demo/">Live demo</a>
+        <a href="https://github.com/sympoies/symphony-board">GitHub</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <span class="pill">Read-only · GitHub + GitLab</span>
+      <h1>One board for <span class="accent">every provider's</span> work items</h1>
+      <p class="lede">
+        Symphony Board coordinates issues, pull requests, merge requests, activity, and typed
+        relationships from configured GitHub and GitLab projects into a canonical store, emits a
+        versioned JSON contract, and serves a read-only web UI from it.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="./demo/">▶ Launch live demo</a>
+        <a class="btn btn-ghost" href="https://github.com/sympoies/symphony-board">View on GitHub</a>
+      </div>
+    </section>
+
+    <div class="shot">
+      <figure>
+        <a href="./demo/">
+          <img src="./readme-activity.png" alt="Symphony Board activity view: work items, activity feed, and typed relationships across providers." />
+        </a>
+        <figcaption>The activity view — one of the Board, Graph, Activity, Commits, Reviews, and Repo Analytics surfaces.</figcaption>
+      </figure>
+    </div>
+
+    <section id="features">
+      <h2>What it does</h2>
+      <p class="sub">
+        The product surface is the contract plus the UI. The database is an implementation store,
+        not the consumer API.
+      </p>
+      <div class="grid">
+        <div class="card">
+          <h3><span class="ico">◆</span>Cross-provider sources</h3>
+          <p>GitHub and GitLab GraphQL sources fetch issues and change requests; REST activity surfaces add commits, comments, and repository/project events.</p>
+        </div>
+        <div class="card">
+          <h3><span class="ico">◆</span>Canonical store</h3>
+          <p>Raw provider payloads normalize into a provider-agnostic canonical database — <code>SQLite</code> by default, <code>Postgres</code> by opt-in compose.</p>
+        </div>
+        <div class="card">
+          <h3><span class="ico">◆</span>Versioned contract</h3>
+          <p>A validated, versioned JSON contract (major v4) is the consumer API. The canonical schema is never exposed directly.</p>
+        </div>
+        <div class="card">
+          <h3><span class="ico">◆</span>Read-only UI</h3>
+          <p>A 7-column Board, relationship Graph, Activity feed, Commits log, Review-thread inbox, and Repo Analytics — all over one shared date-range control.</p>
+        </div>
+        <div class="card">
+          <h3><span class="ico">◆</span>Apps</h3>
+          <p>Thin macOS (Tauri) and Android clients over a server HTTP surface, plus a fully self-contained standalone macOS app with a bundled backend.</p>
+        </div>
+        <div class="card">
+          <h3><span class="ico">◆</span>One writer per store</h3>
+          <p>A writer lease guarantees a single producer per store. The UI is read-only toward providers — it never writes issues, labels, or PR/MRs back.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <h2>How it works</h2>
+      <p class="sub">Three separate layers — raw store, canonical DB, versioned contract — keep the data model honest end to end.</p>
+      <div class="pipe">
+<pre>providers ──fetch──▶ <b>[1] raw store</b>      opaque provider payloads
+                          │ normalize (pure)
+                          ▼
+                     <b>[2] canonical DB</b>   item / edge / activity / label / sync_*
+                          │ buildContract (pure)
+                          ▼
+                     <b>[3] contract</b>       versioned JSON ──▶ UI / consumers</pre>
+      </div>
+    </section>
+
+    <section>
+      <div class="note">
+        <span aria-hidden="true">ℹ️</span>
+        <div>
+          <strong>About the live demo.</strong> It runs entirely in your browser against a bundled
+          sample contract, so no provider data leaves your machine. Backend-only features — live
+          refresh, time-window queries, and the sync / config control plane — require a running
+          server and are inactive in this static demo.
+        </div>
+      </div>
+    </section>
+
+    <footer class="site">
+      <div class="cols">
+        <div class="links">
+          <a href="https://github.com/sympoies/symphony-board">Source</a>
+          <a href="https://github.com/sympoies/symphony-board/blob/main/docs/DESIGN.md">Design</a>
+          <a href="https://github.com/sympoies/symphony-board/blob/main/docs/CONTRACT.md">Contract</a>
+          <a href="https://github.com/sympoies/symphony-board/issues">Support &amp; issues</a>
+        </div>
+        <div>
+          Open source under the repository's <a href="https://github.com/sympoies/symphony-board/blob/main/LICENSE">LICENSE</a>.
+          Built on the GitHub &amp; GitLab APIs.
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
