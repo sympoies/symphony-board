@@ -884,6 +884,15 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  // The mounted canvas pane reads the theme base, not ReactFlow's default dark
+  // pane grey (#141414 → rgb(20, 20, 20)): .graph-canvas re-points RF's
+  // --xy-background-color at --bg, so the resolved .react-flow background must be
+  // the night-owl --bg (#011627 → rgb(1, 22, 39)). Regression guard for the
+  // off-theme-grey fix; would fail on RF's default fill.
+  const graphCanvasPaneBg = ((await send("Runtime.evaluate", {
+    expression: "getComputedStyle(document.querySelector('.react-flow')).backgroundColor",
+    returnByValue: true,
+  })).result.value || "").trim();
   // Real layout measurement: no node's content may vertically overflow its
   // fixed-size box (the regression mode when a meta row gains a chip and wraps).
   const graphNodeOverflow = (await send("Runtime.evaluate", {
@@ -3010,6 +3019,7 @@ try {
     // (what focusing reveals), not the windowed drawn-edge degree.
     [graphNodeRelationCounts >= 1, `graph: canvas nodes render the relation count (${graphNodeRelationCounts} >= 1)`],
     [graphNodeOverflows.length === 0, `graph: node content fits inside the node box (${graphNodeOverflows.length} overflowing: ${graphNodeOverflow})`],
+    [graphCanvasPaneBg === "rgb(1, 22, 39)", `graph: canvas pane paints the --bg theme token, not ReactFlow's default grey (${graphCanvasPaneBg})`],
     // focusing suspends the time-range controls (the range is not a condition in
     // focus view); leaving focus re-enables them. The selection itself is kept —
     // only the styling/interactivity flips.

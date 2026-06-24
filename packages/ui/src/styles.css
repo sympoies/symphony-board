@@ -858,7 +858,19 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .graph-body { display: flex; gap: 10px; align-items: stretch; }
 .graph-canvas {
   flex: 1 1 auto; min-width: 0; height: 74vh; overflow: hidden;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  /* The box background is the canvas fill for the empty-state branch (where
+     GraphCanvasEmptyState renders in place of <Flow>, so no .react-flow paints)
+     and the brief pre-mount paint — keep it even though a mounted pane covers it. */
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  /* Once <Flow> mounts, the .react-flow pane fills this box and paints its OWN
+     background over that fill. RF defaults the pane to a neutral #141414 grey in
+     dark/night-owl mode (its light mode defaults to transparent); re-pointing
+     RF's background + minimap vars at --bg — these custom properties inherit down
+     to .react-flow — wins RF's var(--xy-background-color, …default) chain in BOTH
+     modes, so the canvas reads as the theme base (navy on night-owl, paper bg on
+     light) instead of RF's off-theme grey. */
+  --xy-background-color: var(--bg);
+  --xy-minimap-background-color: var(--bg);
 }
 /* Overview canvas empty state — a centered card that names the edge filter
    hiding the side-list candidates and offers the one-click flip to draw them,
