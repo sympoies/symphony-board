@@ -1451,6 +1451,28 @@ export function reviewThreadComparator(sort: ReviewSort): (a: ReviewThreadDTO, b
   return sort === "grouped" ? compareReviewThreadsGrouped : compareReviewThreadsRecent;
 }
 
+export interface ReviewResolution {
+  by: string | null; // resolver login, or null when the contract didn't capture one
+  outdated: boolean; // resolved on a since-changed diff (the thread is stale)
+  label: string; // ready-to-render text, echoing the resolver when known
+}
+
+// The resolution state to echo at the END of a thread's comment chain (mirroring
+// the providers' "X marked this conversation as resolved" trailing event). Returns
+// null for an open thread, so the detail renders no row. The contract carries no
+// resolved_at, so this is intentionally timeless — it names who resolved it, not
+// when. Pairs with the detail header, which shows the same resolver up top.
+export function reviewResolution(thread: ReviewThreadDTO): ReviewResolution | null {
+  if (!thread.is_resolved) return null;
+  const trimmed = thread.resolved_by?.trim();
+  const by = trimmed ? trimmed : null;
+  return {
+    by,
+    outdated: thread.is_outdated === true,
+    label: by ? `Resolved by @${by}` : "Marked as resolved",
+  };
+}
+
 // Stable composite key for an activity row (React keys, expanded-row tracking).
 // Reconstructs the `source_id|external_id` identity that the contract dropped as
 // a redundant `id` field in 4.0.0 (source_id never contains '|', external_id is
