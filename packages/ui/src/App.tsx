@@ -95,6 +95,7 @@ import {
   boardDisplayRange,
   isWindowedRangeEnv,
   windowedRangeTailUnfetched,
+  rangeOverlayAllowedForSource,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
   loadWideLayout,
@@ -413,7 +414,14 @@ export function App() {
   // loaded. customRange itself is left untouched so the windowed env's full-set aggregates
   // (compatibleAggregates) are still trusted; only the overlay fetch is forced.
   const windowTailUnfetched = windowedRangeTailUnfetched(env, boardScope, generatedNowMs, tz);
-  const needsRangeEnv = (customRange || windowTailUnfetched) && page !== "settings";
+  // #424: an uploaded contract (contractMeta.source === "file") loaded on a windowed
+  // device carries no range_query, so its landing default range differs from the file's
+  // item_window extent and customRange goes true — but firing the ./api/range overlay
+  // would OVERWRITE the uploaded payload with the configured server's response (or fail
+  // on a static/offline host / an Android client with no server URL). The views already
+  // filter the loaded env to activeRange client-side, so a file env never needs the
+  // server projection: gate the overlay off for it. Network envs are unaffected.
+  const needsRangeEnv = (customRange || windowTailUnfetched) && page !== "settings" && rangeOverlayAllowedForSource(contractMeta?.source);
 
   // Reload the active data in place after a successful manual sync. It only
   // re-fetches the contract (and the range response for a custom range); the

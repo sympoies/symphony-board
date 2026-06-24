@@ -11,7 +11,7 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
-  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched,
+  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -281,6 +281,24 @@ test("boardDisplayRange windows the display only for an actual /api/range env, n
   assert.equal(isWindowedRangeEnv(rangeEnv, "full"), false, "full scope is never windowed");
   assert.equal(isWindowedRangeEnv(rangeEnv, "off"), false, "off scope is never windowed");
   assert.deepEqual(boardDisplayRange(rangeEnv, "full", now), staticContractTimeRange(rangeEnv), "full scope keeps the item_window extent");
+});
+
+test("rangeOverlayAllowedForSource suppresses the ./api/range overlay for a file-loaded env (#424)", () => {
+  // A windowed-scope device that loads an uploaded contract via loadFile gets an env
+  // with no range_query, so its landing default range (a preset window) differs from
+  // the file's true item_window extent → customRange → the range overlay would
+  // otherwise fetch ./api/range and OVERWRITE the uploaded payload (or surface
+  // rangeError on a static/offline host, or an Android client with no server URL).
+  // The overlay must stay suppressed for a file env; the views filter the loaded env
+  // to the active range client-side, so an uploaded contract never needs the server
+  // projection.
+  assert.equal(rangeOverlayAllowedForSource("file"), false, "a file-loaded env never refetches the range overlay");
+  // A network-loaded env keeps the existing server-projection behavior.
+  assert.equal(rangeOverlayAllowedForSource("network"), true, "a network env may fetch the range overlay");
+  // Before any contract has loaded there is no metadata; treat it as allowed so the
+  // existing (non-file) behavior is the default.
+  assert.equal(rangeOverlayAllowedForSource(null), true, "no source yet (pre-load) keeps the default overlay behavior");
+  assert.equal(rangeOverlayAllowedForSource(undefined), true, "undefined source keeps the default overlay behavior");
 });
 
 test("boardWindowRange pins the loaded window to the contract clock so it lines up with its named preset (mobile windowed-range regression)", () => {

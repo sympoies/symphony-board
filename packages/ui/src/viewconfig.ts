@@ -398,6 +398,22 @@ export function windowedRangeTailUnfetched(env: ContractEnvelope | null | undefi
   return false;
 }
 
+// (#424) Whether the ./api/range overlay may fire for the loaded env, given how
+// the env was loaded (contractMeta.source). A file-loaded env already carries its
+// full item_window extent and may come from a deployment with NO matching server —
+// a static / offline host, or an Android client with no configured server URL — so
+// the moment its landing default range differs from that extent (customRange), the
+// overlay would fetch ./api/range and OVERWRITE the uploaded payload, or surface
+// rangeError. The views filter the loaded env to the active range client-side, so an
+// uploaded contract never needs the server projection: suppress the overlay for it
+// and keep showing the file. A network-loaded env — or none yet (pre-load) — keeps
+// the existing overlay behavior. The `"network" | "file"` union mirrors
+// ContractLoadMetadata.source; a new source value would type-error at the call site,
+// forcing a deliberate decision about whether the overlay applies to it.
+export function rangeOverlayAllowedForSource(source: "network" | "file" | null | undefined): boolean {
+  return source !== "file";
+}
+
 // The default scope for a client kind when nothing is stored: Android renders on
 // (often) weak e-ink hardware where the full contract can OOM the WebView, so it
 // starts on a small 7-day window; every other client keeps the full board.
