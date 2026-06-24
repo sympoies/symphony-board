@@ -11,7 +11,7 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
-  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment,
+  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, primaryLoadWindowDays,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -563,4 +563,15 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
   assert.doesNotThrow(() => saveTheme("paper"));
   assert.doesNotThrow(() => saveServerBaseUrl("http://localhost:8080"));
+});
+
+test("primaryLoadWindowDays: a static deployment loads the full contract even with a windowed scope (#432)", () => {
+  // Normal deployment: the windowed Board scope drives a /api/range primary load.
+  assert.equal(primaryLoadWindowDays(7, false), 7, "non-static windowed scope keeps its window");
+  assert.equal(primaryLoadWindowDays(null, false), null, "non-static full scope loads the full contract");
+  // Static (Pages) deployment: ./api/range 404s, so the primary load must be the
+  // full ./contract.json regardless of a stored windowed scope.
+  assert.equal(primaryLoadWindowDays(7, true), null, "static deployment ignores a windowed scope");
+  assert.equal(primaryLoadWindowDays(30, true), null, "static deployment ignores any window");
+  assert.equal(primaryLoadWindowDays(null, true), null, "static deployment full scope loads the full contract");
 });
