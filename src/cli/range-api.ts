@@ -7,7 +7,7 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { AppConfig } from "../config.ts";
-import { loadConfig } from "../config.ts";
+import { loadConfig, resolveConfigPath } from "../config.ts";
 import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
@@ -102,9 +102,22 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const contractOut = process.env.CONTRACT_OUT ?? "data/contract.json";
+  const configPath = resolveConfigPath(args.config);
   const server = createRangeApiServer({ configPath: args.config, contractOut });
   server.listen(args.port, args.host, () => {
-    process.stderr.write(`range api listening on ${args.host}:${args.port}, config ${args.config ?? "config/sources.json"}\n`);
+    // Probe config once at boot for diagnostics ONLY. Config is read fresh per
+    // request, so a failure here must NOT exit — the listener stays up and
+    // degrades to a per-request config_error. But the /healthz probe needs no
+    // config, so a fatally broken config would otherwise report healthy; log it
+    // loudly here so a broken sources.json is visible in container logs at boot.
+    try {
+      loadConfig(args.config);
+      process.stderr.write(`range api listening on ${args.host}:${args.port}, config ${configPath}\n`);
+    } catch (err) {
+      process.stderr.write(
+        `range api listening on ${args.host}:${args.port}, but config ${configPath} FAILED to load: ${(err as Error).message}; serving per-request config_error until fixed\n`,
+      );
+    }
   });
 }
 

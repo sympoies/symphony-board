@@ -30,21 +30,27 @@ async function json(res: Response): Promise<any> {
 // contract file — the Docker `api` sidecar's mounted data-dir layout in
 // miniature. `timezone` is a constructor argument so a test can rewrite it and
 // observe whether the sidecar re-reads config.
-async function sandbox(timezone = "UTC"): Promise<{ dir: string; configPath: string; opts: RangeApiOptions }> {
+async function sandbox(timezone = "UTC"): Promise<{ dir: string; configPath: string; dbPath: string; opts: RangeApiOptions }> {
   const dir = mkdtempSync(join(tmpdir(), "range-api-test-"));
   const dbPath = join(dir, "data", "board.db");
   const configPath = join(dir, "config", "sources.json");
   const db = await openSqliteStore(dbPath); // creates data/ and migrates the empty store
   await db.close();
   mkdirSync(join(dir, "config"), { recursive: true });
-  writeConfig(configPath, dbPath, timezone);
-  return { dir, configPath, opts: { configPath, contractOut: join(dir, "data", "contract.json") } };
+  writeConfig(configPath, dbPath, { timezone });
+  return { dir, configPath, dbPath, opts: { configPath, contractOut: join(dir, "data", "contract.json") } };
 }
 
-function writeConfig(configPath: string, dbPath: string, timezone: string): void {
+type ProjectEntry = string | { path: string; color?: string };
+
+function writeConfig(
+  configPath: string,
+  dbPath: string,
+  opts: { timezone: string; projects?: ProjectEntry[] },
+): void {
   const config = {
     db_path: dbPath,
-    timezone,
+    timezone: opts.timezone,
     sources: [
       {
         source_id: "github:github.com",
@@ -53,7 +59,7 @@ function writeConfig(configPath: string, dbPath: string, timezone: string): void
         display_name: "GitHub",
         token_env: "RANGE_API_TEST_TOKEN_UNSET",
         graphql_url: "https://api.github.com/graphql",
-        projects: ["example/repo"],
+        projects: opts.projects ?? ["example/repo"],
       },
     ],
   };
@@ -98,9 +104,12 @@ test("range-api serves health, range, stats, review-candidates, activity-daily, 
     const daily = await fetch(`${base}/api/activity-daily`);
     assert.equal(daily.status, 200);
 
-    // unknown routes and non-GET methods 404
+    // unknown routes and non-GET methods 404. All three config-backed routes
+    // share one method gate, so cover each.
     assert.equal((await fetch(`${base}/api/nope`)).status, 404);
     assert.equal((await fetch(`${base}/api/range?from=2026-01-01&to=2026-01-02`, { method: "POST" })).status, 404);
+    assert.equal((await fetch(`${base}/api/stats`, { method: "POST" })).status, 404);
+    assert.equal((await fetch(`${base}/api/review-candidates`, { method: "POST" })).status, 404);
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });
@@ -114,8 +123,7 @@ test("range-api serves health, range, stats, review-candidates, activity-daily, 
 // range_query and shifts the zoned window boundaries, so a frozen startup
 // config would keep returning the old zone after the file changed on disk.
 test("range-api applies a config-only edit without a restart (#439)", async () => {
-  const { dir, configPath, opts } = await sandbox("UTC");
-  const dbPath = join(dir, "data", "board.db");
+  const { dir, configPath, dbPath, opts } = await sandbox("UTC");
   const server = createRangeApiServer(opts);
   const base = await listen(server);
   try {
@@ -123,14 +131,25 @@ test("range-api applies a config-only edit without a restart (#439)", async () =
     assert.equal(before.range_query.timezone, "UTC");
     assert.equal(before.range_query.from, "2026-06-01T00:00:00.000Z");
     assert.equal(before.range_query.to, "2026-06-02T23:59:59.999Z");
+    assert.deepEqual(before.repos, [], "no highlight color configured yet");
 
-    // Edit config on disk — no restart, no new server.
-    writeConfig(configPath, dbPath, "Asia/Tokyo");
+    // Edit config on disk — no restart, no new server. Change the timezone AND
+    // add a highlight color to the configured repo: both are config-only display
+    // fields #439 names, both flow through the same per-request freshConfig(),
+    // and both must apply live. The color also pins a literal reported field, so
+    // a future refactor that special-cased timezone could not silently re-freeze
+    // the display fields the bug actually reported.
+    writeConfig(configPath, dbPath, { timezone: "Asia/Tokyo", projects: [{ path: "example/repo", color: "#ff8800" }] });
 
     const after = await json(await fetch(`${base}/api/range?from=2026-06-01&to=2026-06-02`));
     assert.equal(after.range_query.timezone, "Asia/Tokyo", "config edit must apply without a restart");
     assert.equal(after.range_query.from, "2026-05-31T15:00:00.000Z", "zoned window boundary follows the edited timezone");
     assert.equal(after.range_query.to, "2026-06-02T14:59:59.999Z");
+    assert.deepEqual(
+      after.repos,
+      [{ source_id: "github:github.com", project_path: "example/repo", color: "#ff8800" }],
+      "a highlight color added to config applies without a restart",
+    );
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });
@@ -163,6 +182,34 @@ test("range-api degrades to a per-request config error without crashing the list
     const reviewCandidates = await fetch(`${base}/api/review-candidates`);
     assert.equal(reviewCandidates.status, 500);
     assert.equal((await json(reviewCandidates)).error, "config_error");
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The realistic operator-edit failure mode: a config that parses fine, then is
+// broken by a bad edit on a later request. Because config is read per request,
+// the bad edit must degrade per request (not poison the listener) and a fix must
+// recover without a restart — the same fresh-read guarantee, exercised both ways.
+test("range-api degrades then recovers when a previously-valid config breaks mid-life (#439)", async () => {
+  const { dir, configPath, dbPath, opts } = await sandbox("UTC");
+  const server = createRangeApiServer(opts);
+  const base = await listen(server);
+  try {
+    // good request first
+    assert.equal((await fetch(`${base}/api/range?from=2026-06-01&to=2026-06-02`)).status, 200);
+
+    // operator overwrites the live config with invalid JSON
+    writeFileSync(configPath, "{ not valid json", "utf8");
+    const broken = await fetch(`${base}/api/range?from=2026-06-01&to=2026-06-02`);
+    assert.equal(broken.status, 500);
+    assert.equal((await json(broken)).error, "config_error");
+    assert.equal((await fetch(`${base}/healthz`)).status, 200, "listener survives a bad mid-life edit");
+
+    // fixing the config recovers the route without a restart
+    writeConfig(configPath, dbPath, { timezone: "UTC" });
+    assert.equal((await fetch(`${base}/api/range?from=2026-06-01&to=2026-06-02`)).status, 200);
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });
