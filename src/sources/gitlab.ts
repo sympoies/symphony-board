@@ -521,7 +521,7 @@ export class GitLabSource implements Source {
           author: n.author?.username ?? null,
           avatarUrl: resolveAvatarUrl(n.author?.avatar_url, this.descriptor.host),
           body: cleanText(n.body),
-          url: cleanText(n.web_url) ?? item.url ?? null,
+          url: gitLabNoteUrl(cleanText(n.web_url), item.url, n.id),
           createdAt: cleanText(n.created_at),
           updatedAt: cleanText(n.updated_at),
         }));
@@ -867,6 +867,17 @@ function lineNumber(value: unknown): number | null {
   if (value == null) return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+// A review note's permalink. GitLab's REST /merge_requests/:iid/discussions notes
+// carry NO web_url, so prefer it when present (newer/GraphQL shapes) but otherwise
+// anchor the note id on the parent item URL — without this a review comment falls
+// back to the bare MR url (no #note anchor), unlike GitHub's #discussion_r<id>
+// deep links. Mirrors the note-permalink construction in gitLabProjectEventUrl.
+function gitLabNoteUrl(webUrl: string | null, itemUrl: string | null, noteId: unknown): string | null {
+  if (webUrl) return webUrl;
+  if (itemUrl && noteId != null) return `${itemUrl}#note_${noteId}`;
+  return itemUrl ?? null;
 }
 
 function messageBody(value: unknown): string | null {
