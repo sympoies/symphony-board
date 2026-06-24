@@ -961,7 +961,7 @@ test("top_actors is capped at 5, ordered by activity volume, dropping the tail",
   );
 });
 
-test("buildContract drops repo_metrics for repos no longer in config that carry no items", () => {
+test("buildContract drops repo_metrics for any repo no longer in config, even one that still carries items", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
   ];
@@ -984,9 +984,10 @@ test("buildContract drops repo_metrics for repos no longer in config that carry 
     ["o/configured", "o/ghost", "o/removed-has-items"],
   );
 
-  // With the configured set, a repo that is neither configured NOR item-bearing
-  // (the activity-only ghost) drops out; configured repos and repos that still
-  // carry items stay (board consistency).
+  // With the configured set, config is the source of truth: only configured
+  // repos are emitted. Both the activity-only ghost AND the de-configured repo
+  // that still carries items drop out — their store rows are untouched, they are
+  // simply no longer projected.
   const filtered = buildContract({
     sources,
     items,
@@ -998,6 +999,54 @@ test("buildContract drops repo_metrics for repos no longer in config that carry 
   });
   assert.deepEqual(
     (filtered.repo_metrics ?? []).map((m) => m.project_path).sort(),
-    ["o/configured", "o/removed-has-items"],
+    ["o/configured"],
   );
+});
+
+test("buildContract projects only configured sources/repos; a de-configured source vanishes from every surface", () => {
+  // The `source` table is an append-only registry: gitlab.com was synced before
+  // it was removed from config, so its row (and its items/activities/edges) still
+  // live in the store. Config is now the source of truth for the PROJECTION —
+  // a source/repo absent from config is omitted from every contract surface while
+  // its store rows stay untouched (emit-time gating, not a delete).
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    { source_id: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", display_name: "GitLab", last_success_at: null, last_status: "partial" },
+  ];
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, source_id: "github:github.com", external_id: "GH_1", project_path: "o/configured" }),
+    itemRow({ item_id: 2, source_id: "gitlab:gitlab.com", external_id: "GL_1", project_path: "g/fixture" }),
+    itemRow({ item_id: 3, source_id: "gitlab:gitlab.com", external_id: "GL_2", project_path: "g/fixture" }),
+  ];
+  const activities: ActivityRow[] = [
+    // occurred_at within the static contract's 30-day activity window so the
+    // configured activity survives windowing and isolates the config gate.
+    activityRow({ source_id: "github:github.com", external_id: "act-gh", project_path: "o/configured", actor: "alice", occurred_at: "2026-06-01T00:00:00Z" }),
+    activityRow({ source_id: "gitlab:gitlab.com", external_id: "act-gl", project_path: "g/fixture", actor: "bob", occurred_at: "2026-06-01T00:00:00Z" }),
+  ];
+  const edges: EdgeRow[] = [
+    // intra-gitlab edge (both endpoints de-configured) -> dropped
+    { type: "relates", from_source_id: "gitlab:gitlab.com", from_external_id: "GL_1", to_source_id: "gitlab:gitlab.com", to_external_id: "GL_2", from_state: null, to_state: null, lifecycle: null },
+    // cross-source edge github -> gitlab (one endpoint de-configured) -> dropped
+    { type: "relates", from_source_id: "github:github.com", from_external_id: "GH_1", to_source_id: "gitlab:gitlab.com", to_external_id: "GL_1", from_state: null, to_state: null, lifecycle: null },
+  ];
+  const generatedAt = "2026-06-08T00:00:00.000Z";
+
+  // No config set -> historical behavior: both sources and all repos present.
+  const unfiltered = buildContract({ sources, items, labels: [], edges, activities, generatedAt });
+  assert.deepEqual(unfiltered.sources.map((s) => s.source_id).sort(), ["github:github.com", "gitlab:gitlab.com"]);
+  assert.deepEqual((unfiltered.repo_stats ?? []).map((r) => r.project_path).sort(), ["g/fixture", "o/configured"]);
+
+  // Config = source of truth: gitlab.com is absent, so it (and its repo, items,
+  // activities, edges) drop from the projection. The store rows are untouched.
+  const filtered = buildContract({
+    sources, items, labels: [], edges, activities, generatedAt,
+    configuredRepos: [{ source_id: "github:github.com", project_path: "o/configured" }],
+  });
+  assert.deepEqual(filtered.sources.map((s) => s.source_id), ["github:github.com"], "de-configured source dropped from sources[]");
+  assert.deepEqual((filtered.repo_stats ?? []).map((r) => r.project_path), ["o/configured"], "repo_stats config-gated");
+  assert.deepEqual((filtered.repo_metrics ?? []).map((m) => m.project_path), ["o/configured"], "repo_metrics config-gated");
+  assert.deepEqual([...new Set(filtered.items.map((i) => i.source_id))], ["github:github.com"], "items config-gated");
+  assert.deepEqual([...new Set((filtered.activities ?? []).map((a) => a.source_id))], ["github:github.com"], "activities config-gated");
+  assert.equal(filtered.edges.length, 0, "edges touching a de-configured repo are dropped");
 });

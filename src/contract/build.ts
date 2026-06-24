@@ -398,6 +398,16 @@ function configuredRepoKeySet(refs: BuildInput["configuredRepos"]): ReadonlySet<
   return refs ? new Set(refs.map((r) => repoKey(r.source_id, r.project_path))) : undefined;
 }
 
+// The configured source_ids as a set (or undefined when no config set was
+// threaded in). Derived from the same (source_id, project_path) refs as
+// configuredRepoKeySet: config validation requires every source to declare at
+// least one project, so every configured source appears here. Gates the emitted
+// sources[] so a source removed from config stops appearing even though its
+// append-only `source` table row lingers.
+function configuredSourceIdSet(refs: BuildInput["configuredRepos"]): ReadonlySet<string> | undefined {
+  return refs ? new Set(refs.map((r) => r.source_id)) : undefined;
+}
+
 function repoSort(a: { source_id: string; project_path: string | null }, b: { source_id: string; project_path: string | null }): number {
   return a.source_id.localeCompare(b.source_id) || (a.project_path ?? "").localeCompare(b.project_path ?? "");
 }
@@ -1299,13 +1309,47 @@ function mapRows(input: BuildInput): {
     labelsByItem.set(l.item_id, arr);
   }
   const sourceColors = input.sourceColors ?? {};
-  const items = input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? []));
-  const edges = input.edges.map(toEdgeDTO);
+  // Config-as-source-of-truth gate, computed at emit time and never stored (like
+  // colors/identities). When a configured set is threaded in (every product /
+  // agent path passes one via buildContractEnvelope / buildRangeContract), the
+  // projection surfaces ONLY configured sources/repos: a source or project removed
+  // from config drops from every contract surface while its store rows stay
+  // untouched — see docs/DESIGN.md "Removal semantics". Absent config set leaves
+  // the data unfiltered (the historical behavior for callers/tests that pass none).
+  const configuredRepoKeys = configuredRepoKeySet(input.configuredRepos);
+  const configuredSourceIds = configuredSourceIdSet(input.configuredRepos);
+  const repoAllowed = (sourceId: string, projectPath: string | null): boolean =>
+    !configuredRepoKeys || configuredRepoKeys.has(repoKey(sourceId, projectPath));
+
+  const mappedItems = input.items.map((it) => toItemDTO(it, labelsByItem.get(it.item_id) ?? []));
+  const items = configuredRepoKeys ? mappedItems.filter((it) => repoAllowed(it.source_id, it.project_path)) : mappedItems;
+  // Ids of LOADED items the gate drops, so an edge touching a de-configured repo
+  // drops too. Edges whose endpoints are not loaded at all (cross-window, or
+  // cross-source to a tombstoned item) are left to the projection logic exactly
+  // as before — we only remove edges that touch a known de-configured item.
+  const droppedItemIds = configuredRepoKeys
+    ? new Set(mappedItems.filter((it) => !repoAllowed(it.source_id, it.project_path)).map((it) => it.id))
+    : null;
+  const mappedEdges = input.edges.map(toEdgeDTO);
+  const edges = droppedItemIds ? mappedEdges.filter((e) => !droppedItemIds.has(e.from) && !droppedItemIds.has(e.to)) : mappedEdges;
+
+  const mappedActivities = (input.activities ?? []).map(toActivityDTO);
+  const activities = sortActivitiesByInstantDesc(
+    configuredRepoKeys ? mappedActivities.filter((a) => repoAllowed(a.source_id, a.project_path)) : mappedActivities,
+  );
+
+  const mappedSources = input.sources.map((s) => toSourceDTO(s, sourceColors));
+  const sources = configuredSourceIds ? mappedSources.filter((s) => configuredSourceIds.has(s.source_id)) : mappedSources;
+
   return {
-    sources: input.sources.map((s) => toSourceDTO(s, sourceColors)),
-    activities: sortActivitiesByInstantDesc((input.activities ?? []).map(toActivityDTO)),
+    sources,
+    activities,
+    // Review threads target items; reviewThreadsForItems() downstream keeps only
+    // threads whose target item survived, so the item gate covers them too.
     reviewThreads: (input.reviewThreads ?? []).map(toReviewThreadDTO),
-    repos: (input.repoColors ?? []).map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
+    repos: (input.repoColors ?? [])
+      .filter((r) => repoAllowed(r.source_id, r.project_path))
+      .map((r) => ({ source_id: r.source_id, project_path: r.project_path, color: r.color })),
     items,
     edges,
   };

@@ -115,7 +115,11 @@ function appConfig(over: Partial<AppConfig> = {}): AppConfig {
         color: "#1f6feb",
         token_env: "T",
         graphql_url: "https://api.github.com/graphql",
-        projects: ["a/b", { path: "c/d", color: "#abc" }],
+        // `dev-a/repo` is the repo the fixture items/canonicalItem live in; it must
+        // be declared because the contract projection is config-gated (a repo absent
+        // from config is omitted from the emitted contract). `a/b` / `c/d` stay for
+        // the displayColors cases above.
+        projects: ["a/b", { path: "c/d", color: "#abc" }, "dev-a/repo"],
       },
     ],
     ...over,
