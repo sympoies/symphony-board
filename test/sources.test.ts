@@ -1382,6 +1382,56 @@ test("GitLab: resolvable discussions normalize into review-thread detail", () =>
   assert.equal(thread.comments[0]!.avatarUrl, "https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png");
 });
 
+test("GitLab: review-thread comments deep-link to the note permalink when the REST note has no web_url", () => {
+  // GitLab's REST /merge_requests/:iid/discussions notes carry NO web_url, so
+  // without building the permalink a review comment falls back to the bare MR url
+  // (no #note anchor) — unlike GitHub, whose review comments deep-link to
+  // #discussion_r<id>. Build <mr_url>#note_<id> from the note id instead.
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "gid:MR_note", apiVersion: "gitlab.graphql",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: glNode("gid:MR_note", "9", {
+      state: "opened", mergedAt: null, draft: false, approved: false, approvalsRequired: 0,
+      resolvableDiscussionsCount: 1, resolvedDiscussionsCount: 0,
+      headPipeline: { status: "SUCCESS" }, detailedMergeStatus: "DISCUSSIONS_NOT_RESOLVED",
+      discussions: [
+        {
+          id: "disc-no-weburl",
+          notes: [
+            // realistic REST shape: no web_url field on the note
+            { id: 555, resolvable: true, resolved: false, body: "first", created_at: "2026-06-01T01:00:00Z", updated_at: "2026-06-01T01:00:00Z", author: { username: "a" }, position: { new_path: "x.ts", new_line: 1 } },
+            { id: 556, resolvable: true, resolved: false, body: "reply", created_at: "2026-06-01T02:00:00Z", updated_at: "2026-06-01T02:00:00Z", author: { username: "b" } },
+          ],
+        },
+      ],
+    }),
+  };
+  const thread = src.normalize(raw)!.reviewThreads![0]!;
+  // glNode sets webUrl https://gl/9, so the MR url is https://gl/9.
+  assert.equal(thread.comments[0]!.url, "https://gl/9#note_555", "comment url is the note permalink built from the MR url + note id");
+  assert.equal(thread.comments[1]!.url, "https://gl/9#note_556");
+  assert.equal(thread.url, "https://gl/9#note_555", "the thread url inherits its first comment's note permalink");
+});
+
+test("GitLab: a review note's own web_url is preferred over a constructed permalink", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "gid:MR_weburl", apiVersion: "gitlab.graphql",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: glNode("gid:MR_weburl", "9", {
+      state: "opened", mergedAt: null, draft: false, approved: false, approvalsRequired: 0,
+      resolvableDiscussionsCount: 1, resolvedDiscussionsCount: 0,
+      headPipeline: { status: "SUCCESS" }, detailedMergeStatus: "DISCUSSIONS_NOT_RESOLVED",
+      discussions: [
+        { id: "d", notes: [{ id: 7, resolvable: true, resolved: false, body: "x", web_url: "https://gitlab.com/g/p/-/merge_requests/9#note_7", created_at: "2026-06-01T01:00:00Z", updated_at: "2026-06-01T01:00:00Z", author: { username: "a" }, position: { new_path: "x.ts", new_line: 1 } }] },
+      ],
+    }),
+  };
+  const thread = src.normalize(raw)!.reviewThreads![0]!;
+  assert.equal(thread.comments[0]!.url, "https://gitlab.com/g/p/-/merge_requests/9#note_7");
+});
+
 test("GitLab: a null diff line position falls back to the other side instead of line 0", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const threadFor = (position: unknown) => {
