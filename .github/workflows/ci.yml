@@ -118,15 +118,27 @@ jobs:
         run: pnpm coverage
         env:
           COVERAGE_FAIL_UNDER_LINES: "85"
-      # Job summary (worst-covered files first). Runs even when the gate failed
-      # — coverage/lcov.info is written before the check. The summary lives in
-      # the Actions run (and the README badge); no PR comment, to avoid emailing
-      # the PR author on every run.
+      # Job summary + sticky PR comment (worst-covered files first). Runs even
+      # when the gate failed — coverage/lcov.info is written before the check.
       - name: Coverage summary
         if: always() && hashFiles('coverage/lcov.info') != ''
         run: |
           GITHUB_STEP_SUMMARY=coverage/summary.md bash scripts/ci/coverage-summary.sh coverage/lcov.info
           cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+      # Keep the coverage number visible on the PR itself. marocchino edits one
+      # comment in place (recreate defaults to false); GitHub only notifies on
+      # comment *creation*, not edits, so CI re-runs are silent and this emails
+      # at most once, when the comment first appears on a PR. (#437 removed it on
+      # a mistaken "emails on every run"; edit-in-place never did.) The body is
+      # the coverage table — no @-mentions — so edits stay silent. Same-repo PRs
+      # only (forks lack a writable token); best-effort, never fails the job.
+      - name: PR comment (sticky coverage summary)
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && hashFiles('coverage/summary.md') != ''
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          path: coverage/summary.md
       - name: Upload coverage LCOV
         if: always() && hashFiles('coverage/lcov.info') != ''
         uses: actions/upload-artifact@v7
