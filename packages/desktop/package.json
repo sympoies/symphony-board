@@ -1,6 +1,6 @@
 {
   "name": "@symphony-board/desktop",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "private": true,
   "description": "macOS desktop shell for the symphony-board read-only UI.",
   "type": "module",
