@@ -45,7 +45,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The sample contract in packages/ui/public/contract.json is bundled into
       # dist/ by vite, so the demo renders without any server.
+      # VITE_SYMPHONY_BOARD_STATIC marks this as a static, API-less deployment: the
+      # UI lands on the full contract extent and never fires the ./api/range overlay
+      # (which a static host would 404), filtering the loaded contract client-side.
       - run: pnpm --filter @symphony-board/ui run build
+        env:
+          VITE_SYMPHONY_BOARD_STATIC: "1"
       - name: Assemble site
         run: |
           set -euo pipefail

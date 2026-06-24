@@ -96,7 +96,8 @@ import {
   boardDisplayRange,
   isWindowedRangeEnv,
   windowedRangeTailUnfetched,
-  rangeOverlayAllowedForSource,
+  rangeOverlayAllowed,
+  isStaticDeployment,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
   loadWideLayout,
@@ -372,13 +373,22 @@ export function App() {
   // never exceed it — the landing IS the window, so reuse staticRange and keep
   // customRange false (no overlay fetch). A default the user deliberately keeps
   // strictly smaller opens on that sub-range, served by the range overlay.
+  // A static, server-less deployment (the Pages demo, VITE_SYMPHONY_BOARD_STATIC)
+  // can fetch ./contract.json but 404s ./api/range. Treat it like a file env
+  // (#424): never project a sub-range over the network, and land on the full
+  // loaded extent so a fresh visitor sees the whole contract, not an out-of-window
+  // empty range. A build-time constant; unset everywhere else, so false.
+  const staticDeployment = isStaticDeployment();
   const defaultRange = useMemo(() => {
     if (!env) return null;
+    // Static demo: land on the full loaded extent (staticRange) so all data shows
+    // and customRange stays false — there is no server to project a sub-range.
+    if (staticDeployment && staticRange) return staticRange;
     if (!windowedEnv) return preferredDefaultTimeRange(env, defaultRangePreset);
     if (!staticRange) return null;
     const presetRange = preferredDefaultTimeRange(env, defaultRangePreset);
     return presetRange.from <= staticRange.from ? staticRange : presetRange;
-  }, [env, windowedEnv, staticRange, defaultRangePreset]);
+  }, [env, windowedEnv, staticRange, defaultRangePreset, staticDeployment]);
   // Auto-shrink the stored Default range when Board data drops below it (e.g. Board
   // 1y -> 1mo pulls a 3mo default down to 1mo); a default already within the window is
   // left untouched. Persisted by the defaultRangePreset save effect.
@@ -425,7 +435,7 @@ export function App() {
   // the overlay fetch is gated), so compatibleAggregates stays [] and the board computes
   // its window stats client-side from the loaded items — correct for a file env, which
   // already carries the full payload. Network envs are unaffected.
-  const needsRangeEnv = (customRange || windowTailUnfetched) && page !== "settings" && rangeOverlayAllowedForSource(contractMeta?.source);
+  const needsRangeEnv = (customRange || windowTailUnfetched) && page !== "settings" && rangeOverlayAllowed(contractMeta?.source, staticDeployment);
 
   // Reload the active data in place after a successful manual sync. It only
   // re-fetches the contract (and the range response for a custom range); the

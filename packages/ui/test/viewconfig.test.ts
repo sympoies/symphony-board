@@ -11,7 +11,7 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
-  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource,
+  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -299,6 +299,29 @@ test("rangeOverlayAllowedForSource suppresses the ./api/range overlay for a file
   // existing (non-file) behavior is the default.
   assert.equal(rangeOverlayAllowedForSource(null), true, "no source yet (pre-load) keeps the default overlay behavior");
   assert.equal(rangeOverlayAllowedForSource(undefined), true, "undefined source keeps the default overlay behavior");
+});
+
+test("rangeOverlayAllowed also suppresses the overlay on a static, server-less deployment (Pages demo)", () => {
+  // A static host (the GitHub Pages demo) serves ./contract.json but 404s
+  // ./api/range, so the overlay must stay off even for a NETWORK-loaded contract —
+  // otherwise a fresh visitor whose default range falls outside the contract window
+  // opens on "Could not load selected range." The views filter the full payload
+  // client-side, the same as the #424 file-env path.
+  assert.equal(rangeOverlayAllowed("network", true), false, "static deployment never fetches the range overlay, even for a network env");
+  assert.equal(rangeOverlayAllowed("file", true), false, "static + file: still suppressed");
+  assert.equal(rangeOverlayAllowed(null, true), false, "static + pre-load: suppressed");
+  // Non-static keeps the source-based behavior (#424) unchanged — the historical path.
+  assert.equal(rangeOverlayAllowed("network", false), true, "non-static network env may fetch the overlay");
+  assert.equal(rangeOverlayAllowed("file", false), false, "non-static file env stays suppressed (#424)");
+  assert.equal(rangeOverlayAllowed(null, false), true, "non-static pre-load keeps the default overlay behavior");
+});
+
+test("isStaticDeployment defaults to false without the VITE flag (the safe default for every non-Pages build)", () => {
+  // import.meta.env is absent under the node test runner (no Vite injection), the
+  // same as any deployment that does not set VITE_SYMPHONY_BOARD_STATIC — so the
+  // overlay-suppression must NOT engage by default, leaving Docker web / standalone /
+  // Android on the historical server-projection path.
+  assert.equal(isStaticDeployment(), false);
 });
 
 test("boardWindowRange pins the loaded window to the contract clock so it lines up with its named preset (mobile windowed-range regression)", () => {
