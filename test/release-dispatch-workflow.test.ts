@@ -18,12 +18,11 @@ const publicSurfaceRoots = [
   "docs",
   "src/live/receiver.ts",
 ];
-// The public Pages demo deliberately aggregates the org's public repos as its
-// source list, so config/sources.demo.json (and the frozen site/demo-contract.json
-// it emits) reference the sibling repos on purpose. That ONE file is therefore an
-// owner-approved exception to this single marker; every other private-deploy
-// marker below still applies to it.
-const siblingRepoMarker = /sympoies\/(?:nils-cli|nils-alfredworkflow)/;
+// Markers stay focused on PRIVATE deployment topology and secrets. The sibling
+// public repos (nils-cli, nils-alfredworkflow) are intentionally NOT guarded:
+// the Pages demo aggregates them as a public source and renders their data, so
+// pretending to hide their names here would only let the codebase drift out of
+// step with what the demo already shows.
 const privateDeployMarkers = [
   /\bg14\b/i,
   /g14-infra/i,
@@ -33,13 +32,7 @@ const privateDeployMarkers = [
   /tail841b2e/i,
   /serve\.sh/i,
   /GITHUB_TOKEN_SYMPOIES/,
-  siblingRepoMarker,
 ];
-// Per-file marker exemptions, matched by regex identity (NOT by re-testing the
-// pattern), so a file is excused from exactly the markers listed here and no others.
-const markerExemptions = new Map<string, ReadonlySet<RegExp>>([
-  ["config/sources.demo.json", new Set([siblingRepoMarker])],
-]);
 
 function publicSurfaceFiles(): string[] {
   const out: string[] = [];
@@ -88,9 +81,7 @@ test("public docs, examples, and deploy templates avoid private deployment detai
   const hits: string[] = [];
   for (const path of publicSurfaceFiles()) {
     const content = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-    const exempt = markerExemptions.get(path);
     for (const marker of privateDeployMarkers) {
-      if (exempt?.has(marker)) continue;
       if (marker.test(content)) {
         hits.push(`${relative(repoRoot.pathname, new URL(`../${path}`, import.meta.url).pathname)}: ${marker}`);
       }

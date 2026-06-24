@@ -733,7 +733,13 @@ export class GitLabSource implements Source {
       if (action === "approved") return null;
       const title = event.target_title ?? data?.commit_title ?? data?.ref ?? null;
       const projectPath = p.project ?? null;
-      const targetIid = typeof event.target_iid === "number" ? event.target_iid : null;
+      const note = event.note ?? null;
+      // For a Note event, target_iid is the NOTE id, not the parent item iid; the
+      // parent item lives in event.note.noteable_iid. Point the comment activity at
+      // the item it belongs to (falling back to the raw target_iid for non-notes).
+      const noteableIid = typeof note?.noteable_iid === "number" ? note.noteable_iid : null;
+      const rawTargetIid = typeof event.target_iid === "number" ? event.target_iid : null;
+      const targetIid = targetKind === "comment" ? noteableIid : rawTargetIid;
       const activity: CanonicalActivity = {
         sourceId: this.descriptor.sourceId,
         externalId: raw.externalId,
@@ -744,7 +750,7 @@ export class GitLabSource implements Source {
         target: null,
         targetIid,
         title,
-        url: gitLabProjectEventUrl(this.descriptor, projectPath, targetKind, action, targetIid, data),
+        url: gitLabProjectEventUrl(this.descriptor, projectPath, targetKind, action, rawTargetIid, data, note),
         actor: event.author_username ?? event.author?.username ?? null,
         actorKey: deriveActorKey({
           sourceId: this.descriptor.sourceId,
@@ -920,7 +926,9 @@ function mapGitLabAction(action: unknown): string {
 function mapEventTargetKind(targetType: unknown, action: unknown, data: any): string {
   if (targetType === "Issue") return "issue";
   if (targetType === "MergeRequest") return "change_request";
-  if (targetType === "Note") return "comment";
+  // Plain Note, plus DiffNote (line comment) and DiscussionNote (threaded reply):
+  // all are comments on an issue/MR, not repository events.
+  if (typeof targetType === "string" && targetType.endsWith("Note")) return "comment";
   if (data?.ref) return "push";
   const s = String(action ?? "").toLowerCase();
   if (s.includes("push")) return "push";
@@ -934,11 +942,27 @@ function gitLabProjectEventUrl(
   action: string,
   targetIid: number | null,
   data: any,
+  note?: any,
 ): string | null {
   if (targetKind === "issue") return providerIssueUrl(source, projectPath, targetIid);
   if (targetKind === "change_request") return providerChangeRequestUrl(source, projectPath, targetIid);
   if (targetKind === "push") return providerPushUrl(source, projectPath, action, data?.ref, data?.commit_from, data?.commit_to);
   if (targetKind === "repository") return providerRepoUrl(source, projectPath);
+  if (targetKind === "comment") {
+    // A note event carries its parent item in event.note (target_iid is the note
+    // id, not the item iid). Link to the noteable item and anchor the note; leave
+    // unlinked when the noteable is missing/unknown rather than guess a location.
+    const noteableIid = typeof note?.noteable_iid === "number" ? note.noteable_iid : null;
+    if (noteableIid == null) return null;
+    const base =
+      note?.noteable_type === "Issue"
+        ? providerIssueUrl(source, projectPath, noteableIid)
+        : note?.noteable_type === "MergeRequest"
+          ? providerChangeRequestUrl(source, projectPath, noteableIid)
+          : null;
+    if (!base) return null;
+    return note?.id != null ? `${base}#note_${note.id}` : base;
+  }
   return null;
 }
 

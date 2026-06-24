@@ -925,54 +925,58 @@ test("GitLab project events normalize without fake tracked target refs", () => {
   assert.equal(b!.activities[0]!.url, "https://gitlab.com/g/p/-/issues/5");
 });
 
-test("GitLab project events link reliable push destinations and leave comments unlinked", () => {
+test("GitLab project events link reliable push destinations and comments to their note permalink", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
-  const push: RawRecord = {
+  const ev = (id: number, event: Record<string, unknown>): RawRecord => ({
     entityKind: "activity",
-    externalId: "event:push",
+    externalId: `event:${id}`,
     apiVersion: "gitlab.graphql.rest",
     fetchedAt: "2026-06-01T00:00:00Z",
     contentHash: "h",
     payload: {
       __activityKind: "gitlab_project_event",
       project: "g/p",
-      event: {
-        id: 2,
-        action_name: "pushed to",
-        created_at: "2026-06-09T12:00:00Z",
-        author_username: "gitlab-user",
-        push_data: {
-          ref: "main",
-          commit_from: "aaaaaaaa",
-          commit_to: "bbbbbbbb",
-        },
-      },
+      event: { id, created_at: "2026-06-09T12:00:00Z", author_username: "gitlab-user", ...event },
     },
-  };
-  const comment: RawRecord = {
-    entityKind: "activity",
-    externalId: "event:comment",
-    apiVersion: "gitlab.graphql.rest",
-    fetchedAt: "2026-06-01T00:00:00Z",
-    contentHash: "h",
-    payload: {
-      __activityKind: "gitlab_project_event",
-      project: "g/p",
-      event: {
-        id: 3,
-        action_name: "commented on",
-        target_type: "Note",
-        target_iid: 5,
-        target_title: "A note",
-        created_at: "2026-06-09T12:05:00Z",
-        author_username: "gitlab-user",
-      },
-    },
-  };
+  });
 
-  assert.equal(src.normalize(push)?.activities[0]?.url, "https://gitlab.com/g/p/-/compare/aaaaaaaa...bbbbbbbb");
-  assert.equal(src.normalize(comment)?.activities[0]?.kind, "comment");
-  assert.equal(src.normalize(comment)?.activities[0]?.url, null);
+  const push = src.normalize(ev(2, {
+    action_name: "pushed to",
+    push_data: { ref: "main", commit_from: "aaaaaaaa", commit_to: "bbbbbbbb" },
+  }))!.activities[0]!;
+  assert.equal(push.url, "https://gitlab.com/g/p/-/compare/aaaaaaaa...bbbbbbbb");
+
+  // A note event's target_iid is the NOTE id, not the parent item iid; the parent
+  // lives in event.note.noteable_iid. Comments (plain Note, plus DiffNote and
+  // DiscussionNote) are kind "comment" and link to the noteable item, anchored at
+  // the specific note.
+  const mrComment = src.normalize(ev(3, {
+    action_name: "commented on", target_type: "Note", target_iid: 77, target_title: "A note",
+    note: { id: 77, noteable_type: "MergeRequest", noteable_iid: 5 },
+  }))!.activities[0]!;
+  assert.equal(mrComment.kind, "comment");
+  assert.equal(mrComment.targetIid, 5, "comment targets the noteable item, not the note id");
+  assert.equal(mrComment.url, "https://gitlab.com/g/p/-/merge_requests/5#note_77");
+
+  const issueDiffComment = src.normalize(ev(4, {
+    action_name: "commented on", target_type: "DiffNote", target_iid: 88,
+    note: { id: 88, noteable_type: "Issue", noteable_iid: 9 },
+  }))!.activities[0]!;
+  assert.equal(issueDiffComment.kind, "comment", "DiffNote is a comment, not a repository event");
+  assert.equal(issueDiffComment.url, "https://gitlab.com/g/p/-/issues/9#note_88");
+
+  const discussionComment = src.normalize(ev(5, {
+    action_name: "commented on", target_type: "DiscussionNote",
+    note: { id: 90, noteable_type: "MergeRequest", noteable_iid: 11 },
+  }))!.activities[0]!;
+  assert.equal(discussionComment.kind, "comment");
+  assert.equal(discussionComment.url, "https://gitlab.com/g/p/-/merge_requests/11#note_90");
+
+  // Conservative fallback: a comment whose noteable cannot be resolved stays
+  // unlinked rather than pointing at a guessed (wrong) location.
+  const orphan = src.normalize(ev(6, { action_name: "commented on", target_type: "Note", target_iid: 12 }))!.activities[0]!;
+  assert.equal(orphan.kind, "comment");
+  assert.equal(orphan.url, null);
 });
 
 test("GitLab fetch and normalize includes commit body and default branch refs from REST", async () => {
