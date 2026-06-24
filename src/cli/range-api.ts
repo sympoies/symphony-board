@@ -4,18 +4,14 @@
 // The request handling lives in src/server/range.ts, shared with the standalone
 // app server (src/cli/app-server.ts).
 
-import { createServer } from "node:http";
-import type { ServerResponse } from "node:http";
-import { loadConfig } from "../config.ts";
+import { createServer, type Server, type ServerResponse } from "node:http";
+import { pathToFileURL } from "node:url";
+import type { AppConfig } from "../config.ts";
+import { loadConfig, resolveConfigPath } from "../config.ts";
 import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
-
-// The daemon-emitted contract file, mounted read-only into this sidecar (the same
-// data dir the writer emits to). Source for the full-history /api/activity-daily
-// aggregate; matches the CONTRACT_OUT the board daemon writes.
-const contractOut = process.env.CONTRACT_OUT ?? "data/contract.json";
 
 interface Args {
   config: string | null;
@@ -50,36 +46,83 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body) + "\n");
 }
 
-const args = parseArgs(process.argv.slice(2));
-const { cfg, path: configPath } = loadConfig(args.config);
+export interface RangeApiOptions {
+  // Path to config/sources.json (null resolves the default search path).
+  configPath: string | null;
+  // The daemon-emitted contract file, mounted read-only into this sidecar (the
+  // same data dir the writer emits to). Source for the full-history
+  // /api/activity-daily aggregate; matches the CONTRACT_OUT the board daemon
+  // writes.
+  contractOut: string;
+}
 
-const server = createServer((req, res) => {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  if (req.method === "GET" && url.pathname === "/healthz") {
-    json(res, 200, { ok: true });
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/api/stats") {
-    // The handlers respond on every path (success and failure), so the returned
-    // promise never rejects and is safe to detach.
-    void handleStatsRequest(cfg, url, res);
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/api/review-candidates") {
-    void handleReviewCandidatesRequest(cfg, url, res);
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/api/activity-daily") {
-    handleActivityDailyRequest(contractOut, res, req.headers["accept-encoding"]);
-    return;
-  }
-  if (req.method !== "GET" || url.pathname !== "/api/range") {
+// Build the read-only range-query server (not yet listening). Exported so tests
+// can drive it on an ephemeral port.
+export function createRangeApiServer(opts: RangeApiOptions): Server {
+  // Fresh config per request, so config-only edits (identities, exclude_actors,
+  // highlight colors, configured repo set, timezone) apply without restarting
+  // this sidecar — matching app-server.ts and the board daemon, which the static
+  // contract already reflects within one sync. A load error maps to a per-request
+  // 500 instead of crashing the listener.
+  const freshConfig = (): AppConfig => loadConfig(opts.configPath).cfg;
+
+  return createServer((req, res) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    if (req.method === "GET" && url.pathname === "/healthz") {
+      json(res, 200, { ok: true });
+      return;
+    }
+    // Reads the emitted contract file directly (no config, no store access).
+    if (req.method === "GET" && url.pathname === "/api/activity-daily") {
+      handleActivityDailyRequest(opts.contractOut, res, req.headers["accept-encoding"]);
+      return;
+    }
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/api/range" || url.pathname === "/api/stats" || url.pathname === "/api/review-candidates")
+    ) {
+      let cfg: AppConfig;
+      try {
+        cfg = freshConfig();
+      } catch (err) {
+        json(res, 500, { error: "config_error", message: (err as Error).message });
+        return;
+      }
+      // The handlers respond on every path (success and failure), so the returned
+      // promise never rejects and is safe to detach.
+      if (url.pathname === "/api/stats") void handleStatsRequest(cfg, url, res);
+      else if (url.pathname === "/api/review-candidates") void handleReviewCandidatesRequest(cfg, url, res);
+      else void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
+      return;
+    }
     json(res, 404, { error: "not_found" });
-    return;
-  }
-  void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
-});
+  });
+}
 
-server.listen(args.port, args.host, () => {
-  process.stderr.write(`range api listening on ${args.host}:${args.port}, config ${configPath}\n`);
-});
+function main(): void {
+  const args = parseArgs(process.argv.slice(2));
+  const contractOut = process.env.CONTRACT_OUT ?? "data/contract.json";
+  const configPath = resolveConfigPath(args.config);
+  const server = createRangeApiServer({ configPath: args.config, contractOut });
+  server.listen(args.port, args.host, () => {
+    // Probe config once at boot for diagnostics ONLY. Config is read fresh per
+    // request, so a failure here must NOT exit — the listener stays up and
+    // degrades to a per-request config_error. But the /healthz probe needs no
+    // config, so a fatally broken config would otherwise report healthy; log it
+    // loudly here so a broken sources.json is visible in container logs at boot.
+    try {
+      loadConfig(args.config);
+      process.stderr.write(`range api listening on ${args.host}:${args.port}, config ${configPath}\n`);
+    } catch (err) {
+      process.stderr.write(
+        `range api listening on ${args.host}:${args.port}, but config ${configPath} FAILED to load: ${(err as Error).message}; serving per-request config_error until fixed\n`,
+      );
+    }
+  });
+}
+
+// Only run when invoked directly (node src/cli/range-api.ts), so tests can
+// import createRangeApiServer without side effects.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main();
+}
