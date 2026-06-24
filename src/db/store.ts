@@ -111,6 +111,10 @@ export interface ReviewThreadRow {
   start_line: number | null;
   comments_total: number;
   comments_json: string;
+  // True newest-comment instant (ISO), independent of the `comments_json`
+  // preview window. Nullable: pre-4.3.0 rows (and rows from a source that
+  // reported no datable comment) carry null until the thread is re-synced.
+  last_comment_at: string | null;
   last_seen_at: string | null;
 }
 

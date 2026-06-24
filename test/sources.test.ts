@@ -624,7 +624,9 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
             line: 12,
             resolvedBy: null,
             comments: {
-              totalCount: 1,
+              // A long thread: the preview is the OLDEST 10, so the newest
+              // comment is NOT in `comments.nodes`.
+              totalCount: 12,
               nodes: [
                 {
                   id: "C_1",
@@ -636,6 +638,8 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
                 },
               ],
             },
+            // comments(last:1) alias: the true newest comment, outside the preview.
+            latestComment: { nodes: [{ createdAt: "2026-06-02T09:00:00Z", updatedAt: "2026-06-02T09:00:00Z" }] },
           },
         ],
       },
@@ -648,6 +652,9 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
   assert.equal(detail.path, "src/app.ts");
   assert.equal(detail.comments[0]!.body, "Please cover this branch.");
   assert.equal(detail.comments[0]!.avatarUrl, "https://avatars.githubusercontent.com/u/1?v=4");
+  // lastCommentAt comes from the last:1 alias, so it reflects the newest comment
+  // even though the preview holds only the older one.
+  assert.equal(detail.lastCommentAt, "2026-06-02T09:00:00Z");
 });
 
 test("GitHub: a PR whose reviewThreads page is truncated marks the sweep incomplete (so the disappearance sweep cannot tombstone its threads)", async () => {
@@ -1363,6 +1370,16 @@ test("GitLab: resolvable discussions normalize into review-thread detail", () =>
               author: { username: "reviewer", avatar_url: "/uploads/-/system/user/avatar/1/avatar.png" },
               position: { new_path: "src/app.ts", new_line: 12, line_range: { start: { new_line: 10 } } },
             },
+            {
+              id: 102,
+              resolvable: true,
+              resolved: false,
+              body: "Follow-up two days later.",
+              web_url: "https://gitlab.com/g/p/-/merge_requests/9#note_102",
+              created_at: "2026-06-03T08:00:00Z",
+              updated_at: "2026-06-03T08:00:00Z",
+              author: { username: "author", avatar_url: null },
+            },
           ],
         },
       ],
@@ -1380,6 +1397,8 @@ test("GitLab: resolvable discussions normalize into review-thread detail", () =>
   assert.equal(thread.comments[0]!.body, "Please cover this branch.");
   // A host-relative GitLab avatar resolves to an absolute URL against the source host.
   assert.equal(thread.comments[0]!.avatarUrl, "https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png");
+  // lastCommentAt is the newest note activity across the whole discussion.
+  assert.equal(thread.lastCommentAt, "2026-06-03T08:00:00Z");
 });
 
 test("GitLab: review-thread comments deep-link to the note permalink when the REST note has no web_url", () => {

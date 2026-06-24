@@ -312,6 +312,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/reviewThreadComment" }
         },
+        "last_comment_at": { "type": ["string", "null"], "format": "date-time" },
         "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
       }
     },

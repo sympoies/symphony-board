@@ -1217,6 +1217,29 @@ test("reviewThreadDisplayTime falls back to last_seen_at when no comment timesta
   assert.equal(reviewThreadDisplayTime(reviewThread()), "2026-06-10T11:55:00Z");
 });
 
+test("reviewThreadDisplayTime prefers last_comment_at over the (older) comment preview", () => {
+  // A long thread: the preview holds only the OLDEST comments, so its newest
+  // comment is absent. last_comment_at carries that true instant and must win
+  // over both the stale preview and the same-sweep last_seen_at.
+  const thread = reviewThread({
+    comments_total: 25,
+    last_comment_at: "2026-06-24T09:00:00Z",
+    last_seen_at: "2026-06-25T00:00:00Z",
+    comments: [reviewComment({ id: "old", created_at: "2026-06-01T08:00:00Z" })],
+  });
+  assert.equal(reviewThreadDisplayTime(thread), "2026-06-24T09:00:00Z");
+});
+
+test("reviewThreadDisplayTime lets a newer in-preview comment raise last_comment_at", () => {
+  // last_comment_at is the primary key, but an in-preview comment edited AFTER it
+  // (rarer, but real) still raises the recency key — last_comment_at is the floor.
+  const thread = reviewThread({
+    last_comment_at: "2026-06-24T09:00:00Z",
+    comments: [reviewComment({ id: "edited", created_at: "2026-06-20T08:00:00Z", updated_at: "2026-06-24T12:00:00Z" })],
+  });
+  assert.equal(reviewThreadDisplayTime(thread), "2026-06-24T12:00:00Z");
+});
+
 // --- Reviews sort -----------------------------------------------------------
 //
 // The Reviews inbox can sort two ways. "recent" (the default) orders strictly
@@ -1270,6 +1293,32 @@ test("compareReviewThreadsRecent uses the newest comment, not item iid, within o
   assert.deepEqual(
     sorted.map((t) => t.id),
     ["t519", "t523"],
+  );
+});
+
+test("compareReviewThreadsRecent ranks a long thread by last_comment_at, not its older preview", () => {
+  // The #449 case: an actively-updated thread whose comments_total exceeds the
+  // synced preview, so its newest comment is OUTSIDE comments[]. Pre-fix it fell
+  // back to a same-sweep last_seen_at and sorted as stale; last_comment_at now
+  // carries the true latest-comment time so the busy long thread leads.
+  const busyLong = reviewThread({
+    id: "t_busy",
+    comments_total: 30,
+    last_comment_at: "2026-06-24T18:00:00Z",
+    last_seen_at: "2026-06-25T00:00:00Z",
+    comments: [reviewComment({ id: "old", created_at: "2026-06-01T08:00:00Z" })],
+  });
+  const quietRecent = reviewThread({
+    id: "t_quiet",
+    comments_total: 1,
+    last_comment_at: "2026-06-22T10:00:00Z",
+    last_seen_at: "2026-06-25T00:00:00Z",
+    comments: [reviewComment({ id: "c", created_at: "2026-06-22T10:00:00Z" })],
+  });
+  const sorted = [quietRecent, busyLong].sort(compareReviewThreadsRecent);
+  assert.deepEqual(
+    sorted.map((t) => t.id),
+    ["t_busy", "t_quiet"],
   );
 });
 

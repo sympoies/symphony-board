@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.2.1`. Important compatibility milestones:
+The current emitted contract is `4.3.0`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -103,6 +103,12 @@ The current emitted contract is `4.2.1`. Important compatibility milestones:
   config is narrowed. Gating is emit-time only; the store keeps the data, so
   re-adding to config restores it without a re-sync. See docs/CONTRACT.md
   "Config-Gated Projection".
+- 4.3.0 adds optional, nullable `ReviewThreadDTO.last_comment_at`: the thread's
+  TRUE newest-comment instant, independent of the `comments[]` preview (which
+  holds only the oldest comments, so a long thread's newest comment is absent).
+  Recency consumers prefer it over scanning the preview; the producer always
+  emits the key, persisted on a new `review_thread.last_comment_at` column
+  (additive migration on both drivers).
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

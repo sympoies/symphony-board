@@ -181,6 +181,7 @@ function toReviewThreadDTO(row: ReviewThreadRow): ReviewThreadDTO {
     start_line: row.start_line,
     comments_total: row.comments_total,
     comments: parseReviewThreadComments(row.comments_json),
+    last_comment_at: row.last_comment_at,
     last_seen_at: row.last_seen_at,
   };
 }

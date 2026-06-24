@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.2.1`.
+Current emitted version: `4.3.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.2.1",
+  "contract_version": "4.3.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -96,6 +96,7 @@ package version, to decide compatibility.
           "updated_at": "2026-06-08T01:10:00.000Z"
         }
       ],
+      "last_comment_at": "2026-06-08T01:10:00.000Z",
       "last_seen_at": "2026-06-08T02:00:00.000Z"
     }
   ],
@@ -435,7 +436,10 @@ not a review-event feed. Each row is keyed by provider thread id, points back to
 the owning change request via `target_ref`, includes current resolution/outdated
 state, file/line metadata when the provider reports it, and a compact
 `comments[]` preview. `comments_total` may be larger than `comments.length`
-because producers cap the preview payload.
+because producers cap the preview payload to the OLDEST comments — so for a long
+thread the newest comment is absent from `comments[]`. `last_comment_at` (4.3.0+)
+carries the thread's true newest-comment instant independent of that preview, so
+recency consumers sort by it instead of scanning the (possibly stale) preview.
 
 - GitHub: `PullRequest.reviewThreads` nodes supply `isResolved`, `isOutdated`,
   path/line metadata, `resolvedBy`, and the first review-thread comments.
@@ -462,6 +466,22 @@ GraphQL field; GitLab from the discussion note `author.avatar_url`, resolved to 
 absolute URL against the source host for self-hosted instances. It is persisted
 inside the canonical `comments_json` blob (no schema migration), and the Reviews
 UI renders it as the comment author's photo, falling back to initials.
+
+Version `4.3.0` is additive: each `review_threads[]` row now carries an optional,
+nullable `last_comment_at` — the thread's TRUE newest-comment instant. The
+`comments[]` preview holds only the OLDEST `comments_total` rows, so for a thread
+with more comments than the preview holds it omits the newest comment; the Reviews
+"Recent" sort then fell back to `last_seen_at` (a sync-observation time) and could
+bury an actively-updated long thread. GitHub supplies it from a `comments(last:1)`
+alias on the review thread; GitLab from the newest discussion-note activity (its
+Discussions API already returns every note). It is persisted on its own
+`review_thread.last_comment_at` column (an additive migration on both drivers —
+the preview blob cannot carry it for a long thread). The producer always emits the
+key; the schema keeps it **optional**-and-nullable (not in the row's `required`
+set), so a pre-`4.3.0` payload — and a freshly migrated row not yet re-synced —
+validates with the key absent or `null`. Consumers read it as
+`thread.last_comment_at ?? null`, falling back to the `comments[]` preview, then
+`last_seen_at`.
 
 Version `4.0.0` **windows the static contract's `activities[]` to the last 30
 days** (anchored to `generated_at`), down from the full ~16-month history. This

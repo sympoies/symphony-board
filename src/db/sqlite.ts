@@ -67,6 +67,7 @@ const MIGRATIONS: Migration[] = [
   { version: 5, file: "0005_repo_activity_bounds.sql" },
   { version: 6, file: "0006_review_thread_detail.sql" },
   { version: 7, file: "0007_review_thread_target_iid_bigint.sql" },
+  { version: 8, file: "0008_review_thread_last_comment_at.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -307,8 +308,8 @@ export class SqliteStore implements Store {
         `INSERT INTO review_thread (
            source_id, external_id, project_path, target_source_id, target_external_id,
            target_iid, title, url, is_resolved, is_outdated, resolved_by, path,
-           line, start_line, comments_total, comments_json, last_seen_at, deleted_at
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+           line, start_line, comments_total, comments_json, last_comment_at, last_seen_at, deleted_at
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
          ON CONFLICT(source_id, external_id) DO UPDATE SET
            project_path=excluded.project_path,
            target_source_id=excluded.target_source_id,
@@ -324,6 +325,7 @@ export class SqliteStore implements Store {
            start_line=excluded.start_line,
            comments_total=excluded.comments_total,
            comments_json=excluded.comments_json,
+           last_comment_at=excluded.last_comment_at,
            last_seen_at=excluded.last_seen_at,
            deleted_at=NULL`,
       )
@@ -344,6 +346,7 @@ export class SqliteStore implements Store {
         nz(thread.startLine),
         thread.commentsTotal,
         JSON.stringify(thread.comments),
+        nz(thread.lastCommentAt),
         nowIso,
       );
   }
@@ -567,7 +570,7 @@ export class SqliteStore implements Store {
       .prepare(
         `SELECT source_id, external_id, project_path, target_source_id, target_external_id,
                 target_iid, title, url, is_resolved, is_outdated, resolved_by, path,
-                line, start_line, comments_total, comments_json, last_seen_at
+                line, start_line, comments_total, comments_json, last_comment_at, last_seen_at
          FROM review_thread
          WHERE deleted_at IS NULL
          ORDER BY is_resolved ASC, source_id ASC, project_path ASC, target_iid DESC, path ASC, line ASC, external_id ASC`,

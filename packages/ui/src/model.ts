@@ -1386,7 +1386,14 @@ function reviewThreadCommentInstant(comment: ReviewThreadDTO["comments"][number]
 }
 
 export function reviewThreadDisplayTime(thread: ReviewThreadDTO): string | null {
-  let latest: { value: string; ms: number } | null = null;
+  // `last_comment_at` is the source-captured TRUE newest-comment instant — it is
+  // independent of the `comments` preview, which holds only the OLDEST
+  // `comments_total` rows and so omits the newest comment of a long thread. Seed
+  // the recency key with it (the primary signal), then still let a preview
+  // comment raise it (e.g. an in-preview comment edited after that instant).
+  // Falls back to scanning the preview, then the sync-observation `last_seen_at`,
+  // for a pre-4.3.0 payload that carries no `last_comment_at`.
+  let latest = validInstant(thread.last_comment_at);
   for (const comment of thread.comments) {
     const candidate = reviewThreadCommentInstant(comment);
     if (candidate && (!latest || candidate.ms > latest.ms)) latest = candidate;
