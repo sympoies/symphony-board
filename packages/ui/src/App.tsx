@@ -1128,6 +1128,9 @@ export function App() {
       page,
       focus: page === "graph" ? current.focus : null,
       ...itemFacetFields(nextFacets),
+      // Preserve the Reviews sort toggle across a facet change (page-local view
+      // state, like focus for Graph); null off Reviews so it never leaks.
+      reviewSort: page === "reviews" ? route.reviewSort : null,
       q: filters.search,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -1422,6 +1425,7 @@ export function App() {
       ireview: route.ireview,
       irepo: route.irepo,
       unresolved: route.unresolved,
+      reviewSort: page === "reviews" ? route.reviewSort : null,
       q,
       from: explicitRange?.from,
       to: explicitRange?.to,
@@ -1517,6 +1521,7 @@ export function App() {
       ireview: route.ireview,
       irepo: route.irepo,
       unresolved: route.unresolved,
+      reviewSort: page === "reviews" ? route.reviewSort : null,
       q: filters.search,
       from: range.from,
       to: range.to,

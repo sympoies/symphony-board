@@ -418,6 +418,17 @@ test("startupRouteHash preserves parameterized shared links and intentional dest
   assert.equal(startupRouteHash("#/live", "live"), "#/live");
 });
 
+// The Reviews Recent/Grouped toggle is route-backed (?reviewSort=grouped) so a
+// reload AND a shared link must keep the choice — including a cold start when the
+// configured default tab is not Reviews. Recency is the clean default (no param),
+// so a bare #/reviews stays transient and yields to the default like any tab hop.
+test("startupRouteHash keeps a bare ?reviewSort cold start on Reviews", () => {
+  assert.equal(startupRouteHash("#/reviews?reviewSort=grouped", "activity"), "#/reviews?reviewSort=grouped");
+  assert.equal(startupRouteHash("#/reviews?reviewSort=grouped", "live"), "#/reviews?reviewSort=grouped");
+  // recency default carries no param -> transient -> yields to the default tab
+  assert.equal(startupRouteHash("#/reviews", "activity"), "#/activity");
+});
+
 // The Live tab is opt-in (off by default). When it is disabled the configured
 // default landing tab cannot be Live — it must fall back to Activity (the next
 // content tab) so a fresh open never lands on a hidden tab. Every other default
