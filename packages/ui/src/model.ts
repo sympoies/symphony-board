@@ -537,6 +537,28 @@ export function rangeReachesDataTail(range: TimeRange, dataExtent: TimeRange | n
   return range.from <= dataExtent.to && range.to >= dataExtent.to;
 }
 
+// The data extent an empty state advertises and wires its "Show all" / "Jump to
+// latest" actions to. The Activity feed measures a TRUE (unwindowed) extent from
+// the full-history overlay so those actions reach real older history on a full
+// board. But on a WINDOWED Board-data device only the rolling window is loaded:
+// advertising the full extent there points "Show all" at an out-of-window
+// /api/range fetch that bypasses the very memory cap the windowed scope exists to
+// enforce, and the extent copy ("activity from X to Y") overpromises the loaded
+// data. So cap the empty-state extent to the loaded window when windowed (for a
+// windowed range env that window is exactly the board-window range); full / off
+// keeps the true extent. The sibling Commits empty state needs no cap: its
+// `commitDataExtent` reads only `env.activity_daily` (no full-history overlay)
+// and falls back to the window, so it is already window-bounded — only the
+// activity extent can overshoot the loaded window via the `fullActivityDaily`
+// overlay.
+export function emptyStateDataExtent(
+  windowed: boolean,
+  windowRange: TimeRange | null,
+  fullExtent: TimeRange | null,
+): TimeRange | null {
+  return windowed ? windowRange : fullExtent;
+}
+
 export function isDateOnly(value: string | null | undefined): value is string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);

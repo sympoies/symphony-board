@@ -17,6 +17,7 @@ import {
   activityDailyExtent,
   activityOccurredExtent,
   boardCommitTotal,
+  emptyStateDataExtent,
   isBoardEmpty,
   isCommitActivity,
   filterActivitiesByRange,
@@ -1806,7 +1807,7 @@ export function App() {
           view={activityViewValue}
           onView={setActivityView}
           emptyState={
-            <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
+            <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={emptyStateDataExtent(windowedEnv, staticRange, activityDataExtent)} />
           }
         />
       ) : page === "commits" ? (
