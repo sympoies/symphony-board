@@ -11,7 +11,7 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
-  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, primaryLoadWindowDays,
+  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, liveControlsDisabled, primaryLoadWindowDays,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -314,6 +314,16 @@ test("rangeOverlayAllowed also suppresses the overlay on a static, server-less d
   assert.equal(rangeOverlayAllowed("network", false), true, "non-static network env may fetch the overlay");
   assert.equal(rangeOverlayAllowed("file", false), false, "non-static file env stays suppressed (#424)");
   assert.equal(rangeOverlayAllowed(null, false), true, "non-static pre-load keeps the default overlay behavior");
+});
+
+test("liveControlsDisabled disables the Live preferences only on a static, server-less deployment (Pages demo)", () => {
+  // Live needs a running receiver (the SSE/snapshot server). A static host (the
+  // GitHub Pages demo) has none, so the Live tab can never appear there and
+  // toggling it is a no-op trap — the Settings Live controls must render disabled,
+  // the same way the date range suspends on a static host. Every normal
+  // deployment (Docker web / standalone / Android) keeps them interactive.
+  assert.equal(liveControlsDisabled(true), true, "static deployment disables the Live controls");
+  assert.equal(liveControlsDisabled(false), false, "a normal server-backed deployment keeps them interactive");
 });
 
 test("isStaticDeployment defaults to false without the VITE flag (the safe default for every non-Pages build)", () => {
