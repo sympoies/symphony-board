@@ -28,7 +28,7 @@ jobs:
       # warn-only it never fails the check (it does not gate the PR).
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Dependency review
         uses: actions/dependency-review-action@v5
         with:
@@ -45,7 +45,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
