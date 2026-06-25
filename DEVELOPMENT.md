@@ -1,8 +1,9 @@
 # DEVELOPMENT.md
 
 Developer guide for `symphony-board`. Read [README.md](README.md) for the
-operational overview, [docs/DESIGN.md](docs/DESIGN.md) for the design record,
-and [docs/CONTRACT.md](docs/CONTRACT.md) before changing the emitted contract.
+product overview, [docs/running.md](docs/running.md) for operational run paths,
+[docs/DESIGN.md](docs/DESIGN.md) for the design record, and
+[docs/CONTRACT.md](docs/CONTRACT.md) before changing the emitted contract.
 
 ## Runtime And Toolchain
 
@@ -63,6 +64,8 @@ docker/                       backend daemon image, UI sidecar image, compose
 scripts/                      read-only helpers and CI support scripts
 scripts/fixtures/             provider fixture seeders and UI probe
 docs/devlog/                  append-only development log
+docs/running.md               operational setup, Docker, desktop, Android,
+                              Live, release, and inspection runbooks
 ```
 
 ## Boundaries
@@ -272,6 +275,10 @@ repurposing, or changing required fields is a major version change.
 The `board` service remains the only writer. The `web` service must read the
 daemon-emitted `data/contract.json` read-only and serve it as `/contract.json`.
 Do not introduce an external cron or a second writer.
+
+Operational Docker commands, stack selection, manual sync, config editing, and
+Live webhook setup live in [docs/running.md](docs/running.md). Keep mandatory
+writer/reader boundaries here and place expanded runbook detail there.
 
 ## Git Hooks
 
