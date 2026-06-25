@@ -81,24 +81,38 @@ node src/cli/sync.ts --config path/to/sources.json --dry-run
 
 ## Run The UI Locally
 
-The UI fetches `./contract.json` relative to the app.
+The UI fetches `./contract.json` relative to the app. The tracked
+`packages/ui/public/contract.json` is a small sample contract for development
+and smoke tests; do not leave live provider data staged there.
+
+To inspect the bundled sample:
 
 ```sh
-pnpm run emit --out packages/ui/public/contract.json
 pnpm --filter @symphony-board/ui dev
 ```
 
-For a production-style local check:
+To inspect a real sync through Vite, emit the runtime contract under gitignored
+`data/`, copy it over the sample only for the local session, and restore the
+tracked sample before committing:
+
+```sh
+pnpm run emit --out data/contract.json
+pnpm run validate --in data/contract.json
+cp data/contract.json packages/ui/public/contract.json
+pnpm --filter @symphony-board/ui dev
+git restore packages/ui/public/contract.json
+```
+
+For a production-style local check against the current UI public contract:
 
 ```sh
 pnpm --filter @symphony-board/ui run build
 pnpm --filter @symphony-board/ui run preview
 ```
 
-The tracked `packages/ui/public/contract.json` is a small sample contract for
-development and smoke tests. UI-only dev serves the static contract file; use
-the Docker stack when testing the default `this week` range or other custom date
-ranges through `/api/range`. Runtime output under `data/` remains gitignored.
+UI-only dev serves a static contract file; use the Docker stack when testing the
+default `this week` range or other custom date ranges through `/api/range`.
+Runtime output under `data/` remains gitignored.
 
 ## Docker Continuous Runs
 

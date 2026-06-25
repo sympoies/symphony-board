@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.2.1`.
+Current contract version emitted by the backend: `4.3.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -67,7 +67,7 @@ The current emitted contract is `4.3.0`. Important compatibility milestones:
   `item_window.truncated` for payload truncation and repo metric coverage fields
   (`activity_available`, `observed_since`, `last_activity_at`) for analytics
   quality.
-- The current v3 surface includes `ContractEnvelope.timezone`,
+- The later v3 surface includes `ContractEnvelope.timezone`,
   `RepoMetricDTO.repo_url`, and producer-filled `ActivityDTO.url` destinations.
 - 3.3.0 added optional `ItemDTO.review_threads` (`{ open, total }` resolvable
   review threads for a change_request) and the `unresolved_review_threads` repo

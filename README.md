@@ -100,14 +100,18 @@ export GITHUB_TOKEN="$(gh auth token)"
 pnpm run init-db
 node src/cli/sync.ts --dry-run
 pnpm run sync
-pnpm run emit --out packages/ui/public/contract.json
+pnpm run emit --out data/contract.json
+pnpm run validate --in data/contract.json
+
+# Starts Vite against the tracked sample contract for UI exploration.
 pnpm --filter @symphony-board/ui dev
 ```
 
 Credentials are referenced by env-var name in config and read from the
 environment. Do not inline tokens or private keys in `config/sources.json`.
 A source may set `"enabled": false` to stay in the config while being skipped by
-sync runs.
+sync runs. Runtime output under `data/` is gitignored; the tracked
+`packages/ui/public/contract.json` is only the bundled UI sample.
 
 Use [docs/running.md](docs/running.md) for the long-form runbook: advanced
 GitHub auth pools, one-shot contract validation, local UI previews, Docker
