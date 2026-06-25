@@ -170,9 +170,11 @@ The deployment smoke gate for this path is:
 pnpm run test:pg-compose
 ```
 
-The daemon defaults to `INTERVAL=120` seconds and `FULL_EVERY=30`, which means a
-full sweep on the first loop and then about once per hour, with incremental
-runs about every 2 minutes in between. Set `FULL_EVERY=1` to always full-sweep.
+The default SQLite stack runs with `INTERVAL=120` seconds and `FULL_EVERY=30`.
+The Postgres stack runs with `INTERVAL=${SYNC_INTERVAL:-300}` and
+`FULL_EVERY=30`. That gives a full sweep on the first loop and then every
+`FULL_EVERY` iterations, with incremental runs in between. Set `FULL_EVERY=1`
+to always full-sweep. See [DESIGN.md](DESIGN.md) for the stack cadence summary.
 
 Within a single source's sweep, the per-item resolve pass runs at a bounded
 concurrency of `SYNC_RESOLVE_CONCURRENCY` (default 4; a value below 1 or
