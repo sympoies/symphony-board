@@ -4,12 +4,12 @@ import {
   allTokensCooledDownError,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
-  firstAvailableToken,
   githubRateLimitInfo,
   isGithubPrimaryRateLimit,
   nextAvailableToken,
   normalizeAuthTokens,
   primaryCooldownUntil,
+  selectAvailableToken,
   type AuthTokenInput,
 } from "./http.ts";
 
@@ -23,6 +23,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
   // reads only pick an available token, so concurrent callers racing on it is
   // benign: the worst case is several each re-stamping the same cooldown.
   const blockedUntil = new Map<number, number>();
+  const selection = { roundRobinCursor: 0 };
 
   return async function rest<T = any>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
     const url = new URL(`${base}/${path.replace(/^\/+/, "")}`);
@@ -30,7 +31,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
       if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
     }
 
-    const first = firstAvailableToken(tokens.length, blockedUntil);
+    const first = selectAvailableToken(tokens, blockedUntil, selection);
     if (first === null) {
       // Every token is still cooled down from a prior rate limit; do not send
       // another doomed request with a known-blocked PAT.
@@ -63,12 +64,13 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
       }
       if (!res.ok) {
         const rawMessage = `REST HTTP ${res.status}: ${json?.message ?? text}`;
-        const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, idx > 0);
+        const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, tried.size > 1);
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
           const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
           if (next !== null) {
+            if (tokens[next]?.strategy === "round_robin") selection.roundRobinCursor = (next + 1) % tokens.length;
             lastError = err;
             idx = next;
             continue;

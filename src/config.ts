@@ -1,20 +1,60 @@
-// Config loading. Sources, their tokens (by env-var name, never inlined), and
-// the DB path are declared in config/sources.json (gitignored; see
+// Config loading. Sources, their credentials (by env-var name, never inlined),
+// and the DB path are declared in config/sources.json (gitignored; see
 // config/sources.example.json). JSON keeps runtime dependencies at zero.
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { isValidTimezone } from "./lib/tz.ts";
 
+export type AuthPolicyMode = "inherit" | "pat" | "bot" | "bot_then_pat";
+export type AuthTokenStrategy = "failover" | "round_robin";
+
+export interface AuthPolicyConfig {
+  mode: AuthPolicyMode;
+  // Names under source.auth_pools. PATs keep failover behavior; bot pools may
+  // opt into round-robin.
+  pat_pool?: string;
+  bot_pool?: string;
+}
+
 // A project entry is either a bare "owner/name" path or an object that also
 // carries per-repo metadata. Most stay bare strings; only the few repos worth
-// highlighting or routing to a named token pool take the object form.
-export type ProjectConfig = string | { path: string; color?: string; token_pool?: string };
+// highlighting or routing to a named token pool/auth policy take the object
+// form.
+export type ProjectConfig = string | { path: string; color?: string; token_pool?: string; auth_policy?: AuthPolicyConfig };
+
+export interface GitHubAppAuthConfig {
+  // Optional display label for diagnostics. Credential env-var names remain the
+  // stable identifiers; this never holds a secret.
+  name?: string;
+  app_id_env: string;
+  installation_id_env: string;
+  // Exactly one private-key source must be set. The env value can be raw PEM
+  // text with "\n" escapes, base64-encoded PEM text, or a path to a PEM file.
+  private_key_env?: string;
+  private_key_base64_env?: string;
+  private_key_path_env?: string;
+}
 
 export interface TokenPoolConfig {
+  token_env?: string;
+  fallback_token_envs?: string[];
+  github_app?: GitHubAppAuthConfig;
+}
+
+export interface PatAuthPoolConfig {
+  kind: "pat";
   token_env: string;
   fallback_token_envs?: string[];
 }
+
+export interface GitHubAppAuthPoolConfig {
+  kind: "github_app";
+  strategy?: AuthTokenStrategy;
+  apps: GitHubAppAuthConfig[];
+}
+
+export type AuthPoolConfig = PatAuthPoolConfig | GitHubAppAuthPoolConfig;
 
 export interface SourceConfig {
   source_id: string;
@@ -28,15 +68,25 @@ export interface SourceConfig {
   // own inherits it; resolution (override -> repo -> source) lives in the
   // consumer. Display-only metadata — never stored in the DB.
   color?: string;
-  token_env: string; // name of the env var holding the default PAT
-  // Optional fallback PAT env vars. The primary token_env is tried first; these
-  // are only used when the provider clearly reports a primary rate-limit
-  // exhaustion for the current token.
+  // Name of the env var holding the default PAT. Optional for GitHub sources
+  // that use github_app auth instead.
+  token_env?: string;
+  // Optional fallback PAT env vars. These are only used when the provider
+  // clearly reports primary rate-limit exhaustion for the current token.
   fallback_token_envs?: string[];
+  // Optional GitHub App installation auth. For GitHub sources only; the
+  // app/private-key values are still referenced by env-var name, never inlined.
+  github_app?: GitHubAppAuthConfig;
   // Optional named token pools. A project object may set `token_pool` to route
-  // just that repo through a different primary/fallback env-var set; omitted
-  // projects keep using token_env + fallback_token_envs.
+  // just that repo through a different PAT or GitHub App auth set; omitted
+  // projects keep using the source-level auth pool.
   token_pools?: Record<string, TokenPoolConfig>;
+  // New auth control plane. `auth_pools` declares reusable credential pools;
+  // `auth_policy` selects PAT/bot/bot-then-PAT at source or per-repo scope.
+  // Bot pools use GitHub App installations and can round-robin successful
+  // requests. Legacy token_env/github_app/token_pools remain supported.
+  auth_pools?: Record<string, AuthPoolConfig>;
+  auth_policy?: AuthPolicyConfig;
   graphql_url: string;
   // Optional REST base URL. Defaults by provider/host when omitted; used for
   // activity surfaces such as commits and project/repository events.
@@ -114,7 +164,143 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 function tokenEnvNamesFromPool(pool: TokenPoolConfig): string[] {
-  return [pool.token_env, ...(pool.fallback_token_envs ?? [])].filter((env) => env.trim().length > 0);
+  return [pool.token_env, ...(pool.fallback_token_envs ?? [])].filter((env): env is string => typeof env === "string" && env.trim().length > 0);
+}
+
+function githubAppEnvNames(app: GitHubAppAuthConfig | undefined): string[] {
+  if (!app) return [];
+  return [
+    app.app_id_env,
+    app.installation_id_env,
+    app.private_key_env,
+    app.private_key_base64_env,
+    app.private_key_path_env,
+  ].filter((env): env is string => typeof env === "string" && env.trim().length > 0);
+}
+
+function credentialEnvNamesFromPool(pool: TokenPoolConfig): string[] {
+  return [...tokenEnvNamesFromPool(pool), ...githubAppEnvNames(pool.github_app)];
+}
+
+function credentialEnvNamesFromAuthPool(pool: AuthPoolConfig): string[] {
+  if (pool.kind === "pat") return tokenEnvNamesFromPool(pool);
+  return pool.apps.flatMap((app) => githubAppEnvNames(app));
+}
+
+function validateGithubAppAuth(app: unknown, label: string, errors: string[]): void {
+  if (!isPlainObject(app)) {
+    errors.push(`${label} github_app must be an object`);
+    return;
+  }
+  if (app.name !== undefined && (typeof app.name !== "string" || app.name.trim().length === 0)) {
+    errors.push(`${label} github_app name must be a non-empty string when set`);
+  }
+  for (const field of ["app_id_env", "installation_id_env"] as const) {
+    if (typeof app[field] !== "string" || app[field].trim().length === 0) {
+      errors.push(`${label} github_app missing "${field}"`);
+    }
+  }
+  const keyFields = (["private_key_env", "private_key_base64_env", "private_key_path_env"] as const)
+    .filter((field) => typeof app[field] === "string" && app[field].trim().length > 0);
+  if (keyFields.length !== 1) {
+    errors.push(`${label} github_app must set exactly one of private_key_env, private_key_base64_env, private_key_path_env`);
+  }
+}
+
+function validatePatAuthPool(pool: Record<string, unknown>, poolLabel: string, errors: string[]): void {
+  if (pool.github_app !== undefined || pool.apps !== undefined) {
+    errors.push(`${poolLabel} kind "pat" must not set github_app or apps`);
+  }
+  validateTokenPool(pool, poolLabel, errors);
+}
+
+function validateGitHubAppAuthPool(pool: Record<string, unknown>, poolLabel: string, errors: string[]): void {
+  if (pool.token_env !== undefined || pool.fallback_token_envs !== undefined || pool.github_app !== undefined) {
+    errors.push(`${poolLabel} kind "github_app" must use apps, not token_env/fallback_token_envs/github_app`);
+  }
+  if (pool.strategy !== undefined && pool.strategy !== "round_robin" && pool.strategy !== "failover") {
+    errors.push(`${poolLabel} strategy must be "round_robin" or "failover" when set`);
+  }
+  if (!Array.isArray(pool.apps) || pool.apps.length === 0) {
+    errors.push(`${poolLabel} apps must be a non-empty array`);
+    return;
+  }
+  pool.apps.forEach((app, idx) => validateGithubAppAuth(app, `${poolLabel}.apps[${idx}]`, errors));
+}
+
+function validateAuthPools(
+  pools: unknown,
+  sourceLabel: string,
+  errors: string[],
+): Record<string, Record<string, unknown>> | null {
+  if (!isPlainObject(pools)) {
+    errors.push(`${sourceLabel} auth_pools must be an object when set`);
+    return null;
+  }
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [poolName, pool] of Object.entries(pools)) {
+    if (poolName.trim().length === 0) {
+      errors.push(`${sourceLabel} auth_pools contains an empty pool name`);
+      continue;
+    }
+    const poolLabel = `${sourceLabel} auth_pools.${poolName}`;
+    if (!isPlainObject(pool)) {
+      errors.push(`${poolLabel} must be an object`);
+      continue;
+    }
+    out[poolName] = pool;
+    if (pool.kind === "pat") validatePatAuthPool(pool, poolLabel, errors);
+    else if (pool.kind === "github_app") validateGitHubAppAuthPool(pool, poolLabel, errors);
+    else errors.push(`${poolLabel} kind must be "pat" or "github_app"`);
+  }
+  return out;
+}
+
+function authPoolKind(authPools: Record<string, Record<string, unknown>> | null, name: string): string | null {
+  const pool = authPools?.[name];
+  return typeof pool?.kind === "string" ? pool.kind : null;
+}
+
+function validateAuthPolicy(
+  policy: unknown,
+  policyLabel: string,
+  authPools: Record<string, Record<string, unknown>> | null,
+  errors: string[],
+  opts: { allowInherit: boolean; sourceKind: string },
+): void {
+  if (!isPlainObject(policy)) {
+    errors.push(`${policyLabel} must be an object`);
+    return;
+  }
+  const mode = policy.mode;
+  if (mode !== "inherit" && mode !== "pat" && mode !== "bot" && mode !== "bot_then_pat") {
+    errors.push(`${policyLabel} mode must be "inherit", "pat", "bot", or "bot_then_pat"`);
+    return;
+  }
+  if (mode === "inherit") {
+    if (!opts.allowInherit) errors.push(`${policyLabel} mode "inherit" is only valid on projects`);
+    return;
+  }
+
+  const needsPat = mode === "pat" || mode === "bot_then_pat";
+  const needsBot = mode === "bot" || mode === "bot_then_pat";
+  if (needsPat) {
+    if (typeof policy.pat_pool !== "string" || policy.pat_pool.trim().length === 0) {
+      errors.push(`${policyLabel} mode "${mode}" requires pat_pool`);
+    } else if (authPoolKind(authPools, policy.pat_pool) !== "pat") {
+      errors.push(`${policyLabel} references unknown PAT auth pool "${policy.pat_pool}"`);
+    }
+  }
+  if (needsBot) {
+    if (opts.sourceKind !== "github") {
+      errors.push(`${policyLabel} mode "${mode}" with bot_pool is only supported for GitHub sources`);
+    }
+    if (typeof policy.bot_pool !== "string" || policy.bot_pool.trim().length === 0) {
+      errors.push(`${policyLabel} mode "${mode}" requires bot_pool`);
+    } else if (authPoolKind(authPools, policy.bot_pool) !== "github_app") {
+      errors.push(`${policyLabel} references unknown GitHub App auth pool "${policy.bot_pool}"`);
+    }
+  }
 }
 
 function validateTokenPool(pool: unknown, poolLabel: string, errors: string[]): void {
@@ -122,15 +308,27 @@ function validateTokenPool(pool: unknown, poolLabel: string, errors: string[]): 
     errors.push(`${poolLabel} must be an object`);
     return;
   }
-  if (typeof pool.token_env !== "string" || pool.token_env.trim().length === 0) {
-    errors.push(`${poolLabel} missing "token_env"`);
+  const tokenEnv = typeof pool.token_env === "string" ? pool.token_env.trim() : "";
+  const hasTokenEnv = tokenEnv.length > 0;
+  const hasGithubApp = pool.github_app !== undefined;
+  if (!hasTokenEnv && !hasGithubApp) {
+    errors.push(`${poolLabel} missing "token_env" or "github_app"`);
+  }
+  if (pool.token_env !== undefined && !hasTokenEnv) {
+    errors.push(`${poolLabel} token_env must be a non-empty string when set`);
+  }
+  if (hasGithubApp) {
+    validateGithubAppAuth(pool.github_app, poolLabel, errors);
   }
   if (pool.fallback_token_envs !== undefined) {
+    if (!hasTokenEnv) {
+      errors.push(`${poolLabel} fallback_token_envs requires token_env`);
+    }
     if (!Array.isArray(pool.fallback_token_envs)) {
       errors.push(`${poolLabel} fallback_token_envs must be an array when set`);
     } else {
       const seenTokenEnvNames = new Set<string>();
-      if (typeof pool.token_env === "string") seenTokenEnvNames.add(pool.token_env.trim());
+      if (hasTokenEnv) seenTokenEnvNames.add(tokenEnv);
       for (const envName of pool.fallback_token_envs) {
         if (typeof envName !== "string" || envName.trim().length === 0) {
           errors.push(`${poolLabel} fallback_token_envs entries must be non-empty strings`);
@@ -176,7 +374,7 @@ export function configErrors(raw: unknown, label: string): string[] {
         errors.push(`${label}: every source must be an object`);
         continue;
       }
-      for (const field of ["source_id", "kind", "host", "token_env", "graphql_url"] as const) {
+      for (const field of ["source_id", "kind", "host", "graphql_url"] as const) {
         if (!s[field]) errors.push(`${label}: source missing "${field}"`);
       }
       if (typeof s.source_id === "string" && s.source_id.includes("|")) {
@@ -194,7 +392,25 @@ export function configErrors(raw: unknown, label: string): string[] {
       if (s.commit_branches !== undefined && s.commit_branches !== "all" && s.commit_branches !== "default") {
         errors.push(`${label}: source "${s.source_id}" commit_branches must be "all" or "default" when set`);
       }
-      validateTokenPool(s, `${label}: source "${s.source_id}"`, errors);
+      if (s.github_app !== undefined && s.kind !== "github") {
+        errors.push(`${label}: source "${s.source_id}" github_app is only supported for GitHub sources`);
+      }
+      const sourceLabel = typeof s.source_id === "string" ? `${label}: source "${s.source_id}"` : `${label}: source`;
+      const hasLegacySourceAuth = s.token_env !== undefined || s.fallback_token_envs !== undefined || s.github_app !== undefined;
+      const authPools = s.auth_pools !== undefined ? validateAuthPools(s.auth_pools, sourceLabel, errors) : null;
+      if (authPools) {
+        for (const [poolName, pool] of Object.entries(authPools)) {
+          if (pool.kind === "github_app" && s.kind !== "github") {
+            errors.push(`${sourceLabel} auth_pools.${poolName} kind "github_app" is only supported for GitHub sources`);
+          }
+        }
+      }
+      if (hasLegacySourceAuth || s.auth_policy === undefined) {
+        validateTokenPool(s, sourceLabel, errors);
+      }
+      if (s.auth_policy !== undefined) {
+        validateAuthPolicy(s.auth_policy, `${sourceLabel} auth_policy`, authPools, errors, { allowInherit: false, sourceKind: String(s.kind ?? "") });
+      }
       if (s.token_pools !== undefined) {
         if (s.kind !== "github") {
           errors.push(`${label}: source "${s.source_id}" token_pools are only supported for GitHub sources`);
@@ -232,6 +448,15 @@ export function configErrors(raw: unknown, label: string): string[] {
           } else if (!isPlainObject(s.token_pools) || !Object.prototype.hasOwnProperty.call(s.token_pools, entry.token_pool)) {
             errors.push(`${label}: project "${projPath}" references unknown token_pool "${entry.token_pool}"`);
           }
+        }
+        if (typeof entry !== "string" && entry.auth_policy !== undefined) {
+          if (entry.token_pool !== undefined) {
+            errors.push(`${label}: project "${projPath}" must not set both token_pool and auth_policy`);
+          }
+          validateAuthPolicy(entry.auth_policy, `${label}: project "${projPath}" auth_policy`, authPools, errors, {
+            allowInherit: true,
+            sourceKind: String(s.kind ?? ""),
+          });
         }
       }
     }
@@ -347,7 +572,7 @@ export function readSecretsOverlay(path: string | null): Map<string, string> {
   }
 }
 
-function secretValueForEnv(envName: string, overlay: Map<string, string>): string | null {
+export function secretValueForEnv(envName: string, overlay: Map<string, string>): string | null {
   const fromFile = overlay.get(envName) ?? "";
   const v = (fromFile.length > 0 ? fromFile : (process.env[envName] ?? "")).trim();
   return v.length ? v : null;
@@ -394,9 +619,10 @@ export function saveSecret(path: string, name: string, value: string | null): vo
   renameSync(tmp, path);
 }
 
-// Resolve a source's token: a fresh secrets-file read wins over the process
+// Resolve a source's PAT token: a fresh secrets-file read wins over the process
 // env, because the standalone shell passes secrets.env as spawn env — a token
 // edited at runtime is newer truth than the copy this process started with.
+// GitHub App credentials are resolved by src/auth.ts.
 // Returns null when unset, so a caller can skip that source with a warning
 // instead of crashing the run.
 export function tokenFor(s: SourceConfig): string | null {
@@ -404,6 +630,7 @@ export function tokenFor(s: SourceConfig): string | null {
 }
 
 export function tokensForSource(s: SourceConfig): ResolvedToken[] {
+  if (s.auth_policy) return patTokensForAuthPolicy(s, s.auth_policy);
   return tokensForPool(s);
 }
 
@@ -419,8 +646,25 @@ function tokensForPool(pool: TokenPoolConfig): ResolvedToken[] {
   return out;
 }
 
+function tokensForAuthPool(pool: AuthPoolConfig | undefined): ResolvedToken[] {
+  if (!pool || pool.kind !== "pat") return [];
+  return tokensForPool(pool);
+}
+
+function patTokensForAuthPolicy(s: SourceConfig, policy: AuthPolicyConfig): ResolvedToken[] {
+  if (policy.mode === "inherit" || policy.mode === "bot") return [];
+  const pool = policy.pat_pool ? s.auth_pools?.[policy.pat_pool] : undefined;
+  return tokensForAuthPool(pool);
+}
+
 export function tokensForProject(s: SourceConfig, projectPath: string): ResolvedToken[] {
   const entry = projectEntryForPath(s, projectPath);
+  const policy = typeof entry === "string" ? undefined : entry?.auth_policy;
+  if (policy) {
+    if (policy.mode === "inherit") return tokensForSource(s);
+    const policyTokens = patTokensForAuthPolicy(s, policy);
+    return policyTokens.length > 0 ? policyTokens : tokensForSource(s);
+  }
   const poolName = typeof entry === "string" ? undefined : entry?.token_pool;
   if (!poolName) return tokensForSource(s);
   const pool = s.token_pools?.[poolName];
@@ -434,26 +678,35 @@ export function sourceTokenEnvNames(s: SourceConfig): string[] {
     const trimmed = envName.trim();
     if (trimmed.length > 0 && !out.includes(trimmed)) out.push(trimmed);
   };
-  for (const envName of tokenEnvNamesFromPool(s)) push(envName);
+  for (const envName of credentialEnvNamesFromPool(s)) push(envName);
   for (const pool of Object.values(s.token_pools ?? {})) {
-    for (const envName of tokenEnvNamesFromPool(pool)) push(envName);
+    for (const envName of credentialEnvNamesFromPool(pool)) push(envName);
+  }
+  for (const pool of Object.values(s.auth_pools ?? {})) {
+    for (const envName of credentialEnvNamesFromAuthPool(pool)) push(envName);
   }
   return out;
 }
 
-// Every distinct token a source can authenticate with — its default pool AND
-// every named token pool — resolved to a live value (secrets-file overlay over
-// the process env), keyed by env-var name and deduped. Like tokensForSource it
-// drops env names that resolve to nothing, so the result is exactly the tokens
-// that could make a request. The token-rate-limit probe uses this to check each
-// token's GraphQL budget; the VALUES are returned so the probe can authenticate
-// and MUST never be exposed past it (the surface reports env names only).
+// Every distinct PAT token a source can authenticate with — its default pool
+// AND every named token pool — resolved to a live value (secrets-file overlay
+// over the process env), keyed by env-var name and deduped. Kept for legacy
+// callers; GitHub App installation tokens are resolved by src/auth.ts.
 export function resolveSourceTokens(s: SourceConfig): ResolvedToken[] {
   const overlay = readSecretsOverlay(resolveSecretsPath());
   const out: ResolvedToken[] = [];
-  for (const envName of sourceTokenEnvNames(s)) {
+  const push = (envName: string): void => {
+    if (out.some((token) => token.env === envName)) return;
     const value = secretValueForEnv(envName, overlay);
     if (value) out.push({ env: envName, value });
+  };
+  for (const envName of tokenEnvNamesFromPool(s)) push(envName.trim());
+  for (const pool of Object.values(s.token_pools ?? {})) {
+    for (const envName of tokenEnvNamesFromPool(pool)) push(envName.trim());
+  }
+  for (const pool of Object.values(s.auth_pools ?? {})) {
+    if (pool.kind !== "pat") continue;
+    for (const envName of tokenEnvNamesFromPool(pool)) push(envName.trim());
   }
   return out;
 }

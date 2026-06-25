@@ -12,7 +12,9 @@ import {
   sourcesNeedingSync,
   suggestSourceDefaults,
   NEW_CONFIG_DB_PATH,
+  type ConfigAuthPolicyDoc,
   type ConfigDocument,
+  type ConfigProjectEntry,
   type ConfigSourceKind,
 } from "../model.ts";
 import { Badge } from "./Badge.tsx";
@@ -22,6 +24,18 @@ import type { SyncState } from "../useSync.ts";
 interface Props {
   config: ConfigState; // writer-owned config control plane (capability already probed)
   sync?: SyncState; // for the post-save "run a first sync" affordance
+}
+
+function authPolicyLabel(policy: ConfigAuthPolicyDoc | undefined): string {
+  if (!policy) return "legacy auth";
+  if (policy.mode === "inherit") return "inherit";
+  if (policy.mode === "pat") return `PAT${policy.pat_pool ? `: ${policy.pat_pool}` : ""}`;
+  if (policy.mode === "bot") return `bot${policy.bot_pool ? `: ${policy.bot_pool}` : ""}`;
+  return `bot then PAT${policy.bot_pool ? `: ${policy.bot_pool}` : ""}${policy.pat_pool ? ` / ${policy.pat_pool}` : ""}`;
+}
+
+function projectAuthPolicy(entry: ConfigProjectEntry): ConfigAuthPolicyDoc | undefined {
+  return typeof entry === "string" ? undefined : entry.auth_policy;
 }
 
 // The Sources editor: edits the PRODUCER config through the writer-owned
@@ -119,8 +133,8 @@ export function SourcesEditor({ config, sync }: Props) {
       ) : (
         <>
           {draft.sources.map((s) => {
-            const tokenEnvs = sourceTokenEnvs(s);
-            const tokenSet = isSourceTokenSet(s, config.secrets);
+            const credentialEnvs = sourceTokenEnvs(s);
+            const credentialsSet = isSourceTokenSet(s, config.secrets);
             const sourceEnabled = s.enabled !== false;
             return (
               <div className={`config-source${sourceEnabled ? "" : " config-source-disabled"}`} key={s.source_id}>
@@ -129,6 +143,7 @@ export function SourcesEditor({ config, sync }: Props) {
                   <span className="muted">
                     {s.kind} @ {s.host}
                   </span>
+                  <span className="muted">auth: {authPolicyLabel(s.auth_policy)}</span>
                   <label className="config-enabled">
                     <input
                       type="checkbox"
@@ -154,22 +169,18 @@ export function SourcesEditor({ config, sync }: Props) {
                   </button>
                 </div>
                 <div className="config-token">
-                  <Badge text={tokenSet ? "token set" : "token missing"} kind={tokenSet ? "status-ok" : "status-error"} />
-                  {tokenEnvs.map((env, i) => {
+                  <Badge text={credentialsSet ? "credentials set" : "credentials missing"} kind={credentialsSet ? "status-ok" : "status-error"} />
+                  {credentialEnvs.map((env) => {
                     const envSet = config.secrets[env] === true;
-                    const isFallback = i > 0;
                     return (
                       <div className="config-token-env" key={env}>
-                        <span className="muted">
-                          {env}
-                          {isFallback ? " (fallback)" : ""}
-                        </span>
+                        <span className="muted">{env}</span>
                         {config.secretsWritable ? (
                           <>
                             <input
                               type="password"
                               className="config-input config-token-input"
-                              placeholder={envSet ? "replace token" : "paste token"}
+                              placeholder={envSet ? "replace value" : "paste value"}
                               autoComplete="off"
                               value={tokenInput[env] ?? ""}
                               onChange={(e) => setTokenInput((m) => ({ ...m, [env]: e.target.value }))}
@@ -192,6 +203,7 @@ export function SourcesEditor({ config, sync }: Props) {
                     return (
                       <li key={path}>
                         <span className="settings-repo-name">{path}</span>
+                        {projectAuthPolicy(p) ? <span className="muted">auth: {authPolicyLabel(projectAuthPolicy(p))}</span> : null}
                         <button
                           type="button"
                           className="link-btn config-remove"

@@ -12,9 +12,16 @@ export const DEFAULT_FETCH_TIMEOUT_MS = Math.max(1000, Number(process.env.SYNC_F
 export interface AuthToken {
   env: string;
   value: string;
+  kind?: "pat" | "github_app";
+  name?: string;
+  strategy?: "failover" | "round_robin";
 }
 
 export type AuthTokenInput = string | AuthToken[];
+
+export interface AuthSelectionState {
+  roundRobinCursor: number;
+}
 
 export interface GitHubRateLimitInfo {
   kind: "primary" | "secondary";
@@ -35,8 +42,19 @@ export class ProviderHttpError extends Error {
 }
 
 export function normalizeAuthTokens(input: AuthTokenInput): AuthToken[] {
-  if (typeof input === "string") return [{ env: "token", value: input }];
-  return input.filter((token) => token.value.trim().length > 0).map((token) => ({ env: token.env, value: token.value.trim() }));
+  if (typeof input === "string") {
+    const value = input.trim();
+    return value.length > 0 ? [{ env: "token", value, kind: "pat", strategy: "failover" }] : [];
+  }
+  return input
+    .filter((token) => token.value.trim().length > 0)
+    .map((token) => ({
+      ...token,
+      value: token.value.trim(),
+      kind: token.kind ?? (token.env.startsWith("github_app:") ? "github_app" : "pat"),
+      strategy: token.strategy ?? "failover",
+      ...(token.name?.trim() ? { name: token.name.trim() } : {}),
+    }));
 }
 
 export function githubRateLimitInfo(headers: Headers, message: string): GitHubRateLimitInfo | null {
@@ -85,6 +103,24 @@ export function firstAvailableToken(tokenCount: number, blockedUntil: Map<number
     if ((blockedUntil.get(idx) ?? 0) <= now) return idx;
   }
   return null;
+}
+
+export function selectAvailableToken(
+  tokens: readonly AuthToken[],
+  blockedUntil: Map<number, number>,
+  selection: AuthSelectionState,
+  now: number = Date.now(),
+): number | null {
+  if (tokens.length === 0) return null;
+  for (let step = 0; step < tokens.length; step++) {
+    const idx = (selection.roundRobinCursor + step) % tokens.length;
+    const token = tokens[idx]!;
+    if (token.strategy !== "round_robin") continue;
+    if ((blockedUntil.get(idx) ?? 0) > now) continue;
+    selection.roundRobinCursor = (idx + 1) % tokens.length;
+    return idx;
+  }
+  return firstAvailableToken(tokens.length, blockedUntil, now);
 }
 
 export function nextAvailableToken(

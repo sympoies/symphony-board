@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database. GitHub sources may add token_pools and set a project object's token_pool to route that repo through a different PAT pool; projects without token_pool, or whose named pool has no set token values, use the source-level token_env/fallback_token_envs. Set a source's optional enabled:false to keep it in config but skip sync runs.",
+  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database. Recommended GitHub auth uses auth_pools plus source/repo auth_policy. PAT pools keep failover semantics; GitHub App bot pools can round-robin successful requests. Legacy token_env/github_app/token_pools still work. Set enabled:false to keep a source in config but skip sync runs.",
   "db_path": "data/symphony.db",
   "db_url_env": "SYMPHONY_DB_URL",
   "$comment_db_path": "db_path is still required by the shared config schema but is unused when db_url_env selects Postgres.",
@@ -12,25 +12,80 @@
       "host": "github.com",
       "display_name": "GitHub",
       "color": "#1f6feb",
-      "token_env": "GITHUB_TOKEN",
-      "fallback_token_envs": ["GITHUB_TOKEN_BACKUP"],
-      "token_pools": {
+      "auth_pools": {
+        "source_pat": {
+          "kind": "pat",
+          "token_env": "GITHUB_TOKEN",
+          "fallback_token_envs": ["GITHUB_TOKEN_BACKUP"]
+        },
         "example_public": {
+          "kind": "pat",
           "token_env": "GITHUB_TOKEN_EXAMPLE_PUBLIC",
           "fallback_token_envs": ["GITHUB_TOKEN_EXAMPLE_PUBLIC_BACKUP"]
         },
         "example_partner": {
+          "kind": "pat",
           "token_env": "GITHUB_TOKEN_EXAMPLE_PARTNER",
           "fallback_token_envs": ["GITHUB_TOKEN_EXAMPLE_PARTNER_BACKUP"]
+        },
+        "example_bots": {
+          "kind": "github_app",
+          "strategy": "round_robin",
+          "apps": [
+            {
+              "name": "example-bot-a",
+              "app_id_env": "EXAMPLE_BOT_A_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_A_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_A_PRIVATE_KEY_PATH"
+            },
+            {
+              "name": "example-bot-b",
+              "app_id_env": "EXAMPLE_BOT_B_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_B_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_B_PRIVATE_KEY_PATH"
+            },
+            {
+              "name": "example-bot-c",
+              "app_id_env": "EXAMPLE_BOT_C_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_C_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_C_PRIVATE_KEY_PATH"
+            },
+            {
+              "name": "example-bot-d",
+              "app_id_env": "EXAMPLE_BOT_D_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_D_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_D_PRIVATE_KEY_PATH"
+            },
+            {
+              "name": "example-bot-e",
+              "app_id_env": "EXAMPLE_BOT_E_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_E_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_E_PRIVATE_KEY_PATH"
+            },
+            {
+              "name": "example-bot-f",
+              "app_id_env": "EXAMPLE_BOT_F_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_F_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_F_PRIVATE_KEY_PATH"
+            },
+            {
+              "name": "example-bot-g",
+              "app_id_env": "EXAMPLE_BOT_G_APP_ID",
+              "installation_id_env": "EXAMPLE_BOT_G_INSTALLATION_ID",
+              "private_key_path_env": "EXAMPLE_BOT_G_PRIVATE_KEY_PATH"
+            }
+          ]
         }
       },
+      "auth_policy": { "mode": "pat", "pat_pool": "source_pat" },
       "graphql_url": "https://api.github.com/graphql",
       "rest_url": "https://api.github.com",
       "projects": [
-        { "path": "example-org/public-roadmap", "token_pool": "example_public" },
+        { "path": "example-org/public-roadmap", "auth_policy": { "mode": "pat", "pat_pool": "example_public" } },
         "example-org/service-api",
-        { "path": "partner-org/mobile-client", "token_pool": "example_partner" },
-        { "path": "partner-org/internal-tools", "color": "#e0af68", "token_pool": "example_partner" }
+        { "path": "partner-org/mobile-client", "auth_policy": { "mode": "pat", "pat_pool": "example_partner" } },
+        { "path": "partner-org/internal-tools", "color": "#e0af68", "auth_policy": { "mode": "bot", "bot_pool": "example_bots" } },
+        { "path": "example-org/bot-readable-repo", "auth_policy": { "mode": "bot_then_pat", "bot_pool": "example_bots", "pat_pool": "source_pat" } }
       ]
     },
     {

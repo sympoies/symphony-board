@@ -2580,12 +2580,34 @@ export function pluralize(count: number, singular: string, plural = `${singular}
 // validation is authoritative; these types stay liberal mirrors of the
 // daemon's /api/config JSON, like the sync types above.
 
-export type ConfigProjectEntry = string | { path: string; color?: string; token_pool?: string };
+export type ConfigAuthPolicyMode = "inherit" | "pat" | "bot" | "bot_then_pat";
+
+export interface ConfigAuthPolicyDoc {
+  mode: ConfigAuthPolicyMode;
+  pat_pool?: string;
+  bot_pool?: string;
+}
+
+export type ConfigProjectEntry = string | { path: string; color?: string; token_pool?: string; auth_policy?: ConfigAuthPolicyDoc };
+
+export interface ConfigGitHubAppAuthDoc {
+  name?: string;
+  app_id_env: string;
+  installation_id_env: string;
+  private_key_env?: string;
+  private_key_base64_env?: string;
+  private_key_path_env?: string;
+}
 
 export interface ConfigTokenPoolDoc {
-  token_env: string;
+  token_env?: string;
   fallback_token_envs?: string[];
+  github_app?: ConfigGitHubAppAuthDoc;
 }
+
+export type ConfigAuthPoolDoc =
+  | { kind: "pat"; token_env: string; fallback_token_envs?: string[] }
+  | { kind: "github_app"; strategy?: "failover" | "round_robin"; apps: ConfigGitHubAppAuthDoc[] };
 
 export interface ConfigSourceDoc {
   source_id: string;
@@ -2594,9 +2616,12 @@ export interface ConfigSourceDoc {
   display_name?: string;
   enabled?: boolean;
   color?: string;
-  token_env: string;
+  token_env?: string;
   fallback_token_envs?: string[];
+  github_app?: ConfigGitHubAppAuthDoc;
   token_pools?: Record<string, ConfigTokenPoolDoc>;
+  auth_pools?: Record<string, ConfigAuthPoolDoc>;
+  auth_policy?: ConfigAuthPolicyDoc;
   graphql_url: string;
   rest_url?: string;
   projects: ConfigProjectEntry[];
@@ -2610,28 +2635,45 @@ export interface ConfigDocument {
   [extra: string]: unknown;
 }
 
-// Every token env-var name a source can authenticate with: the primary
-// `token_env` followed by any `fallback_token_envs` (the PAT fallback pool).
-// Empty names are dropped. Settings renders one secret control per entry, and a
-// source counts as token-present when ANY of these is set (see
-// `isSourceTokenSet`) — the daemon's `runConfiguredSync` will use a fallback
-// even when the primary is absent.
-export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools">): string[] {
+// Every credential env-var name a source can authenticate with: PAT envs plus
+// any GitHub App credential envs. Empty names are dropped. Settings renders one
+// secret control per entry, and a source counts as credential-present when ANY
+// of these is set (see `isSourceTokenSet`) — the daemon's `runConfiguredSync`
+// will use a fallback even when the primary is absent.
+export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "github_app" | "token_pools" | "auth_pools">): string[] {
   const out: string[] = [];
-  const push = (env: string): void => {
+  const push = (env: string | undefined): void => {
+    if (typeof env !== "string") return;
     const trimmed = env.trim();
     if (trimmed.length > 0 && !out.includes(trimmed)) out.push(trimmed);
   };
+  const pushGithubApp = (app: ConfigGitHubAppAuthDoc | undefined): void => {
+    if (!app) return;
+    push(app.app_id_env);
+    push(app.installation_id_env);
+    push(app.private_key_env);
+    push(app.private_key_base64_env);
+    push(app.private_key_path_env);
+  };
   for (const env of [source.token_env, ...(source.fallback_token_envs ?? [])]) push(env);
+  pushGithubApp(source.github_app);
   for (const pool of Object.values(source.token_pools ?? {})) {
     for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+    pushGithubApp(pool.github_app);
+  }
+  for (const pool of Object.values(source.auth_pools ?? {})) {
+    if (pool.kind === "pat") {
+      for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+    } else if (pool.kind === "github_app") {
+      for (const app of pool.apps ?? []) pushGithubApp(app);
+    }
   }
   return out;
 }
 
-// True when ANY of a source's token envs (primary or fallback) has a secret set.
+// True when ANY of a source's credential envs has a secret set.
 export function isSourceTokenSet(
-  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools">,
+  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "github_app" | "token_pools" | "auth_pools">,
   secrets: Record<string, boolean>,
 ): boolean {
   return sourceTokenEnvs(source).some((env) => secrets[env] === true);
@@ -2730,6 +2772,9 @@ export interface TokenRateLimit {
   source_id: string;
   source_display: string;
   env: string;
+  kind?: "pat" | "github_app";
+  name?: string;
+  strategy?: "failover" | "round_robin";
   ok: boolean;
   limit?: number;
   remaining?: number;

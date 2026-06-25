@@ -26,7 +26,7 @@
 // edits config/sources.json through the writer; set 0 to disable),
 // LOG_CONTROL_ENABLED (default ON here — serve this process's recent-log tail
 // on GET /api/logs for the UI Diagnostics page; set 0 to disable),
-// SYMPHONY_SECRETS_FILE (the KEY=VALUE token file the write-only secrets
+// SYMPHONY_SECRETS_FILE (the KEY=VALUE credential file the write-only secrets
 // surface edits and token resolution reads fresh; the desktop shell points it
 // at the data dir's secrets.env).
 

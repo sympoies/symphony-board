@@ -200,20 +200,42 @@ export GITHUB_TOKEN="$(gh auth token)"
 export GITHUB_TOKEN_BACKUP="ghp_xxx"  # optional: use a different GitHub account
 export GITHUB_TOKEN_EXAMPLE_PUBLIC="ghp_xxx"  # optional: named repo token pool
 export GITHUB_TOKEN_EXAMPLE_PUBLIC_BACKUP="ghp_xxx"
+export EXAMPLE_BOT_A_APP_ID="12345"  # optional: GitHub App bot auth pool
+export EXAMPLE_BOT_A_INSTALLATION_ID="67890"
+export EXAMPLE_BOT_A_PRIVATE_KEY_PATH="/run/secrets/example-bot-a.pem"
+export EXAMPLE_BOT_B_APP_ID="12346"
+export EXAMPLE_BOT_B_INSTALLATION_ID="67891"
+export EXAMPLE_BOT_B_PRIVATE_KEY_PATH="/run/secrets/example-bot-b.pem"
 export GITLAB_TOKEN="glpat_xxx"   # only when a GitLab source is configured
 ```
 
-Tokens are referenced by env-var name in config and read from the environment.
-Do not inline tokens in `config/sources.json`. For GitHub, add optional
-`fallback_token_envs` to a source to retry the same request with another PAT
-when GitHub clearly reports primary rate-limit exhaustion for the current token.
-Use a PAT from a different GitHub account; multiple PATs from the same account
-share the same user quota.
-GitHub sources may also define `token_pools`, then set a project object's
-`token_pool` to route that repo through a named PAT pool. A project without
-`token_pool` keeps using the source-level `token_env` / `fallback_token_envs`;
-an assigned pool with no set token values also falls back to the source-level
-pool so rollout can happen before every new secret is populated.
+Credentials are referenced by env-var name in config and read from the
+environment. Do not inline tokens or private keys in `config/sources.json`.
+GitHub sources support PAT auth, GitHub App bot auth, and explicit source/repo
+selection through `auth_pools` plus `auth_policy`:
+
+- PAT auth uses `token_env` plus optional `fallback_token_envs`. Fallback PATs
+  are tried only when GitHub clearly reports primary rate-limit exhaustion for
+  the active token. Use a PAT from a different GitHub account; multiple PATs
+  from the same account share the same user quota. PAT pools are failover-only;
+  they are not round-robined.
+- GitHub App bot pools use `kind: "github_app"` with one `apps[]` entry per bot.
+  Each entry has `app_id_env`, `installation_id_env`, and exactly one of
+  `private_key_env`, `private_key_base64_env`, or `private_key_path_env`. A bot
+  pool with `strategy: "round_robin"` spreads successful GraphQL/REST requests
+  across the configured apps instead of exhausting one before using the next.
+- `auth_policy.mode` chooses the pool at source or repo scope: `pat` uses one
+  PAT pool, `bot` uses one bot pool, `bot_then_pat` uses bot round-robin first
+  and PAT failover only when the bot tokens are unavailable/rate-limited, and
+  repo-level `inherit` keeps the source policy.
+- Legacy `token_env`, `github_app`, and `token_pools` configs are still
+  supported. New config should prefer `auth_pools` / `auth_policy` because it
+  separates credential definitions from the routing strategy.
+
+The Diagnostics `Rate limit` tab probes one lightweight GraphQL `rateLimit`
+query per configured GitHub credential and shows PAT vs bot, bot name, strategy,
+remaining budget, and used budget. Token values and private-key values never
+appear in the response or UI.
 
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers (for
@@ -231,8 +253,8 @@ pnpm run validate --in data/contract.json
 ```
 
 A source is skipped with a warning when it has `"enabled": false` or when none
-of its configured token env vars is set. `--dry-run` fetches and normalizes but
-writes nothing.
+of its configured credential env vars resolves. `--dry-run` fetches and
+normalizes but writes nothing.
 
 Useful sync flags:
 

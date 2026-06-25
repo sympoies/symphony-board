@@ -152,8 +152,8 @@ test("runConfiguredSync builds sources with primary and fallback tokens", async 
 
     assert.equal(result.status, "ok");
     assert.deepEqual(seen, [[
-      { env: "RUNNER_POOL_PRIMARY", value: "primary" },
-      { env: "RUNNER_POOL_BACKUP_1", value: "backup" },
+      { env: "RUNNER_POOL_PRIMARY", value: "primary", kind: "pat", strategy: "failover" },
+      { env: "RUNNER_POOL_BACKUP_1", value: "backup", kind: "pat", strategy: "failover" },
     ]]);
   } finally {
     delete process.env.RUNNER_POOL_PRIMARY;
@@ -192,7 +192,7 @@ test("runConfiguredSync builds GitHub sources when only a repo token pool is set
       tokens: [],
       projectTokens: [
         ["default/repo", []],
-        ["sympoies/repo", [{ env: "RUNNER_PROJECT_POOL", value: "repo-token" }]],
+        ["sympoies/repo", [{ env: "RUNNER_PROJECT_POOL", value: "repo-token", kind: "pat", strategy: "failover" }]],
       ],
     }]);
   } finally {

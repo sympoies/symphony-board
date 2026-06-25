@@ -2855,6 +2855,60 @@ test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties
     ["GH_TOKEN", "GH_BACKUP", "GH_SYMPOIES", "GH_SYMPOIES_BACKUP"],
   );
   assert.deepEqual(sourceTokenEnvs({ token_env: "", fallback_token_envs: ["GH_BACKUP", ""] }), ["GH_BACKUP"]);
+  assert.deepEqual(
+    sourceTokenEnvs({
+      github_app: {
+        app_id_env: "APP_ID",
+        installation_id_env: "INSTALLATION_ID",
+        private_key_path_env: "PRIVATE_KEY_PATH",
+      },
+      token_pools: {
+        bot: {
+          github_app: {
+            app_id_env: "APP_ID",
+            installation_id_env: "BOT_INSTALLATION_ID",
+            private_key_path_env: "PRIVATE_KEY_PATH",
+          },
+        },
+      },
+    }),
+    ["APP_ID", "INSTALLATION_ID", "PRIVATE_KEY_PATH", "BOT_INSTALLATION_ID"],
+  );
+  assert.deepEqual(
+    sourceTokenEnvs({
+      auth_pools: {
+        source_pat: { kind: "pat", token_env: "GH_TOKEN", fallback_token_envs: ["GH_BACKUP"] },
+        example_bots: {
+          kind: "github_app",
+          strategy: "round_robin",
+          apps: [
+            {
+              name: "example-bot-a",
+              app_id_env: "BOT_A_APP_ID",
+              installation_id_env: "BOT_A_INSTALLATION_ID",
+              private_key_path_env: "BOT_A_PRIVATE_KEY_PATH",
+            },
+            {
+              name: "example-bot-e",
+              app_id_env: "BOT_B_APP_ID",
+              installation_id_env: "BOT_B_INSTALLATION_ID",
+              private_key_path_env: "BOT_B_PRIVATE_KEY_PATH",
+            },
+          ],
+        },
+      },
+    } as any),
+    [
+      "GH_TOKEN",
+      "GH_BACKUP",
+      "BOT_A_APP_ID",
+      "BOT_A_INSTALLATION_ID",
+      "BOT_A_PRIVATE_KEY_PATH",
+      "BOT_B_APP_ID",
+      "BOT_B_INSTALLATION_ID",
+      "BOT_B_PRIVATE_KEY_PATH",
+    ],
+  );
 });
 
 test("isSourceTokenSet is true when the primary OR any fallback env secret is set", () => {

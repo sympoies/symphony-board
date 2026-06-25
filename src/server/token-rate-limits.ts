@@ -3,8 +3,8 @@
 // (src/cli/sync-daemon.ts) and the standalone app server (which falls through to
 // the same control handler). When the operator opens the Diagnostics "Rate
 // limit" tab — or hits Refresh — this fires ONE lightweight GraphQL query per
-// distinct configured GitHub token and reports each token's remaining budget and
-// reset time.
+// distinct configured GitHub credential and reports each token's remaining
+// budget and reset time.
 //
 // This is operational telemetry, NOT work-item data: it touches no store, no
 // canonical DB, and no contract (so no contract_version bump, like /api/stats
@@ -12,14 +12,17 @@
 // cheapest call GitHub offers — it reports the token's budget without meaningful
 // spend against it.
 //
-// Boundary: tokens are identified by env-var NAME only. The resolved token
-// VALUES never leave this module — they authenticate the probe and are dropped;
-// they are never placed on the response, mirroring the "token status renders as
-// set/missing, never values" rule the Settings surface already follows.
+// Boundary: credentials are identified by env-var NAME or a synthetic GitHub App
+// label only. The resolved token VALUES never leave this module — they
+// authenticate the probe and are dropped; they are never placed on the response,
+// mirroring the "credential status renders as set/missing, never values" rule
+// the Settings surface already follows.
 
 import type { AppConfig, SourceConfig } from "../config.ts";
-import { resolveSourceTokens, sourceEnabled } from "../config.ts";
+import { sourceEnabled } from "../config.ts";
+import { createAuthTokenResolver, type AuthTokenResolver } from "../auth.ts";
 import { makeGqlClient, type GqlClient } from "../sources/graphql.ts";
+import type { AuthToken } from "../sources/http.ts";
 
 // A lone rateLimit query: the cheapest probe GitHub offers (it reports the
 // current budget without counting meaningfully against it). `cost` is included
@@ -41,7 +44,10 @@ interface RateLimitField {
 export interface TokenRateLimit {
   source_id: string;
   source_display: string;
-  env: string; // env-var NAME, never the token value
+  env: string; // env-var NAME or github_app:<installation_id_env>, never the token value
+  kind?: "pat" | "github_app";
+  name?: string;
+  strategy?: "failover" | "round_robin";
   ok: boolean;
   limit?: number;
   remaining?: number;
@@ -69,7 +75,7 @@ export function tokenRateLimitsConfigError(message: string): TokenRateLimitsResu
 }
 
 // Inject-able so tests exercise the enumeration + shaping without a network call.
-export type ProbeClientFactory = (url: string, token: { env: string; value: string }) => GqlClient;
+export type ProbeClientFactory = (url: string, token: AuthToken) => GqlClient;
 
 const defaultClientFactory: ProbeClientFactory = (url, token) =>
   makeGqlClient(url, [token], { provider: "github", timeoutMs: PROBE_TIMEOUT_MS });
@@ -79,31 +85,38 @@ function gitHubSources(cfg: AppConfig): SourceConfig[] {
 }
 
 // Probe every distinct configured GitHub token's GraphQL budget, concurrently.
-// One entry per (source, distinct token env); a token that fails to resolve to a
-// value is skipped (nothing to probe), and a probe that errors becomes an
+// One entry per (source, distinct credential label); a credential that fails to
+// resolve to a token is skipped, and a probe that errors becomes an
 // `ok: false` row carrying the message so the operator sees WHY rather than a
 // silently missing token.
 export async function probeTokenRateLimits(
   cfg: AppConfig,
-  opts: { clientFactory?: ProbeClientFactory; now?: () => string } = {},
+  opts: { clientFactory?: ProbeClientFactory; authTokenResolver?: AuthTokenResolver; now?: () => string } = {},
 ): Promise<TokenRateLimitsResult> {
   const clientFactory = opts.clientFactory ?? defaultClientFactory;
+  const authTokenResolver = opts.authTokenResolver ?? createAuthTokenResolver();
   const now = opts.now ?? (() => new Date().toISOString());
 
   const jobs: Array<Promise<TokenRateLimit>> = [];
   for (const s of gitHubSources(cfg)) {
     const base = { source_id: s.source_id, source_display: s.display_name ?? s.source_id };
-    for (const token of resolveSourceTokens(s)) {
+    for (const token of await authTokenResolver.resolveSourceTokens(s)) {
+      const tokenMeta = {
+        env: token.env,
+        kind: token.kind ?? (token.env.startsWith("github_app:") ? "github_app" as const : "pat" as const),
+        ...(token.name ? { name: token.name } : {}),
+        strategy: token.strategy ?? "failover" as const,
+      };
       jobs.push(
         (async (): Promise<TokenRateLimit> => {
           try {
             const gql = clientFactory(s.graphql_url, token);
             const data = await gql<{ rateLimit: RateLimitField | null }>(RATE_LIMIT_QUERY);
             const rl = data?.rateLimit;
-            if (!rl) return { ...base, env: token.env, ok: false, error: "no rateLimit in GraphQL response" };
+            if (!rl) return { ...base, ...tokenMeta, ok: false, error: "no rateLimit in GraphQL response" };
             return {
               ...base,
-              env: token.env,
+              ...tokenMeta,
               ok: true,
               limit: rl.limit,
               remaining: rl.remaining,
@@ -111,13 +124,23 @@ export async function probeTokenRateLimits(
               reset_at: rl.resetAt,
             };
           } catch (err) {
-            return { ...base, env: token.env, ok: false, error: (err as Error).message };
+            return { ...base, ...tokenMeta, ok: false, error: (err as Error).message };
           }
         })(),
       );
     }
   }
 
-  const tokens = await Promise.all(jobs);
+  const tokens = (await Promise.all(jobs)).sort((a, b) => {
+    const kindRank = (kind: TokenRateLimit["kind"]): number => (kind === "github_app" ? 0 : 1);
+    const byKind = kindRank(a.kind) - kindRank(b.kind);
+    if (byKind !== 0) return byKind;
+    return (
+      a.source_display.localeCompare(b.source_display) ||
+      a.source_id.localeCompare(b.source_id) ||
+      (a.name ?? "").localeCompare(b.name ?? "") ||
+      a.env.localeCompare(b.env)
+    );
+  });
   return { generated_at: now(), tokens };
 }
