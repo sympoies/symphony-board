@@ -2889,7 +2889,7 @@ test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties
               private_key_path_env: "BOT_A_PRIVATE_KEY_PATH",
             },
             {
-              name: "example-bot-e",
+              name: "example-bot-b",
               app_id_env: "BOT_B_APP_ID",
               installation_id_env: "BOT_B_INSTALLATION_ID",
               private_key_path_env: "BOT_B_PRIVATE_KEY_PATH",

@@ -42,36 +42,6 @@
               "app_id_env": "EXAMPLE_BOT_B_APP_ID",
               "installation_id_env": "EXAMPLE_BOT_B_INSTALLATION_ID",
               "private_key_path_env": "EXAMPLE_BOT_B_PRIVATE_KEY_PATH"
-            },
-            {
-              "name": "example-bot-c",
-              "app_id_env": "EXAMPLE_BOT_C_APP_ID",
-              "installation_id_env": "EXAMPLE_BOT_C_INSTALLATION_ID",
-              "private_key_path_env": "EXAMPLE_BOT_C_PRIVATE_KEY_PATH"
-            },
-            {
-              "name": "example-bot-d",
-              "app_id_env": "EXAMPLE_BOT_D_APP_ID",
-              "installation_id_env": "EXAMPLE_BOT_D_INSTALLATION_ID",
-              "private_key_path_env": "EXAMPLE_BOT_D_PRIVATE_KEY_PATH"
-            },
-            {
-              "name": "example-bot-e",
-              "app_id_env": "EXAMPLE_BOT_E_APP_ID",
-              "installation_id_env": "EXAMPLE_BOT_E_INSTALLATION_ID",
-              "private_key_path_env": "EXAMPLE_BOT_E_PRIVATE_KEY_PATH"
-            },
-            {
-              "name": "example-bot-f",
-              "app_id_env": "EXAMPLE_BOT_F_APP_ID",
-              "installation_id_env": "EXAMPLE_BOT_F_INSTALLATION_ID",
-              "private_key_path_env": "EXAMPLE_BOT_F_PRIVATE_KEY_PATH"
-            },
-            {
-              "name": "example-bot-g",
-              "app_id_env": "EXAMPLE_BOT_G_APP_ID",
-              "installation_id_env": "EXAMPLE_BOT_G_INSTALLATION_ID",
-              "private_key_path_env": "EXAMPLE_BOT_G_PRIVATE_KEY_PATH"
             }
           ]
         }

@@ -120,7 +120,7 @@ test("auth_policy routes repo bot pools through every GitHub App with round-robi
               private_key_env: "BOT_A_PRIVATE_KEY",
             },
             {
-              name: "example-bot-e",
+              name: "example-bot-b",
               app_id_env: "BOT_B_APP_ID",
               installation_id_env: "BOT_B_INSTALLATION_ID",
               private_key_env: "BOT_B_PRIVATE_KEY",
@@ -151,7 +151,7 @@ test("auth_policy routes repo bot pools through every GitHub App with round-robi
         env: "github_app:BOT_B_INSTALLATION_ID",
         value: "app-token-1002",
         kind: "github_app",
-        name: "example-bot-e",
+        name: "example-bot-b",
         strategy: "round_robin",
       },
     ]);
@@ -167,7 +167,7 @@ test("auth_policy routes repo bot pools through every GitHub App with round-robi
         env: "github_app:BOT_B_INSTALLATION_ID",
         value: "app-token-1002",
         kind: "github_app",
-        name: "example-bot-e",
+        name: "example-bot-b",
         strategy: "round_robin",
       },
       { env: "AUTH_PAT", value: "pat-token", kind: "pat", strategy: "failover" },

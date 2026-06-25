@@ -116,7 +116,7 @@ test("GitHub REST round-robin bot tokens alternate between successful requests",
 
   const client = makeRestClient("https://api.github.com", [
     { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "round_robin" },
-    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-e", strategy: "round_robin" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "round_robin" },
   ], "github");
 
   assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
