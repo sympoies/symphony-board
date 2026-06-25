@@ -170,8 +170,9 @@ const indexKey = (project: string | null, kind: string, iid: string): string =>
 
 export class GitLabSource implements Source {
   readonly descriptor: SourceDescriptor;
-  // gitlab/5: review-thread comments now carry avatarUrl in the canonical output.
-  readonly normalizerVersion = "gitlab/5";
+  // gitlab/6: review-thread comment URLs now deep-link to REST note permalinks
+  // when GitLab omits web_url; gitlab/5 added review-thread comment avatarUrl.
+  readonly normalizerVersion = "gitlab/6";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
