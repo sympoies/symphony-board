@@ -204,7 +204,7 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
                 private_key_base64_env: "BOT_A_PRIVATE_KEY_B64",
               },
               {
-                name: "example-bot-e",
+                name: "example-bot-b",
                 app_id_env: "BOT_B_APP_ID",
                 installation_id_env: "BOT_B_INSTALLATION_ID",
                 private_key_base64_env: "BOT_B_PRIVATE_KEY_B64",
@@ -247,7 +247,7 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
       {
         env: "github_app:BOT_B_INSTALLATION_ID",
         kind: "github_app",
-        name: "example-bot-e",
+        name: "example-bot-b",
         strategy: "round_robin",
         value: "ghs-1002-SECRET",
       },
@@ -271,7 +271,7 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
       {
         env: "github_app:BOT_B_INSTALLATION_ID",
         kind: "github_app",
-        name: "example-bot-e",
+        name: "example-bot-b",
         strategy: "round_robin",
         used: 10,
         remaining: 4990,

@@ -146,10 +146,10 @@ test("accepts auth_pools with source/repo auth_policy and enumerates every bot c
         private_key_path_env: "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
       },
       {
-        name: "example-bot-e",
-        app_id_env: "EXAMPLE_BOT_E_APP_ID",
-        installation_id_env: "EXAMPLE_BOT_E_INSTALLATION_ID",
-        private_key_path_env: "EXAMPLE_BOT_E_PRIVATE_KEY_PATH",
+        name: "example-bot-b",
+        app_id_env: "EXAMPLE_BOT_B_APP_ID",
+        installation_id_env: "EXAMPLE_BOT_B_INSTALLATION_ID",
+        private_key_path_env: "EXAMPLE_BOT_B_PRIVATE_KEY_PATH",
       },
     ],
   };
@@ -179,9 +179,9 @@ test("accepts auth_pools with source/repo auth_policy and enumerates every bot c
     "EXAMPLE_BOT_A_APP_ID",
     "EXAMPLE_BOT_A_INSTALLATION_ID",
     "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
-    "EXAMPLE_BOT_E_APP_ID",
-    "EXAMPLE_BOT_E_INSTALLATION_ID",
-    "EXAMPLE_BOT_E_PRIVATE_KEY_PATH",
+    "EXAMPLE_BOT_B_APP_ID",
+    "EXAMPLE_BOT_B_INSTALLATION_ID",
+    "EXAMPLE_BOT_B_PRIVATE_KEY_PATH",
   ]);
 });
 
