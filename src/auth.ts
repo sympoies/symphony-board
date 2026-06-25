@@ -47,9 +47,13 @@ function base64Url(input: string | Buffer): string {
 }
 
 function githubAppJwt(appId: string, privateKey: string, nowMs: number = Date.now()): string {
+  const issuer = Number(appId);
+  if (!Number.isSafeInteger(issuer) || issuer <= 0) {
+    throw new Error(`GitHub App app_id_env must resolve to a positive integer, got ${JSON.stringify(appId)}`);
+  }
   const nowSec = Math.floor(nowMs / 1000);
   const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = base64Url(JSON.stringify({ iat: nowSec - 60, exp: nowSec + 9 * 60, iss: appId }));
+  const payload = base64Url(JSON.stringify({ iat: nowSec - 60, exp: nowSec + 9 * 60, iss: issuer }));
   const signingInput = `${header}.${payload}`;
   const signature = createSign("RSA-SHA256").update(signingInput).sign(privateKey);
   return `${signingInput}.${base64Url(signature)}`;

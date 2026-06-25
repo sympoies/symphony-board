@@ -205,7 +205,7 @@ test("mintGitHubAppInstallationToken posts a signed JWT to the installation toke
     assert.match(auth, /^Bearer [^.]+\.[^.]+\.[^.]+$/);
     const [, payload] = auth.slice("Bearer ".length).split(".");
     const parsedPayload = JSON.parse(Buffer.from(payload!, "base64url").toString("utf8"));
-    assert.equal(parsedPayload.iss, "12345");
+    assert.equal(parsedPayload.iss, 12345);
     assert.equal(typeof parsedPayload.iat, "number");
     assert.equal(typeof parsedPayload.exp, "number");
     return new Response(JSON.stringify({ token: "ghs_INSTALLATION_TOKEN" }), { status: 201, headers: { "content-type": "application/json" } });
