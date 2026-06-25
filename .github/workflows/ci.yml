@@ -46,7 +46,7 @@ jobs:
       # assert it draws (item cards + all 3 edge lifecycle buckets) with zero
       # console errors. Catches render-only crashes that tsc/build/unit tests
       # can't.
-      - uses: browser-actions/setup-chrome@v1
+      - uses: browser-actions/setup-chrome@v2
         id: chrome
       - run: pnpm --filter @symphony-board/ui run smoke
         env:
