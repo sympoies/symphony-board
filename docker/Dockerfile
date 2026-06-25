@@ -37,4 +37,12 @@ RUN chmod +x docker-entrypoint.sh
 ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning
 ENV SYNC_MODE=once
 
+# Run as the built-in non-root `node` user (uid 1000). /app/data — the only
+# path written at runtime (the emitted contract and any SQLite store) — is
+# created owned by node so a FRESH named volume inherits that ownership.
+# EXISTING named volumes from a root-era deploy must be chowned to uid 1000 once
+# during migration; a host bind-mounted data dir likewise needs uid-1000 write.
+RUN mkdir -p /app/data && chown -R node:node /app/data
+USER node
+
 ENTRYPOINT ["./docker-entrypoint.sh"]
