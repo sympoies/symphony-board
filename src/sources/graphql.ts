@@ -8,12 +8,12 @@ import {
   allTokensCooledDownError,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
-  firstAvailableToken,
   githubRateLimitInfo,
   isGithubPrimaryRateLimit,
   nextAvailableToken,
   normalizeAuthTokens,
   primaryCooldownUntil,
+  selectAvailableToken,
   type AuthTokenInput,
 } from "./http.ts";
 
@@ -40,9 +40,10 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
   // reads only pick an available token, so concurrent callers racing on it is
   // benign: the worst case is several each re-stamping the same cooldown.
   const blockedUntil = new Map<number, number>();
+  const selection = { roundRobinCursor: 0 };
 
   return async function gql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-    const first = firstAvailableToken(tokens.length, blockedUntil);
+    const first = selectAvailableToken(tokens, blockedUntil, selection);
     if (first === null) {
       // Every token is still cooled down from a prior rate limit; do not send
       // another doomed request with a known-blocked PAT.
@@ -77,12 +78,13 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
       }
       if (!res.ok) {
         const rawMessage = `GraphQL HTTP ${res.status}: ${json?.message ?? text}`;
-        const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, idx > 0);
+        const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, tried.size > 1);
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
           const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
           if (next !== null) {
+            if (tokens[next]?.strategy === "round_robin") selection.roundRobinCursor = (next + 1) % tokens.length;
             lastError = err;
             idx = next;
             continue;
@@ -92,12 +94,13 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
       }
       if (json.errors?.length) {
         const rawMessage = `GraphQL errors: ${json.errors.map((e: { message: string }) => e.message).join("; ")}`;
-        const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, idx > 0);
+        const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, tried.size > 1);
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
           const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
           if (next !== null) {
+            if (tokens[next]?.strategy === "round_robin") selection.roundRobinCursor = (next + 1) % tokens.length;
             lastError = err;
             idx = next;
             continue;

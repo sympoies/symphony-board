@@ -646,21 +646,37 @@ never reaches disk. The UI renders the messages verbatim and re-validates
 nothing. Fields the editor does not own — `identities`, `exclude_actors`,
 unknown future keys — round-trip through GET -> PUT untouched.
 
-**Secrets are write-only.** Token values never appear in `config/sources.json`
-(unchanged rule) and never cross the read surface: `GET /api/secrets` reports
-set/unset booleans per env name only. Writes land in the `SYMPHONY_SECRETS_FILE`
-KEY=VALUE file (created owner-only, comments preserved). `tokensForSource`
-overlays a **fresh read of that file over `process.env` at sync time** for the
-source-level `token_env` plus any `fallback_token_envs`, and `tokensForProject`
-does the same for optional GitHub `token_pools`. A GitHub project may name a
-`token_pool`; that repo's GraphQL and REST activity requests use the named pool,
-while projects without a pool, or whose named pool has no resolved token values,
-keep using the source-level PAT pool. The
+**Secrets are write-only.** Credential values never appear in
+`config/sources.json` (unchanged rule) and never cross the read surface:
+`GET /api/secrets` reports set/unset booleans per env name only. Writes land in
+the `SYMPHONY_SECRETS_FILE` KEY=VALUE file (created owner-only, comments
+preserved). The auth resolver overlays a **fresh read of that file over
+`process.env` at sync/probe time** for source-level PAT envs, GitHub App
+credential envs, legacy GitHub `token_pools`, and the newer GitHub
+`auth_pools`. New GitHub config separates credential definition from routing:
+`auth_pools` declares PAT pools (`kind: "pat"`) and GitHub App bot pools
+(`kind: "github_app"`), while source/repo `auth_policy` selects `pat`, `bot`,
+`bot_then_pat`, or repo-level `inherit`. PAT pools keep the existing failover
+semantics and are not round-robined. GitHub App bot pools may set
+`strategy: "round_robin"`; successful GraphQL and REST requests then rotate
+across the available app installation tokens before reusing one. `bot_then_pat`
+keeps bot round-robin as the primary path and uses the PAT pool only when bot
+tokens are unavailable or primary-rate-limited. Legacy `token_env`,
+`github_app`, and `token_pools` remain accepted for existing deployments. The
 standalone shell passes `secrets.env` as spawn env, so the fresh overlay is what
-makes a token set in-app apply without restarting the app. GitHub fallback PATs
-are used only when GitHub clearly reports primary rate-limit exhaustion for the
-active token; secondary rate limits remain a partial run/backoff condition, not
-a token rotation trigger.
+makes a credential set in-app apply without restarting the app. GitHub fallback
+PATs are used only when GitHub clearly reports primary rate-limit exhaustion for
+the active token; secondary rate limits remain a partial run/backoff condition,
+not a token rotation trigger.
+
+**Credential diagnostics are metadata-only.** `GET /api/token-rate-limits`
+returns one row per resolved GitHub credential with the credential env label,
+auth kind (`pat` or `github_app`), optional bot display name, token selection
+strategy, and the probed GraphQL budget (`remaining`, `used`, `reset_at`). The
+token value, app private key, and app JWT never cross the route boundary. The UI
+Diagnostics tab renders those metadata fields so operators can see bot usage
+and round-robin distribution without exposing secrets. Rows are ordered with
+GitHub App bot credentials before PAT credentials.
 
 **Edits apply on the next run.** Both daemons re-read config per run (the
 Docker daemon was aligned to app-server's existing behavior), so a control

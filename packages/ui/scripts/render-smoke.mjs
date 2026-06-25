@@ -158,7 +158,7 @@ function withSmokeHeaderSources(env) {
 
 // A minimal mock of the writer-owned config control plane, so the headless
 // render exercises the Settings -> Sources editor (capability present, one
-// token set and one missing). PUTs adopt the submitted document like the real
+// credential set and one missing). PUTs adopt the submitted document like the real
 // daemon (validation is not mocked — the editor only sees success here).
 const configMock = { doc: null, secrets: {} };
 async function configMockDoc() {
@@ -3223,7 +3223,7 @@ try {
     [sourcesTabDisplayGone, "config: the Sources tab replaces the display preferences instead of stacking under them"],
     [has(settingsConfigHtml, "Sources (producer config)"), "config: Settings exposes the Sources editor on the sources tab"],
     [m(settingsConfigHtml, /class="config-source"/g) >= 1, "config: the editor lists the configured sources"],
-    [has(settingsConfigHtml, "token set") && has(settingsConfigHtml, "token missing"), "config: token status renders as set/missing badges, never values"],
+    [has(settingsConfigHtml, "credentials set") && has(settingsConfigHtml, "credentials missing"), "config: credential status renders as set/missing badges, never values"],
     [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],
     // page 5: the settings repo filter renders its checkboxes + count
     [has(settingsHtml, "settings-page"), "settings: page rendered"],

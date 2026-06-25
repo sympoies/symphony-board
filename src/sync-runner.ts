@@ -9,7 +9,8 @@
 // contract, and a failed run must never present stale derived data as fresh.
 
 import type { AppConfig, SourceConfig } from "./config.ts";
-import { projectPaths, sourceEnabled, sourceTokenEnvNames, tokensForProject, tokensForSource } from "./config.ts";
+import { projectPaths, sourceEnabled, sourceTokenEnvNames } from "./config.ts";
+import { createAuthTokenResolver, type AuthTokenResolver } from "./auth.ts";
 import type { Store } from "./db/store.ts";
 import { openConfiguredStore } from "./db/factory.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
@@ -185,6 +186,7 @@ export interface RunConfiguredSyncDeps {
   // selects the driver from it (db_url_env -> Postgres, else SQLite db_path).
   openStore?: (cfg: AppConfig) => Promise<Store>;
   buildSource?: typeof defaultBuildSource;
+  authTokenResolver?: AuthTokenResolver;
   now?: () => string;
   // Mid-run progress hook for a live run status; see SyncRunProgress.
   onProgress?: SyncProgressReporter;
@@ -203,6 +205,7 @@ export async function runConfiguredSync(
 ): Promise<SyncRunResult> {
   const openStore = deps.openStore ?? openConfiguredStore;
   const buildSource = deps.buildSource ?? defaultBuildSource;
+  const authTokenResolver = deps.authTokenResolver ?? createAuthTokenResolver();
   const now = deps.now ?? (() => new Date().toISOString());
 
   const prepared: PreparedSource[] = [];
@@ -214,10 +217,10 @@ export async function runConfiguredSync(
       skipped.push(sc.source_id);
       continue;
     }
-    const tokens = tokensForSource(sc);
+    const tokens = await authTokenResolver.tokensForSource(sc);
     const projectTokens = sc.kind === "github"
-      ? new Map(projectPaths(sc).map((projectPath) => [projectPath, tokensForProject(sc, projectPath)]))
-      : new Map<string, ReturnType<typeof tokensForProject>>();
+      ? new Map(await Promise.all(projectPaths(sc).map(async (projectPath) => [projectPath, await authTokenResolver.tokensForProject(sc, projectPath)] as const)))
+      : new Map<string, typeof tokens>();
     const hasAnyTokens = tokens.length > 0 || (sc.kind === "github" && [...projectTokens.values()].some((projectTokenSet) => projectTokenSet.length > 0));
     if (!hasAnyTokens) {
       const envNames = sourceTokenEnvNames(sc).join(", ");

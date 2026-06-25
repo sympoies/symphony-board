@@ -212,8 +212,8 @@ export function sourceOptions(cfg: AppConfig): SourceOption[] {
 // `path` is where GET reads and PUT atomically writes. The file may not exist
 // yet: a missing config is "not configured", which is exactly the state the
 // standalone first-run onboarding starts from. `secretsPath` is the KEY=VALUE
-// token file the write-only secrets surface edits; null when the deployment
-// has no writable secrets file (tokens then come from the process env only).
+// credential file the write-only secrets surface edits; null when the deployment
+// has no writable secrets file (credentials then come from the process env only).
 export interface ConfigControl {
   enabled: boolean;
   path: string;
@@ -453,7 +453,7 @@ export async function handleControlRequest(
   }
 
   // Write-only secrets surface. GET reports which env-var names resolve to a
-  // token — booleans only, a value never crosses this surface in either
+  // credential value — booleans only, a value never crosses this surface in either
   // direction beyond the user's own PUT.
   if (method === "GET" && path === "/api/secrets") {
     const cc = ctx.configControl;

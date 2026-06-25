@@ -114,6 +114,24 @@ test("GitHub GraphQL primary rate limit rotates to the next token for the same r
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
+test("GitHub GraphQL round-robin bot tokens alternate between successful requests", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "round_robin" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-e", strategy: "round_robin" },
+  ]);
+
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
+});
+
 test("once every token is cooled down, the GraphQL client stops hammering them", async () => {
   // When every token in the pool has been primary-rate-limited, the client must
   // NOT keep sending requests with a known-cooled-down PAT. It must short-circuit

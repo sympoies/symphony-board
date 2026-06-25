@@ -107,6 +107,24 @@ test("GitHub REST primary rate limit rotates to the next token for the same requ
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
+test("GitHub REST round-robin bot tokens alternate between successful requests", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify([{ ok: true }]), { status: 200 });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "round_robin" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-e", strategy: "round_robin" },
+  ], "github");
+
+  assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
+});
+
 test("once every token is cooled down, the REST client stops hammering them", async () => {
   // When every token in the pool has been primary-rate-limited, the REST client
   // must short-circuit rather than send another doomed request with a

@@ -106,6 +106,122 @@ test("accepts fallback_token_envs and rejects malformed token pools", () => {
   );
 });
 
+test("accepts GitHub App auth on GitHub sources and enumerates its credential env names", () => {
+  const githubApp = {
+    app_id_env: "GITHUB_APP_ID",
+    installation_id_env: "GITHUB_APP_INSTALLATION_ID",
+    private_key_base64_env: "GITHUB_APP_PRIVATE_KEY_B64",
+  };
+  assert.deepEqual(
+    configErrors({
+      db_path: "x",
+      sources: [baseSource({ token_env: undefined, github_app: githubApp })],
+    }, "config"),
+    [],
+  );
+  const source = loadConfig(writeConfig(baseSource({
+    github_app: githubApp,
+    token_pools: {
+      bot: { github_app: { ...githubApp, installation_id_env: "GITHUB_APP_BOT_INSTALLATION_ID" } },
+    },
+  }))).cfg.sources[0]!;
+  assert.deepEqual(sourceTokenEnvNames(source), [
+    "GITHUB_TOKEN",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_INSTALLATION_ID",
+    "GITHUB_APP_PRIVATE_KEY_B64",
+    "GITHUB_APP_BOT_INSTALLATION_ID",
+  ]);
+});
+
+test("accepts auth_pools with source/repo auth_policy and enumerates every bot credential env", () => {
+  const reviewBots = {
+    kind: "github_app",
+    strategy: "round_robin",
+    apps: [
+      {
+        name: "example-bot-a",
+        app_id_env: "EXAMPLE_BOT_A_APP_ID",
+        installation_id_env: "EXAMPLE_BOT_A_INSTALLATION_ID",
+        private_key_path_env: "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
+      },
+      {
+        name: "example-bot-e",
+        app_id_env: "EXAMPLE_BOT_E_APP_ID",
+        installation_id_env: "EXAMPLE_BOT_E_INSTALLATION_ID",
+        private_key_path_env: "EXAMPLE_BOT_E_PRIVATE_KEY_PATH",
+      },
+    ],
+  };
+  const sourceDoc = baseSource({
+    token_env: undefined,
+    auth_pools: {
+      source_pat: {
+        kind: "pat",
+        token_env: "GITHUB_TOKEN",
+        fallback_token_envs: ["GITHUB_TOKEN_BACKUP"],
+      },
+      example_bots: reviewBots,
+    },
+    auth_policy: { mode: "pat", pat_pool: "source_pat" },
+    projects: [
+      "default/repo",
+      { path: "sympoies/private-repo", auth_policy: { mode: "bot", bot_pool: "example_bots" } },
+      { path: "sympoies/mixed-repo", auth_policy: { mode: "bot_then_pat", bot_pool: "example_bots", pat_pool: "source_pat" } },
+    ],
+  });
+
+  assert.deepEqual(configErrors({ db_path: "x", sources: [sourceDoc] }, "config"), []);
+  const source = loadConfig(writeConfig(sourceDoc)).cfg.sources[0]!;
+  assert.deepEqual(sourceTokenEnvNames(source), [
+    "GITHUB_TOKEN",
+    "GITHUB_TOKEN_BACKUP",
+    "EXAMPLE_BOT_A_APP_ID",
+    "EXAMPLE_BOT_A_INSTALLATION_ID",
+    "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
+    "EXAMPLE_BOT_E_APP_ID",
+    "EXAMPLE_BOT_E_INSTALLATION_ID",
+    "EXAMPLE_BOT_E_PRIVATE_KEY_PATH",
+  ]);
+});
+
+test("rejects malformed GitHub App auth config", () => {
+  assert.match(
+    configErrors({
+      db_path: "x",
+      sources: [baseSource({ token_env: undefined, github_app: { app_id_env: "APP", installation_id_env: "INST" } })],
+    }, "config")[0]!,
+    /github_app must set exactly one of private_key_env, private_key_base64_env, private_key_path_env/,
+  );
+  assert.match(
+    configErrors({
+      db_path: "x",
+      sources: [baseSource({
+        token_env: undefined,
+        github_app: {
+          app_id_env: "APP",
+          installation_id_env: "INST",
+          private_key_env: "KEY",
+          private_key_path_env: "KEY_PATH",
+        },
+      })],
+    }, "config")[0]!,
+    /github_app must set exactly one of private_key_env, private_key_base64_env, private_key_path_env/,
+  );
+  assert.ok(
+    configErrors({
+      db_path: "x",
+      sources: [baseSource({
+        source_id: "gitlab:gitlab.com",
+        kind: "gitlab",
+        host: "gitlab.com",
+        token_env: undefined,
+        github_app: { app_id_env: "APP", installation_id_env: "INST", private_key_env: "KEY" },
+      })],
+    }, "config").some((err) => /github_app is only supported for GitHub sources/.test(err)),
+  );
+});
+
 test("accepts named token pools and resolves repo-specific tokens", () => {
   const sourcePath = writeConfig(
     baseSource({
@@ -298,7 +414,7 @@ test("configErrors collects every problem in one pass instead of stopping at the
   const errors = configErrors({ sources: [{ kind: "github", color: "blue" }], timezone: "Nope/Zone" }, "config");
   assert.ok(errors.includes("config is missing db_path"));
   assert.ok(errors.some((e) => e === 'config: source missing "source_id"'));
-  assert.ok(errors.some((e) => e === 'config: source missing "token_env"'));
+  assert.ok(errors.some((e) => e === 'config: source missing "token_env" or "github_app"'));
   assert.ok(errors.some((e) => e.includes("is not a hex color")));
   assert.ok(errors.some((e) => e.includes("is not a valid IANA timezone")));
   assert.ok(errors.length >= 5);

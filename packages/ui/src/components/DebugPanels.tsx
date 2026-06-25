@@ -605,6 +605,9 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
               <thead>
                 <tr>
                   <th>source</th>
+                  <th>type</th>
+                  <th>name</th>
+                  <th>strategy</th>
                   <th>token (env)</th>
                   <th className="num">remaining</th>
                   <th className="num">used</th>
@@ -616,6 +619,9 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
                 {tokenRates.info.tokens.map((t: TokenRateLimit) => (
                   <tr key={`${t.source_id}|${t.env}`}>
                     <td>{t.source_display}</td>
+                    <td>{t.kind === "github_app" ? "bot" : "PAT"}</td>
+                    <td>{t.name ?? (t.kind === "github_app" ? "GitHub App" : "—")}</td>
+                    <td>{t.strategy === "round_robin" ? "round robin" : "failover"}</td>
                     <td>
                       <code>{t.env}</code>
                     </td>
