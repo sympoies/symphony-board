@@ -1,0 +1,145 @@
+name: release-apk
+
+# Build the SIGNED universal Android APK and attach it to the GitHub Release, so
+# testers can download and install it straight from the Releases page (and update
+# in place across versions — the APK is always signed with the same release key).
+#
+# Signing comes from repo secrets (ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PASSWORD
+# + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD); the keystore master lives in the
+# encrypted secrets store. Without the secret the build would be unsigned, so the
+# job fails fast rather than publishing an uninstallable APK.
+#
+# The APK is a thin client — no tokens or server are baked in; the server is set in
+# Settings -> Server on the device. So publishing it on the (public) Releases page
+# carries nothing sensitive.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the APK to (blank = workflow artifact only)"
+        required: false
+        default: ""
+
+concurrency:
+  group: release-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    name: build signed universal APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # upload the APK as a release asset
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      # Gate the APK version against the release tag (tag == package.json == every
+      # per-app version file, incl. packages/android/.../tauri.conf.json), so a
+      # release where the Android version lagged can't publish a mislabeled APK.
+      # publish-image.yml gates the same way; only meaningful on a release tag.
+      - name: Gate APK version against the release tag
+        if: github.event_name == 'release'
+        run: scripts/check-release-version.sh "$GITHUB_REF_NAME"
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Rust + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          set -euo pipefail
+          ndk="$(node -p "require('./packages/android/ndk-version.json').version")"
+          sdkmanager "ndk;${ndk}"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${ndk}" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Decode signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_KEYSTORE_BASE64:-}" || {
+            echo "ANDROID_KEYSTORE_BASE64 secret is required to build a signed release APK" >&2
+            exit 1
+          }
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/signing/release.jks" >> "$GITHUB_ENV"
+
+      - name: Initialise the generated Android project
+        run: pnpm android:init
+
+      - name: Build signed universal APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: pnpm android:build:apk
+
+      - name: Stage the signed APK
+        id: apk
+        run: |
+          set -euo pipefail
+          # -print -quit: stop at the first match, no early-closing pipe (avoids the
+          # SIGPIPE-under-pipefail hazard publish-image.yml documents).
+          src="$(find packages/android/src-tauri/gen/android -path '*outputs/apk*release*' -name '*-universal-release.apk' -print -quit)"
+          test -n "$src" || { echo "no signed universal release APK found" >&2; exit 1; }
+          version="$(node -p "require('./packages/android/src-tauri/tauri.conf.json').version")"
+          dest="symphony-board-${version}-universal-release.apk"
+          cp "$src" "$dest"
+          # Fail closed unless the APK is signed with OUR release key. apksigner
+          # verify alone passes for ANY valid signature, so pin the cert digest —
+          # a swapped key (which would break in-place updates) fails here.
+          expected_sha256="a3f2389db85ded918c044c5d06fe3dbdd5130fa934313bdedc58d46e6277d4cb"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)"
+          certs="$("$apksigner" verify --print-certs "$dest")"
+          echo "$certs"
+          echo "$certs" | grep -qi "SHA-256 digest: ${expected_sha256}" || {
+            echo "APK is not signed with the expected release key (${expected_sha256})" >&2
+            exit 1
+          }
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK to the GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload APK to a dispatch-specified tag
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" "${{ steps.apk.outputs.path }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload APK as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.path }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error

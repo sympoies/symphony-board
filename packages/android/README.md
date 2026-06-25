@@ -42,6 +42,47 @@ android:build:apk` runs `tauri android build --apk --ci` and uses
 otherwise the Android app starts without a default server and Settings ->
 Server is the recovery path.
 
+## Release signing
+
+A `release` APK is only installable / update-compatible when it is signed, and
+testers can update in place across versions **only if every build uses the same
+key**. `prepare-generated-android.mjs` injects a release `signingConfig` into the
+generated Gradle project when a keystore is available — otherwise the release
+build stays unsigned and `debug` is unaffected, so keyless CI and contributors
+still build (see `scripts/lib/android-signing.mjs`).
+
+Provide the keystore one of two ways:
+
+- **Locally** — copy `keystore.properties.example` to `keystore.properties`
+  (gitignored) and point `storeFile` at your `.jks`. Then `pnpm android:build:apk`
+  produces a signed release APK.
+- **CI** — the `release-apk` workflow reads the keystore from repo secrets
+  (`ANDROID_KEYSTORE_BASE64` + `ANDROID_KEYSTORE_PASSWORD` + `ANDROID_KEY_ALIAS` +
+  `ANDROID_KEY_PASSWORD`), via the env vars `ANDROID_KEYSTORE_FILE` /
+  `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`.
+
+Create a keystore once (back it up — losing it means you can never update an
+installed app again; the master belongs in the encrypted secrets store):
+
+```sh
+keytool -genkeypair -v -keystore symphony-board-release.jks \
+  -alias symphony-board -keyalg RSA -keysize 2048 -validity 10000
+```
+
+The first switch from a previous debug-signed install to a release-signed one
+needs a one-time uninstall (the signing key changes); every release-signed build
+after that updates in place as long as the version (and thus `versionCode`)
+increases. A side-loaded APK may still trip Play Protect's "unknown developer"
+warning on first install — tap "Install anyway".
+
+## CI: build + publish the APK on release
+
+`.github/workflows/release-apk.yml` builds a **signed universal** release APK and
+attaches it to the GitHub Release on `release: published` (and on
+`workflow_dispatch`, optionally to a given tag). Testers download and install the
+APK from the Releases page. The NDK version it installs is pinned in
+`ndk-version.json` — keep it in sync with your local `NDK_HOME`.
+
 The Android generated project is intentionally gitignored. The package scripts
 run `scripts/prepare-generated-android.mjs` before dev/build commands so the
 generated app uses the Symphony Board launcher mark and applies Android
