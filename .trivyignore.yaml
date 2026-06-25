@@ -1,0 +1,11 @@
+vulnerabilities:
+  - id: GHSA-wrw7-89jp-8q8g
+    paths:
+      - packages/android/src-tauri/Cargo.lock
+      - packages/desktop-standalone/src-tauri/Cargo.lock
+      - packages/desktop/src-tauri/Cargo.lock
+    expired_at: 2026-09-30
+    statement: >-
+      Tauri 2.11.3 currently pulls the affected Linux GTK3 stack
+      transitively through wry/tao/webkit2gtk. glib cannot be raised to
+      0.20 without upstream Tauri/Wry moving off gtk 0.18.
