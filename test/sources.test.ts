@@ -1500,11 +1500,12 @@ test("GitLab: a null diff line position falls back to the other side instead of 
   );
 });
 
-test("source normalizer versions are bumped for the review-thread avatar output change", () => {
-  // Adding avatarUrl to canonical review-thread comments changed normalization
-  // output, so replay sweeps need a fresh normalizerVersion to target stale rows.
+test("source normalizer versions are bumped for review-thread output changes", () => {
+  // Changing canonical review-thread comment output (GitHub latest-comment time,
+  // GitLab avatar/permalink fields) needs fresh normalizerVersions so replay
+  // sweeps can target stale rows.
   assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/4");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/5");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/6");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {
