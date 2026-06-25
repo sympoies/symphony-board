@@ -135,7 +135,7 @@ jobs:
       - name: PR comment (sticky coverage summary)
         if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && hashFiles('coverage/summary.md') != ''
         continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: coverage
           path: coverage/summary.md
