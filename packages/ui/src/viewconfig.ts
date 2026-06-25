@@ -429,6 +429,18 @@ export function isStaticDeployment(): boolean {
   return raw === "1" || raw === "true";
 }
 
+// Whether the Live view-preferences (the Live-tab switch and its dependent
+// sub-settings — feed-preview lines, event-type visibility) should render
+// DISABLED rather than interactive. Live needs a running receiver (the
+// SSE/snapshot server); a static, server-less deployment (the GitHub Pages demo)
+// has none, so the Live tab can never appear there and toggling it is a no-op
+// trap. Disable the controls there, the same way the date range suspends on a
+// static host (App passes isStaticDeployment()). A normal deployment leaves them
+// interactive. Pure so the gate is unit-tested.
+export function liveControlsDisabled(staticDeployment: boolean): boolean {
+  return staticDeployment;
+}
+
 // The ./api/range overlay may fire only when the env's source allows it (#424)
 // AND this is not a static, server-less deployment. A static host (the Pages
 // demo) 404s ./api/range, so the overlay must stay off there even for a

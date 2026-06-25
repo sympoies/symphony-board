@@ -100,6 +100,7 @@ import {
   windowedRangeTailUnfetched,
   rangeOverlayAllowed,
   isStaticDeployment,
+  liveControlsDisabled,
   primaryLoadWindowDays,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
@@ -1616,6 +1617,7 @@ export function App() {
       onLivePreviewLines={setLivePreviewLines}
       liveTabEnabled={liveTabEnabled}
       onLiveTabEnabled={setLiveTabEnabled}
+      liveDisabled={liveControlsDisabled(staticDeployment)}
       hiddenEventTypes={hiddenEventTypes}
       onToggleEventType={toggleEventType}
       defaultTab={defaultTab}

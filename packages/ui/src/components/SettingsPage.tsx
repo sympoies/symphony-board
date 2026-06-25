@@ -57,6 +57,7 @@ interface Props {
   onLivePreviewLines: (lines: number) => void;
   liveTabEnabled: boolean; // whether the realtime Live tab is shown + streams (off by default)
   onLiveTabEnabled: (enabled: boolean) => void;
+  liveDisabled: boolean; // Live can't run on this deployment (the static Pages demo has no live server), so the Live tab + its sub-settings render disabled, like the suspended date range
   hiddenEventTypes: ReadonlySet<string>; // HIDDEN Live categories (an independent layer)
   onToggleEventType: (category: string) => void; // flip one category's Live visibility
   defaultTab: Page; // the tab the app opens on a hashless load
@@ -90,6 +91,13 @@ const BOARD_SCOPE_LABELS: Record<BoardScope, string> = {
   "1y": "Last 1 year",
   full: "Full board",
 };
+
+// Shown on the Live preferences when they are disabled on a static, server-less
+// deployment (the Pages demo). Mirrors the date range's static-suspension tooltip
+// (TimeRangeControls) so the two read-only-here controls explain themselves the
+// same way.
+const LIVE_DISABLED_TITLE =
+  "This is a static demo with no server, so Live can't connect — the realtime tab is unavailable here.";
 
 // <input type="color"> only accepts #rrggbb. Expand a #rgb shorthand and seed
 // the picker with a neutral grey when there's nothing to inherit from.
@@ -139,6 +147,7 @@ export function SettingsPage({
   onLivePreviewLines,
   liveTabEnabled,
   onLiveTabEnabled,
+  liveDisabled,
   hiddenEventTypes,
   onToggleEventType,
   defaultTab,
@@ -239,7 +248,10 @@ export function SettingsPage({
         </div>
       ) : null}
 
-      <div className="settings-pref">
+      <div
+        className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
+        title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
+      >
         <div>
           <h3>Live tab</h3>
           <p className="muted">
@@ -247,11 +259,15 @@ export function SettingsPage({
             the tab is hidden and the app opens no live connection, so it costs nothing. Saved on
             this device only.
           </p>
+          {liveDisabled ? (
+            <p className="muted">Live needs a running server — unavailable in this static demo.</p>
+          ) : null}
         </div>
         <label className="settings-toggle">
           <input
             type="checkbox"
             checked={liveTabEnabled}
+            disabled={liveDisabled}
             onChange={(e) => onLiveTabEnabled(e.target.checked)}
             aria-label="Enable the Live tab"
           />
@@ -260,7 +276,10 @@ export function SettingsPage({
 
       {liveTabEnabled ? (
         <>
-          <div className="settings-pref">
+          <div
+            className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
+            title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
+          >
             <div>
               <h3>Live feed preview</h3>
               <p className="muted">
@@ -275,11 +294,15 @@ export function SettingsPage({
               max={MAX_LIVE_PREVIEW_LINES}
               step={1}
               value={livePreviewLines}
+              disabled={liveDisabled}
               onChange={(e) => onLivePreviewLines(clampLivePreviewLines(Number(e.target.value)))}
             />
           </div>
 
-          <div className="settings-pref">
+          <div
+            className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
+            title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
+          >
             <div>
               <h3>Live event types</h3>
               <p className="muted">
@@ -293,6 +316,7 @@ export function SettingsPage({
                   <input
                     type="checkbox"
                     checked={!hiddenEventTypes.has(category)}
+                    disabled={liveDisabled}
                     onChange={() => onToggleEventType(category)}
                   />
                   <span>{humanizeCategory(category)}</span>

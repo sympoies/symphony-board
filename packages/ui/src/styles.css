@@ -2477,6 +2477,16 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .settings-pref h3 { margin: 0 0 2px; font-size: 13px; }
 .settings-pref p { margin: 0; }
+/* A view-preference whose backing feature can't run on this deployment (the
+   static Pages demo has no live server, so the Live controls): greyed and
+   non-interactive, the same visual half as the suspended date range
+   (.range-suspended). The inputs are disabled in the markup; this is the visual
+   cue, plus a not-allowed cursor over the otherwise-clickable toggle/labels. */
+.settings-pref-disabled { opacity: 0.55; }
+.settings-pref-disabled .settings-toggle input,
+.settings-pref-disabled .settings-number,
+.settings-pref-disabled .settings-type,
+.settings-pref-disabled .settings-type input { cursor: not-allowed; }
 .settings-select {
   flex: none; background-color: var(--panel-2); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 24px 5px 8px; font: inherit;
