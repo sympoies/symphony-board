@@ -1,0 +1,109 @@
+name: security
+
+# SCA — dependency & container scanning (Trivy + dependency-review). Public repo
+# → free; SARIF lands in Security → Code scanning. Report-only: every scan is
+# configured NOT to fail the build (exit-code 0 / warn-only) so it never blocks
+# a PR or a release. Flip exit-code / fail-on-severity / warn-only to enforce.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "27 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Diff-based SCA on PRs: flags vulnerable / disallowed-license deps NEWLY
+  # introduced by the PR itself. warn-only → posts a summary, never fails.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # write scope is only so the action can post its summary comment; with
+      # warn-only it never fails the check (it does not gate the PR).
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Dependency review
+        uses: actions/dependency-review-action@v5
+        with:
+          warn-only: true
+          comment-summary-in-pr: on-failure
+
+  # Lockfile + IaC scan of the whole tree: pnpm-lock.yaml AND the three
+  # Cargo.lock files (Trivy's cargo support uses RustSec/GHSA advisories, so the
+  # Tauri crates are covered here too), plus Dockerfile misconfig and leaked
+  # secrets. Report-only via exit-code 0.
+  trivy-fs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln,misconfig,secret
+          format: sarif
+          output: trivy-fs.sarif
+          exit-code: "0" # report-only
+          severity: CRITICAL,HIGH,MEDIUM
+      # Fork PRs lack a write token, so the upload is skipped there (the scan
+      # still runs and shows in the job log).
+      - name: Upload Trivy fs SARIF
+        if: ${{ !cancelled() && github.event.pull_request.head.repo.fork != true }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  # Container-image scan of the PUBLISHED multi-arch images — catches base-image
+  # OS-package CVEs an fs scan can't see. `:latest` is published only on a
+  # release (publish-image.yml), so this runs on the weekly schedule + manual
+  # dispatch, NOT on every main push (which would scan a stale or not-yet-built
+  # tag). Off the release path entirely, so it cannot destabilize
+  # publish-image.yml. continue-on-error + the hashFiles upload guard keep a
+  # missing/transient `:latest` pull from ever turning the check red (the
+  # exit-code:0 below only suppresses *vulnerability* findings, not pull errors).
+  # Promote into a pre-push gate in publish-image.yml to block releases on CRITICAL.
+  trivy-image:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ref: "ghcr.io/${{ github.repository }}:latest"
+            category: trivy-image-board
+          - ref: "ghcr.io/${{ github.repository }}-web:latest"
+            category: trivy-image-web
+    steps:
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        continue-on-error: true # a missing/unreachable :latest must not fail the check
+        with:
+          scan-type: image
+          image-ref: ${{ matrix.image.ref }}
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "0" # report-only (vulnerability findings)
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+      - name: Upload Trivy image SARIF
+        # Only upload if the scan actually produced a SARIF (skipped on pull failure).
+        if: ${{ !cancelled() && hashFiles('trivy-image.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: ${{ matrix.image.category }}
