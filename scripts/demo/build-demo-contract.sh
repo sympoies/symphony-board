@@ -45,5 +45,14 @@ $node_bin src/cli/sync.ts --config "$config" --full
 echo "demo: emit + validate -> $out"
 $node_bin src/cli/emit-contract.ts --config "$config" --out "$out"
 
+# Narrow the demo's LANDING range to a trailing month. emit always projects the
+# 90-day board payload the product ships (CONTRACT_ITEM_WINDOW_DAYS); this is a
+# demo-only re-label of item_window so the Pages demo lands on the last 30 days
+# without changing the product contract. Running it here means a snapshot refresh
+# can't silently widen the demo back to 90 days (regressed once, see #451).
+demo_landing_days="${DEMO_LANDING_WINDOW_DAYS:-30}"
+echo "demo: narrow landing window to ${demo_landing_days}d -> $out"
+$node_bin scripts/demo/narrow-landing-window.mjs "$out" "$demo_landing_days"
+
 echo "demo: done. Snapshot summary:"
 scripts/contract-summary.sh "$out" || true
