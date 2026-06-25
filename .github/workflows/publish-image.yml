@@ -125,6 +125,9 @@ jobs:
 
           cp config/sources.example.json "$smoke_dir/sources.json"
           mkdir -p "$smoke_dir/data"
+          # The board image runs as non-root (uid 1000); the bind-mounted host
+          # data dir (owned by the runner user) must be writable by it.
+          chmod 0777 "$smoke_dir/data"
           docker run --rm \
             -v "$smoke_dir/sources.json:/app/config/sources.json:ro" \
             -v "$smoke_dir/data:/app/data" \
@@ -146,7 +149,7 @@ jobs:
             --add-host board:127.0.0.1 \
             --add-host api:127.0.0.1 \
             --add-host live:127.0.0.1 \
-            -p 8080:80 \
+            -p 8080:8080 \
             -v "$PWD/packages/ui/public/contract.json:/srv/data/contract.json:ro" \
             symphony-board-web:smoke
           for _ in $(seq 1 30); do

@@ -17,6 +17,11 @@ mkdir -p out
 WORKDIR="$(mktemp -d "$ROOT/out/pg-compose-smoke.XXXXXX")"
 CONFIG_DIR="$WORKDIR/config"
 mkdir -p "$CONFIG_DIR"
+# The board now runs as a non-root user (uid 1000). The config-control override
+# below mounts this dir RW and the smoke exercises PUT /api/config (a config
+# write), so the dir must be writable by that user. (The default deploy mounts
+# config read-only, so this only matters when config-control is enabled.)
+chmod 0777 "$CONFIG_DIR"
 touch "$WORKDIR/empty.env"
 
 cat >"$CONFIG_DIR/sources.pg.json" <<'JSON'
@@ -60,6 +65,15 @@ COMPOSE=(
 )
 
 cleanup() {
+  local code=$?
+  # On failure, surface why before tearing the project down — without this a CI
+  # failure (e.g. a non-2xx from a web route) shows only the curl exit code, not
+  # the nginx/board error behind it.
+  if [ "$code" -ne 0 ]; then
+    echo "=== pg-compose smoke FAILED (exit $code); container state + logs ===" >&2
+    "${COMPOSE[@]}" ps >&2 2>&1 || true
+    "${COMPOSE[@]}" logs --tail 40 web board >&2 2>&1 || true
+  fi
   if [ -z "${PG_COMPOSE_SMOKE_KEEP_UP:-}" ]; then
     "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
     rm -rf "$WORKDIR"

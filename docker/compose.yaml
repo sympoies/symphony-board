@@ -7,6 +7,12 @@
 # and the DB are bind-mounted so the SQLite store survives container rebuilds and
 # can be backed up from the host.
 #
+# The board/api images run as the non-root `node` user (uid 1000), so the
+# bind-mounted host `data/` dir must be writable by uid 1000 — set it once with
+# `mkdir -p data && sudo chown 1000:1000 data` before the first `up`. The
+# Postgres stack (docker/compose.pg.yaml) uses a named volume and needs no host
+# chown for a fresh deploy.
+#
 # Paths are relative to this file (docker/), so the repo root is "..". Run from
 # anywhere with `docker compose -f docker/compose.yaml up -d --build`.
 #
@@ -191,7 +197,8 @@ services:
     # Tailnet exposure is done on the host via `tailscale serve` to this loopback
     # port. Set SYMPHONY_WEB_BIND to ONE host interface to widen it; never 0.0.0.0.
     ports:
-      - "${SYMPHONY_WEB_BIND:-127.0.0.1}:${SYMPHONY_WEB_PORT:-8080}:80"
+      # Container listens on 8080 (non-root nginx); host port is unchanged.
+      - "${SYMPHONY_WEB_BIND:-127.0.0.1}:${SYMPHONY_WEB_PORT:-8080}:8080"
     volumes:
       - ../data:/srv/data:ro
     depends_on:

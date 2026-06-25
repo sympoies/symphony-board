@@ -63,6 +63,10 @@ services:
       # producer-config edits with a compose override:
       #   CONFIG_CONTROL_ENABLED: "1"
       #   SYMPHONY_SECRETS_FILE: config/secrets.env
+      # The container runs non-root (uid 1000); the default config mount below
+      # is read-only, which is fine. But enabling config-control means the board
+      # WRITES the config dir, so that opt-in override must also mount it RW and
+      # ensure it is writable by uid 1000 (e.g. `chown 1000 <config-dir>`).
     env_file:
       - path: ${SYMPHONY_ENV_FILE:-../.env}
         required: false
@@ -182,7 +186,8 @@ services:
     # Tailscale IP) in an untracked .env — never 0.0.0.0, and never for the
     # Postgres port below. See .env.example.
     ports:
-      - "${SYMPHONY_PG_WEB_BIND:-127.0.0.1}:${SYMPHONY_PG_WEB_PORT:-18080}:80"
+      # Container listens on 8080 (non-root nginx); host port is unchanged.
+      - "${SYMPHONY_PG_WEB_BIND:-127.0.0.1}:${SYMPHONY_PG_WEB_PORT:-18080}:8080"
     volumes:
       - contract-data:/srv/data:ro
     depends_on:

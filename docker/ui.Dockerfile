@@ -27,14 +27,20 @@ COPY packages/contract packages/contract
 COPY packages/ui packages/ui
 RUN pnpm --filter @symphony-board/ui run build
 
-FROM nginx:alpine
+# Non-root nginx: the unprivileged image runs as uid 101 and listens on 8080
+# (see docker/ui-nginx.conf). The build-time COPY/rm step briefly switches to
+# root, then the final USER drops back to the nginx user so the running image
+# never executes as root.
+FROM nginxinc/nginx-unprivileged:alpine
 LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-board" \
       org.opencontainers.image.title="symphony-board-web" \
       org.opencontainers.image.description="Read-only symphony-board UI sidecar" \
       org.opencontainers.image.licenses="MIT"
+USER root
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/ui/dist /usr/share/nginx/html
 # The public UI image must not bake a sample or runtime-emitted contract. The
 # nginx config serves /contract.json from the operator-mounted /srv/data path.
 RUN rm -f /usr/share/nginx/html/contract.json
-EXPOSE 80
+USER nginx
+EXPOSE 8080
