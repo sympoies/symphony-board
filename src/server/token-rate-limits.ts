@@ -29,6 +29,10 @@ import type { AuthToken } from "../sources/http.ts";
 // so the caller can confirm the probe stays ~free.
 const RATE_LIMIT_QUERY = "query SymphonyBoardRateLimitProbe { rateLimit { limit cost remaining used resetAt } }";
 
+// PATs have no configured display name, so the diagnostics probe asks GitHub for
+// the authenticated account login in the same lightweight call.
+const PAT_RATE_LIMIT_QUERY = "query SymphonyBoardRateLimitProbe { viewer { login } rateLimit { limit cost remaining used resetAt } }";
+
 // A diagnostics probe should fail fast rather than hang the page on a stalled
 // token; shorter than the sync fetch default.
 const PROBE_TIMEOUT_MS = 10_000;
@@ -39,6 +43,15 @@ interface RateLimitField {
   remaining: number;
   used: number;
   resetAt: string;
+}
+
+interface ViewerField {
+  login?: string | null;
+}
+
+interface RateLimitProbeResult {
+  viewer?: ViewerField | null;
+  rateLimit: RateLimitField | null;
 }
 
 export interface TokenRateLimit {
@@ -84,6 +97,18 @@ function gitHubSources(cfg: AppConfig): SourceConfig[] {
   return cfg.sources.filter((s) => s.kind === "github" && sourceEnabled(s));
 }
 
+function tokenKind(token: AuthToken): NonNullable<TokenRateLimit["kind"]> {
+  return token.kind ?? (token.env.startsWith("github_app:") ? "github_app" : "pat");
+}
+
+function tokenName(token: AuthToken, kind: NonNullable<TokenRateLimit["kind"]>, viewer: ViewerField | null | undefined): string | undefined {
+  const configured = token.name?.trim();
+  if (configured) return configured;
+  if (kind !== "pat") return undefined;
+  const login = viewer?.login?.trim();
+  return login ? login : undefined;
+}
+
 // Probe every distinct configured GitHub token's GraphQL budget, concurrently.
 // One entry per (source, distinct credential label); a credential that fails to
 // resolve to a token is skipped, and a probe that errors becomes an
@@ -101,22 +126,25 @@ export async function probeTokenRateLimits(
   for (const s of gitHubSources(cfg)) {
     const base = { source_id: s.source_id, source_display: s.display_name ?? s.source_id };
     for (const token of await authTokenResolver.resolveSourceTokens(s)) {
+      const kind = tokenKind(token);
       const tokenMeta = {
         env: token.env,
-        kind: token.kind ?? (token.env.startsWith("github_app:") ? "github_app" as const : "pat" as const),
-        ...(token.name ? { name: token.name } : {}),
+        kind,
+        ...(token.name?.trim() ? { name: token.name.trim() } : {}),
         strategy: token.strategy ?? "failover" as const,
       };
       jobs.push(
         (async (): Promise<TokenRateLimit> => {
           try {
             const gql = clientFactory(s.graphql_url, token);
-            const data = await gql<{ rateLimit: RateLimitField | null }>(RATE_LIMIT_QUERY);
+            const data = await gql<RateLimitProbeResult>(kind === "pat" ? PAT_RATE_LIMIT_QUERY : RATE_LIMIT_QUERY);
             const rl = data?.rateLimit;
-            if (!rl) return { ...base, ...tokenMeta, ok: false, error: "no rateLimit in GraphQL response" };
+            const name = tokenName(token, kind, data?.viewer);
+            const probedMeta = { ...tokenMeta, ...(name ? { name } : {}) };
+            if (!rl) return { ...base, ...probedMeta, ok: false, error: "no rateLimit in GraphQL response" };
             return {
               ...base,
-              ...tokenMeta,
+              ...probedMeta,
               ok: true,
               limit: rl.limit,
               remaining: rl.remaining,

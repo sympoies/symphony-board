@@ -112,6 +112,29 @@ test("probeTokenRateLimits carries the budget on success and degrades a failed p
   });
 });
 
+test("probeTokenRateLimits uses the PAT viewer login as the display name", async () => {
+  const result = await probeTokenRateLimits(cfg(), {
+    authTokenResolver: {
+      tokensForSource: async () => [],
+      tokensForProject: async () => [],
+      resolveSourceTokens: async () => [
+        { env: "GITHUB_TOKEN_GRAYSURF_PRIVATE", value: "ghp-pat-SECRET", kind: "pat", strategy: "failover" },
+      ],
+    },
+    clientFactory: (_url, token) => {
+      assert.equal(token.kind, "pat");
+      return async (query) => {
+        assert.match(query, /viewer\s*\{\s*login\s*\}/, "PAT probes request the viewer login with the rate limit");
+        return { viewer: { login: "graysurf" }, rateLimit: okRateLimit } as any;
+      };
+    },
+    now: () => "t",
+  });
+
+  assert.equal(result.tokens[0]?.name, "graysurf");
+  assert.equal(JSON.stringify(result).includes("ghp-pat-SECRET"), false);
+});
+
 test("probeTokenRateLimits never leaks a token value onto the result", async () => {
   await withTokenEnv(async () => {
     const result = await probeTokenRateLimits(cfg(), { clientFactory: fakeFactory([]), now: () => "t" });

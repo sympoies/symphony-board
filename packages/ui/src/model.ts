@@ -2773,7 +2773,7 @@ export interface TokenRateLimit {
   source_display: string;
   env: string;
   kind?: "pat" | "github_app";
-  name?: string;
+  name?: string; // PAT viewer login or configured GitHub App display name
   strategy?: "failover" | "round_robin";
   ok: boolean;
   limit?: number;
