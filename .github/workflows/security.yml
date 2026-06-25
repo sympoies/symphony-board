@@ -59,7 +59,7 @@ jobs:
       # still runs and shows in the job log).
       - name: Upload Trivy fs SARIF
         if: ${{ !cancelled() && github.event.pull_request.head.repo.fork != true }}
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -103,7 +103,7 @@ jobs:
       - name: Upload Trivy image SARIF
         # Only upload if the scan actually produced a SARIF (skipped on pull failure).
         if: ${{ !cancelled() && hashFiles('trivy-image.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
           category: ${{ matrix.image.category }}
