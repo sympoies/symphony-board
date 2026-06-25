@@ -671,12 +671,13 @@ not a token rotation trigger.
 
 **Credential diagnostics are metadata-only.** `GET /api/token-rate-limits`
 returns one row per resolved GitHub credential with the credential env label,
-auth kind (`pat` or `github_app`), optional bot display name, token selection
-strategy, and the probed GraphQL budget (`remaining`, `used`, `reset_at`). The
-token value, app private key, and app JWT never cross the route boundary. The UI
-Diagnostics tab renders those metadata fields so operators can see bot usage
-and round-robin distribution without exposing secrets. Rows are ordered with
-GitHub App bot credentials before PAT credentials.
+auth kind (`pat` or `github_app`), PAT account login or optional bot display
+name, token selection strategy, and the probed GraphQL budget (`remaining`,
+`used`, `reset_at`). The token value, app private key, and app JWT never cross
+the route boundary. The UI Diagnostics tab renders those metadata fields so
+operators can see PAT account ownership, bot usage, and round-robin
+distribution without exposing secrets. Rows are ordered with GitHub App bot
+credentials before PAT credentials.
 
 **Edits apply on the next run.** Both daemons re-read config per run (the
 Docker daemon was aligned to app-server's existing behavior), so a control

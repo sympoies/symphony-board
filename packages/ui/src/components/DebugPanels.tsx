@@ -648,8 +648,8 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
             <button type="button" className="toggle" onClick={tokenRates.refresh}>
               Refresh
             </button>{" "}
-            probed {tokenRates.info.generated_at ? relativeTime(tokenRates.info.generated_at) : "—"} · one lightweight GraphQL{" "}
-            <code>rateLimit</code> query per token (does not meaningfully spend the budget it reports)
+            probed {tokenRates.info.generated_at ? relativeTime(tokenRates.info.generated_at) : "—"} · one lightweight GraphQL
+            probe per token (does not meaningfully spend the budget it reports)
           </p>
         </>
       )}

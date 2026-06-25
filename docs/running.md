@@ -47,10 +47,10 @@ selection through `auth_pools` plus `auth_policy`:
   supported. New config should prefer `auth_pools` / `auth_policy` because it
   separates credential definitions from the routing strategy.
 
-The Diagnostics `Rate limit` tab probes one lightweight GraphQL `rateLimit`
-query per configured GitHub credential and shows PAT vs bot, bot name, strategy,
-remaining budget, and used budget. Token values and private-key values never
-appear in the response or UI.
+The Diagnostics `Rate limit` tab probes one lightweight GraphQL request per
+configured GitHub credential and shows PAT vs bot, PAT account login or bot
+name, strategy, remaining budget, and used budget. Token values and private-key
+values never appear in the response or UI.
 
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers, such
