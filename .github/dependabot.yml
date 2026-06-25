@@ -1,0 +1,62 @@
+# Dependabot — SCA: known-CVE alerts + automated dependency-bump PRs.
+# This is a public repo, so Dependabot + the Security tab are free. Posture is
+# report-only by nature: Dependabot opens PRs / alerts, it never blocks CI.
+#
+# Android's Gradle project (packages/android/src-tauri/gen/android) is Tauri-
+# generated and gitignored, so there is nothing committed for a `gradle`
+# ecosystem to scan; that surface's real deps are its Rust crate (cargo, below)
+# and the bundled UI (npm, below).
+version: 2
+updates:
+  # --- JS/TS: the whole pnpm workspace (backend + contract + ui + desktop* +
+  # android). Dependabot reads the root pnpm-lock.yaml and resolves workspaces. ---
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Collapse low-risk bumps into a single PR to keep the noise down; a
+      # major bump still gets its own PR.
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  # --- GitHub Actions pinned across every workflow ---
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  # --- Container base images (docker/Dockerfile and docker/ui.Dockerfile) ---
+  # Intentionally ungrouped (unlike the others): only two base images, so the
+  # PR volume is already low.
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+
+  # --- Rust crates behind the three Tauri apps (each Cargo.lock is committed) ---
+  - package-ecosystem: cargo
+    directory: "/packages/desktop/src-tauri"
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/packages/desktop-standalone/src-tauri"
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/packages/android/src-tauri"
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        update-types: [minor, patch]
