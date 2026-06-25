@@ -8,7 +8,7 @@
 # relative to the repo root. The UI build emits static assets, so keep this
 # stage on the native build platform; only the final nginx stage needs target
 # platform variants.
-FROM --platform=$BUILDPLATFORM node:24-alpine AS build
+FROM --platform=$BUILDPLATFORM node:26-alpine AS build
 WORKDIR /app
 RUN corepack enable
 

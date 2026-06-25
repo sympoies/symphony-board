@@ -5,7 +5,7 @@
 #
 # Build context is the REPO ROOT (compose sets context: ..), so the COPY paths
 # below are relative to the repo root, not to this docker/ directory.
-FROM node:24-alpine
+FROM node:26-alpine
 
 LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-board" \
       org.opencontainers.image.title="symphony-board" \
