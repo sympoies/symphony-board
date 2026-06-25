@@ -101,6 +101,7 @@ import {
   rangeOverlayAllowed,
   isStaticDeployment,
   liveControlsDisabled,
+  effectiveLiveTabEnabled,
   primaryLoadWindowDays,
   clampDefaultRangeToBoardScope,
   presetExceedsBoardScope,
@@ -166,7 +167,12 @@ type MobileControlPanel = "search" | "filters" | "range" | null;
 // "?branch=<branch>" for the page-local SCM filters.
 const readHash = (): string => (typeof location !== "undefined" ? location.hash : "");
 const readStartupHash = (): string =>
-  startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), loadLiveTabEnabled()));
+  // A static, server-less deployment (the Pages demo) has no live receiver, so a
+  // stored Live opt-in must NOT seed a Live landing here — the tab can never show
+  // and the route would just bounce. Resolve the startup tab with Live forced off
+  // there (matches App's liveTabEffectivelyEnabled); the stored preference is left
+  // untouched and re-applies on a real, server-backed deployment.
+  startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), effectiveLiveTabEnabled(loadLiveTabEnabled(), isStaticDeployment())));
 const historyStateObject = (): Record<string, unknown> => {
   const state = window.history.state;
   return state && typeof state === "object" && !Array.isArray(state) ? { ...(state as Record<string, unknown>) } : {};
@@ -531,14 +537,24 @@ export function App() {
     setReloadKey((k) => k + 1);
   }, []);
   const sync = useSync(reloadDataAfterSync, serverBaseUrl);
+  // Live can't run on a static, server-less deployment (the Pages demo): it has no
+  // SSE/snapshot receiver, so the Settings Live controls render disabled there
+  // (liveControlsDisabled). A stale `live-tab-enabled=true` in localStorage must
+  // not leak past that disabled UI — otherwise the static build would still probe
+  // ./api/live-snapshot (404), show the Live tab, and bounce off a dead #/live. So
+  // derive an EFFECTIVE opt-in that is forced off on a static deployment and feed
+  // it to the hook + tab visibility below. The raw `liveTabEnabled` stays the
+  // persisted preference (Settings shows it, unchanged), so it re-applies on a
+  // real server-backed deployment.
+  const liveTabEffectivelyEnabled = effectiveLiveTabEnabled(liveTabEnabled, staticDeployment);
   // The live stream lives HERE, at the always-mounted shell — not inside LivePage
   // — so the event buffer survives tab switches: switching to Live is instant and
   // current instead of re-seeding from /api/live-snapshot (a >1s empty flash) on
   // every visit. The hook owns the WHOLE Live lifecycle off two gates: the Settings
-  // opt-in (`liveTabEnabled` — off costs zero requests and never connects) and
-  // whether the Live tab is currently shown (the third arg opens the SSE/poll
-  // stream only while active; enabled-but-inactive does one cold-start prewarm).
-  const live = useLive(serverBaseUrl, liveTabEnabled, route.page === "live");
+  // opt-in (`liveTabEffectivelyEnabled` — off costs zero requests and never
+  // connects) and whether the Live tab is currently shown (the third arg opens the
+  // SSE/poll stream only while active; enabled-but-inactive does one cold-start prewarm).
+  const live = useLive(serverBaseUrl, liveTabEffectivelyEnabled, route.page === "live");
   // Receiver availability is the SAME signal as the stream's connect tri-state:
   // the single snapshot the hook probes doubles as the reachability check, so
   // there is no separate probe. null = still probing, false = unavailable
@@ -553,7 +569,7 @@ export function App() {
   // so a slow seed never hides the tab and strands the user with no way into Live;
   // only a definitive "unavailable" (connected === false) hides it. The bounce below
   // still keys off liveAvailable === false (definitive), so connecting never bounces.
-  const liveTabShown = liveTabVisible(liveTabEnabled, liveAvailable);
+  const liveTabShown = liveTabVisible(liveTabEffectivelyEnabled, liveAvailable);
   // A host WITHOUT the live receiver (the standalone app, or any deploy missing
   // it) must never strand the user on a dead Live page — which can happen now
   // that the default tab can be Live and the cold-start redirect honors it. When

@@ -441,6 +441,19 @@ export function liveControlsDisabled(staticDeployment: boolean): boolean {
   return staticDeployment;
 }
 
+// The EFFECTIVE Live opt-in the app routes on, given the stored Settings flag and
+// the deployment. On a static, server-less deployment (the Pages demo) Live can't
+// run — its controls are disabled (liveControlsDisabled) — so a stale stored
+// `live-tab-enabled=true` is coerced off here: otherwise the static build would
+// still probe ./api/live-snapshot (404), show the Live tab, and bounce off a dead
+// #/live with no Settings control left to clear the opt-in. The STORED flag is
+// untouched (Settings still shows it), so the preference re-applies on a real,
+// server-backed deployment. App feeds this to useLive + liveTabVisible and to the
+// startup-route resolution; pure so the gate is unit-tested.
+export function effectiveLiveTabEnabled(storedEnabled: boolean, staticDeployment: boolean): boolean {
+  return storedEnabled && !liveControlsDisabled(staticDeployment);
+}
+
 // The ./api/range overlay may fire only when the env's source allows it (#424)
 // AND this is not a static, server-less deployment. A static host (the Pages
 // demo) 404s ./api/range, so the overlay must stay off there even for a

@@ -11,7 +11,7 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
-  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, liveControlsDisabled, primaryLoadWindowDays,
+  isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, primaryLoadWindowDays,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -324,6 +324,18 @@ test("liveControlsDisabled disables the Live preferences only on a static, serve
   // deployment (Docker web / standalone / Android) keeps them interactive.
   assert.equal(liveControlsDisabled(true), true, "static deployment disables the Live controls");
   assert.equal(liveControlsDisabled(false), false, "a normal server-backed deployment keeps them interactive");
+});
+
+test("effectiveLiveTabEnabled forces a stored Live opt-in OFF on a static, server-less deployment", () => {
+  // A static host (the Pages demo) has no live receiver, so the Settings Live
+  // controls render disabled — but a stale `live-tab-enabled=true` in localStorage
+  // must not leak past that UI, or App would still probe ./api/live-snapshot (404),
+  // show the Live tab, and bounce off a dead #/live. The effective opt-in App routes
+  // on is the stored flag AND a non-static deployment.
+  assert.equal(effectiveLiveTabEnabled(true, false), true, "stored opt-in stays on for a normal server-backed deployment");
+  assert.equal(effectiveLiveTabEnabled(true, true), false, "a stale stored opt-in is coerced off on a static deployment");
+  assert.equal(effectiveLiveTabEnabled(false, false), false, "no stored opt-in is off");
+  assert.equal(effectiveLiveTabEnabled(false, true), false, "no stored opt-in is off on a static deployment too");
 });
 
 test("isStaticDeployment defaults to false without the VITE flag (the safe default for every non-Pages build)", () => {

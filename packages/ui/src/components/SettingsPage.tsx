@@ -174,13 +174,18 @@ export function SettingsPage({
     else bySource.set(r.source_id, [r]);
   }
 
-  // The Live tab can't be a default-landing choice while it is disabled (the
-  // landing would resolve to a hidden tab); drop it from the picker in that case.
-  // The select VALUE is resolved the same way the landing is (resolveDefaultTab),
-  // so a stored "live" default shows as Activity here while Live is off — matching
-  // an offered option without rewriting the stored preference, which re-applies
-  // once Live is turned back on.
-  const tabOptions = liveTabEnabled ? DEFAULT_TAB_OPTIONS : DEFAULT_TAB_OPTIONS.filter((t) => t.id !== "live");
+  // The Live tab can't be a default-landing choice while Live is off (the landing
+  // would resolve to a hidden tab); drop it from the picker in that case. On a
+  // static deployment Live is forced off (liveDisabled), so it is dropped there
+  // too — the picker tracks the same EFFECTIVE opt-in App routes on, not the raw
+  // stored flag. The select VALUE is resolved the same way the landing is
+  // (resolveDefaultTab), so a stored "live" default shows as Activity here while
+  // Live is off — matching an offered option without rewriting the stored
+  // preference, which re-applies once Live is available and turned back on.
+  const liveTabEffectivelyEnabled = liveTabEnabled && !liveDisabled;
+  const tabOptions = liveTabEffectivelyEnabled
+    ? DEFAULT_TAB_OPTIONS
+    : DEFAULT_TAB_OPTIONS.filter((t) => t.id !== "live");
 
   const showTabs = config?.available === true;
   const activeTab: SettingsTab = showTabs && tab === "sources" ? "sources" : "display";
@@ -336,7 +341,7 @@ export function SettingsPage({
         </div>
         <select
           className="settings-select"
-          value={resolveDefaultTab(defaultTab, liveTabEnabled)}
+          value={resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled)}
           onChange={(e) => {
             if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
           }}
