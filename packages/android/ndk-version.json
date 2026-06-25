@@ -1,0 +1,4 @@
+{
+  "$comment": "Single source of truth for the Android NDK version. The release-apk CI workflow installs this via sdkmanager; keep it in sync with the NDK you build with locally (NDK_HOME).",
+  "version": "29.0.14206865"
+}

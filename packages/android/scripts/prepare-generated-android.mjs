@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveSigning, injectReleaseSigning } from "./lib/android-signing.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mainDir = join(here, "..", "src-tauri", "gen", "android", "app", "src", "main");
@@ -293,4 +294,21 @@ for (const themePath of [
   );
 }
 
-console.log("Prepared generated Android shell: launcher icon, system-bar insets, and theme bars.");
+// Inject the release signingConfig when a keystore is available (env in CI,
+// packages/android/keystore.properties locally). With no keystore the release
+// build stays unsigned and debug is unaffected, so keyless CI and contributors
+// still build. See scripts/lib/android-signing.mjs.
+const signing = resolveSigning(process.env, join(here, "..", "keystore.properties"));
+if (signing) {
+  injectReleaseSigning({
+    genAndroidDir: join(here, "..", "src-tauri", "gen", "android"),
+    signing,
+    baseDir: join(here, ".."),
+  });
+}
+
+console.log(
+  signing
+    ? "Prepared generated Android shell: launcher icon, system-bar insets, theme bars, and release signing."
+    : "Prepared generated Android shell: launcher icon, system-bar insets, and theme bars (release unsigned: no keystore).",
+);

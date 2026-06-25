@@ -36,6 +36,13 @@ packages/desktop/src-tauri/gen/
 packages/desktop-standalone/src-tauri/gen/
 packages/android/src-tauri/gen/
 
+# Android release signing — never commit the keystore or its passwords. CI reads
+# them from repo secrets; locally they live in packages/android/keystore.properties
+# (see keystore.properties.example). The keystore master belongs in the secrets store.
+keystore.properties
+*.jks
+*.keystore
+
 # Node runtime copied in as the standalone app's bundled sidecar.
 packages/desktop-standalone/src-tauri/binaries/
 
