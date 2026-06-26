@@ -244,6 +244,7 @@ export function RepoAnalyticsPage({
       <div id="repo-stat-grid" className="repo-stat-grid" data-stats-collapsed={!summaryOpen ? "true" : undefined}>
         <StatTile label="activity">{displayScore(activityScore(totals))}</StatTile>
         <StatTile label="commits">{totals.commits}</StatTile>
+        <StatTile label="comments">{totals.comments}</StatTile>
         <StatTile label="issues opened">{issuesOpened(totals)}</StatTile>
         <StatTile label="PR/MRs opened">{totals.change_requests_opened}</StatTile>
         <StatTile label="total opened">{totals.items_opened}</StatTile>
@@ -262,7 +263,7 @@ export function RepoAnalyticsPage({
             <colgroup>
               <col className="repo-table-col-repo" />
               <col className="repo-table-col-trend" />
-              {Array.from({ length: 9 }, (_, index) => (
+              {Array.from({ length: 10 }, (_, index) => (
                 <col key={index} className="repo-table-col-metric" />
               ))}
               <col className="repo-table-col-quality" />
@@ -274,6 +275,7 @@ export function RepoAnalyticsPage({
                 <th>Trend</th>
                 <th>Activity</th>
                 <th>Commits</th>
+                <th>Comments</th>
                 <th>Issues</th>
                 <th>PR/MRs</th>
                 <th>Total</th>
@@ -321,6 +323,7 @@ export function RepoAnalyticsPage({
                     <td className="repo-trend-cell" data-label="Trend"><TrendBars metric={metric} /></td>
                     <td className="repo-metric-cell repo-metric-primary" data-label="Activity"><MetricValue value={displayScore(activityScore(metric.totals))} href={activityHref(metric, range, {}, lens)} label={`Open activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-primary" data-label="Commits"><MetricValue value={metric.totals.commits} href={commitsHref(metric, range, lens)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-secondary" data-label="Comments"><MetricValue value={metric.totals.comments} href={activityHref(metric, range, { action: "commented" }, lens)} label={`Open comment activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Issues"><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" }, lens)} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-primary" data-label="PR/MRs"><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" }, lens)} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Total"><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" }, lens)} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>

@@ -2468,7 +2468,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .repo-table {
   width: 100%;
-  min-width: 1560px;
+  min-width: 1660px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -2501,18 +2501,18 @@ a.rf-node-title:hover { color: var(--accent); }
 .repo-table-col-actors { width: auto; }
 .repo-table th:first-child,
 .repo-table td:first-child { text-align: left; }
-.repo-table th:nth-child(11),
-.repo-table td:nth-child(11) { text-align: center; }
+.repo-table th:nth-child(12),
+.repo-table td:nth-child(12) { text-align: center; }
 /* Quality coverage pills: fixed to active + one character of breathing room on
    each side; longer rare states still fit, just with less padding. */
-.repo-table td:nth-child(12) .badge {
+.repo-table td:nth-child(13) .badge {
   box-sizing: border-box;
   inline-size: 8ch;
   padding-inline: 0;
   text-align: center;
 }
-.repo-table th:nth-child(13),
-.repo-table td:nth-child(13) { min-width: 240px; text-align: left; }
+.repo-table th:nth-child(14),
+.repo-table td:nth-child(14) { min-width: 240px; text-align: left; }
 .repo-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
 .repo-name-cell { overflow: hidden; }
 .repo-name-head {
