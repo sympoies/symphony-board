@@ -88,7 +88,7 @@ test("repo token pools can route a GitHub repo through a GitHub App while other 
   }
 });
 
-test("auth_policy routes repo bot pools through every GitHub App with round-robin metadata", async () => {
+test("auth_policy routes repo bot pools through every GitHub App with budget-aware metadata", async () => {
   const seen: GitHubAppTokenRequest[] = [];
   const resolver = createAuthTokenResolver({
     mintGitHubAppInstallationToken: async (request) => {
@@ -111,7 +111,7 @@ test("auth_policy routes repo bot pools through every GitHub App with round-robi
         source_pat: { kind: "pat", token_env: "AUTH_PAT" },
         example_bots: {
           kind: "github_app",
-          strategy: "round_robin",
+          strategy: "budget_aware",
           apps: [
             {
               name: "example-bot-a",
@@ -145,14 +145,14 @@ test("auth_policy routes repo bot pools through every GitHub App with round-robi
         value: "app-token-1001",
         kind: "github_app",
         name: "example-bot-a",
-        strategy: "round_robin",
+        strategy: "budget_aware",
       },
       {
         env: "github_app:BOT_B_INSTALLATION_ID",
         value: "app-token-1002",
         kind: "github_app",
         name: "example-bot-b",
-        strategy: "round_robin",
+        strategy: "budget_aware",
       },
     ]);
     assert.deepEqual(await resolver.tokensForProject(cfg, "sympoies/mixed-repo"), [
@@ -161,14 +161,14 @@ test("auth_policy routes repo bot pools through every GitHub App with round-robi
         value: "app-token-1001",
         kind: "github_app",
         name: "example-bot-a",
-        strategy: "round_robin",
+        strategy: "budget_aware",
       },
       {
         env: "github_app:BOT_B_INSTALLATION_ID",
         value: "app-token-1002",
         kind: "github_app",
         name: "example-bot-b",
-        strategy: "round_robin",
+        strategy: "budget_aware",
       },
       { env: "AUTH_PAT", value: "pat-token", kind: "pat", strategy: "failover" },
     ]);
@@ -252,7 +252,7 @@ test("bot_then_pat preserves the PAT fallback when one bot mint fails, skipping 
         source_pat: { kind: "pat", token_env: "AUTH_PAT" },
         example_bots: {
           kind: "github_app",
-          strategy: "round_robin",
+          strategy: "budget_aware",
           apps: [
             { name: "example-bot-a", app_id_env: "BOT_A_APP_ID", installation_id_env: "BOT_A_INSTALLATION_ID", private_key_env: "BOT_A_PRIVATE_KEY" },
             { name: "example-bot-b", app_id_env: "BOT_B_APP_ID", installation_id_env: "BOT_B_INSTALLATION_ID", private_key_env: "BOT_B_PRIVATE_KEY" },
@@ -265,7 +265,7 @@ test("bot_then_pat preserves the PAT fallback when one bot mint fails, skipping 
     } as Partial<SourceConfig>);
 
     assert.deepEqual(await resolver.tokensForProject(cfg, "sympoies/mixed-repo"), [
-      { env: "github_app:BOT_B_INSTALLATION_ID", value: "app-token-1002", kind: "github_app", name: "example-bot-b", strategy: "round_robin" },
+      { env: "github_app:BOT_B_INSTALLATION_ID", value: "app-token-1002", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
       { env: "AUTH_PAT", value: "pat-token", kind: "pat", strategy: "failover" },
     ]);
   } finally {
@@ -299,7 +299,7 @@ test("bot_then_pat degrades to the PAT pool when every bot mint fails, instead o
         source_pat: { kind: "pat", token_env: "AUTH_PAT" },
         example_bots: {
           kind: "github_app",
-          strategy: "round_robin",
+          strategy: "budget_aware",
           apps: [
             { name: "example-bot-a", app_id_env: "BOT_A_APP_ID", installation_id_env: "BOT_A_INSTALLATION_ID", private_key_env: "BOT_A_PRIVATE_KEY" },
           ],
@@ -345,7 +345,7 @@ test("a bot-only auth policy whose every mint fails surfaces a hard mint failure
       auth_pools: {
         only_bots: {
           kind: "github_app",
-          strategy: "round_robin",
+          strategy: "budget_aware",
           apps: [
             { name: "only-bot-a", app_id_env: "BOT_A_APP_ID", installation_id_env: "BOT_A_INSTALLATION_ID", private_key_env: "BOT_A_PRIVATE_KEY" },
           ],

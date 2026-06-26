@@ -16,21 +16,51 @@ export interface AuthToken {
   value: string;
   kind?: "pat" | "github_app";
   name?: string;
-  strategy?: "failover" | "round_robin";
+  strategy?: "failover" | "budget_aware" | "round_robin";
 }
 
 export type AuthTokenInput = string | AuthToken[];
 
 export interface AuthSelectionState {
-  roundRobinCursor: number;
+  cursor: number;
+  namespace: string;
+  selectionKey: string;
 }
 
 const authSelectionStarts = new Map<string, number>();
+const authBudgetStates = new Map<string, AuthBudgetState>();
+const DEFAULT_ESTIMATED_COST = 1;
 
-function roundRobinIndexes(tokens: readonly AuthToken[]): number[] {
+interface AuthBudgetState {
+  limit?: number;
+  remaining?: number;
+  used?: number;
+  resetAtMs?: number;
+  resource?: string;
+  observedAtMs?: number;
+  blockedUntilMs?: number;
+  inFlight: number;
+  lastCost: number;
+}
+
+export interface GitHubRateBudget {
+  limit?: number;
+  remaining?: number;
+  used?: number;
+  resetAtMs?: number;
+  resource?: string;
+  cost?: number;
+}
+
+function canonicalAuthStrategy(strategy: AuthToken["strategy"] | undefined): NonNullable<AuthToken["strategy"]> {
+  if (strategy === "round_robin") return "budget_aware";
+  return strategy ?? "failover";
+}
+
+function budgetAwareIndexes(tokens: readonly AuthToken[]): number[] {
   const indexes: number[] = [];
   for (let idx = 0; idx < tokens.length; idx++) {
-    if (tokens[idx]?.strategy === "round_robin") indexes.push(idx);
+    if (canonicalAuthStrategy(tokens[idx]?.strategy) === "budget_aware") indexes.push(idx);
   }
   return indexes;
 }
@@ -38,25 +68,25 @@ function roundRobinIndexes(tokens: readonly AuthToken[]): number[] {
 function tokenSelectionKey(tokens: readonly AuthToken[], namespace: string): string {
   return [
     namespace,
-    ...tokens.map((token) => `${token.env}\t${token.kind ?? ""}\t${token.strategy ?? ""}`),
+    ...tokens.map((token) => `${token.env}\t${token.kind ?? ""}\t${canonicalAuthStrategy(token.strategy)}`),
   ].join("\n");
 }
 
-// Pick an initial cursor for a newly-created client. The cursor still rotates
-// request-by-request inside one client, but the daemon rebuilds clients each sync
-// run; keeping this small process-local handoff prevents every new run from
-// restarting at token 0 and pinning expensive pages to the same bot.
-export function claimInitialRoundRobinCursor(tokens: readonly AuthToken[], namespace: string): number {
-  const indexes = roundRobinIndexes(tokens);
-  if (indexes.length === 0) return 0;
-  const key = tokenSelectionKey(tokens, namespace);
-  const next = authSelectionStarts.get(key) ?? 0;
-  authSelectionStarts.set(key, (next + 1) % indexes.length);
-  return indexes[next] ?? 0;
+// Pick an initial probe cursor for a newly-created client. The daemon rebuilds
+// clients each sync run; keeping this process-local handoff prevents every new
+// run from pinning its first unknown-budget page to the same bot.
+export function createAuthSelectionState(tokens: readonly AuthToken[], namespace: string): AuthSelectionState {
+  const indexes = budgetAwareIndexes(tokens);
+  const selectionKey = tokenSelectionKey(tokens, namespace);
+  if (indexes.length === 0) return { cursor: 0, namespace, selectionKey };
+  const next = authSelectionStarts.get(selectionKey) ?? 0;
+  authSelectionStarts.set(selectionKey, (next + 1) % indexes.length);
+  return { cursor: indexes[next] ?? 0, namespace, selectionKey };
 }
 
 export function resetAuthTokenSelectionStateForTests(): void {
   authSelectionStarts.clear();
+  authBudgetStates.clear();
 }
 
 export interface GitHubRateLimitInfo {
@@ -159,7 +189,7 @@ export function traceAuthSelection(input: {
     "api=" + input.api,
     "token=" + logField(input.token.env),
     "kind=" + kind,
-    "strategy=" + (input.token.strategy ?? "failover"),
+    "strategy=" + canonicalAuthStrategy(input.token.strategy),
   ];
   if (input.token.name?.trim()) parts.push("name=" + logField(input.token.name));
   if (input.repo) parts.push("repo=" + logField(input.repo));
@@ -178,7 +208,7 @@ export function normalizeAuthTokens(input: AuthTokenInput): AuthToken[] {
       ...token,
       value: token.value.trim(),
       kind: token.kind ?? (token.env.startsWith("github_app:") ? "github_app" : "pat"),
-      strategy: token.strategy ?? "failover",
+      strategy: canonicalAuthStrategy(token.strategy),
       ...(token.name?.trim() ? { name: token.name.trim() } : {}),
     }));
 }
@@ -218,6 +248,178 @@ export function primaryCooldownUntil(rateLimit: GitHubRateLimitInfo): number {
   return rateLimit.resetAtMs ?? Date.now() + 60 * 60 * 1000;
 }
 
+function headerNumber(headers: Headers, name: string): number | undefined {
+  const raw = headers.get(name);
+  if (raw === null) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function githubGraphqlRateBudget(data: unknown): GitHubRateBudget | null {
+  const rateLimit = typeof data === "object" && data !== null && "rateLimit" in data ? (data as { rateLimit?: unknown }).rateLimit : null;
+  if (typeof rateLimit !== "object" || rateLimit === null) return null;
+  const source = rateLimit as Record<string, unknown>;
+  const out: GitHubRateBudget = { resource: "graphql" };
+  if (typeof source.limit === "number" && Number.isFinite(source.limit)) out.limit = source.limit;
+  if (typeof source.remaining === "number" && Number.isFinite(source.remaining)) out.remaining = source.remaining;
+  if (typeof source.used === "number" && Number.isFinite(source.used)) out.used = source.used;
+  if (typeof source.cost === "number" && Number.isFinite(source.cost)) out.cost = source.cost;
+  if (typeof source.resetAt === "string") {
+    const resetAtMs = Date.parse(source.resetAt);
+    if (Number.isFinite(resetAtMs)) out.resetAtMs = resetAtMs;
+  }
+  return out.limit !== undefined || out.remaining !== undefined || out.used !== undefined || out.resetAtMs !== undefined || out.cost !== undefined
+    ? out
+    : null;
+}
+
+export function githubRateBudgetFromHeaders(headers: Headers, bodyBudget: GitHubRateBudget | null = null): GitHubRateBudget | null {
+  const limit = headerNumber(headers, "x-ratelimit-limit");
+  const remaining = headerNumber(headers, "x-ratelimit-remaining");
+  const used = headerNumber(headers, "x-ratelimit-used");
+  const reset = headerNumber(headers, "x-ratelimit-reset");
+  const resource = headers.get("x-ratelimit-resource") ?? undefined;
+  if (limit === undefined && remaining === undefined && used === undefined && reset === undefined && !resource && !bodyBudget) return null;
+  return {
+    ...bodyBudget,
+    ...(limit !== undefined ? { limit } : {}),
+    ...(remaining !== undefined ? { remaining } : {}),
+    ...(used !== undefined ? { used } : {}),
+    ...(reset !== undefined && reset > 0 ? { resetAtMs: reset * 1000 } : {}),
+    ...(resource ? { resource } : {}),
+  };
+}
+
+function budgetKey(selection: AuthSelectionState, token: AuthToken): string {
+  return `${selection.namespace}\n${token.env}\t${token.kind ?? ""}`;
+}
+
+function budgetStateFor(selection: AuthSelectionState, token: AuthToken): AuthBudgetState {
+  const key = budgetKey(selection, token);
+  let state = authBudgetStates.get(key);
+  if (!state) {
+    state = { inFlight: 0, lastCost: DEFAULT_ESTIMATED_COST };
+    authBudgetStates.set(key, state);
+  }
+  return state;
+}
+
+function resetExpiredBudget(state: AuthBudgetState, now: number): void {
+  if (state.resetAtMs === undefined || state.resetAtMs > now) return;
+  delete state.limit;
+  delete state.remaining;
+  delete state.used;
+  delete state.resetAtMs;
+  delete state.resource;
+  delete state.observedAtMs;
+  delete state.blockedUntilMs;
+  state.lastCost = DEFAULT_ESTIMATED_COST;
+}
+
+function tokenAvailable(
+  tokens: readonly AuthToken[],
+  blockedUntil: Map<number, number>,
+  selection: AuthSelectionState,
+  idx: number,
+  now: number,
+): boolean {
+  if ((blockedUntil.get(idx) ?? 0) > now) return false;
+  const state = budgetStateFor(selection, tokens[idx]!);
+  resetExpiredBudget(state, now);
+  return (state.blockedUntilMs ?? 0) <= now;
+}
+
+function orderedIndexes(indexes: readonly number[], cursor: number, tokenCount: number): number[] {
+  return [...indexes].sort((a, b) => ((a - cursor + tokenCount) % tokenCount) - ((b - cursor + tokenCount) % tokenCount));
+}
+
+function selectBudgetAwareToken(
+  tokens: readonly AuthToken[],
+  blockedUntil: Map<number, number>,
+  selection: AuthSelectionState,
+  candidates: readonly number[],
+  now: number,
+): number | null {
+  const available = orderedIndexes(candidates, selection.cursor, tokens.length)
+    .filter((idx) => tokenAvailable(tokens, blockedUntil, selection, idx, now));
+  if (available.length === 0) return null;
+
+  for (const idx of available) {
+    const state = budgetStateFor(selection, tokens[idx]!);
+    resetExpiredBudget(state, now);
+    if (state.remaining === undefined) {
+      selection.cursor = (idx + 1) % tokens.length;
+      return idx;
+    }
+  }
+
+  let best: number | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  let bestUsed = Number.POSITIVE_INFINITY;
+  for (const idx of available) {
+    const state = budgetStateFor(selection, tokens[idx]!);
+    const cost = state.lastCost > 0 ? state.lastCost : DEFAULT_ESTIMATED_COST;
+    const score = (state.remaining ?? 0) - state.inFlight * cost;
+    const used = state.used ?? Number.POSITIVE_INFINITY;
+    if (score > bestScore || (score === bestScore && used < bestUsed)) {
+      best = idx;
+      bestScore = score;
+      bestUsed = used;
+    }
+  }
+  if (best !== null) selection.cursor = (best + 1) % tokens.length;
+  return best;
+}
+
+export function recordAuthAttemptStart(tokens: readonly AuthToken[], idx: number, selection: AuthSelectionState): void {
+  const token = tokens[idx];
+  if (!token || canonicalAuthStrategy(token.strategy) !== "budget_aware") return;
+  budgetStateFor(selection, token).inFlight++;
+}
+
+export function recordAuthAttemptDone(
+  tokens: readonly AuthToken[],
+  idx: number,
+  selection: AuthSelectionState,
+  budget: GitHubRateBudget | null = null,
+  now: number = Date.now(),
+): void {
+  const token = tokens[idx];
+  if (!token) return;
+  const state = budgetStateFor(selection, token);
+  if (state.inFlight > 0) state.inFlight--;
+  resetExpiredBudget(state, now);
+  if (!budget) return;
+
+  const priorRemaining = state.remaining;
+  const priorResetAt = state.resetAtMs;
+  if (budget.limit !== undefined) state.limit = budget.limit;
+  if (budget.used !== undefined) state.used = budget.used;
+  if (budget.resetAtMs !== undefined) state.resetAtMs = budget.resetAtMs;
+  if (budget.resource !== undefined) state.resource = budget.resource;
+  if (budget.cost !== undefined && budget.cost > 0) state.lastCost = budget.cost;
+  if (budget.remaining !== undefined) {
+    if (
+      budget.cost === undefined &&
+      priorRemaining !== undefined &&
+      priorRemaining >= budget.remaining &&
+      (priorResetAt === undefined || budget.resetAtMs === undefined || priorResetAt === budget.resetAtMs)
+    ) {
+      const observedCost = priorRemaining - budget.remaining;
+      if (observedCost > 0) state.lastCost = observedCost;
+    }
+    state.remaining = budget.remaining;
+  }
+  state.observedAtMs = now;
+  if (state.remaining === 0 && state.resetAtMs !== undefined) state.blockedUntilMs = state.resetAtMs;
+}
+
+export function markAuthTokenCooledDown(tokens: readonly AuthToken[], idx: number, selection: AuthSelectionState, until: number): void {
+  const token = tokens[idx];
+  if (!token) return;
+  budgetStateFor(selection, token).blockedUntilMs = until;
+}
+
 // Index of the first token whose cooldown (`blockedUntil`) has elapsed, or
 // `null` when EVERY token in the pool is still cooled down. The shared selector
 // for both the REST and GraphQL clients: returning `null` lets the caller
@@ -238,44 +440,50 @@ export function selectAvailableToken(
   now: number = Date.now(),
 ): number | null {
   if (tokens.length === 0) return null;
-  for (let step = 0; step < tokens.length; step++) {
-    const idx = (selection.roundRobinCursor + step) % tokens.length;
-    const token = tokens[idx]!;
-    if (token.strategy !== "round_robin") continue;
-    if ((blockedUntil.get(idx) ?? 0) > now) continue;
-    selection.roundRobinCursor = (idx + 1) % tokens.length;
-    return idx;
+  const budgetChoice = selectBudgetAwareToken(tokens, blockedUntil, selection, budgetAwareIndexes(tokens), now);
+  if (budgetChoice !== null) return budgetChoice;
+  for (let idx = 0; idx < tokens.length; idx++) {
+    if (tokenAvailable(tokens, blockedUntil, selection, idx, now)) return idx;
   }
-  return firstAvailableToken(tokens.length, blockedUntil, now);
+  return null;
 }
 
 // Pick the next token to retry after `after` was rate-limited, mirroring
 // selectAvailableToken's bot-first rule: prefer an available GitHub App bot
 // token before falling back to any available token (e.g. the failover PAT). The
-// preference keys on the token being a bot (`kind === "github_app"`), not on the
-// round_robin strategy, so a `bot_then_pat` pool whose apps use the failover
-// strategy still rotates to a sibling bot before spending PAT quota. The initial
-// pick is already bot-first; without the same preference here a retry could
-// spend PAT quota while a bot in the pool is still available.
+// preference keys on the token being a bot (`kind === "github_app"`), so a
+// `bot_then_pat` pool whose apps use the failover strategy still rotates to a
+// sibling bot before spending PAT quota. The initial pick is already bot-first;
+// without the same preference here a retry could spend PAT quota while a bot in
+// the pool is still available.
 export function nextAvailableToken(
   tokens: readonly AuthToken[],
   blockedUntil: Map<number, number>,
   tried: ReadonlySet<number>,
   after: number,
+  selection?: AuthSelectionState,
   now: number = Date.now(),
 ): number | null {
   const tokenCount = tokens.length;
+  const available = (idx: number) => selection
+    ? tokenAvailable(tokens, blockedUntil, selection, idx, now)
+    : (blockedUntil.get(idx) ?? 0) <= now;
+  if (selection) {
+    const budgetBotCandidates = budgetAwareIndexes(tokens).filter((idx) => !tried.has(idx) && tokens[idx]?.kind === "github_app");
+    const budgetChoice = selectBudgetAwareToken(tokens, blockedUntil, selection, budgetBotCandidates, now);
+    if (budgetChoice !== null) return budgetChoice;
+  }
   for (let step = 1; step <= tokenCount; step++) {
     const idx = (after + step) % tokenCount;
     if (tried.has(idx)) continue;
     if (tokens[idx]?.kind !== "github_app") continue;
-    if ((blockedUntil.get(idx) ?? 0) > now) continue;
+    if (!available(idx)) continue;
     return idx;
   }
   for (let step = 1; step <= tokenCount; step++) {
     const idx = (after + step) % tokenCount;
     if (tried.has(idx)) continue;
-    if ((blockedUntil.get(idx) ?? 0) <= now) return idx;
+    if (available(idx)) return idx;
   }
   return null;
 }
@@ -286,10 +494,22 @@ export function isGithubPrimaryRateLimit(provider: string, err: ProviderHttpErro
 
 // Error raised when every token in the pool is cooled down. Carries the soonest
 // reset so callers/telemetry can see when a retry could succeed.
-export function allTokensCooledDownError(label: string, tokenCount: number, blockedUntil: Map<number, number>): ProviderHttpError {
+export function allTokensCooledDownError(
+  label: string,
+  tokenCount: number,
+  blockedUntil: Map<number, number>,
+  tokens: readonly AuthToken[] = [],
+  selection?: AuthSelectionState,
+): ProviderHttpError {
   let soonest: number | null = null;
   for (const at of blockedUntil.values()) {
     if (soonest === null || at < soonest) soonest = at;
+  }
+  if (selection) {
+    for (const token of tokens) {
+      const state = budgetStateFor(selection, token);
+      if (state.blockedUntilMs !== undefined && (soonest === null || state.blockedUntilMs < soonest)) soonest = state.blockedUntilMs;
+    }
   }
   const when = soonest ? ` until ${new Date(soonest).toISOString()}` : "";
   return new ProviderHttpError(

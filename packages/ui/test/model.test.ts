@@ -2849,7 +2849,7 @@ test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties
         source_pat: { kind: "pat", token_env: "GH_TOKEN", fallback_token_envs: ["GH_BACKUP"] },
         example_bots: {
           kind: "github_app",
-          strategy: "round_robin",
+          strategy: "budget_aware",
           apps: [
             {
               name: "example-bot-a",

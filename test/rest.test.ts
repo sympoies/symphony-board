@@ -114,7 +114,7 @@ test("GitHub REST primary rate limit rotates to the next token for the same requ
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
-test("GitHub REST round-robin bot tokens alternate between successful requests", async () => {
+test("GitHub REST budget-aware bot tokens probe unknown budgets across bots", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
     auths.push((init.headers as Record<string, string>).Authorization);
@@ -122,8 +122,8 @@ test("GitHub REST round-robin bot tokens alternate between successful requests",
   });
 
   const client = makeRestClient("https://api.github.com", [
-    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "round_robin" },
-    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "round_robin" },
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
   ], "github");
 
   assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
@@ -132,15 +132,15 @@ test("GitHub REST round-robin bot tokens alternate between successful requests",
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
 });
 
-test("new GitHub REST clients rotate their initial round-robin cursor", async () => {
+test("new GitHub REST clients rotate their initial unknown-budget probe cursor", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
     auths.push((init.headers as Record<string, string>).Authorization);
     return new Response(JSON.stringify([{ ok: true }]), { status: 200 });
   });
   const tokens = [
-    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "round_robin" as const },
-    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "round_robin" as const },
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "budget_aware" as const },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "budget_aware" as const },
   ];
 
   const firstClient = makeRestClient("https://api.github.com", tokens, "github");
@@ -149,6 +149,36 @@ test("new GitHub REST clients rotate their initial round-robin cursor", async ()
   assert.deepEqual(await firstClient("repos/o/r/commits"), [{ ok: true }]);
   assert.deepEqual(await secondClient("repos/o/r/commits"), [{ ok: true }]);
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b"]);
+});
+
+test("GitHub REST budget-aware bot tokens prefer the largest observed remaining budget", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    const remaining = auth === "Bearer bot-a" ? "100" : "900";
+    const used = String(1000 - Number(remaining));
+    return new Response(JSON.stringify([{ ok: true }]), {
+      status: 200,
+      headers: {
+        "x-ratelimit-limit": "1000",
+        "x-ratelimit-remaining": remaining,
+        "x-ratelimit-used": used,
+        "x-ratelimit-reset": "9999999999",
+        "x-ratelimit-resource": "core",
+      },
+    });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
+  ], "github");
+
+  assert.deepEqual(await client("repos/o/r/a"), [{ ok: true }]);
+  assert.deepEqual(await client("repos/o/r/b"), [{ ok: true }]);
+  assert.deepEqual(await client("repos/o/r/c"), [{ ok: true }]);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-b"]);
 });
 
 test("GitHub REST auth trace logs route labels without token values or dynamic path params", async () => {
@@ -160,7 +190,7 @@ test("GitHub REST auth trace logs route labels without token values or dynamic p
   mockFetch(() => new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
   const client = makeRestClient("https://api.github.com", [
-    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "round_robin" },
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "budget_aware" },
   ], "github");
 
   assert.deepEqual(await client("repos/sympoies/symphony-board/compare/main...feature%2Fsecret-customer-branch"), { ok: true });
@@ -282,8 +312,8 @@ test("bot_then_pat retry prefers an available bot over the PAT before exhausting
   });
 
   const client = makeRestClient("https://api.github.com", [
-    { env: "github_app:BOT_A", value: "botA", kind: "github_app", strategy: "round_robin" },
-    { env: "github_app:BOT_B", value: "botB", kind: "github_app", strategy: "round_robin" },
+    { env: "github_app:BOT_A", value: "botA", kind: "github_app", strategy: "budget_aware" },
+    { env: "github_app:BOT_B", value: "botB", kind: "github_app", strategy: "budget_aware" },
     { env: "GH_PAT", value: "pat", kind: "pat", strategy: "failover" },
   ], "github");
 

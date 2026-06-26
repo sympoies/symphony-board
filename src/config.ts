@@ -7,12 +7,12 @@ import { dirname, resolve } from "node:path";
 import { isValidTimezone } from "./lib/tz.ts";
 
 export type AuthPolicyMode = "inherit" | "pat" | "bot" | "bot_then_pat";
-export type AuthTokenStrategy = "failover" | "round_robin";
+export type AuthTokenStrategy = "failover" | "budget_aware" | "round_robin";
 
 export interface AuthPolicyConfig {
   mode: AuthPolicyMode;
   // Names under source.auth_pools. PATs keep failover behavior; bot pools may
-  // opt into round-robin.
+  // opt into budget-aware selection.
   pat_pool?: string;
   bot_pool?: string;
 }
@@ -83,8 +83,8 @@ export interface SourceConfig {
   token_pools?: Record<string, TokenPoolConfig>;
   // New auth control plane. `auth_pools` declares reusable credential pools;
   // `auth_policy` selects PAT/bot/bot-then-PAT at source or per-repo scope.
-  // Bot pools use GitHub App installations and can round-robin successful
-  // requests. Legacy token_env/github_app/token_pools remain supported.
+  // Bot pools use GitHub App installations and can select by observed
+  // rate-limit budget. Legacy token_env/github_app/token_pools remain supported.
   auth_pools?: Record<string, AuthPoolConfig>;
   auth_policy?: AuthPolicyConfig;
   graphql_url: string;
@@ -218,8 +218,8 @@ function validateGitHubAppAuthPool(pool: Record<string, unknown>, poolLabel: str
   if (pool.token_env !== undefined || pool.fallback_token_envs !== undefined || pool.github_app !== undefined) {
     errors.push(`${poolLabel} kind "github_app" must use apps, not token_env/fallback_token_envs/github_app`);
   }
-  if (pool.strategy !== undefined && pool.strategy !== "round_robin" && pool.strategy !== "failover") {
-    errors.push(`${poolLabel} strategy must be "round_robin" or "failover" when set`);
+  if (pool.strategy !== undefined && pool.strategy !== "budget_aware" && pool.strategy !== "round_robin" && pool.strategy !== "failover") {
+    errors.push(`${poolLabel} strategy must be "budget_aware" or "failover" when set`);
   }
   if (!Array.isArray(pool.apps) || pool.apps.length === 0) {
     errors.push(`${poolLabel} apps must be a non-empty array`);

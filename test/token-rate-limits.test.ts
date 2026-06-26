@@ -194,7 +194,7 @@ test("probeTokenRateLimits can probe a GitHub App installation token by syntheti
   }
 });
 
-test("probeTokenRateLimits reports every configured round-robin bot with metadata and usage", async () => {
+test("probeTokenRateLimits reports every configured budget-aware bot with metadata and usage", async () => {
   const prior = new Map<string, string | undefined>();
   for (const [k, v] of Object.entries({
     BOT_A_APP_ID: "111",
@@ -218,7 +218,7 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
         auth_pools: {
           example_bots: {
             kind: "github_app",
-            strategy: "round_robin",
+            strategy: "budget_aware",
             apps: [
               {
                 name: "example-bot-a",
@@ -264,14 +264,14 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
         env: "github_app:BOT_A_INSTALLATION_ID",
         kind: "github_app",
         name: "example-bot-a",
-        strategy: "round_robin",
+        strategy: "budget_aware",
         value: "ghs-1001-SECRET",
       },
       {
         env: "github_app:BOT_B_INSTALLATION_ID",
         kind: "github_app",
         name: "example-bot-b",
-        strategy: "round_robin",
+        strategy: "budget_aware",
         value: "ghs-1002-SECRET",
       },
     ]);
@@ -287,7 +287,7 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
         env: "github_app:BOT_A_INSTALLATION_ID",
         kind: "github_app",
         name: "example-bot-a",
-        strategy: "round_robin",
+        strategy: "budget_aware",
         used: 10,
         remaining: 4990,
       },
@@ -295,7 +295,7 @@ test("probeTokenRateLimits reports every configured round-robin bot with metadat
         env: "github_app:BOT_B_INSTALLATION_ID",
         kind: "github_app",
         name: "example-bot-b",
-        strategy: "round_robin",
+        strategy: "budget_aware",
         used: 10,
         remaining: 4990,
       },
@@ -334,7 +334,7 @@ test("probeTokenRateLimits orders bot rows before PAT rows for diagnostics", asy
           value: "ghs-bot-SECRET",
           kind: "github_app",
           name: "example-bot",
-          strategy: "round_robin",
+          strategy: "budget_aware",
         },
       ],
     },

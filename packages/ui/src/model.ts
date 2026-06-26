@@ -2563,7 +2563,7 @@ export interface ConfigTokenPoolDoc {
 
 export type ConfigAuthPoolDoc =
   | { kind: "pat"; token_env: string; fallback_token_envs?: string[] }
-  | { kind: "github_app"; strategy?: "failover" | "round_robin"; apps: ConfigGitHubAppAuthDoc[] };
+  | { kind: "github_app"; strategy?: "failover" | "budget_aware" | "round_robin"; apps: ConfigGitHubAppAuthDoc[] };
 
 export interface ConfigSourceDoc {
   source_id: string;
@@ -2730,7 +2730,7 @@ export interface TokenRateLimit {
   env: string;
   kind?: "pat" | "github_app";
   name?: string; // PAT viewer login or configured GitHub App display name
-  strategy?: "failover" | "round_robin";
+  strategy?: "failover" | "budget_aware" | "round_robin";
   ok: boolean;
   limit?: number;
   remaining?: number;

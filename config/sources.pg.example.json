@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database. Recommended GitHub auth uses auth_pools plus source/repo auth_policy. PAT pools keep failover semantics; GitHub App bot pools can round-robin successful requests. Legacy token_env/github_app/token_pools still work. Set enabled:false to keep a source in config but skip sync runs.",
+  "$comment": "Copy to config/sources.pg.json for docker/compose.pg.yaml. This is the Postgres variant of sources.example.json: db_url_env names the env var containing the postgres:// URL. docker/compose.pg.yaml sets SYMPHONY_DB_URL to its internal Postgres service by default; override it for an external database. Recommended GitHub auth uses auth_pools plus source/repo auth_policy. PAT pools keep failover semantics; GitHub App bot pools can route by observed rate-limit budgets. Legacy token_env/github_app/token_pools still work. Set enabled:false to keep a source in config but skip sync runs.",
   "db_path": "data/symphony.db",
   "db_url_env": "SYMPHONY_DB_URL",
   "$comment_db_path": "db_path is still required by the shared config schema but is unused when db_url_env selects Postgres.",
@@ -30,7 +30,7 @@
         },
         "example_bots": {
           "kind": "github_app",
-          "strategy": "round_robin",
+          "strategy": "budget_aware",
           "apps": [
             {
               "name": "example-bot-a",

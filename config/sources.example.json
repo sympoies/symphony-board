@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to config/sources.json (gitignored) and fill in. Credentials come from env vars, never inlined here. Recommended GitHub auth uses auth_pools plus source/repo auth_policy. PAT pools keep failover semantics; GitHub App bot pools can round-robin successful requests. Legacy token_env/github_app/token_pools still work. graphql_url is required; rest_url is optional and defaults from kind+host when omitted. Set enabled:false to keep a source in config but skip sync runs. Optional highlight colors (hex #rgb / #rrggbb): a source-level \"color\", and per-repo by giving a project entry the object form {\"path\":..., \"color\":...}. A repo with no color inherits its source's; the UI can override per-repo. Most repos stay bare strings.",
+  "$comment": "Copy to config/sources.json (gitignored) and fill in. Credentials come from env vars, never inlined here. Recommended GitHub auth uses auth_pools plus source/repo auth_policy. PAT pools keep failover semantics; GitHub App bot pools can route by observed rate-limit budgets. Legacy token_env/github_app/token_pools still work. graphql_url is required; rest_url is optional and defaults from kind+host when omitted. Set enabled:false to keep a source in config but skip sync runs. Optional highlight colors (hex #rgb / #rrggbb): a source-level \"color\", and per-repo by giving a project entry the object form {\"path\":..., \"color\":...}. A repo with no color inherits its source's; the UI can override per-repo. Most repos stay bare strings.",
   "db_path": "data/symphony.db",
   "$comment_timezone": "Optional IANA timezone the board buckets calendar days in (e.g. \"Asia/Taipei\"). Omit or leave empty for UTC. It aligns the UI's `today` / `this week` presets and the activity-heatmap day cells, and the range API's day boundaries, to this zone. Absolute timestamps stay UTC; only calendar-day bucketing honors it.",
   "$comment_commit_branches": "Optional per-source \"commit_branches\": \"all\" (default) also labels commits on live side branches — push events discover branches with new activity and each contributes its branch-unique commits via one compare call; \"default\" restricts the commit feed to the default branch only.",
@@ -29,7 +29,7 @@
         },
         "example_bots": {
           "kind": "github_app",
-          "strategy": "round_robin",
+          "strategy": "budget_aware",
           "apps": [
             {
               "name": "example-bot-a",

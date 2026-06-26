@@ -137,7 +137,7 @@ test("accepts GitHub App auth on GitHub sources and enumerates its credential en
 test("accepts auth_pools with source/repo auth_policy and enumerates every bot credential env", () => {
   const reviewBots = {
     kind: "github_app",
-    strategy: "round_robin",
+    strategy: "budget_aware",
     apps: [
       {
         name: "example-bot-a",
@@ -183,6 +183,48 @@ test("accepts auth_pools with source/repo auth_policy and enumerates every bot c
     "EXAMPLE_BOT_B_INSTALLATION_ID",
     "EXAMPLE_BOT_B_PRIVATE_KEY_PATH",
   ]);
+});
+
+test("accepts budget-aware GitHub App auth pool strategy", () => {
+  const sourceDoc = baseSource({
+    token_env: undefined,
+    auth_pools: {
+      example_bots: {
+        kind: "github_app",
+        strategy: "budget_aware",
+        apps: [{
+          name: "example-bot-a",
+          app_id_env: "EXAMPLE_BOT_A_APP_ID",
+          installation_id_env: "EXAMPLE_BOT_A_INSTALLATION_ID",
+          private_key_path_env: "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
+        }],
+      },
+    },
+    auth_policy: { mode: "bot", bot_pool: "example_bots" },
+  });
+
+  assert.deepEqual(configErrors({ db_path: "x", sources: [sourceDoc] }, "config"), []);
+});
+
+test("accepts legacy round_robin GitHub App auth pool strategy alias", () => {
+  const sourceDoc = baseSource({
+    token_env: undefined,
+    auth_pools: {
+      example_bots: {
+        kind: "github_app",
+        strategy: "round_robin",
+        apps: [{
+          name: "example-bot-a",
+          app_id_env: "EXAMPLE_BOT_A_APP_ID",
+          installation_id_env: "EXAMPLE_BOT_A_INSTALLATION_ID",
+          private_key_path_env: "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
+        }],
+      },
+    },
+    auth_policy: { mode: "bot", bot_pool: "example_bots" },
+  });
+
+  assert.deepEqual(configErrors({ db_path: "x", sources: [sourceDoc] }, "config"), []);
 });
 
 test("rejects malformed GitHub App auth config", () => {

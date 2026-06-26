@@ -60,7 +60,7 @@ export interface TokenRateLimit {
   env: string; // env-var NAME or github_app:<installation_id_env>, never the token value
   kind?: "pat" | "github_app";
   name?: string;
-  strategy?: "failover" | "round_robin";
+  strategy?: "failover" | "budget_aware" | "round_robin";
   ok: boolean;
   limit?: number;
   remaining?: number;
