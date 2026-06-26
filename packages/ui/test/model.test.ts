@@ -49,6 +49,7 @@ import {
   commitShortSha,
   commitRepoOptions,
   itemInTimeRange,
+  filterItemsByRange,
   activityInTimeRange,
   itemMatches,
   indexItems,
@@ -1152,6 +1153,18 @@ test("relativeTime renders coarse buckets from an injected now", () => {
   assert.equal(relativeTime("2026-06-07T00:00:00Z", now), "3d ago");
   assert.equal(relativeTime("2026-06-09T23:59:40Z", now), "just now");
   assert.equal(relativeTime(null, now), "—");
+});
+
+test("filterItemsByRange returns updated work items newest first", () => {
+  const issue = item({ id: "issue", kind: "issue", updated_at: "2026-06-02T09:00:00Z" });
+  const pr = item({ id: "pr", kind: "change_request", updated_at: "2026-06-07T15:00:00Z" });
+  const outside = item({ id: "outside", updated_at: "2026-05-30T00:00:00Z" });
+  const missing = item({ id: "missing", updated_at: null });
+
+  assert.deepEqual(
+    filterItemsByRange([issue, outside, missing, pr], { from: "2026-06-01", to: "2026-06-07" }).map((it) => it.id),
+    ["pr", "issue"],
+  );
 });
 
 test("reviewThreadDisplayTime prefers the newest synced comment over last_seen_at", () => {

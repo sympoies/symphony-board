@@ -151,6 +151,8 @@ test("default tab is a device-local setting defaulting to Live", () => {
   assert.equal(loadDefaultTab(), "live"); // factory default
   saveDefaultTab("activity");
   assert.equal(loadDefaultTab(), "activity");
+  saveDefaultTab("items");
+  assert.equal(loadDefaultTab(), "items");
   saveDefaultTab("board");
   assert.equal(loadDefaultTab(), "board");
   store._raw("symphony-board:default-tab", "settings"); // not an offered landing tab

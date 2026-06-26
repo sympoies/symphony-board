@@ -588,6 +588,19 @@ export function activityInTimeRange(activity: ActivityDTO, range: TimeRange, tz:
   return timestampInTimeRange(activity.occurred_at, range, tz);
 }
 
+function compareItemUpdatedDesc(a: ItemDTO, b: ItemDTO): number {
+  const aMs = timestampMs(a.updated_at);
+  const bMs = timestampMs(b.updated_at);
+  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
+  if (aMs !== null && bMs === null) return -1;
+  if (aMs === null && bMs !== null) return 1;
+  return (b.iid ?? 0) - (a.iid ?? 0) || (a.title ?? "").localeCompare(b.title ?? "") || a.id.localeCompare(b.id);
+}
+
+export function filterItemsByRange(items: ItemDTO[], range: TimeRange, tz: string = DEFAULT_TIMEZONE): ItemDTO[] {
+  return items.filter((item) => itemInTimeRange(item, range, tz)).sort(compareItemUpdatedDesc);
+}
+
 function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
   const aMs = timestampMs(a.occurred_at);
   const bMs = timestampMs(b.occurred_at);

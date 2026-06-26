@@ -435,6 +435,11 @@ Pages:
   matching rows so large activity histories remain scrollable without flooding
   the DOM. Rows link to `activities[].url` only when the producer supplied a
   reliable provider destination.
+- **Items**: newest-updated issue and PR/MR list over `items[]`, scoped by the
+  shared date range and item lens. It is a lookup surface for cross-source,
+  cross-repo work items, not a replacement for the Board's relationship/status
+  workflow view. Rows link to provider items and preserve the shared Graph focus
+  affordance for related items.
 - **Commits**: commit-only SCM log over `activities[]`, styled separately from
   Activity so it behaves like a provider-neutral commit history. It keeps repo
   and branch filters local to the page, links each message to the provider

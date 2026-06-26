@@ -115,13 +115,13 @@ test("commitsDrilldownHref targets commits with source/repo and no facet fields"
 // drill-down state (facets, graph focus, commit branch) does NOT.
 test("tabHref carries search, range, and the shared item lens but drops drill-down state", () => {
   const route = parseHashRoute(
-    tabHref("board", {
+    tabHref("items", {
       q: "flaky",
       range: { from: "2026-06-01", to: "2026-06-07", preset: "this-week" },
       item: { isource: "github:github.com", istate: "open", ikind: "issue", irepo: "o/r" },
     }),
   );
-  assert.equal(route.page, "board");
+  assert.equal(route.page, "items");
   assert.equal(route.q, "flaky");
   assert.equal(route.from, "2026-06-01");
   assert.equal(route.to, "2026-06-07");
@@ -378,6 +378,7 @@ test("Reviews sort round-trips through the hash; recency is the clean default", 
 test("startupRouteHash lands a plain cold start on the configured default tab", () => {
   // A bare restored tab yields to the default.
   assert.equal(startupRouteHash("#/activity", "live"), "#/live");
+  assert.equal(startupRouteHash("#/items", "live"), "#/live");
   assert.equal(startupRouteHash("#/board", "live"), "#/live");
   // Transient state rides a plain tab hop, so a reopen carrying ONLY it STILL
   // falls to the default — defeating it would re-break the default-tab fix:
@@ -415,6 +416,7 @@ test("startupRouteHash preserves parameterized shared links and intentional dest
   assert.equal(startupRouteHash("#/debug", "live"), "#/debug");
   // Already on the default tab: keep the restored hash (its range/search survive).
   assert.equal(startupRouteHash("#/activity?preset=1mo", "activity"), "#/activity?preset=1mo");
+  assert.equal(startupRouteHash("#/items?istate=open", "items"), "#/items?istate=open");
   assert.equal(startupRouteHash("#/live", "live"), "#/live");
 });
 
@@ -437,6 +439,7 @@ test("resolveDefaultTab falls back off Live only when the Live tab is disabled",
   assert.equal(resolveDefaultTab("live", false), "activity", "Live disabled -> land on Activity");
   assert.equal(resolveDefaultTab("live", true), "live", "Live enabled -> keep Live as the default");
   assert.equal(resolveDefaultTab("board", false), "board", "a non-Live default is never rewritten");
+  assert.equal(resolveDefaultTab("items", false), "items");
   assert.equal(resolveDefaultTab("activity", false), "activity");
   assert.equal(resolveDefaultTab("commits", true), "commits");
 });

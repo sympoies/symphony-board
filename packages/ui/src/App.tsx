@@ -22,6 +22,7 @@ import {
   isBoardEmpty,
   isCommitActivity,
   filterActivitiesByRange,
+  filterItemsByRange,
   indexItems,
   itemMatches,
   reviewActivityIsUnresolved,
@@ -130,6 +131,7 @@ import { setupAutoHideScrollbars } from "./autoHideScrollbars.ts";
 import { BrandHeader, Header } from "./components/Header.tsx";
 import { Controls, type ControlGroup } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
+import { ItemsPage } from "./components/ItemsPage.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
 import { CommitsPage } from "./components/CommitsPage.tsx";
@@ -177,13 +179,13 @@ function applyDocumentTheme(theme: ResolvedViewTheme): void {
 }
 
 // Pages via a zero-dep hash route: "" (first open) defaults to Activity,
-// "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
-// graph, "activity" (#/activity) the event feed,
-// "commits" (#/commits) the cross-repo commit log, "reviews" (#/reviews) the
-// current provider review-thread inbox, "repo-analytics" (#/repo-analytics) the
-// per-repo metrics view, and "settings" (#/settings) the persistent repo
-// display filter. "debug" (#/debug) is the hidden Diagnostics page — not in the
-// nav, toggled with Cmd+/ (Ctrl+/) or by typing the hash.
+// "activity" (#/activity) is the event feed, "items" (#/items) the cross-repo
+// work-item log, "commits" (#/commits) the cross-repo commit log, "reviews"
+// (#/reviews) the current provider review-thread inbox, "board" (#/board) the
+// full-width board, "graph" (#/graph) the relationship graph, "repo-analytics"
+// (#/repo-analytics) the per-repo metrics view, and "settings" (#/settings) the
+// persistent repo display filter. "debug" (#/debug) is the hidden Diagnostics
+// page — not in the nav, toggled with Cmd+/ (Ctrl+/) or by typing the hash.
 // The route may carry "?q=<search>" so the
 // visible search box is URL-backed; graph routes may also carry "?focus=<ref>",
 // written by a board-card deep-link AND by every in-graph focus change
@@ -302,26 +304,28 @@ export function App() {
   const page =
     route.page === "live"
       ? "live"
+      : route.page === "items"
+        ? "items"
       : route.page === "board"
-      ? "board"
-      : route.page === "graph"
-        ? "graph"
-        : route.page === "commits"
-          ? "commits"
-          : route.page === "reviews"
-            ? "reviews"
-            : route.page === "repo-analytics" || route.page === "repos"
-              ? "repo-analytics"
-              : route.page === "settings"
-                ? "settings"
-                : "activity";
+        ? "board"
+        : route.page === "graph"
+          ? "graph"
+          : route.page === "commits"
+            ? "commits"
+            : route.page === "reviews"
+              ? "reviews"
+              : route.page === "repo-analytics" || route.page === "repos"
+                ? "repo-analytics"
+                : route.page === "settings"
+                  ? "settings"
+                  : "activity";
   useEffect(() => {
     setMobileControlPanel(null);
   }, [page]);
-  // The shared item-facet lens (source/state/kind) for board / graph /
+  // The shared item-facet lens (source/state/kind) for items / board / graph /
   // repo-analytics, read STRICTLY from the URL route (isource/istate/ikind) — the
   // single source of truth shared by the content filters AND the chips. One set
-  // is shared by all three pages and carried across tab hops (see nav.tabHref),
+  // is shared by these work-item pages and carried across tab hops (see nav.tabHref),
   // kept distinct from the Activity feed's own source/repo/kind/action facets.
   const itemFacetState = useMemo(
     () => itemFacets(route),
@@ -946,8 +950,10 @@ export function App() {
   );
   const fullEntityTotals = useMemo(() => {
     if (!env) {
-      return { fullRepoMetricTotal: 0, fullChangeRequestTotal: 0, loadedReviewThreadTotal: 0, reviewThreadEntityTotal: 0 };
+      return { fullItemTotal: 0, fullRepoMetricTotal: 0, fullChangeRequestTotal: 0, loadedReviewThreadTotal: 0, reviewThreadEntityTotal: 0 };
     }
+
+    const fullItemTotal = env.item_window?.total_items ?? env.repo_stats?.reduce((sum, stat) => sum + stat.items, 0) ?? env.items.length;
 
     let fullChangeRequestTotal = 0;
     if (env.repo_stats) {
@@ -960,6 +966,7 @@ export function App() {
     for (const item of env.items) itemReviewThreadTotal += item.review_threads?.total ?? 0;
     const loadedReviewThreadTotal = Math.max(env.review_threads?.length ?? 0, itemReviewThreadTotal);
     return {
+      fullItemTotal,
       fullRepoMetricTotal: env.repo_stats?.length ?? env.repo_metrics?.length ?? 0,
       fullChangeRequestTotal,
       loadedReviewThreadTotal,
@@ -1057,7 +1064,7 @@ export function App() {
   // The chip groups the shared Controls renders, built per page — every page now
   // drives its chips STRICTLY from the route. Activity uses its own
   // source/repo/kind/action facets (the repo group is a "pinned" mode showing
-  // only the active drill-down repo); board / graph / repo-analytics share the
+  // only the active drill-down repo); items / board / graph / repo-analytics share the
   // item-facet lens (isource/istate/ikind). Toggling any chip rewrites the URL.
   const controlGroups = useMemo<ControlGroup[]>(() => {
     if (page === "activity") {
@@ -1071,7 +1078,7 @@ export function App() {
         { dim: "repos", label: "repo", values: [...activityFacetState.repos], active: activityFacetState.repos, mode: "pinned" },
       ];
     }
-    // board / graph / repo-analytics share the item lens.
+    // items / board / graph / repo-analytics share the item lens.
     const groups: ControlGroup[] = [
       { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
       { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
@@ -1090,6 +1097,15 @@ export function App() {
     groups.push({ dim: "repos", label: "repo", values: [...itemFacetState.repos], active: itemFacetState.repos, mode: "pinned" });
     return groups;
   }, [page, facets, itemFacetState, activityFacetState, route.unresolved]);
+
+  const windowItems = useMemo(
+    () => (activeRange ? filterItemsByRange(primaryItems, activeRange, tz) : []),
+    [primaryItems, activeRange, tz],
+  );
+  const itemLogItems = useMemo(
+    () => (activeRange ? filterItemsByRange(filteredItems, activeRange, tz) : []),
+    [filteredItems, activeRange, tz],
+  );
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
   // in the URL. windowCommits is every commit in the
@@ -1599,6 +1615,9 @@ export function App() {
           <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
             Activity
           </a>
+          <a className={`tab${page === "items" ? " tab-on" : ""}`} href={routeHref("items")}>
+            Items
+          </a>
           <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
             Commits
           </a>
@@ -1839,7 +1858,7 @@ export function App() {
     onOpenSettings: openSettings,
     sync,
   };
-  const { fullRepoMetricTotal, reviewThreadEntityTotal } = fullEntityTotals;
+  const { fullItemTotal, fullRepoMetricTotal, reviewThreadEntityTotal } = fullEntityTotals;
 
   return (
     <div className="app app-wide">
@@ -1931,6 +1950,20 @@ export function App() {
           onView={setActivityView}
           emptyState={
             <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
+          }
+        />
+      ) : page === "items" ? (
+        <ItemsPage
+          items={itemLogItems}
+          windowTotal={windowItems.length}
+          totalItems={fullItemTotal}
+          range={activeRange}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+          relationCounts={boardRelationCounts}
+          lens={itemFacetFields(itemFacetState)}
+          emptyState={
+            <EmptyState noun="items" total={fullItemTotal} windowTotal={windowItems.length} {...emptyStateShared} dataExtent={staticRange} />
           }
         />
       ) : page === "commits" ? (
