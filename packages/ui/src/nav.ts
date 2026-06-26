@@ -23,7 +23,7 @@ import { buildHashRoute, graphFocusHref, parseHashRoute, routeList, type HashRou
 // re-exported here so every cross-page link has a single import home.
 export { graphFocusHref };
 
-export type Page = "live" | "board" | "graph" | "activity" | "commits" | "reviews" | "repo-analytics" | "settings";
+export type Page = "live" | "activity" | "items" | "commits" | "reviews" | "board" | "graph" | "repo-analytics" | "settings";
 
 // Where a COLD START lands. A cold start is the app first executing its bundle:
 // a fresh open, a reopen, or a reload — in all of them the in-memory route state
@@ -48,9 +48,9 @@ export type Page = "live" | "board" | "graph" | "activity" | "commits" | "review
 // Critically, the fields `tabHref` DOES carry — the shared item lens
 // (isource/istate/ikind/ireview/irepo), the search `q`, the range
 // (from/to/preset), and a mobile sub-tab — are NOT identity: they ride along a
-// plain tab hop, so a reopened `#/board?isource=…`, `#/graph?q=…`, or
+// plain tab hop, so a reopened `#/items?isource=…`, `#/board?isource=…`, `#/graph?q=…`, or
 // `#/activity?from=…&preset=1w` must STILL fall to the configured default (else
-// the default-tab fix is defeated for anyone using the board/graph lens or
+// the default-tab fix is defeated for anyone using the item lens or
 // search). Always-kept pages: the hidden `#/debug` console and `#/settings` (a
 // deliberate place you navigated to, never a default tab), plus a hash already
 // on the default tab (so its view params survive a reload).
@@ -249,11 +249,11 @@ export function graphViewTab(view: GraphView): string | null {
   return view === "graph" ? "graph" : null;
 }
 
-// --- Item facets (board / graph / repo-analytics) --------------------------
+// --- Item facets (items / board / graph / repo-analytics) ------------------
 //
 // The shared work-item lens — source / state / kind of items. Unlike the
-// Activity facets, ONE set of params is shared by all three item pages and rides
-// along across every tab hop (it is the board's sticky lens, route-backed so
+// Activity facets, ONE set of params is shared by all item pages and rides
+// along across every tab hop (it is the work-item sticky lens, route-backed so
 // reload and share links agree). Kept in distinct route fields
 // (isource/istate/ikind) so it never collides with the Activity drill-down
 // facets when both are present in a URL.

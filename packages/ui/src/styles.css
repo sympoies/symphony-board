@@ -974,11 +974,131 @@ a.rf-node-title:hover { color: var(--accent); }
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
 }
 
-/* activity page */
+/* activity / item / commit pages */
 .activity-page { margin: 12px 0; }
+.items-page,
 .commits-page { margin: 12px 0; max-width: 1180px; }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 720px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
+.items-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+}
+.items-head h2 { margin: 0; border: none; padding: 0; }
+.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.item-row {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.item-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
+.item-row-kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.item-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.item-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.item-row-title {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item-row-title:hover { color: var(--accent); }
+.item-row-title-text:hover { color: var(--text); }
+.item-row-meta,
+.item-row-signals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.item-row-meta > span,
+.item-row-meta > time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item-row-chip {
+  flex: none;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: var(--chip-bg);
+  color: var(--muted);
+  font-size: 11px;
+}
+.item-row-graph {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.item-row-graph:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line);
+  text-decoration: none;
+}
+@media (max-width: 760px) {
+  .item-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .item-row-kind {
+    grid-column: 1 / -1;
+  }
+  .item-row-title-line {
+    flex-wrap: wrap;
+  }
+  .item-row-title {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+}
 
 /* The feed keeps a compact reading column while the rhythm panel uses the spare
    right rail for a full-width heatmap plus range trend. Below ~1450px the panel

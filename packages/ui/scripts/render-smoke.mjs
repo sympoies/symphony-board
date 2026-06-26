@@ -1321,7 +1321,32 @@ try {
       returnByValue: true,
     })).result.value || {};
   }
-  // Page 3b — Commits: a focused, GitHub-like commit log with SCM filters. Repo
+  // Page 3b — Items: a chronological issue + PR/MR lookup surface over items[].
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
+  await sleep(300);
+  const itemsHtml = await waitHtml("document.querySelector('.items-page .item-row')");
+  const itemsRangeButtons = await rangeButtonLabels();
+  const itemsCountText = await textOf(".items-head .count");
+  const itemsSummary = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.items-page .item-row'));
+      const first = rows[0];
+      const kindGroup = Array.from(document.querySelectorAll('.controls .toggle-group'))
+        .find((g) => g.querySelector('.toggle-label')?.textContent === 'kind');
+      return {
+        rows: rows.length,
+        providerLinks: Array.from(document.querySelectorAll('.items-page .item-row-title[href]')).length,
+        graphLinks: Array.from(document.querySelectorAll('.items-page .item-row-graph[href^="#/graph"]')).length,
+        firstUpdated: first?.querySelector('time[title]')?.textContent || '',
+        hasKindGroup: !!kindGroup,
+        kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Page 3c — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
   // without changing the tracked sample contract.
@@ -2646,6 +2671,7 @@ try {
     { page: "board", hash: "#/board", selector: ".board-7" },
     { page: "graph", hash: "#/graph", selector: ".graph-body" },
     { page: "activity", hash: "#/activity", selector: ".activity-page" },
+    { page: "items", hash: "#/items", selector: ".items-page" },
     { page: "commits", hash: "#/commits", selector: ".commits-page" },
     { page: "reviews", hash: "#/reviews", selector: ".reviews-page" },
     { page: "repo-analytics", hash: "#/repo-analytics", selector: ".repo-analytics-page" },
@@ -2703,6 +2729,8 @@ try {
           const pageName = ${JSON.stringify(page.page)};
           const primarySurface = pageName === 'activity'
             ? document.querySelector('.activity-list')
+            : pageName === 'items'
+              ? document.querySelector('.items-list')
             : pageName === 'commits'
               ? document.querySelector('.commit-list')
               : pageName === 'board'
@@ -3257,7 +3285,7 @@ try {
   const phoneGraph = portraitResults.find((r) => r.preset === "phone-portrait" && r.page === "graph") || {};
   const tabletGraph = portraitResults.find((r) => r.preset === "tablet-portrait" && r.page === "graph") || {};
   const phoneHeaderPages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "debug");
-  const phoneContentPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["activity", "commits", "reviews", "board", "graph", "repo-analytics"].includes(r.page));
+  const phoneContentPages = portraitResults.filter((r) => r.preset === "phone-portrait" && ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"].includes(r.page));
   const phoneRangePages = portraitResults.filter((r) => r.preset === "phone-portrait" && r.page !== "settings");
   // Every content page (not Settings, not the chrome-less Debug page) renders the
   // shared date range, so every one of them collapses it behind a disclosure on a
@@ -3437,6 +3465,15 @@ try {
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "4px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
+    // page 3b: Items renders issues and PR/MRs in one chronological lookup surface
+    [has(itemsHtml, "items-page"), "items: page rendered"],
+    [sameRangeButtons(itemsRangeButtons), `items: shared range quick presets rendered without all (${itemsRangeButtons.join(", ")})`],
+    [itemsSummary.rows >= 2, `items: rows rendered (${itemsSummary.rows || 0} >= 2)`],
+    [itemsSummary.providerLinks >= 1, `items: provider title links rendered (${itemsSummary.providerLinks || 0} >= 1)`],
+    [itemsSummary.graphLinks >= 1, `items: related rows keep a focus-in-graph affordance (${itemsSummary.graphLinks || 0} >= 1)`],
+    [/updated \d/.test(itemsSummary.firstUpdated || ""), `items: newest row exposes the updated timestamp first (${itemsSummary.firstUpdated || "empty"})`],
+    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("change_request") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips without a separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
+    [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
     [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],
@@ -3619,7 +3656,7 @@ try {
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
     [bothOffGuard.title === "Symphony Board" && bothOffGuard.hasBrandIcon === true && bothOffGuard.sourceChips === 0 && bothOffGuard.syncButton === false, `settings: both-off board route keeps brand-only header (${JSON.stringify(bothOffGuard)})`],
-    [liveOnlySettings.liveChecked === true && boardDataOnlyReenabledTabs.liveChecked === true && boardDataOnlyReenabledTabs.boardData === "on" && ["Activity", "Commits", "Reviews", "Board", "Graph", "Analytics"].every((label) => boardDataOnlyReenabledTabs.visibleLabels.includes(label)), `settings: turning only Board data off then on restores the contract-backed tabs (${JSON.stringify(boardDataOnlyReenabledTabs)})`],
+    [liveOnlySettings.liveChecked === true && boardDataOnlyReenabledTabs.liveChecked === true && boardDataOnlyReenabledTabs.boardData === "on" && ["Activity", "Items", "Commits", "Reviews", "Board", "Graph", "Analytics"].every((label) => boardDataOnlyReenabledTabs.visibleLabels.includes(label)), `settings: turning only Board data off then on restores the contract-backed tabs (${JSON.stringify(boardDataOnlyReenabledTabs)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],

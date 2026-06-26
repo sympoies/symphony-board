@@ -37,7 +37,8 @@ The full product path is implemented end to end:
 - `emit` produces contract major v4, currently `4.4.0`, and validates the JSON
   envelope before writing.
 - The UI renders the contract as a Board, relationship Graph, Activity feed,
-  Commits log, Review thread inbox, Repo Analytics view, and Settings surface.
+  work-item log, Commits log, Review thread inbox, Repo Analytics view, and
+  Settings surface.
 - Docker Compose runs a sole-writer sync/emit daemon, a read-only API sidecar,
   a read-only web sidecar, and the least-privilege Live webhook receiver.
 - Desktop and Android shells reuse the same read-only UI. The thin clients

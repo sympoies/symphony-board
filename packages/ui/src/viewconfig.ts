@@ -483,6 +483,7 @@ export const saveHiddenEventTypes = (hidden: ReadonlySet<string>): void => saveS
 export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
   { id: "live", label: "Live" },
   { id: "activity", label: "Activity" },
+  { id: "items", label: "Items" },
   { id: "commits", label: "Commits" },
   { id: "reviews", label: "Reviews" },
   { id: "board", label: "Board" },
