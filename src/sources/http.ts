@@ -93,21 +93,12 @@ function budgetKeyFor(namespace: string, token: AuthToken): string {
   ].join("\t");
 }
 
-function pruneAuthBudgetStates(namespace: string, liveKeys: ReadonlySet<string>): void {
-  const prefix = `${namespace}\t`;
-  for (const key of authBudgetStates.keys()) {
-    if (key.startsWith(prefix) && !liveKeys.has(key)) authBudgetStates.delete(key);
-  }
-}
-
 // Pick an initial probe cursor for a newly-created client. The daemon rebuilds
 // clients each sync run; keeping this process-local handoff prevents every new
 // run from pinning its first unknown-budget page to the same bot.
 export function createAuthSelectionState(tokens: readonly AuthToken[], namespace: string): AuthSelectionState {
   const indexes = budgetAwareIndexes(tokens);
   const budgetAwareIndexSet = new Set(indexes);
-  const budgetKeys = new Set(indexes.map((idx) => budgetKeyFor(namespace, tokens[idx]!)));
-  pruneAuthBudgetStates(namespace, budgetKeys);
   const selectionKey = tokenSelectionKey(tokens, namespace);
   if (indexes.length === 0) return { cursor: 0, namespace, selectionKey, budgetAwareIndexes: indexes, budgetAwareIndexSet };
   const next = authSelectionStarts.get(selectionKey) ?? 0;

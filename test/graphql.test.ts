@@ -289,6 +289,38 @@ test("GitHub GraphQL budget cache does not stale-block a replaced token with the
   assert.deepEqual(auths, ["Bearer bot-old", "Bearer bot-new"]);
 });
 
+test("GitHub GraphQL diagnostics clients do not clear another client's budget state", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    if (auth === "Bearer pat") {
+      return new Response(JSON.stringify({
+        data: {
+          viewer: { login: "operator" },
+          rateLimit: { limit: 5000, remaining: 4999, used: 1, cost: 1, resetAt: "2286-11-20T17:46:39.000Z" },
+        },
+      }), { status: 200 });
+    }
+    return graphqlBudgetResponse(auth === "Bearer bot-a" ? 100 : 900);
+  });
+
+  const syncClient = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
+  ]);
+  assert.equal((await syncClient<{ ok: boolean }>("query { seedA }")).ok, true);
+  assert.equal((await syncClient<{ ok: boolean }>("query { seedB }")).ok, true);
+
+  const diagnosticsProbe = makeGqlClient("https://api.github.com/graphql", [
+    { env: "GH_PAT", value: "pat", kind: "pat", strategy: "failover" },
+  ], { provider: "github" });
+  await diagnosticsProbe("query { viewer { login } rateLimit { limit cost remaining used resetAt } }");
+
+  assert.equal((await syncClient<{ ok: boolean }>("query { afterProbe }")).ok, true);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer pat", "Bearer bot-b"]);
+});
+
 test("GitHub GraphQL auth trace logs token labels without token values", async () => {
   const lines: string[] = [];
   process.env.SYNC_AUTH_TRACE = "1";
