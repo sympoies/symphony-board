@@ -268,6 +268,7 @@ h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid var(--line); 
 h3 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; }
 
 .state-msg { max-width: 720px; margin: 80px auto; padding: 24px; text-align: center; }
+.state-actions { display: flex; justify-content: center; gap: 8px; margin: 14px 0; }
 .state-msg-inline { margin-top: 32px; margin-bottom: 32px; }
 .state-msg.error { color: var(--text); }
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
@@ -2470,6 +2471,10 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .settings-repos-head h3 { margin: 0 0 4px; font-size: 13px; }
 .settings-repos-head p { margin: 0; max-width: 520px; }
+.settings-section-title {
+  margin: 20px 0 6px; color: var(--muted); font-size: 11px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+}
 .settings-pref {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin-top: 14px; padding: 10px 12px; background: var(--panel);
