@@ -84,6 +84,10 @@ const DAEMON_LOG_MOCK = Array.from({ length: 200 }, (_, i) => ({
 }));
 let cachedSyncSources = null;
 let contractRequestCount = 0;
+// #488: under the range-as-download model the primary load is /api/range (the
+// static ./contract.json is only the default-90d / static-deploy fast-path), so
+// the refresh assertion below counts range requests, not contract.json hits.
+let rangeRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
 let liveSnapshotLarge = false;
@@ -476,6 +480,7 @@ const server = createServer(async (req, res) => {
   try {
     let p = decodeURIComponent((req.url || "/").split("?")[0]);
     if (p === "/api/range") {
+      rangeRequestCount += 1;
       const delayMs = rangeResponseDelayMs;
       if (delayMs > 0) await sleep(delayMs);
       const rawBody = await readFile(join(DIST, "contract.json"));
@@ -485,6 +490,10 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/__smoke/contract-count") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ contractRequests: contractRequestCount }));
+      return;
+    }
+    if (p === "/__smoke/range-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ rangeRequests: rangeRequestCount }));
       return;
     }
     if (p === "/__smoke/live-snapshot-count") {
@@ -711,6 +720,12 @@ try {
       awaitPromise: true,
       returnByValue: true,
     })).result.value || 0;
+  const rangeRequests = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/range-count').then((res) => res.json()).then((body) => body.rangeRequests || 0)",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || 0;
   const liveSnapshotRequests = async () =>
     (await send("Runtime.evaluate", {
       expression: "fetch('/__smoke/live-snapshot-count').then((res) => res.json()).then((body) => body.liveSnapshotRequests || 0)",
@@ -769,17 +784,41 @@ try {
   // left covering a usable app: the "frozen / blank" regression).
   const bootSplashServed = (await readFile(join(DIST, "index.html"), "utf8")).includes('id="boot-splash"');
   const bootSplashRemoved = await waitValue("document.getElementById('boot-splash') ? null : 'gone'");
-  // Then exercise a range-driven page's loading chrome: navigate to Activity
-  // (the range API is still delayed) and confirm the shell stays mounted while
-  // the range projection loads.
+  // #488: under the range-as-download model the selected range IS the primary
+  // download — there is no separate /api/range OVERLAY and no "Loading range…"
+  // spinner anymore; a range change re-fetches the primary env stale-while-
+  // revalidate. The invariant this still guards (the original intent): a slow
+  // range fetch must NOT tear down the app chrome or blank the board behind the
+  // full-screen "Loading contract…" gate — the header, tabs, range controls, AND
+  // the already-loaded content stay mounted while the new projection streams in.
+  // So: land on Activity (the bootstrap converges to the contract's generated_at
+  // week and renders rows), then force a fresh /api/range fetch (a wider custom
+  // range, not the static 90-day fast-path) with the range API still delayed and
+  // capture that in-flight state before it resolves.
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await waitHtml("document.querySelector('.activity-row')");
+  rangeResponseDelayMs = 600;
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('.time-range-controls .date-input');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(input, '2026-05-01');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`,
+  });
   const initialRangePending = await waitValue(`(() => {
-    if (!document.body.innerText.includes('Loading range')) return null;
+    // The in-flight window: the new /api/range fetch is pending, env is unchanged,
+    // so the (stale) feed is still mounted. Wait until it is, then snapshot.
+    const rows = document.querySelectorAll('.activity-row').length;
+    if (rows === 0) return null;
     return {
       header: !!document.querySelector('.app-header'),
       tabs: !!document.querySelector('.page-tabs'),
       rangeControls: !!document.querySelector('.time-range-controls'),
-      inlineLoading: !!document.querySelector('.state-msg-inline'),
+      // The loaded content is NOT replaced by the full-screen "Loading contract…"
+      // gate while revalidating — the previous projection stays visible.
+      contentRetained: !document.querySelector('.state-msg') && rows > 0,
     };
   })()`);
   rangeResponseDelayMs = 0;
@@ -815,9 +854,14 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
-  const headerRefreshBefore = await contractRequests();
+  // #488: the header refresh reloads the PRIMARY env in place — which is now the
+  // selected range via /api/range (not ./contract.json, used only for the
+  // default-90d / static-deploy fast-path the smoke is not on). So count range
+  // requests for the reload assertion, and delay the RANGE response (not the
+  // contract one) so the busy refresh glyph is observable mid-load.
+  const headerRefreshBefore = await rangeRequests();
   const headerRefreshHashBefore = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
-  contractResponseDelayMs = 250;
+  rangeResponseDelayMs = 250;
   const headerRefresh = (await send("Runtime.evaluate", {
     expression: `(() => {
       const btn = document.querySelector('.brand-refresh');
@@ -841,9 +885,9 @@ try {
     returnByValue: true,
   })).result.value === true;
   await sleep(400);
-  contractResponseDelayMs = 0;
+  rangeResponseDelayMs = 0;
   headerRefresh.requestsBefore = headerRefreshBefore;
-  headerRefresh.requestsAfter = await contractRequests();
+  headerRefresh.requestsAfter = await rangeRequests();
   headerRefresh.hashBefore = headerRefreshHashBefore;
   headerRefresh.hashAfter = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
   headerRefresh.restoredAppIcon = (await send("Runtime.evaluate", {
@@ -2944,7 +2988,7 @@ try {
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
-    [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.inlineLoading, "board: initial range loading keeps app chrome mounted"],
+    [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.contentRetained, `board: a range refetch keeps app chrome + loaded content mounted, no full-screen reload (${JSON.stringify(initialRangePending)})`],
     [boardThisWeekClick.hash?.includes("preset=this-week") && JSON.stringify(boardThisWeekClick.active) === JSON.stringify(["this week"]), `board: clicking this week preserves this week as the only active preset (${boardThisWeekClick.hash || "empty"})`],
     [has(boardNarrowHtml, "range 2026-06-10 to 2026-06-10"), "board: custom range label rendered after API projection"],
     [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],

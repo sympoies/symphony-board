@@ -359,7 +359,7 @@ export function SettingsPage({
           <h3>Default range</h3>
           <p className="muted">Used when the URL does not include from/to dates.</p>
           {disabledRangePresets.size > 0 ? (
-            <p className="muted">Ranges larger than Board data are unavailable on this device.</p>
+            <p className="muted">Longer ranges are unavailable on this device.</p>
           ) : null}
         </div>
         <select
@@ -381,22 +381,17 @@ export function SettingsPage({
         <div>
           <h3>Board data</h3>
           <p className="muted">
-            How much of the board this device loads. A smaller window keeps the app fast and
-            avoids running out of memory on a limited device; “Off” shows only the Live feed.
+            Load the board, or show only the Live feed. How much board data is fetched now
+            follows the selected date range (capped per device), not a fixed window.
           </p>
         </div>
         <select
           className="settings-select"
-          value={boardScope}
-          onChange={(e) => {
-            if (isBoardScope(e.target.value)) onBoardScope(e.target.value);
-          }}
+          value={boardScope === "off" ? "off" : "on"}
+          onChange={(e) => onBoardScope(e.target.value === "off" ? "off" : "full")}
         >
-          {BOARD_SCOPE_VALUES.map((scope) => (
-            <option key={scope} value={scope}>
-              {BOARD_SCOPE_LABELS[scope]}
-            </option>
-          ))}
+          <option value="on">Load board data</option>
+          <option value="off">Live feed only</option>
         </select>
       </div>
 

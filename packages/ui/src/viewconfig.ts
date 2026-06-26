@@ -12,7 +12,7 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { DEFAULT_TIME_RANGE_PRESET_ID, DEFAULT_TIMEZONE, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, staticContractTimeRange, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "./model.ts";
+import { DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, DEFAULT_TIMEZONE, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, staticContractTimeRange, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "./model.ts";
 import { zonedDateOnly } from "./tz.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
@@ -123,12 +123,21 @@ export function saveColorOverrides(overrides: ReadonlyMap<string, string>): void
   }
 }
 
+// The default landing range preset for a client kind when nothing is stored.
+// Under the range-as-download model (#488) the displayed range IS what the client
+// fetches, so the landing preset is also the device's default download size: the
+// Android thin client (weak e-ink hardware) lands on a small 7-day window ("1w"),
+// every other client on "this week". Pure so the routing is unit-testable.
+export function defaultRangePresetForClient(clientKind: string | null = currentClientKind()): TimeRangePresetId {
+  return clientKind === ANDROID_CLIENT_KIND ? "1w" : DEFAULT_TIME_RANGE_PRESET_ID;
+}
+
 export function loadDefaultRangePreset(): TimeRangePresetId {
   try {
     const raw = localStorage.getItem(DEFAULT_RANGE_PRESET_KEY);
-    return isTimeRangePresetId(raw) ? raw : DEFAULT_TIME_RANGE_PRESET_ID;
+    return isTimeRangePresetId(raw) ? raw : defaultRangePresetForClient();
   } catch {
-    return DEFAULT_TIME_RANGE_PRESET_ID;
+    return defaultRangePresetForClient();
   }
 }
 
@@ -474,6 +483,46 @@ export function rangeOverlayAllowed(source: "network" | "file" | null | undefine
 // isStaticDeployment().
 export function primaryLoadWindowDays(boardScopeDays: number | null, staticDeployment: boolean): number | null {
   return staticDeployment ? null : boardScopeDays;
+}
+
+// --- range-as-download model (#488) -----------------------------------------
+// The selected date range is what the client downloads. These pure helpers
+// decide, for a requested range, how much to fetch and via which path.
+
+// The widest range a device may request, in days. The Android thin client runs
+// on weak (e-ink) hardware that cannot gunzip + IPC-marshal + JSON.parse a
+// multi-MB payload without OOM (the same reason CONTRACT_REQUEST_TIMEOUT_MS_ANDROID
+// exists), so its picker is hard-capped at 30 days; every other client may reach
+// the 1-year maximum.
+export function deviceCeilingDays(clientKind: string | null = currentClientKind()): number {
+  return clientKind === ANDROID_CLIENT_KIND ? 30 : 365;
+}
+
+// Clamp a requested range so it never reaches further back than the device
+// ceiling allows; the `to` end and a range already inside the ceiling are left
+// untouched. `null` ceiling means no cap. Pure + unit-tested.
+export function clampRangeToCeiling(range: TimeRange, ceilingDays: number | null, now: number, tz?: string): TimeRange {
+  if (ceilingDays == null) return range;
+  const floor = timeRangeForDays(ceilingDays, now, tz).from;
+  return range.from < floor ? { from: floor, to: range.to } : range;
+}
+
+// Whether a requested range equals the emitted default window — the trailing
+// DEFAULT_TIME_RANGE_DAYS (90) calendar days ending at ~now. That window is the
+// one the static, pre-gzipped, mtime-cached ./contract.json already holds, so a
+// request for exactly it takes the cheap static fast-path instead of recomputing
+// /api/range. Date-only strings compare exactly. Pure + unit-tested.
+export function isDefaultWindowRange(range: TimeRange, now: number, tz?: string): boolean {
+  const def = timeRangeForDays(DEFAULT_TIME_RANGE_DAYS, now, tz);
+  return range.from === def.from && range.to === def.to;
+}
+
+// Whether the primary load for a requested range should take the static
+// ./contract.json fast-path (true) or fetch a dynamic /api/range projection
+// (false). The static file is used for the exact default 90-day window and on a
+// static/demo deploy that has no /api/range at all. Pure + unit-tested.
+export function usesStaticContractFastPath(range: TimeRange, staticDeployment: boolean, now: number, tz?: string): boolean {
+  return staticDeployment || isDefaultWindowRange(range, now, tz);
 }
 
 // The default scope for a client kind when nothing is stored: Android renders on

@@ -78,6 +78,21 @@ test("the cache is per-server: a different server reads nothing", async () => {
   assert.equal(await loadCachedContract("https://srv-b", { kv, now }), null);
 });
 
+test("the cache is keyed by range: a different landing range reads nothing (#488)", async () => {
+  // Under range-as-download the cached env is for a specific window; painting it
+  // when the user is opening a DIFFERENT range would flash the wrong window, so a
+  // mismatch reads as a miss. The same range round-trips; a no-range request also
+  // misses a range-tagged entry.
+  const kv = new FakeKV();
+  const now = 1_000_000;
+  const r1 = { from: "2026-06-20", to: "2026-06-26" };
+  const r2 = { from: "2026-01-01", to: "2026-06-26" };
+  await saveCachedContract("https://srv", env("4.2.0"), { kv, now, range: r1 });
+  assert.ok(await loadCachedContract("https://srv", { kv, now, range: r1 }), "same range hits");
+  assert.equal(await loadCachedContract("https://srv", { kv, now, range: r2 }), null, "other range misses");
+  assert.equal(await loadCachedContract("https://srv", { kv, now }), null, "no-range request misses a range-tagged entry");
+});
+
 test("a contract older than the TTL is ignored", async () => {
   const kv = new FakeKV();
   const now = 1_000_000;

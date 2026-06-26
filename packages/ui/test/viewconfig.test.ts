@@ -12,6 +12,7 @@ import {
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, boardScopeDays, defaultBoardScope, isBoardScope, presetExceedsBoardScope, clampDefaultRangeToBoardScope, boardWindowRange,
   isWindowedRangeEnv, boardDisplayRange, windowedRangeTailUnfetched, rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, primaryLoadWindowDays,
+  deviceCeilingDays, clampRangeToCeiling, isDefaultWindowRange, usesStaticContractFastPath, defaultRangePresetForClient,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
@@ -596,4 +597,48 @@ test("primaryLoadWindowDays: a static deployment loads the full contract even wi
   assert.equal(primaryLoadWindowDays(7, true), null, "static deployment ignores a windowed scope");
   assert.equal(primaryLoadWindowDays(30, true), null, "static deployment ignores any window");
   assert.equal(primaryLoadWindowDays(null, true), null, "static deployment full scope loads the full contract");
+});
+
+// --- range-as-download primitives (#488) ------------------------------------
+// A fixed reference instant so the trailing-window math is deterministic in CI.
+const REF_NOW = Date.parse("2026-06-26T12:00:00.000Z");
+
+test("defaultRangePresetForClient lands Android on a 7-day window and everything else on this week (#488)", () => {
+  assert.equal(defaultRangePresetForClient("android"), "1w", "Android weak-device small landing");
+  assert.equal(defaultRangePresetForClient("desktop"), "this-week");
+  assert.equal(defaultRangePresetForClient(null), "this-week", "no client kind -> desktop default");
+});
+
+test("deviceCeilingDays caps Android at 30 days and everything else at a year", () => {
+  assert.equal(deviceCeilingDays("android"), 30, "Android weak-device guard");
+  assert.equal(deviceCeilingDays("desktop"), 365);
+  assert.equal(deviceCeilingDays(null), 365, "no client kind -> desktop default");
+});
+
+test("clampRangeToCeiling pulls a too-wide range's start up to the ceiling, leaving the end and in-range windows untouched", () => {
+  // A 1-year request on Android (30-day ceiling) is clamped to the trailing 30 days.
+  const wide = { from: "2025-06-26", to: "2026-06-26" };
+  const clamped = clampRangeToCeiling(wide, 30, REF_NOW, "UTC");
+  assert.equal(clamped.to, "2026-06-26", "the end is never moved");
+  assert.equal(clamped.from, timeRangeForPreset("1mo", REF_NOW, "UTC").from, "from pulled up to the 30-day floor");
+  // A request already inside the ceiling is returned unchanged.
+  const narrow = { from: "2026-06-20", to: "2026-06-26" };
+  assert.deepEqual(clampRangeToCeiling(narrow, 30, REF_NOW, "UTC"), narrow);
+  // A null ceiling (desktop) never clamps.
+  assert.deepEqual(clampRangeToCeiling(wide, null, REF_NOW, "UTC"), wide);
+});
+
+test("isDefaultWindowRange recognises exactly the trailing 90-day window (the static contract fast-path)", () => {
+  const def = timeRangeForPreset("3mo", REF_NOW, "UTC"); // 3mo == 90 rolling days == the default window
+  assert.equal(isDefaultWindowRange(def, REF_NOW, "UTC"), true, "trailing 90d takes the fast-path");
+  assert.equal(isDefaultWindowRange(timeRangeForPreset("this-week", REF_NOW, "UTC"), REF_NOW, "UTC"), false, "a week does not");
+  assert.equal(isDefaultWindowRange(timeRangeForPreset("1y", REF_NOW, "UTC"), REF_NOW, "UTC"), false, "a year does not");
+});
+
+test("usesStaticContractFastPath: the 90d window or a static deploy uses contract.json, other ranges use /api/range", () => {
+  const def = timeRangeForPreset("3mo", REF_NOW, "UTC");
+  const week = timeRangeForPreset("this-week", REF_NOW, "UTC");
+  assert.equal(usesStaticContractFastPath(def, false, REF_NOW, "UTC"), true, "exact default window -> static");
+  assert.equal(usesStaticContractFastPath(week, false, REF_NOW, "UTC"), false, "a sub-window -> dynamic /api/range");
+  assert.equal(usesStaticContractFastPath(week, true, REF_NOW, "UTC"), true, "static deploy always -> bundled contract.json");
 });

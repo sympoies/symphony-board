@@ -490,6 +490,24 @@ export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
   return { from: zonedDateOnly(sinceMs, tz), to: zonedDateOnly(generatedAt, tz) };
 }
 
+// The calendar-day window an `/api/range` env represents, read back from its
+// `range_query` (the server echoes the requested window as zoned day-bounds).
+// Under the range-as-download model (#488) this is the env's loaded window: a
+// range-projected primary env's display window IS exactly what was fetched, so
+// using it as `staticRange` makes `customRange` false on the landing range and
+// keeps the load effect from re-firing (convergence — no refetch loop). Returns
+// null for an env without `range_query` (the static contract.json fast-path or an
+// uploaded file env), which falls back to `staticContractTimeRange`.
+export function rangeQueryWindow(env: ContractEnvelope): TimeRange | null {
+  const rq = env.range_query;
+  if (!rq || typeof rq.from !== "string" || typeof rq.to !== "string") return null;
+  const fromMs = Date.parse(rq.from);
+  const toMs = Date.parse(rq.to);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+  const tz = env.timezone ?? DEFAULT_TIMEZONE;
+  return { from: zonedDateOnly(fromMs, tz), to: zonedDateOnly(toMs, tz) };
+}
+
 // Which empty-state treatment a page shows when it has nothing to render. The
 // page only consults this when every filter has been applied and zero rows
 // survive, so it answers "WHY is this empty?" — and the answer drives both the
