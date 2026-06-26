@@ -8,6 +8,7 @@
 //   • collapsed columns — board column kinds the viewer manually collapsed
 //   • live tab enabled — opt-in Live tab (OFF by default: hidden tab, no stream)
 //   • hidden event types — set of HIDDEN Live categories (an independent layer)
+//   • content tab order — the contract-backed top-nav tabs between Live/Settings
 // We store what is HIDDEN (not what is visible) so a repo/source that first
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
@@ -39,6 +40,7 @@ const LIVE_PULSE_OPEN_KEY = "symphony-board:live-pulse-open";
 // Which tab the app lands on when the URL has no page (a fresh open / share link
 // without a hash). Device-local, like color mode.
 const DEFAULT_TAB_KEY = "symphony-board:default-tab";
+const CONTENT_TAB_ORDER_KEY = "symphony-board:content-tab-order";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // Whether THIS device forces the wide (desktop) layout. A large e-reader can host
 // the desktop multi-column layout the CSS breakpoints gate on, but reports a small
@@ -478,10 +480,10 @@ export function saveWideLayout(wide: boolean): void {
 export const loadHiddenEventTypes = (): Set<string> => loadStringSet(HIDDEN_EVENT_TYPES_KEY);
 export const saveHiddenEventTypes = (hidden: ReadonlySet<string>): void => saveStringSet(HIDDEN_EVENT_TYPES_KEY, hidden);
 
-// The tabs offered as a default-landing choice (the content views; Settings is
-// excluded — it is not a landing surface). Live leads.
-export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
-  { id: "live", label: "Live" },
+// Contract-backed top-nav tabs whose order is viewer-configurable. Live remains
+// the special realtime entry before these; Settings remains the recovery/config
+// surface after them.
+export const CONTENT_TAB_OPTIONS = [
   { id: "activity", label: "Activity" },
   { id: "items", label: "Items" },
   { id: "commits", label: "Commits" },
@@ -489,11 +491,36 @@ export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
   { id: "board", label: "Board" },
   { id: "graph", label: "Graph" },
   { id: "repo-analytics", label: "Analytics" },
+] as const satisfies readonly { id: Page; label: string }[];
+export type ContentTab = (typeof CONTENT_TAB_OPTIONS)[number]["id"];
+
+// The tabs offered as a default-landing choice (the content views; Settings is
+// excluded — it is not a landing surface). Live leads.
+export const DEFAULT_TAB_OPTIONS: { id: Page; label: string }[] = [
+  { id: "live", label: "Live" },
+  ...CONTENT_TAB_OPTIONS,
 ];
 export const DEFAULT_TAB: Page = "live";
 
 export function isDefaultTab(value: unknown): value is Page {
   return typeof value === "string" && DEFAULT_TAB_OPTIONS.some((t) => t.id === value);
+}
+
+export function isContentTab(value: unknown): value is ContentTab {
+  return typeof value === "string" && CONTENT_TAB_OPTIONS.some((t) => t.id === value);
+}
+
+const DEFAULT_CONTENT_TAB_ORDER: ContentTab[] = CONTENT_TAB_OPTIONS.map((t) => t.id);
+
+export function normalizeContentTabOrder(order: readonly unknown[] | null | undefined): ContentTab[] {
+  const out: ContentTab[] = [];
+  for (const value of order ?? []) {
+    if (isContentTab(value) && !out.includes(value)) out.push(value);
+  }
+  for (const value of DEFAULT_CONTENT_TAB_ORDER) {
+    if (!out.includes(value)) out.push(value);
+  }
+  return out;
 }
 
 export function loadDefaultTab(): Page {
@@ -508,6 +535,25 @@ export function loadDefaultTab(): Page {
 export function saveDefaultTab(tab: Page): void {
   try {
     localStorage.setItem(DEFAULT_TAB_KEY, tab);
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+export function loadContentTabOrder(): ContentTab[] {
+  try {
+    const raw = localStorage.getItem(CONTENT_TAB_ORDER_KEY);
+    if (!raw) return [...DEFAULT_CONTENT_TAB_ORDER];
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizeContentTabOrder(Array.isArray(parsed) ? parsed : null);
+  } catch {
+    return [...DEFAULT_CONTENT_TAB_ORDER];
+  }
+}
+
+export function saveContentTabOrder(order: readonly unknown[]): void {
+  try {
+    localStorage.setItem(CONTENT_TAB_ORDER_KEY, JSON.stringify(normalizeContentTabOrder(order)));
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

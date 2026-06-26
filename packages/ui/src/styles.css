@@ -2654,6 +2654,55 @@ a.rf-node-title:hover { color: var(--accent); }
 .settings-types { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: flex-start; max-width: 320px; }
 .settings-type { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .settings-type input { accent-color: var(--accent); cursor: pointer; }
+.settings-tab-order-pref { align-items: flex-start; }
+.settings-tab-order-list {
+  flex: 0 0 min(260px, 100%);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-tab-order-list li {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 4px 6px 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-weight: 600;
+}
+.settings-tab-order-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.settings-order-button {
+  width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-order-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+}
+.settings-order-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .settings-server { align-items: flex-start; }
 .server-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
 .server-url-field { display: inline-flex; flex-direction: column; gap: 3px; font-size: 12px; }
@@ -3283,6 +3332,10 @@ a.rf-node-title:hover { color: var(--accent); }
      chips use it instead of the 320px desktop cap. */
   .settings-types {
     max-width: none;
+  }
+  .settings-tab-order-list {
+    flex-basis: auto;
+    width: 100%;
   }
   .settings-bulk,
   .settings-source-actions,

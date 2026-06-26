@@ -114,10 +114,15 @@ import {
   saveHiddenEventTypes,
   loadDefaultTab,
   saveDefaultTab,
+  loadContentTabOrder,
+  saveContentTabOrder,
+  normalizeContentTabOrder,
+  CONTENT_TAB_OPTIONS,
   loadServerBaseUrl,
   saveServerBaseUrl,
   normalizeServerBaseUrl,
   type BoardScope,
+  type ContentTab,
   type ResolvedViewTheme,
   type ViewColorMode,
 } from "./viewconfig.ts";
@@ -274,6 +279,7 @@ export function App() {
   const [wideLayout, setWideLayout] = useState<boolean>(loadWideLayout);
   const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<string>>(loadHiddenEventTypes);
   const [defaultTab, setDefaultTab] = useState<Page>(loadDefaultTab);
+  const [contentTabOrder, setContentTabOrder] = useState<ContentTab[]>(loadContentTabOrder);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
   const [lastContractTimezone, setLastContractTimezone] = useState<string | null>(() => loadLastContractTimezone(loadServerBaseUrl()));
   // Board columns the viewer manually collapsed to a rail (persisted). Empty
@@ -700,6 +706,9 @@ export function App() {
   useEffect(() => {
     saveDefaultTab(defaultTab);
   }, [defaultTab]);
+  useEffect(() => {
+    saveContentTabOrder(contentTabOrder);
+  }, [contentTabOrder]);
   // Cold start: reflect the resolved landing route into the URL so it matches the
   // rendered page (the hash state already seeded it above). startupRouteHash
   // honors the configured default tab over a restored hash — the web counterpart
@@ -1306,6 +1315,17 @@ export function App() {
     });
   }
 
+  function moveContentTab(tab: ContentTab, direction: -1 | 1) {
+    setContentTabOrder((order) => {
+      const next = normalizeContentTabOrder(order);
+      const index = next.indexOf(tab);
+      const swapIndex = index + direction;
+      if (index < 0 || swapIndex < 0 || swapIndex >= next.length) return next;
+      [next[index], next[swapIndex]] = [next[swapIndex]!, next[index]!];
+      return next;
+    });
+  }
+
   // Collapse / expand one board column by its column kind (a status key, or
   // `lane-<key>` for a Spotlight lane). The click is routed by emptiness so the
   // two regimes stay disjoint (see model.columnCollapsed): toggling an EMPTY
@@ -1598,7 +1618,10 @@ export function App() {
   // answers (liveAvailable). routeHref carries search/range/lens across the hop.
   // Remount when the tab set changes so WebKit does not keep the old sticky flex
   // layout after Board data is turned off and back on.
-  const pageTabsKey = `page-tabs-${contractEnabled ? "board" : "live-only"}-${liveTabShown ? "live" : "no-live"}`;
+  const orderedContentTabs = contentTabOrder
+    .map((id) => CONTENT_TAB_OPTIONS.find((tab) => tab.id === id))
+    .filter((tab): tab is (typeof CONTENT_TAB_OPTIONS)[number] => tab !== undefined);
+  const pageTabsKey = `page-tabs-${contractEnabled ? "board" : "live-only"}-${liveTabShown ? "live" : "no-live"}-${contentTabOrder.join(".")}`;
   const pageTabs = (
     <nav key={pageTabsKey} className="page-tabs" data-board-data={contractEnabled ? "on" : "off"}>
       {liveTabShown ? (
@@ -1612,27 +1635,11 @@ export function App() {
           view — leaving just Live + Settings. */}
       {contractEnabled ? (
         <>
-          <a className={`tab${page === "activity" ? " tab-on" : ""}`} href={routeHref("activity")}>
-            Activity
-          </a>
-          <a className={`tab${page === "items" ? " tab-on" : ""}`} href={routeHref("items")}>
-            Items
-          </a>
-          <a className={`tab${page === "commits" ? " tab-on" : ""}`} href={routeHref("commits")}>
-            Commits
-          </a>
-          <a className={`tab${page === "reviews" ? " tab-on" : ""}`} href={routeHref("reviews")}>
-            Reviews
-          </a>
-          <a className={`tab${page === "board" ? " tab-on" : ""}`} href={routeHref("board")}>
-            Board
-          </a>
-          <a className={`tab${page === "graph" ? " tab-on" : ""}`} href={routeHref("graph")}>
-            Graph
-          </a>
-          <a className={`tab${page === "repo-analytics" ? " tab-on" : ""}`} href={routeHref("repo-analytics")}>
-            Analytics
-          </a>
+          {orderedContentTabs.map((tab) => (
+            <a key={tab.id} className={`tab${page === tab.id ? " tab-on" : ""}`} href={routeHref(tab.id)}>
+              {tab.label}
+            </a>
+          ))}
         </>
       ) : null}
       <a className={`tab${page === "settings" ? " tab-on" : ""}`} href={routeHref("settings")}>
@@ -1677,6 +1684,8 @@ export function App() {
       onToggleEventType={toggleEventType}
       defaultTab={defaultTab}
       onDefaultTab={setDefaultTab}
+      contentTabOrder={contentTabOrder}
+      onMoveContentTab={moveContentTab}
       serverBaseUrl={serverBaseUrl}
       onServerBaseUrl={applyServerBaseUrl}
       sync={sync}

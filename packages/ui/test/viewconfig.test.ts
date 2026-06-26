@@ -8,6 +8,7 @@ import {
   loadDefaultRangePreset, saveDefaultRangePreset,
   loadColorMode, saveColorMode, resolveViewTheme, subscribeSystemColorScheme, systemPrefersDark, SYSTEM_DARK_MODE_QUERY,
   loadDefaultTab, saveDefaultTab,
+  loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
@@ -157,6 +158,25 @@ test("default tab is a device-local setting defaulting to Live", () => {
   assert.equal(loadDefaultTab(), "board");
   store._raw("symphony-board:default-tab", "settings"); // not an offered landing tab
   assert.equal(loadDefaultTab(), "live", "non-offered / invalid value -> default");
+});
+
+test("content tab order is normalized from device-local storage", () => {
+  assert.deepEqual(loadContentTabOrder(), ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"]);
+  assert.deepEqual(
+    normalizeContentTabOrder(["graph", "bogus", "activity", "graph", "reviews"]),
+    ["graph", "activity", "reviews", "items", "commits", "board", "repo-analytics"],
+    "keeps valid first-seen choices, drops invalid/duplicates, and appends missing defaults",
+  );
+
+  store._raw("symphony-board:content-tab-order", JSON.stringify(["repo-analytics", 42, "board", "commits", "board"]));
+  assert.deepEqual(loadContentTabOrder(), ["repo-analytics", "board", "commits", "activity", "items", "reviews", "graph"]);
+  store._raw("symphony-board:content-tab-order", "{not json");
+  assert.deepEqual(loadContentTabOrder(), ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"], "malformed storage falls back to default order");
+});
+
+test("content tab order round-trips as a normalized device-local setting", () => {
+  saveContentTabOrder(["graph", "activity"]);
+  assert.deepEqual(loadContentTabOrder(), ["graph", "activity", "items", "commits", "reviews", "board", "repo-analytics"]);
 });
 
 test("live tab enabled is a device-local setting that is OFF by default", () => {
