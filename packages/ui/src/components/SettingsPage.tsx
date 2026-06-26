@@ -22,9 +22,11 @@ import {
   MAX_LIVE_PREVIEW_LINES,
   DEFAULT_TAB_OPTIONS,
   isDefaultTab,
+  CONTENT_TAB_OPTIONS,
   currentClientKind,
   ANDROID_CLIENT_KIND,
   type BoardScope,
+  type ContentTab,
   type ViewColorMode,
 } from "../viewconfig.ts";
 import { LIVE_CATEGORY_ORDER, humanizeCategory } from "../live-stats.ts";
@@ -60,6 +62,8 @@ interface Props {
   onToggleEventType: (category: string) => void; // flip one category's Live visibility
   defaultTab: Page; // the tab the app opens on a hashless load
   onDefaultTab: (tab: Page) => void;
+  contentTabOrder: readonly ContentTab[]; // order for the contract-backed top-nav tabs between Live and Settings
+  onMoveContentTab: (tab: ContentTab, direction: -1 | 1) => void;
   serverBaseUrl: string | null;
   onServerBaseUrl: (serverBaseUrl: string | null) => void;
   sync?: SyncState; // writer-owned manual sync, when the control surface is available
@@ -135,6 +139,8 @@ export function SettingsPage({
   onToggleEventType,
   defaultTab,
   onDefaultTab,
+  contentTabOrder,
+  onMoveContentTab,
   serverBaseUrl,
   onServerBaseUrl,
   sync,
@@ -169,6 +175,7 @@ export function SettingsPage({
   const tabOptions = liveTabEffectivelyEnabled
     ? DEFAULT_TAB_OPTIONS
     : DEFAULT_TAB_OPTIONS.filter((t) => t.id !== "live");
+  const contentTabLabels = new Map(CONTENT_TAB_OPTIONS.map((t) => [t.id, t.label]));
 
   const showTabs = config?.available === true;
   const activeTab: SettingsTab = showTabs && tab === "sources" ? "sources" : "display";
@@ -298,6 +305,47 @@ export function SettingsPage({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="settings-pref settings-tab-order-pref">
+        <div>
+          <h3>Tab order</h3>
+          <p className="muted">
+            Order of the content tabs between Live and Settings. Saved on this device only.
+          </p>
+        </div>
+        <ol className="settings-tab-order-list" aria-label="Content tab order">
+          {contentTabOrder.map((tab, index) => {
+            const label = contentTabLabels.get(tab) ?? tab;
+            return (
+              <li key={tab}>
+                <span>{label}</span>
+                <span className="settings-tab-order-actions">
+                  <button
+                    type="button"
+                    className="settings-order-button"
+                    disabled={index === 0}
+                    onClick={() => onMoveContentTab(tab, -1)}
+                    aria-label={`Move ${label} earlier`}
+                    title={`Move ${label} earlier`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-order-button"
+                    disabled={index === contentTabOrder.length - 1}
+                    onClick={() => onMoveContentTab(tab, 1)}
+                    aria-label={`Move ${label} later`}
+                    title={`Move ${label} later`}
+                  >
+                    ↓
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
       </div>
 
       <SettingsSectionTitle title="Live" />
