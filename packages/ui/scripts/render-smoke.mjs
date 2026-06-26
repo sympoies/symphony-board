@@ -1729,15 +1729,62 @@ try {
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
       const board = prefByTitle('Board data');
       const boardBox = board?.querySelector('input[type="checkbox"]');
+      const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
       if (boardBox?.checked) boardBox.click();
       return {
         boardChecked: !!boardBox?.checked,
+        liveChecked: !!liveBox?.checked,
         hasPreview: !!prefByTitle('Live feed preview'),
         hasTypes: !!prefByTitle('Live event types'),
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
+  await sleep(200);
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const board = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Board data');
+      const boardBox = board?.querySelector('input[type="checkbox"]');
+      if (boardBox && !boardBox.checked) boardBox.click();
+    })()`,
+  });
+  await sleep(200);
+  const boardDataOnlyReenabledTabs = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
+      const liveChecked = !!prefByTitle('Live tab')?.querySelector('input[type="checkbox"]')?.checked;
+      const nav = document.querySelector('.page-tabs');
+      const tabs = Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return {
+          label: el.textContent?.replace(/\\s+/g, ' ').trim() || '',
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          display: style.display,
+          visibility: style.visibility,
+          opacity: style.opacity,
+        };
+      });
+      return {
+        boardData: nav?.getAttribute('data-board-data') || '',
+        liveChecked,
+        labels: tabs.map((tab) => tab.label),
+        visibleLabels: tabs.filter((tab) => tab.width > 0 && tab.height > 0 && tab.display !== 'none' && tab.visibility !== 'hidden' && tab.opacity !== '0').map((tab) => tab.label),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { boardData: "", liveChecked: false, labels: [], visibleLabels: [] };
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const board = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Board data');
+      const boardBox = board?.querySelector('input[type="checkbox"]');
+      if (boardBox && boardBox.checked) boardBox.click();
+    })()`,
+  });
   await sleep(200);
   await send("Runtime.evaluate", {
     expression: `(() => {
@@ -1781,29 +1828,6 @@ try {
     })()`,
   });
   await sleep(200);
-  const boardDataReenabledTabs = (await send("Runtime.evaluate", {
-    expression: `(() => {
-      const nav = document.querySelector('.page-tabs');
-      const tabs = Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = getComputedStyle(el);
-        return {
-          label: el.textContent?.replace(/\\s+/g, ' ').trim() || '',
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-          display: style.display,
-          visibility: style.visibility,
-          opacity: style.opacity,
-        };
-      });
-      return {
-        boardData: nav?.getAttribute('data-board-data') || '',
-        labels: tabs.map((tab) => tab.label),
-        visibleLabels: tabs.filter((tab) => tab.width > 0 && tab.height > 0 && tab.display !== 'none' && tab.visibility !== 'hidden' && tab.opacity !== '0').map((tab) => tab.label),
-      };
-    })()`,
-    returnByValue: true,
-  })).result.value || { boardData: "", labels: [], visibleLabels: [] };
   // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
   // the graph ALREADY in that item's focus view (not the plain list); the canvas
   // shows the focus subgraph, so the global search bar stays EMPTY (it is a
@@ -3585,7 +3609,7 @@ try {
     [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
-    [boardDataReenabledTabs.boardData === "on" && ["Activity", "Commits", "Reviews", "Board", "Graph", "Analytics"].every((label) => boardDataReenabledTabs.visibleLabels.includes(label)), `settings: turning Board data off then on restores the contract-backed tabs (${JSON.stringify(boardDataReenabledTabs)})`],
+    [liveOnlySettings.liveChecked === true && boardDataOnlyReenabledTabs.liveChecked === true && boardDataOnlyReenabledTabs.boardData === "on" && ["Activity", "Commits", "Reviews", "Board", "Graph", "Analytics"].every((label) => boardDataOnlyReenabledTabs.visibleLabels.includes(label)), `settings: turning only Board data off then on restores the contract-backed tabs (${JSON.stringify(boardDataOnlyReenabledTabs)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],
