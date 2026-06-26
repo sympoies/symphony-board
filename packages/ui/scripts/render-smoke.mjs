@@ -1582,7 +1582,7 @@ try {
   const repoCountText = await textOf(".repo-analytics-head .count");
   const repoQualityBadgeLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const badges = Array.from(document.querySelectorAll('.repo-table td:nth-child(12) .badge'));
+      const badges = Array.from(document.querySelectorAll('.repo-table td:nth-child(13) .badge'));
       const widths = badges.map((el) => Math.round(el.getBoundingClientRect().width));
       // Tolerance, not pixel-identity: the quality verdicts (active / partial /
       // idle / no data) are different proportional-font strings, so their compact
@@ -1618,11 +1618,11 @@ try {
       const wrap = document.querySelector('.repo-table-wrap');
       const headers = Array.from(document.querySelectorAll('.repo-table thead th'));
       const widthOf = (idx) => Math.round(headers[idx]?.getBoundingClientRect().width || 0);
-      const numericWidths = headers.slice(2, 11).map((el) => Math.round(el.getBoundingClientRect().width));
+      const numericWidths = headers.slice(2, 12).map((el) => Math.round(el.getBoundingClientRect().width));
       const tableWidth = Math.round(table?.getBoundingClientRect().width || 0);
       const wrapWidth = Math.round(wrap?.getBoundingClientRect().width || 0);
       const repoWidth = widthOf(0);
-      const actorsWidth = widthOf(12);
+      const actorsWidth = widthOf(13);
       return {
         tableWidth,
         wrapWidth,
@@ -3180,7 +3180,7 @@ try {
         const s = getComputedStyle(cell);
         return s.alignItems === 'center' && s.justifyContent === 'center' && s.textAlign === 'center';
       });
-      const secondaryGrouped = secondary.length >= 5 && secondary.every((cell) => {
+      const secondaryGrouped = secondary.length === 6 && secondary.every((cell) => {
         const s = getComputedStyle(cell);
         return s.justifyContent === 'center' && s.textAlign === 'center';
       });
@@ -3192,9 +3192,9 @@ try {
         secondaryCount: secondary.length,
         primarySameRow: firstPrimaryTops.length === 4 && new Set(firstPrimaryTops).size === 1,
         primaryCentered,
-        secondaryCompact: secondary.length >= 5 && secondary.every((cell) => cell.getBoundingClientRect().height <= 38),
-        secondaryReadable: secondaryWidths.length >= 5 && Math.min(...secondaryWidths) >= 84,
-        secondaryTight: secondaryWidths.length >= 5 && Math.max(...secondaryWidths) <= 108,
+        secondaryCompact: secondary.length === 6 && secondary.every((cell) => cell.getBoundingClientRect().height <= 38),
+        secondaryReadable: secondaryWidths.length === 6 && Math.min(...secondaryWidths) >= 84,
+        secondaryTight: secondaryWidths.length === 6 && Math.max(...secondaryWidths) <= 108,
         secondaryMinWidth: secondaryWidths.length ? Math.min(...secondaryWidths) : 0,
         secondaryMaxWidth: secondaryWidths.length ? Math.max(...secondaryWidths) : 0,
         secondaryGrouped,
@@ -3426,7 +3426,7 @@ try {
     [phoneGraphCanvas.activeTab === "Graph" && phoneGraphCanvas.canvasPresent === true && phoneGraphCanvas.listPresent === false && phoneGraphCanvas.hashHasGraph === true, `portrait: phone graph Graph tab swaps in the canvas and drops the list (${JSON.stringify(phoneGraphCanvas)})`],
     [phoneGraphFocusInList.activeTab === "List" && phoneGraphFocusInList.inFocusView === true && phoneGraphFocusInList.relatedShown === true && phoneGraphFocusInList.canvasPresent === false && phoneGraphFocusInList.hashHasFocus === true, `portrait: phone graph focusing an item stays in the list's focus view, no auto-switch to canvas (${JSON.stringify(phoneGraphFocusInList)})`],
     [portraitRepos.every((r) => r.repoCompact === true), "portrait: repo analytics switches away from the wide table"],
-    [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
+    [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.secondaryCount === 6 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
     [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.fileLoadHidden === true), `portrait: phone hides the rarely-used local file loader (${phoneFilterPages.map((r) => `${r.page}:hidden=${r.fileLoadHidden}`).join("; ")})`],
     [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32 && r.headerSourceChipFlexGrow === "0"), `portrait: phone source health strip stays compact and content-sized (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight},grow=${r.headerSourceChipFlexGrow}`).join("; ")})`],
@@ -3622,16 +3622,17 @@ try {
     [sameRangeButtons(repoRangeButtons), `repo analytics: shared range quick presets rendered without all (${repoRangeButtons.join(", ")})`],
     [repoRows >= 2, `repo analytics: repo rows rendered (${repoRows} >= 2)`],
     [/repos/.test(repoCountText), `repo analytics: repo count rendered (${repoCountText})`],
-    [has(repoHtml, "Activity") && has(repoHtml, "Commits"), "repo analytics: activity and commits columns rendered"],
+    [has(repoHtml, "Activity") && has(repoHtml, "Commits") && has(repoHtml, "Comments"), "repo analytics: activity, commits, and comments columns rendered"],
     [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
     [repoLinks.providerLinks.some((href) => href.startsWith("https://")), "repo analytics: repo names link to provider repo pages"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("source=") && href.includes("repo=")), "repo analytics: activity metric links are source-aware"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/commits") && href.includes("source=") && href.includes("repo=")), "repo analytics: commit metric links are source-aware"],
+    [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("action=commented") && href.includes("source=") && href.includes("repo=")), "repo analytics: Comments metric links to commented Activity drilldown"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("kind=review") && href.includes("source=") && href.includes("repo=")), "repo analytics: Reviews activity metric keeps a review Activity drilldown"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/reviews") && href.includes("ireview=unresolved") && href.includes("isource=") && href.includes("irepo=")), "repo analytics: Threads metric links to the Reviews unresolved-thread inbox"],
     [has(repoHtml, "activity") || has(repoHtml, "limited"), "repo analytics: data-quality badge rendered"],
     [repoQualityBadgeLayout.count >= 1 && repoQualityBadgeLayout.sameWidth === true && repoQualityBadgeLayout.maxWidth <= 56, `repo analytics: quality badges use one compact active-sized width (${repoQualityBadgeLayout.maxWidth || 0}px, ${repoQualityBadgeLayout.texts?.join(", ") || "none"})`],
-    [repoTableLayout.tableWidth >= 3200 && Math.abs((repoTableLayout.tableWidth || 0) - (repoTableLayout.wrapWidth || 0)) <= 24 && repoTableLayout.repoWidth >= 300 && repoTableLayout.repoWidth <= 400 && repoTableLayout.trendWidth >= 210 && repoTableLayout.actorsWidth >= 1600 && repoTableLayout.numericMin >= 104 && repoTableLayout.numericMax <= 112 && repoTableLayout.repoShare <= 0.12 && repoTableLayout.actorsShare >= 0.48, `repo analytics: ultra-wide layout caps repo width and gives surplus width to actors (table=${repoTableLayout.tableWidth || 0}px wrap=${repoTableLayout.wrapWidth || 0}px repo=${repoTableLayout.repoWidth || 0}px trend=${repoTableLayout.trendWidth || 0}px actors=${repoTableLayout.actorsWidth || 0}px numeric=${repoTableLayout.numericMin || 0}-${repoTableLayout.numericMax || 0}px shares=${repoTableLayout.repoShare || 0}/${repoTableLayout.actorsShare || 0})`],
+    [repoTableLayout.tableWidth >= 3200 && Math.abs((repoTableLayout.tableWidth || 0) - (repoTableLayout.wrapWidth || 0)) <= 24 && repoTableLayout.repoWidth >= 300 && repoTableLayout.repoWidth <= 400 && repoTableLayout.trendWidth >= 210 && repoTableLayout.actorsWidth >= 1500 && repoTableLayout.numericMin >= 104 && repoTableLayout.numericMax <= 112 && repoTableLayout.repoShare <= 0.12 && repoTableLayout.actorsShare >= 0.45, `repo analytics: ultra-wide layout caps repo width and gives surplus width to actors (table=${repoTableLayout.tableWidth || 0}px wrap=${repoTableLayout.wrapWidth || 0}px repo=${repoTableLayout.repoWidth || 0}px trend=${repoTableLayout.trendWidth || 0}px actors=${repoTableLayout.actorsWidth || 0}px numeric=${repoTableLayout.numericMin || 0}-${repoTableLayout.numericMax || 0}px shares=${repoTableLayout.repoShare || 0}/${repoTableLayout.actorsShare || 0})`],
     [has(repoHtml, "card-accent") || has(repoHtml, "repo-row-accent"), "repo analytics: repo/source highlight accent rendered"],
     // the repo-name meta renders the new `last_activity_at` as "· active <relative>"
     // (2.5.0) rather than the old earliest-observed "since" timestamp.
