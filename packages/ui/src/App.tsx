@@ -1789,7 +1789,7 @@ export function App() {
     onOpenSettings: openSettings,
     sync,
   };
-  const { fullRepoMetricTotal, fullChangeRequestTotal, loadedReviewThreadTotal, reviewThreadEntityTotal } = fullEntityTotals;
+  const { fullRepoMetricTotal, reviewThreadEntityTotal } = fullEntityTotals;
 
   return (
     <div className="app app-wide">
