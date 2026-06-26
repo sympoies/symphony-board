@@ -106,6 +106,45 @@ export function repoFromRestPath(path: string): string | null {
   return match ? `${match[1]}/${match[2]}` : null;
 }
 
+const REST_ROUTE_SEGMENTS = new Set([
+  "activity",
+  "comments",
+  "commits",
+  "compare",
+  "discussions",
+  "events",
+  "issues",
+  "merge_requests",
+  "projects",
+  "pulls",
+  "repository",
+  "repos",
+]);
+
+function restRouteSegment(segment: string): string {
+  return REST_ROUTE_SEGMENTS.has(segment) ? segment : ":param";
+}
+
+export function describeRestOperation(path: string): string {
+  const segments = path.replace(/^\/+/, "").split(/[?#]/, 1)[0]?.split("/").filter(Boolean) ?? [];
+  if (segments.length === 0) return "request";
+
+  if (segments[0] === "repos" && segments.length >= 3) {
+    const tail = segments.slice(3);
+    if (tail.length === 0) return "repos/:owner/:repo";
+    if (tail[0] === "compare") return "repos/:owner/:repo/compare/:base...:head";
+    return ["repos", ":owner", ":repo", ...tail.map(restRouteSegment)].join("/");
+  }
+
+  if (segments[0] === "projects" && segments.length >= 2) {
+    const tail = segments.slice(2);
+    if (tail.length === 0) return "projects/:project";
+    return ["projects", ":project", ...tail.map(restRouteSegment)].join("/");
+  }
+
+  return segments.map(restRouteSegment).join("/");
+}
+
 export function traceAuthSelection(input: {
   provider: string;
   api: "graphql" | "rest";

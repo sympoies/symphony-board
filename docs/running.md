@@ -55,9 +55,9 @@ name, strategy, remaining budget, and used budget. Token values and private-key
 values never appear in the response or UI.
 
 Set `SYNC_AUTH_TRACE=1` temporarily to log each provider request's selected
-credential label, auth kind, strategy, API kind, repo, and operation. The trace
-never logs token values or private keys; leave it off in normal operation
-because it is intentionally verbose.
+credential label, auth kind, strategy, API kind, operation, and repo when it can
+be inferred. The trace never logs token values or private keys; leave it off in
+normal operation because it is intentionally verbose.
 
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers, such

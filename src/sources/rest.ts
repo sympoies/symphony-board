@@ -3,6 +3,7 @@ import {
   ProviderHttpError,
   allTokensCooledDownError,
   claimInitialRoundRobinCursor,
+  describeRestOperation,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
   githubRateLimitInfo,
@@ -51,7 +52,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
         provider,
         api: "rest",
         token,
-        operation: path.replace(/^\/+/, ""),
+        operation: describeRestOperation(path),
         repo: repoFromRestPath(path),
       });
       const headers: Record<string, string> = {
