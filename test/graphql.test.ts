@@ -1,6 +1,7 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { makeGqlClient } from "../src/sources/graphql.ts";
+import { resetAuthTokenSelectionStateForTests } from "../src/sources/http.ts";
 
 // Every GraphQL request both providers make funnels through makeGqlClient, so
 // these tests lock the shared wire format and — more importantly — the error
@@ -9,9 +10,15 @@ import { makeGqlClient } from "../src/sources/graphql.ts";
 // never tombstones (see test/sync-engine.test.ts).
 
 const originalFetch = globalThis.fetch;
+const originalConsoleLog = console.log;
+const originalAuthTrace = process.env.SYNC_AUTH_TRACE;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  console.log = originalConsoleLog;
+  if (originalAuthTrace === undefined) delete process.env.SYNC_AUTH_TRACE;
+  else process.env.SYNC_AUTH_TRACE = originalAuthTrace;
+  resetAuthTokenSelectionStateForTests();
 });
 
 function mockFetch(fn: (url: URL, init: RequestInit) => Response | Promise<Response>): void {
@@ -130,6 +137,49 @@ test("GitHub GraphQL round-robin bot tokens alternate between successful request
   assert.deepEqual(await gql("query { x }"), { ok: true });
   assert.deepEqual(await gql("query { x }"), { ok: true });
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
+});
+
+test("new GitHub GraphQL clients rotate their initial round-robin cursor", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  });
+  const tokens = [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "round_robin" as const },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "round_robin" as const },
+  ];
+
+  const firstClient = makeGqlClient("https://api.github.com/graphql", tokens);
+  const secondClient = makeGqlClient("https://api.github.com/graphql", tokens);
+
+  assert.deepEqual(await firstClient("query { x }"), { ok: true });
+  assert.deepEqual(await secondClient("query { x }"), { ok: true });
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b"]);
+});
+
+test("GitHub GraphQL auth trace logs token labels without token values", async () => {
+  const lines: string[] = [];
+  process.env.SYNC_AUTH_TRACE = "1";
+  console.log = ((...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  }) as typeof console.log;
+  mockFetch(() => new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }));
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "round_robin" },
+  ]);
+
+  assert.deepEqual(await gql("query($owner:String!, $name:String!) { repository(owner:$owner, name:$name) { issues(first:1) { nodes { id } } } }", {
+    owner: "sympoies",
+    name: "symphony-board",
+  }), { ok: true });
+  const trace = lines.find((line) => line.includes("[auth-trace]"));
+  assert.ok(trace, "auth trace should emit one log line");
+  assert.match(trace, /token=github_app:BOT_A_INSTALLATION_ID/);
+  assert.match(trace, /repo=sympoies\/symphony-board/);
+  assert.match(trace, /op=issues/);
+  assert.doesNotMatch(trace, /bot-a-secret/);
 });
 
 test("once every token is cooled down, the GraphQL client stops hammering them", async () => {

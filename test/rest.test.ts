@@ -1,11 +1,18 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultRestUrl, makeRestClient } from "../src/sources/rest.ts";
+import { resetAuthTokenSelectionStateForTests } from "../src/sources/http.ts";
 
 const originalFetch = globalThis.fetch;
+const originalConsoleLog = console.log;
+const originalAuthTrace = process.env.SYNC_AUTH_TRACE;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  console.log = originalConsoleLog;
+  if (originalAuthTrace === undefined) delete process.env.SYNC_AUTH_TRACE;
+  else process.env.SYNC_AUTH_TRACE = originalAuthTrace;
+  resetAuthTokenSelectionStateForTests();
 });
 
 function mockFetch(fn: (url: URL, init: RequestInit) => Response | Promise<Response>): void {
@@ -123,6 +130,49 @@ test("GitHub REST round-robin bot tokens alternate between successful requests",
   assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
   assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
+});
+
+test("new GitHub REST clients rotate their initial round-robin cursor", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify([{ ok: true }]), { status: 200 });
+  });
+  const tokens = [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "round_robin" as const },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "round_robin" as const },
+  ];
+
+  const firstClient = makeRestClient("https://api.github.com", tokens, "github");
+  const secondClient = makeRestClient("https://api.github.com", tokens, "github");
+
+  assert.deepEqual(await firstClient("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(await secondClient("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b"]);
+});
+
+test("GitHub REST auth trace logs route labels without token values or dynamic path params", async () => {
+  const lines: string[] = [];
+  process.env.SYNC_AUTH_TRACE = "1";
+  console.log = ((...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  }) as typeof console.log;
+  mockFetch(() => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "round_robin" },
+  ], "github");
+
+  assert.deepEqual(await client("repos/sympoies/symphony-board/compare/main...feature%2Fsecret-customer-branch"), { ok: true });
+  const trace = lines.find((line) => line.includes("[auth-trace]"));
+  assert.ok(trace, "auth trace should emit one log line");
+  assert.match(trace, /api=rest/);
+  assert.match(trace, /token=github_app:BOT_A_INSTALLATION_ID/);
+  assert.match(trace, /repo=sympoies\/symphony-board/);
+  assert.match(trace, /op=repos\/:owner\/:repo\/compare\/:base\.\.\.:head/);
+  assert.doesNotMatch(trace, /bot-a-secret/);
+  assert.doesNotMatch(trace, /feature/);
+  assert.doesNotMatch(trace, /secret-customer-branch/);
 });
 
 test("once every token is cooled down, the REST client stops hammering them", async () => {

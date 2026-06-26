@@ -39,6 +39,8 @@ selection through `auth_pools` plus `auth_policy`:
   `private_key_env`, `private_key_base64_env`, or `private_key_path_env`. A bot
   pool with `strategy: "round_robin"` spreads successful GraphQL/REST requests
   across the configured apps instead of exhausting one before using the next.
+  Long-running daemons also rotate the starting cursor for newly rebuilt clients
+  so each sync run does not pin its first expensive pages to the same bot.
 - `auth_policy.mode` chooses the pool at source or repo scope: `pat` uses one
   PAT pool, `bot` uses one bot pool, `bot_then_pat` uses bot round-robin first
   and PAT failover only when the bot tokens are unavailable/rate-limited, and
@@ -51,6 +53,11 @@ The Diagnostics `Rate limit` tab probes one lightweight GraphQL request per
 configured GitHub credential and shows PAT vs bot, PAT account login or bot
 name, strategy, remaining budget, and used budget. Token values and private-key
 values never appear in the response or UI.
+
+Set `SYNC_AUTH_TRACE=1` temporarily to log each provider request's selected
+credential label, auth kind, strategy, API kind, operation, and repo when it can
+be inferred. The trace never logs token values or private keys; leave it off in
+normal operation because it is intentionally verbose.
 
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers, such
