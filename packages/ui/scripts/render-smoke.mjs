@@ -1330,20 +1330,40 @@ try {
   const itemsRangeButtons = await rangeButtonLabels();
   const itemsCountText = await textOf(".items-head .count");
   const itemsSummary = (await send("Runtime.evaluate", {
-    expression: `(() => {
+    expression: `new Promise((resolve) => {
       const rows = Array.from(document.querySelectorAll('.items-page .item-row'));
       const first = rows[0];
-      const kindGroup = Array.from(document.querySelectorAll('.controls .toggle-group'))
-        .find((g) => g.querySelector('.toggle-label')?.textContent === 'kind');
-      return {
-        rows: rows.length,
-        providerLinks: Array.from(document.querySelectorAll('.items-page .item-row-title[href]')).length,
-        graphLinks: Array.from(document.querySelectorAll('.items-page .item-row-graph[href^="#/graph"]')).length,
-        firstUpdated: first?.querySelector('time[title]')?.textContent || '',
-        hasKindGroup: !!kindGroup,
-        kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
-      };
-    })()`,
+      const second = rows[1];
+      const firstTitle = first?.querySelector('.item-row-title')?.textContent?.trim() || '';
+      const secondTitle = second?.querySelector('.item-row-title')?.textContent?.trim() || '';
+      const initialDetailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.trim() || '';
+      second?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      setTimeout(() => {
+        const afterClickDetailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.trim() || '';
+        const listBox = document.querySelector('.items-page .items-list')?.getBoundingClientRect();
+        const detailBox = document.querySelector('.items-page .items-detail')?.getBoundingClientRect();
+        const kindGroup = Array.from(document.querySelectorAll('.controls .toggle-group'))
+          .find((g) => g.querySelector('.toggle-label')?.textContent === 'kind');
+        resolve({
+          rows: rows.length,
+          providerLinks: Array.from(document.querySelectorAll('.items-page .item-row-title[href]')).length,
+          graphLinks: Array.from(document.querySelectorAll('.items-page .item-row-graph[href^="#/graph"]')).length,
+          firstUpdated: first?.querySelector('time[title]')?.textContent || '',
+          split: !!document.querySelector('.items-page .items-split'),
+          detail: !!document.querySelector('.items-page .items-detail'),
+          detailBodyText: document.querySelector('.items-page .items-detail-body')?.textContent?.trim() || '',
+          selectedRows: document.querySelectorAll('.items-page .item-row-selected').length,
+          firstTitle,
+          secondTitle,
+          initialDetailTitle,
+          afterClickDetailTitle,
+          listLeftOfDetail: !!listBox && !!detailBox && listBox.left < detailBox.left && listBox.right <= detailBox.left + 24,
+          hasKindGroup: !!kindGroup,
+          kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
+        });
+      }, 0);
+    })`,
+    awaitPromise: true,
     returnByValue: true,
   })).result.value || {};
   // Page 3c — Commits: a focused, GitHub-like commit log with SCM filters. Repo
@@ -3472,7 +3492,12 @@ try {
     [itemsSummary.providerLinks >= 1, `items: provider title links rendered (${itemsSummary.providerLinks || 0} >= 1)`],
     [itemsSummary.graphLinks >= 1, `items: related rows keep a focus-in-graph affordance (${itemsSummary.graphLinks || 0} >= 1)`],
     [/updated \d/.test(itemsSummary.firstUpdated || ""), `items: newest row exposes the updated timestamp first (${itemsSummary.firstUpdated || "empty"})`],
-    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("change_request") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips without a separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
+    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("change_request") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with PR/MR display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
+    [itemsSummary.split === true && itemsSummary.detail === true && itemsSummary.listLeftOfDetail === true, `items: renders a left list with a right detail pane (${JSON.stringify({ split: itemsSummary.split, detail: itemsSummary.detail, listLeftOfDetail: itemsSummary.listLeftOfDetail })})`],
+    [itemsSummary.initialDetailTitle.includes(itemsSummary.firstTitle || "__missing__"), `items: defaults the detail pane to the newest row (${JSON.stringify({ row: itemsSummary.firstTitle, detail: itemsSummary.initialDetailTitle })})`],
+    [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],
+    [itemsSummary.selectedRows === 1, `items: exactly one row is marked selected (${itemsSummary.selectedRows || 0})`],
+    [(itemsSummary.detailBodyText || "").length > 0, "items: detail pane exposes item body/details text"],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],

@@ -155,6 +155,7 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 const UNRESOLVED_ON: ReadonlySet<string> = new Set(["unresolved"]);
 // Chip labels for the review lens: "threads" -> "has threads", "unresolved" as-is.
 const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads" : v);
+const itemKindFacetLabel = (v: string): string => (v === "change_request" ? "PR/MR" : v);
 type MobileControlPanel = "search" | "filters" | "range" | null;
 type EnvAuthority = "server" | "file";
 
@@ -1082,7 +1083,7 @@ export function App() {
     const groups: ControlGroup[] = [
       { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
       { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
-      { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds },
+      { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds, displayValue: itemKindFacetLabel },
     ];
     // The review lens filters items (board/graph) but not aggregated repo
     // metrics (repoMetricMatches has no review predicate), so omit it on
