@@ -3282,6 +3282,10 @@ try {
   const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const settingIndex = (title) => (settingsDisplayModel.headings || []).indexOf(title);
+  const expectedTabOrderBeforeMove = ["Live", "Activity", "Items", "Commits", "Reviews", "Board", "Graph", "Analytics", "Settings"];
+  const expectedTabOrderAfterMove = ["Live", "Activity", "Items", "Commits", "Reviews", "Board", "Analytics", "Graph", "Settings"];
+  const expectedContentRowsAfterMove = ["Activity", "Items", "Commits", "Reviews", "Board", "Analytics", "Graph"];
+  const expectedStoredTabOrderAfterMove = '["activity","items","commits","reviews","board","repo-analytics","graph"]';
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
@@ -3681,11 +3685,11 @@ try {
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Live tab") > settingIndex("Tab order") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
-    [tabOrderClick.clicked === true && tabOrderBefore.indexOf("Analytics") > tabOrderBefore.indexOf("Graph") && tabOrderAfterMove.labels.indexOf("Analytics") > -1 && tabOrderAfterMove.labels.indexOf("Analytics") < tabOrderAfterMove.labels.indexOf("Graph") && tabOrderAfterMove.rows.indexOf("Analytics") < tabOrderAfterMove.rows.indexOf("Graph") && /repo-analytics/.test(tabOrderAfterMove.stored), `settings: tab order control moves Analytics before Graph and persists (${JSON.stringify(tabOrderAfterMove)})`],
+    [tabOrderClick.clicked === true && JSON.stringify(tabOrderBefore) === JSON.stringify(expectedTabOrderBeforeMove) && JSON.stringify(tabOrderAfterMove.labels) === JSON.stringify(expectedTabOrderAfterMove) && JSON.stringify(tabOrderAfterMove.rows) === JSON.stringify(expectedContentRowsAfterMove) && tabOrderAfterMove.stored === expectedStoredTabOrderAfterMove, `settings: tab order control moves Analytics before Graph while Live/Settings stay anchored (${JSON.stringify(tabOrderAfterMove)})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
     [bothOffGuard.title === "Symphony Board" && bothOffGuard.hasBrandIcon === true && bothOffGuard.sourceChips === 0 && bothOffGuard.syncButton === false, `settings: both-off board route keeps brand-only header (${JSON.stringify(bothOffGuard)})`],
-    [liveOnlySettings.liveChecked === true && boardDataOnlyReenabledTabs.liveChecked === true && boardDataOnlyReenabledTabs.boardData === "on" && ["Activity", "Items", "Commits", "Reviews", "Board", "Graph", "Analytics"].every((label) => boardDataOnlyReenabledTabs.visibleLabels.includes(label)), `settings: turning only Board data off then on restores the contract-backed tabs (${JSON.stringify(boardDataOnlyReenabledTabs)})`],
+    [liveOnlySettings.liveChecked === true && boardDataOnlyReenabledTabs.liveChecked === true && boardDataOnlyReenabledTabs.boardData === "on" && JSON.stringify(boardDataOnlyReenabledTabs.visibleLabels) === JSON.stringify(expectedTabOrderAfterMove), `settings: turning only Board data off then on restores the saved tab order (${JSON.stringify(boardDataOnlyReenabledTabs)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],

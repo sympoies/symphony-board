@@ -313,6 +313,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
   assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
   assert.equal(loadBoardScope(), "full", "board scope load degrades to the full default");
+  assert.deepEqual(loadContentTabOrder(), ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"], "content tab order load degrades to the default order");
   assert.equal(loadLastContractTimezone(null), null, "last contract timezone load degrades to unknown");
   assert.equal(loadWideLayout(), false, "wide layout load degrades to off");
   assert.deepEqual([...loadHiddenEventTypes()], [], "hidden event types degrade to empty");
@@ -320,6 +321,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.doesNotThrow(() => saveLiveTabEnabled(true));
   assert.doesNotThrow(() => saveLivePulseOpen(false));
   assert.doesNotThrow(() => saveBoardScope("full"));
+  assert.doesNotThrow(() => saveContentTabOrder(["graph", "activity"]));
   assert.doesNotThrow(() => saveLastContractTimezone(null, "Asia/Taipei"));
   assert.doesNotThrow(() => saveWideLayout(true));
   assert.doesNotThrow(() => saveHiddenEventTypes(new Set(["commit"])));
