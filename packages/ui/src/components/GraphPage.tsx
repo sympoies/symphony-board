@@ -728,12 +728,9 @@ export function GraphPage({
   onMobileView,
 }: {
   edges: ResolvedEdge[];
-  // The FOCUS-path edge set: same visibility + facet filters as `edges`, but
-  // always from the full contract payload — with a custom range active, `edges`
-  // comes from the range-projected contract whose edge set is windowed
-  // server-side, and a focus view must show an item's COMPLETE neighbourhood
-  // regardless of the selected range (the range controls render suspended in
-  // focus). Same reference as `edges` when no range payload is active.
+  // The FOCUS-path edge set: same visibility + facet filters as `edges`, expanded
+  // without the overview's client-side time/mention filters. Under
+  // range-as-download this is still bounded by the loaded primary env.
   focusEdges: ResolvedEdge[];
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
@@ -786,10 +783,9 @@ export function GraphPage({
   const listGraph = useMemo(() => buildGraph(overview.candidateEdges), [overview]);
   const graph = useMemo(() => buildGraph(overview.drawnEdges), [overview]);
 
-  // Side-list derivations over the FOCUS edge set — full payload, no time
-  // window: every resolvable item (so the focus view can surface relations the
-  // window OR the range projection hides), the adjacency map, and the set of
-  // refs currently available to the overview list/canvas.
+  // Side-list derivations over the FOCUS edge set: every resolvable item in the
+  // loaded projection, the adjacency map, and the set of refs currently available
+  // to the overview list/canvas.
   const itemsByRef = useMemo(() => {
     const m = new Map<string, ItemDTO>();
     for (const re of focusEdges) {
@@ -819,11 +815,11 @@ export function GraphPage({
     if (!sameMembers) onFocusChange(null);
   }, [candidateIds, onFocusChange]);
 
-  // When an item is focused, the canvas shows that item's FULL relationship
+  // When an item is focused, the canvas shows that item's loaded relationship
   // neighbourhood (focusSubgraph over focusEdges — all edge types, no overview
-  // range filter, full payload) instead of the windowed overview graph, so every
-  // relationship the side list lists is drawn (incl. mentions, regardless of the
-  // toggle). The time-range controls render suspended while this view is active.
+  // range filter) instead of the overview graph, so every relationship the side
+  // list lists is drawn (incl. mentions, regardless of the toggle). The time-range
+  // controls render suspended while this view is active.
   // Falls back to the full graph if the focus has no edges (nothing to render).
   const view = useMemo<GraphData>(() => {
     if (!focusId) return graph;

@@ -143,26 +143,6 @@ export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
   return new Map(env.items.map((it) => [it.id, it]));
 }
 
-// Index used to resolve Activity review rows to their target PR's CURRENT review
-// threads. A review's target can live in only ONE of two item sets, so neither
-// alone is sufficient: the full-contract `items[]` is windowed (it omits a PR
-// updated only inside a custom range that predates the static window), while the
-// active /api/range projection omits a PR updated *after* the range. Union them
-// — preferring the /api/range projection on overlap — so the unresolved lens
-// resolves a review whether its target is in the static window OR the range.
-//
-// On overlap the range row wins because it is the fresher source: /api/range
-// reads the canonical store live at request time, whereas the full contract is
-// an emitted file loaded at page mount that can lag after a background sync.
-export function mergeActivityIndex(
-  fullVisible: ReadonlyMap<string, ItemDTO>,
-  rangeProjected: ReadonlyMap<string, ItemDTO>,
-): Map<string, ItemDTO> {
-  const merged = new Map(fullVisible);
-  for (const [id, it] of rangeProjected) merged.set(id, it);
-  return merged;
-}
-
 // A DOM-safe anchor id for an item ref (refs contain '|', ':', '/'). The same
 // encoding is used for the element id and the link fragment so they match.
 export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)}`;
@@ -429,15 +409,6 @@ export function presetBeyondLoadedWindow(presetRange: TimeRange, windowFrom: str
   return windowFrom != null && presetRange.from < windowFrom;
 }
 
-// A synthetic quick-range button equal to a loaded board window. #488 dropped the
-// windowed-scope synthetic button (the range itself is now the download), so the
-// `windowQuickPreset` builder is gone; the type remains as the TimeRangeControls
-// `windowPreset` prop shape (App passes null) for a future synthetic-button reuse.
-export interface WindowQuickPreset {
-  label: string;
-  range: TimeRange;
-}
-
 export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {
   const matchingPresetIds = TIME_RANGE_PRESETS
     .filter((candidate) => sameTimeRange(range, timeRangeForPreset(candidate.id, now, tz)))
@@ -549,25 +520,17 @@ export function rangeReachesDataTail(range: TimeRange, dataExtent: TimeRange | n
 }
 
 // The data extent an empty state advertises and wires its "Show all" / "Jump to
-// latest" actions to. The Activity feed measures a TRUE (unwindowed) extent from
-// the full-history overlay so those actions reach real older history on a full
-// board. But on a WINDOWED Board-data device only the rolling window is loaded:
-// advertising the full extent there points "Show all" at an out-of-window
-// /api/range fetch that bypasses the very memory cap the windowed scope exists to
-// enforce, and the extent copy ("activity from X to Y") overpromises the loaded
-// data. So cap the empty-state extent to the loaded window when windowed (for a
-// windowed range env that window is exactly the board-window range); full / off
-// keeps the true extent. The sibling Commits empty state needs no cap: its
-// `commitDataExtent` reads only `env.activity_daily` (no full-history overlay)
-// and falls back to the window, so it is already window-bounded — only the
-// activity extent can overshoot the loaded window via the `fullActivityDaily`
-// overlay.
+// latest" actions to. Range-as-download made the selected range the primary load,
+// so capping a quiet range to its own window sends the escape hatch nowhere. Keep
+// the true full-history extent supplied by activity_daily (when known).
 export function emptyStateDataExtent(
   windowed: boolean,
   windowRange: TimeRange | null,
   fullExtent: TimeRange | null,
 ): TimeRange | null {
-  return windowed ? windowRange : fullExtent;
+  void windowed;
+  void windowRange;
+  return fullExtent;
 }
 
 export function isDateOnly(value: string | null | undefined): value is string {

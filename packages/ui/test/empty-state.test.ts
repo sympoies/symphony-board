@@ -116,24 +116,22 @@ test("boardCommitTotal: falls back to the windowed commit count without an aggre
   assert.equal(boardCommitTotal(null), 0);
 });
 
-// `emptyStateDataExtent` caps the extent the Activity empty state advertises (and
-// wires "Show all" / "Jump to latest" to). On a WINDOWED Board-data device the
-// loaded data only spans the rolling window, so advertising the full-history
-// extent would point "Show all" at an out-of-window /api/range fetch that
-// bypasses the very memory cap the windowed scope exists to enforce, and the
-// extent copy would overpromise. A full / off board keeps the true unwindowed
-// extent so those actions still reach real older history.
+// `emptyStateDataExtent` is retained as a compatibility helper, but under the
+// range-as-download model the Activity empty state should keep the full-history
+// extent from /api/activity-daily. The selected range is now the primary load;
+// capping the empty-state extent to that same range makes "Jump to latest" /
+// "Show all" target the quiet window instead of the board's real activity span.
 const FULL_EXTENT = { from: "2025-06-15", to: "2026-06-18" };
 const BOARD_WINDOW = { from: "2026-06-12", to: "2026-06-18" }; // a 7d windowed scope
 
-test("emptyStateDataExtent: a windowed env caps the extent to the loaded window", () => {
-  assert.deepEqual(emptyStateDataExtent(true, BOARD_WINDOW, FULL_EXTENT), BOARD_WINDOW);
+test("emptyStateDataExtent: a windowed env keeps the true full-history extent", () => {
+  assert.deepEqual(emptyStateDataExtent(true, BOARD_WINDOW, FULL_EXTENT), FULL_EXTENT);
 });
 
 test("emptyStateDataExtent: a full / off env keeps the true unwindowed extent", () => {
   assert.deepEqual(emptyStateDataExtent(false, BOARD_WINDOW, FULL_EXTENT), FULL_EXTENT);
 });
 
-test("emptyStateDataExtent: a windowed env with no known window advertises nothing", () => {
-  assert.equal(emptyStateDataExtent(true, null, FULL_EXTENT), null);
+test("emptyStateDataExtent: missing full-history extent advertises nothing", () => {
+  assert.equal(emptyStateDataExtent(true, BOARD_WINDOW, null), null);
 });

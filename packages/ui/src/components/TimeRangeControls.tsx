@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { activeTimeRangePresetId, isDateOnly, normalizeTimeRange, presetBeyondLoadedWindow, sameTimeRange, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId, type WindowQuickPreset } from "../model.ts";
+import { activeTimeRangePresetId, isDateOnly, normalizeTimeRange, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "../model.ts";
 
 const DISPLAY_DATE_PATTERN = "\\d{4}/\\d{2}/\\d{2}";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -71,12 +71,9 @@ export function TimeRangeControls({
   generatedAt,
   timezone,
   preferredPresetId,
-  loading,
-  error,
   suspended,
   suspendedReason = "focus",
   loadedFrom,
-  windowPreset,
   collapsibleOnNarrow,
   mobilePanel,
   onRange,
@@ -86,20 +83,14 @@ export function TimeRangeControls({
   generatedAt: string;
   timezone: string;
   preferredPresetId?: TimeRangePresetId | null;
-  loading?: boolean;
-  error?: string | null;
   // The earliest day this device actually loaded (Board data window start), or null
   // for no cap (Full board / desktop). Quick-range presets that reach further back
   // than this are HIDDEN — the loaded board has no data that old, so an inert button
   // is just noise. The manual from/to inputs are deliberately NOT capped (an explicit
   // escape hatch for older ranges).
   loadedFrom?: string | null;
-  // A synthetic quick button equal to the loaded board window, for a windowed scope
-  // no fixed preset names (e.g. "3d"). Leads the rolling group and is the one-click
-  // way back to "everything this device loaded". Null on Full / matched windows.
-  windowPreset?: WindowQuickPreset | null;
   // True while the current view ignores the time range (the graph's focus view
-  // shows an item's FULL neighbourhood). The selection is KEPT — the active
+  // shows the focused item's loaded relationships). The selection is KEPT — the active
   // preset stays highlighted — but the whole control dims and interaction is
   // disabled, so the user sees their range is remembered yet not in effect.
   // Clearing focus flips this back without losing the selection.
@@ -124,14 +115,9 @@ export function TimeRangeControls({
   const generatedAtMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
   const presetOptions = TIME_RANGE_PRESETS.map((option) => ({ option, range: timeRangeForPreset(option.id, generatedAtMs, timezone) }));
   const activePresetId = activeTimeRangePresetId(range, generatedAtMs, preferredPresetId, timezone);
-  // The injected board-window button is active when the current range IS the loaded
-  // window — which, for a windowed scope, is exactly the landing range.
-  const windowActive = windowPreset != null && sameTimeRange(range, windowPreset.range);
   // Collapsed-state summary for the narrow disclosure: the active quick preset's
-  // label (the window button included), else the explicit from–to range.
-  const activePresetLabel = windowActive
-    ? windowPreset.label
-    : (presetOptions.find(({ option }) => option.id === activePresetId)?.option.label ?? null);
+  // label, else the explicit from–to range.
+  const activePresetLabel = presetOptions.find(({ option }) => option.id === activePresetId)?.option.label ?? null;
   const rangeSummary = activePresetLabel ?? `${dateOnlyToDisplay(range.from)} – ${dateOnlyToDisplay(range.to)}`;
   const rangeOpen = mobilePanel === undefined ? localRangeOpen : mobilePanel === "range";
   const setRangeOpen = (open: boolean) => {
@@ -258,21 +244,7 @@ export function TimeRangeControls({
         </button>
       ));
   const calendarButtons = presetButtons("calendar");
-  // The injected board-window button (e.g. "3d") leads the rolling group; it always
-  // sits within the loaded window, so it is never hidden. Clears the preset id since
-  // it is not a fixed preset — the window-active highlight is driven by windowActive.
-  const windowButton = windowPreset ? (
-    <button
-      key="__window"
-      type="button"
-      className={`toggle${windowActive ? " toggle-on" : ""}`}
-      disabled={suspended}
-      onClick={() => onRange(windowPreset.range, null)}
-    >
-      {windowPreset.label}
-    </button>
-  ) : null;
-  const rollingButtons = windowButton ? [windowButton, ...presetButtons("rolling")] : presetButtons("rolling");
+  const rollingButtons = presetButtons("rolling");
   const rangeBody = (className: string) => (
     <div className={className}>
       <span className="muted time-range-label">range</span>
@@ -333,8 +305,6 @@ export function TimeRangeControls({
         {rollingButtons}
       </div>
       {suspended ? <span className="muted">{suspendedReason === "static" ? "showing all demo data" : "not applied in focus"}</span> : null}
-      {loading ? <span className="muted">loading range...</span> : null}
-      {error ? <span className="range-error">{error}</span> : null}
     </div>
   );
   return (
@@ -342,7 +312,7 @@ export function TimeRangeControls({
       ref={controlsRef}
       className={`time-range-controls${suspended ? " range-suspended" : ""}`}
       data-range-collapsed={collapsibleOnNarrow && !rangeOpen ? "true" : undefined}
-      title={suspended ? (suspendedReason === "static" ? "This is a static demo with no server, so it shows the full bundled contract — the time range can't be narrowed here." : "Time range doesn't apply while an item is focused in the graph — the focus view shows the item's full neighbourhood. Leave focus to re-enable.") : undefined}
+      title={suspended ? (suspendedReason === "static" ? "This is a static demo with no server, so it shows the full bundled contract — the time range can't be narrowed here." : "Time range doesn't apply while an item is focused in the graph — the focus view shows the loaded relationships for that item. Leave focus to re-enable.") : undefined}
     >
       {collapsibleOnNarrow ? (
         <button

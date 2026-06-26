@@ -10,15 +10,16 @@ import {
   loadDefaultTab, saveDefaultTab,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
-  loadBoardScope, saveBoardScope, defaultBoardScope, isBoardScope,
-  rangeOverlayAllowedForSource, rangeOverlayAllowed, isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled,
+  loadBoardScope, saveBoardScope, defaultBoardScope,
+  isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled,
   deviceCeilingDays, clampRangeToCeiling, isDefaultWindowRange, usesStaticContractFastPath, defaultRangePresetForClient,
+  loadLastContractTimezone, saveLastContractTimezone,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
   defaultServerBaseUrlForRuntime,
   loadServerBaseUrl, saveServerBaseUrl, normalizeServerBaseUrl,
 } from "../src/viewconfig.ts";
-import { timeRangeForPreset } from "../src/model.ts";
+import { cutoffIso, timeRangeForPreset } from "../src/model.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 
 // viewconfig persists Settings choices to localStorage. node has no DOM, so we
@@ -139,57 +140,25 @@ test("live metrics disclosure is a device-local setting that is OPEN by default"
   assert.equal(loadLivePulseOpen(), false, "non-boolean stored value -> collapsed");
 });
 
-test("board scope is a device-local setting with off/window/full semantics", () => {
-  // Per-client default: Android (weak e-ink hardware) starts on a 7-day window;
-  // every other client keeps the full board.
-  assert.equal(defaultBoardScope("android"), "7d");
+test("board scope is a device-local on/off setting; legacy window values normalize to on", () => {
+  // The selected range now controls download size; Board data only toggles on/off.
+  assert.equal(defaultBoardScope("android"), "full");
   assert.equal(defaultBoardScope("desktop"), "full");
   assert.equal(defaultBoardScope(null), "full");
-  // Round-trip + the type guard.
-  assert.equal(isBoardScope("7d"), true);
-  assert.equal(isBoardScope("2w"), false);
   // No client kind in the test env -> the non-Android default ("full").
   assert.equal(loadBoardScope(), "full", "default with no stored value and no Android client kind");
-  saveBoardScope("3d");
-  assert.equal(loadBoardScope(), "3d");
   saveBoardScope("off");
   assert.equal(loadBoardScope(), "off");
-  // Hand-edited / stale garbage falls back to the default.
-  store._raw("symphony-board:board-scope", "5d");
+  saveBoardScope("full");
+  assert.equal(loadBoardScope(), "full");
+  // Hand-edited / legacy window values from the old 9-value model mean "on".
+  for (const legacy of ["1d", "3d", "7d", "1mo", "3mo", "6mo", "1y", "5d"]) {
+    store._raw("symphony-board:board-scope", legacy);
+    assert.equal(loadBoardScope(), "full", `${legacy} -> full`);
+  }
+  // Stale garbage also falls back to the default.
+  store._raw("symphony-board:board-scope", "wat");
   assert.equal(loadBoardScope(), "full", "invalid stored value -> default");
-});
-
-test("rangeOverlayAllowedForSource suppresses the ./api/range overlay for a file-loaded env (#424)", () => {
-  // A windowed-scope device that loads an uploaded contract via loadFile gets an env
-  // with no range_query, so its landing default range (a preset window) differs from
-  // the file's true item_window extent → customRange → the range overlay would
-  // otherwise fetch ./api/range and OVERWRITE the uploaded payload (or surface
-  // rangeError on a static/offline host, or an Android client with no server URL).
-  // The overlay must stay suppressed for a file env; the views filter the loaded env
-  // to the active range client-side, so an uploaded contract never needs the server
-  // projection.
-  assert.equal(rangeOverlayAllowedForSource("file"), false, "a file-loaded env never refetches the range overlay");
-  // A network-loaded env keeps the existing server-projection behavior.
-  assert.equal(rangeOverlayAllowedForSource("network"), true, "a network env may fetch the range overlay");
-  // Before any contract has loaded there is no metadata; treat it as allowed so the
-  // existing (non-file) behavior is the default.
-  assert.equal(rangeOverlayAllowedForSource(null), true, "no source yet (pre-load) keeps the default overlay behavior");
-  assert.equal(rangeOverlayAllowedForSource(undefined), true, "undefined source keeps the default overlay behavior");
-});
-
-test("rangeOverlayAllowed also suppresses the overlay on a static, server-less deployment (Pages demo)", () => {
-  // A static host (the GitHub Pages demo) serves ./contract.json but 404s
-  // ./api/range, so the overlay must stay off even for a NETWORK-loaded contract —
-  // otherwise a fresh visitor whose default range falls outside the contract window
-  // opens on "Could not load selected range." The views filter the full payload
-  // client-side, the same as the #424 file-env path.
-  assert.equal(rangeOverlayAllowed("network", true), false, "static deployment never fetches the range overlay, even for a network env");
-  assert.equal(rangeOverlayAllowed("file", true), false, "static + file: still suppressed");
-  assert.equal(rangeOverlayAllowed(null, true), false, "static + pre-load: suppressed");
-  // Non-static keeps the source-based behavior (#424) unchanged — the historical path.
-  assert.equal(rangeOverlayAllowed("network", false), true, "non-static network env may fetch the overlay");
-  assert.equal(rangeOverlayAllowed("file", false), false, "non-static file env stays suppressed (#424)");
-  assert.equal(rangeOverlayAllowed(null, false), true, "non-static pre-load keeps the default overlay behavior");
 });
 
 test("liveControlsDisabled disables the Live preferences only on a static, server-less deployment (Pages demo)", () => {
@@ -282,12 +251,14 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
   assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
   assert.equal(loadBoardScope(), "full", "board scope load degrades to the full default");
+  assert.equal(loadLastContractTimezone(null), null, "last contract timezone load degrades to unknown");
   assert.equal(loadWideLayout(), false, "wide layout load degrades to off");
   assert.deepEqual([...loadHiddenEventTypes()], [], "hidden event types degrade to empty");
   assert.doesNotThrow(() => saveHidden(new Set(["x"])), "save swallows the error");
   assert.doesNotThrow(() => saveLiveTabEnabled(true));
   assert.doesNotThrow(() => saveLivePulseOpen(false));
-  assert.doesNotThrow(() => saveBoardScope("7d"));
+  assert.doesNotThrow(() => saveBoardScope("full"));
+  assert.doesNotThrow(() => saveLastContractTimezone(null, "Asia/Taipei"));
   assert.doesNotThrow(() => saveWideLayout(true));
   assert.doesNotThrow(() => saveHiddenEventTypes(new Set(["commit"])));
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
@@ -327,17 +298,37 @@ test("clampRangeToCeiling pulls a too-wide range's start up to the ceiling, leav
   assert.deepEqual(clampRangeToCeiling(wide, null, REF_NOW, "UTC"), wide);
 });
 
-test("isDefaultWindowRange recognises exactly the trailing 90-day window (the static contract fast-path)", () => {
-  const def = timeRangeForPreset("3mo", REF_NOW, "UTC"); // 3mo == 90 rolling days == the default window
-  assert.equal(isDefaultWindowRange(def, REF_NOW, "UTC"), true, "trailing 90d takes the fast-path");
+test("clampRangeToCeiling never returns an inverted range for an all-historical selection", () => {
+  const historical = { from: "2026-01-01", to: "2026-01-10" };
+  const clamped = clampRangeToCeiling(historical, 30, REF_NOW, "UTC");
+  assert.deepEqual(clamped, { from: "2026-05-28", to: "2026-05-28" });
+  assert.ok(clamped.from <= clamped.to, "from <= to");
+});
+
+test("isDefaultWindowRange recognises exactly the producer active-since window (the static contract fast-path)", () => {
+  const staticWindow = { from: cutoffIso(90, REF_NOW).slice(0, 10), to: "2026-06-26" };
+  const rollingPreset = timeRangeForPreset("3mo", REF_NOW, "UTC");
+  assert.equal(isDefaultWindowRange(staticWindow, REF_NOW, "UTC"), true, "the producer cutoff window takes the fast-path");
+  assert.equal(isDefaultWindowRange(rollingPreset, REF_NOW, "UTC"), false, "the inclusive 90-day picker preset is one day narrower");
   assert.equal(isDefaultWindowRange(timeRangeForPreset("this-week", REF_NOW, "UTC"), REF_NOW, "UTC"), false, "a week does not");
   assert.equal(isDefaultWindowRange(timeRangeForPreset("1y", REF_NOW, "UTC"), REF_NOW, "UTC"), false, "a year does not");
 });
 
 test("usesStaticContractFastPath: the 90d window or a static deploy uses contract.json, other ranges use /api/range", () => {
-  const def = timeRangeForPreset("3mo", REF_NOW, "UTC");
+  const def = { from: cutoffIso(90, REF_NOW).slice(0, 10), to: "2026-06-26" };
   const week = timeRangeForPreset("this-week", REF_NOW, "UTC");
   assert.equal(usesStaticContractFastPath(def, false, REF_NOW, "UTC"), true, "exact default window -> static");
   assert.equal(usesStaticContractFastPath(week, false, REF_NOW, "UTC"), false, "a sub-window -> dynamic /api/range");
   assert.equal(usesStaticContractFastPath(week, true, REF_NOW, "UTC"), true, "static deploy always -> bundled contract.json");
+});
+
+test("last contract timezone is keyed per server and ignores malformed values", () => {
+  assert.equal(loadLastContractTimezone(null), null, "unknown before any contract loads");
+  saveLastContractTimezone(null, "Asia/Taipei");
+  saveLastContractTimezone("https://board.example.com/app", "America/Los_Angeles");
+  assert.equal(loadLastContractTimezone(null), "Asia/Taipei");
+  assert.equal(loadLastContractTimezone("https://board.example.com/app"), "America/Los_Angeles");
+  assert.equal(loadLastContractTimezone("https://other.example.com"), null, "server keys do not collide");
+  store._raw("symphony-board:last-contract-timezone", "{bad");
+  assert.equal(loadLastContractTimezone(null), null, "malformed storage -> unknown");
 });

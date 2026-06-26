@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContract, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
@@ -19,12 +19,10 @@ import {
   activityDailyExtent,
   activityOccurredExtent,
   boardCommitTotal,
-  emptyStateDataExtent,
   isBoardEmpty,
   isCommitActivity,
   filterActivitiesByRange,
   indexItems,
-  mergeActivityIndex,
   itemMatches,
   reviewActivityIsUnresolved,
   repoMetricMatches,
@@ -99,10 +97,11 @@ import {
   deviceCeilingDays,
   clampRangeToCeiling,
   usesStaticContractFastPath,
-  rangeOverlayAllowed,
   isStaticDeployment,
   liveControlsDisabled,
   effectiveLiveTabEnabled,
+  loadLastContractTimezone,
+  saveLastContractTimezone,
   loadWideLayout,
   saveWideLayout,
   currentClientKind,
@@ -185,9 +184,7 @@ export function App() {
   const initialStartupHash = startupHashRef.current;
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
-  const [rangeEnv, setRangeEnv] = useState<ContractEnvelope | null>(null);
-  const [rangeLoading, setRangeLoading] = useState(false);
-  const [rangeError, setRangeError] = useState<string | null>(null);
+  const fileEnvAuthoritativeRef = useRef(false);
   // Full-history activity_daily for the Activity Overview, fetched independently of
   // the board window. Only populated when the primary env is itself windowed (a
   // bounded Board data scope loads a /api/range projection whose activity_daily
@@ -248,6 +245,7 @@ export function App() {
   const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<string>>(loadHiddenEventTypes);
   const [defaultTab, setDefaultTab] = useState<Page>(loadDefaultTab);
   const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(loadServerBaseUrl);
+  const [lastContractTimezone, setLastContractTimezone] = useState<string | null>(() => loadLastContractTimezone(loadServerBaseUrl()));
   // Board columns the viewer manually collapsed to a rail (persisted). Empty
   // columns auto-collapse without being stored here; `peekedColumns` is the
   // transient opposite — empty columns the viewer clicked open to peek inside,
@@ -311,11 +309,11 @@ export function App() {
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
-  const tz = env?.timezone ?? "UTC";
-  // board-scope derived flags. "off" loads no contract (Live-only); a windowed
-  // scope "off" loads no contract (Live-only); otherwise the SELECTED range is the
-  // primary download (#488): the static ./contract.json fast-path for the default
-  // 90-day window / static deploy, else a dynamic /api/range projection.
+  const tz = env?.timezone ?? lastContractTimezone ?? "UTC";
+  // board-scope derived flags. "off" loads no contract (Live-only); otherwise the
+  // SELECTED range is the primary download (#488): the static ./contract.json
+  // fast-path for the default 90-day window / static deploy, else a dynamic
+  // /api/range projection.
   const contractDisabled = boardScope === "off";
   const contractEnabled = !contractDisabled;
   // #488: whether the LOADED env is a range projection — i.e. it carries
@@ -361,20 +359,19 @@ export function App() {
     [env, fullActivityDaily, tz, staticRange],
   );
   const commitDataExtent = useMemo(
-    () =>
-      env
-        ? (env.activity_daily
-            ? activityDailyExtent(env.activity_daily, "commit")
+    () => {
+      const daily = fullActivityDaily ?? env?.activity_daily;
+      return env
+        ? (daily
+            ? activityDailyExtent(daily, "commit")
             : activityOccurredExtent(env.activities ?? [], tz, isCommitActivity)) ?? staticRange
-        : null,
-    [env, tz, staticRange],
+        : null;
+    },
+    [env, fullActivityDaily, tz, staticRange],
   );
-  // Board data is a ceiling on the range: a windowed scope opens on the Default range
-  // but never earlier than the loaded window. When the default reaches the window
-  // start — which it does whenever it is >= the window, since it is auto-clamped to
-  // never exceed it — the landing IS the window, so reuse staticRange and keep
-  // customRange false (no overlay fetch). A default the user deliberately keeps
-  // strictly smaller opens on that sub-range, served by the range overlay.
+  // Static/demo deployments have no /api/range server. They land on the bundled
+  // contract extent and suspend the range controls so narrowing is visibly
+  // unavailable instead of silently failing.
   // A static, server-less deployment (the Pages demo, VITE_SYMPHONY_BOARD_STATIC)
   // can fetch ./contract.json but 404s ./api/range. Treat it like a file env
   // (#424): never project a sub-range over the network, and land on the full
@@ -389,7 +386,7 @@ export function App() {
     // #488: the landing range is the viewer's preset resolved against the contract's
     // generated_at — env-value-stable per local day, so the load effect (keyed on the
     // range's day STRINGS) does not re-fire when setEnv merely recomputes the same day.
-    // The fetch is clamped to the device ceiling in `primaryRange`; the picker disables
+    // The selected/displayed range is clamped below; the picker disables
     // beyond-ceiling presets, so the stored preset is normally already within it.
     return preferredDefaultTimeRange(env, defaultRangePreset);
   }, [env, staticDeployment, staticRange, defaultRangePreset]);
@@ -409,7 +406,7 @@ export function App() {
   // any route range there and pin the active range to the full loaded extent; the
   // range control is suspended (below) so the lock is visible, not silent.
   const explicitRange = useMemo(() => (staticDeployment ? null : routeTimeRange(route)), [route, staticDeployment]);
-  const activeRange = explicitRange ?? defaultRange;
+  const selectedRange = explicitRange ?? defaultRange;
   // #488: the selected range IS the primary download. `primaryRange` is the range
   // the client actually fetches: the active range clamped to the device ceiling
   // (the Android weak-hardware guard — 30d there, 1y elsewhere). On cold start
@@ -422,26 +419,37 @@ export function App() {
   const primaryRange = useMemo(() => {
     if (contractDisabled) return null;
     const clock = env ? generatedNowMs : Date.now();
-    const base = explicitRange ?? defaultRange ?? timeRangeForPreset(defaultRangePreset, clock, tz);
+    const base = selectedRange ?? timeRangeForPreset(defaultRangePreset, clock, tz);
     return clampRangeToCeiling(base, deviceCeiling, clock, tz);
-  }, [contractDisabled, explicitRange, defaultRange, defaultRangePreset, env, generatedNowMs, tz, deviceCeiling]);
+  }, [contractDisabled, selectedRange, defaultRangePreset, env, generatedNowMs, tz, deviceCeiling]);
+  const activeRange = useMemo(() => {
+    if (!selectedRange) return null;
+    const clock = env ? generatedNowMs : Date.now();
+    return clampRangeToCeiling(selectedRange, deviceCeiling, clock, tz);
+  }, [selectedRange, env, generatedNowMs, tz, deviceCeiling]);
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
-  // #488: the primary env now follows the selected range directly (see the load
-  // effect), so the separate /api/range OVERLAY is gone — activeEnv is just env.
-  // File / static-deploy envs are unaffected: they still carry the full payload
-  // and the views filter them to activeRange client-side. `customRange` survives
-  // (it still gates contract-aggregate reuse + the client-side filtering).
-  // TODO(#492): with the overlay collapsed this flag is permanently false, so the
-  // rangeEnv/rangeLoading/rangeError state, the range fetch effect, and the inline
-  // range loading/error UI it gates are now dead scaffolding — remove them (plus the
-  // orphaned rangeOverlayAllowed / WindowQuickPreset) in the range-as-download cleanup.
-  const needsRangeEnv = false;
+  // #488: the primary env follows the selected range directly. File /
+  // static-deploy envs keep their loaded payload and the views filter them to
+  // activeRange client-side.
+
+  const rememberContractTimezone = useCallback((loadedEnv: ContractEnvelope) => {
+    const nextTimezone = loadedEnv.timezone ?? "UTC";
+    saveLastContractTimezone(serverBaseUrl, nextTimezone);
+    setLastContractTimezone(nextTimezone);
+  }, [serverBaseUrl]);
+
+  useEffect(() => {
+    setLastContractTimezone(loadLastContractTimezone(serverBaseUrl));
+  }, [serverBaseUrl]);
 
   // Reload the active data in place after a successful manual sync. It only
   // re-fetches the contract (and the range response for a custom range); the
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
   const reloadData = useCallback(async (): Promise<boolean> => {
+    // Manual refresh / post-sync reload is the explicit escape hatch that lets a
+    // network load replace an uploaded file contract.
+    fileEnvAuthoritativeRef.current = false;
     // board-scope OFF: no contract to reload (Live-only) — a manual refresh /
     // post-sync reload is a no-op for the (absent) board, never an error.
     if (contractDisabled) {
@@ -461,8 +469,10 @@ export function App() {
       : fetchRangeContractWithMetadata(range, serverBaseUrl);
     pending.push(primaryLoad
       .then((loaded) => {
+        if (fileEnvAuthoritativeRef.current) return;
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
+        rememberContractTimezone(loaded.env);
         // Refresh the cold-start cache keyed by the loaded range (#488).
         void saveCachedContract(serverBaseUrl, loaded.env, { range });
         setError(null);
@@ -470,7 +480,7 @@ export function App() {
       })
       .catch((err: unknown) => setError((err as Error).message)));
     await Promise.all(pending);
-    // The primary env (and the range overlay) are refreshed above, but the
+    // The primary env is refreshed above, but the
     // full-history Activity overlay (fullActivityDaily) is fetched by a separate effect
     // that keys off windowedEnv — which is unchanged across a reload (same scope, the
     // new /api/range env still carries range_query). Bump the reload epoch so that
@@ -480,15 +490,14 @@ export function App() {
     // Gate the bump on a successful primary load: on failure the catch only sets
     // `error` and leaves env on the PRE-reload contract, so refetching the overlay
     // would paint a fresher /api/activity-daily aggregate against the unchanged env.
-    // The overlay is derived only from env (never rangeEnv — see fullActivityDaily
-    // below), so the primary load is the complete coverage check: a successful range
-    // overlay with a failed primary must NOT refetch. Skip the bump so the overlay
-    // stays consistent with the (unchanged) env.
+    // The overlay is derived only from env, so the primary load is the complete
+    // coverage check. Skip the bump on failure so the overlay stays consistent
+    // with the unchanged env.
     if (loadedContract) {
       setDataReloadEpoch((e) => e + 1);
     }
     return loadedContract;
-  }, [contractDisabled, staticDeployment, tz, primaryRange, serverBaseUrl, env, generatedNowMs]);
+  }, [contractDisabled, staticDeployment, tz, primaryRange, serverBaseUrl, env, generatedNowMs, rememberContractTimezone]);
   const reloadDataAfterSync = useCallback(async () => {
     await reloadData();
   }, [reloadData]);
@@ -673,13 +682,14 @@ export function App() {
   }, [theme]);
 
   const applyServerBaseUrl = useCallback((nextRaw: string | null) => {
-    saveServerBaseUrl(normalizeServerBaseUrl(nextRaw));
-    setServerBaseUrl(loadServerBaseUrl());
+    const next = normalizeServerBaseUrl(nextRaw);
+    saveServerBaseUrl(next);
+    fileEnvAuthoritativeRef.current = false;
+    setServerBaseUrl(next);
+    setLastContractTimezone(loadLastContractTimezone(next));
     setEnv(null);
     setContractMeta(null);
-    setRangeEnv(null);
     setError(null);
-    setRangeError(null);
     // Reset the init-retry loop so the new server gets a fresh patient window.
     if (initRetryTimerRef.current) {
       clearTimeout(initRetryTimerRef.current);
@@ -718,9 +728,19 @@ export function App() {
     // renders Live / Settings / the "board data off" panel instead of hanging on
     // the "Loading contract…" gate (which never resolves with no fetch in flight).
     if (contractDisabled) {
+      fileEnvAuthoritativeRef.current = false;
       initAttemptRef.current = 0;
       setEnv(null);
       setContractMeta(null);
+      setError(null);
+      setRetrying(false);
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (fileEnvAuthoritativeRef.current) {
+      initAttemptRef.current = 0;
       setError(null);
       setRetrying(false);
       setLoading(false);
@@ -757,9 +777,12 @@ export function App() {
     primaryLoad
       .then((loaded) => {
         if (cancelled) return;
+        if (fileEnvAuthoritativeRef.current) return;
         initAttemptRef.current = 0;
+        fileEnvAuthoritativeRef.current = false;
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
+        rememberContractTimezone(loaded.env);
         // Refresh the cold-start cache so the NEXT launch paints this board before
         // its download resolves (full scope only — see the cache effect above).
         void saveCachedContract(serverBaseUrl, loaded.env, { range });
@@ -794,7 +817,7 @@ export function App() {
         initRetryTimerRef.current = null;
       }
     };
-  }, [serverBaseUrl, reloadKey, contractDisabled, staticDeployment, primaryRange?.from, primaryRange?.to]);
+  }, [serverBaseUrl, reloadKey, contractDisabled, staticDeployment, primaryRange?.from, primaryRange?.to, rememberContractTimezone]);
 
   // Remove the cold-start boot splash (index.html) once the first view has actual
   // CONTENT — never the blank/"Connecting…" gap. On the Live route that means the
@@ -831,35 +854,6 @@ export function App() {
     setBootSplashStatus(retrying ? "Reconnecting…" : "Loading…");
   }, [bootDismissed, retrying]);
 
-  useEffect(() => {
-    if (!activeRange || !staticRange) return;
-    if (!needsRangeEnv) {
-      setRangeEnv(null);
-      setRangeError(null);
-      setRangeLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setRangeLoading(true);
-    setRangeError(null);
-    fetchRangeContract(activeRange, serverBaseUrl)
-      .then((next) => {
-        if (!cancelled) setRangeEnv(next);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setRangeEnv(null);
-          setRangeError((err as Error).message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setRangeLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeRange, needsRangeEnv, serverBaseUrl, staticRange]);
-
   // Keep the Activity Overview a true trailing 12 months even when a bounded Board
   // data scope makes the primary env a windowed /api/range projection (whose
   // activity_daily covers only the window). The full aggregate is small and
@@ -885,34 +879,22 @@ export function App() {
     };
   }, [contractDisabled, windowedEnv, serverBaseUrl, reloadKey, dataReloadEpoch]);
 
-  const activeEnv = needsRangeEnv ? rangeEnv : env;
-  const chromeEnv = activeEnv ?? env;
-
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
   // their edges). Everything below — facets, filters, stats, statuses — works
   // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
   // is derived over the FULL contract so the Settings page can still list (and
   // re-enable) hidden repos.
-  const visibleEnv = useMemo(() => (chromeEnv ? applyVisibility(chromeEnv, hidden, hiddenSources) : null), [chromeEnv, hidden, hiddenSources]);
+  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
   // Item index by ref for the edge resolver. When a historical range is active,
   // visibleEnv is the /api/range projection, so this index is intentionally
   // range-scoped (exactly the projected items + their edge endpoints).
   const itemsById = useMemo(() => (visibleEnv ? indexItems(visibleEnv) : new Map()), [visibleEnv]);
   // Index for resolving Activity review rows to their target PR's CURRENT review
-  // threads. A review's target can live in only one of two item sets: the full
-  // visible contract `items[]` is 90-day windowed (omits a PR updated only in a
-  // custom range that predates the window), while the active /api/range
-  // projection omits a PR updated *after* the range. Resolving against either
-  // alone makes ?unresolved=1 wrongly hide real unresolved reviews (and drop the
-  // thread chip), so union both. Visibility (hidden repos/sources) applies to
-  // both. With no range active this equals itemsById.
-  const fullVisibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
-  const activityItemsById = useMemo(
-    () => mergeActivityIndex(fullVisibleEnv ? indexItems(fullVisibleEnv) : new Map(), itemsById),
-    [fullVisibleEnv, itemsById],
-  );
+  // threads. Range contracts include in-range review activity targets as support
+  // rows, so the active projection is enough here.
+  const activityItemsById = itemsById;
   const allRepos = useMemo(() => (env ? deriveRepoOptions(env) : []), [env]);
   const windowedActivities = useMemo(
     () => (visibleEnv && activeRange ? filterActivitiesByRange(visibleEnv.activities ?? [], activeRange, tz) : []),
@@ -976,8 +958,8 @@ export function App() {
   // source_id -> provider kind (github / gitlab), so a card can show its source
   // mark. Provider kind lives on SourceDTO, not the item — look it up here once.
   const sourceKind = useMemo(
-    () => new Map((activeEnv?.sources ?? []).map((s) => [s.source_id, s.kind])),
-    [activeEnv],
+    () => new Map((env?.sources ?? []).map((s) => [s.source_id, s.kind])),
+    [env],
   );
 
   const filteredItems = useMemo(
@@ -1059,7 +1041,10 @@ export function App() {
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
   // Board-wide commit total from the full-history aggregate (4.0.0 windows
   // env.activities to ~30 days; counting commits there under-reports).
-  const totalCommits = useMemo(() => boardCommitTotal(env ?? activeEnv), [env, activeEnv]);
+  const totalCommits = useMemo(
+    () => boardCommitTotal(env ? { activities: env.activities, activity_daily: fullActivityDaily ?? env.activity_daily } : null),
+    [env, fullActivityDaily],
+  );
 
   const filteredEdges = useMemo(() => {
     if (!visibleEnv) return [];
@@ -1068,18 +1053,10 @@ export function App() {
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
-  // Graph FOCUS edges: like filteredEdges (visibility + facets), but always from
-  // the FULL contract payload. With a custom range active, the content pipeline
-  // runs off the range-projected contract whose edges are windowed server-side
-  // ("edges touch the primary item window") — fine for the overview, but a focus
-  // view exists to show ONE item's complete neighbourhood, so it must not lose
-  // relations to the range projection. Same reference as filteredEdges when no
-  // range payload is active (no duplicated work).
-  const graphFocusEdges = useMemo(() => {
-    if (!needsRangeEnv || !env) return filteredEdges;
-    const fullVisible = applyVisibility(env, hidden, hiddenSources);
-    return resolveEdges(fullVisible, indexItems(fullVisible)).filter((re) => edgeMatches(re, itemFilters));
-  }, [needsRangeEnv, env, hidden, hiddenSources, itemFilters, filteredEdges]);
+  // Graph focus uses the loaded projection's edge set. There is no full-contract
+  // overlay under range-as-download; the focused view expands within whatever the
+  // current primary env loaded.
+  const graphFocusEdges = filteredEdges;
   const canUseContractAggregates =
     hidden.size === 0 &&
     hiddenSources.size === 0 &&
@@ -1089,7 +1066,7 @@ export function App() {
     itemFacetState.kinds.size === 0 &&
     itemFacetState.reviews.size === 0 &&
     itemFacetState.repos.size === 0;
-  const compatibleAggregates = canUseContractAggregates && !customRange ? (env?.aggregates ?? []) : [];
+  const compatibleAggregates = canUseContractAggregates && !customRange && !windowedEnv ? (env?.aggregates ?? []) : [];
 
   // Status is intrinsic — derived over ALL visible items/edges, then filtered
   // items are placed into columns (so a closed item's Trailing status is correct
@@ -1284,10 +1261,13 @@ export function App() {
       .then((t) => {
         const finishedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
         const loaded = parseContractWithMetadata(t, file.name, Math.max(0, Math.round(finishedAt - startedAt)));
+        fileEnvAuthoritativeRef.current = true;
         setEnv(loaded.env);
         setContractMeta(loaded.meta);
-        setRangeEnv(null);
+        rememberContractTimezone(loaded.env);
         setError(null);
+        setLoading(false);
+        setRetrying(false);
       })
       .catch((err: unknown) => setError((err as Error).message));
   }
@@ -1741,16 +1721,14 @@ export function App() {
   if (!activeRange) return <div className="state-msg error">Could not derive a default range from the loaded contract.</div>;
   if (!visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
-  const contentEnv = activeEnv;
-  const rangeContentPending = needsRangeEnv && rangeLoading && !rangeEnv;
-  const rangeContentError = needsRangeEnv && !!rangeError && !rangeEnv;
+  const rangeLoadError = error;
 
   // The whole board has no data at all (fresh install / not yet synced) — drives
   // the board-empty treatment instead of a misleading "nothing in this range".
   // 4.0.0 windows `activities` to ~30 days, so isBoardEmpty also consults the
   // full-history `activity_daily.total`: a dormant board can have an empty
   // windowed `activities` array yet real history (items long since aged out).
-  const boardEmpty = isBoardEmpty(env);
+  const boardEmpty = isBoardEmpty({ ...env, activity_daily: fullActivityDaily ?? env.activity_daily });
   // Props shared by every page's empty state; the per-page noun + counts are
   // filled in at each render site below. `total` is the full-contract count
   // (board-wide) and `windowTotal` the in-range count, so emptyStateKind can
@@ -1769,6 +1747,15 @@ export function App() {
     onOpenSettings: openSettings,
     sync,
   };
+  const fullRepoMetricTotal = env.repo_stats?.length ?? env.repo_metrics?.length ?? 0;
+  const fullChangeRequestTotal =
+    env.repo_stats?.reduce((sum, stat) => sum + (stat.by_kind.change_request ?? 0), 0)
+    ?? env.items.filter((item) => item.kind === "change_request").length;
+  const loadedReviewThreadTotal = Math.max(
+    env.review_threads?.length ?? 0,
+    env.items.reduce((sum, item) => sum + (item.review_threads?.total ?? 0), 0),
+  );
+  const reviewThreadEntityTotal = loadedReviewThreadTotal > 0 ? loadedReviewThreadTotal : fullChangeRequestTotal;
 
   return (
     <div className="app app-wide">
@@ -1808,9 +1795,8 @@ export function App() {
             generatedAt={env.generated_at}
             timezone={tz}
             preferredPresetId={explicitRange ? route.preset : defaultRangePreset}
-            loading={rangeLoading}
-            error={rangeError}
-            // A focused graph item shows its FULL neighbourhood (no time window),
+            // A focused graph item shows its loaded relationships without the
+            // overview time filter,
             // so the range is visibly suspended there — selection kept, dimmed,
             // interaction off. Route-backed (?focus=), so reload/back agree. A
             // static deployment (#432) also suspends it: the range is pinned to the
@@ -1822,8 +1808,6 @@ export function App() {
             // 30d Android) — the widest range this device may request. The manual
             // from/to inputs stay an escape hatch and are clamped at fetch time.
             loadedFrom={ceilingFrom}
-            // No windowed-scope synthetic button: the selected range IS the load.
-            windowPreset={null}
             // On narrow/portrait, collapse the date controls behind a summary
             // disclosure on every page that shows them — the first screen should
             // be content (the feed, board, graph, …), not a tall stack of date
@@ -1836,26 +1820,24 @@ export function App() {
           />
         </div>
       )}
-      {rangeContentPending ? (
-        <div className="state-msg state-msg-inline">Loading range…</div>
-      ) : rangeContentError ? (
+      {rangeLoadError ? (
         <div className="state-msg state-msg-inline error">
-          <p>Could not load selected range: {rangeError}</p>
+          <p>Could not load selected range: {rangeLoadError}</p>
+          <p className="muted">Showing the previous loaded data until a retry succeeds.</p>
         </div>
-      ) : !contentEnv ? (
-        null
-      ) : page === "settings" ? (
+      ) : null}
+      {page === "settings" ? (
         // Settings is handled by the early return above (so it works without a
         // contract); this branch stays only for completeness of the page switch.
         settingsPageEl
       ) : page === "activity" ? (
         <ActivityPage
           activities={filteredActivities}
-          allActivities={env.activities ?? activeEnv.activities ?? []}
+          allActivities={env.activities ?? []}
           activityDaily={fullActivityDaily ?? env.activity_daily ?? null}
           generatedAt={env.generated_at}
           windowTotal={windowedActivities.length}
-          totalActivities={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? activeEnv.activities?.length ?? 0}
+          totalActivities={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0}
           range={activeRange}
           timezone={tz}
           sourceKind={sourceKind}
@@ -1864,7 +1846,7 @@ export function App() {
           view={activityViewValue}
           onView={setActivityView}
           emptyState={
-            <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={emptyStateDataExtent(windowedEnv, staticRange, activityDataExtent)} />
+            <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
           }
         />
       ) : page === "commits" ? (
@@ -1904,7 +1886,7 @@ export function App() {
           emptyState={
             <EmptyState
               noun="review threads"
-              total={env.review_threads?.length ?? 0}
+              total={reviewThreadEntityTotal}
               windowTotal={visibleEnv.review_threads?.length ?? 0}
               {...emptyStateShared}
             />
@@ -1921,7 +1903,7 @@ export function App() {
           emptyState={
             <EmptyState
               noun="repo metrics"
-              total={env.repo_metrics?.length ?? 0}
+              total={fullRepoMetricTotal}
               windowTotal={visibleEnv.repo_metrics?.length ?? 0}
               {...emptyStateShared}
             />
@@ -1941,11 +1923,11 @@ export function App() {
             focusRef={route.focus}
             onFocusChange={setRouteFocus}
             aggregates={compatibleAggregates}
-            itemWindow={contentEnv.item_window}
+            itemWindow={env.item_window}
             range={activeRange}
             timezone={tz}
             emptyState={
-              <EmptyState noun="relationships" total={env.edges.length} windowTotal={contentEnv.edges?.length ?? 0} {...emptyStateShared} />
+              <EmptyState noun="relationships" total={env.edges.length} windowTotal={env.edges?.length ?? 0} {...emptyStateShared} />
             }
             onClearFilters={clearFilters}
             theme={theme}
@@ -1965,7 +1947,7 @@ export function App() {
           peeked={peekedColumns}
           onToggleCollapse={toggleColumnCollapse}
           aggregates={compatibleAggregates}
-          itemWindow={contentEnv.item_window}
+          itemWindow={env.item_window}
           range={activeRange}
           lens={itemFacetFields(itemFacetState)}
         />
