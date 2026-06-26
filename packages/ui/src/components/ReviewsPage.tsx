@@ -448,12 +448,8 @@ function ReviewDetail({
           </h2>
           <div className="live-detail-ref">
             <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
-            {target?.author ? (
-              <>
-                <span className="review-detail-dot" aria-hidden="true">·</span>
-                <span>@{target.author}</span>
-              </>
-            ) : null}
+            <span className="review-detail-dot" aria-hidden="true">·</span>
+            <span>{commentersLabel(thread, target)}</span>
           </div>
           <div className="review-detail-loc">{location ?? "general discussion"}</div>
           {thread.comments.length === 0 ? (
