@@ -12,8 +12,7 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, DEFAULT_TIMEZONE, isHexColor, isTimeRangePresetId, presetBeyondLoadedWindow, staticContractTimeRange, TIME_RANGE_PRESETS, timeRangeForDays, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "./model.ts";
-import { zonedDateOnly } from "./tz.ts";
+import { DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, timeRangeForDays, type TimeRange, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
@@ -259,154 +258,6 @@ export function isBoardScope(value: unknown): value is BoardScope {
   return typeof value === "string" && (BOARD_SCOPE_VALUES as readonly string[]).includes(value);
 }
 
-// Day-count for a WINDOWED scope (a /api/range fetch of this many trailing days),
-// or null for "off" / "full" — neither of which is a time window.
-export function boardScopeDays(scope: BoardScope): number | null {
-  switch (scope) {
-    case "1d":
-      return 1;
-    case "3d":
-      return 3;
-    case "7d":
-      return 7;
-    case "1mo":
-      return 30;
-    case "3mo":
-      return 90;
-    case "6mo":
-      return 180;
-    case "1y":
-      return 365;
-    default:
-      return null;
-  }
-}
-
-// Whether a Default range preset reaches further back than a Board data scope's
-// loaded window — i.e. it is "larger than Board data" and so must not be selectable
-// (the device never loaded data that old). A non-windowed scope (full / off) has no
-// ceiling, so nothing exceeds it. `now` (the contract's generated-at) and `tz`
-// resolve the calendar presets to concrete days for the comparison.
-export function presetExceedsBoardScope(preset: TimeRangePresetId, scope: BoardScope, now: number, tz?: string): boolean {
-  const days = boardScopeDays(scope);
-  if (days == null) return false;
-  return presetBeyondLoadedWindow(timeRangeForPreset(preset, now, tz), timeRangeForDays(days, now, tz).from);
-}
-
-// The Default range preset shrunk to fit a Board data scope: kept as-is when it
-// already fits, otherwise the largest preset still inside the loaded window (widest
-// span first, then ending latest). Lowering Board data below the current Default
-// range pulls the default down with it; a default already within the window is
-// untouched, and raising Board data never grows it back. Falls back to the
-// unchanged preset if somehow nothing fits.
-//
-// Rank by SPAN, not earliest start. Earliest-start is only a proxy for "widest"
-// when every fitting preset ends at `now`; "yesterday" ends a day early, so on a
-// 3d window whose only fitting named presets are the 1-day "today" and "yesterday"
-// (Sunday and Wed–Sat, when "this week" reaches before the window), earliest-start
-// picks "yesterday" — App then opens on yesterday's overlay and hides today's
-// board items even though "today" fits. Widest-span, then latest-end, keeps today
-// visible; for a full span+end tie the stable sort keeps TIME_RANGE_PRESETS order
-// (e.g. "today" before "this-week"), the more conservative persisted default.
-export function clampDefaultRangeToBoardScope(preset: TimeRangePresetId, scope: BoardScope, now: number, tz?: string): TimeRangePresetId {
-  if (!presetExceedsBoardScope(preset, scope, now, tz)) return preset;
-  const windowFrom = timeRangeForDays(boardScopeDays(scope)!, now, tz).from;
-  const spanMs = (range: TimeRange): number => Date.parse(range.to) - Date.parse(range.from);
-  const fitting = TIME_RANGE_PRESETS.map((p) => ({ id: p.id, range: timeRangeForPreset(p.id, now, tz) }))
-    .filter(({ range }) => range.from >= windowFrom)
-    .sort((a, b) => spanMs(b.range) - spanMs(a.range) || b.range.to.localeCompare(a.range.to));
-  return fitting[0]?.id ?? preset;
-}
-
-// The loaded board window as the UI should DISPLAY and compare it: exactly
-// boardScopeDays(scope) days ending at `now` — the contract's generated-at, the
-// SAME instant every quick preset, the active-preset highlight, and the synthetic
-// window button resolve against. Returns null for the unwindowed scopes (off /
-// full), which have no fixed window.
-//
-// Why not derive it from the loaded env's item_window? A windowed scope FETCHES
-// /api/range with the live Date.now() (there is no env yet on first load), so
-// item_window carries the fetch clock. staticContractTimeRange then builds a range
-// whose `from` is the fetch clock but whose `to` is generated_at — two clocks in
-// one range. When a load crosses local midnight, or the contract is stale / a
-// fixture with an older generated_at, that range drifts off its same-named preset:
-// windowQuickPreset stops recognising it and injects a duplicate quick button
-// (e.g. a second "1mo"), and presetBeyondLoadedWindow mis-hides longer presets.
-// Resolving the window on `now` keeps it byte-identical to its preset
-// (1d == today, 7d == 1w, 1mo/3mo/6mo/1y == the rolling presets; only 3d has no
-// built-in equivalent), so no duplicate appears and the highlight stays in sync.
-export function boardWindowRange(scope: BoardScope, now: number, tz?: string): TimeRange | null {
-  const days = boardScopeDays(scope);
-  return days == null ? null : timeRangeForDays(days, now, tz);
-}
-
-// Whether the loaded env should be DISPLAYED through the windowed board scope. The
-// scope governs what a launch FETCHES (a small /api/range projection on mobile),
-// but a windowed device can still load a full / uploaded contract.json via
-// loadFile — that env is NOT a range response. Window the display only when the
-// scope is windowed AND the env is itself a /api/range projection, which it
-// signals by carrying `range_query` (only buildRangeContract emits it). Otherwise
-// the range control, the synthetic window button, and the empty-state extent would
-// claim only the device window is loaded and hide the larger presets the file
-// actually fills.
-export function isWindowedRangeEnv(env: ContractEnvelope | null | undefined, scope: BoardScope): boolean {
-  return env != null && boardScopeDays(scope) !== null && env.range_query != null;
-}
-
-// The window the UI should DISPLAY for the loaded env: the preset-aligned rolling
-// window (boardWindowRange) for a genuine windowed /api/range env, else the env's
-// true item_window extent (staticContractTimeRange). Centralises the
-// isWindowedRangeEnv decision so an uploaded/static contract keeps its real extent
-// even on a device whose default board scope is windowed.
-export function boardDisplayRange(env: ContractEnvelope, scope: BoardScope, now: number, tz?: string): TimeRange {
-  return isWindowedRangeEnv(env, scope) ? boardWindowRange(scope, now, tz)! : staticContractTimeRange(env);
-}
-
-// Whether the DISPLAYED windowed range is NOT fully covered by the day range the env
-// actually FETCHED — the two-clock gap behind #414, generalised to both ends in #417.
-// A windowed /api/range env is fetched on the live Date.now() clock (no contract exists
-// yet on first load), but its display window resolves on the contract's generated_at
-// (boardWindowRange, so it stays byte-identical to its named preset — the #407 fix).
-// The displayed window and the fetched window share the SAME span (both are
-// boardScopeDays long), so client/server clock skew SHIFTS the fetched window relative
-// to the displayed one without resizing it — it is never a strict superset of a
-// same-span displayed window:
-//   • fetch BEHIND (generated_at day > fetched `to` day, e.g. a load crossing local
-//     midnight): the displayed TAIL day was never fetched (the original #414 case);
-//   • fetch AHEAD (generated_at day < fetched `from` day, client clock runs fast): the
-//     displayed HEAD day was never fetched — the #417 case the old `to`-only check
-//     missed (it returned false because `display.to <= fetched.to`, leaving the head day
-//     reading empty);
-//   • a large enough skew leaves NO overlap at all (most visible on a 1d scope).
-// Because the landing range equals staticRange, customRange is false and no range
-// overlay would otherwise fill the gap, so the Activity feed filters to a window whose
-// edge day was never fetched (it reads empty). App ORs this into needsRangeEnv to force
-// the overlay refetch of the displayed window (#414, option 2). Returns false for any
-// non-windowed env, a missing range_query, and the common no-drift case (displayed
-// window fully within the fetched range), so #407's preset alignment and the
-// single-fetch fast path are untouched whenever the clocks agree. `range_query.from` /
-// `.to` are the fetch days expanded to the zone's day START / END (server parseRange),
-// so map each back to a calendar day in the same zone before the date-only comparison.
-export function windowedRangeTailUnfetched(env: ContractEnvelope | null | undefined, scope: BoardScope, now: number, tz?: string): boolean {
-  if (!isWindowedRangeEnv(env, scope)) return false;
-  const fetchedTo = env!.range_query?.to;
-  if (fetchedTo == null) return false;
-  const fetchedToMs = Date.parse(fetchedTo);
-  if (!Number.isFinite(fetchedToMs)) return false;
-  const display = boardWindowRange(scope, now, tz);
-  if (display == null) return false;
-  const zone = tz ?? DEFAULT_TIMEZONE;
-  // Both sides are calendar days in the same zone; date-only strings compare
-  // lexicographically. `display.{from,to}` are already date-only; the fetched instants
-  // are re-zoned to their calendar day first. Tail uncovered (fetch behind):
-  if (display.to > zonedDateOnly(fetchedToMs, zone)) return true;
-  // Head uncovered (fetch ahead): the displayed window starts before the fetched one.
-  const fetchedFrom = env!.range_query?.from;
-  const fetchedFromMs = fetchedFrom != null ? Date.parse(fetchedFrom) : NaN;
-  if (Number.isFinite(fetchedFromMs) && display.from < zonedDateOnly(fetchedFromMs, zone)) return true;
-  return false;
-}
-
 // (#424) Whether the ./api/range overlay may fire for the loaded env, given how
 // the env was loaded (contractMeta.source). A file-loaded env already carries its
 // full item_window extent and may come from a deployment with NO matching server —
@@ -471,18 +322,6 @@ export function effectiveLiveTabEnabled(storedEnabled: boolean, staticDeployment
 // unit-tested; App passes isStaticDeployment().
 export function rangeOverlayAllowed(source: "network" | "file" | null | undefined, staticDeployment: boolean): boolean {
   return !staticDeployment && rangeOverlayAllowedForSource(source);
-}
-
-// The window length (in days) the primary contract load should request, or null
-// to load the full ./contract.json. A static, server-less deployment (#432) 404s
-// ./api/range, so it must load the full bundled contract even when a windowed
-// Board scope is stored — the windowed primary load fetches /api/range, which
-// does not exist on the Pages demo and would strand a fresh visitor on a
-// contract-load error. A normal deployment keeps the windowed primary load. Pure
-// so the gate is unit-tested; App passes boardScopeDays(boardScope) and
-// isStaticDeployment().
-export function primaryLoadWindowDays(boardScopeDays: number | null, staticDeployment: boolean): number | null {
-  return staticDeployment ? null : boardScopeDays;
 }
 
 // --- range-as-download model (#488) -----------------------------------------

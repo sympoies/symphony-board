@@ -43,7 +43,6 @@ import {
   relationCounts,
   routeTimeRange,
   sameTimeRange,
-  windowQuickPreset,
   rangeQueryWindow,
   sourceDisplayName,
   reviewSortFromRoute,
@@ -97,20 +96,13 @@ import {
   saveLiveTabEnabled,
   loadBoardScope,
   saveBoardScope,
-  boardScopeDays,
   deviceCeilingDays,
   clampRangeToCeiling,
   usesStaticContractFastPath,
-  boardDisplayRange,
-  isWindowedRangeEnv,
-  windowedRangeTailUnfetched,
   rangeOverlayAllowed,
   isStaticDeployment,
   liveControlsDisabled,
   effectiveLiveTabEnabled,
-  primaryLoadWindowDays,
-  clampDefaultRangeToBoardScope,
-  presetExceedsBoardScope,
   loadWideLayout,
   saveWideLayout,
   currentClientKind,
@@ -321,12 +313,11 @@ export function App() {
   // match the configured timezone.
   const tz = env?.timezone ?? "UTC";
   // board-scope derived flags. "off" loads no contract (Live-only); a windowed
-  // scope ("1d"/"3d"/"7d") loads a small /api/range AS the primary env; "full"
-  // loads ./contract.json. Desktop/web are always "full" (never windowed), so every
-  // load path below stays byte-identical to before for them.
+  // scope "off" loads no contract (Live-only); otherwise the SELECTED range is the
+  // primary download (#488): the static ./contract.json fast-path for the default
+  // 90-day window / static deploy, else a dynamic /api/range projection.
   const contractDisabled = boardScope === "off";
   const contractEnabled = !contractDisabled;
-  const boardScopeDaysValue = boardScopeDays(boardScope);
   // #488: whether the LOADED env is a range projection — i.e. it carries
   // `range_query` (only buildRangeContract / the /api/range surface emits it).
   // Under range-as-download this is true for the common case (the primary env IS
@@ -338,16 +329,6 @@ export function App() {
   // The instant calendar quick presets resolve against — the contract's generated-at
   // (stable per load), falling back to "now" only before the first contract arrives.
   const generatedNowMs = env ? (Number.isFinite(Date.parse(env.generated_at)) ? Date.parse(env.generated_at) : Date.now()) : Date.now();
-  // The loaded board window. A windowed scope is FETCHED with the live Date.now()
-  // (no env yet on first load), so its env.item_window carries the fetch clock —
-  // but the quick presets, the active-preset highlight, and the synthetic window
-  // button all resolve against generated_at. Reading the window off item_window
-  // (staticContractTimeRange) splits those clocks and, when a load crosses local
-  // midnight or the contract is stale, drifts the window off its same-named preset
-  // (a duplicate "1mo" button, longer presets mis-hidden). So for a windowed range
-  // env resolve the window on generatedNowMs too (boardWindowRange), keeping it
-  // byte-identical to its preset; "full" / "off" and uploaded contracts keep the true
-  // item-window extent. boardDisplayRange centralises this windowedEnv decision.
   // #488: the loaded env's display window. For a range projection it is exactly
   // the fetched window (read back from range_query), so the landing range equals
   // staticRange and customRange stays false — no overlay, no refetch loop. For the
@@ -412,16 +393,7 @@ export function App() {
     // beyond-ceiling presets, so the stored preset is normally already within it.
     return preferredDefaultTimeRange(env, defaultRangePreset);
   }, [env, staticDeployment, staticRange, defaultRangePreset]);
-  // Auto-shrink the stored Default range when Board data drops below it (e.g. Board
-  // 1y -> 1mo pulls a 3mo default down to 1mo); a default already within the window is
-  // left untouched. Persisted by the defaultRangePreset save effect.
-  useEffect(() => {
-    if (!env) return;
-    const clamped = clampDefaultRangeToBoardScope(defaultRangePreset, boardScope, generatedNowMs, tz);
-    if (clamped !== defaultRangePreset) setDefaultRangePreset(clamped);
-  }, [env, boardScope, defaultRangePreset, generatedNowMs, tz]);
-  // Default range options the Settings control disables: those larger than the
-  // current Board data window. Empty for full / off (no ceiling).
+  // Default range options the Settings control disables.
   // #488: the picker is capped by the device CEILING (1y desktop / 30d Android),
   // not a board-data window. `ceilingFrom` is the earliest day the device may
   // request; presets reaching before it are disabled / hidden.
@@ -430,14 +402,6 @@ export function App() {
   const disabledRangePresets = useMemo(
     () => new Set(TIME_RANGE_PRESETS.filter((p) => timeRangeForPreset(p.id, generatedNowMs, tz).from < ceilingFrom).map((p) => p.id)),
     [ceilingFrom, generatedNowMs, tz],
-  );
-  // A windowed range env whose length no fixed quick preset names (e.g. "3d") gets a
-  // synthetic "show the whole loaded window" quick button; full/off, uploaded
-  // contracts, and windows that already line up with a preset (1d == today, 7d == 1w,
-  // …) get none.
-  const windowPreset = useMemo(
-    () => (env && windowedEnv ? windowQuickPreset(staticRange, generatedNowMs, boardScope, tz) : null),
-    [env, windowedEnv, staticRange, boardScope, generatedNowMs, tz],
   );
   // #432: a static deployment cannot project a sub-range (./api/range 404s) and
   // its pre-aggregated repo_metrics cannot be re-windowed client-side, so a picked
@@ -462,17 +426,6 @@ export function App() {
     return clampRangeToCeiling(base, deviceCeiling, clock, tz);
   }, [contractDisabled, explicitRange, defaultRange, defaultRangePreset, env, generatedNowMs, tz, deviceCeiling]);
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
-  // #414: a windowed range env is FETCHED on the live Date.now() clock but DISPLAYED on
-  // the contract's generated_at (boardWindowRange, so the window stays byte-identical to
-  // its named preset — #407). When a load crosses local midnight, or client/server clock
-  // skew lands the two on different local days, staticRange can claim a trailing day the
-  // fetch never requested. On the landing range customRange is false (activeRange ==
-  // staticRange), so the overlay below would not fire and the Activity feed would filter
-  // to a window whose last day was never fetched (today reads empty). Detect that gap and
-  // force the range overlay to refetch the displayed window so the tail is actually
-  // loaded. customRange itself is left untouched so the windowed env's full-set aggregates
-  // (compatibleAggregates) are still trusted; only the overlay fetch is forced.
-  const windowTailUnfetched = windowedRangeTailUnfetched(env, boardScope, generatedNowMs, tz);
   // #424: an uploaded contract (contractMeta.source === "file") loaded on a windowed
   // device carries no range_query, so its landing default range differs from the file's
   // item_window extent and customRange goes true — but firing the ./api/range overlay
@@ -505,13 +458,6 @@ export function App() {
     }
     const pending: Promise<void>[] = [];
     let loadedContract = false;
-    // A windowed scope loads a small /api/range AS the primary env; "full" loads
-    // ./contract.json. Only "full" touches the cold-start cache — a windowed env is
-    // small and fast, and never overwriting the cache keeps a stale full payload
-    // from being painted (and OOM-ing) on a later windowed launch.
-    // #432: a static deployment (Pages demo) 404s ./api/range, so load the full
-    // ./contract.json even under a windowed scope — primaryLoadWindowDays returns
-    // null there. A normal deployment keeps the windowed /api/range primary load.
     // #488: reload the SELECTED range as the primary env — the static contract.json
     // fast-path for the default 90-day window (and the static/demo deploy), else a
     // dynamic /api/range projection. No separate overlay: the primary IS the range.
