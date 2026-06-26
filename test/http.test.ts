@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { nextAvailableToken, type AuthToken } from "../src/sources/http.ts";
 
 // nextAvailableToken is the retry-time token picker. Its bot-first rule must key
-// on the token being a GitHub App bot (kind), not on the round_robin strategy:
-// a bot_then_pat pool may configure its apps with the failover strategy, and
-// those are still bots that should be tried before spending PAT quota.
+// on the token being a GitHub App bot (kind), not on the selection strategy: a
+// bot_then_pat pool may configure its apps with the failover strategy, and those
+// are still bots that should be tried before spending PAT quota.
 
 const bot = (env: string, strategy: AuthToken["strategy"]): AuthToken => ({
   env,
@@ -25,15 +25,15 @@ test("retry prefers an available failover-strategy bot over the PAT", () => {
   assert.equal(nextAvailableToken(tokens, blocked, tried, 1), 0);
 });
 
-test("retry still prefers an available round_robin bot over the PAT", () => {
-  const tokens = [bot("botA", "round_robin"), bot("botB", "round_robin"), pat("PAT")];
+test("retry still prefers an available budget-aware bot over the PAT", () => {
+  const tokens = [bot("botA", "budget_aware"), bot("botB", "budget_aware"), pat("PAT")];
   const blocked = new Map<number, number>([[1, Number.MAX_SAFE_INTEGER]]);
   const tried = new Set<number>([1]);
   assert.equal(nextAvailableToken(tokens, blocked, tried, 1), 0);
 });
 
 test("retry falls back to the PAT only once every bot is tried or blocked", () => {
-  const tokens = [bot("botA", "round_robin"), bot("botB", "round_robin"), pat("PAT")];
+  const tokens = [bot("botA", "budget_aware"), bot("botB", "budget_aware"), pat("PAT")];
   const blocked = new Map<number, number>([
     [0, Number.MAX_SAFE_INTEGER],
     [1, Number.MAX_SAFE_INTEGER],

@@ -189,6 +189,11 @@ function appToken(token: AuthToken, app: GitHubAppAuthConfig, strategy: AuthToke
   };
 }
 
+function canonicalPoolStrategy(strategy: AuthTokenStrategy | undefined): AuthTokenStrategy {
+  if (strategy === "round_robin") return "budget_aware";
+  return strategy ?? "budget_aware";
+}
+
 class DefaultAuthTokenResolver implements AuthTokenResolver {
   private readonly mint: MintGitHubAppInstallationToken;
   private readonly poolCache = new WeakMap<object, Promise<PoolResolution>>();
@@ -341,7 +346,7 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
     }
 
     if (source.kind !== "github") return { tokens: out, failureMessage: null };
-    const strategy = pool.strategy ?? "round_robin";
+    const strategy = canonicalPoolStrategy(pool.strategy);
     let failureMessage: string | null = null;
     for (const app of pool.apps) {
       const request = githubAppTokenRequest(source, app, overlay);

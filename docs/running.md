@@ -32,22 +32,24 @@ selection through `auth_pools` plus `auth_policy`:
 - PAT auth uses `token_env` plus optional `fallback_token_envs`. Fallback PATs
   are tried only when GitHub clearly reports primary rate-limit exhaustion for
   the active token. Use a PAT from a different GitHub account; multiple PATs
-  from the same account share the same user quota. PAT pools are failover-only;
-  they are not round-robined.
+  from the same account share the same user quota. PAT pools are failover-only.
 - GitHub App bot pools use `kind: "github_app"` with one `apps[]` entry per bot.
   Each entry has `app_id_env`, `installation_id_env`, and exactly one of
   `private_key_env`, `private_key_base64_env`, or `private_key_path_env`. A bot
-  pool with `strategy: "round_robin"` spreads successful GraphQL/REST requests
-  across the configured apps instead of exhausting one before using the next.
-  Long-running daemons also rotate the starting cursor for newly rebuilt clients
-  so each sync run does not pin its first expensive pages to the same bot.
+  pool with `strategy: "budget_aware"` uses observed GitHub GraphQL/REST
+  rate-limit budgets to pick the app with the highest remaining quota for the
+  next request. When no budget has been observed yet, the pool probes through
+  the configured apps with a rotating cursor so the first expensive pages are
+  not pinned to the same bot.
 - `auth_policy.mode` chooses the pool at source or repo scope: `pat` uses one
-  PAT pool, `bot` uses one bot pool, `bot_then_pat` uses bot round-robin first
-  and PAT failover only when the bot tokens are unavailable/rate-limited, and
+  PAT pool, `bot` uses one bot pool, `bot_then_pat` uses bot budget-aware
+  routing first and PAT failover only when the bot tokens are
+  unavailable/rate-limited, and
   repo-level `inherit` keeps the source policy.
 - Legacy `token_env`, `github_app`, and `token_pools` configs are still
-  supported. New config should prefer `auth_pools` / `auth_policy` because it
-  separates credential definitions from the routing strategy.
+  supported. `strategy: "round_robin"` is accepted as a legacy alias for
+  `budget_aware`, but new config should prefer `auth_pools` / `auth_policy`
+  because it separates credential definitions from the routing strategy.
 
 The Diagnostics `Rate limit` tab probes one lightweight GraphQL request per
 configured GitHub credential and shows PAT vs bot, PAT account login or bot

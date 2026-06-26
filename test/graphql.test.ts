@@ -28,6 +28,31 @@ function mockFetch(fn: (url: URL, init: RequestInit) => Response | Promise<Respo
   }) as typeof fetch;
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason?: unknown) => void } {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function graphqlBudgetResponse(remaining: number): Response {
+  return new Response(JSON.stringify({
+    data: {
+      ok: true,
+      rateLimit: {
+        limit: 1000,
+        remaining,
+        used: 1000 - remaining,
+        cost: 1,
+        resetAt: "2286-11-20T17:46:39.000Z",
+      },
+    },
+  }), { status: 200 });
+}
+
 test("makeGqlClient POSTs the query with bearer auth and unwraps json.data", async () => {
   let seenUrl: URL | undefined;
   let seenInit: RequestInit = {};
@@ -121,7 +146,7 @@ test("GitHub GraphQL primary rate limit rotates to the next token for the same r
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
-test("GitHub GraphQL round-robin bot tokens alternate between successful requests", async () => {
+test("GitHub GraphQL budget-aware bot tokens probe unknown budgets across bots", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
     auths.push((init.headers as Record<string, string>).Authorization);
@@ -129,8 +154,8 @@ test("GitHub GraphQL round-robin bot tokens alternate between successful request
   });
 
   const gql = makeGqlClient("https://api.github.com/graphql", [
-    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "round_robin" },
-    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "round_robin" },
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
   ]);
 
   assert.deepEqual(await gql("query { x }"), { ok: true });
@@ -139,15 +164,15 @@ test("GitHub GraphQL round-robin bot tokens alternate between successful request
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
 });
 
-test("new GitHub GraphQL clients rotate their initial round-robin cursor", async () => {
+test("new GitHub GraphQL clients rotate their initial unknown-budget probe cursor", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
     auths.push((init.headers as Record<string, string>).Authorization);
     return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
   });
   const tokens = [
-    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "round_robin" as const },
-    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "round_robin" as const },
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "budget_aware" as const },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "budget_aware" as const },
   ];
 
   const firstClient = makeGqlClient("https://api.github.com/graphql", tokens);
@@ -156,6 +181,144 @@ test("new GitHub GraphQL clients rotate their initial round-robin cursor", async
   assert.deepEqual(await firstClient("query { x }"), { ok: true });
   assert.deepEqual(await secondClient("query { x }"), { ok: true });
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b"]);
+});
+
+test("GitHub GraphQL budget-aware bot tokens prefer the largest observed remaining budget", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    const remaining = auth === "Bearer bot-a" ? "100" : "900";
+    const used = String(1000 - Number(remaining));
+    return new Response(JSON.stringify({ data: { ok: true } }), {
+      status: 200,
+      headers: {
+        "x-ratelimit-limit": "1000",
+        "x-ratelimit-remaining": remaining,
+        "x-ratelimit-used": used,
+        "x-ratelimit-reset": "9999999999",
+        "x-ratelimit-resource": "graphql",
+      },
+    });
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
+  ]);
+
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-b"]);
+});
+
+test("GitHub GraphQL budget-aware bot tokens read rateLimit budget from the response body", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    return graphqlBudgetResponse(auth === "Bearer bot-a" ? 100 : 900);
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
+  ]);
+
+  assert.equal((await gql<{ ok: boolean }>("query { x }")).ok, true);
+  assert.equal((await gql<{ ok: boolean }>("query { x }")).ok, true);
+  assert.equal((await gql<{ ok: boolean }>("query { x }")).ok, true);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-b"]);
+});
+
+test("GitHub GraphQL budget-aware bot tokens account for in-flight request cost", async () => {
+  const auths: Array<string | undefined> = [];
+  const heldBotA = deferred<Response>();
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    if (auths.length === 3) return heldBotA.promise;
+    return graphqlBudgetResponse(500);
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
+  ]);
+
+  assert.equal((await gql<{ ok: boolean }>("query { seedA }")).ok, true);
+  assert.equal((await gql<{ ok: boolean }>("query { seedB }")).ok, true);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b"]);
+
+  const first = gql<{ ok: boolean }>("query { concurrentA }");
+  assert.equal(auths[2], "Bearer bot-a");
+  const second = gql<{ ok: boolean }>("query { concurrentB }");
+  assert.equal(auths[3], "Bearer bot-b");
+
+  heldBotA.resolve(graphqlBudgetResponse(500));
+  assert.deepEqual((await Promise.all([first, second])).map((value) => value.ok), [true, true]);
+
+  assert.equal((await gql<{ ok: boolean }>("query { afterRelease }")).ok, true);
+  assert.equal(auths[4], "Bearer bot-a", "released in-flight state lets bot-a win the next tie again");
+});
+
+test("GitHub GraphQL budget cache does not stale-block a replaced token with the same env label", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    if (auth === "Bearer bot-old") {
+      return new Response(JSON.stringify({ data: null, errors: [{ message: "API rate limit exceeded" }] }), {
+        status: 200,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+      });
+    }
+    return graphqlBudgetResponse(500);
+  });
+
+  const oldClient = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_INSTALLATION_ID", value: "bot-old", kind: "github_app", name: "example-bot", strategy: "budget_aware" },
+  ]);
+  await assert.rejects(() => oldClient("query { x }"), /rate limit/);
+
+  const newClient = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_INSTALLATION_ID", value: "bot-new", kind: "github_app", name: "example-bot", strategy: "budget_aware" },
+  ]);
+  assert.equal((await newClient<{ ok: boolean }>("query { x }")).ok, true);
+  assert.deepEqual(auths, ["Bearer bot-old", "Bearer bot-new"]);
+});
+
+test("GitHub GraphQL diagnostics clients do not clear another client's budget state", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    if (auth === "Bearer pat") {
+      return new Response(JSON.stringify({
+        data: {
+          viewer: { login: "operator" },
+          rateLimit: { limit: 5000, remaining: 4999, used: 1, cost: 1, resetAt: "2286-11-20T17:46:39.000Z" },
+        },
+      }), { status: 200 });
+    }
+    return graphqlBudgetResponse(auth === "Bearer bot-a" ? 100 : 900);
+  });
+
+  const syncClient = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app", name: "example-bot-a", strategy: "budget_aware" },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app", name: "example-bot-b", strategy: "budget_aware" },
+  ]);
+  assert.equal((await syncClient<{ ok: boolean }>("query { seedA }")).ok, true);
+  assert.equal((await syncClient<{ ok: boolean }>("query { seedB }")).ok, true);
+
+  const diagnosticsProbe = makeGqlClient("https://api.github.com/graphql", [
+    { env: "GH_PAT", value: "pat", kind: "pat", strategy: "failover" },
+  ], { provider: "github" });
+  await diagnosticsProbe("query { viewer { login } rateLimit { limit cost remaining used resetAt } }");
+
+  assert.equal((await syncClient<{ ok: boolean }>("query { afterProbe }")).ok, true);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer pat", "Bearer bot-b"]);
 });
 
 test("GitHub GraphQL auth trace logs token labels without token values", async () => {
@@ -167,7 +330,7 @@ test("GitHub GraphQL auth trace logs token labels without token values", async (
   mockFetch(() => new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }));
 
   const gql = makeGqlClient("https://api.github.com/graphql", [
-    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "round_robin" },
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "budget_aware" },
   ]);
 
   assert.deepEqual(await gql("query($owner:String!, $name:String!) { repository(owner:$owner, name:$name) { issues(first:1) { nodes { id } } } }", {
@@ -257,10 +420,10 @@ test("GitHub GraphQL fallback repo-access failures identify the fallback token",
 });
 
 test("bot_then_pat retry prefers an available bot over the PAT before exhausting the bot pool", async () => {
-  // Pool order [botA(round_robin), botB(round_robin), PAT(failover)]. Round-robin
-  // makes botB the selected token on the 2nd request; when botB hits a primary
-  // rate limit, the retry must rotate to the still-available botA, NOT spend PAT
-  // quota while a bot is available.
+  // Pool order [botA(budget_aware), botB(budget_aware), PAT(failover)]. The
+  // unknown-budget probe selects botB on the 2nd request; when botB hits a
+  // primary rate limit, the retry must rotate to the still-available botA, NOT
+  // spend PAT quota while a bot is available.
   const auths: Array<string | undefined> = [];
   let botBLimited = false;
   mockFetch((_url, init) => {
@@ -277,8 +440,8 @@ test("bot_then_pat retry prefers an available bot over the PAT before exhausting
   });
 
   const gql = makeGqlClient("https://api.github.com/graphql", [
-    { env: "github_app:BOT_A", value: "botA", kind: "github_app", strategy: "round_robin" },
-    { env: "github_app:BOT_B", value: "botB", kind: "github_app", strategy: "round_robin" },
+    { env: "github_app:BOT_A", value: "botA", kind: "github_app", strategy: "budget_aware" },
+    { env: "github_app:BOT_B", value: "botB", kind: "github_app", strategy: "budget_aware" },
     { env: "GH_PAT", value: "pat", kind: "pat", strategy: "failover" },
   ]);
 

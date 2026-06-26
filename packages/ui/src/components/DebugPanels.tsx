@@ -616,7 +616,7 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
                     <td>{t.source_display}</td>
                     <td>{t.kind === "github_app" ? "bot" : "PAT"}</td>
                     <td>{t.name ?? (t.kind === "github_app" ? "GitHub App" : "—")}</td>
-                    <td>{t.strategy === "round_robin" ? "round robin" : "failover"}</td>
+                    <td>{t.strategy === "budget_aware" || t.strategy === "round_robin" ? "budget aware" : "failover"}</td>
                     <td>
                       <code>{t.env}</code>
                     </td>

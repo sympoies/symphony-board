@@ -659,17 +659,22 @@ credential envs, legacy GitHub `token_pools`, and the newer GitHub
 `auth_pools` declares PAT pools (`kind: "pat"`) and GitHub App bot pools
 (`kind: "github_app"`), while source/repo `auth_policy` selects `pat`, `bot`,
 `bot_then_pat`, or repo-level `inherit`. PAT pools keep the existing failover
-semantics and are not round-robined. GitHub App bot pools may set
-`strategy: "round_robin"`; successful GraphQL and REST requests then rotate
-across the available app installation tokens before reusing one. `bot_then_pat`
-keeps bot round-robin as the primary path and uses the PAT pool only when bot
+semantics and are not balanced across accounts. GitHub App bot pools may set
+`strategy: "budget_aware"`; GraphQL and REST responses update each bot's
+observed GitHub rate-limit budget from response headers and the GraphQL
+`rateLimit` body when present, then subsequent requests prefer the available bot
+with the highest remaining budget. When no budget has been observed yet, the
+pool probes through the configured apps with a rotating cursor so each sync run
+does not pin its first expensive pages to the same bot. `bot_then_pat` keeps bot
+budget-aware routing as the primary path and uses the PAT pool only when bot
 tokens are unavailable or primary-rate-limited. Legacy `token_env`,
-`github_app`, and `token_pools` remain accepted for existing deployments. The
-standalone shell passes `secrets.env` as spawn env, so the fresh overlay is what
-makes a credential set in-app apply without restarting the app. GitHub fallback
-PATs are used only when GitHub clearly reports primary rate-limit exhaustion for
-the active token; secondary rate limits remain a partial run/backoff condition,
-not a token rotation trigger.
+`github_app`, and `token_pools` remain accepted for existing deployments, and
+`strategy: "round_robin"` remains accepted as a legacy alias for
+`budget_aware`. The standalone shell passes `secrets.env` as spawn env, so the
+fresh overlay is what makes a credential set in-app apply without restarting the
+app. GitHub fallback PATs are used only when GitHub clearly reports primary
+rate-limit exhaustion for the active token; secondary rate limits remain a
+partial run/backoff condition, not a token rotation trigger.
 
 **Credential diagnostics are metadata-only.** `GET /api/token-rate-limits`
 returns one row per resolved GitHub credential with the credential env label,
@@ -677,8 +682,8 @@ auth kind (`pat` or `github_app`), PAT account login or optional bot display
 name, token selection strategy, and the probed GraphQL budget (`remaining`,
 `used`, `reset_at`). The token value, app private key, and app JWT never cross
 the route boundary. The UI Diagnostics tab renders those metadata fields so
-operators can see PAT account ownership, bot usage, and round-robin
-distribution without exposing secrets. Rows are ordered with GitHub App bot
+operators can see PAT account ownership, bot usage, and budget-aware routing
+metadata without exposing secrets. Rows are ordered with GitHub App bot
 credentials before PAT credentials.
 
 **Edits apply on the next run.** Both daemons re-read config per run (the
