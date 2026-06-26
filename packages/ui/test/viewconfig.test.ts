@@ -6,7 +6,7 @@ import {
   loadCollapsedColumns, saveCollapsedColumns,
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
-  loadTheme, saveTheme,
+  loadColorMode, saveColorMode, resolveViewTheme, subscribeSystemColorScheme, systemPrefersDark, SYSTEM_DARK_MODE_QUERY,
   loadDefaultTab, saveDefaultTab,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
@@ -97,14 +97,54 @@ test("default range preset falls back to this week and round-trips valid preset 
   assert.equal(loadDefaultRangePreset(), "this-week", "invalid value -> default");
 });
 
-test("theme is a device-local setting with night owl as the default", () => {
-  assert.equal(loadTheme(), "night-owl");
-  saveTheme("paper");
-  assert.equal(loadTheme(), "paper");
-  saveTheme("night-owl");
-  assert.equal(loadTheme(), "night-owl");
+test("color mode is a device-local setting with system as the default", () => {
+  assert.equal(loadColorMode(), "system");
+  assert.equal(resolveViewTheme("system", true), "night-owl");
+  assert.equal(resolveViewTheme("system", false), "paper");
+  saveColorMode("light");
+  assert.equal(loadColorMode(), "light");
+  assert.equal(resolveViewTheme("light", true), "paper");
+  saveColorMode("dark");
+  assert.equal(loadColorMode(), "dark");
+  assert.equal(resolveViewTheme("dark", false), "night-owl");
+  store._raw("symphony-board:theme", "paper");
+  assert.equal(loadColorMode(), "light", "legacy Paper theme value -> Light mode");
+  store._raw("symphony-board:theme", "night-owl");
+  assert.equal(loadColorMode(), "dark", "legacy Night Owl theme value -> Dark mode");
   store._raw("symphony-board:theme", "unknown-theme");
-  assert.equal(loadTheme(), "night-owl", "invalid value -> default");
+  assert.equal(loadColorMode(), "system", "invalid value -> default");
+});
+
+test("system color-scheme helpers support legacy Android WebView matchMedia listeners", () => {
+  let matches = false;
+  const listeners = new Set<() => void>();
+  const media = {
+    get matches() { return matches; },
+    addListener(listener: () => void) { listeners.add(listener); },
+    removeListener(listener: () => void) { listeners.delete(listener); },
+  } as unknown as MediaQueryList;
+  const target = {
+    matchMedia(query: string) {
+      assert.equal(query, SYSTEM_DARK_MODE_QUERY);
+      return media;
+    },
+  };
+  const seen: boolean[] = [];
+
+  assert.equal(systemPrefersDark(target), false);
+  const cleanup = subscribeSystemColorScheme((prefersDark) => seen.push(prefersDark), target);
+  assert.equal(listeners.size, 1, "legacy addListener path subscribed");
+  assert.deepEqual(seen, [false], "subscription emits the initial value");
+
+  matches = true;
+  for (const listener of listeners) listener();
+  assert.deepEqual(seen, [false, true], "legacy listener emits changed value");
+
+  cleanup?.();
+  assert.equal(listeners.size, 0, "cleanup removes legacy listener");
+  matches = false;
+  for (const listener of listeners) listener();
+  assert.deepEqual(seen, [false, true], "cleanup stops future emissions");
 });
 
 test("default tab is a device-local setting defaulting to Live", () => {
@@ -246,7 +286,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.deepEqual([...loadCollapsedColumns()], [], "collapsed columns degrade to empty");
   assert.equal(loadColorOverrides().size, 0, "load degrades to no overrides");
   assert.equal(loadDefaultRangePreset(), "this-week", "load degrades to default range");
-  assert.equal(loadTheme(), "night-owl", "theme load degrades to default");
+  assert.equal(loadColorMode(), "system", "color mode load degrades to default");
   assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
   assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
@@ -265,7 +305,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));
   assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
-  assert.doesNotThrow(() => saveTheme("paper"));
+  assert.doesNotThrow(() => saveColorMode("light"));
   assert.doesNotThrow(() => saveServerBaseUrl("http://localhost:8080"));
 });
 

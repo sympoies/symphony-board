@@ -24,6 +24,20 @@ import { LIVE_SEED_LIMIT, LIVE_EVENT_BUFFER_LIMIT } from "../src/live-config.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
+const FIRST_PAINT_SCRIPT_MARKER = "Apply the persisted color mode BEFORE first paint";
+
+function firstPaintScriptFromHtml(html) {
+  const markerIndex = html.indexOf(FIRST_PAINT_SCRIPT_MARKER);
+  if (markerIndex < 0) return null;
+  const openTagStart = html.lastIndexOf("<script", markerIndex);
+  if (openTagStart < 0) return null;
+  const openTagEnd = html.indexOf(">", openTagStart);
+  if (openTagEnd < 0 || openTagEnd > markerIndex) return null;
+  const closeTagStart = html.indexOf("</script>", markerIndex);
+  if (closeTagStart < 0) return null;
+  return html.slice(openTagEnd + 1, closeTagStart);
+}
+
 function envPort(name, fallback) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -522,6 +536,34 @@ const server = createServer(async (req, res) => {
       }));
       return;
     }
+    if (p === "/__smoke/first-paint") {
+      const url = new URL(req.url || "/__smoke/first-paint", `http://127.0.0.1:${HTTP_PORT}`);
+      const indexHtml = await readFile(join(DIST, "index.html"), "utf8");
+      const scriptSource = firstPaintScriptFromHtml(indexHtml);
+      if (!scriptSource) {
+        res.writeHead(500, JSON_HEADERS).end(JSON.stringify({ error: "missing_first_paint_script" }));
+        return;
+      }
+      const marker = (url.searchParams.get("marker") || "default").replace(/[^A-Za-z0-9._:-]/g, "_");
+      const stored = url.searchParams.get("stored");
+      const seed =
+        url.searchParams.get("storage") === "throw"
+          ? "Storage.prototype.getItem = function () { throw new Error('storage blocked'); };"
+          : stored
+            ? `localStorage.setItem("symphony-board:theme", ${JSON.stringify(stored)});`
+            : 'localStorage.removeItem("symphony-board:theme");';
+      res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" }).end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="theme-color" content="#030b22" />
+    <script>${seed}</script>
+    <script>${scriptSource}</script>
+  </head>
+  <body>first-paint-probe:${marker}</body>
+</html>`);
+      return;
+    }
     if (p === "/__smoke/live-large") {
       const url = new URL(req.url || "/__smoke/live-large", `http://127.0.0.1:${HTTP_PORT}`);
       liveSnapshotLarge = url.searchParams.get("enabled") !== "0";
@@ -649,7 +691,7 @@ const chrome = spawn(
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
     `--user-data-dir=${userDataDir}`,
     `--remote-debugging-port=${CDP_PORT}`, "--remote-allow-origins=*",
-    `http://127.0.0.1:${HTTP_PORT}/`,
+    "about:blank",
   ],
   { stdio: "ignore" },
 );
@@ -729,6 +771,36 @@ try {
     }
     return value;
   };
+  let firstPaintProbeSeq = 0;
+  const firstPaintProbe = async ({ scheme, stored = "", storage = "" }) => {
+    await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    const marker = `probe-${++firstPaintProbeSeq}`;
+    const params = new URLSearchParams();
+    params.set("marker", marker);
+    if (stored) params.set("stored", stored);
+    if (storage) params.set("storage", storage);
+    await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/__smoke/first-paint?${params}` });
+    return await waitValue(`(() => {
+      if (location.pathname !== "/__smoke/first-paint") return null;
+      if (new URLSearchParams(location.search).get("marker") !== ${JSON.stringify(marker)}) return null;
+      if (document.body?.textContent?.trim() !== ${JSON.stringify(`first-paint-probe:${marker}`)}) return null;
+      return {
+        theme: document.documentElement.dataset.theme || '',
+        colorScheme: document.documentElement.style.colorScheme || '',
+        themeColor: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') || '',
+      };
+    })()`);
+  };
+  const firstPaintSystemDark = await firstPaintProbe({ scheme: "dark" });
+  const firstPaintStorageBlockedLight = await firstPaintProbe({ scheme: "light", storage: "throw" });
+  const firstPaintStoredLight = await firstPaintProbe({ scheme: "dark", stored: "light" });
+  const firstPaintStoredDark = await firstPaintProbe({ scheme: "light", stored: "dark" });
+  const firstPaintLegacyPaper = await firstPaintProbe({ scheme: "dark", stored: "paper" });
+  const firstPaintLegacyNightOwl = await firstPaintProbe({ scheme: "light", stored: "night-owl" });
+  await send("Runtime.evaluate", { expression: "try { localStorage.clear(); } catch (e) {}", returnByValue: true });
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/` });
+
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
   // The stat summary collapses behind a disclosure at narrow widths (incl. the
@@ -1596,26 +1668,30 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
-  const themeBefore = (await send("Runtime.evaluate", {
+  const colorModeBefore = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
-        Array.from(el.options || []).some((option) => option.value === 'paper')
-      );
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const colorMode = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Color mode');
+      const select = colorMode?.querySelector('select');
       return {
-        found: !!select,
-        before: document.documentElement.dataset.theme || '',
-        options: select ? Array.from(select.options).map((option) => option.value) : [],
+	        found: !!select,
+	        before: document.documentElement.dataset.theme || '',
+	        colorScheme: document.documentElement.style.colorScheme || '',
+	        themeColor: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') || '',
+	        value: select?.value || '',
+	        options: select ? Array.from(select.options).map((option) => option.value) : [],
+	        labels: select ? Array.from(select.options).map((option) => option.textContent?.trim() || '') : [],
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", {
     expression: `(() => {
-      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
-        Array.from(el.options || []).some((option) => option.value === 'paper')
-      );
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const colorMode = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Color mode');
+      const select = colorMode?.querySelector('select');
       if (!select) return false;
-      select.value = 'paper';
+      select.value = 'light';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`,
@@ -1635,27 +1711,27 @@ try {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
       const board = prefByTitle('Board data');
-      const boardSelect = board?.querySelector('select');
+      const boardBox = board?.querySelector('input[type="checkbox"]');
+      const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
       return {
         headings: Array.from(document.querySelectorAll('.settings-page h3')).map((el) => el.textContent?.trim() || ''),
-        boardLabels: boardSelect ? Array.from(boardSelect.options).map((option) => option.textContent?.trim() || '') : [],
+        boardControl: boardBox?.type || '',
+        boardChecked: !!boardBox?.checked,
+        liveControl: liveBox?.type || '',
         boardHelp: board?.querySelector('.muted')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
       };
     })()`,
     returnByValue: true,
-  })).result.value || { headings: [], boardLabels: [], boardHelp: "" };
+  })).result.value || { headings: [], boardControl: "", liveControl: "", boardHelp: "" };
   const liveOnlySettings = (await send("Runtime.evaluate", {
     expression: `(() => {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
       const board = prefByTitle('Board data');
-      const boardSelect = board?.querySelector('select');
-      if (boardSelect) {
-        boardSelect.value = 'off';
-        boardSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      const boardBox = board?.querySelector('input[type="checkbox"]');
+      if (boardBox?.checked) boardBox.click();
       return {
-        boardValue: boardSelect?.value || '',
+        boardChecked: !!boardBox?.checked,
         hasPreview: !!prefByTitle('Live feed preview'),
         hasTypes: !!prefByTitle('Live event types'),
       };
@@ -1698,11 +1774,8 @@ try {
     expression: `(() => {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
-      const boardSelect = prefByTitle('Board data')?.querySelector('select');
-      if (boardSelect) {
-        boardSelect.value = 'on';
-        boardSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      const boardBox = prefByTitle('Board data')?.querySelector('input[type="checkbox"]');
+      if (boardBox && !boardBox.checked) boardBox.click();
       const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
       if (liveBox && !liveBox.checked) liveBox.click();
     })()`,
@@ -3471,17 +3544,23 @@ try {
     [has(settingsConfigHtml, "credentials set") && has(settingsConfigHtml, "credentials missing"), "config: credential status renders as set/missing badges, never values"],
     [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],
     // page 5: the settings repo filter renders its checkboxes + count
-    [has(settingsHtml, "settings-page"), "settings: page rendered"],
-    [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
-    [/repos shown/.test(settingsHtml), "settings: repo count shown"],
-    // settings: source hide toggle, the read-only source color swatch, and the
-    // per-repo color picker (the new display controls)
-    [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
-    [has(settingsHtml, "Theme") && themeBefore.found === true && themeBefore.before === "night-owl" && themeBefore.options.includes("night-owl") && themeBefore.options.includes("paper"), `settings: theme selector defaults to Night Owl (${JSON.stringify(themeBefore)})`],
-    [themeAfter.root === "paper" && themeAfter.stored === "paper" && themeAfter.bg === "#f4f3ed", `settings: Paper theme applies and persists (${JSON.stringify(themeAfter)})`],
-    [JSON.stringify(settingsDisplayModel.boardLabels) === JSON.stringify(["On", "Off"]) && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data is a board-only On/Off control (${JSON.stringify(settingsDisplayModel)})`],
-    [settingIndex("Board data") > settingIndex("Theme") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
-    [liveOnlySettings.boardValue === "off" && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
+	    [has(settingsHtml, "settings-page"), "settings: page rendered"],
+	    [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
+	    [/repos shown/.test(settingsHtml), "settings: repo count shown"],
+	    // settings: source hide toggle, the read-only source color swatch, and the
+	    // per-repo color picker (the new display controls)
+	    [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
+	    [firstPaintSystemDark?.theme === "night-owl" && firstPaintSystemDark?.colorScheme === "dark" && firstPaintSystemDark?.themeColor === "#030b22", `settings: first-paint System follows dark system mode (${JSON.stringify(firstPaintSystemDark)})`],
+	    [firstPaintStorageBlockedLight?.theme === "paper" && firstPaintStorageBlockedLight?.colorScheme === "light" && firstPaintStorageBlockedLight?.themeColor === "#f4f3ed", `settings: first-paint System still follows light mode when storage is blocked (${JSON.stringify(firstPaintStorageBlockedLight)})`],
+	    [firstPaintStoredLight?.theme === "paper" && firstPaintStoredLight?.colorScheme === "light" && firstPaintStoredLight?.themeColor === "#f4f3ed", `settings: first-paint stored Light wins over dark system mode (${JSON.stringify(firstPaintStoredLight)})`],
+	    [firstPaintStoredDark?.theme === "night-owl" && firstPaintStoredDark?.colorScheme === "dark" && firstPaintStoredDark?.themeColor === "#030b22", `settings: first-paint stored Dark wins over light system mode (${JSON.stringify(firstPaintStoredDark)})`],
+	    [firstPaintLegacyPaper?.theme === "paper" && firstPaintLegacyPaper?.colorScheme === "light" && firstPaintLegacyPaper?.themeColor === "#f4f3ed", `settings: first-paint legacy Paper storage maps to Light (${JSON.stringify(firstPaintLegacyPaper)})`],
+	    [firstPaintLegacyNightOwl?.theme === "night-owl" && firstPaintLegacyNightOwl?.colorScheme === "dark" && firstPaintLegacyNightOwl?.themeColor === "#030b22", `settings: first-paint legacy Night Owl storage maps to Dark (${JSON.stringify(firstPaintLegacyNightOwl)})`],
+	    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.before === "night-owl" && colorModeBefore.colorScheme === "dark" && colorModeBefore.themeColor === "#030b22" && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System and resolves dark (${JSON.stringify(colorModeBefore)})`],
+	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
+    [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
+    [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
+    [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],

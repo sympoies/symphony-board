@@ -29,7 +29,7 @@ import { ItemCard } from "./ItemCard.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { MOBILE_VIEWPORT_QUERY, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
-import type { ViewTheme } from "../viewconfig.ts";
+import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
@@ -354,7 +354,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ViewTheme }) {
+function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -753,7 +753,7 @@ export function GraphPage({
   // facet filter can hide a focused item's edges, which would otherwise read as
   // "no relationships" with no way out.
   onClearFilters?: () => void;
-  theme: ViewTheme;
+  theme: ResolvedViewTheme;
   // Mobile sub-view selection (route-backed). On narrow viewports the page shows
   // ONE of the two coupled panes — the searchable/focus list or the canvas —
   // chosen here; on wide viewports both render and this is ignored. (Named
