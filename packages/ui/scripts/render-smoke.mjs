@@ -18,12 +18,32 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, normalize } from "node:path";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
+import { parse } from "parse5";
 // Source of truth for the seed/buffer sizes, so the assertions below track the
 // constants (a retune updates here, not a frozen literal that could rot).
 import { LIVE_SEED_LIMIT, LIVE_EVENT_BUFFER_LIMIT } from "../src/live-config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
+function firstScriptTextFromHtml(html) {
+  const doc = parse(html);
+  const scriptNode = findFirstScriptNode(doc);
+  if (!scriptNode || !Array.isArray(scriptNode.childNodes)) return null;
+  const textNode = scriptNode.childNodes.find((n) => n?.nodeName === "#text");
+  return typeof textNode?.value === "string" ? textNode.value : null;
+}
+
+function findFirstScriptNode(node) {
+  if (!node || typeof node !== "object") return null;
+  if (node.tagName === "script") return node;
+  const children = Array.isArray(node.childNodes) ? node.childNodes : [];
+  for (const child of children) {
+    const found = findFirstScriptNode(child);
+    if (found) return found;
+  }
+  return null;
+}
+
 function envPort(name, fallback) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -525,8 +545,8 @@ const server = createServer(async (req, res) => {
     if (p === "/__smoke/first-paint") {
       const url = new URL(req.url || "/__smoke/first-paint", `http://127.0.0.1:${HTTP_PORT}`);
       const indexHtml = await readFile(join(DIST, "index.html"), "utf8");
-      const scriptMatch = indexHtml.match(/<script>\s*([\s\S]*?)<\/script>/);
-      if (!scriptMatch) {
+      const scriptSource = firstScriptTextFromHtml(indexHtml);
+      if (!scriptSource) {
         res.writeHead(500, JSON_HEADERS).end(JSON.stringify({ error: "missing_first_paint_script" }));
         return;
       }
