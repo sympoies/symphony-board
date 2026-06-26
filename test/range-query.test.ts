@@ -233,6 +233,7 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.items.find((it) => it.external_id === "ISSUE_recent")?.labels[0]?.name, "type::feature");
   assert.equal(env.item_window?.primary_items, 1);
   assert.equal(env.item_window?.edge_endpoint_items, 1);
+  assert.equal(env.item_window?.activity_target_items, 0);
   assert.equal(env.item_window?.total_items, 3);
   assert.equal(env.edges.length, 1);
   assert.deepEqual(env.activities?.map((a) => a.external_id), ["activity-recent"]);
@@ -252,6 +253,56 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.ok((env.aggregates?.length ?? 0) > 0, "range response carries board-wide aggregates");
   assert.ok(env.activity_daily != null, "range response carries activity_daily");
   assert.equal(env.activity_daily?.total, 1, "activity_daily reconciles with the in-range activities (the out-of-range row is excluded)");
+});
+
+test("buildRangeContract includes in-range review activity targets as support items", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", updated_at: "2026-05-20T00:00:00Z" }),
+    itemRow({
+      item_id: 2,
+      external_id: "PR_reviewed_later",
+      kind: "change_request",
+      iid: 22,
+      title: "Later-updated PR",
+      state: "open",
+      state_raw: "OPEN",
+      is_draft: false,
+      updated_at: "2026-06-20T00:00:00Z",
+      open_review_threads: 2,
+      total_review_threads: 3,
+    }),
+  ];
+  const env = buildRangeContract({
+    sources: [source],
+    items,
+    labels: [],
+    edges: [],
+    activities: [
+      activityRow({
+        external_id: "review-in-range",
+        kind: "review",
+        action: "reviewed",
+        target_kind: "change_request",
+        target_source_id: "github:github.com",
+        target_external_id: "PR_reviewed_later",
+        target_iid: 22,
+        occurred_at: "2026-05-15T12:00:00Z",
+      }),
+    ],
+    generatedAt: "2026-06-21T00:00:00Z",
+    range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
+  });
+
+  assert.deepEqual(validateContract(env), []);
+  const target = env.items.find((it) => it.external_id === "PR_reviewed_later");
+  assert.ok(target, "review activity target is emitted even when its item.updated_at is outside the range");
+  assert.deepEqual(target?.window_reasons, ["activity_target"], "support rows stay out of primary Board cards");
+  assert.deepEqual(target?.review_threads, { open: 2, total: 3 }, "review unresolved filters can resolve the target's current thread state");
+  assert.equal(env.review_threads?.length ?? 0, 0, "detail rows are unchanged when no review-thread details were supplied");
+  assert.equal(env.item_window?.primary_items, 1);
+  assert.equal(env.item_window?.edge_endpoint_items, 0);
+  assert.equal(env.item_window?.activity_target_items, 1);
 });
 
 test("buildRangeContract keeps data_quality coverage all-time when no activity falls inside the range", () => {

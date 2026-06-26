@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { activityOccurredExtent, boardCommitTotal, emptyStateDataExtent, emptyStateKind, isBoardEmpty, rangeReachesDataTail } from "../src/model.ts";
+import { activityOccurredExtent, boardCommitTotal, emptyStateKind, isBoardEmpty, rangeReachesDataTail } from "../src/model.ts";
 
 // `emptyStateKind` is the single decision that picks which empty-state treatment
 // a page renders. It is only ever consulted when the page has nothing to show
@@ -114,26 +114,4 @@ test("boardCommitTotal: prefers full-history activity_daily.by_kind.commit over 
 test("boardCommitTotal: falls back to the windowed commit count without an aggregate, 0 when absent", () => {
   assert.equal(boardCommitTotal(cenv({ activities: [{ kind: "commit" }, { kind: "issue" }, { kind: "commit" }] })), 2);
   assert.equal(boardCommitTotal(null), 0);
-});
-
-// `emptyStateDataExtent` caps the extent the Activity empty state advertises (and
-// wires "Show all" / "Jump to latest" to). On a WINDOWED Board-data device the
-// loaded data only spans the rolling window, so advertising the full-history
-// extent would point "Show all" at an out-of-window /api/range fetch that
-// bypasses the very memory cap the windowed scope exists to enforce, and the
-// extent copy would overpromise. A full / off board keeps the true unwindowed
-// extent so those actions still reach real older history.
-const FULL_EXTENT = { from: "2025-06-15", to: "2026-06-18" };
-const BOARD_WINDOW = { from: "2026-06-12", to: "2026-06-18" }; // a 7d windowed scope
-
-test("emptyStateDataExtent: a windowed env caps the extent to the loaded window", () => {
-  assert.deepEqual(emptyStateDataExtent(true, BOARD_WINDOW, FULL_EXTENT), BOARD_WINDOW);
-});
-
-test("emptyStateDataExtent: a full / off env keeps the true unwindowed extent", () => {
-  assert.deepEqual(emptyStateDataExtent(false, BOARD_WINDOW, FULL_EXTENT), FULL_EXTENT);
-});
-
-test("emptyStateDataExtent: a windowed env with no known window advertises nothing", () => {
-  assert.equal(emptyStateDataExtent(true, null, FULL_EXTENT), null);
 });

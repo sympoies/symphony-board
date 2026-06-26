@@ -12,10 +12,11 @@
 // appears in a later sync defaults to visible — "everything visible" stays the
 // default as the data grows.
 
-import { DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, timeRangeForDays, type TimeRange, type TimeRangePresetId } from "./model.ts";
+import { cutoffIso, DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, timeRangeForDays, type TimeRange, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
+import { isValidTimezone, zonedDateOnly } from "./tz.ts";
 
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
@@ -43,11 +44,11 @@ const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // desktop-width viewport (Android WebView only — see runtime.applyWideViewport).
 // Device-local, like the theme. Off by default.
 const WIDE_LAYOUT_KEY = "symphony-board:wide-layout";
-// How much of the board contract this device loads. The full ~90-day contract can
-// be tens of MB decoded and OOM a weak WebView (an e-ink Android tablet), so a
-// device may load only a recent time window via /api/range, or skip the contract
-// entirely (Live-only). Device-local, like the theme. See BoardScope below.
+// Whether this device loads contract-backed board data at all. The selected date
+// range now controls download size, so this is intentionally binary: on/full or
+// off/Live-only. Device-local, like the theme. See BoardScope below.
 const BOARD_SCOPE_KEY = "symphony-board:board-scope";
+const LAST_CONTRACT_TIMEZONE_KEY = "symphony-board:last-contract-timezone";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
 // auto-collapse without being persisted (they re-open when an item lands), so
 // this set holds only explicit collapses of non-empty columns.
@@ -244,43 +245,18 @@ export function saveLivePulseOpen(open: boolean): void {
   }
 }
 
-// How much of the board contract to load on THIS device:
+// Whether contract-backed board data is loaded on THIS device:
 //   • "off"  — load no contract at all (Live-only); the contract tabs are hidden
-//   • "1d" / "3d" / "7d" — load only that recent window via /api/range (small,
-//     so a weak WebView does not OOM on the full payload)
-//   • "full" — the full contract (./contract.json), the historical behavior
-// Device-local, like the theme. Android defaults to a 7-day window (weak e-ink
-// hardware); desktop/web default to "full" (they have the memory).
-export type BoardScope = "off" | "1d" | "3d" | "7d" | "1mo" | "3mo" | "6mo" | "1y" | "full";
-export const BOARD_SCOPE_VALUES: readonly BoardScope[] = ["off", "1d", "3d", "7d", "1mo", "3mo", "6mo", "1y", "full"];
-
-export function isBoardScope(value: unknown): value is BoardScope {
-  return typeof value === "string" && (BOARD_SCOPE_VALUES as readonly string[]).includes(value);
-}
-
-// (#424) Whether the ./api/range overlay may fire for the loaded env, given how
-// the env was loaded (contractMeta.source). A file-loaded env already carries its
-// full item_window extent and may come from a deployment with NO matching server —
-// a static / offline host, or an Android client with no configured server URL — so
-// the moment its landing default range differs from that extent (customRange), the
-// overlay would fetch ./api/range and OVERWRITE the uploaded payload, or surface
-// rangeError. The views filter the loaded env to the active range client-side, so an
-// uploaded contract never needs the server projection: suppress the overlay for it
-// and keep showing the file. A network-loaded env — or none yet (pre-load) — keeps
-// the existing overlay behavior. The `"network" | "file"` union mirrors
-// ContractLoadMetadata.source; a new source value would type-error at the call site,
-// forcing a deliberate decision about whether the overlay applies to it.
-export function rangeOverlayAllowedForSource(source: "network" | "file" | null | undefined): boolean {
-  return source !== "file";
-}
+//   • "full" — load the selected date range as the primary contract
+// The old 9-value model stored fixed window sizes here; those legacy values now
+// normalize to "full" because the shared date range owns the download size.
+export type BoardScope = "off" | "full";
 
 // Whether this build is served as a fully STATIC artifact with NO API backend —
 // the GitHub Pages demo (built with VITE_SYMPHONY_BOARD_STATIC). Such a host
-// serves ./contract.json but 404s ./api/range, so — exactly like a file-loaded
-// env (#424) — the UI must filter the full payload client-side and never fire
-// the range overlay, and it should land on the contract's full extent so a fresh
-// visitor sees data instead of an out-of-window empty range that 404s. A normal
-// deployment (Docker web sidecar, standalone app, Android client) leaves the flag
+// serves ./contract.json but 404s ./api/range, so it should land on the
+// contract's full extent. A normal deployment (Docker web sidecar, standalone
+// app, Android client) leaves the flag
 // unset, so import.meta.env is absent / falsy and this is false — the historical
 // behaviour is untouched.
 export function isStaticDeployment(): boolean {
@@ -314,16 +290,6 @@ export function effectiveLiveTabEnabled(storedEnabled: boolean, staticDeployment
   return storedEnabled && !liveControlsDisabled(staticDeployment);
 }
 
-// The ./api/range overlay may fire only when the env's source allows it (#424)
-// AND this is not a static, server-less deployment. A static host (the Pages
-// demo) 404s ./api/range, so the overlay must stay off there even for a
-// network-loaded contract — the views filter the loaded contract to the active
-// range client-side, the same as the file-env path. Pure so the gate is
-// unit-tested; App passes isStaticDeployment().
-export function rangeOverlayAllowed(source: "network" | "file" | null | undefined, staticDeployment: boolean): boolean {
-  return !staticDeployment && rangeOverlayAllowedForSource(source);
-}
-
 // --- range-as-download model (#488) -----------------------------------------
 // The selected date range is what the client downloads. These pure helpers
 // decide, for a requested range, how much to fetch and via which path.
@@ -343,7 +309,7 @@ export function deviceCeilingDays(clientKind: string | null = currentClientKind(
 export function clampRangeToCeiling(range: TimeRange, ceilingDays: number | null, now: number, tz?: string): TimeRange {
   if (ceilingDays == null) return range;
   const floor = timeRangeForDays(ceilingDays, now, tz).from;
-  return range.from < floor ? { from: floor, to: range.to } : range;
+  return range.from < floor ? { from: floor, to: range.to < floor ? floor : range.to } : range;
 }
 
 // Whether a requested range equals the emitted default window — the trailing
@@ -352,7 +318,9 @@ export function clampRangeToCeiling(range: TimeRange, ceilingDays: number | null
 // request for exactly it takes the cheap static fast-path instead of recomputing
 // /api/range. Date-only strings compare exactly. Pure + unit-tested.
 export function isDefaultWindowRange(range: TimeRange, now: number, tz?: string): boolean {
-  const def = timeRangeForDays(DEFAULT_TIME_RANGE_DAYS, now, tz);
+  const cutoffMs = Date.parse(cutoffIso(DEFAULT_TIME_RANGE_DAYS, now));
+  const zone = tz ?? "UTC";
+  const def = { from: zonedDateOnly(cutoffMs, zone), to: zonedDateOnly(now, zone) };
   return range.from === def.from && range.to === def.to;
 }
 
@@ -364,17 +332,21 @@ export function usesStaticContractFastPath(range: TimeRange, staticDeployment: b
   return staticDeployment || isDefaultWindowRange(range, now, tz);
 }
 
-// The default scope for a client kind when nothing is stored: Android renders on
-// (often) weak e-ink hardware where the full contract can OOM the WebView, so it
-// starts on a small 7-day window; every other client keeps the full board.
+// The default board-data toggle for a client kind when nothing is stored. Range
+// size is controlled by the shared date picker, so every client defaults to on.
 export function defaultBoardScope(clientKind: string | null = currentClientKind()): BoardScope {
-  return clientKind === ANDROID_CLIENT_KIND ? "7d" : "full";
+  void clientKind;
+  return "full";
+}
+
+function normalizeBoardScope(raw: unknown): BoardScope {
+  return raw === "off" ? "off" : "full";
 }
 
 export function loadBoardScope(): BoardScope {
   try {
     const raw = localStorage.getItem(BOARD_SCOPE_KEY);
-    return isBoardScope(raw) ? raw : defaultBoardScope();
+    return raw == null ? defaultBoardScope() : normalizeBoardScope(raw);
   } catch {
     return defaultBoardScope();
   }
@@ -385,6 +357,40 @@ export function saveBoardScope(scope: BoardScope): void {
     localStorage.setItem(BOARD_SCOPE_KEY, scope);
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+function serverScopedKey(serverBaseUrl: string | null): string {
+  return serverBaseUrl ?? "__same-origin__";
+}
+
+export function loadLastContractTimezone(serverBaseUrl: string | null): string | null {
+  try {
+    const raw = localStorage.getItem(LAST_CONTRACT_TIMEZONE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const value = (parsed as Record<string, unknown>)[serverScopedKey(serverBaseUrl)];
+    return isValidTimezone(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastContractTimezone(serverBaseUrl: string | null, timezone: string | null | undefined): void {
+  try {
+    const raw = localStorage.getItem(LAST_CONTRACT_TIMEZONE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    const next: Record<string, string> =
+      typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        ? Object.fromEntries(Object.entries(parsed).filter(([, value]) => isValidTimezone(value)))
+        : {};
+    const key = serverScopedKey(serverBaseUrl);
+    if (isValidTimezone(timezone)) next[key] = timezone;
+    else delete next[key];
+    localStorage.setItem(LAST_CONTRACT_TIMEZONE_KEY, JSON.stringify(next));
+  } catch {
+    /* storage unavailable / over quota — the cache hint just won't persist */
   }
 }
 

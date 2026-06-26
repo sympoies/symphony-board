@@ -34,6 +34,16 @@ function formatterFor(tz: string): Intl.DateTimeFormat {
   return fmt;
 }
 
+export function isValidTimezone(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  try {
+    formatterFor(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface WallClock {
   year: number;
   month: number; // 1-12

@@ -1112,6 +1112,7 @@ function buildWindowedProjection(
       window: aggregateWindow("active_since", "item_updated_at", since, CONTRACT_ITEM_WINDOW_DAYS, null),
       primary_items: primaryIds.size,
       edge_endpoint_items: edgeEndpointItems,
+      activity_target_items: 0,
       total_items: items.length,
       truncated: windowedItems.length < items.length,
     },
@@ -1134,6 +1135,7 @@ function fullItemProjection(
       window: aggregateWindow("full", "full_contract", null, null, null),
       primary_items: items.length,
       edge_endpoint_items: 0,
+      activity_target_items: 0,
       total_items: items.length,
       truncated: false,
     },
@@ -1162,33 +1164,42 @@ function buildRangeProjection(
   const selectedByKey = new Map<string, EdgeDTO>();
   for (const edge of [...boardEdges, ...graphEdges]) selectedByKey.set(edgeKey(edge), edge);
   const selectedEdges = [...selectedByKey.values()];
+  const rangedActivities = activities.filter((activity) => activityOccurredInRange(activity, range));
 
   const endpointIds = new Set<string>();
   for (const edge of selectedEdges) {
     endpointIds.add(edge.from);
     endpointIds.add(edge.to);
   }
+  const activityTargetIds = new Set<string>();
+  for (const activity of rangedActivities) {
+    if (activity.kind !== "review") continue;
+    if (activity.target_ref && byId.has(activity.target_ref)) activityTargetIds.add(activity.target_ref);
+  }
 
-  const emittedIds = new Set([...primaryIds, ...endpointIds]);
+  const emittedIds = new Set([...primaryIds, ...endpointIds, ...activityTargetIds]);
   const windowedItems = items
     .filter((item) => emittedIds.has(item.id))
     .map((item) => {
       const reasons: ItemWindowReason[] = [];
       if (primaryIds.has(item.id)) reasons.push("primary");
       if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
+      if (activityTargetIds.has(item.id)) reasons.push("activity_target");
       return { ...item, window_reasons: reasons };
     });
 
   const edgeEndpointItems = windowedItems.filter((item) => !primaryIds.has(item.id) && endpointIds.has(item.id)).length;
+  const activityTargetItems = windowedItems.filter((item) => !primaryIds.has(item.id) && activityTargetIds.has(item.id)).length;
   return {
     items: windowedItems,
     edges: selectedEdges,
-    activities: activities.filter((activity) => activityOccurredInRange(activity, range)),
+    activities: rangedActivities,
     itemWindow: {
       scope: "boardWindow",
       window: aggregateWindow("active_since", "item_updated_at", range.from, null, null),
       primary_items: primaryIds.size,
       edge_endpoint_items: edgeEndpointItems,
+      activity_target_items: activityTargetItems,
       total_items: items.length,
       truncated: windowedItems.length < items.length,
     },
@@ -1441,15 +1452,13 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     review_threads: reviewThreadsForItems(mapped.reviewThreads, ranged.items),
     // activity_daily over the projected in-range activities (the SAME set emitted
     // as `activities`, so the Overview totals reconcile), so a client that loads a
-    // windowed range AS its primary env (the mobile board-scope setting) still gets
-    // the Activity Overview / trend instead of a blank panel. The desktop range
-    // overlay ignores this (it reads the full contract's activity_daily).
+    // windowed range AS its primary env still gets the Activity Overview / trend
+    // instead of a blank panel.
     activity_daily: buildActivityDaily(ranged.activities, input.generatedAt, timezone),
     repos: mapped.repos,
     // Board-wide aggregates over the FULL live set (the same call buildContract
-    // makes) — small, and only consumed when this range response is itself the
-    // primary env (mobile board-scope). The desktop range overlay reads the full
-    // contract's aggregates and gates these off (compatibleAggregates: !customRange).
+    // makes) — small, but the UI gates them off for bounded range-query envs
+    // unless a future aggregate can prove the same end boundary.
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),

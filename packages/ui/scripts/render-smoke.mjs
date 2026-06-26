@@ -88,6 +88,8 @@ let contractRequestCount = 0;
 // static ./contract.json is only the default-90d / static-deploy fast-path), so
 // the refresh assertion below counts range requests, not contract.json hits.
 let rangeRequestCount = 0;
+let rangeFailOnce = false;
+let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
 let liveSnapshotLarge = false;
@@ -435,23 +437,30 @@ function rangeProjection(rawBody, reqUrl) {
     endpointIds.add(edge.from);
     endpointIds.add(edge.to);
   }
-  const emittedIds = new Set([...primaryIds, ...endpointIds]);
+  const rangedActivities = (env.activities || []).filter((activity) => inRange(activity.occurred_at, fromMs, toMs));
+  const activityTargetIds = new Set();
+  for (const activity of rangedActivities) {
+    if (activity.kind === "review" && activity.target_ref && byId.has(activity.target_ref)) activityTargetIds.add(activity.target_ref);
+  }
+  const emittedIds = new Set([...primaryIds, ...endpointIds, ...activityTargetIds]);
   const items = env.items
     .filter((item) => emittedIds.has(item.id))
     .map((item) => {
       const window_reasons = [];
       if (primaryIds.has(item.id)) window_reasons.push("primary");
       if (endpointIds.has(item.id)) window_reasons.push("edge_endpoint");
+      if (activityTargetIds.has(item.id)) window_reasons.push("activity_target");
       return { ...item, window_reasons };
     });
   const edgeEndpointItems = items.filter((item) => item.window_reasons.includes("edge_endpoint") && !item.window_reasons.includes("primary")).length;
+  const activityTargetItems = items.filter((item) => item.window_reasons.includes("activity_target") && !item.window_reasons.includes("primary")).length;
   return {
     status: 200,
     body: JSON.stringify({
       ...env,
       items,
       edges: [...selectedEdges.values()],
-      activities: (env.activities || []).filter((activity) => inRange(activity.occurred_at, fromMs, toMs)),
+      activities: rangedActivities,
       aggregates: [],
       repo_metrics: (env.repo_metrics || []).map((metric) => ({
         ...metric,
@@ -462,6 +471,7 @@ function rangeProjection(rawBody, reqUrl) {
         window: { kind: "active_since", basis: "item_updated_at", since: fromIso, days: null, edge_filter: null },
         primary_items: primaryIds.size,
         edge_endpoint_items: edgeEndpointItems,
+        activity_target_items: activityTargetItems,
         total_items: env.items.length,
         truncated: true,
       },
@@ -483,6 +493,11 @@ const server = createServer(async (req, res) => {
       rangeRequestCount += 1;
       const delayMs = rangeResponseDelayMs;
       if (delayMs > 0) await sleep(delayMs);
+      if (rangeFailOnce) {
+        rangeFailOnce = false;
+        res.writeHead(500, JSON_HEADERS).end(JSON.stringify({ error: "smoke_range_failed" }));
+        return;
+      }
       const rawBody = await readFile(join(DIST, "contract.json"));
       const response = rangeProjection(rawBody, req.url || "/api/range");
       res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
@@ -494,6 +509,10 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/__smoke/range-count") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ rangeRequests: rangeRequestCount }));
+      return;
+    }
+    if (p === "/__smoke/activity-daily-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ activityDailyRequests: activityDailyRequestCount }));
       return;
     }
     if (p === "/__smoke/live-snapshot-count") {
@@ -523,6 +542,13 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/api/stats") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify(STORE_STATS_MOCK));
+      return;
+    }
+    if (p === "/api/activity-daily") {
+      activityDailyRequestCount += 1;
+      const rawBody = await readFile(join(DIST, "contract.json"));
+      const env = parseInflatedContract(rawBody);
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ activity_daily: env.activity_daily ?? null }));
       return;
     }
     if (p === "/api/logs") {
@@ -726,6 +752,12 @@ try {
       awaitPromise: true,
       returnByValue: true,
     })).result.value || 0;
+  const activityDailyRequests = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/activity-daily-count').then((res) => res.json()).then((body) => body.activityDailyRequests || 0)",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || 0;
   const liveSnapshotRequests = async () =>
     (await send("Runtime.evaluate", {
       expression: "fetch('/__smoke/live-snapshot-count').then((res) => res.json()).then((body) => body.liveSnapshotRequests || 0)",
@@ -770,7 +802,7 @@ try {
   // Then enable the Live tab (and pin it as the default) the way Settings would,
   // and reload so the rest of the smoke exercises the realtime feed.
   await send("Runtime.evaluate", {
-    expression: "localStorage.setItem('symphony-board:live-tab-enabled','true'); localStorage.setItem('symphony-board:default-tab','live'); localStorage.removeItem('symphony-board:hidden-event-types'); location.reload();",
+    expression: "localStorage.setItem('symphony-board:live-tab-enabled','true'); localStorage.setItem('symphony-board:default-tab','live'); localStorage.removeItem('symphony-board:hidden-event-types'); history.replaceState(history.state, '', location.pathname + location.search); location.reload();",
   });
   await sleep(400);
   // With Live enabled and pinned as the default, a hashless open lands on Live;
@@ -823,6 +855,93 @@ try {
   })()`);
   rangeResponseDelayMs = 0;
   await waitHtml("document.querySelector('.activity-page')");
+  rangeFailOnce = true;
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('.time-range-controls .date-input');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(input, '2026-04-15');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`,
+  });
+  const rangeFailureRetained = await waitValue(`(() => {
+    const error = document.querySelector('.state-msg-inline.error');
+    const rows = document.querySelectorAll('.activity-row').length;
+    if (!error) return null;
+    return {
+      error: error.textContent || '',
+      header: !!document.querySelector('.app-header'),
+      tabs: !!document.querySelector('.page-tabs'),
+      rangeControls: !!document.querySelector('.time-range-controls'),
+      contentRetained: rows > 0,
+    };
+  })()`);
+  await sleep(150);
+  const activityDailyBeforeFileUpload = await activityDailyRequests();
+  rangeResponseDelayMs = 700;
+  await send("Runtime.evaluate", { expression: "document.querySelector('.brand-refresh')?.click()" });
+  await sleep(50);
+  const fileAuthorityUpload = (await send("Runtime.evaluate", {
+    expression: `(async () => {
+      location.hash = '#/board';
+      const input = document.querySelector('input[type="file"]');
+      if (!input) return { input: false };
+      const env = await fetch('/contract.json').then((res) => res.json());
+      env.contract_version = env.contract_version || '4.4.0';
+      env.range_query = {
+        kind: 'time_range',
+        timezone: env.timezone || 'UTC',
+        from: '2026-05-01T00:00:00.000Z',
+        to: '2026-06-10T23:59:59.999Z',
+      };
+      env.timezone = 'UTC';
+      env.items = Array.isArray(env.items) ? env.items : [];
+      env.items = env.items.map((item, index) => ({
+        ...item,
+        title: 'uploaded-file-sentinel ' + index,
+        window_reasons: ['primary'],
+      }));
+      env.item_window = {
+        ...(env.item_window || {}),
+        scope: 'boardWindow',
+        window: env.item_window?.window || { kind: 'active_since', basis: 'item_updated_at', since: '2026-05-01T00:00:00.000Z', days: null, edge_filter: null },
+        primary_items: env.items.length,
+        edge_endpoint_items: env.item_window?.edge_endpoint_items || 0,
+        activity_target_items: env.item_window?.activity_target_items || 0,
+        total_items: env.item_window?.total_items || env.items.length,
+        truncated: !!env.item_window?.truncated,
+      };
+      const dt = new DataTransfer();
+      dt.items.add(new File([JSON.stringify(env)], 'uploaded-range-contract.json', { type: 'application/json' }));
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return { input: true, itemCount: env.items.length };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
+  const fileAuthorityVisible = await waitValue(`(() => {
+    if (!document.body.innerText.includes('uploaded-file-sentinel')) return null;
+    return {
+      hash: location.hash,
+      sentinel: document.body.innerText.includes('uploaded-file-sentinel'),
+      hasInlineRangeError: !!document.querySelector('.state-msg-inline.error'),
+    };
+  })()`);
+  await sleep(900);
+  rangeResponseDelayMs = 0;
+  const fileAuthorityAfterPending = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      sentinel: document.body.innerText.includes('uploaded-file-sentinel'),
+      hasBoardCard: !!document.querySelector('.board-7 .card'),
+      hasInlineRangeError: !!document.querySelector('.state-msg-inline.error'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  const activityDailyAfterFileUpload = await activityDailyRequests();
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(300);
   // Auto-hiding scrollbars: the styled scrollbars are transparent at rest and only
   // paint while their scroller carries `data-scrolling="true"`. A single
   // capture-phase scroll listener flags the scrolled element and clears it after a
@@ -2989,6 +3108,9 @@ try {
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
     [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.contentRetained, `board: a range refetch keeps app chrome + loaded content mounted, no full-screen reload (${JSON.stringify(initialRangePending)})`],
+    [rangeFailureRetained?.header && rangeFailureRetained?.tabs && rangeFailureRetained?.rangeControls && rangeFailureRetained?.contentRetained && /Could not load selected range/.test(rangeFailureRetained.error || ""), `board: a failed range refetch keeps stale content mounted with an inline error (${JSON.stringify(rangeFailureRetained)})`],
+    [fileAuthorityUpload.input === true && fileAuthorityVisible?.sentinel === true && fileAuthorityAfterPending.sentinel === true && fileAuthorityAfterPending.hasBoardCard === true, `board: uploaded file env stays authoritative over a pending server reload (${JSON.stringify({ fileAuthorityUpload, fileAuthorityVisible, fileAuthorityAfterPending })})`],
+    [activityDailyAfterFileUpload === activityDailyBeforeFileUpload, `board: uploaded range contract does not fetch server /api/activity-daily (${activityDailyBeforeFileUpload} -> ${activityDailyAfterFileUpload})`],
     [boardThisWeekClick.hash?.includes("preset=this-week") && JSON.stringify(boardThisWeekClick.active) === JSON.stringify(["this week"]), `board: clicking this week preserves this week as the only active preset (${boardThisWeekClick.hash || "empty"})`],
     [has(boardNarrowHtml, "range 2026-06-10 to 2026-06-10"), "board: custom range label rendered after API projection"],
     [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],

@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.3.0`.
+Current emitted version: `4.4.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.3.0",
+  "contract_version": "4.4.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -146,6 +146,7 @@ package version, to decide compatibility.
     },
     "primary_items": 42,
     "edge_endpoint_items": 4,
+    "activity_target_items": 0,
     "total_items": 1519,
     "truncated": true
   },
@@ -308,7 +309,9 @@ Important fields:
 - `last_seen_at`: latest successful observation in the canonical store.
 - `window_reasons`: v2 inclusion reasons. `primary` means the item belongs to
   `item_window`; `edge_endpoint` means it is included to resolve an emitted edge
-  endpoint. Missing means "primary" when reading old v1 payloads.
+  endpoint; `activity_target` means it is included to resolve an emitted review
+  activity's target change request and current review-thread state. Missing
+  means "primary" when reading old v1 payloads.
 
 The TypeScript DTOs describe what the producer emits. The JSON Schema is the
 normative validation surface.
@@ -467,6 +470,14 @@ absolute URL against the source host for self-hosted instances. It is persisted
 inside the canonical `comments_json` blob (no schema migration), and the Reviews
 UI renders it as the comment author's photo, falling back to initials.
 
+Version `4.4.0` is additive: range projections may include item rows with
+`window_reasons: ["activity_target"]` plus optional
+`item_window.activity_target_items`. These rows are outside the primary Board
+item window and are present only to let an emitted in-range review activity
+resolve its target change request's current `review_threads` summary. They are
+not emitted edge endpoints; `edge_endpoint` remains reserved for rows needed by
+emitted `edges[]`.
+
 Version `4.3.0` is additive: each `review_threads[]` row now carries an optional,
 nullable `last_comment_at` — the thread's TRUE newest-comment instant. The
 `comments[]` preview holds only the OLDEST `comments_total` rows, so for a thread
@@ -622,7 +633,10 @@ Fields:
 - `window`: the same window descriptor shape used by aggregate rows.
 - `primary_items`: number of loaded rows that belong to the primary window.
 - `edge_endpoint_items`: number of loaded rows outside the primary window that
-  exist only to resolve emitted edge endpoints.
+  exist to resolve emitted edge endpoints.
+- `activity_target_items`: optional number of loaded rows outside the primary
+  window that exist to resolve emitted review activity targets. When a row has
+  both `edge_endpoint` and `activity_target`, the counts are per reason.
 - `total_items`: full live canonical item count before windowing.
 - `truncated`: true when at least one live item row is omitted from `items[]`.
 
@@ -655,6 +669,10 @@ The range response is a projection, not a second schema:
 - tracked edge endpoints are included in `items[]` with
   `window_reasons: ["edge_endpoint"]` when they are outside the primary item
   set.
+- in-range review activity targets are included in `items[]` with
+  `window_reasons: ["activity_target"]` when they are outside the primary item
+  set, so unresolved-review filters can read the target change request's current
+  `review_threads` summary without treating the row as an edge endpoint.
 - `activities[]` is filtered by `occurred_at` inside `[from, to]`.
 - `aggregates[]` is populated in range responses from the full live item/edge
   set (the same computation the static contract uses), so a windowed board keeps

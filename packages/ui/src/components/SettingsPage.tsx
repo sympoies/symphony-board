@@ -22,8 +22,6 @@ import {
   MAX_LIVE_PREVIEW_LINES,
   DEFAULT_TAB_OPTIONS,
   isDefaultTab,
-  BOARD_SCOPE_VALUES,
-  isBoardScope,
   currentClientKind,
   ANDROID_CLIENT_KIND,
   type BoardScope,
@@ -47,7 +45,7 @@ interface Props {
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
   disabledRangePresets: ReadonlySet<TimeRangePresetId>; // presets larger than Board data — not selectable
-  boardScope: BoardScope; // how much of the contract this device loads (off / window / full)
+  boardScope: BoardScope; // whether this device loads contract-backed board data
   onBoardScope: (scope: BoardScope) => void;
   wideLayout: boolean; // force the wide (desktop) layout on this device (Android app only)
   onWideLayout: (wide: boolean) => void;
@@ -76,21 +74,6 @@ interface Props {
 // only in that case, so deployments without the capability see the classic
 // single-page Settings unchanged.
 export type SettingsTab = "display" | "sources";
-
-// Human labels for the board-scope select (how much of the contract this device
-// loads). A window keeps the payload small on a limited-memory device; "off" is
-// Live-only; "full" is the whole board.
-const BOARD_SCOPE_LABELS: Record<BoardScope, string> = {
-  off: "Off (Live only)",
-  "1d": "Last 1 day",
-  "3d": "Last 3 days",
-  "7d": "Last 7 days",
-  "1mo": "Last 1 month",
-  "3mo": "Last 3 months",
-  "6mo": "Last 6 months",
-  "1y": "Last 1 year",
-  full: "Full board",
-};
 
 // Shown on the Live preferences when they are disabled on a static, server-less
 // deployment (the Pages demo). Mirrors the date range's static-suspension tooltip

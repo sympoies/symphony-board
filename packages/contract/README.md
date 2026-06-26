@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.3.0`.
+Current contract version emitted by the backend: `4.4.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.3.0`. Important compatibility milestones:
+The current emitted contract is `4.4.0`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -110,6 +110,11 @@ The current emitted contract is `4.3.0`. Important compatibility milestones:
   Recency consumers prefer it over scanning the preview; the producer always
   emits the key, persisted on a new `review_thread.last_comment_at` column
   (additive migration on both drivers).
+- 4.4.0 adds `ItemWindowReason.activity_target` and optional
+  `ItemWindowDTO.activity_target_items` for range projections that include a
+  review activity's target change request only so consumers can resolve current
+  review-thread state. This keeps `edge_endpoint` reserved for emitted edge
+  endpoints.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

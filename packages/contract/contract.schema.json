@@ -196,7 +196,7 @@
         "window_reasons": {
           "type": "array",
           "description": "Why this row is present in a v2 windowed item payload. Missing means primary for old v1 payloads.",
-          "items": { "type": "string", "enum": ["primary", "edge_endpoint"] }
+          "items": { "type": "string", "enum": ["primary", "edge_endpoint", "activity_target"] }
         }
       }
     },
@@ -426,6 +426,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Loaded items outside the primary window, included only to resolve emitted edge endpoints."
+        },
+        "activity_target_items": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Loaded items outside the primary window, included to resolve emitted review activity targets."
         },
         "total_items": {
           "type": "integer",
