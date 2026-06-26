@@ -426,21 +426,15 @@ export function App() {
     return clampRangeToCeiling(base, deviceCeiling, clock, tz);
   }, [contractDisabled, explicitRange, defaultRange, defaultRangePreset, env, generatedNowMs, tz, deviceCeiling]);
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
-  // #424: an uploaded contract (contractMeta.source === "file") loaded on a windowed
-  // device carries no range_query, so its landing default range differs from the file's
-  // item_window extent and customRange goes true — but firing the ./api/range overlay
-  // would OVERWRITE the uploaded payload with the configured server's response (or fail
-  // on a static/offline host / an Android client with no server URL). The views already
-  // filter the loaded env to activeRange client-side, so a file env never needs the
-  // server projection: gate the overlay off for it. customRange itself stays true (only
-  // the overlay fetch is gated), so compatibleAggregates stays [] and the board computes
-  // its window stats client-side from the loaded items — correct for a file env, which
-  // already carries the full payload. Network envs are unaffected.
   // #488: the primary env now follows the selected range directly (see the load
   // effect), so the separate /api/range OVERLAY is gone — activeEnv is just env.
   // File / static-deploy envs are unaffected: they still carry the full payload
   // and the views filter them to activeRange client-side. `customRange` survives
   // (it still gates contract-aggregate reuse + the client-side filtering).
+  // TODO(#492): with the overlay collapsed this flag is permanently false, so the
+  // rangeEnv/rangeLoading/rangeError state, the range fetch effect, and the inline
+  // range loading/error UI it gates are now dead scaffolding — remove them (plus the
+  // orphaned rangeOverlayAllowed / WindowQuickPreset) in the range-as-download cleanup.
   const needsRangeEnv = false;
 
   // Reload the active data in place after a successful manual sync. It only

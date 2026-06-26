@@ -12,6 +12,7 @@ import {
   activeTimeRangePresetId,
   preferredDefaultTimeRange,
   staticContractTimeRange,
+  rangeQueryWindow,
   timeRangeForPreset,
   timeRangeForDays,
   presetBeyondLoadedWindow,
@@ -634,6 +635,33 @@ test("activityDisplay exposes commit and ref details without fake #iid labels", 
   assert.equal(pushDisplay.title, "branch chore/deploy-test-full-flow-agent-9001");
   assert.equal([...pushDisplay.meta, ...pushDisplay.chips].some((part) => part.includes("#1936")), false);
   assert.deepEqual(pushDisplay.chips, ["ref chore/deploy-test-full-flow-agent-9001", "from 4eae5cc5"]);
+});
+
+test("rangeQueryWindow reads the loaded window back from range_query, else null (range-as-download landing convergence)", () => {
+  // The #488 linchpin: a /api/range projection echoes its requested window as
+  // zoned day-bounds in range_query; rangeQueryWindow maps them back to calendar
+  // days so App can use it as staticRange. That makes the landing range == staticRange
+  // (customRange false) and keeps the range-keyed load effect from re-firing — the
+  // convergence that replaces the old refetch loop. Returns null (-> the
+  // staticContractTimeRange fallback) for the contract.json fast-path / uploaded envs.
+  const base = {
+    contract_version: "4.0.0",
+    generated_at: "2026-06-08T12:00:00Z",
+    generator: "t",
+    sources: [],
+    items: [],
+    edges: [],
+  };
+  const utcEnv = { ...base, range_query: { kind: "time_range", timezone: "UTC", from: "2026-05-10T00:00:00.000Z", to: "2026-06-08T23:59:59.999Z" } } as unknown as ContractEnvelope;
+  assert.deepEqual(rangeQueryWindow(utcEnv), { from: "2026-05-10", to: "2026-06-08" }, "UTC day-bounds map back to their calendar days");
+  // tz is threaded: in Asia/Taipei (UTC+8) the instant 18:00Z is already the next
+  // local day, so both bounds re-zone to 2026-06-09.
+  const tpeEnv = { ...base, timezone: "Asia/Taipei", range_query: { kind: "time_range", timezone: "Asia/Taipei", from: "2026-06-08T18:00:00.000Z", to: "2026-06-08T18:00:00.000Z" } } as unknown as ContractEnvelope;
+  assert.deepEqual(rangeQueryWindow(tpeEnv), { from: "2026-06-09", to: "2026-06-09" }, "Taipei re-zones the instants to the local calendar day");
+  // Fallback-to-null branches (App then uses staticContractTimeRange):
+  assert.equal(rangeQueryWindow(base as unknown as ContractEnvelope), null, "no range_query -> null");
+  assert.equal(rangeQueryWindow({ ...base, range_query: { kind: "time_range", timezone: "UTC", from: 0, to: 0 } } as unknown as ContractEnvelope), null, "non-string bounds -> null");
+  assert.equal(rangeQueryWindow({ ...base, range_query: { kind: "time_range", timezone: "UTC", from: "nope", to: "nope" } } as unknown as ContractEnvelope), null, "unparseable bounds -> null");
 });
 
 test("date ranges are route-backed and filter inclusive timestamp bounds", () => {
