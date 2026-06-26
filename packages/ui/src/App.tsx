@@ -1580,8 +1580,11 @@ export function App() {
   // switches like any other tab instead of being a separate full-screen view.
   // Live leads (the realtime headline) and appears only where the receiver
   // answers (liveAvailable). routeHref carries search/range/lens across the hop.
+  // Remount when the tab set changes so WebKit does not keep the old sticky flex
+  // layout after Board data is turned off and back on.
+  const pageTabsKey = `page-tabs-${contractEnabled ? "board" : "live-only"}-${liveTabShown ? "live" : "no-live"}`;
   const pageTabs = (
-    <nav className="page-tabs">
+    <nav key={pageTabsKey} className="page-tabs" data-board-data={contractEnabled ? "on" : "off"}>
       {liveTabShown ? (
         <a className={`tab tab-live${page === "live" ? " tab-on" : ""}`} href={routeHref("live")}>
           <span className="tab-live-dot" aria-hidden="true" />
