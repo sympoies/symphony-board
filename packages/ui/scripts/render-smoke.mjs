@@ -18,30 +18,24 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, normalize } from "node:path";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
-import { parse } from "parse5";
 // Source of truth for the seed/buffer sizes, so the assertions below track the
 // constants (a retune updates here, not a frozen literal that could rot).
 import { LIVE_SEED_LIMIT, LIVE_EVENT_BUFFER_LIMIT } from "../src/live-config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
-function firstScriptTextFromHtml(html) {
-  const doc = parse(html);
-  const scriptNode = findFirstScriptNode(doc);
-  if (!scriptNode || !Array.isArray(scriptNode.childNodes)) return null;
-  const textNode = scriptNode.childNodes.find((n) => n?.nodeName === "#text");
-  return typeof textNode?.value === "string" ? textNode.value : null;
-}
+const FIRST_PAINT_SCRIPT_MARKER = "Apply the persisted color mode BEFORE first paint";
 
-function findFirstScriptNode(node) {
-  if (!node || typeof node !== "object") return null;
-  if (node.tagName === "script") return node;
-  const children = Array.isArray(node.childNodes) ? node.childNodes : [];
-  for (const child of children) {
-    const found = findFirstScriptNode(child);
-    if (found) return found;
-  }
-  return null;
+function firstPaintScriptFromHtml(html) {
+  const markerIndex = html.indexOf(FIRST_PAINT_SCRIPT_MARKER);
+  if (markerIndex < 0) return null;
+  const openTagStart = html.lastIndexOf("<script", markerIndex);
+  if (openTagStart < 0) return null;
+  const openTagEnd = html.indexOf(">", openTagStart);
+  if (openTagEnd < 0 || openTagEnd > markerIndex) return null;
+  const closeTagStart = html.indexOf("</script>", markerIndex);
+  if (closeTagStart < 0) return null;
+  return html.slice(openTagEnd + 1, closeTagStart);
 }
 
 function envPort(name, fallback) {
@@ -545,11 +539,12 @@ const server = createServer(async (req, res) => {
     if (p === "/__smoke/first-paint") {
       const url = new URL(req.url || "/__smoke/first-paint", `http://127.0.0.1:${HTTP_PORT}`);
       const indexHtml = await readFile(join(DIST, "index.html"), "utf8");
-      const scriptSource = firstScriptTextFromHtml(indexHtml);
+      const scriptSource = firstPaintScriptFromHtml(indexHtml);
       if (!scriptSource) {
         res.writeHead(500, JSON_HEADERS).end(JSON.stringify({ error: "missing_first_paint_script" }));
         return;
       }
+      const marker = (url.searchParams.get("marker") || "default").replace(/[^A-Za-z0-9._:-]/g, "_");
       const stored = url.searchParams.get("stored");
       const seed =
         url.searchParams.get("storage") === "throw"
@@ -563,9 +558,9 @@ const server = createServer(async (req, res) => {
     <meta charset="UTF-8" />
     <meta name="theme-color" content="#030b22" />
     <script>${seed}</script>
-    <script>${scriptMatch[1]}</script>
+    <script>${scriptSource}</script>
   </head>
-  <body>first-paint-probe</body>
+  <body>first-paint-probe:${marker}</body>
 </html>`);
       return;
     }
@@ -776,14 +771,19 @@ try {
     }
     return value;
   };
+  let firstPaintProbeSeq = 0;
   const firstPaintProbe = async ({ scheme, stored = "", storage = "" }) => {
     await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    const marker = `probe-${++firstPaintProbeSeq}`;
     const params = new URLSearchParams();
+    params.set("marker", marker);
     if (stored) params.set("stored", stored);
     if (storage) params.set("storage", storage);
     await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/__smoke/first-paint?${params}` });
     return await waitValue(`(() => {
-      if (document.body?.textContent?.trim() !== 'first-paint-probe') return null;
+      if (location.pathname !== "/__smoke/first-paint") return null;
+      if (new URLSearchParams(location.search).get("marker") !== ${JSON.stringify(marker)}) return null;
+      if (document.body?.textContent?.trim() !== ${JSON.stringify(`first-paint-probe:${marker}`)}) return null;
       return {
         theme: document.documentElement.dataset.theme || '',
         colorScheme: document.documentElement.style.colorScheme || '',
@@ -793,6 +793,8 @@ try {
   };
   const firstPaintSystemDark = await firstPaintProbe({ scheme: "dark" });
   const firstPaintStorageBlockedLight = await firstPaintProbe({ scheme: "light", storage: "throw" });
+  const firstPaintStoredLight = await firstPaintProbe({ scheme: "dark", stored: "light" });
+  const firstPaintStoredDark = await firstPaintProbe({ scheme: "light", stored: "dark" });
   const firstPaintLegacyPaper = await firstPaintProbe({ scheme: "dark", stored: "paper" });
   const firstPaintLegacyNightOwl = await firstPaintProbe({ scheme: "light", stored: "night-owl" });
   await send("Runtime.evaluate", { expression: "try { localStorage.clear(); } catch (e) {}", returnByValue: true });
@@ -3550,6 +3552,8 @@ try {
 	    [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
 	    [firstPaintSystemDark?.theme === "night-owl" && firstPaintSystemDark?.colorScheme === "dark" && firstPaintSystemDark?.themeColor === "#030b22", `settings: first-paint System follows dark system mode (${JSON.stringify(firstPaintSystemDark)})`],
 	    [firstPaintStorageBlockedLight?.theme === "paper" && firstPaintStorageBlockedLight?.colorScheme === "light" && firstPaintStorageBlockedLight?.themeColor === "#f4f3ed", `settings: first-paint System still follows light mode when storage is blocked (${JSON.stringify(firstPaintStorageBlockedLight)})`],
+	    [firstPaintStoredLight?.theme === "paper" && firstPaintStoredLight?.colorScheme === "light" && firstPaintStoredLight?.themeColor === "#f4f3ed", `settings: first-paint stored Light wins over dark system mode (${JSON.stringify(firstPaintStoredLight)})`],
+	    [firstPaintStoredDark?.theme === "night-owl" && firstPaintStoredDark?.colorScheme === "dark" && firstPaintStoredDark?.themeColor === "#030b22", `settings: first-paint stored Dark wins over light system mode (${JSON.stringify(firstPaintStoredDark)})`],
 	    [firstPaintLegacyPaper?.theme === "paper" && firstPaintLegacyPaper?.colorScheme === "light" && firstPaintLegacyPaper?.themeColor === "#f4f3ed", `settings: first-paint legacy Paper storage maps to Light (${JSON.stringify(firstPaintLegacyPaper)})`],
 	    [firstPaintLegacyNightOwl?.theme === "night-owl" && firstPaintLegacyNightOwl?.colorScheme === "dark" && firstPaintLegacyNightOwl?.themeColor === "#030b22", `settings: first-paint legacy Night Owl storage maps to Dark (${JSON.stringify(firstPaintLegacyNightOwl)})`],
 	    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.before === "night-owl" && colorModeBefore.colorScheme === "dark" && colorModeBefore.themeColor === "#030b22" && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System and resolves dark (${JSON.stringify(colorModeBefore)})`],
