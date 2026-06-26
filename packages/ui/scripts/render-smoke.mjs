@@ -1342,6 +1342,7 @@ try {
         const afterClickDetailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.trim() || '';
         const listBox = document.querySelector('.items-page .items-list')?.getBoundingClientRect();
         const detailBox = document.querySelector('.items-page .items-detail')?.getBoundingClientRect();
+        const detailCardBox = document.querySelector('.items-page .items-detail-card')?.getBoundingClientRect();
         const kindGroup = Array.from(document.querySelectorAll('.controls .toggle-group'))
           .find((g) => g.querySelector('.toggle-label')?.textContent === 'kind');
         resolve({
@@ -1358,6 +1359,11 @@ try {
           initialDetailTitle,
           afterClickDetailTitle,
           listLeftOfDetail: !!listBox && !!detailBox && listBox.left < detailBox.left && listBox.right <= detailBox.left + 24,
+          listHeight: Math.round(listBox?.height || 0),
+          detailHeight: Math.round(detailBox?.height || 0),
+          detailCardHeight: Math.round(detailCardBox?.height || 0),
+          detailFillsListHeight: !!listBox && !!detailBox && detailBox.height >= listBox.height - 2,
+          detailCardFillsPane: !!detailBox && !!detailCardBox && detailCardBox.height >= detailBox.height - 2,
           hasKindGroup: !!kindGroup,
           kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
         });
@@ -1655,6 +1661,9 @@ try {
       const detail = document.querySelector('.reviews-page .live-detail');
       const card = detail?.querySelector('.live-detail-card') || null;
       const nav = detail?.querySelector('.live-detail-nav') || null;
+      const feedRect = document.querySelector('.reviews-page .live-feed')?.getBoundingClientRect();
+      const detailRect = detail?.getBoundingClientRect();
+      const cardRect = card?.getBoundingClientRect();
       return {
         rows: document.querySelectorAll('.reviews-page .live-feed .live-event').length,
         statuses: Array.from(document.querySelectorAll('.reviews-page .live-feed .live-event .badge')).map((el) => (el.textContent || '').trim()),
@@ -1682,6 +1691,11 @@ try {
         // narrow-overlay flex rules pin it as the footer (mirrors the Live tab).
         navInsideCard: !!(card && nav && card.contains(nav)),
         navIsDetailChild: !!(detail && nav && nav.parentElement === detail),
+        feedHeight: Math.round(feedRect?.height || 0),
+        detailHeight: Math.round(detailRect?.height || 0),
+        detailCardHeight: Math.round(cardRect?.height || 0),
+        detailMatchesFeed: !!(feedRect && detailRect) && Math.abs(feedRect.height - detailRect.height) <= 2,
+        detailCardFillsPane: !!(detailRect && cardRect) && cardRect.height >= detailRect.height - 2,
       };
     })()`,
     returnByValue: true,
@@ -1776,7 +1790,7 @@ try {
     expression: `(() => {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const tabOrder = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Tab order');
-      const button = tabOrder?.querySelector('button[aria-label="Move Analytics earlier"]');
+      const button = tabOrder?.querySelector('button[aria-label="Move Graph earlier"]');
       if (!button || button.disabled) return { clicked: false };
       button.click();
       return { clicked: true };
@@ -2122,6 +2136,7 @@ try {
       const detailAvatar = document.querySelector('.live-detail .live-avatar');
       const detailAvatarImg = detailAvatar?.querySelector('img');
       const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
+      const detailPaneRect = document.querySelector('.live-detail')?.getBoundingClientRect();
       const detailRect = document.querySelector('.live-detail-card')?.getBoundingClientRect();
       const firstRowRect = rows[0]?.getBoundingClientRect();
       const status = document.querySelector('.live-status');
@@ -2171,6 +2186,8 @@ try {
         feedTop: feedRect?.top || 0,
         feedBottom: feedRect?.bottom || 0,
         detailHeight: detailRect?.height || 0,
+        detailPaneHeight: detailPaneRect?.height || 0,
+        detailCardFillsPane: !!(detailPaneRect && detailRect) && detailRect.height >= detailPaneRect.height - 2,
         firstRowTop: firstRowRect?.top || 0,
         firstRowBottom: firstRowRect?.bottom || 0,
         documentScrollHeight: document.documentElement.scrollHeight,
@@ -3302,10 +3319,10 @@ try {
   const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const settingIndex = (title) => (settingsDisplayModel.headings || []).indexOf(title);
-  const expectedTabOrderBeforeMove = ["Live", "Activity", "Items", "Commits", "Reviews", "Board", "Graph", "Analytics", "Settings"];
-  const expectedTabOrderAfterMove = ["Live", "Activity", "Items", "Commits", "Reviews", "Board", "Analytics", "Graph", "Settings"];
-  const expectedContentRowsAfterMove = ["Activity", "Items", "Commits", "Reviews", "Board", "Analytics", "Graph"];
-  const expectedStoredTabOrderAfterMove = '["activity","items","commits","reviews","board","repo-analytics","graph"]';
+  const expectedTabOrderBeforeMove = ["Live", "Activity", "Metrics", "Board", "Graph", "Items", "Reviews", "Commits", "Settings"];
+  const expectedTabOrderAfterMove = ["Live", "Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Commits", "Settings"];
+  const expectedContentRowsAfterMove = ["Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Commits"];
+  const expectedStoredTabOrderAfterMove = '["activity","repo-analytics","graph","board","items","reviews","commits"]';
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
@@ -3530,6 +3547,7 @@ try {
     [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],
     [itemsSummary.selectedRows === 1, `items: exactly one row is marked selected (${itemsSummary.selectedRows || 0})`],
     [(itemsSummary.detailBodyText || "").length > 0, "items: detail pane exposes item body/details text"],
+    [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true, `items: detail pane stretches to list height and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight })})`],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
@@ -3549,6 +3567,7 @@ try {
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
     [Math.abs((live.detailHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailHeight || 0}px vs ${live.feedHeight || 0}px)`],
+    [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailHeight })})`],
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
     // the buffer cap, so the first paint isn't a ~26MB download; the poll-since
     // request still uses the buffer cap (it returns only rows after the cursor).
@@ -3644,6 +3663,7 @@ try {
     [reviewsSummary.statuses.includes("unresolved"), `reviews: unresolved status badge rendered (${reviewsSummary.statuses.join(", ") || "none"})`],
     [reviewsSummary.previews.some((text) => text.includes("Cache the compiled pattern")), "reviews: comment preview text rendered inline"],
     [reviewsSummary.detailComments >= 1, `reviews: detail pane renders the selected thread's comment chain (${reviewsSummary.detailComments || 0})`],
+    [reviewsSummary.detailMatchesFeed === true && reviewsSummary.detailCardFillsPane === true, `reviews: detail pane matches feed height and its card fills the pane (${JSON.stringify({ feed: reviewsSummary.feedHeight, detail: reviewsSummary.detailHeight, card: reviewsSummary.detailCardHeight })})`],
     [reviewsSummary.rowAvatars === 0, `reviews: list rows carry no avatar — avatars live only in the thread (${reviewsSummary.rowAvatars})`],
     [/avatars\.githubusercontent\.com/.test(reviewsSummary.commentAvatarSrc), `reviews: thread comment renders the author photo from avatar_url (${reviewsSummary.commentAvatarSrc || "none"})`],
     [reviewsSummary.commentAvatarLayout?.avatarIsCardChild === true && reviewsSummary.commentAvatarLayout?.mainStartsAfterAvatar === true, `reviews: thread comment avatar leads the comment body like Live detail rows (${JSON.stringify(reviewsSummary.commentAvatarLayout || {})})`],
@@ -3710,7 +3730,7 @@ try {
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Live tab") > settingIndex("Tab order") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
-    [tabOrderClick.clicked === true && JSON.stringify(tabOrderBefore) === JSON.stringify(expectedTabOrderBeforeMove) && JSON.stringify(tabOrderAfterMove.labels) === JSON.stringify(expectedTabOrderAfterMove) && JSON.stringify(tabOrderAfterMove.rows) === JSON.stringify(expectedContentRowsAfterMove) && tabOrderAfterMove.stored === expectedStoredTabOrderAfterMove, `settings: tab order control moves Analytics before Graph while Live/Settings stay anchored (${JSON.stringify(tabOrderAfterMove)})`],
+    [tabOrderClick.clicked === true && JSON.stringify(tabOrderBefore) === JSON.stringify(expectedTabOrderBeforeMove) && JSON.stringify(tabOrderAfterMove.labels) === JSON.stringify(expectedTabOrderAfterMove) && JSON.stringify(tabOrderAfterMove.rows) === JSON.stringify(expectedContentRowsAfterMove) && tabOrderAfterMove.stored === expectedStoredTabOrderAfterMove, `settings: tab order control moves Graph before Board while Live/Settings stay anchored (${JSON.stringify(tabOrderAfterMove)})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
     [bothOffGuard.title === "Symphony Board" && bothOffGuard.hasBrandIcon === true && bothOffGuard.sourceChips === 0 && bothOffGuard.syncButton === false, `settings: both-off board route keeps brand-only header (${JSON.stringify(bothOffGuard)})`],

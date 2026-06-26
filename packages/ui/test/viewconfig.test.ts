@@ -8,7 +8,7 @@ import {
   loadDefaultRangePreset, saveDefaultRangePreset,
   loadColorMode, saveColorMode, resolveViewTheme, subscribeSystemColorScheme, systemPrefersDark, SYSTEM_DARK_MODE_QUERY,
   loadDefaultTab, saveDefaultTab,
-  loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
+  CONTENT_TAB_OPTIONS, loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
@@ -161,22 +161,26 @@ test("default tab is a device-local setting defaulting to Live", () => {
 });
 
 test("content tab order is normalized from device-local storage", () => {
-  assert.deepEqual(loadContentTabOrder(), ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"]);
+  assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"]);
   assert.deepEqual(
     normalizeContentTabOrder(["graph", "bogus", "activity", "graph", "reviews"]),
-    ["graph", "activity", "reviews", "items", "commits", "board", "repo-analytics"],
+    ["graph", "activity", "reviews", "repo-analytics", "board", "items", "commits"],
     "keeps valid first-seen choices, drops invalid/duplicates, and appends missing defaults",
   );
 
   store._raw("symphony-board:content-tab-order", JSON.stringify(["repo-analytics", 42, "board", "commits", "board"]));
-  assert.deepEqual(loadContentTabOrder(), ["repo-analytics", "board", "commits", "activity", "items", "reviews", "graph"]);
+  assert.deepEqual(loadContentTabOrder(), ["repo-analytics", "board", "commits", "activity", "graph", "items", "reviews"]);
   store._raw("symphony-board:content-tab-order", "{not json");
-  assert.deepEqual(loadContentTabOrder(), ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"], "malformed storage falls back to default order");
+  assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"], "malformed storage falls back to default order");
 });
 
 test("content tab order round-trips as a normalized device-local setting", () => {
   saveContentTabOrder(["graph", "activity"]);
-  assert.deepEqual(loadContentTabOrder(), ["graph", "activity", "items", "commits", "reviews", "board", "repo-analytics"]);
+  assert.deepEqual(loadContentTabOrder(), ["graph", "activity", "repo-analytics", "board", "items", "reviews", "commits"]);
+});
+
+test("repo analytics content tab is labeled Metrics", () => {
+  assert.equal(CONTENT_TAB_OPTIONS.find((tab) => tab.id === "repo-analytics")?.label, "Metrics");
 });
 
 test("live tab enabled is a device-local setting that is OFF by default", () => {
@@ -313,7 +317,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
   assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
   assert.equal(loadBoardScope(), "full", "board scope load degrades to the full default");
-  assert.deepEqual(loadContentTabOrder(), ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"], "content tab order load degrades to the default order");
+  assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"], "content tab order load degrades to the default order");
   assert.equal(loadLastContractTimezone(null), null, "last contract timezone load degrades to unknown");
   assert.equal(loadWideLayout(), false, "wide layout load degrades to off");
   assert.deepEqual([...loadHiddenEventTypes()], [], "hidden event types degrade to empty");

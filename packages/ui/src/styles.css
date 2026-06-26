@@ -1107,10 +1107,12 @@ a.rf-node-title:hover { color: var(--accent); }
   position: sticky;
   top: 12px;
   min-width: 0;
+  height: calc(100vh - 280px);
   max-height: calc(100vh - 280px);
   overflow: auto;
 }
 .items-detail-card {
+  box-sizing: border-box;
   min-height: 100%;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1207,6 +1209,7 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .items-list,
   .items-detail {
+    height: auto;
     max-height: none;
     overflow: visible;
   }

@@ -485,12 +485,12 @@ export const saveHiddenEventTypes = (hidden: ReadonlySet<string>): void => saveS
 // surface after them.
 export const CONTENT_TAB_OPTIONS = [
   { id: "activity", label: "Activity" },
-  { id: "items", label: "Items" },
-  { id: "commits", label: "Commits" },
-  { id: "reviews", label: "Reviews" },
+  { id: "repo-analytics", label: "Metrics" },
   { id: "board", label: "Board" },
   { id: "graph", label: "Graph" },
-  { id: "repo-analytics", label: "Analytics" },
+  { id: "items", label: "Items" },
+  { id: "reviews", label: "Reviews" },
+  { id: "commits", label: "Commits" },
 ] as const satisfies readonly { id: Page; label: string }[];
 export type ContentTab = (typeof CONTENT_TAB_OPTIONS)[number]["id"];
 
