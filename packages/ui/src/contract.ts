@@ -125,7 +125,7 @@ function readResourceTimingBytes(target: string, responseUrl: string | null): Pi
   return { encodedBytes: null, transferBytes: null, encodedBytesSource: null };
 }
 
-type EncodedBytesSource = "resource-timing" | "content-length" | "precompressed-content-length" | "precompressed-body";
+type EncodedBytesSource = "resource-timing" | "content-length" | "encoded-length-header" | "precompressed-content-length" | "precompressed-body";
 type TransferMetadata = Pick<ContractLoadMetadata, "encodedBytes" | "transferBytes" | "contentEncoding" | "encodedBytesSource">;
 
 function readTransferMetadata(target: string, res: Response): TransferMetadata {
@@ -135,6 +135,21 @@ function readTransferMetadata(target: string, res: Response): TransferMetadata {
     return {
       ...resourceTiming,
       contentEncoding,
+    };
+  }
+  // The dynamic /api/range route advertises its exact compressed size via
+  // X-Encoded-Length (see src/server/http.ts). Prefer it over Content-Length:
+  // a decoded gzip body strips Content-Length, and this is the only encoded-size
+  // signal that survives on the browser / Tauri-native paths that have no
+  // Resource Timing for this route. The static /contract.json never sends it and
+  // falls through to its Content-Length / precompressed-.gz probe path.
+  const encodedHeader = parseByteHeader(headerValue(res, "x-encoded-length"));
+  if (encodedHeader != null) {
+    return {
+      encodedBytes: encodedHeader,
+      transferBytes: resourceTiming.transferBytes,
+      contentEncoding,
+      encodedBytesSource: "encoded-length-header",
     };
   }
   const contentLength = parseByteHeader(headerValue(res, "content-length"));

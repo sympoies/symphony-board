@@ -294,6 +294,36 @@ test("fetchContractWithMetadata ignores SPA fallbacks when probing the precompre
   }
 });
 
+test("fetchContractWithMetadata reads X-Encoded-Length when transfer headers are hidden (the /api/range case)", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    const raw = JSON.stringify({ contract_version: "4.0.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
+    // No Resource Timing, no Content-Length (a decoded gzip body strips it) — only
+    // the server-advertised compressed size remains. The precompressed .gz probe
+    // does not fire for /api/range (it is contract.json-only), so the header is the
+    // sole encoded-size source.
+    globalThis.fetch = (async (url: string) => ({
+      ok: true,
+      status: 200,
+      url: String(url),
+      headers: new Headers([
+        ["content-encoding", "gzip"],
+        ["x-encoded-length", "1420233"],
+      ]),
+      text: async () => raw,
+    })) as unknown as typeof fetch;
+
+    const loaded = await fetchContractWithMetadata("./api/range?from=2026-05-27&to=2026-06-26", "https://board.example/app/", null, { retries: 0 });
+
+    assert.equal(loaded.meta.encodedBytes, 1420233);
+    assert.equal(loaded.meta.encodedBytesSource, "encoded-length-header");
+    assert.equal(loaded.meta.contentEncoding, "gzip");
+    assert.equal(loaded.meta.transferBytes, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // --- contract-load resilience: bounded per-attempt timeout + backoff retry ---
 // A remote board can be briefly unreachable or slow; the load must not hang
 // forever on a single stalled request, nor turn one transient blip into a board
