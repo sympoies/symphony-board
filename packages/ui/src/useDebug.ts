@@ -39,7 +39,10 @@ export function useStoreStats(serverBaseUrl: string | null): StoreStatsState {
     };
   }, [serverBaseUrl, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, []);
   return { stats, loading, refresh };
 }
 
@@ -74,7 +77,11 @@ export function useTokenRateLimits(serverBaseUrl: string | null, active: boolean
     };
   }, [serverBaseUrl, active, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    if (!active) return;
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, [active]);
   return { info, loading, refresh };
 }
 
@@ -141,7 +148,10 @@ export function useLiveSnapshotInfo(serverBaseUrl: string | null): LiveSnapshotS
     };
   }, [serverBaseUrl, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, []);
   return { info, loading, refresh };
 }
 
@@ -204,7 +214,10 @@ export function useDaemonLogs(serverBaseUrl: string | null): DaemonLogsState {
     };
   }, [serverBaseUrl, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, []);
   const clear = useCallback(() => setEntries([]), []);
   return { entries, enabled, loading, refresh, clear };
 }

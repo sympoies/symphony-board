@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { ContractLoadMetadata } from "../contract.ts";
+import { refreshDebugTab } from "../debug-refresh.ts";
 import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo, useTokenRateLimits } from "../useDebug.ts";
 import { type DebugTab } from "../nav.ts";
 import {
@@ -73,18 +74,13 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
     if (activeRefreshLoading) return;
     setRefreshingDiagnostics(true);
     try {
-      if (tab === "contract") {
-        const loadedContract = await onRefreshData();
-        if (!loadedContract) refresh();
-      } else if (tab === "store" || tab === "sync") {
-        refresh();
-      } else if (tab === "live") {
-        live.refresh();
-      } else if (tab === "ratelimit") {
-        tokenRates.refresh();
-      } else if (tab === "log") {
-        logs.refresh();
-      }
+      await refreshDebugTab(tab, {
+        refreshContract: onRefreshData,
+        refreshStore: refresh,
+        refreshLive: live.refresh,
+        refreshTokenRates: tokenRates.refresh,
+        refreshLogs: logs.refresh,
+      });
     } finally {
       setRefreshingDiagnostics(false);
     }
