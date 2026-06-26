@@ -1800,10 +1800,19 @@ try {
   const bothOffGuard = (await send("Runtime.evaluate", {
     expression: `(() => {
       const msg = document.querySelector('.state-msg');
+      const header = document.querySelector('.app-header');
+      const title = header?.querySelector('h1')?.textContent?.trim() || '';
+      const icon = header?.querySelector('.brand-refresh-app-icon');
+      const sourceChips = header?.querySelectorAll('.source-chip').length || 0;
+      const syncButton = !!header?.querySelector('.sync-button');
       const enable = Array.from(msg?.querySelectorAll('button, a') || [])
         .find((el) => /Enable Live/i.test(el.textContent || ''));
       return {
         text: msg?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        title,
+        hasBrandIcon: !!icon,
+        sourceChips,
+        syncButton,
         hasEnableLive: !!enable,
         enableTag: enable?.tagName?.toLowerCase() || '',
       };
@@ -3609,6 +3618,7 @@ try {
     [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
+    [bothOffGuard.title === "Symphony Board" && bothOffGuard.hasBrandIcon === true && bothOffGuard.sourceChips === 0 && bothOffGuard.syncButton === false, `settings: both-off board route keeps brand-only header (${JSON.stringify(bothOffGuard)})`],
     [liveOnlySettings.liveChecked === true && boardDataOnlyReenabledTabs.liveChecked === true && boardDataOnlyReenabledTabs.boardData === "on" && ["Activity", "Commits", "Reviews", "Board", "Graph", "Analytics"].every((label) => boardDataOnlyReenabledTabs.visibleLabels.includes(label)), `settings: turning only Board data off then on restores the contract-backed tabs (${JSON.stringify(boardDataOnlyReenabledTabs)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],

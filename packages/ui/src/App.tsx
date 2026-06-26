@@ -127,7 +127,7 @@ import { SourcesEditor } from "./components/SourcesEditor.tsx";
 import { SyncControls } from "./components/SyncControls.tsx";
 import { isRefreshShortcut, isDebugShortcut } from "./shortcuts.ts";
 import { setupAutoHideScrollbars } from "./autoHideScrollbars.ts";
-import { Header } from "./components/Header.tsx";
+import { BrandHeader, Header } from "./components/Header.tsx";
 import { Controls, type ControlGroup } from "./components/Controls.tsx";
 import { FullBoard } from "./components/FullBoard.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
@@ -1676,7 +1676,9 @@ export function App() {
       <div className="app app-wide">
         {env ? (
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
-        ) : null}
+        ) : (
+          <BrandHeader />
+        )}
         {pageTabs}
         <LivePage
           live={live}
@@ -1700,7 +1702,9 @@ export function App() {
       <div className="app app-wide">
         {env ? (
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
-        ) : null}
+        ) : (
+          <BrandHeader />
+        )}
         {pageTabs}
         {settingsPageEl}
       </div>
@@ -1715,6 +1719,7 @@ export function App() {
     const canEnableLiveHere = !liveTabEffectivelyEnabled && !livePreferencesDisabled;
     return (
       <div className="app app-wide">
+        <BrandHeader />
         {pageTabs}
         <div className="state-msg">
           <p>Board data is turned off on this device.</p>

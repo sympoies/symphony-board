@@ -31,6 +31,21 @@ function RefreshIcon() {
   );
 }
 
+export function BrandHeader() {
+  return (
+    <header className="app-header app-header-brand-only">
+      <div className="brand">
+        <div className="brand-main">
+          <span className="brand-refresh brand-mark-static" aria-hidden="true">
+            <AppMarkIcon />
+          </span>
+          <h1>Symphony Board</h1>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 // Title + contract provenance + per-source health, so a viewer can immediately
 // see whether the data is fresh and whether any source last synced partial/error.
 // When the writer-owned control surface is available, the manual Sync action sits
