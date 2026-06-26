@@ -1009,8 +1009,8 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .item-row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: start;
   padding: 10px 12px;
   background: var(--panel);
@@ -1032,9 +1032,9 @@ a.rf-node-title:hover { color: var(--accent); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 22px;
-  padding-top: 1px;
+  width: 16px;
+  height: 20px;
+  padding-top: 2px;
 }
 .item-row-kind .icon-item-kind { width: 16px; height: 16px; }
 .item-row-selected .item-row-kind .icon-item-kind { color: var(--accent); }
@@ -1218,7 +1218,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 @media (max-width: 760px) {
   .item-row {
-    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
     gap: 8px;
   }
   .item-row-title-line {
