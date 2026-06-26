@@ -124,10 +124,13 @@ export function selectAvailableToken(
 }
 
 // Pick the next token to retry after `after` was rate-limited, mirroring
-// selectAvailableToken's bot-first rule: prefer an available round_robin (bot)
+// selectAvailableToken's bot-first rule: prefer an available GitHub App bot
 // token before falling back to any available token (e.g. the failover PAT). The
-// initial pick is already bot-first; without the same preference here a retry
-// could spend PAT quota while an earlier bot in the pool is still available.
+// preference keys on the token being a bot (`kind === "github_app"`), not on the
+// round_robin strategy, so a `bot_then_pat` pool whose apps use the failover
+// strategy still rotates to a sibling bot before spending PAT quota. The initial
+// pick is already bot-first; without the same preference here a retry could
+// spend PAT quota while a bot in the pool is still available.
 export function nextAvailableToken(
   tokens: readonly AuthToken[],
   blockedUntil: Map<number, number>,
@@ -139,7 +142,7 @@ export function nextAvailableToken(
   for (let step = 1; step <= tokenCount; step++) {
     const idx = (after + step) % tokenCount;
     if (tried.has(idx)) continue;
-    if (tokens[idx]?.strategy !== "round_robin") continue;
+    if (tokens[idx]?.kind !== "github_app") continue;
     if ((blockedUntil.get(idx) ?? 0) > now) continue;
     return idx;
   }
