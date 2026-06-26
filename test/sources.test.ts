@@ -184,7 +184,7 @@ test("GitHub fetch and normalize includes issue and pull request comments from R
           issue_url: "https://api.github.com/repos/o/r/issues/7",
           created_at: "2026-06-09T12:00:00Z",
           updated_at: "2026-06-09T12:10:00Z",
-          user: { login: "alice" },
+          user: { login: "alice", html_url: "https://github.com/alice", type: "User" },
           author_association: "MEMBER",
         },
       ] as T;
@@ -198,7 +198,7 @@ test("GitHub fetch and normalize includes issue and pull request comments from R
           pull_request_url: "https://api.github.com/repos/o/r/pulls/8",
           created_at: "2026-06-10T12:20:00Z",
           updated_at: "2026-06-10T12:21:00Z",
-          user: { login: "bob" },
+          user: { login: "review-maintainability", html_url: "https://github.com/apps/review-maintainability", type: "Bot" },
           path: "src/sources/github.ts",
           line: 42,
           side: "RIGHT",
@@ -232,19 +232,23 @@ test("GitHub fetch and normalize includes issue and pull request comments from R
     node_id: "IC_kwDO_issue",
     updated_at: "2026-06-09T12:10:00Z",
     author_association: "MEMBER",
+    actor_profile_url: "https://github.com/alice",
+    actor_type: "User",
   });
 
   const review = comments.find((a) => a.targetKind === "change_request")!;
   assert.equal(review.action, "commented");
   assert.equal(review.targetIid, 8);
   assert.equal(review.url, "https://github.com/o/r/pull/8#discussion_r202");
-  assert.equal(review.actor, "bob");
-  assert.equal(review.actorKey, "provider-user:github:github.com:bob");
+  assert.equal(review.actor, "review-maintainability");
+  assert.equal(review.actorKey, "provider-user:github:github.com:review-maintainability");
   assert.equal(review.occurredAt, "2026-06-10T12:20:00Z");
   assert.deepEqual(review.details, {
     comment_id: 202,
     node_id: "PRRC_kwDO_review",
     updated_at: "2026-06-10T12:21:00Z",
+    actor_profile_url: "https://github.com/apps/review-maintainability",
+    actor_type: "Bot",
     path: "src/sources/github.ts",
     line: 42,
     side: "RIGHT",

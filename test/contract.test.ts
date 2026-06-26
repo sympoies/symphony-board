@@ -739,6 +739,45 @@ test("repo metrics prefer observed actor profile URLs for GitHub App bots", () =
   assert.equal(row?.profile_url, "https://github.com/apps/review-maintainability");
 });
 
+test("repo metrics reject unsafe observed actor profile URLs", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const cases: Array<{ name: string; observed: string; expected: string | null }> = [
+    { name: "http scheme", observed: "http://github.com/alice", expected: "https://github.com/alice" },
+    { name: "off host", observed: "https://evil.test/apps/alice", expected: "https://github.com/alice" },
+    { name: "repo path", observed: "https://github.com/o/r", expected: "https://github.com/alice" },
+    { name: "extra app segment", observed: "https://github.com/apps/alice/extra", expected: "https://github.com/alice" },
+    { name: "bad percent encoding", observed: "https://github.com/apps/%E0%A4%A", expected: "https://github.com/alice" },
+    { name: "unsafe username with no fallback", observed: "https://github.com/apps/%E0%A4%A", expected: null },
+  ];
+
+  for (const c of cases) {
+    const actor = c.expected ? "alice" : "";
+    const env = buildContract({
+      sources,
+      items: [],
+      activities: [
+        activityRow({
+          external_id: `unsafe-${c.name}`,
+          kind: "review",
+          action: "reviewed",
+          project_path: "o/repo",
+          actor,
+          ...(c.expected ? {} : { actor_key: null }),
+          occurred_at: "2026-06-07T10:00:00Z",
+          details: JSON.stringify({ actor_profile_url: c.observed }),
+        }),
+      ],
+      labels: [],
+      edges: [],
+      generatedAt: "2026-06-08T00:00:00.000Z",
+    });
+    assert.deepEqual(validateContract(env), []);
+    assert.equal(env.repo_metrics?.[0]?.top_actors?.[0]?.profile_url ?? null, c.expected, c.name);
+  }
+});
+
 test("config identities collapse a GitLab username and commit-email facet into one actor", () => {
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
