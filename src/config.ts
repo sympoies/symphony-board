@@ -219,7 +219,7 @@ function validateGitHubAppAuthPool(pool: Record<string, unknown>, poolLabel: str
     errors.push(`${poolLabel} kind "github_app" must use apps, not token_env/fallback_token_envs/github_app`);
   }
   if (pool.strategy !== undefined && pool.strategy !== "budget_aware" && pool.strategy !== "round_robin" && pool.strategy !== "failover") {
-    errors.push(`${poolLabel} strategy must be "budget_aware" or "failover" when set`);
+    errors.push(`${poolLabel} strategy must be "budget_aware", "round_robin" (legacy alias), or "failover" when set`);
   }
   if (!Array.isArray(pool.apps) || pool.apps.length === 0) {
     errors.push(`${poolLabel} apps must be a non-empty array`);

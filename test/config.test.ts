@@ -227,6 +227,30 @@ test("accepts legacy round_robin GitHub App auth pool strategy alias", () => {
   assert.deepEqual(configErrors({ db_path: "x", sources: [sourceDoc] }, "config"), []);
 });
 
+test("GitHub App auth pool strategy validation names the legacy alias", () => {
+  const sourceDoc = baseSource({
+    token_env: undefined,
+    auth_pools: {
+      example_bots: {
+        kind: "github_app",
+        strategy: "least_used",
+        apps: [{
+          name: "example-bot-a",
+          app_id_env: "EXAMPLE_BOT_A_APP_ID",
+          installation_id_env: "EXAMPLE_BOT_A_INSTALLATION_ID",
+          private_key_path_env: "EXAMPLE_BOT_A_PRIVATE_KEY_PATH",
+        }],
+      },
+    },
+    auth_policy: { mode: "bot", bot_pool: "example_bots" },
+  });
+
+  assert.match(
+    configErrors({ db_path: "x", sources: [sourceDoc] }, "config")[0]!,
+    /strategy must be "budget_aware", "round_robin" \(legacy alias\), or "failover"/,
+  );
+});
+
 test("rejects malformed GitHub App auth config", () => {
   assert.match(
     configErrors({
