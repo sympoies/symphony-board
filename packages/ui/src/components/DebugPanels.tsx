@@ -408,7 +408,7 @@ function storeLabel(db: { driver?: string; path?: string; database?: string; sch
   return db.path ?? db.driver ?? "store";
 }
 
-export function StorePanel({ stats, loading, refresh }: Pick<StoreStatsState, "stats" | "loading" | "refresh">) {
+export function StorePanel({ stats, loading }: Pick<StoreStatsState, "stats" | "loading">) {
   const dbSize = stats?.db.size_bytes;
   const walSize = stats?.db.wal_size_bytes;
   return (
@@ -452,9 +452,6 @@ export function StorePanel({ stats, loading, refresh }: Pick<StoreStatsState, "s
             </div>
           </div>
           <p className="muted debug-foot">
-            <button type="button" className="toggle" onClick={refresh}>
-              Refresh
-            </button>{" "}
             generated {relativeTime(stats.generated_at)}
             {stats.activities.earliest
               ? ` activity ${stats.activities.earliest.slice(0, 10)} → ${(stats.activities.latest ?? "").slice(0, 10)}`
@@ -507,9 +504,6 @@ export function LivePanel({ live, serverBaseUrl }: { live: LiveSnapshotState; se
             </div>
           </div>
           <p className="muted debug-foot">
-            <button type="button" className="toggle" onClick={live.refresh}>
-              Refresh
-            </button>{" "}
             snapshot {live.info.generatedAt ? relativeTime(live.info.generatedAt) : "—"} ·{" "}
             <code>{resolveEndpoint("./api/live-snapshot", serverBaseUrl)}</code>
           </p>
@@ -645,9 +639,6 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
             </table>
           </div>
           <p className="muted debug-foot">
-            <button type="button" className="toggle" onClick={tokenRates.refresh}>
-              Refresh
-            </button>{" "}
             probed {tokenRates.info.generated_at ? relativeTime(tokenRates.info.generated_at) : "—"} · one lightweight GraphQL
             probe per token (does not meaningfully spend the budget it reports)
           </p>

@@ -39,7 +39,10 @@ export function useStoreStats(serverBaseUrl: string | null): StoreStatsState {
     };
   }, [serverBaseUrl, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, []);
   return { stats, loading, refresh };
 }
 
@@ -74,7 +77,11 @@ export function useTokenRateLimits(serverBaseUrl: string | null, active: boolean
     };
   }, [serverBaseUrl, active, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    if (!active) return;
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, [active]);
   return { info, loading, refresh };
 }
 
@@ -141,7 +148,10 @@ export function useLiveSnapshotInfo(serverBaseUrl: string | null): LiveSnapshotS
     };
   }, [serverBaseUrl, epoch]);
 
-  const refresh = useCallback(() => setEpoch((e) => e + 1), []);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, []);
   return { info, loading, refresh };
 }
 
@@ -150,18 +160,23 @@ export interface DaemonLogsState {
   // null until the first probe answers; false = the endpoint is missing or
   // LOG_CONTROL_ENABLED is off on this deployment.
   enabled: boolean | null;
+  loading: boolean;
+  refresh: () => void;
   clear: () => void;
 }
 
 export function useDaemonLogs(serverBaseUrl: string | null): DaemonLogsState {
   const [entries, setEntries] = useState<DaemonLogEntry[]>([]);
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [epoch, setEpoch] = useState(0);
   const lastSeq = useRef(0);
 
   useEffect(() => {
     lastSeq.current = 0;
     setEntries([]);
     setEnabled(null);
+    setLoading(true);
     let cancelled = false;
     // Whether any probe has answered yet — a failure before the first answer
     // reads as "unavailable"; a failure after keeps the tail and retries.
@@ -171,10 +186,12 @@ export function useDaemonLogs(serverBaseUrl: string | null): DaemonLogsState {
       if (cancelled) return;
       if (!next) {
         if (!probed) setEnabled(false);
+        setLoading(false);
         return;
       }
       probed = true;
       setEnabled(next.enabled);
+      setLoading(false);
       if (!next.enabled) return;
       if (next.latest_seq < lastSeq.current) {
         // The daemon restarted (its seq space reset): drop the stale tail and
@@ -195,8 +212,12 @@ export function useDaemonLogs(serverBaseUrl: string | null): DaemonLogsState {
       cancelled = true;
       clearInterval(id);
     };
-  }, [serverBaseUrl]);
+  }, [serverBaseUrl, epoch]);
 
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setEpoch((e) => e + 1);
+  }, []);
   const clear = useCallback(() => setEntries([]), []);
-  return { entries, enabled, clear };
+  return { entries, enabled, loading, refresh, clear };
 }

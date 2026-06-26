@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import type { ContractLoadMetadata } from "../contract.ts";
+import { refreshDebugTab } from "../debug-refresh.ts";
 import { useStoreStats, useDaemonLogs, useLiveSnapshotInfo, useTokenRateLimits } from "../useDebug.ts";
 import { type DebugTab } from "../nav.ts";
 import {
@@ -52,8 +53,8 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
   const observedContractLoadRef = useRef(contractMeta?.loadedAt ?? null);
 
   // The log tail polls independently, but the payload/store surfaces are tied
-  // to contract loads. When a manual refresh or sync reloads the contract while
-  // Diagnostics is open, refresh the store stats once. No periodic polling.
+  // to contract loads. When a manual data reload or sync reloads the contract
+  // while Diagnostics is open, refresh the store stats once. No periodic polling.
   useEffect(() => {
     const loadedAt = contractMeta?.loadedAt ?? null;
     if (!loadedAt || observedContractLoadRef.current === loadedAt) return;
@@ -61,14 +62,26 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
     refresh();
   }, [contractMeta?.loadedAt, refresh]);
 
+  const activeRefreshLoading =
+    refreshingDiagnostics ||
+    (tab === "store" && loading) ||
+    (tab === "sync" && loading) ||
+    (tab === "live" && live.loading) ||
+    (tab === "ratelimit" && tokenRates.loading) ||
+    (tab === "log" && logs.loading);
+
   const refreshDiagnostics = async () => {
-    if (refreshingDiagnostics) return;
+    if (activeRefreshLoading) return;
     setRefreshingDiagnostics(true);
-    let loadedContract = false;
     try {
-      loadedContract = await onRefreshData();
+      await refreshDebugTab(tab, {
+        refreshContract: onRefreshData,
+        refreshStore: refresh,
+        refreshLive: live.refresh,
+        refreshTokenRates: tokenRates.refresh,
+        refreshLogs: logs.refresh,
+      });
     } finally {
-      if (!loadedContract) refresh();
       setRefreshingDiagnostics(false);
     }
   };
@@ -83,8 +96,8 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
       <div className="debug-head">
         <h2>Diagnostics</h2>
         <span className="muted">hidden page — toggle with ⌘/ (Ctrl+/)</span>
-        <button type="button" className="toggle" onClick={refreshDiagnostics} disabled={refreshingDiagnostics}>
-          {refreshingDiagnostics ? "Refreshing…" : "Refresh"}
+        <button type="button" className="toggle" onClick={refreshDiagnostics} disabled={activeRefreshLoading}>
+          {activeRefreshLoading ? "Refreshing…" : "Refresh"}
         </button>
         <button type="button" className="toggle debug-close" onClick={onClose}>
           Close
@@ -96,7 +109,7 @@ export function DebugPage({ serverBaseUrl, env, contractMeta, tab, onTab, onRefr
       <DebugTabs active={tab} onTab={onTab} />
 
       {tab === "contract" ? <ContractPanel env={env} contractMeta={contractMeta} /> : null}
-      {tab === "store" ? <StorePanel stats={stats} loading={loading} refresh={refresh} /> : null}
+      {tab === "store" ? <StorePanel stats={stats} loading={loading} /> : null}
       {tab === "live" ? <LivePanel live={live} serverBaseUrl={serverBaseUrl} /> : null}
       {tab === "sync" ? <SyncPanel stats={stats} loading={loading} /> : null}
       {tab === "ratelimit" ? <RateLimitPanel tokenRates={tokenRates} /> : null}
