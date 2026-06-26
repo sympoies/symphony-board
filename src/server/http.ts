@@ -17,6 +17,14 @@ export function acceptsGzip(acceptEncoding: string | string[] | undefined): bool
 // already gzips the same route. `Vary: Accept-Encoding` keeps shared caches
 // honest; the body is `no-store` (recomputed per request), so there is no cache
 // to key — unlike the mtime-cached /contract.json buffer in app-server.ts.
+//
+// `X-Encoded-Length` advertises the exact compressed wire size. A client that
+// transparently decodes the gzip body (browser, Tauri native fetch) loses
+// Content-Length and has no Resource Timing for this route, so without this
+// header the Diagnostics TRANSFER / COMPRESSION readouts degrade to "unknown"
+// for any windowed (/api/range) board scope. A custom header survives decoding
+// (unlike Content-Length), so the client reads the encoded size directly. The
+// static /contract.json keeps its own .gz-probe path and never reaches here.
 export function sendJsonMaybeGzip(
   res: ServerResponse,
   status: number,
@@ -25,15 +33,22 @@ export function sendJsonMaybeGzip(
 ): void {
   const text = JSON.stringify(body) + "\n";
   if (acceptsGzip(acceptEncoding)) {
+    const gz = gzipSync(text);
     res.writeHead(status, {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "Content-Encoding": "gzip",
+      "X-Encoded-Length": String(gz.length),
       Vary: "Accept-Encoding",
     });
-    res.end(gzipSync(text));
+    res.end(gz);
     return;
   }
-  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", Vary: "Accept-Encoding" });
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "X-Encoded-Length": String(Buffer.byteLength(text)),
+    Vary: "Accept-Encoding",
+  });
   res.end(text);
 }
