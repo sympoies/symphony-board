@@ -140,10 +140,9 @@ Desktop release packaging (host architecture unless `--target` is provided):
 scripts/package-desktop-release.sh --out-dir dist/release
 ```
 
-The GitHub Release workflow runs the same packager on native macOS arm64 and
-Intel runners so the standalone app bundles the matching Node sidecar for each
-architecture. The generated zips are unsigned app bundles, not notarized
-installers.
+The GitHub Release workflow runs the same packager on a native Apple Silicon
+macOS runner so the standalone app bundles the matching arm64 Node sidecar. The
+generated zips are unsigned app bundles, not notarized installers.
 
 Coverage gate:
 

@@ -15,15 +15,13 @@ The repository and published images are public. Runtime secrets, local config,
 SQLite/Postgres stores, and emitted contracts are supplied by the operator at
 runtime and are not baked into the images.
 
-Desktop assets (attached to the GitHub Release), built on native macOS runners
-so each bundles a matching-architecture Node sidecar:
+Desktop assets (attached to the GitHub Release), built on a native Apple
+Silicon macOS runner so the standalone app bundles a matching Node sidecar:
 
 | Asset | Architecture |
 | --- | --- |
 | `Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip` | Apple Silicon |
-| `Symphony-Board-vX.Y.Z-macos-x64-unsigned.zip` | Intel |
 | `Symphony-Board-Standalone-vX.Y.Z-macos-arm64-unsigned.zip` | Apple Silicon |
-| `Symphony-Board-Standalone-vX.Y.Z-macos-x64-unsigned.zip` | Intel |
 
 These are unsigned, un-notarized app bundles; see the root README's "Build The
 macOS App" section for installing them with `scripts/install-release-app.sh`.
@@ -111,14 +109,14 @@ image is not publicly pullable yet.
 
 Desktop assets (the `desktop` job, in parallel):
 
-6. On native macOS runners (`macos-26` for arm64, `macos-26-intel` for x64),
-   run `scripts/package-desktop-release.sh` to build both the thin-client and
-   standalone apps for that architecture.
-7. Upload the four resulting unsigned `.zip` bundles to the GitHub Release with
+6. On the native Apple Silicon macOS runner (`macos-26`), run
+   `scripts/package-desktop-release.sh` to build both the thin-client and
+   standalone apps for arm64.
+7. Upload the two resulting unsigned `.zip` bundles to the GitHub Release with
    `gh release upload --clobber`.
 
-Building on native per-architecture runners is what lets the standalone app
-bundle the matching Node sidecar for each Mac.
+Building on a native arm64 runner is what lets the standalone app bundle the
+matching Node sidecar for Apple Silicon Macs.
 
 ## Pulling And Running
 
