@@ -2,6 +2,7 @@ import {
   DEFAULT_FETCH_TIMEOUT_MS,
   ProviderHttpError,
   allTokensCooledDownError,
+  claimInitialRoundRobinCursor,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
   githubRateLimitInfo,
@@ -9,7 +10,9 @@ import {
   nextAvailableToken,
   normalizeAuthTokens,
   primaryCooldownUntil,
+  repoFromRestPath,
   selectAvailableToken,
+  traceAuthSelection,
   type AuthTokenInput,
 } from "./http.ts";
 
@@ -23,7 +26,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
   // reads only pick an available token, so concurrent callers racing on it is
   // benign: the worst case is several each re-stamping the same cooldown.
   const blockedUntil = new Map<number, number>();
-  const selection = { roundRobinCursor: 0 };
+  const selection = { roundRobinCursor: claimInitialRoundRobinCursor(tokens, `rest:${provider}:${base}`) };
 
   return async function rest<T = any>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
     const url = new URL(`${base}/${path.replace(/^\/+/, "")}`);
@@ -44,6 +47,13 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
     while (!tried.has(idx)) {
       tried.add(idx);
       const token = tokens[idx]!;
+      traceAuthSelection({
+        provider,
+        api: "rest",
+        token,
+        operation: path.replace(/^\/+/, ""),
+        repo: repoFromRestPath(path),
+      });
       const headers: Record<string, string> = {
         "User-Agent": "symphony-board",
       };

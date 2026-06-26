@@ -1,11 +1,13 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultRestUrl, makeRestClient } from "../src/sources/rest.ts";
+import { resetAuthTokenSelectionStateForTests } from "../src/sources/http.ts";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetAuthTokenSelectionStateForTests();
 });
 
 function mockFetch(fn: (url: URL, init: RequestInit) => Response | Promise<Response>): void {
@@ -123,6 +125,25 @@ test("GitHub REST round-robin bot tokens alternate between successful requests",
   assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
   assert.deepEqual(await client("repos/o/r/commits"), [{ ok: true }]);
   assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b", "Bearer bot-a"]);
+});
+
+test("new GitHub REST clients rotate their initial round-robin cursor", async () => {
+  const auths: Array<string | undefined> = [];
+  mockFetch((_url, init) => {
+    auths.push((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify([{ ok: true }]), { status: 200 });
+  });
+  const tokens = [
+    { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a", kind: "github_app" as const, strategy: "round_robin" as const },
+    { env: "github_app:BOT_B_INSTALLATION_ID", value: "bot-b", kind: "github_app" as const, strategy: "round_robin" as const },
+  ];
+
+  const firstClient = makeRestClient("https://api.github.com", tokens, "github");
+  const secondClient = makeRestClient("https://api.github.com", tokens, "github");
+
+  assert.deepEqual(await firstClient("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(await secondClient("repos/o/r/commits"), [{ ok: true }]);
+  assert.deepEqual(auths, ["Bearer bot-a", "Bearer bot-b"]);
 });
 
 test("once every token is cooled down, the REST client stops hammering them", async () => {

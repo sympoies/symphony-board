@@ -6,6 +6,8 @@ import {
   DEFAULT_FETCH_TIMEOUT_MS,
   ProviderHttpError,
   allTokensCooledDownError,
+  claimInitialRoundRobinCursor,
+  describeGraphqlQuery,
   fallbackRepoAccessMessage,
   fetchWithTimeout,
   githubRateLimitInfo,
@@ -13,7 +15,9 @@ import {
   nextAvailableToken,
   normalizeAuthTokens,
   primaryCooldownUntil,
+  repoFromGraphqlVariables,
   selectAvailableToken,
+  traceAuthSelection,
   type AuthTokenInput,
 } from "./http.ts";
 
@@ -40,7 +44,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
   // reads only pick an available token, so concurrent callers racing on it is
   // benign: the worst case is several each re-stamping the same cooldown.
   const blockedUntil = new Map<number, number>();
-  const selection = { roundRobinCursor: 0 };
+  const selection = { roundRobinCursor: claimInitialRoundRobinCursor(tokens, `graphql:${provider}:${url}`) };
 
   return async function gql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
     const first = selectAvailableToken(tokens, blockedUntil, selection);
@@ -56,6 +60,13 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
     while (!tried.has(idx)) {
       tried.add(idx);
       const token = tokens[idx]!;
+      traceAuthSelection({
+        provider,
+        api: "graphql",
+        token,
+        operation: describeGraphqlQuery(query),
+        repo: repoFromGraphqlVariables(variables),
+      });
       const res = await fetchWithTimeout(
         url,
         {

@@ -1,3 +1,5 @@
+import { log } from "../log.ts";
+
 // Shared fetch wrapper that bounds every provider request with an abort-based
 // timeout. Without it, a socket that stalls (e.g. a half-up network or VPN right
 // after the host wakes from sleep) hangs the whole sync iteration until the OS
@@ -23,6 +25,40 @@ export interface AuthSelectionState {
   roundRobinCursor: number;
 }
 
+const authSelectionStarts = new Map<string, number>();
+
+function roundRobinIndexes(tokens: readonly AuthToken[]): number[] {
+  const indexes: number[] = [];
+  for (let idx = 0; idx < tokens.length; idx++) {
+    if (tokens[idx]?.strategy === "round_robin") indexes.push(idx);
+  }
+  return indexes;
+}
+
+function tokenSelectionKey(tokens: readonly AuthToken[], namespace: string): string {
+  return [
+    namespace,
+    ...tokens.map((token) => `${token.env}\t${token.kind ?? ""}\t${token.strategy ?? ""}`),
+  ].join("\n");
+}
+
+// Pick an initial cursor for a newly-created client. The cursor still rotates
+// request-by-request inside one client, but the daemon rebuilds clients each sync
+// run; keeping this small process-local handoff prevents every new run from
+// restarting at token 0 and pinning expensive pages to the same bot.
+export function claimInitialRoundRobinCursor(tokens: readonly AuthToken[], namespace: string): number {
+  const indexes = roundRobinIndexes(tokens);
+  if (indexes.length === 0) return 0;
+  const key = tokenSelectionKey(tokens, namespace);
+  const next = authSelectionStarts.get(key) ?? 0;
+  authSelectionStarts.set(key, (next + 1) % indexes.length);
+  return indexes[next] ?? 0;
+}
+
+export function resetAuthTokenSelectionStateForTests(): void {
+  authSelectionStarts.clear();
+}
+
 export interface GitHubRateLimitInfo {
   kind: "primary" | "secondary";
   resetAtMs: number | null;
@@ -39,6 +75,57 @@ export class ProviderHttpError extends Error {
     this.status = status;
     this.rateLimit = rateLimit;
   }
+}
+
+function envFlag(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function logField(value: string): string {
+  return value.trim().replace(/\s+/g, "_").replace(/[^A-Za-z0-9_./:@=-]/g, "_");
+}
+
+export function describeGraphqlQuery(query: string): string {
+  if (/\brateLimit\b/.test(query)) return "rateLimit";
+  if (/\bpullRequest\s*\(/.test(query)) return "pullRequest";
+  if (/\bpullRequests\s*\(/.test(query)) return "pullRequests";
+  if (/\bissues\s*\(/.test(query)) return "issues";
+  if (/\bviewer\b/.test(query)) return "viewer";
+  return "query";
+}
+
+export function repoFromGraphqlVariables(variables: Record<string, unknown>): string | null {
+  const owner = variables.owner;
+  const name = variables.name;
+  return typeof owner === "string" && typeof name === "string" && owner && name ? `${owner}/${name}` : null;
+}
+
+export function repoFromRestPath(path: string): string | null {
+  const match = path.replace(/^\/+/, "").match(/^repos\/([^/]+)\/([^/]+)/);
+  return match ? `${match[1]}/${match[2]}` : null;
+}
+
+export function traceAuthSelection(input: {
+  provider: string;
+  api: "graphql" | "rest";
+  token: AuthToken;
+  operation: string;
+  repo?: string | null;
+}): void {
+  if (!envFlag("SYNC_AUTH_TRACE")) return;
+  const kind = input.token.kind ?? (input.token.env.startsWith("github_app:") ? "github_app" : "pat");
+  const parts = [
+    "provider=" + logField(input.provider || "unknown"),
+    "api=" + input.api,
+    "token=" + logField(input.token.env),
+    "kind=" + kind,
+    "strategy=" + (input.token.strategy ?? "failover"),
+  ];
+  if (input.token.name?.trim()) parts.push("name=" + logField(input.token.name));
+  if (input.repo) parts.push("repo=" + logField(input.repo));
+  parts.push("op=" + logField(input.operation));
+  log.info(`[auth-trace] ${parts.join(" ")}`);
 }
 
 export function normalizeAuthTokens(input: AuthTokenInput): AuthToken[] {
