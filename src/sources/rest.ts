@@ -68,7 +68,7 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
         const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
         if (isGithubPrimaryRateLimit(provider, err)) {
           blockedUntil.set(idx, primaryCooldownUntil(err.rateLimit!));
-          const next = nextAvailableToken(tokens.length, blockedUntil, tried, idx);
+          const next = nextAvailableToken(tokens, blockedUntil, tried, idx);
           if (next !== null) {
             if (tokens[next]?.strategy === "round_robin") selection.roundRobinCursor = (next + 1) % tokens.length;
             lastError = err;

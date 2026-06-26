@@ -123,18 +123,30 @@ export function selectAvailableToken(
   return firstAvailableToken(tokens.length, blockedUntil, now);
 }
 
+// Pick the next token to retry after `after` was rate-limited, mirroring
+// selectAvailableToken's bot-first rule: prefer an available round_robin (bot)
+// token before falling back to any available token (e.g. the failover PAT). The
+// initial pick is already bot-first; without the same preference here a retry
+// could spend PAT quota while an earlier bot in the pool is still available.
 export function nextAvailableToken(
-  tokenCount: number,
+  tokens: readonly AuthToken[],
   blockedUntil: Map<number, number>,
   tried: ReadonlySet<number>,
   after: number,
   now: number = Date.now(),
 ): number | null {
+  const tokenCount = tokens.length;
   for (let step = 1; step <= tokenCount; step++) {
     const idx = (after + step) % tokenCount;
     if (tried.has(idx)) continue;
-    const blocked = blockedUntil.get(idx) ?? 0;
-    if (blocked <= now) return idx;
+    if (tokens[idx]?.strategy !== "round_robin") continue;
+    if ((blockedUntil.get(idx) ?? 0) > now) continue;
+    return idx;
+  }
+  for (let step = 1; step <= tokenCount; step++) {
+    const idx = (after + step) % tokenCount;
+    if (tried.has(idx)) continue;
+    if ((blockedUntil.get(idx) ?? 0) <= now) return idx;
   }
   return null;
 }

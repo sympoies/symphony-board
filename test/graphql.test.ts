@@ -205,3 +205,36 @@ test("GitHub GraphQL fallback repo-access failures identify the fallback token",
   await assert.rejects(() => gql("query { repository(owner:\"org\", name:\"private\") { id } }"), /fallback token lacks repo access/);
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
+
+test("bot_then_pat retry prefers an available bot over the PAT before exhausting the bot pool", async () => {
+  // Pool order [botA(round_robin), botB(round_robin), PAT(failover)]. Round-robin
+  // makes botB the selected token on the 2nd request; when botB hits a primary
+  // rate limit, the retry must rotate to the still-available botA, NOT spend PAT
+  // quota while a bot is available.
+  const auths: Array<string | undefined> = [];
+  let botBLimited = false;
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    if (auth === "Bearer botB" && !botBLimited) {
+      botBLimited = true;
+      return new Response(JSON.stringify({ data: null, errors: [{ message: "API rate limit exceeded" }] }), {
+        status: 200,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+      });
+    }
+    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  });
+
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_A", value: "botA", kind: "github_app", strategy: "round_robin" },
+    { env: "github_app:BOT_B", value: "botB", kind: "github_app", strategy: "round_robin" },
+    { env: "GH_PAT", value: "pat", kind: "pat", strategy: "failover" },
+  ]);
+
+  assert.deepEqual(await gql("query { x }"), { ok: true }); // call 1 -> botA
+  assert.deepEqual(await gql("query { x }"), { ok: true }); // call 2 -> botB (rate-limited) -> retry
+
+  assert.deepEqual(auths, ["Bearer botA", "Bearer botB", "Bearer botA"]);
+  assert.ok(!auths.includes("Bearer pat"), "PAT must not be used while a bot is still available");
+});

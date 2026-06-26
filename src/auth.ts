@@ -8,6 +8,7 @@ import { createSign } from "node:crypto";
 import type { AuthToken } from "./sources/http.ts";
 import { DEFAULT_FETCH_TIMEOUT_MS, fetchWithTimeout } from "./sources/http.ts";
 import { defaultRestUrl } from "./sources/rest.ts";
+import { log } from "./log.ts";
 import {
   readSecretsOverlay,
   resolveSecretsPath,
@@ -146,6 +147,15 @@ function patToken(env: string, value: string): AuthToken {
   return { env, value, kind: "pat", strategy: "failover" };
 }
 
+// A single GitHub App installation-token mint can fail (revoked installation,
+// bad app key, transient token-endpoint 5xx). Skip that bot and keep resolving
+// the rest of the pool — including a `bot_then_pat` PAT failover — instead of
+// rejecting the whole source. Never logs the private key, only the pool label.
+function warnMintFailure(label: string, err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err);
+  log.warn(`GitHub App token mint failed for ${label}; skipping this bot and continuing: ${reason}`);
+}
+
 function appToken(token: AuthToken, app: GitHubAppAuthConfig, strategy: AuthTokenStrategy): AuthToken {
   return {
     ...token,
@@ -244,7 +254,13 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
 
     if (source.kind === "github" && pool.github_app) {
       const request = githubAppTokenRequest(source, pool.github_app, overlay);
-      if (request) out.push(appToken(await this.mint({ ...request, strategy: "failover" }), pool.github_app, "failover"));
+      if (request) {
+        try {
+          out.push(appToken(await this.mint({ ...request, strategy: "failover" }), pool.github_app, "failover"));
+        } catch (err) {
+          warnMintFailure(request.label, err);
+        }
+      }
     }
 
     for (const rawEnvName of tokenEnvNamesFromPool(pool)) {
@@ -272,7 +288,11 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
     for (const app of pool.apps) {
       const request = githubAppTokenRequest(source, app, overlay);
       if (!request) continue;
-      out.push(appToken(await this.mint({ ...request, strategy }), app, strategy));
+      try {
+        out.push(appToken(await this.mint({ ...request, strategy }), app, strategy));
+      } catch (err) {
+        warnMintFailure(request.label, err);
+      }
     }
     return out;
   }

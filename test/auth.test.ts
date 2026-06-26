@@ -224,3 +224,99 @@ test("mintGitHubAppInstallationToken posts a signed JWT to the installation toke
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bot_then_pat preserves the PAT fallback when one bot mint fails, skipping only the failed bot", async () => {
+  // A revoked installation / transient token-endpoint error makes Bot A's mint
+  // throw. The policy must still return Bot B and the PAT pool — a single mint
+  // failure must not reject the whole resolution or drop the PAT failover.
+  const resolver = createAuthTokenResolver({
+    mintGitHubAppInstallationToken: async (request) => {
+      if (request.installationId === "1001") {
+        throw new Error("GitHub App token HTTP 404: installation not found");
+      }
+      return { env: request.label, value: `app-token-${request.installationId}` };
+    },
+  });
+  process.env.AUTH_PAT = "pat-token";
+  process.env.BOT_A_APP_ID = "111";
+  process.env.BOT_A_INSTALLATION_ID = "1001";
+  process.env.BOT_A_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\na\\n-----END PRIVATE KEY-----";
+  process.env.BOT_B_APP_ID = "222";
+  process.env.BOT_B_INSTALLATION_ID = "1002";
+  process.env.BOT_B_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\nb\\n-----END PRIVATE KEY-----";
+  try {
+    const cfg = source({
+      token_env: undefined,
+      token_pools: undefined,
+      auth_pools: {
+        source_pat: { kind: "pat", token_env: "AUTH_PAT" },
+        example_bots: {
+          kind: "github_app",
+          strategy: "round_robin",
+          apps: [
+            { name: "example-bot-a", app_id_env: "BOT_A_APP_ID", installation_id_env: "BOT_A_INSTALLATION_ID", private_key_env: "BOT_A_PRIVATE_KEY" },
+            { name: "example-bot-b", app_id_env: "BOT_B_APP_ID", installation_id_env: "BOT_B_INSTALLATION_ID", private_key_env: "BOT_B_PRIVATE_KEY" },
+          ],
+        },
+      },
+      projects: [
+        { path: "sympoies/mixed-repo", auth_policy: { mode: "bot_then_pat", bot_pool: "example_bots", pat_pool: "source_pat" } },
+      ],
+    } as Partial<SourceConfig>);
+
+    assert.deepEqual(await resolver.tokensForProject(cfg, "sympoies/mixed-repo"), [
+      { env: "github_app:BOT_B_INSTALLATION_ID", value: "app-token-1002", kind: "github_app", name: "example-bot-b", strategy: "round_robin" },
+      { env: "AUTH_PAT", value: "pat-token", kind: "pat", strategy: "failover" },
+    ]);
+  } finally {
+    delete process.env.AUTH_PAT;
+    delete process.env.BOT_A_APP_ID;
+    delete process.env.BOT_A_INSTALLATION_ID;
+    delete process.env.BOT_A_PRIVATE_KEY;
+    delete process.env.BOT_B_APP_ID;
+    delete process.env.BOT_B_INSTALLATION_ID;
+    delete process.env.BOT_B_PRIVATE_KEY;
+  }
+});
+
+test("bot_then_pat degrades to the PAT pool when every bot mint fails, instead of rejecting", async () => {
+  // A bad app key or down token endpoint fails all bot mints. bot_then_pat must
+  // still yield the configured PAT failover rather than aborting the source.
+  const resolver = createAuthTokenResolver({
+    mintGitHubAppInstallationToken: async () => {
+      throw new Error("GitHub App token HTTP 401: bad credentials");
+    },
+  });
+  process.env.AUTH_PAT = "pat-token";
+  process.env.BOT_A_APP_ID = "111";
+  process.env.BOT_A_INSTALLATION_ID = "1001";
+  process.env.BOT_A_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\na\\n-----END PRIVATE KEY-----";
+  try {
+    const cfg = source({
+      token_env: undefined,
+      token_pools: undefined,
+      auth_pools: {
+        source_pat: { kind: "pat", token_env: "AUTH_PAT" },
+        example_bots: {
+          kind: "github_app",
+          strategy: "round_robin",
+          apps: [
+            { name: "example-bot-a", app_id_env: "BOT_A_APP_ID", installation_id_env: "BOT_A_INSTALLATION_ID", private_key_env: "BOT_A_PRIVATE_KEY" },
+          ],
+        },
+      },
+      projects: [
+        { path: "sympoies/mixed-repo", auth_policy: { mode: "bot_then_pat", bot_pool: "example_bots", pat_pool: "source_pat" } },
+      ],
+    } as Partial<SourceConfig>);
+
+    assert.deepEqual(await resolver.tokensForProject(cfg, "sympoies/mixed-repo"), [
+      { env: "AUTH_PAT", value: "pat-token", kind: "pat", strategy: "failover" },
+    ]);
+  } finally {
+    delete process.env.AUTH_PAT;
+    delete process.env.BOT_A_APP_ID;
+    delete process.env.BOT_A_INSTALLATION_ID;
+    delete process.env.BOT_A_PRIVATE_KEY;
+  }
+});
