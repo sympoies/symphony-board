@@ -135,6 +135,7 @@ import { LivePage } from "./components/LivePage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
 import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
+import { isValidTimezone } from "./tz.ts";
 
 // The Graph page pulls in React Flow + layout libs — lazy-load it so the board
 // page stays light; the chunk only loads when #/graph is opened.
@@ -148,6 +149,9 @@ const UNRESOLVED_ON: ReadonlySet<string> = new Set(["unresolved"]);
 // Chip labels for the review lens: "threads" -> "has threads", "unresolved" as-is.
 const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads" : v);
 type MobileControlPanel = "search" | "filters" | "range" | null;
+type EnvAuthority = "server" | "file";
+
+const normalizeContractTimezone = (value: unknown): string | null => (isValidTimezone(value) ? value : null);
 
 // Pages via a zero-dep hash route: "" (first open) defaults to Activity,
 // "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
@@ -183,6 +187,7 @@ export function App() {
   if (startupHashRef.current === null) startupHashRef.current = readStartupHash();
   const initialStartupHash = startupHashRef.current;
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
+  const [envAuthority, setEnvAuthority] = useState<EnvAuthority | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
   const fileEnvAuthoritativeRef = useRef(false);
   // Full-history activity_daily for the Activity Overview, fetched independently of
@@ -309,7 +314,7 @@ export function App() {
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
-  const tz = env?.timezone ?? lastContractTimezone ?? "UTC";
+  const tz = normalizeContractTimezone(env?.timezone) ?? lastContractTimezone ?? "UTC";
   // board-scope derived flags. "off" loads no contract (Live-only); otherwise the
   // SELECTED range is the primary download (#488): the static ./contract.json
   // fast-path for the default 90-day window / static deploy, else a dynamic
@@ -324,6 +329,7 @@ export function App() {
   // Overview keys off it to pull the full 12-month /api/activity-daily overlay,
   // since a range projection's own activity_daily covers only the window.
   const windowedEnv = !!env?.range_query;
+  const shouldFetchFullActivityDaily = windowedEnv && envAuthority !== "file";
   // The instant calendar quick presets resolve against — the contract's generated-at
   // (stable per load), falling back to "now" only before the first contract arrives.
   const generatedNowMs = env ? (Number.isFinite(Date.parse(env.generated_at)) ? Date.parse(env.generated_at) : Date.now()) : Date.now();
@@ -433,7 +439,7 @@ export function App() {
   // activeRange client-side.
 
   const rememberContractTimezone = useCallback((loadedEnv: ContractEnvelope) => {
-    const nextTimezone = loadedEnv.timezone ?? "UTC";
+    const nextTimezone = normalizeContractTimezone(loadedEnv.timezone) ?? "UTC";
     saveLastContractTimezone(serverBaseUrl, nextTimezone);
     setLastContractTimezone(nextTimezone);
   }, [serverBaseUrl]);
@@ -443,7 +449,7 @@ export function App() {
   }, [serverBaseUrl]);
 
   // Reload the active data in place after a successful manual sync. It only
-  // re-fetches the contract (and the range response for a custom range); the
+  // re-fetches the primary contract payload (static or selected-range); the
   // route, search, filters, time range, and display preferences are URL/state
   // backed and untouched, so they survive the reload.
   const reloadData = useCallback(async (): Promise<boolean> => {
@@ -454,7 +460,9 @@ export function App() {
     // post-sync reload is a no-op for the (absent) board, never an error.
     if (contractDisabled) {
       setEnv(null);
+      setEnvAuthority(null);
       setContractMeta(null);
+      setFullActivityDaily(null);
       setError(null);
       return false;
     }
@@ -471,6 +479,7 @@ export function App() {
       .then((loaded) => {
         if (fileEnvAuthoritativeRef.current) return;
         setEnv(loaded.env);
+        setEnvAuthority("server");
         setContractMeta(loaded.meta);
         rememberContractTimezone(loaded.env);
         // Refresh the cold-start cache keyed by the loaded range (#488).
@@ -688,7 +697,9 @@ export function App() {
     setServerBaseUrl(next);
     setLastContractTimezone(loadLastContractTimezone(next));
     setEnv(null);
+    setEnvAuthority(null);
     setContractMeta(null);
+    setFullActivityDaily(null);
     setError(null);
     // Reset the init-retry loop so the new server gets a fresh patient window.
     if (initRetryTimerRef.current) {
@@ -715,7 +726,9 @@ export function App() {
     let cancelled = false;
     void loadCachedContract(serverBaseUrl, { range: primaryRange }).then((cached) => {
       if (cancelled || !cached) return;
+      if (fileEnvAuthoritativeRef.current) return;
       setEnv((cur) => pickColdStartEnv(cur, cached));
+      setEnvAuthority("server");
     });
     return () => {
       cancelled = true;
@@ -731,7 +744,9 @@ export function App() {
       fileEnvAuthoritativeRef.current = false;
       initAttemptRef.current = 0;
       setEnv(null);
+      setEnvAuthority(null);
       setContractMeta(null);
+      setFullActivityDaily(null);
       setError(null);
       setRetrying(false);
       setLoading(false);
@@ -781,6 +796,7 @@ export function App() {
         initAttemptRef.current = 0;
         fileEnvAuthoritativeRef.current = false;
         setEnv(loaded.env);
+        setEnvAuthority("server");
         setContractMeta(loaded.meta);
         rememberContractTimezone(loaded.env);
         // Refresh the cold-start cache so the NEXT launch paints this board before
@@ -859,14 +875,16 @@ export function App() {
   // activity_daily covers only the window). The full aggregate is small and
   // board-scope-independent, so fetch it separately from /api/activity-daily; on any
   // failure it stays null and the overview falls back to env.activity_daily (the
-  // prior behavior). With scope "full"/"off" the primary env already carries the full
-  // aggregate (or there is no contract), so no overlay fetch is needed.
+  // prior behavior). File-loaded contracts are self-contained and must not trigger
+  // a server aggregate fetch even if they carry `range_query`. With scope "full"/"off"
+  // the primary env already carries the full aggregate (or there is no contract), so
+  // no overlay fetch is needed.
   // dataReloadEpoch is in the deps so an in-place reload (manual refresh / post-sync /
   // daemon fresh-data, via reloadData) refetches this overlay too — without it the
   // windowedEnv gate stays true->true across a reload, the effect never re-runs, and
   // the Activity Overview would stay pinned to the pre-reload aggregate (#409).
   useEffect(() => {
-    if (contractDisabled || !windowedEnv) {
+    if (contractDisabled || !shouldFetchFullActivityDaily) {
       setFullActivityDaily(null);
       return;
     }
@@ -877,7 +895,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [contractDisabled, windowedEnv, serverBaseUrl, reloadKey, dataReloadEpoch]);
+  }, [contractDisabled, shouldFetchFullActivityDaily, serverBaseUrl, reloadKey, dataReloadEpoch]);
 
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
@@ -904,6 +922,28 @@ export function App() {
     () => sortRepoMetrics((visibleEnv?.repo_metrics ?? []).filter((metric) => repoMetricMatches(metric, itemFilters))),
     [visibleEnv, itemFilters],
   );
+  const fullEntityTotals = useMemo(() => {
+    if (!env) {
+      return { fullRepoMetricTotal: 0, fullChangeRequestTotal: 0, loadedReviewThreadTotal: 0, reviewThreadEntityTotal: 0 };
+    }
+
+    let fullChangeRequestTotal = 0;
+    if (env.repo_stats) {
+      for (const stat of env.repo_stats) fullChangeRequestTotal += stat.by_kind.change_request ?? 0;
+    } else {
+      for (const item of env.items) if (item.kind === "change_request") fullChangeRequestTotal += 1;
+    }
+
+    let itemReviewThreadTotal = 0;
+    for (const item of env.items) itemReviewThreadTotal += item.review_threads?.total ?? 0;
+    const loadedReviewThreadTotal = Math.max(env.review_threads?.length ?? 0, itemReviewThreadTotal);
+    return {
+      fullRepoMetricTotal: env.repo_stats?.length ?? env.repo_metrics?.length ?? 0,
+      fullChangeRequestTotal,
+      loadedReviewThreadTotal,
+      reviewThreadEntityTotal: loadedReviewThreadTotal > 0 ? loadedReviewThreadTotal : fullChangeRequestTotal,
+    };
+  }, [env]);
 
   // Highlight color: the config layers (per-repo + per-source) ride in on the
   // contract; the per-repo override is this viewer's localStorage. colorOf
@@ -987,8 +1027,8 @@ export function App() {
   const filteredActivities = useMemo(() => {
     const base = routeActivities.filter((a) => activityMatches(a, { ...emptyFilters(), search: filters.search }));
     // "unresolved only" (?unresolved=1): keep just the review rows whose target
-    // PR/MR still has open threads. Resolves target_ref against the full visible
-    // contract so an in-range review on a later-updated PR is not lost.
+    // PR/MR still has open threads. Range projections include review-activity
+    // target support rows, so the active projection is enough here.
     return route.unresolved === "1" ? base.filter((a) => reviewActivityIsUnresolved(a, activityItemsById)) : base;
   }, [routeActivities, filters.search, route.unresolved, activityItemsById]);
 
@@ -1263,7 +1303,9 @@ export function App() {
         const loaded = parseContractWithMetadata(t, file.name, Math.max(0, Math.round(finishedAt - startedAt)));
         fileEnvAuthoritativeRef.current = true;
         setEnv(loaded.env);
+        setEnvAuthority("file");
         setContractMeta(loaded.meta);
+        setFullActivityDaily(null);
         rememberContractTimezone(loaded.env);
         setError(null);
         setLoading(false);
@@ -1747,15 +1789,7 @@ export function App() {
     onOpenSettings: openSettings,
     sync,
   };
-  const fullRepoMetricTotal = env.repo_stats?.length ?? env.repo_metrics?.length ?? 0;
-  const fullChangeRequestTotal =
-    env.repo_stats?.reduce((sum, stat) => sum + (stat.by_kind.change_request ?? 0), 0)
-    ?? env.items.filter((item) => item.kind === "change_request").length;
-  const loadedReviewThreadTotal = Math.max(
-    env.review_threads?.length ?? 0,
-    env.items.reduce((sum, item) => sum + (item.review_threads?.total ?? 0), 0),
-  );
-  const reviewThreadEntityTotal = loadedReviewThreadTotal > 0 ? loadedReviewThreadTotal : fullChangeRequestTotal;
+  const { fullRepoMetricTotal, fullChangeRequestTotal, loadedReviewThreadTotal, reviewThreadEntityTotal } = fullEntityTotals;
 
   return (
     <div className="app app-wide">

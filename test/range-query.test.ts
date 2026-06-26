@@ -233,6 +233,7 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.equal(env.items.find((it) => it.external_id === "ISSUE_recent")?.labels[0]?.name, "type::feature");
   assert.equal(env.item_window?.primary_items, 1);
   assert.equal(env.item_window?.edge_endpoint_items, 1);
+  assert.equal(env.item_window?.activity_target_items, 0);
   assert.equal(env.item_window?.total_items, 3);
   assert.equal(env.edges.length, 1);
   assert.deepEqual(env.activities?.map((a) => a.external_id), ["activity-recent"]);
@@ -296,11 +297,12 @@ test("buildRangeContract includes in-range review activity targets as support it
   assert.deepEqual(validateContract(env), []);
   const target = env.items.find((it) => it.external_id === "PR_reviewed_later");
   assert.ok(target, "review activity target is emitted even when its item.updated_at is outside the range");
-  assert.deepEqual(target?.window_reasons, ["edge_endpoint"], "support rows stay out of primary Board cards");
+  assert.deepEqual(target?.window_reasons, ["activity_target"], "support rows stay out of primary Board cards");
   assert.deepEqual(target?.review_threads, { open: 2, total: 3 }, "review unresolved filters can resolve the target's current thread state");
   assert.equal(env.review_threads?.length ?? 0, 0, "detail rows are unchanged when no review-thread details were supplied");
   assert.equal(env.item_window?.primary_items, 1);
-  assert.equal(env.item_window?.edge_endpoint_items, 1);
+  assert.equal(env.item_window?.edge_endpoint_items, 0);
+  assert.equal(env.item_window?.activity_target_items, 1);
 });
 
 test("buildRangeContract keeps data_quality coverage all-time when no activity falls inside the range", () => {

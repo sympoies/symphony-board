@@ -332,3 +332,10 @@ test("last contract timezone is keyed per server and ignores malformed values", 
   store._raw("symphony-board:last-contract-timezone", "{bad");
   assert.equal(loadLastContractTimezone(null), null, "malformed storage -> unknown");
 });
+
+test("last contract timezone rejects invalid Intl zones", () => {
+  saveLastContractTimezone(null, "Not/AZone");
+  assert.equal(loadLastContractTimezone(null), null, "invalid saves are ignored");
+  store._raw("symphony-board:last-contract-timezone", JSON.stringify({ "__same-origin__": "Not/AZone" }));
+  assert.equal(loadLastContractTimezone(null), null, "invalid stored zones are ignored");
+});

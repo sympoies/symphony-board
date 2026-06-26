@@ -239,7 +239,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.3.0`.
+Current major: v4. Current emitted version: `4.4.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -271,9 +271,10 @@ longer ships every live item row by default; it ships the primary 90-day
 `boardWindow` item set plus older endpoint items needed to resolve emitted
 relationship edges. `item_window` describes that primary window and whether the
 payload is truncated. `items[].window_reasons` distinguishes primary Board rows
-from edge-endpoint closure rows. Full canonical totals remain available through
-`aggregates[]`, and full Settings repo counts move to `repo_stats[]` so the
-Settings page is not forced to infer repo inventory from the windowed item set.
+from support rows such as edge-endpoint closure rows and review activity targets.
+Full canonical totals remain available through `aggregates[]`, and full Settings
+repo counts move to `repo_stats[]` so the Settings page is not forced to infer
+repo inventory from the windowed item set.
 
 Version `2.1.0` added optional `range_query` metadata for read-only range API
 responses. The static emitted contract usually omits it. The API response keeps

@@ -519,20 +519,6 @@ export function rangeReachesDataTail(range: TimeRange, dataExtent: TimeRange | n
   return range.from <= dataExtent.to && range.to >= dataExtent.to;
 }
 
-// The data extent an empty state advertises and wires its "Show all" / "Jump to
-// latest" actions to. Range-as-download made the selected range the primary load,
-// so capping a quiet range to its own window sends the escape hatch nowhere. Keep
-// the true full-history extent supplied by activity_daily (when known).
-export function emptyStateDataExtent(
-  windowed: boolean,
-  windowRange: TimeRange | null,
-  fullExtent: TimeRange | null,
-): TimeRange | null {
-  void windowed;
-  void windowRange;
-  return fullExtent;
-}
-
 export function isDateOnly(value: string | null | undefined): value is string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);

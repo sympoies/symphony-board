@@ -1112,6 +1112,7 @@ function buildWindowedProjection(
       window: aggregateWindow("active_since", "item_updated_at", since, CONTRACT_ITEM_WINDOW_DAYS, null),
       primary_items: primaryIds.size,
       edge_endpoint_items: edgeEndpointItems,
+      activity_target_items: 0,
       total_items: items.length,
       truncated: windowedItems.length < items.length,
     },
@@ -1134,6 +1135,7 @@ function fullItemProjection(
       window: aggregateWindow("full", "full_contract", null, null, null),
       primary_items: items.length,
       edge_endpoint_items: 0,
+      activity_target_items: 0,
       total_items: items.length,
       truncated: false,
     },
@@ -1169,22 +1171,25 @@ function buildRangeProjection(
     endpointIds.add(edge.from);
     endpointIds.add(edge.to);
   }
+  const activityTargetIds = new Set<string>();
   for (const activity of rangedActivities) {
     if (activity.kind !== "review") continue;
-    if (activity.target_ref && byId.has(activity.target_ref)) endpointIds.add(activity.target_ref);
+    if (activity.target_ref && byId.has(activity.target_ref)) activityTargetIds.add(activity.target_ref);
   }
 
-  const emittedIds = new Set([...primaryIds, ...endpointIds]);
+  const emittedIds = new Set([...primaryIds, ...endpointIds, ...activityTargetIds]);
   const windowedItems = items
     .filter((item) => emittedIds.has(item.id))
     .map((item) => {
       const reasons: ItemWindowReason[] = [];
       if (primaryIds.has(item.id)) reasons.push("primary");
       if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
+      if (activityTargetIds.has(item.id)) reasons.push("activity_target");
       return { ...item, window_reasons: reasons };
     });
 
   const edgeEndpointItems = windowedItems.filter((item) => !primaryIds.has(item.id) && endpointIds.has(item.id)).length;
+  const activityTargetItems = windowedItems.filter((item) => !primaryIds.has(item.id) && activityTargetIds.has(item.id)).length;
   return {
     items: windowedItems,
     edges: selectedEdges,
@@ -1194,6 +1199,7 @@ function buildRangeProjection(
       window: aggregateWindow("active_since", "item_updated_at", range.from, null, null),
       primary_items: primaryIds.size,
       edge_endpoint_items: edgeEndpointItems,
+      activity_target_items: activityTargetItems,
       total_items: items.length,
       truncated: windowedItems.length < items.length,
     },

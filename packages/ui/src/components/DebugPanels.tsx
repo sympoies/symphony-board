@@ -280,6 +280,7 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
     ["edge filter", itemWindow.window.edge_filter ?? "—"],
     ["primary items", itemWindow.primary_items.toLocaleString()],
     ["edge endpoints", itemWindow.edge_endpoint_items.toLocaleString()],
+    ["activity targets", (itemWindow.activity_target_items ?? 0).toLocaleString()],
     ["total items", itemWindow.total_items.toLocaleString()],
     ["truncated", itemWindow.truncated ? "yes" : "no"],
   ];

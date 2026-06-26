@@ -48,7 +48,7 @@ export type AggregateBasis =
   | "edge_endpoint_updated_at"
   | "focus_neighborhood";
 export type AggregateEdgeFilter = "all" | "no_mentions";
-export type ItemWindowReason = "primary" | "edge_endpoint";
+export type ItemWindowReason = "primary" | "edge_endpoint" | "activity_target";
 
 export interface TimeRangeDTO {
   from: string;
@@ -90,6 +90,7 @@ export interface ItemWindowDTO {
   window: AggregateWindowDTO;
   primary_items: number;
   edge_endpoint_items: number;
+  activity_target_items?: number;
   total_items: number;
   truncated: boolean;
 }
@@ -284,8 +285,9 @@ export interface ItemDTO {
   // Present in contract v2 windowed payloads. `primary` means the item is part
   // of the contract's primary Board item window; `edge_endpoint` means the item
   // is included so emitted edges resolve to concrete nodes instead of anonymous
-  // refs. Consumers reading old v1 payloads should treat a missing value as
-  // "primary".
+  // refs; `activity_target` means the item is included so an emitted review
+  // activity resolves to the target change request's current state. Consumers
+  // reading old v1 payloads should treat a missing value as "primary".
   window_reasons?: ItemWindowReason[];
 }
 

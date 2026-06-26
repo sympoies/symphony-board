@@ -16,7 +16,7 @@ import { cutoffIso, DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, isHex
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
-import { zonedDateOnly } from "./tz.ts";
+import { isValidTimezone, zonedDateOnly } from "./tz.ts";
 
 const KEY = "symphony-board:hidden-repos";
 // Hidden SOURCES live under their own key on purpose: a source is an independent
@@ -364,10 +364,6 @@ function serverScopedKey(serverBaseUrl: string | null): string {
   return serverBaseUrl ?? "__same-origin__";
 }
 
-function isUsableTimezone(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
 export function loadLastContractTimezone(serverBaseUrl: string | null): string | null {
   try {
     const raw = localStorage.getItem(LAST_CONTRACT_TIMEZONE_KEY);
@@ -375,7 +371,7 @@ export function loadLastContractTimezone(serverBaseUrl: string | null): string |
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
     const value = (parsed as Record<string, unknown>)[serverScopedKey(serverBaseUrl)];
-    return isUsableTimezone(value) ? value : null;
+    return isValidTimezone(value) ? value : null;
   } catch {
     return null;
   }
@@ -387,10 +383,10 @@ export function saveLastContractTimezone(serverBaseUrl: string | null, timezone:
     const parsed: unknown = raw ? JSON.parse(raw) : {};
     const next: Record<string, string> =
       typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-        ? Object.fromEntries(Object.entries(parsed).filter(([, value]) => isUsableTimezone(value)))
+        ? Object.fromEntries(Object.entries(parsed).filter(([, value]) => isValidTimezone(value)))
         : {};
     const key = serverScopedKey(serverBaseUrl);
-    if (isUsableTimezone(timezone)) next[key] = timezone;
+    if (isValidTimezone(timezone)) next[key] = timezone;
     else delete next[key];
     localStorage.setItem(LAST_CONTRACT_TIMEZONE_KEY, JSON.stringify(next));
   } catch {

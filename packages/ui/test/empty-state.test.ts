@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { activityOccurredExtent, boardCommitTotal, emptyStateDataExtent, emptyStateKind, isBoardEmpty, rangeReachesDataTail } from "../src/model.ts";
+import { activityOccurredExtent, boardCommitTotal, emptyStateKind, isBoardEmpty, rangeReachesDataTail } from "../src/model.ts";
 
 // `emptyStateKind` is the single decision that picks which empty-state treatment
 // a page renders. It is only ever consulted when the page has nothing to show
@@ -114,24 +114,4 @@ test("boardCommitTotal: prefers full-history activity_daily.by_kind.commit over 
 test("boardCommitTotal: falls back to the windowed commit count without an aggregate, 0 when absent", () => {
   assert.equal(boardCommitTotal(cenv({ activities: [{ kind: "commit" }, { kind: "issue" }, { kind: "commit" }] })), 2);
   assert.equal(boardCommitTotal(null), 0);
-});
-
-// `emptyStateDataExtent` is retained as a compatibility helper, but under the
-// range-as-download model the Activity empty state should keep the full-history
-// extent from /api/activity-daily. The selected range is now the primary load;
-// capping the empty-state extent to that same range makes "Jump to latest" /
-// "Show all" target the quiet window instead of the board's real activity span.
-const FULL_EXTENT = { from: "2025-06-15", to: "2026-06-18" };
-const BOARD_WINDOW = { from: "2026-06-12", to: "2026-06-18" }; // a 7d windowed scope
-
-test("emptyStateDataExtent: a windowed env keeps the true full-history extent", () => {
-  assert.deepEqual(emptyStateDataExtent(true, BOARD_WINDOW, FULL_EXTENT), FULL_EXTENT);
-});
-
-test("emptyStateDataExtent: a full / off env keeps the true unwindowed extent", () => {
-  assert.deepEqual(emptyStateDataExtent(false, BOARD_WINDOW, FULL_EXTENT), FULL_EXTENT);
-});
-
-test("emptyStateDataExtent: missing full-history extent advertises nothing", () => {
-  assert.equal(emptyStateDataExtent(true, BOARD_WINDOW, null), null);
 });
