@@ -1630,6 +1630,84 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+  const settingsDisplayModel = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
+      const board = prefByTitle('Board data');
+      const boardSelect = board?.querySelector('select');
+      return {
+        headings: Array.from(document.querySelectorAll('.settings-page h3')).map((el) => el.textContent?.trim() || ''),
+        boardLabels: boardSelect ? Array.from(boardSelect.options).map((option) => option.textContent?.trim() || '') : [],
+        boardHelp: board?.querySelector('.muted')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { headings: [], boardLabels: [], boardHelp: "" };
+  const liveOnlySettings = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
+      const board = prefByTitle('Board data');
+      const boardSelect = board?.querySelector('select');
+      if (boardSelect) {
+        boardSelect.value = 'off';
+        boardSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return {
+        boardValue: boardSelect?.value || '',
+        hasPreview: !!prefByTitle('Live feed preview'),
+        hasTypes: !!prefByTitle('Live event types'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(200);
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const live = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Live tab');
+      const box = live?.querySelector('input[type="checkbox"]');
+      if (box && box.checked) box.click();
+      location.hash = '#/activity';
+    })()`,
+  });
+  await sleep(250);
+  const bothOffGuardHtml = await waitHtml("document.querySelector('.state-msg')");
+  const bothOffGuard = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const msg = document.querySelector('.state-msg');
+      const enable = Array.from(msg?.querySelectorAll('button, a') || [])
+        .find((el) => /Enable Live/i.test(el.textContent || ''));
+      return {
+        text: msg?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        hasEnableLive: !!enable,
+        enableTag: enable?.tagName?.toLowerCase() || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      location.hash = '#/settings';
+    })()`,
+  });
+  await sleep(250);
+  await waitHtml("document.querySelector('.settings-page')");
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
+      const boardSelect = prefByTitle('Board data')?.querySelector('select');
+      if (boardSelect) {
+        boardSelect.value = 'on';
+        boardSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
+      if (liveBox && !liveBox.checked) liveBox.click();
+    })()`,
+  });
+  await sleep(200);
   // Deep link — a board card's "focus in graph" link (#/graph?focus=<ref>) opens
   // the graph ALREADY in that item's focus view (not the plain list); the canvas
   // shows the focus subgraph, so the global search bar stays EMPTY (it is a
@@ -3018,6 +3096,7 @@ try {
   // a modifier class doesn't drop the count. (Avoids matching card-head etc.)
   const boardCards = m(boardHtml, /class="card[ "]/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
+  const settingIndex = (title) => (settingsDisplayModel.headings || []).indexOf(title);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
@@ -3400,6 +3479,10 @@ try {
     [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
     [has(settingsHtml, "Theme") && themeBefore.found === true && themeBefore.before === "night-owl" && themeBefore.options.includes("night-owl") && themeBefore.options.includes("paper"), `settings: theme selector defaults to Night Owl (${JSON.stringify(themeBefore)})`],
     [themeAfter.root === "paper" && themeAfter.stored === "paper" && themeAfter.bg === "#f4f3ed", `settings: Paper theme applies and persists (${JSON.stringify(themeAfter)})`],
+    [JSON.stringify(settingsDisplayModel.boardLabels) === JSON.stringify(["On", "Off"]) && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data is a board-only On/Off control (${JSON.stringify(settingsDisplayModel)})`],
+    [settingIndex("Board data") > settingIndex("Theme") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
+    [liveOnlySettings.boardValue === "off" && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
+    [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],

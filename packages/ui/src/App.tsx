@@ -534,6 +534,7 @@ export function App() {
   // it to the hook + tab visibility below. The raw `liveTabEnabled` stays the
   // persisted preference (Settings shows it, unchanged), so it re-applies on a
   // real server-backed deployment.
+  const livePreferencesDisabled = liveControlsDisabled(staticDeployment);
   const liveTabEffectivelyEnabled = effectiveLiveTabEnabled(liveTabEnabled, staticDeployment);
   // The live stream lives HERE, at the always-mounted shell — not inside LivePage
   // — so the event buffer survives tab switches: switching to Live is instant and
@@ -1628,7 +1629,7 @@ export function App() {
       onLivePreviewLines={setLivePreviewLines}
       liveTabEnabled={liveTabEnabled}
       onLiveTabEnabled={setLiveTabEnabled}
-      liveDisabled={liveControlsDisabled(staticDeployment)}
+      liveDisabled={livePreferencesDisabled}
       hiddenEventTypes={hiddenEventTypes}
       onToggleEventType={toggleEventType}
       defaultTab={defaultTab}
@@ -1687,13 +1688,33 @@ export function App() {
   // on the "Loading contract…" gate below — which never resolves with no fetch in
   // flight. Live and Settings are handled above; this covers Activity/Board/etc.
   if (contractDisabled) {
+    const canEnableLiveHere = !liveTabEffectivelyEnabled && !livePreferencesDisabled;
     return (
       <div className="app app-wide">
         {pageTabs}
         <div className="state-msg">
           <p>Board data is turned off on this device.</p>
+          {canEnableLiveHere ? (
+            <p className="state-actions">
+              <button
+                type="button"
+                className="toggle toggle-on"
+                onClick={() => {
+                  setLiveTabEnabled(true);
+                  window.location.hash = routeHref("live");
+                }}
+              >
+                Enable Live
+              </button>
+            </p>
+          ) : null}
           <p className="muted">
-            {liveAvailable ? "Live is available. " : ""}To load issues, PRs, and the board, pick a data range in{" "}
+            {canEnableLiveHere
+              ? "Enable Live to use the realtime feed without loading board data. "
+              : liveTabEffectivelyEnabled
+                ? "Live is available from the Live tab. "
+                : ""}
+            To load issues, PRs, and the board, pick a data range in{" "}
             <a href={routeHref("settings")}>Settings → Display</a>.
           </p>
         </div>

@@ -44,7 +44,7 @@ interface Props {
   onClearColor: (key: string) => void;
   defaultRangePreset: TimeRangePresetId;
   onDefaultRangePreset: (preset: TimeRangePresetId) => void;
-  disabledRangePresets: ReadonlySet<TimeRangePresetId>; // presets larger than Board data — not selectable
+  disabledRangePresets: ReadonlySet<TimeRangePresetId>; // presets unavailable on this device/deployment
   boardScope: BoardScope; // whether this device loads contract-backed board data
   onBoardScope: (scope: BoardScope) => void;
   wideLayout: boolean; // force the wide (desktop) layout on this device (Android app only)
@@ -189,8 +189,8 @@ export function SettingsPage({
         <div>
           <h2>Display</h2>
           <p className="muted">
-            View-only preferences saved in your browser — the theme, the Live tab, the default
-            landing tab and date range, and which repos and sources appear. The daemon keeps
+            View-only preferences saved in your browser — display basics, board data and defaults,
+            Live preferences, connection, and which repos and sources appear. The daemon keeps
             syncing every source regardless.
           </p>
         </div>
@@ -236,6 +236,71 @@ export function SettingsPage({
         </div>
       ) : null}
 
+      <SettingsSectionTitle title="Board" />
+      <div className="settings-pref">
+        <div>
+          <h3>Board data</h3>
+          <p className="muted">
+            Turn contract-backed board data on or off. When off, only the Live feed is shown —
+            open the Live tab below.
+          </p>
+        </div>
+        <select
+          className="settings-select"
+          value={boardScope === "off" ? "off" : "on"}
+          onChange={(e) => onBoardScope(e.target.value === "off" ? "off" : "full")}
+        >
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Default range</h3>
+          <p className="muted">Used when the URL does not include from/to dates.</p>
+          {disabledRangePresets.size > 0 ? (
+            <p className="muted">Longer ranges are unavailable on this device.</p>
+          ) : null}
+        </div>
+        <select
+          className="settings-select"
+          value={defaultRangePreset}
+          onChange={(e) => {
+            if (isTimeRangePresetId(e.target.value)) onDefaultRangePreset(e.target.value);
+          }}
+        >
+          {TIME_RANGE_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id} disabled={disabledRangePresets.has(preset.id)}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Default tab</h3>
+          <p className="muted">
+            The tab to open when the URL has no specific page (a fresh open). Saved on this device only.
+          </p>
+        </div>
+        <select
+          className="settings-select"
+          value={resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled)}
+          onChange={(e) => {
+            if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
+          }}
+        >
+          {tabOptions.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <SettingsSectionTitle title="Live" />
       <div
         className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
         title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
@@ -262,7 +327,7 @@ export function SettingsPage({
         </label>
       </div>
 
-      {liveTabEnabled ? (
+      {liveTabEffectivelyEnabled ? (
         <>
           <div
             className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
@@ -315,69 +380,7 @@ export function SettingsPage({
         </>
       ) : null}
 
-      <div className="settings-pref">
-        <div>
-          <h3>Default tab</h3>
-          <p className="muted">
-            The tab to open when the URL has no specific page (a fresh open). Saved on this device only.
-          </p>
-        </div>
-        <select
-          className="settings-select"
-          value={resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled)}
-          onChange={(e) => {
-            if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
-          }}
-        >
-          {tabOptions.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="settings-pref">
-        <div>
-          <h3>Default range</h3>
-          <p className="muted">Used when the URL does not include from/to dates.</p>
-          {disabledRangePresets.size > 0 ? (
-            <p className="muted">Longer ranges are unavailable on this device.</p>
-          ) : null}
-        </div>
-        <select
-          className="settings-select"
-          value={defaultRangePreset}
-          onChange={(e) => {
-            if (isTimeRangePresetId(e.target.value)) onDefaultRangePreset(e.target.value);
-          }}
-        >
-          {TIME_RANGE_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id} disabled={disabledRangePresets.has(preset.id)}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="settings-pref">
-        <div>
-          <h3>Board data</h3>
-          <p className="muted">
-            Load the board, or show only the Live feed. How much board data is fetched now
-            follows the selected date range (capped per device), not a fixed window.
-          </p>
-        </div>
-        <select
-          className="settings-select"
-          value={boardScope === "off" ? "off" : "on"}
-          onChange={(e) => onBoardScope(e.target.value === "off" ? "off" : "full")}
-        >
-          <option value="on">Load board data</option>
-          <option value="off">Live feed only</option>
-        </select>
-      </div>
-
+      <SettingsSectionTitle title="Connection" />
       <div className="settings-pref settings-server">
         <div>
           <h3>Server</h3>
@@ -496,6 +499,10 @@ export function SettingsPage({
       {repos.length === 0 && <p className="empty">No repos in the contract yet.</p>}
     </section>
   );
+}
+
+function SettingsSectionTitle({ title }: { title: string }) {
+  return <div className="settings-section-title">{title}</div>;
 }
 
 function SettingsTabs({ active, onTab }: { active: SettingsTab; onTab?: (tab: SettingsTab) => void }) {
