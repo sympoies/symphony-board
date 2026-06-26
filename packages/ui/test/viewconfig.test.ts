@@ -174,6 +174,11 @@ test("content tab order is normalized from device-local storage", () => {
   assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"], "malformed storage falls back to default order");
 });
 
+test("content tab order migrates the auto-saved old default order", () => {
+  store._raw("symphony-board:content-tab-order", JSON.stringify(["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"]));
+  assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"]);
+});
+
 test("content tab order round-trips as a normalized device-local setting", () => {
   saveContentTabOrder(["graph", "activity"]);
   assert.deepEqual(loadContentTabOrder(), ["graph", "activity", "repo-analytics", "board", "items", "reviews", "commits"]);

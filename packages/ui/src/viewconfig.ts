@@ -511,8 +511,14 @@ export function isContentTab(value: unknown): value is ContentTab {
 }
 
 const DEFAULT_CONTENT_TAB_ORDER: ContentTab[] = CONTENT_TAB_OPTIONS.map((t) => t.id);
+const LEGACY_DEFAULT_CONTENT_TAB_ORDER: readonly ContentTab[] = ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"];
+
+function contentTabOrderEquals(order: readonly unknown[], expected: readonly ContentTab[]): boolean {
+  return order.length === expected.length && expected.every((value, index) => order[index] === value);
+}
 
 export function normalizeContentTabOrder(order: readonly unknown[] | null | undefined): ContentTab[] {
+  if (order && contentTabOrderEquals(order, LEGACY_DEFAULT_CONTENT_TAB_ORDER)) return [...DEFAULT_CONTENT_TAB_ORDER];
   const out: ContentTab[] = [];
   for (const value of order ?? []) {
     if (isContentTab(value) && !out.includes(value)) out.push(value);

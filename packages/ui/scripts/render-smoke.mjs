@@ -2137,7 +2137,7 @@ try {
       const detailAvatarImg = detailAvatar?.querySelector('img');
       const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
       const detailPaneRect = document.querySelector('.live-detail')?.getBoundingClientRect();
-      const detailRect = document.querySelector('.live-detail-card')?.getBoundingClientRect();
+      const detailCardRect = document.querySelector('.live-detail-card')?.getBoundingClientRect();
       const firstRowRect = rows[0]?.getBoundingClientRect();
       const status = document.querySelector('.live-status');
       const avatar = rows[0]?.querySelector('.live-avatar');
@@ -2185,9 +2185,9 @@ try {
         feedHeight: feedRect?.height || 0,
         feedTop: feedRect?.top || 0,
         feedBottom: feedRect?.bottom || 0,
-        detailHeight: detailRect?.height || 0,
         detailPaneHeight: detailPaneRect?.height || 0,
-        detailCardFillsPane: !!(detailPaneRect && detailRect) && detailRect.height >= detailPaneRect.height - 2,
+        detailCardHeight: detailCardRect?.height || 0,
+        detailCardFillsPane: !!(detailPaneRect && detailCardRect) && detailCardRect.height >= detailPaneRect.height - 2,
         firstRowTop: firstRowRect?.top || 0,
         firstRowBottom: firstRowRect?.bottom || 0,
         documentScrollHeight: document.documentElement.scrollHeight,
@@ -3566,8 +3566,8 @@ try {
     [/^3\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows retained rows over the memory cap (${live.bufferText || "empty"})`],
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
-    [Math.abs((live.detailHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailHeight || 0}px vs ${live.feedHeight || 0}px)`],
-    [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailHeight })})`],
+    [Math.abs((live.detailPaneHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailPaneHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailPaneHeight || 0}px vs ${live.feedHeight || 0}px)`],
+    [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailCardHeight })})`],
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
     // the buffer cap, so the first paint isn't a ~26MB download; the poll-since
     // request still uses the buffer cap (it returns only rows after the cursor).
