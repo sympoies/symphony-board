@@ -64,7 +64,7 @@ function mapState(s: string | null | undefined): ItemState {
   return "closed"; // closed | locked
 }
 
-const COMMON = `id iid title webUrl createdAt updatedAt state
+const COMMON = `id iid title description webUrl createdAt updatedAt state
   author { username }
   labels(first:50){ nodes { title color } }
   userNotesCount upvotes`;
@@ -172,7 +172,8 @@ export class GitLabSource implements Source {
   readonly descriptor: SourceDescriptor;
   // gitlab/6: review-thread comment URLs now deep-link to REST note permalinks
   // when GitLab omits web_url; gitlab/5 added review-thread comment avatarUrl.
-  readonly normalizerVersion = "gitlab/6";
+  // gitlab/7: items carry provider description text as body for detail views.
+  readonly normalizerVersion = "gitlab/7";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -838,6 +839,7 @@ export class GitLabSource implements Source {
       iid: Number.isFinite(iidNum) ? iidNum : null,
       url: p.webUrl ?? "",
       title: p.title ?? null,
+      body: cleanText(p.description),
       state: mapState(p.state),
       stateRaw: p.state ?? null,
       author: p.author?.username ?? null,

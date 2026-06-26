@@ -15,7 +15,7 @@ function validEnvelope() {
     {
       item_id: 1, source_id: "github:github.com", external_id: "ISSUE_abc", kind: "issue",
       project_path: "dev-a/repo", iid: 7, url: "https://github.com/dev-a/repo/issues/7",
-      title: "An issue", state: "open", state_raw: "OPEN", state_reason: null, is_draft: null,
+      title: "An issue", body: null, state: "open", state_raw: "OPEN", state_reason: null, is_draft: null,
       author: "dev-a", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: null, merged_at: null, review_state: null, ci_state: null, merge_state: null,
       open_review_threads: null, total_review_threads: null,
@@ -24,7 +24,7 @@ function validEnvelope() {
     {
       item_id: 2, source_id: "github:github.com", external_id: "PR_xyz", kind: "change_request",
       project_path: "dev-a/repo", iid: 8, url: "https://github.com/dev-a/repo/pull/8",
-      title: "A PR", state: "merged", state_raw: "MERGED", state_reason: null, is_draft: false,
+      title: "A PR", body: null, state: "merged", state_raw: "MERGED", state_reason: null, is_draft: false,
       author: "dev-a", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
       closed_at: "2026-01-03T00:00:00Z", merged_at: "2026-01-03T00:00:00Z", review_state: "approved",
       ci_state: "passing", merge_state: "mergeable", open_review_threads: 1, total_review_threads: 2,

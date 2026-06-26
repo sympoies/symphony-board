@@ -83,6 +83,7 @@ const MIGRATIONS: Migration[] = [
   { version: 6, file: "0006_review_thread_detail.sql" },
   { version: 7, file: "0007_review_thread_target_iid_bigint.sql" },
   { version: 8, file: "0008_review_thread_last_comment_at.sql" },
+  { version: 9, file: "0009_item_body.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -258,14 +259,14 @@ export class PgStore implements Store {
   async upsertItem(item: CanonicalItem, normalizerVersion: string, seenAt: string): Promise<number> {
     const rows = await this.#q`
       INSERT INTO item (
-        source_id, external_id, kind, project_path, iid, url, title, state, state_raw,
+        source_id, external_id, kind, project_path, iid, url, title, body, state, state_raw,
         state_reason, is_draft, author, created_at, updated_at, closed_at, merged_at,
         review_state, ci_state, merge_state, open_review_threads, total_review_threads,
         milestone, demand, normalized_with,
         last_seen_at, deleted_at
       ) VALUES (
         ${item.sourceId}, ${item.externalId}, ${item.kind}, ${nz(item.projectPath)}, ${nz(item.iid)},
-        ${item.url}, ${nz(item.title)}, ${item.state}, ${nz(item.stateRaw)}, ${nz(item.stateReason)},
+        ${item.url}, ${nz(item.title)}, ${nz(item.body)}, ${item.state}, ${nz(item.stateRaw)}, ${nz(item.stateReason)},
         ${nz(item.isDraft)}, ${nz(item.author)}, ${nz(item.createdAt)}, ${nz(item.updatedAt)},
         ${nz(item.closedAt)}, ${nz(item.mergedAt)}, ${nz(item.reviewState)}, ${nz(item.ciState)},
         ${nz(item.mergeState)}, ${nz(item.openReviewThreads)}, ${nz(item.totalReviewThreads)},
@@ -274,7 +275,7 @@ export class PgStore implements Store {
       )
       ON CONFLICT (source_id, external_id) DO UPDATE SET
         kind = excluded.kind, project_path = excluded.project_path, iid = excluded.iid,
-        url = excluded.url, title = excluded.title, state = excluded.state, state_raw = excluded.state_raw,
+        url = excluded.url, title = excluded.title, body = excluded.body, state = excluded.state, state_raw = excluded.state_raw,
         state_reason = excluded.state_reason, is_draft = excluded.is_draft, author = excluded.author,
         created_at = excluded.created_at, updated_at = excluded.updated_at, closed_at = excluded.closed_at,
         merged_at = excluded.merged_at, review_state = excluded.review_state, ci_state = excluded.ci_state,
@@ -494,7 +495,7 @@ export class PgStore implements Store {
 
   async listLiveItems(): Promise<ItemRow[]> {
     const rows = await this.#q`
-      SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, state,
+      SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, body, state,
              state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
              merged_at, review_state, ci_state, merge_state, open_review_threads,
              total_review_threads, milestone, demand, last_seen_at

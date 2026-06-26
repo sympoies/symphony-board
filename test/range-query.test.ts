@@ -29,6 +29,7 @@ function item(over: Partial<CanonicalItem> = {}): CanonicalItem {
     iid: 1,
     url: "https://example/1",
     title: "Recent issue",
+    body: null,
     state: "open",
     stateRaw: "OPEN",
     stateReason: null,
@@ -93,6 +94,7 @@ function itemRow(over: Partial<ItemRow> = {}): ItemRow {
     iid: 1,
     url: "https://example/1",
     title: "Recent issue",
+    body: null,
     state: "open",
     state_raw: "OPEN",
     state_reason: null,
@@ -486,7 +488,7 @@ test("SQLite migrations from v4 backfill cached repo activity bounds and review-
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 8, "opening a v4 store applies later migrations");
+    assert.equal(diag.schema_version, 9, "opening a v4 store applies later migrations");
     assert.equal((await db.overview(1)).tables.repo_activity_bounds, 1, "the summary table is backfilled once per repo");
     const bounds = await db.listRepoActivityBounds();
     assert.equal(bounds.length, 1);

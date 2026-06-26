@@ -17,6 +17,7 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
     iid: 7,
     url: "https://github.com/dev-a/repo/issues/7",
     title: "An issue",
+    body: null,
     state: "open",
     state_raw: "OPEN",
     state_reason: null,
@@ -146,6 +147,14 @@ test("buildContract groups labels by item and leaves label-less items empty", ()
   const env = buildContract({ sources: [], items, labels, edges: [], generatedAt: "2026-06-02T00:00:00Z" });
   assert.equal(env.items[0]!.labels.length, 2);
   assert.equal(env.items[1]!.labels.length, 0);
+});
+
+test("buildContract emits provider item bodies for detail views", () => {
+  const body = "Provider body\n\n- keep the original issue or PR context visible";
+  const items: ItemRow[] = [itemRow({ item_id: 1, body } as Partial<ItemRow> & { body: string })];
+  const env = buildContract({ sources: [], items, labels: [], edges: [], generatedAt: "2026-06-02T00:00:00Z" });
+  assert.equal((env.items[0] as { body?: string | null }).body, body);
+  assert.deepEqual(validateContract(env), []);
 });
 
 test("buildContract applies source colors where set and emits the repos block verbatim", () => {
