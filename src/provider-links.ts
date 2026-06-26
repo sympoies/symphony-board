@@ -59,6 +59,17 @@ function safeUsername(value: string | null | undefined): string | null {
   return name;
 }
 
+function safePathSegments(pathname: string): string[] | null {
+  try {
+    return pathname
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => decodeURIComponent(segment));
+  } catch {
+    return null;
+  }
+}
+
 export function providerRepoUrl(source: ProviderLinkSource, projectPath: string | null | undefined): string | null {
   return repoBase(source, projectPath);
 }
@@ -72,6 +83,34 @@ export function providerProfileUrl(source: ProviderLinkSource, username: string 
   const name = safeUsername(username);
   if (!kind || !host || !name) return null;
   return `https://${host}/${encodeURIComponent(name)}`;
+}
+
+// Provider-reported actor profile URL, constrained to the configured host and
+// known profile path shapes. This preserves GitHub App bot URLs
+// (`/apps/<slug>`) without letting arbitrary activity details become links.
+export function providerObservedProfileUrl(source: ProviderLinkSource, value: unknown): string | null {
+  const kind = providerKind(source);
+  const host = safeHost(source.host);
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!kind || !host || !text) return null;
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.host.toLowerCase() !== host.toLowerCase()) return null;
+  const segments = safePathSegments(url.pathname);
+  if (!segments) return null;
+  if (kind === "github" && segments.length === 2 && segments[0] === "apps") {
+    const app = safeUsername(segments[1]);
+    return app ? `https://${host}/apps/${encodeURIComponent(app)}` : null;
+  }
+  if (segments.length === 1) {
+    const name = safeUsername(segments[0]);
+    return name ? `https://${host}/${encodeURIComponent(name)}` : null;
+  }
+  return null;
 }
 
 export function providerIssueUrl(source: ProviderLinkSource, projectPath: string | null | undefined, iid: number | null | undefined): string | null {

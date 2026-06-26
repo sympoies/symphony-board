@@ -800,16 +800,17 @@ username (issues/PRs/MRs) and several commit author names (commits). Added in
 - `actor`: a backward-compatibility display field equal to `display_name`, kept
   so pre-`2.3.0` consumers keep rendering. Render `display_name` and key React
   lists on `actor_key`.
-- `profile_url`: the actor's canonical provider profile page, added in `3.4.0` —
-  `https://<host>/<username>` on a supported GitHub/GitLab source. It is emitted
-  for a `provider-user:<source_id>:<username>` identity, and for a config-merged
-  `person:<slug>` identity via the provider username **observed on this source**
-  (a `person` row is per-source, so the absorbed provider-user sub-identity
-  supplies it). It is **omitted** when no username was observed on this source —
-  `email:<hash>` / `name:<normalized>` authorship — and for unsupported sources.
-  A config identity's declared usernames are host-agnostic, so they are never
-  guessed onto a source (that could link a wrong-host profile). Like `repo_url`,
-  treat it as a display/navigation convenience, not identity.
+- `profile_url`: the actor's canonical provider profile page, added in `3.4.0`.
+  It is usually `https://<host>/<username>` on a supported GitHub/GitLab source;
+  GitHub App bots may use the provider-reported `https://<host>/apps/<slug>` URL.
+  It is emitted for a `provider-user:<source_id>:<username>` identity, and for a
+  config-merged `person:<slug>` identity via the provider username **observed on
+  this source** (a `person` row is per-source, so the absorbed provider-user
+  sub-identity supplies it). It is **omitted** when no username was observed on
+  this source — `email:<hash>` / `name:<normalized>` authorship — and for
+  unsupported sources. A config identity's declared usernames are host-agnostic,
+  so they are never guessed onto a source (that could link a wrong-host profile).
+  Like `repo_url`, treat it as a display/navigation convenience, not identity.
 
 An optional producer-side **config identity map** (`identities[]` in
 `config/sources.json`) can declare that several of the keys above are one human —
@@ -887,11 +888,13 @@ host, or path cannot produce a safe provider URL.
 
 Version `3.4.0` added optional `repo_metrics[].top_actors[].profile_url`, the
 per-actor counterpart to `repo_url`: the actor's canonical provider profile page
-(`https://<host>/<username>`) so consumers can link a handle to its GitHub/GitLab
-profile without reconstructing provider URL rules. It is additive within contract
-major v3 and follows the same omit-when-absent rule as the sibling `aliases`
-field. It is present for a `provider-user:<source_id>:<username>` identity and
-for a config-merged `person:<slug>` identity via the provider username observed
+(usually `https://<host>/<username>`, or a provider-reported GitHub App bot URL
+such as `https://<host>/apps/<slug>`) so consumers can link a handle to its
+GitHub/GitLab profile without reconstructing provider URL rules. It is additive
+within contract major v3 and follows the same omit-when-absent rule as the
+sibling `aliases` field. It is present for a
+`provider-user:<source_id>:<username>` identity and for a config-merged
+`person:<slug>` identity via the provider username observed
 on this source; it is omitted for email/name authorship with no observed
 username and for unsupported sources. See "Actor identity" above.
 

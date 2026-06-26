@@ -74,8 +74,9 @@ The current emitted contract is `4.3.0`. Important compatibility milestones:
   metric.
 - 3.4.0 added optional `RepoMetricActorDTO.profile_url`, the per-actor
   counterpart to `repo_url`: a provider profile link
-  (`https://<host>/<username>`) emitted only for `provider-user`-keyed actors on
-  supported GitHub/GitLab sources.
+  (usually `https://<host>/<username>`, or GitHub App bot `/apps/<slug>` when
+  the provider reports it) emitted only for linkable actors on supported
+  GitHub/GitLab sources.
 - 3.5.0 added sub-day `RepoMetricBucket` widths (`2h`/`4h`/`6h`) so a 1-3 day
   window tiles its `series[]` into ~12 intraday points; a new enum member on the
   existing `bucket` field, `series[]` shape unchanged. Treat an unknown width as

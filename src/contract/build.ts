@@ -37,7 +37,7 @@ import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/acto
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
 import { zonedDayStartIso, zonedHourStartIso, zonedDateOnly, shiftDateOnly } from "../lib/tz.ts";
-import { providerProfileUrl, providerRepoUrl, type ProviderLinkSource } from "../provider-links.ts";
+import { providerObservedProfileUrl, providerProfileUrl, providerRepoUrl, type ProviderLinkSource } from "../provider-links.ts";
 
 const asState = (s: string): ItemState => s as ItemState;
 const orNull = <T extends string>(s: string | null): T | null => (s === null ? null : (s as T));
@@ -548,6 +548,7 @@ function repoActivityScore(stats: RepoMetricStatsDTO): number {
 interface ActorAccumulator {
   key: string;
   names: Map<string, number>;
+  profileUrls: Map<string, number>;
   // Set when a config identity merged this accumulator: the declared display
   // name wins over the frequency pick (see chooseDisplayName).
   canonicalName?: string;
@@ -563,6 +564,10 @@ interface ActorAccumulator {
   change_requests_merged: number;
 }
 
+function actorAccumulator(key: string): ActorAccumulator {
+  return { key, names: new Map(), profileUrls: new Map(), activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
+}
+
 // Get-or-create the accumulator for `key`, recording one observation of the raw
 // display `name`. A null key (a record that names no actor) is dropped, matching
 // the old raw-string behavior of skipping empty actors.
@@ -570,15 +575,17 @@ function recordActor(
   map: Map<string, ActorAccumulator>,
   key: string | null,
   name: string | null,
+  profileUrl: string | null = null,
 ): ActorAccumulator | null {
   if (!key) return null;
   let acc = map.get(key);
   if (!acc) {
-    acc = { key, names: new Map(), activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
+    acc = actorAccumulator(key);
     map.set(key, acc);
   }
   const display = name?.trim();
   if (display) acc.names.set(display, (acc.names.get(display) ?? 0) + 1);
+  if (profileUrl) acc.profileUrls.set(profileUrl, (acc.profileUrls.get(profileUrl) ?? 0) + 1);
   return acc;
 }
 
@@ -600,6 +607,10 @@ function chooseDisplayName(acc: ActorAccumulator): { displayName: string; aliase
   }
   if (observed.length === 0) return { displayName: acc.key, aliases: [] };
   return { displayName: observed[0]!, aliases: observed.slice(1).sort(compareName) };
+}
+
+function chooseObservedProfileUrl(acc: ActorAccumulator): string | null {
+  return [...acc.profileUrls.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 }
 
 // A compiled config identity: the canonical key/name plus the match sets it owns
@@ -674,7 +685,7 @@ function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: Identi
     const key = id ? id.key : acc.key;
     let target = merged.get(key);
     if (!target) {
-      target = { key, names: new Map(), activities: 0, commits: 0, items_opened: 0, change_requests_merged: 0 };
+      target = actorAccumulator(key);
       if (id) target.canonicalName = id.name;
       merged.set(key, target);
     }
@@ -683,6 +694,7 @@ function applyIdentities(actors: Map<string, ActorAccumulator>, matchers: Identi
     target.items_opened += acc.items_opened;
     target.change_requests_merged += acc.change_requests_merged;
     for (const [name, count] of acc.names) target.names.set(name, (target.names.get(name) ?? 0) + count);
+    for (const [url, count] of acc.profileUrls) target.profileUrls.set(url, (target.profileUrls.get(url) ?? 0) + count);
     // Resolve a username for the profile link. A provider-user sub-identity
     // observed on this source is ground truth — pick the busiest one (code-unit
     // tie-break for determinism). We deliberately do NOT fall back to a config
@@ -753,7 +765,7 @@ function topActors(map: Map<string, ActorAccumulator>, source: ProviderLinkSourc
       // guessed onto another source.
       // email/name keys with no resolved username yield null and the field is omitted.
       const username = usernameOfKey(acc.key) ?? acc.username ?? null;
-      const profileUrl = source ? providerProfileUrl(source, username) : null;
+      const profileUrl = chooseObservedProfileUrl(acc) ?? (source ? providerProfileUrl(source, username) : null);
       return {
         actor: displayName,
         actor_key: acc.key,
@@ -816,6 +828,10 @@ function repoActivityObservedUntil(activities: ActivityDTO[]): string | null {
   return latest;
 }
 
+function activityActorProfileUrl(source: ProviderLinkSource | undefined, activity: ActivityDTO): string | null {
+  return source ? providerObservedProfileUrl(source, activity.details?.actor_profile_url) : null;
+}
+
 function computeRepoMetricStats(
   items: ItemDTO[],
   edges: EdgeDTO[],
@@ -826,6 +842,7 @@ function computeRepoMetricStats(
   // activity id -> canonical actor key, persisted at normalization time. Items
   // carry no email, so their key is recomputed here from (source, author).
   actorKeys?: Map<string, string | null>,
+  source?: ProviderLinkSource,
 ): RepoMetricStatsDTO {
   const stats = emptyRepoMetricStats();
 
@@ -867,7 +884,14 @@ function computeRepoMetricStats(
     inc(stats.by_activity_action, activity.action);
     // Key on refOf(source_id, external_id) — the activity `id` is no longer an
     // emitted field (dropped in 4.0.0), but it equalled exactly this.
-    const actor = actors ? recordActor(actors, actorKeys?.get(refOf(activity.source_id, activity.external_id)) ?? null, activity.actor) : null;
+    const actor = actors
+      ? recordActor(
+          actors,
+          actorKeys?.get(refOf(activity.source_id, activity.external_id)) ?? null,
+          activity.actor,
+          activityActorProfileUrl(source, activity),
+        )
+      : null;
     if (actor) actor.activities += 1;
 
     if (isCommitActivity(activity)) {
@@ -965,8 +989,9 @@ function buildRepoMetrics(
       const activitiesForRepo = repoActivities.get(key) ?? [];
       const edgesForRepo = repoEdges.get(key) ?? [];
       const actors = new Map<string, ActorAccumulator>();
-      const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys);
-      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers, identity.source_id), actorExcludes), sourcesById.get(identity.source_id));
+      const source = sourcesById.get(identity.source_id);
+      const totals = computeRepoMetricStats(itemsForRepo, edgesForRepo, activitiesForRepo, byId, range, actors, actorKeys, source);
+      const actorRows = topActors(excludeBots(applyIdentities(actors, identityMatchers, identity.source_id), actorExcludes), source);
       const series = bucketRanges(range, window.bucket, timezone).map((bucket) => ({
         bucket_start: bucket.from,
         bucket_end: bucket.to,

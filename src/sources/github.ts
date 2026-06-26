@@ -19,7 +19,7 @@ import type {
 import { toLabel } from "../model/labels.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
-import { providerPushUrl } from "../provider-links.ts";
+import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
@@ -47,7 +47,7 @@ const REF_NODE = `id number url state repository { nameWithOwner }`;
 // Submitted pull request reviews — the trustworthy review-event surface.
 // `state` is PENDING|COMMENTED|APPROVED|CHANGES_REQUESTED|DISMISSED;
 // PENDING reviews have a null `submittedAt` and are skipped in normalize.
-const REVIEWS = `reviews(first:50){ nodes { id author { login } state submittedAt url } }`;
+const REVIEWS = `reviews(first:50){ nodes { id author { login url __typename } state submittedAt url } }`;
 // Review threads with their resolution state — the "is this review resolved?"
 // signal (a PR-level, point-in-time count, NOT per review event). GitHub has no
 // unresolved-count aggregate, so `open` is counted from the nodes. `first:100`
@@ -115,7 +115,8 @@ const hash = (s: string): string => createHash("sha256").update(s).digest("hex")
 export class GitHubSource implements Source {
   readonly descriptor: SourceDescriptor;
   // github/4: review-thread comments now carry avatarUrl in the canonical output.
-  readonly normalizerVersion = "github/4";
+  // github/5: review/comment activity details carry provider actor profile URLs.
+  readonly normalizerVersion = "github/5";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -378,7 +379,7 @@ export class GitHubSource implements Source {
         actorKey: deriveActorKey({ sourceId, username: r.author?.login ?? null }),
         occurredAt,
         summary: reviewSummary(action, item.iid),
-        details: { state: r.state ?? null },
+        details: reviewDetails(this.descriptor, r),
       });
     }
     return out;
@@ -711,7 +712,7 @@ export class GitHubSource implements Source {
         actorKey: deriveActorKey({ sourceId: this.descriptor.sourceId, username: actorLogin }),
         occurredAt,
         summary: commentSummary(target.kind, target.iid, projectPath),
-        details: commentDetails(comment, isReviewComment),
+        details: commentDetails(this.descriptor, comment, isReviewComment),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -857,12 +858,21 @@ function numberFromPaths(...values: unknown[]): number | null {
   return null;
 }
 
-function commentDetails(comment: any, isReviewComment: boolean): Record<string, unknown> {
+function reviewDetails(source: ProviderLinkSource, review: any): Record<string, unknown> {
+  const details: Record<string, unknown> = { state: review.state ?? null };
+  addDetail(details, "actor_profile_url", providerObservedProfileUrl(source, review.author?.url));
+  addDetail(details, "actor_type", cleanText(review.author?.__typename));
+  return details;
+}
+
+function commentDetails(source: ProviderLinkSource, comment: any, isReviewComment: boolean): Record<string, unknown> {
   const details: Record<string, unknown> = {};
   addDetail(details, "comment_id", comment?.id);
   addDetail(details, "node_id", cleanText(comment?.node_id));
   addDetail(details, "updated_at", cleanText(comment?.updated_at));
   addDetail(details, "author_association", cleanText(comment?.author_association));
+  addDetail(details, "actor_profile_url", providerObservedProfileUrl(source, comment?.user?.html_url));
+  addDetail(details, "actor_type", cleanText(comment?.user?.type));
   if (isReviewComment) {
     addDetail(details, "path", cleanText(comment?.path));
     addDetail(details, "line", comment?.line);
