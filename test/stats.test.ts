@@ -26,6 +26,7 @@ function fixtureItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
     iid: 1,
     url: "https://example/1",
     title: "t",
+    body: null,
     state: "open",
     stateRaw: "OPEN",
     stateReason: null,

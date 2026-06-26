@@ -27,6 +27,7 @@ export interface ItemRow {
   iid: number | null;
   url: string | null;
   title: string | null;
+  body: string | null;
   state: string;
   state_raw: string | null;
   state_reason: string | null;

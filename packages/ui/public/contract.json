@@ -1,5 +1,5 @@
 {
-  "contract_version": "4.2.0",
+  "contract_version": "4.5.0",
   "generated_at": "2026-06-10T09:00:00Z",
   "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
@@ -114,6 +114,7 @@
       "iid": 14,
       "url": "https://github.com/sympoies/symphony-board/issues/14",
       "title": "Add incremental sync cadence",
+      "body": "Provider body for the issue.\n\n- Define the incremental loop cadence.\n- Keep full sweeps as the disappearance-safety boundary.",
       "state": "open",
       "state_raw": "OPEN",
       "state_reason": null,
@@ -161,6 +162,7 @@
       "iid": 15,
       "url": "https://github.com/sympoies/symphony-board/pull/15",
       "title": "WIP: incremental loop cadence",
+      "body": "Provider body for the PR/MR.\n\n## Summary\n\nAdds the incremental loop cadence while preserving the writer-owned sync boundary.",
       "state": "open",
       "state_raw": "OPEN",
       "state_reason": null,

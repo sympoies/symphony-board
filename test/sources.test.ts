@@ -24,7 +24,7 @@ async function withResolveConcurrency(value: string, fn: () => Promise<void>): P
 
 function issueNode(id: string, updatedAt: string) {
   return {
-    __typename: "Issue", id, number: 1, title: id, url: `https://x/${id}`, state: "OPEN",
+    __typename: "Issue", id, number: 1, title: id, body: `${id} body`, url: `https://x/${id}`, state: "OPEN",
     createdAt: "2026-01-01T00:00:00Z", updatedAt, closedAt: null, stateReason: null,
     author: { login: "a" }, repository: { nameWithOwner: "o/r" },
     labels: { nodes: [] }, comments: { totalCount: 0 }, reactions: { totalCount: 0 },
@@ -543,7 +543,7 @@ test("normalize emits mentions from non-closing cross-references (source -> self
 
 function prNode(id: string, state: string, mergeable: string) {
   return {
-    __typename: "PullRequest", id, number: 9, title: id, url: `https://x/${id}`, state,
+    __typename: "PullRequest", id, number: 9, title: id, body: `${id} body`, url: `https://x/${id}`, state,
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
     mergedAt: state === "MERGED" ? "2026-06-01T00:00:00Z" : null, isDraft: false,
     author: { login: "a" }, repository: { nameWithOwner: "o/r" }, labels: { nodes: [] },
@@ -566,6 +566,7 @@ test("GitHub: a merged PR drops merge_state (UNKNOWN would otherwise read as 'un
   const b = ghPrBundle("MERGED", "UNKNOWN");
   assert.ok(b.item);
   assert.equal(b.item.state, "merged");
+  assert.equal(b.item.body, "PR_MERGED body");
   assert.equal(b.item.mergeState, null, "merged PR carries no merge badge");
   assert.equal(b.item.ciState, "passing", "CI is still meaningful after merge");
 });
@@ -1156,7 +1157,7 @@ const GL_DESC: SourceDescriptor = { sourceId: "gitlab:gitlab.com", kind: "gitlab
 
 function glNode(id: string, iid: string, extra: Record<string, unknown> = {}) {
   return {
-    id, iid, title: id, webUrl: `https://gl/${iid}`, state: "opened",
+    id, iid, title: id, description: `${id} description`, webUrl: `https://gl/${iid}`, state: "opened",
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
     author: { username: "a" }, labels: { nodes: [] }, userNotesCount: 0, upvotes: 0, ...extra,
   };
@@ -1200,6 +1201,8 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(res.complete, true);
   const byId = new Map(res.records.map((r) => [r.externalId, r]));
   const edgesOf = (id: string) => src.normalize(byId.get(id)!)!.edges;
+  assert.equal(src.normalize(byId.get("gid:I5")!)!.item?.body, "gid:I5 description");
+  assert.equal(src.normalize(byId.get("gid:MR1")!)!.item?.body, "gid:MR1 description");
 
   // I5: MR1 closes it; relates to I6; the "!1" mention is the closing MR (deduped)
   // and the commit ref is skipped -> 0 mentions.
@@ -1509,10 +1512,10 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 });
 
 test("source normalizer versions are bumped for canonical output changes", () => {
-  // Changing canonical review-thread or activity detail output needs fresh
+  // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/5");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/6");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/6");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/7");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

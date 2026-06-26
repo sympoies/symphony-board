@@ -3272,9 +3272,11 @@ try {
   // `card card-accent`); match card followed by a space or the closing quote so
   // a modifier class doesn't drop the count. (Avoids matching card-head etc.)
   const boardCards = m(boardHtml, /class="card[ "]/g);
+  const boardKindIcons = m(boardHtml, /icon-item-kind/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const settingIndex = (title) => (settingsDisplayModel.headings || []).indexOf(title);
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
+  const graphListKindIcons = m(graphListHtml, /icon-item-kind/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
@@ -3358,6 +3360,7 @@ try {
     [headerRefresh.clicked === true && headerRefresh.requestsAfter > headerRefresh.requestsBefore && headerRefresh.hashAfter === headerRefresh.hashBefore, `app: header refresh reloads data in place (${JSON.stringify(headerRefresh)})`],
     // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
+    [boardKindIcons >= boardCards, `board: item kind renders as shared SVG icons (${boardKindIcons} icons for ${boardCards} cards)`],
     [has(boardHtml, "board-7"), "board: 7-column board rendered"],
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
@@ -3424,6 +3427,7 @@ try {
     [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when range narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
+    [graphListKindIcons >= graphCards, `graph: side-list item kind renders as shared SVG icons (${graphListKindIcons} icons for ${graphCards} cards)`],
     [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
@@ -3497,7 +3501,7 @@ try {
     [itemsSummary.initialDetailTitle.includes(itemsSummary.firstTitle || "__missing__"), `items: defaults the detail pane to the newest row (${JSON.stringify({ row: itemsSummary.firstTitle, detail: itemsSummary.initialDetailTitle })})`],
     [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],
     [itemsSummary.selectedRows === 1, `items: exactly one row is marked selected (${itemsSummary.selectedRows || 0})`],
-    [(itemsSummary.detailBodyText || "").length > 0, "items: detail pane exposes item body/details text"],
+    [(itemsSummary.detailBodyText || "").includes("Provider body"), `items: detail pane renders the synced provider body (${itemsSummary.detailBodyText || "empty"})`],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
