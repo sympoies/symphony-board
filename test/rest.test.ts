@@ -211,3 +211,35 @@ test("GitHub REST fallback repo-access failures identify the fallback token", as
   await assert.rejects(() => client("repos/o/private/commits"), /fallback token lacks repo access/);
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
+
+test("bot_then_pat retry prefers an available bot over the PAT before exhausting the bot pool", async () => {
+  // Same bot-first retry contract as the GraphQL client: when a non-first bot
+  // hits a primary rate limit, the REST retry must rotate to the still-available
+  // bot rather than spending PAT quota.
+  const auths: Array<string | undefined> = [];
+  let botBLimited = false;
+  mockFetch((_url, init) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    auths.push(auth);
+    if (auth === "Bearer botB" && !botBLimited) {
+      botBLimited = true;
+      return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  });
+
+  const client = makeRestClient("https://api.github.com", [
+    { env: "github_app:BOT_A", value: "botA", kind: "github_app", strategy: "round_robin" },
+    { env: "github_app:BOT_B", value: "botB", kind: "github_app", strategy: "round_robin" },
+    { env: "GH_PAT", value: "pat", kind: "pat", strategy: "failover" },
+  ], "github");
+
+  assert.deepEqual(await client("repos/o/r/a"), { ok: true }); // call 1 -> botA
+  assert.deepEqual(await client("repos/o/r/b"), { ok: true }); // call 2 -> botB (rate-limited) -> retry
+
+  assert.deepEqual(auths, ["Bearer botA", "Bearer botB", "Bearer botA"]);
+  assert.ok(!auths.includes("Bearer pat"), "PAT must not be used while a bot is still available");
+});
