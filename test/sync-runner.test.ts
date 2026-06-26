@@ -200,6 +200,46 @@ test("runConfiguredSync builds GitHub sources when only a repo token pool is set
   }
 });
 
+test("runConfiguredSync errors a source whose GitHub App mint hard-fails instead of skipping it", async () => {
+  // A revoked installation / down token endpoint fails every mint for the source
+  // with no usable fallback. That must surface as an actionable per-source error
+  // that blocks emit — not a silent skip that re-publishes a stale contract, and
+  // never a fetch with credentials outside the repo's selected pool.
+  const dir = mkdtempSync(join(tmpdir(), "sb-hardmint-"));
+  const cfg: AppConfig = {
+    db_path: "unused.db",
+    sources: [{
+      source_id: "github:github.com",
+      kind: "github",
+      host: "github.com",
+      graphql_url: "https://api.github.com/graphql",
+      projects: ["o/r"],
+    }],
+  };
+  let built = 0;
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: false, sourceId: null }, join(dir, "contract.json"), {
+      openStore: () => openSqliteStore(":memory:"),
+      authTokenResolver: {
+        tokensForSource: async () => [],
+        tokensForProject: async () => [],
+        resolveSourceTokens: async () => [],
+        hardMintFailure: () => "GitHub App token HTTP 401: bad credentials",
+      },
+      buildSource: (scfg) => { built++; return prepared(scfg.source_id, [item("A1")]).source; },
+    });
+
+    assert.equal(result.status, "error");
+    assert.equal(result.emitted, false, "a hard mint failure must block emit, not publish a stale contract");
+    assert.equal(built, 0, "a hard-mint-failed source is never built or fetched");
+    const errored = result.sources.find((s) => s.source_id === "github:github.com");
+    assert.equal(errored?.status, "error");
+    assert.match(errored?.error ?? "", /bad credentials/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runConfiguredSync skips disabled sources even when tokens are configured", async () => {
   const cfg: AppConfig = {
     db_path: "unused.db",

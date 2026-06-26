@@ -313,10 +313,89 @@ test("bot_then_pat degrades to the PAT pool when every bot mint fails, instead o
     assert.deepEqual(await resolver.tokensForProject(cfg, "sympoies/mixed-repo"), [
       { env: "AUTH_PAT", value: "pat-token", kind: "pat", strategy: "failover" },
     ]);
+    // A mint failure that still leaves a usable PAT failover is benign: it must
+    // NOT be reported as a hard mint failure (that would error a source that
+    // legitimately failed over).
+    assert.equal(resolver.hardMintFailure?.(cfg) ?? null, null);
   } finally {
     delete process.env.AUTH_PAT;
     delete process.env.BOT_A_APP_ID;
     delete process.env.BOT_A_INSTALLATION_ID;
     delete process.env.BOT_A_PRIVATE_KEY;
+  }
+});
+
+test("a bot-only auth policy whose every mint fails surfaces a hard mint failure instead of resolving empty", async () => {
+  // mode: "bot" with no PAT failover. When the only bot mint fails, returning an
+  // empty pool would make runConfiguredSync skip the source as "no tokens set"
+  // and still emit a stale contract. Record a hard mint failure so the caller
+  // can surface an actionable error rather than a silent skip.
+  const resolver = createAuthTokenResolver({
+    mintGitHubAppInstallationToken: async () => {
+      throw new Error("GitHub App token HTTP 401: bad credentials");
+    },
+  });
+  process.env.BOT_A_APP_ID = "111";
+  process.env.BOT_A_INSTALLATION_ID = "1001";
+  process.env.BOT_A_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\na\\n-----END PRIVATE KEY-----";
+  try {
+    const cfg = source({
+      token_env: undefined,
+      token_pools: undefined,
+      auth_pools: {
+        only_bots: {
+          kind: "github_app",
+          strategy: "round_robin",
+          apps: [
+            { name: "only-bot-a", app_id_env: "BOT_A_APP_ID", installation_id_env: "BOT_A_INSTALLATION_ID", private_key_env: "BOT_A_PRIVATE_KEY" },
+          ],
+        },
+      },
+      auth_policy: { mode: "bot", bot_pool: "only_bots" },
+      projects: ["sympoies/bot-only-repo"],
+    } as Partial<SourceConfig>);
+
+    assert.deepEqual(await resolver.tokensForSource(cfg), []);
+    assert.match(resolver.hardMintFailure?.(cfg) ?? "", /bad credentials/);
+  } finally {
+    delete process.env.BOT_A_APP_ID;
+    delete process.env.BOT_A_INSTALLATION_ID;
+    delete process.env.BOT_A_PRIVATE_KEY;
+  }
+});
+
+test("a repo token pool whose GitHub App mint fails does not silently fall back to the source PAT", async () => {
+  // A repo routed through a legacy token_pools.<name>.github_app pool with no
+  // fallback PAT in the pool. When the mint fails, the old behaviour resolved an
+  // empty pool and fell back to the source PAT — silently fetching the repo with
+  // credentials outside its selected pool. Surface a hard mint failure instead.
+  const resolver = createAuthTokenResolver({
+    mintGitHubAppInstallationToken: async () => {
+      throw new Error("GitHub App token HTTP 404: installation not found");
+    },
+  });
+  process.env.AUTH_PAT = "source-pat";
+  process.env.BP_APP_ID = "321";
+  process.env.BP_INSTALLATION_ID = "9001";
+  process.env.BP_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\nz\\n-----END PRIVATE KEY-----";
+  try {
+    const cfg = source({
+      token_env: "AUTH_PAT",
+      token_pools: {
+        repo_bot: {
+          github_app: { app_id_env: "BP_APP_ID", installation_id_env: "BP_INSTALLATION_ID", private_key_env: "BP_PRIVATE_KEY" },
+        },
+      },
+      auth_pools: undefined,
+      projects: [{ path: "sympoies/bot-routed-repo", token_pool: "repo_bot" }],
+    } as Partial<SourceConfig>);
+
+    assert.deepEqual(await resolver.tokensForProject(cfg, "sympoies/bot-routed-repo"), []);
+    assert.match(resolver.hardMintFailure?.(cfg) ?? "", /installation not found/);
+  } finally {
+    delete process.env.AUTH_PAT;
+    delete process.env.BP_APP_ID;
+    delete process.env.BP_INSTALLATION_ID;
+    delete process.env.BP_PRIVATE_KEY;
   }
 });

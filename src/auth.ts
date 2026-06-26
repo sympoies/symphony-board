@@ -37,6 +37,15 @@ export interface AuthTokenResolver {
   tokensForSource(source: SourceConfig): Promise<AuthToken[]>;
   tokensForProject(source: SourceConfig, projectPath: string): Promise<AuthToken[]>;
   resolveSourceTokens(source: SourceConfig): Promise<AuthToken[]>;
+  // After resolving a source's tokens, the message of a *hard* GitHub App mint
+  // failure for that source — a configured bot whose installation-token mint
+  // threw and that left its routed pool with no usable token (no PAT failover,
+  // no sibling bot). Returns null when every mint succeeded, or when a mint
+  // failure was absorbed by an available failover token (benign). The caller
+  // uses this to surface an actionable error instead of silently skipping the
+  // source or falling back to credentials outside its selected pool. Optional so
+  // lightweight resolver fakes need not implement it.
+  hardMintFailure?(source: SourceConfig): string | null;
 }
 
 export interface AuthTokenResolverDeps {
@@ -151,10 +160,25 @@ function patToken(env: string, value: string): AuthToken {
 // bad app key, transient token-endpoint 5xx). Skip that bot and keep resolving
 // the rest of the pool — including a `bot_then_pat` PAT failover — instead of
 // rejecting the whole source. Never logs the private key, only the pool label.
-function warnMintFailure(label: string, err: unknown): void {
+// Returns the failure reason so a pool that ends up with no usable token can
+// report it as a hard mint failure (see PoolResolution / hardMintFailure).
+function warnMintFailure(label: string, err: unknown): string {
   const reason = err instanceof Error ? err.message : String(err);
   log.warn(`GitHub App token mint failed for ${label}; skipping this bot and continuing: ${reason}`);
+  return reason;
 }
+
+// A pool's resolved tokens plus whether a configured GitHub App mint threw while
+// resolving it. `failureMessage` carries the reason only when a mint failed; a
+// pool is a *hard* mint failure (surfaced via hardMintFailure) only when it
+// failed AND produced no usable token, which the public methods decide — a
+// failure absorbed by an available failover token is benign.
+interface PoolResolution {
+  tokens: AuthToken[];
+  failureMessage: string | null;
+}
+
+const EMPTY_RESOLUTION: PoolResolution = { tokens: [], failureMessage: null };
 
 function appToken(token: AuthToken, app: GitHubAppAuthConfig, strategy: AuthTokenStrategy): AuthToken {
   return {
@@ -167,15 +191,19 @@ function appToken(token: AuthToken, app: GitHubAppAuthConfig, strategy: AuthToke
 
 class DefaultAuthTokenResolver implements AuthTokenResolver {
   private readonly mint: MintGitHubAppInstallationToken;
-  private readonly poolCache = new WeakMap<object, Promise<AuthToken[]>>();
+  private readonly poolCache = new WeakMap<object, Promise<PoolResolution>>();
+  // source_id -> reason of a hard mint failure recorded while resolving that
+  // source's tokens (see hardMintFailure). Populated by the public methods, not
+  // the cached pool resolutions, so it is not poisoned by the WeakMap cache.
+  private readonly hardMintFailures = new Map<string, string>();
 
   constructor(deps: AuthTokenResolverDeps) {
     this.mint = deps.mintGitHubAppInstallationToken ?? mintGitHubAppInstallationToken;
   }
 
-  tokensForSource(source: SourceConfig): Promise<AuthToken[]> {
-    if (source.auth_policy) return this.tokensForPolicy(source, source.auth_policy);
-    return this.tokensForPool(source, source);
+  async tokensForSource(source: SourceConfig): Promise<AuthToken[]> {
+    if (source.auth_policy) return this.recordHardFailure(source, await this.tokensForPolicy(source, source.auth_policy));
+    return this.recordHardFailure(source, await this.tokensForPool(source, source));
   }
 
   async tokensForProject(source: SourceConfig, projectPath: string): Promise<AuthToken[]> {
@@ -183,13 +211,22 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
     const policy = typeof entry === "string" ? undefined : entry?.auth_policy;
     if (policy) {
       if (policy.mode === "inherit") return this.tokensForSource(source);
-      return this.tokensForPolicy(source, policy);
+      return this.recordHardFailure(source, await this.tokensForPolicy(source, policy));
     }
     const poolName = typeof entry === "string" ? undefined : entry?.token_pool;
     if (!poolName) return this.tokensForSource(source);
     const pool = source.token_pools?.[poolName];
-    const poolTokens = pool ? await this.tokensForPool(source, pool) : [];
-    return poolTokens.length > 0 ? poolTokens : this.tokensForSource(source);
+    if (!pool) return this.tokensForSource(source);
+    const resolution = await this.tokensForPool(source, pool);
+    if (resolution.tokens.length > 0) return resolution.tokens;
+    // The repo is routed through this pool but it yielded no token. If a
+    // configured GitHub App mint hard-failed, do NOT silently fall back to the
+    // source PAT — that would fetch the repo with credentials outside its
+    // selected pool. Record the hard failure so the caller surfaces an error.
+    // A pool that is merely empty (unset env, no mint attempted) keeps the
+    // existing source fallback.
+    if (resolution.failureMessage) return this.recordHardFailure(source, resolution);
+    return this.tokensForSource(source);
   }
 
   async resolveSourceTokens(source: SourceConfig): Promise<AuthToken[]> {
@@ -205,34 +242,53 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
     };
     add(await this.tokensForSource(source));
     for (const pool of Object.values(source.token_pools ?? {})) {
-      add(await this.tokensForPool(source, pool));
+      add((await this.tokensForPool(source, pool)).tokens);
     }
     for (const pool of Object.values(source.auth_pools ?? {})) {
-      add(await this.tokensForAuthPool(source, pool));
+      add((await this.tokensForAuthPool(source, pool)).tokens);
     }
     return out;
   }
 
-  private async tokensForPolicy(source: SourceConfig, policy: AuthPolicyConfig): Promise<AuthToken[]> {
-    if (policy.mode === "inherit") return this.tokensForSource(source);
+  hardMintFailure(source: SourceConfig): string | null {
+    return this.hardMintFailures.get(source.source_id) ?? null;
+  }
+
+  // A pool/source resolution is a *hard* mint failure only when a mint threw and
+  // nothing usable was produced (no failover token absorbed it). Records it for
+  // hardMintFailure and returns the (empty) token list either way.
+  private recordHardFailure(source: SourceConfig, resolution: PoolResolution): AuthToken[] {
+    if (resolution.tokens.length === 0 && resolution.failureMessage) {
+      this.hardMintFailures.set(source.source_id, resolution.failureMessage);
+    }
+    return resolution.tokens;
+  }
+
+  private async tokensForPolicy(source: SourceConfig, policy: AuthPolicyConfig): Promise<PoolResolution> {
+    if (policy.mode === "inherit") return { tokens: await this.tokensForSource(source), failureMessage: null };
     const out: AuthToken[] = [];
+    let failureMessage: string | null = null;
     if (policy.mode === "bot" || policy.mode === "bot_then_pat") {
-      out.push(...await this.tokensForNamedAuthPool(source, policy.bot_pool, "github_app"));
+      const bot = await this.tokensForNamedAuthPool(source, policy.bot_pool, "github_app");
+      out.push(...bot.tokens);
+      failureMessage ??= bot.failureMessage;
     }
     if (policy.mode === "pat" || policy.mode === "bot_then_pat") {
-      out.push(...await this.tokensForNamedAuthPool(source, policy.pat_pool, "pat"));
+      const pat = await this.tokensForNamedAuthPool(source, policy.pat_pool, "pat");
+      out.push(...pat.tokens);
+      failureMessage ??= pat.failureMessage;
     }
-    return out;
+    return { tokens: out, failureMessage };
   }
 
-  private async tokensForNamedAuthPool(source: SourceConfig, poolName: string | undefined, kind: AuthPoolConfig["kind"]): Promise<AuthToken[]> {
-    if (!poolName) return [];
+  private async tokensForNamedAuthPool(source: SourceConfig, poolName: string | undefined, kind: AuthPoolConfig["kind"]): Promise<PoolResolution> {
+    if (!poolName) return EMPTY_RESOLUTION;
     const pool = source.auth_pools?.[poolName];
-    if (!pool || pool.kind !== kind) return [];
+    if (!pool || pool.kind !== kind) return EMPTY_RESOLUTION;
     return this.tokensForAuthPool(source, pool);
   }
 
-  private tokensForPool(source: SourceConfig, pool: TokenPoolConfig): Promise<AuthToken[]> {
+  private tokensForPool(source: SourceConfig, pool: TokenPoolConfig): Promise<PoolResolution> {
     const cached = this.poolCache.get(pool);
     if (cached) return cached;
     const promise = this.resolvePool(source, pool);
@@ -240,7 +296,7 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
     return promise;
   }
 
-  private tokensForAuthPool(source: SourceConfig, pool: AuthPoolConfig): Promise<AuthToken[]> {
+  private tokensForAuthPool(source: SourceConfig, pool: AuthPoolConfig): Promise<PoolResolution> {
     const cached = this.poolCache.get(pool);
     if (cached) return cached;
     const promise = this.resolveAuthPool(source, pool);
@@ -248,9 +304,10 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
     return promise;
   }
 
-  private async resolvePool(source: SourceConfig, pool: TokenPoolConfig): Promise<AuthToken[]> {
+  private async resolvePool(source: SourceConfig, pool: TokenPoolConfig): Promise<PoolResolution> {
     const overlay = readSecretsOverlay(resolveSecretsPath());
     const out: AuthToken[] = [];
+    let failureMessage: string | null = null;
 
     if (source.kind === "github" && pool.github_app) {
       const request = githubAppTokenRequest(source, pool.github_app, overlay);
@@ -258,7 +315,7 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
         try {
           out.push(appToken(await this.mint({ ...request, strategy: "failover" }), pool.github_app, "failover"));
         } catch (err) {
-          warnMintFailure(request.label, err);
+          failureMessage = warnMintFailure(request.label, err);
         }
       }
     }
@@ -268,10 +325,10 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
       const value = secretValueForEnv(env, overlay);
       if (value) out.push(patToken(env, value));
     }
-    return out;
+    return { tokens: out, failureMessage };
   }
 
-  private async resolveAuthPool(source: SourceConfig, pool: AuthPoolConfig): Promise<AuthToken[]> {
+  private async resolveAuthPool(source: SourceConfig, pool: AuthPoolConfig): Promise<PoolResolution> {
     const overlay = readSecretsOverlay(resolveSecretsPath());
     const out: AuthToken[] = [];
     if (pool.kind === "pat") {
@@ -280,21 +337,22 @@ class DefaultAuthTokenResolver implements AuthTokenResolver {
         const value = secretValueForEnv(env, overlay);
         if (value) out.push(patToken(env, value));
       }
-      return out;
+      return { tokens: out, failureMessage: null };
     }
 
-    if (source.kind !== "github") return out;
+    if (source.kind !== "github") return { tokens: out, failureMessage: null };
     const strategy = pool.strategy ?? "round_robin";
+    let failureMessage: string | null = null;
     for (const app of pool.apps) {
       const request = githubAppTokenRequest(source, app, overlay);
       if (!request) continue;
       try {
         out.push(appToken(await this.mint({ ...request, strategy }), app, strategy));
       } catch (err) {
-        warnMintFailure(request.label, err);
+        failureMessage = warnMintFailure(request.label, err);
       }
     }
-    return out;
+    return { tokens: out, failureMessage };
   }
 }
 
