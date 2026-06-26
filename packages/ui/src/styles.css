@@ -2514,8 +2514,8 @@ a.rf-node-title:hover { color: var(--accent); }
    paint the option rows in the panel palette where the WebView honors it (Chromium
    on Android), so the native picker reads as part of the dark UI, not a grey sheet. */
 .settings-select option { background: var(--panel-2); color: var(--text); }
-/* a boolean Settings control (the Live-tab enable switch): a slightly larger
-   accent checkbox, right-aligned like the selects. */
+/* boolean Settings controls (Board data, Live tab, Android wide layout): a
+   slightly larger accent checkbox, right-aligned like the selects. */
 .settings-toggle { flex: none; display: inline-flex; align-items: center; }
 .settings-toggle input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
 /* the Live event-type visibility checkboxes: a wrapping group of compact labels.

@@ -86,8 +86,9 @@ import {
   saveColorOverrides,
   loadDefaultRangePreset,
   saveDefaultRangePreset,
-  loadTheme,
-  saveTheme,
+  loadColorMode,
+  saveColorMode,
+  resolveViewTheme,
   loadLivePreviewLines,
   saveLivePreviewLines,
   loadLiveTabEnabled,
@@ -113,7 +114,8 @@ import {
   saveServerBaseUrl,
   normalizeServerBaseUrl,
   type BoardScope,
-  type ViewTheme,
+  type ResolvedViewTheme,
+  type ViewColorMode,
 } from "./viewconfig.ts";
 import { useSync } from "./useSync.ts";
 import { useLive } from "./useLive.ts";
@@ -151,7 +153,44 @@ const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads"
 type MobileControlPanel = "search" | "filters" | "range" | null;
 type EnvAuthority = "server" | "file";
 
+const DARK_MODE_QUERY = "(prefers-color-scheme: dark)";
+const THEME_META_COLORS: Record<ResolvedViewTheme, string> = {
+  "night-owl": "#030b22",
+  paper: "#f4f3ed",
+};
+
 const normalizeContractTimezone = (value: unknown): string | null => (isValidTimezone(value) ? value : null);
+
+function systemPrefersDark(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+  return window.matchMedia(DARK_MODE_QUERY).matches;
+}
+
+function useSystemPrefersDark(): boolean {
+  const [prefersDark, setPrefersDark] = useState(systemPrefersDark);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(DARK_MODE_QUERY);
+    const onChange = () => setPrefersDark(media.matches);
+    onChange();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    }
+    media.addListener(onChange);
+    return () => media.removeListener(onChange);
+  }, []);
+
+  return prefersDark;
+}
+
+function applyDocumentTheme(theme: ResolvedViewTheme): void {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.style.colorScheme = theme === "paper" ? "light" : "dark";
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", THEME_META_COLORS[theme]);
+}
 
 // Pages via a zero-dep hash route: "" (first open) defaults to Activity,
 // "board" (#/board) is the full-width board, "graph" (#/graph) the relationship
@@ -227,12 +266,14 @@ export function App() {
   //   • hiddenSources — HIDDEN source_ids (an independent layer; see applyVisibility)
   //   • colorOverrides — repoKey -> hex, this viewer's per-repo highlight override
   //   • defaultRangePreset — which quick preset is used when the route has no from/to
-  //   • theme — DEVICE-LOCAL palette preference (per browser / Android WebView)
+  //   • colorMode — DEVICE-LOCAL display preference (per browser / Android WebView)
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(loadHiddenSources);
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
-  const [theme, setTheme] = useState<ViewTheme>(loadTheme);
+  const [colorMode, setColorMode] = useState<ViewColorMode>(loadColorMode);
+  const systemDark = useSystemPrefersDark();
+  const resolvedTheme = resolveViewTheme(colorMode, systemDark);
   const [livePreviewLines, setLivePreviewLines] = useState<number>(loadLivePreviewLines);
   // Live tab is opt-in (off by default): gates the tab, the SSE/poll stream, AND
   // the snapshot probe. `hiddenEventTypes` is the persistent per-category Live
@@ -646,8 +687,8 @@ export function App() {
     saveDefaultRangePreset(defaultRangePreset);
   }, [defaultRangePreset]);
   useEffect(() => {
-    saveTheme(theme);
-  }, [theme]);
+    saveColorMode(colorMode);
+  }, [colorMode]);
   useEffect(() => {
     saveLivePreviewLines(livePreviewLines);
   }, [livePreviewLines]);
@@ -686,10 +727,8 @@ export function App() {
     saveCollapsedColumns(collapsedColumns);
   }, [collapsedColumns]);
   useLayoutEffect(() => {
-    const root = document.documentElement;
-    root.dataset.theme = theme;
-    root.style.colorScheme = theme === "paper" ? "light" : "dark";
-  }, [theme]);
+    applyDocumentTheme(resolvedTheme);
+  }, [resolvedTheme]);
 
   const applyServerBaseUrl = useCallback((nextRaw: string | null) => {
     const next = normalizeServerBaseUrl(nextRaw);
@@ -1623,8 +1662,8 @@ export function App() {
       onBoardScope={setBoardScope}
       wideLayout={wideLayout}
       onWideLayout={setWideLayout}
-      theme={theme}
-      onTheme={setTheme}
+      colorMode={colorMode}
+      onColorMode={setColorMode}
       livePreviewLines={livePreviewLines}
       onLivePreviewLines={setLivePreviewLines}
       liveTabEnabled={liveTabEnabled}
@@ -1985,7 +2024,7 @@ export function App() {
               <EmptyState noun="relationships" total={env.edges.length} windowTotal={env.edges?.length ?? 0} {...emptyStateShared} />
             }
             onClearFilters={clearFilters}
-            theme={theme}
+            theme={resolvedTheme}
             mobileView={graphViewValue}
             onMobileView={setGraphView}
           />

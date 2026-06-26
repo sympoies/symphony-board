@@ -11,15 +11,28 @@
     <meta name="theme-color" content="#030b22" />
     <title>symphony-board</title>
     <script>
-      // Apply the persisted theme BEFORE first paint so the boot splash and the
-      // app's first CSS frame match the user's choice (no light/dark flash). The
-      // React app re-applies the same rule on mount (App's useLayoutEffect).
+      // Apply the persisted color mode BEFORE first paint so the boot splash and
+      // the app's first CSS frame match the user's choice (no light/dark flash).
+      // The React app re-applies the same rule on mount (App's useLayoutEffect).
       (function () {
         try {
-          var t = localStorage.getItem("symphony-board:theme");
-          if (t === "paper" || t === "night-owl") document.documentElement.dataset.theme = t;
+          var raw = localStorage.getItem("symphony-board:theme");
+          var systemDark = true;
+          if (window.matchMedia) systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme =
+            raw === "paper" || raw === "light"
+              ? "paper"
+              : raw === "night-owl" || raw === "dark"
+                ? "night-owl"
+                : systemDark
+                  ? "night-owl"
+                  : "paper";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme === "paper" ? "light" : "dark";
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", theme === "paper" ? "#f4f3ed" : "#030b22");
         } catch (e) {
-          /* storage unavailable — fall back to the default (night-owl) theme. */
+          /* storage unavailable — fall back to the default System/Dark frame. */
         }
       })();
     </script>

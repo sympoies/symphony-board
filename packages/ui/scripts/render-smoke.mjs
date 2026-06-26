@@ -649,7 +649,7 @@ const chrome = spawn(
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
     `--user-data-dir=${userDataDir}`,
     `--remote-debugging-port=${CDP_PORT}`, "--remote-allow-origins=*",
-    `http://127.0.0.1:${HTTP_PORT}/`,
+    "about:blank",
   ],
   { stdio: "ignore" },
 );
@@ -707,6 +707,8 @@ try {
   });
   await send("Runtime.enable");
   await send("Page.enable");
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/` });
 
   // wait for some DOM matching `readyExpr` to render, then return body HTML
   const waitHtml = async (readyExpr) => {
@@ -1596,26 +1598,28 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
-  const themeBefore = (await send("Runtime.evaluate", {
+  const colorModeBefore = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
-        Array.from(el.options || []).some((option) => option.value === 'paper')
-      );
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const colorMode = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Color mode');
+      const select = colorMode?.querySelector('select');
       return {
         found: !!select,
         before: document.documentElement.dataset.theme || '',
+        value: select?.value || '',
         options: select ? Array.from(select.options).map((option) => option.value) : [],
+        labels: select ? Array.from(select.options).map((option) => option.textContent?.trim() || '') : [],
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", {
     expression: `(() => {
-      const select = Array.from(document.querySelectorAll('.settings-select')).find((el) =>
-        Array.from(el.options || []).some((option) => option.value === 'paper')
-      );
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const colorMode = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Color mode');
+      const select = colorMode?.querySelector('select');
       if (!select) return false;
-      select.value = 'paper';
+      select.value = 'light';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`,
@@ -1635,27 +1639,27 @@ try {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
       const board = prefByTitle('Board data');
-      const boardSelect = board?.querySelector('select');
+      const boardBox = board?.querySelector('input[type="checkbox"]');
+      const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
       return {
         headings: Array.from(document.querySelectorAll('.settings-page h3')).map((el) => el.textContent?.trim() || ''),
-        boardLabels: boardSelect ? Array.from(boardSelect.options).map((option) => option.textContent?.trim() || '') : [],
+        boardControl: boardBox?.type || '',
+        boardChecked: !!boardBox?.checked,
+        liveControl: liveBox?.type || '',
         boardHelp: board?.querySelector('.muted')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
       };
     })()`,
     returnByValue: true,
-  })).result.value || { headings: [], boardLabels: [], boardHelp: "" };
+  })).result.value || { headings: [], boardControl: "", liveControl: "", boardHelp: "" };
   const liveOnlySettings = (await send("Runtime.evaluate", {
     expression: `(() => {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
       const board = prefByTitle('Board data');
-      const boardSelect = board?.querySelector('select');
-      if (boardSelect) {
-        boardSelect.value = 'off';
-        boardSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      const boardBox = board?.querySelector('input[type="checkbox"]');
+      if (boardBox?.checked) boardBox.click();
       return {
-        boardValue: boardSelect?.value || '',
+        boardChecked: !!boardBox?.checked,
         hasPreview: !!prefByTitle('Live feed preview'),
         hasTypes: !!prefByTitle('Live event types'),
       };
@@ -1698,11 +1702,8 @@ try {
     expression: `(() => {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
       const prefByTitle = (title) => prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === title) || null;
-      const boardSelect = prefByTitle('Board data')?.querySelector('select');
-      if (boardSelect) {
-        boardSelect.value = 'on';
-        boardSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      const boardBox = prefByTitle('Board data')?.querySelector('input[type="checkbox"]');
+      if (boardBox && !boardBox.checked) boardBox.click();
       const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
       if (liveBox && !liveBox.checked) liveBox.click();
     })()`,
@@ -3477,11 +3478,11 @@ try {
     // settings: source hide toggle, the read-only source color swatch, and the
     // per-repo color picker (the new display controls)
     [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
-    [has(settingsHtml, "Theme") && themeBefore.found === true && themeBefore.before === "night-owl" && themeBefore.options.includes("night-owl") && themeBefore.options.includes("paper"), `settings: theme selector defaults to Night Owl (${JSON.stringify(themeBefore)})`],
-    [themeAfter.root === "paper" && themeAfter.stored === "paper" && themeAfter.bg === "#f4f3ed", `settings: Paper theme applies and persists (${JSON.stringify(themeAfter)})`],
-    [JSON.stringify(settingsDisplayModel.boardLabels) === JSON.stringify(["On", "Off"]) && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data is a board-only On/Off control (${JSON.stringify(settingsDisplayModel)})`],
-    [settingIndex("Board data") > settingIndex("Theme") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
-    [liveOnlySettings.boardValue === "off" && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
+    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System (${JSON.stringify(colorModeBefore)})`],
+    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
+    [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
+    [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
+    [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
     [has(settingsHtml, "Default range") && has(settingsHtml, "settings-select"), "settings: default range selector rendered"],
     [has(settingsHtml, "color-swatch"), "settings: configured source color swatch rendered"],

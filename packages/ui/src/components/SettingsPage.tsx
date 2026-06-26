@@ -15,8 +15,8 @@ import { ServerConnectionForm } from "./ServerConnectionForm.tsx";
 import type { SyncState } from "../useSync.ts";
 import type { ConfigState } from "../useConfig.ts";
 import {
-  VIEW_THEMES,
-  isViewTheme,
+  VIEW_COLOR_MODES,
+  isViewColorMode,
   clampLivePreviewLines,
   MIN_LIVE_PREVIEW_LINES,
   MAX_LIVE_PREVIEW_LINES,
@@ -25,7 +25,7 @@ import {
   currentClientKind,
   ANDROID_CLIENT_KIND,
   type BoardScope,
-  type ViewTheme,
+  type ViewColorMode,
 } from "../viewconfig.ts";
 import { LIVE_CATEGORY_ORDER, humanizeCategory } from "../live-stats.ts";
 import { resolveDefaultTab, type Page } from "../nav.ts";
@@ -49,8 +49,8 @@ interface Props {
   onBoardScope: (scope: BoardScope) => void;
   wideLayout: boolean; // force the wide (desktop) layout on this device (Android app only)
   onWideLayout: (wide: boolean) => void;
-  theme: ViewTheme;
-  onTheme: (theme: ViewTheme) => void;
+  colorMode: ViewColorMode;
+  onColorMode: (mode: ViewColorMode) => void;
   livePreviewLines: number; // lines of an event body the Live feed shows before clamping
   onLivePreviewLines: (lines: number) => void;
   liveTabEnabled: boolean; // whether the realtime Live tab is shown + streams (off by default)
@@ -103,7 +103,7 @@ function toInputHex(color: string | null): string {
 //     source leaves its per-repo choices remembered);
 //   • give a repo a highlight color, overriding the config repo/source color.
 //   • choose the default shared date range when the URL has no explicit from/to.
-//   • choose the local UI theme for this browser / Android WebView.
+//   • choose the local color mode for this browser / Android WebView.
 // Repos are grouped by source so each source's sync health sits next to its repos.
 export function SettingsPage({
   sources,
@@ -124,8 +124,8 @@ export function SettingsPage({
   onBoardScope,
   wideLayout,
   onWideLayout,
-  theme,
-  onTheme,
+  colorMode,
+  onColorMode,
   livePreviewLines,
   onLivePreviewLines,
   liveTabEnabled,
@@ -198,17 +198,17 @@ export function SettingsPage({
 
       <div className="settings-pref">
         <div>
-          <h3>Theme</h3>
-          <p className="muted">Saved on this device only. Paper is tuned for e-ink readability.</p>
+          <h3>Color mode</h3>
+          <p className="muted">Follows this device by default. Light mode is tuned for e-ink readability.</p>
         </div>
         <select
           className="settings-select"
-          value={theme}
+          value={colorMode}
           onChange={(e) => {
-            if (isViewTheme(e.target.value)) onTheme(e.target.value);
+            if (isViewColorMode(e.target.value)) onColorMode(e.target.value);
           }}
         >
-          {VIEW_THEMES.map((item) => (
+          {VIEW_COLOR_MODES.map((item) => (
             <option key={item.id} value={item.id}>
               {item.label}
             </option>
@@ -245,14 +245,14 @@ export function SettingsPage({
             open the Live tab below.
           </p>
         </div>
-        <select
-          className="settings-select"
-          value={boardScope === "off" ? "off" : "on"}
-          onChange={(e) => onBoardScope(e.target.value === "off" ? "off" : "full")}
-        >
-          <option value="on">On</option>
-          <option value="off">Off</option>
-        </select>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={boardScope !== "off"}
+            onChange={(e) => onBoardScope(e.target.checked ? "full" : "off")}
+            aria-label="Load board data"
+          />
+        </label>
       </div>
 
       <div className="settings-pref">

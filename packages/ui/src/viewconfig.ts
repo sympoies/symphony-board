@@ -4,7 +4,7 @@
 //   • hidden sources — set of HIDDEN source_ids (an independent layer)
 //   • color overrides — repoKey -> hex, this viewer's per-repo highlight override
 //   • default range preset — one of the shared quick preset ids
-//   • theme — device-local palette choice (Night Owl by default, Paper for e-ink)
+//   • color mode — device-local display mode (System by default)
 //   • collapsed columns — board column kinds the viewer manually collapsed
 //   • live tab enabled — opt-in Live tab (OFF by default: hidden tab, no stream)
 //   • hidden event types — set of HIDDEN Live categories (an independent layer)
@@ -26,27 +26,29 @@ const SOURCES_KEY = "symphony-board:hidden-sources";
 // JSON-string tuple, a valid object key); a repo absent here inherits from config.
 const COLORS_KEY = "symphony-board:repo-colors";
 const DEFAULT_RANGE_PRESET_KEY = "symphony-board:default-range-preset";
-const THEME_KEY = "symphony-board:theme";
+// Kept on the original key so existing browser / Android WebView installs carry
+// their display preference forward. Legacy values are normalized on read.
+const COLOR_MODE_KEY = "symphony-board:theme";
 // How many lines of an event body the Live feed shows before clamping (the full
-// body is one click away in the detail pane). Device-local, like the theme.
+// body is one click away in the detail pane). Device-local, like color mode.
 const LIVE_PREVIEW_LINES_KEY = "symphony-board:live-preview-lines";
 // Whether the Live page's mobile "metrics" disclosure (the four pulse cards) is
-// expanded. Device-local, like the theme: a phone user who collapses it to bring
-// the feed up keeps it collapsed across reopens. Open by default.
+// expanded. Device-local, like color mode: a phone user who collapses it to
+// bring the feed up keeps it collapsed across reopens. Open by default.
 const LIVE_PULSE_OPEN_KEY = "symphony-board:live-pulse-open";
 // Which tab the app lands on when the URL has no page (a fresh open / share link
-// without a hash). Device-local, like the theme.
+// without a hash). Device-local, like color mode.
 const DEFAULT_TAB_KEY = "symphony-board:default-tab";
 const SERVER_BASE_URL_KEY = "symphony-board:server-base-url";
 // Whether THIS device forces the wide (desktop) layout. A large e-reader can host
 // the desktop multi-column layout the CSS breakpoints gate on, but reports a small
 // device-width and so falls into the phone layout; turning this on sets a fixed
 // desktop-width viewport (Android WebView only — see runtime.applyWideViewport).
-// Device-local, like the theme. Off by default.
+// Device-local, like color mode. Off by default.
 const WIDE_LAYOUT_KEY = "symphony-board:wide-layout";
 // Whether this device loads contract-backed board data at all. The selected date
 // range now controls download size, so this is intentionally binary: on/full or
-// off/Live-only. Device-local, like the theme. See BoardScope below.
+// off/Live-only. Device-local, like color mode. See BoardScope below.
 const BOARD_SCOPE_KEY = "symphony-board:board-scope";
 const LAST_CONTRACT_TIMEZONE_KEY = "symphony-board:last-contract-timezone";
 // Board columns the viewer has manually COLLAPSED to a slim rail. Empty columns
@@ -63,12 +65,14 @@ const LIVE_TAB_ENABLED_KEY = "symphony-board:live-tab-enabled";
 const HIDDEN_EVENT_TYPES_KEY = "symphony-board:hidden-event-types";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
 export const ANDROID_CLIENT_KIND = "android";
-export const VIEW_THEMES = [
-  { id: "night-owl", label: "Night Owl" },
-  { id: "paper", label: "Paper" },
+export const VIEW_COLOR_MODES = [
+  { id: "system", label: "System" },
+  { id: "dark", label: "Dark" },
+  { id: "light", label: "Light" },
 ] as const;
-export type ViewTheme = (typeof VIEW_THEMES)[number]["id"];
-export const DEFAULT_VIEW_THEME: ViewTheme = "night-owl";
+export type ViewColorMode = (typeof VIEW_COLOR_MODES)[number]["id"];
+export type ResolvedViewTheme = "night-owl" | "paper";
+export const DEFAULT_VIEW_COLOR_MODE: ViewColorMode = "system";
 
 function loadStringSet(key: string): Set<string> {
   try {
@@ -149,25 +153,37 @@ export function saveDefaultRangePreset(preset: TimeRangePresetId): void {
   }
 }
 
-export function isViewTheme(value: unknown): value is ViewTheme {
-  return typeof value === "string" && VIEW_THEMES.some((theme) => theme.id === value);
+export function isViewColorMode(value: unknown): value is ViewColorMode {
+  return typeof value === "string" && VIEW_COLOR_MODES.some((mode) => mode.id === value);
 }
 
-export function loadTheme(): ViewTheme {
+function normalizeColorMode(value: unknown): ViewColorMode {
+  if (isViewColorMode(value)) return value;
+  if (value === "night-owl") return "dark";
+  if (value === "paper") return "light";
+  return DEFAULT_VIEW_COLOR_MODE;
+}
+
+export function loadColorMode(): ViewColorMode {
   try {
-    const raw = localStorage.getItem(THEME_KEY);
-    return isViewTheme(raw) ? raw : DEFAULT_VIEW_THEME;
+    return normalizeColorMode(localStorage.getItem(COLOR_MODE_KEY));
   } catch {
-    return DEFAULT_VIEW_THEME;
+    return DEFAULT_VIEW_COLOR_MODE;
   }
 }
 
-export function saveTheme(theme: ViewTheme): void {
+export function saveColorMode(mode: ViewColorMode): void {
   try {
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(COLOR_MODE_KEY, mode);
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }
+}
+
+export function resolveViewTheme(mode: ViewColorMode, systemPrefersDark: boolean): ResolvedViewTheme {
+  if (mode === "light") return "paper";
+  if (mode === "dark") return "night-owl";
+  return systemPrefersDark ? "night-owl" : "paper";
 }
 
 // Live feed preview height, in body lines. Kept short by default so the feed
@@ -396,7 +412,7 @@ export function saveLastContractTimezone(serverBaseUrl: string | null, timezone:
 
 // Force the wide (desktop) layout on this device. Off by default — only an exact
 // stored "true" turns it on, so a missing / hand-edited value reads as off (the
-// normal responsive layout). Device-local, like the theme.
+// normal responsive layout). Device-local, like color mode.
 export const DEFAULT_WIDE_LAYOUT = false;
 
 export function loadWideLayout(): boolean {
