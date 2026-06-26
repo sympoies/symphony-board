@@ -955,6 +955,61 @@ allowlist, by env-var name, and never holds a provider token or config mount.
   repo navigation and hash routes for internal drilldowns; Activity uses
   `activities[].url` directly and leaves rows unlinked when the provider cannot
   expose a reliable destination.
+- **The selected range is what the client downloads (#488)**: the shared
+  date-range control is the single source of truth for the primary contract the
+  client fetches — picking a range loads `/api/range` for exactly that window AS
+  the primary env (driving Diagnostics DECODED / TRANSFER / COMPRESSION), instead
+  of a separate buried "Board data" scope deciding the download while the visible
+  range only drove a display overlay. The static `./contract.json` is no longer a
+  fixed 90-day "Full board" the range picker cannot escape; it becomes a
+  **fast-path** for one specific range. Rationale and tradeoffs:
+  - **The default download follows the displayed range.** The view opens on the
+    viewer's default range preset (`this week` unless changed), and that small
+    window is what the client fetches — so the common load is a small dynamic
+    `/api/range`, NOT the 90-day contract. Narrowing or widening the range
+    re-fetches the primary env for exactly that window; there is no longer a
+    second, larger primary loaded behind the view.
+  - **Static fast-path**: the static, pre-gzipped, mtime-cached `./contract.json`
+    is loaded only when the selected range equals the emitted default window (the
+    trailing `CONTRACT_ITEM_WINDOW_DAYS` = 90 days ending at ~now) — and on the
+    static/demo deploy, and as the cold-start cache seed. It is no longer the
+    common path. Measured, that static 90-day file is ~20% smaller and compresses
+    better (≈10.3x vs ≈8.6x) than the dynamic 90-day `/api/range` projection
+    (which carries extra graph-edge / endpoint-closure rows), so keeping the
+    fast-path for the exact-90d case is still worthwhile.
+  - **Device landing + hard ceiling** (the repurposed board scope, still
+    device-local): the view opens on the device landing window (the viewer's
+    preset on desktop/web; 7 days on the Android thin client) and the range picker
+    is capped by a device ceiling — 1 year on desktop/web, **30 days** on Android.
+    The Android cap is the weak-device guard: the e-ink tablet cannot
+    gunzip + IPC-marshal + parse a multi-MB payload without OOM (the same reason
+    `CONTRACT_REQUEST_TIMEOUT_MS_ANDROID` exists), so it must never be able to
+    request a year of data.
+  - **Cold-start paint**: because the default load is now a small dynamic
+    `/api/range` rather than the cached 90-day file, the per-server cold-start
+    cache keys its saved env by the loaded range, so a revisit still paints the
+    last landing window instantly while it revalidates — preserving the
+    instant-paint behavior (and the Android weak-link cold-start) the cached
+    full contract used to provide.
+  - **Bounded maximum**: the widest selectable range is 1 year (~19.5 MiB / ~2.3
+    MiB gzip). There is no unbounded "all history" option, so the payload cannot
+    grow without limit as history accumulates; 1 year is effectively all data
+    (the 180d→365d byte delta is small).
+  - **Wide context is preserved**: a `/api/range` envelope already carries
+    board-wide `aggregates`, the full `repo_stats` inventory, and all `sources`
+    (only `items` / `edges` / `activities` / `activity_daily` / `repo_metrics`
+    are range-scoped), and the trailing-12-month Activity Overview reads the
+    separate `/api/activity-daily` aggregate — so making the primary env
+    range-scoped loses no cross-window context.
+  - **Static / demo deploy**: a server-less deployment (the Pages demo) 404s
+    `/api/range`, so the range picker is locked to the emitted snapshot and the
+    bundled `./contract.json` is served as-is — the demo is a fixed snapshot.
+  - **Transfer measurement (#488 / PR #489)**: `sendJsonMaybeGzip` advertises the
+    exact compressed size via an `X-Encoded-Length` header (a custom header
+    survives gzip decoding, unlike `Content-Length`), so Diagnostics TRANSFER /
+    COMPRESSION are correct for the now-primary `/api/range` payload. No contract
+    version bump: `range_query` already exists and `items` / `edges` /
+    `activities` were already windowed.
 
 ## Deferred Or Explicit Non-Goals
 

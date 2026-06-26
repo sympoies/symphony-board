@@ -48,7 +48,20 @@ export interface AsyncKV {
 interface ContractCacheEntry {
   serverBaseUrl: string | null;
   cachedAt: number;
+  // The date range this env was loaded for (#488: the selected range is the
+  // primary download, so a cached full/this-week env must NOT paint when the user
+  // is now opening a different range — it would flash the wrong window). null for
+  // a range-agnostic entry (legacy / callers that pass no range). Compared by
+  // value, so a revisit on the same landing range still paints instantly.
+  range?: { from: string; to: string } | null;
   env: ContractEnvelope;
+}
+
+function sameRangeKey(a: { from: string; to: string } | null | undefined, b: { from: string; to: string } | null | undefined): boolean {
+  const x = a ?? null;
+  const y = b ?? null;
+  if (x === null || y === null) return x === y;
+  return x.from === y.from && x.to === y.to;
 }
 
 // A stale contract is only safe to paint if its major matches what this build
@@ -146,7 +159,7 @@ function defaultKv(): AsyncKV | null {
 // injectable for tests; never throws.
 export async function loadCachedContract(
   serverBaseUrl: string | null,
-  opts: { kv?: AsyncKV; now?: number } = {},
+  opts: { kv?: AsyncKV; now?: number; range?: { from: string; to: string } | null } = {},
 ): Promise<ContractEnvelope | null> {
   const kv = opts.kv ?? defaultKv();
   if (!kv) return null;
@@ -158,6 +171,9 @@ export async function loadCachedContract(
     if ((entry.serverBaseUrl ?? null) !== (serverBaseUrl ?? null)) return null;
     if (typeof entry.cachedAt !== "number" || !Number.isFinite(entry.cachedAt)) return null;
     if (now - entry.cachedAt > CONTRACT_CACHE_TTL_MS) return null;
+    // Only paint a cached env loaded for the SAME range we are about to load,
+    // so a different landing range never flashes the wrong window first (#488).
+    if (!sameRangeKey(entry.range, opts.range)) return null;
     return isSupportedContract(entry.env) ? entry.env : null;
   } catch {
     return null;
@@ -170,13 +186,13 @@ export async function loadCachedContract(
 export async function saveCachedContract(
   serverBaseUrl: string | null,
   env: ContractEnvelope,
-  opts: { kv?: AsyncKV; now?: number } = {},
+  opts: { kv?: AsyncKV; now?: number; range?: { from: string; to: string } | null } = {},
 ): Promise<void> {
   const kv = opts.kv ?? defaultKv();
   if (!kv) return;
   const now = opts.now ?? Date.now();
   try {
-    const entry: ContractCacheEntry = { serverBaseUrl: serverBaseUrl ?? null, cachedAt: now, env };
+    const entry: ContractCacheEntry = { serverBaseUrl: serverBaseUrl ?? null, cachedAt: now, range: opts.range ?? null, env };
     await kv.set(CACHE_KEY, entry);
   } catch {
     /* storage unavailable / over quota — the cache just won't persist this time */

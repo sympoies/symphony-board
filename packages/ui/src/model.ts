@@ -429,24 +429,13 @@ export function presetBeyondLoadedWindow(presetRange: TimeRange, windowFrom: str
   return windowFrom != null && presetRange.from < windowFrom;
 }
 
+// A synthetic quick-range button equal to a loaded board window. #488 dropped the
+// windowed-scope synthetic button (the range itself is now the download), so the
+// `windowQuickPreset` builder is gone; the type remains as the TimeRangeControls
+// `windowPreset` prop shape (App passes null) for a future synthetic-button reuse.
 export interface WindowQuickPreset {
   label: string;
   range: TimeRange;
-}
-
-// A synthetic quick-range button equal to the loaded board window, for a windowed
-// Board data scope that no built-in preset already represents. Most windows line
-// up with a preset (1d == "today", 7d == "1w", 1mo/3mo/6mo/1y == the rolling
-// presets), but the in-between ones (e.g. 3d) have no button — selecting "1w" is
-// disabled because it reaches past the loaded data, leaving no one-click way back
-// to "everything this device loaded". This fills that gap, labelled with the scope
-// (e.g. "3d"). Returns null when a built-in preset already equals the window (so we
-// never add a duplicate) or for the unwindowed scopes (off / full pass a null
-// range). Pure: `now` is the contract's generated-at, so it stays replayable.
-export function windowQuickPreset(windowRange: TimeRange | null, now: number, label: string, tz: string = DEFAULT_TIMEZONE): WindowQuickPreset | null {
-  if (windowRange == null) return null;
-  if (activeTimeRangePresetId(windowRange, now, null, tz) != null) return null;
-  return { label, range: windowRange };
 }
 
 export function activeTimeRangePresetId(range: TimeRange, now: number, preferredPresetId?: TimeRangePresetId | null, tz: string = DEFAULT_TIMEZONE): TimeRangePresetId | null {
@@ -488,6 +477,24 @@ export function staticContractTimeRange(env: ContractEnvelope): TimeRange {
       ? Date.parse(env.item_window.window.since)
       : generatedAt - DEFAULT_TIME_RANGE_DAYS * DAY_MS;
   return { from: zonedDateOnly(sinceMs, tz), to: zonedDateOnly(generatedAt, tz) };
+}
+
+// The calendar-day window an `/api/range` env represents, read back from its
+// `range_query` (the server echoes the requested window as zoned day-bounds).
+// Under the range-as-download model (#488) this is the env's loaded window: a
+// range-projected primary env's display window IS exactly what was fetched, so
+// using it as `staticRange` makes `customRange` false on the landing range and
+// keeps the load effect from re-firing (convergence — no refetch loop). Returns
+// null for an env without `range_query` (the static contract.json fast-path or an
+// uploaded file env), which falls back to `staticContractTimeRange`.
+export function rangeQueryWindow(env: ContractEnvelope): TimeRange | null {
+  const rq = env.range_query;
+  if (!rq || typeof rq.from !== "string" || typeof rq.to !== "string") return null;
+  const fromMs = Date.parse(rq.from);
+  const toMs = Date.parse(rq.to);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+  const tz = env.timezone ?? DEFAULT_TIMEZONE;
+  return { from: zonedDateOnly(fromMs, tz), to: zonedDateOnly(toMs, tz) };
 }
 
 // Which empty-state treatment a page shows when it has nothing to render. The
