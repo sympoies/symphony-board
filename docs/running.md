@@ -339,18 +339,15 @@ For self-use on the same Mac, no paid Apple Developer Program membership is
 required. Local builds are not notarized; they usually open directly, but if
 macOS blocks a launch, unblock the bundle with `scripts/install-release-app.sh`.
 
-GitHub Releases include unsigned CI-built desktop zips for both Apple Silicon
-and Intel Macs:
+GitHub Releases include unsigned CI-built desktop zips for Apple Silicon Macs:
 
 - `Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip`
-- `Symphony-Board-vX.Y.Z-macos-x64-unsigned.zip`
 - `Symphony-Board-Standalone-vX.Y.Z-macos-arm64-unsigned.zip`
-- `Symphony-Board-Standalone-vX.Y.Z-macos-x64-unsigned.zip`
 
-Use the matching architecture for each Mac. These release builds are unsigned
-and not notarized, so macOS quarantines the download and Gatekeeper blocks the
-first launch. Install with the helper; it extracts a `.zip`, strips the
-quarantine flag, copies the bundle into `/Applications`, and opens it:
+These release builds are unsigned and not notarized, so macOS quarantines the
+download and Gatekeeper blocks the first launch. Install with the helper; it
+extracts a `.zip`, strips the quarantine flag, copies the bundle into
+`/Applications`, and opens it:
 
 ```sh
 scripts/install-release-app.sh ~/Downloads/Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip

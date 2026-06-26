@@ -127,9 +127,6 @@ if [ "$1" = "release" ] && [ "$2" = "view" ]; then
 Symphony-Board-v9.9.9-macos-arm64-unsigned.zip
 Symphony-Board-Standalone-v9.9.9-macos-arm64-unsigned.zip
 SHA256SUMS-v9.9.9-macos-arm64.txt
-Symphony-Board-v9.9.9-macos-x64-unsigned.zip
-Symphony-Board-Standalone-v9.9.9-macos-x64-unsigned.zip
-SHA256SUMS-v9.9.9-macos-x64.txt
 ASSETS
   exit 0
 fi
@@ -144,6 +141,6 @@ exit 1
   assert.match(result.stdout, /release: verified release asset: Symphony-Board-v9\.9\.9-macos-arm64-unsigned\.zip/);
   assert.match(
     result.stdout,
-    /release: verified release asset: Symphony-Board-Standalone-v9\.9\.9-macos-x64-unsigned\.zip/,
+    /release: verified release asset: Symphony-Board-Standalone-v9\.9\.9-macos-arm64-unsigned\.zip/,
   );
 });

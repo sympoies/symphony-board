@@ -222,13 +222,10 @@ verify_desktop_assets() {
   local repo="$1"
   local tag="$2"
   local version="$3"
-  local arch
 
-  for arch in macos-arm64 macos-x64; do
-    verify_release_asset "$repo" "$tag" "Symphony-Board-v${version}-${arch}-unsigned.zip"
-    verify_release_asset "$repo" "$tag" "Symphony-Board-Standalone-v${version}-${arch}-unsigned.zip"
-    verify_release_asset "$repo" "$tag" "SHA256SUMS-v${version}-${arch}.txt"
-  done
+  verify_release_asset "$repo" "$tag" "Symphony-Board-v${version}-macos-arm64-unsigned.zip"
+  verify_release_asset "$repo" "$tag" "Symphony-Board-Standalone-v${version}-macos-arm64-unsigned.zip"
+  verify_release_asset "$repo" "$tag" "SHA256SUMS-v${version}-macos-arm64.txt"
 }
 
 mode="dry-run"
@@ -368,7 +365,7 @@ info "tag=$tag"
 info "app_version=$app_version"
 info "image=ghcr.io/${repo}:${version}"
 info "web_image=ghcr.io/${web_repo}:${version}"
-info "desktop_assets=unsigned macOS app zips for macos-arm64 and macos-x64"
+info "desktop_assets=unsigned macOS app zips for macos-arm64"
 if [ "$prerelease" -eq 0 ]; then
   info "latest=ghcr.io/${repo}:latest"
   info "web_latest=ghcr.io/${web_repo}:latest"
