@@ -89,6 +89,9 @@ import {
   loadColorMode,
   saveColorMode,
   resolveViewTheme,
+  subscribeSystemColorScheme,
+  systemPrefersDark,
+  THEME_META_COLORS,
   loadLivePreviewLines,
   saveLivePreviewLines,
   loadLiveTabEnabled,
@@ -153,36 +156,17 @@ const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads"
 type MobileControlPanel = "search" | "filters" | "range" | null;
 type EnvAuthority = "server" | "file";
 
-const DARK_MODE_QUERY = "(prefers-color-scheme: dark)";
-const THEME_META_COLORS: Record<ResolvedViewTheme, string> = {
-  "night-owl": "#030b22",
-  paper: "#f4f3ed",
-};
-
 const normalizeContractTimezone = (value: unknown): string | null => (isValidTimezone(value) ? value : null);
 
-function systemPrefersDark(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
-  return window.matchMedia(DARK_MODE_QUERY).matches;
-}
-
-function useSystemPrefersDark(): boolean {
+function useSystemPrefersDark(enabled: boolean): boolean {
   const [prefersDark, setPrefersDark] = useState(systemPrefersDark);
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(DARK_MODE_QUERY);
-    const onChange = () => setPrefersDark(media.matches);
-    onChange();
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", onChange);
-      return () => media.removeEventListener("change", onChange);
-    }
-    media.addListener(onChange);
-    return () => media.removeListener(onChange);
-  }, []);
+    if (!enabled) return undefined;
+    return subscribeSystemColorScheme(setPrefersDark);
+  }, [enabled]);
 
-  return prefersDark;
+  return enabled ? systemPrefersDark() : prefersDark;
 }
 
 function applyDocumentTheme(theme: ResolvedViewTheme): void {
@@ -272,17 +256,15 @@ export function App() {
   const [colorOverrides, setColorOverrides] = useState<Map<string, string>>(loadColorOverrides);
   const [defaultRangePreset, setDefaultRangePreset] = useState<TimeRangePresetId>(loadDefaultRangePreset);
   const [colorMode, setColorMode] = useState<ViewColorMode>(loadColorMode);
-  const systemDark = useSystemPrefersDark();
+  const systemDark = useSystemPrefersDark(colorMode === "system");
   const resolvedTheme = resolveViewTheme(colorMode, systemDark);
   const [livePreviewLines, setLivePreviewLines] = useState<number>(loadLivePreviewLines);
   // Live tab is opt-in (off by default): gates the tab, the SSE/poll stream, AND
   // the snapshot probe. `hiddenEventTypes` is the persistent per-category Live
   // filter (an independent layer, like hidden sources).
   const [liveTabEnabled, setLiveTabEnabled] = useState<boolean>(loadLiveTabEnabled);
-  // How much of the contract THIS device loads: "off" (Live-only, no contract),
-  // a recent time window ("1d"/"3d"/"7d", fetched small via /api/range so a weak
-  // WebView does not OOM), or "full" (./contract.json). Device-local; Android
-  // defaults to "7d", desktop/web to "full". Drives the init load below.
+  // Whether THIS device loads contract-backed board data at all. Date range owns
+  // download size; this setting only gates "full/on" vs "off/Live-only".
   const [boardScope, setBoardScope] = useState<BoardScope>(loadBoardScope);
   // Force the wide (desktop) layout on this device (Android WebView only). Persisted
   // device-local; main.tsx applies it before mount, and the effect below re-applies

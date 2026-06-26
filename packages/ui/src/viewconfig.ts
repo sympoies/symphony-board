@@ -73,6 +73,47 @@ export const VIEW_COLOR_MODES = [
 export type ViewColorMode = (typeof VIEW_COLOR_MODES)[number]["id"];
 export type ResolvedViewTheme = "night-owl" | "paper";
 export const DEFAULT_VIEW_COLOR_MODE: ViewColorMode = "system";
+export const SYSTEM_DARK_MODE_QUERY = "(prefers-color-scheme: dark)";
+export const THEME_META_COLORS: Record<ResolvedViewTheme, string> = {
+  "night-owl": "#030b22",
+  paper: "#f4f3ed",
+};
+
+type SystemColorSchemeTarget = {
+  matchMedia?: Window["matchMedia"];
+};
+
+export function systemPrefersDark(target: SystemColorSchemeTarget | undefined = typeof window === "undefined" ? undefined : window): boolean {
+  try {
+    return typeof target?.matchMedia === "function" ? target.matchMedia(SYSTEM_DARK_MODE_QUERY).matches : true;
+  } catch {
+    return true;
+  }
+}
+
+export function subscribeSystemColorScheme(
+  onChange: (prefersDark: boolean) => void,
+  target: SystemColorSchemeTarget | undefined = typeof window === "undefined" ? undefined : window,
+): (() => void) | undefined {
+  if (typeof target?.matchMedia !== "function") return undefined;
+  let media: MediaQueryList;
+  try {
+    media = target.matchMedia(SYSTEM_DARK_MODE_QUERY);
+  } catch {
+    return undefined;
+  }
+  const emit = () => onChange(media.matches);
+  emit();
+  if (typeof media.addEventListener === "function") {
+    media.addEventListener("change", emit);
+    return () => media.removeEventListener("change", emit);
+  }
+  if (typeof media.addListener === "function") {
+    media.addListener(emit);
+    return () => media.removeListener(emit);
+  }
+  return undefined;
+}
 
 function loadStringSet(key: string): Set<string> {
   try {

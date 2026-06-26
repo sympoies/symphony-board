@@ -522,6 +522,33 @@ const server = createServer(async (req, res) => {
       }));
       return;
     }
+    if (p === "/__smoke/first-paint") {
+      const url = new URL(req.url || "/__smoke/first-paint", `http://127.0.0.1:${HTTP_PORT}`);
+      const indexHtml = await readFile(join(DIST, "index.html"), "utf8");
+      const scriptMatch = indexHtml.match(/<script>\s*([\s\S]*?)<\/script>/);
+      if (!scriptMatch) {
+        res.writeHead(500, JSON_HEADERS).end(JSON.stringify({ error: "missing_first_paint_script" }));
+        return;
+      }
+      const stored = url.searchParams.get("stored");
+      const seed =
+        url.searchParams.get("storage") === "throw"
+          ? "Storage.prototype.getItem = function () { throw new Error('storage blocked'); };"
+          : stored
+            ? `localStorage.setItem("symphony-board:theme", ${JSON.stringify(stored)});`
+            : 'localStorage.removeItem("symphony-board:theme");';
+      res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" }).end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="theme-color" content="#030b22" />
+    <script>${seed}</script>
+    <script>${scriptMatch[1]}</script>
+  </head>
+  <body>first-paint-probe</body>
+</html>`);
+      return;
+    }
     if (p === "/__smoke/live-large") {
       const url = new URL(req.url || "/__smoke/live-large", `http://127.0.0.1:${HTTP_PORT}`);
       liveSnapshotLarge = url.searchParams.get("enabled") !== "0";
@@ -707,8 +734,6 @@ try {
   });
   await send("Runtime.enable");
   await send("Page.enable");
-  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
-  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/` });
 
   // wait for some DOM matching `readyExpr` to render, then return body HTML
   const waitHtml = async (readyExpr) => {
@@ -731,6 +756,29 @@ try {
     }
     return value;
   };
+  const firstPaintProbe = async ({ scheme, stored = "", storage = "" }) => {
+    await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    const params = new URLSearchParams();
+    if (stored) params.set("stored", stored);
+    if (storage) params.set("storage", storage);
+    await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/__smoke/first-paint?${params}` });
+    return await waitValue(`(() => {
+      if (document.body?.textContent?.trim() !== 'first-paint-probe') return null;
+      return {
+        theme: document.documentElement.dataset.theme || '',
+        colorScheme: document.documentElement.style.colorScheme || '',
+        themeColor: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') || '',
+      };
+    })()`);
+  };
+  const firstPaintSystemDark = await firstPaintProbe({ scheme: "dark" });
+  const firstPaintStorageBlockedLight = await firstPaintProbe({ scheme: "light", storage: "throw" });
+  const firstPaintLegacyPaper = await firstPaintProbe({ scheme: "dark", stored: "paper" });
+  const firstPaintLegacyNightOwl = await firstPaintProbe({ scheme: "light", stored: "night-owl" });
+  await send("Runtime.evaluate", { expression: "try { localStorage.clear(); } catch (e) {}", returnByValue: true });
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/` });
+
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
   // The stat summary collapses behind a disclosure at narrow widths (incl. the
@@ -1604,11 +1652,13 @@ try {
       const colorMode = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Color mode');
       const select = colorMode?.querySelector('select');
       return {
-        found: !!select,
-        before: document.documentElement.dataset.theme || '',
-        value: select?.value || '',
-        options: select ? Array.from(select.options).map((option) => option.value) : [],
-        labels: select ? Array.from(select.options).map((option) => option.textContent?.trim() || '') : [],
+	        found: !!select,
+	        before: document.documentElement.dataset.theme || '',
+	        colorScheme: document.documentElement.style.colorScheme || '',
+	        themeColor: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') || '',
+	        value: select?.value || '',
+	        options: select ? Array.from(select.options).map((option) => option.value) : [],
+	        labels: select ? Array.from(select.options).map((option) => option.textContent?.trim() || '') : [],
       };
     })()`,
     returnByValue: true,
@@ -3472,14 +3522,18 @@ try {
     [has(settingsConfigHtml, "credentials set") && has(settingsConfigHtml, "credentials missing"), "config: credential status renders as set/missing badges, never values"],
     [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],
     // page 5: the settings repo filter renders its checkboxes + count
-    [has(settingsHtml, "settings-page"), "settings: page rendered"],
-    [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
-    [/repos shown/.test(settingsHtml), "settings: repo count shown"],
-    // settings: source hide toggle, the read-only source color swatch, and the
-    // per-repo color picker (the new display controls)
-    [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
-    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System (${JSON.stringify(colorModeBefore)})`],
-    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
+	    [has(settingsHtml, "settings-page"), "settings: page rendered"],
+	    [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
+	    [/repos shown/.test(settingsHtml), "settings: repo count shown"],
+	    // settings: source hide toggle, the read-only source color swatch, and the
+	    // per-repo color picker (the new display controls)
+	    [has(settingsHtml, "settings-source-show"), "settings: per-source show/hide toggle rendered"],
+	    [firstPaintSystemDark?.theme === "night-owl" && firstPaintSystemDark?.colorScheme === "dark" && firstPaintSystemDark?.themeColor === "#030b22", `settings: first-paint System follows dark system mode (${JSON.stringify(firstPaintSystemDark)})`],
+	    [firstPaintStorageBlockedLight?.theme === "paper" && firstPaintStorageBlockedLight?.colorScheme === "light" && firstPaintStorageBlockedLight?.themeColor === "#f4f3ed", `settings: first-paint System still follows light mode when storage is blocked (${JSON.stringify(firstPaintStorageBlockedLight)})`],
+	    [firstPaintLegacyPaper?.theme === "paper" && firstPaintLegacyPaper?.colorScheme === "light" && firstPaintLegacyPaper?.themeColor === "#f4f3ed", `settings: first-paint legacy Paper storage maps to Light (${JSON.stringify(firstPaintLegacyPaper)})`],
+	    [firstPaintLegacyNightOwl?.theme === "night-owl" && firstPaintLegacyNightOwl?.colorScheme === "dark" && firstPaintLegacyNightOwl?.themeColor === "#030b22", `settings: first-paint legacy Night Owl storage maps to Dark (${JSON.stringify(firstPaintLegacyNightOwl)})`],
+	    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.before === "night-owl" && colorModeBefore.colorScheme === "dark" && colorModeBefore.themeColor === "#030b22" && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System and resolves dark (${JSON.stringify(colorModeBefore)})`],
+	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Default tab") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],

@@ -6,7 +6,7 @@ import {
   loadCollapsedColumns, saveCollapsedColumns,
   loadColorOverrides, saveColorOverrides,
   loadDefaultRangePreset, saveDefaultRangePreset,
-  loadColorMode, saveColorMode, resolveViewTheme,
+  loadColorMode, saveColorMode, resolveViewTheme, subscribeSystemColorScheme, systemPrefersDark, SYSTEM_DARK_MODE_QUERY,
   loadDefaultTab, saveDefaultTab,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
@@ -113,6 +113,38 @@ test("color mode is a device-local setting with system as the default", () => {
   assert.equal(loadColorMode(), "dark", "legacy Night Owl theme value -> Dark mode");
   store._raw("symphony-board:theme", "unknown-theme");
   assert.equal(loadColorMode(), "system", "invalid value -> default");
+});
+
+test("system color-scheme helpers support legacy Android WebView matchMedia listeners", () => {
+  let matches = false;
+  const listeners = new Set<() => void>();
+  const media = {
+    get matches() { return matches; },
+    addListener(listener: () => void) { listeners.add(listener); },
+    removeListener(listener: () => void) { listeners.delete(listener); },
+  } as unknown as MediaQueryList;
+  const target = {
+    matchMedia(query: string) {
+      assert.equal(query, SYSTEM_DARK_MODE_QUERY);
+      return media;
+    },
+  };
+  const seen: boolean[] = [];
+
+  assert.equal(systemPrefersDark(target), false);
+  const cleanup = subscribeSystemColorScheme((prefersDark) => seen.push(prefersDark), target);
+  assert.equal(listeners.size, 1, "legacy addListener path subscribed");
+  assert.deepEqual(seen, [false], "subscription emits the initial value");
+
+  matches = true;
+  for (const listener of listeners) listener();
+  assert.deepEqual(seen, [false, true], "legacy listener emits changed value");
+
+  cleanup?.();
+  assert.equal(listeners.size, 0, "cleanup removes legacy listener");
+  matches = false;
+  for (const listener of listeners) listener();
+  assert.deepEqual(seen, [false, true], "cleanup stops future emissions");
 });
 
 test("default tab is a device-local setting defaulting to Live", () => {

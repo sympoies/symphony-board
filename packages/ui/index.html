@@ -13,27 +13,34 @@
     <script>
       // Apply the persisted color mode BEFORE first paint so the boot splash and
       // the app's first CSS frame match the user's choice (no light/dark flash).
+      // Keep this tiny pre-bundle copy in sync with viewconfig.ts color-mode
+      // normalization and App's theme-color table; render-smoke probes it.
       // The React app re-applies the same rule on mount (App's useLayoutEffect).
       (function () {
+        var raw = null;
         try {
-          var raw = localStorage.getItem("symphony-board:theme");
-          var systemDark = true;
-          if (window.matchMedia) systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-          var theme =
-            raw === "paper" || raw === "light"
-              ? "paper"
-              : raw === "night-owl" || raw === "dark"
-                ? "night-owl"
-                : systemDark
-                  ? "night-owl"
-                  : "paper";
-          document.documentElement.dataset.theme = theme;
-          document.documentElement.style.colorScheme = theme === "paper" ? "light" : "dark";
-          var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute("content", theme === "paper" ? "#f4f3ed" : "#030b22");
+          raw = localStorage.getItem("symphony-board:theme");
         } catch (e) {
-          /* storage unavailable — fall back to the default System/Dark frame. */
+          /* storage unavailable - continue with System mode. */
         }
+        var systemDark = true;
+        try {
+          if (typeof window.matchMedia === "function") systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        } catch (e) {
+          /* media query unavailable - fall back to the default dark frame. */
+        }
+        var theme =
+          raw === "paper" || raw === "light"
+            ? "paper"
+            : raw === "night-owl" || raw === "dark"
+              ? "night-owl"
+              : systemDark
+                ? "night-owl"
+                : "paper";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme === "paper" ? "light" : "dark";
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", theme === "paper" ? "#f4f3ed" : "#030b22");
       })();
     </script>
     <style>
