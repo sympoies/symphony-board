@@ -716,6 +716,29 @@ test("repo metrics group top_actors by canonical identity", () => {
   assert.equal(actors.filter((x) => x.display_name === "Example User").length, 2);
 });
 
+test("repo metrics prefer observed actor profile URLs for GitHub App bots", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const activities: ActivityRow[] = [
+    activityRow({
+      external_id: "review-bot",
+      kind: "review",
+      action: "reviewed",
+      project_path: "o/repo",
+      actor: "review-maintainability",
+      occurred_at: "2026-06-07T10:00:00Z",
+      details: JSON.stringify({ actor_profile_url: "https://github.com/apps/review-maintainability" }),
+    }),
+  ];
+
+  const env = buildContract({ sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(env), []);
+  const row = env.repo_metrics?.[0]?.top_actors?.[0];
+  assert.equal(row?.actor_key, "provider-user:github:github.com:review-maintainability");
+  assert.equal(row?.profile_url, "https://github.com/apps/review-maintainability");
+});
+
 test("config identities collapse a GitLab username and commit-email facet into one actor", () => {
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },

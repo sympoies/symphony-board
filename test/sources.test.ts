@@ -815,7 +815,8 @@ test("GitHub: submitted PR reviews normalize into review activities", () => {
       ...prNode("PR_rev", "OPEN", "MERGEABLE"),
       reviews: {
         nodes: [
-          { id: "R1", author: { login: "alice" }, state: "APPROVED", submittedAt: "2026-06-05T09:00:00Z", url: "https://x/r1" },
+          { id: "R1", author: { login: "alice", url: "https://github.com/alice", __typename: "User" }, state: "APPROVED", submittedAt: "2026-06-05T09:00:00Z", url: "https://x/r1" },
+          { id: "R0", author: { login: "review-maintainability", url: "https://github.com/apps/review-maintainability", __typename: "Bot" }, state: "COMMENTED", submittedAt: "2026-06-05T08:00:00Z", url: "https://x/r0" },
           { id: "R2", author: { login: "bob" }, state: "CHANGES_REQUESTED", submittedAt: "2026-06-05T10:00:00Z", url: null },
           { id: "R3", author: { login: "carol" }, state: "COMMENTED", submittedAt: "2026-06-05T11:00:00Z", url: null },
           { id: "R4", author: { login: "dan" }, state: "PENDING", submittedAt: null, url: null },
@@ -824,13 +825,16 @@ test("GitHub: submitted PR reviews normalize into review activities", () => {
     },
   };
   const reviews = src.normalize(raw)!.activities.filter((a) => a.kind === "review");
-  assert.equal(reviews.length, 3, "PENDING (unsubmitted) reviews are skipped");
-  assert.deepEqual(reviews.map((a) => a.action).sort(), ["approved", "changes_requested", "reviewed"]);
+  assert.equal(reviews.length, 4, "PENDING (unsubmitted) reviews are skipped");
+  assert.deepEqual(reviews.map((a) => a.action).sort(), ["approved", "changes_requested", "reviewed", "reviewed"]);
   const approved = reviews.find((a) => a.action === "approved")!;
   assert.equal(approved.actor, "alice");
   assert.equal(approved.occurredAt, "2026-06-05T09:00:00Z");
   assert.equal(approved.target?.externalId, "PR_rev", "review targets the tracked PR");
   assert.equal(approved.targetKind, "change_request");
+  assert.deepEqual(approved.details, { state: "APPROVED", actor_profile_url: "https://github.com/alice", actor_type: "User" });
+  const botReview = reviews.find((a) => a.actor === "review-maintainability")!;
+  assert.deepEqual(botReview.details, { state: "COMMENTED", actor_profile_url: "https://github.com/apps/review-maintainability", actor_type: "Bot" });
 });
 
 function glMrBundle(state: string, detailedMergeStatus: string) {
@@ -1500,11 +1504,10 @@ test("GitLab: a null diff line position falls back to the other side instead of 
   );
 });
 
-test("source normalizer versions are bumped for review-thread output changes", () => {
-  // Changing canonical review-thread comment output (GitHub latest-comment time,
-  // GitLab avatar/permalink fields) needs fresh normalizerVersions so replay
-  // sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/4");
+test("source normalizer versions are bumped for canonical output changes", () => {
+  // Changing canonical review-thread or activity detail output needs fresh
+  // normalizerVersions so replay sweeps can target stale rows.
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/5");
   assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/6");
 });
 

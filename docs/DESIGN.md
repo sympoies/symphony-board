@@ -362,14 +362,15 @@ bucket selection lives in `repoMetricBucket` and the tiling in `bucketRanges`
 
 Version `3.4.0` adds optional `repo_metrics[].top_actors[].profile_url`, the
 per-actor counterpart to `repo_url`. The same producer-owned provider-link layer
-builds an actor's profile page (`https://<host>/<username>`) so Repo Analytics
-can link a handle to its GitHub/GitLab profile without duplicating URL rules in
-the UI. It links `provider-user`-keyed actors directly, and config-merged
-`person` identities through the provider username observed on that source during
-the identity merge (a `person` row is per-source). Config-declared usernames are
-host-agnostic, so they are never guessed onto a source — authorship with no
-observed username on a source (raw email/name) renders unlinked there rather than
-risk a wrong-host profile link.
+builds an actor's profile page (usually `https://<host>/<username>`, or a
+provider-reported GitHub App bot URL such as `https://<host>/apps/<slug>`) so
+Repo Analytics can link a handle to its GitHub/GitLab profile without duplicating
+URL rules in the UI. It links `provider-user`-keyed actors directly, and
+config-merged `person` identities through the provider username observed on that
+source during the identity merge (a `person` row is per-source).
+Config-declared usernames are host-agnostic, so they are never guessed onto a
+source — authorship with no observed username on a source (raw email/name)
+renders unlinked there rather than risk a wrong-host profile link.
 
 Contract rules:
 
