@@ -101,6 +101,10 @@ export async function executeSyncRun(
   opts: SyncRunOptions,
   emit?: () => Promise<void> | void,
   onProgress?: SyncProgressReporter,
+  // Pre-resolved per-source error results (e.g. a source whose GitHub App token
+  // mint hard-failed before any fetch). They count toward overallStatus, so a
+  // hard auth failure blocks emit exactly like an in-flight fetch failure.
+  errored: SourceRunResult[] = [],
 ): Promise<SyncRunResult> {
   const full = opts.mode === "full";
   // The writer lease guards the whole non-dry run: when another live writer
@@ -113,16 +117,19 @@ export async function executeSyncRun(
     return { status: "skipped", sources: [], totals: emptyTotals(), emitted: false, error: null };
   }
   try {
-    const results: SourceRunResult[] = skipped.map((id) => ({
-      source_id: id,
-      status: "skipped",
-      items: 0,
-      edges: 0,
-      activities: 0,
-      soft_deleted: 0,
-      soft_deleted_edges: 0,
-      error: null,
-    }));
+    const results: SourceRunResult[] = [
+      ...skipped.map((id) => ({
+        source_id: id,
+        status: "skipped" as const,
+        items: 0,
+        edges: 0,
+        activities: 0,
+        soft_deleted: 0,
+        soft_deleted_edges: 0,
+        error: null,
+      })),
+      ...errored,
+    ];
 
     for (const { config, source } of prepared) {
       const prev = full ? null : await store.getWatermark(config.source_id);
@@ -210,6 +217,7 @@ export async function runConfiguredSync(
 
   const prepared: PreparedSource[] = [];
   const skipped: string[] = [];
+  const errored: SourceRunResult[] = [];
   for (const sc of cfg.sources) {
     if (opts.sourceId && sc.source_id !== opts.sourceId) continue; // out of scope, not reported
     if (!sourceEnabled(sc)) {
@@ -221,6 +229,17 @@ export async function runConfiguredSync(
     const projectTokens = sc.kind === "github"
       ? new Map(await Promise.all(projectPaths(sc).map(async (projectPath) => [projectPath, await authTokenResolver.tokensForProject(sc, projectPath)] as const)))
       : new Map<string, typeof tokens>();
+    // A configured GitHub App mint that hard-failed (no usable fallback token in
+    // its pool) is an actionable auth error, not a benign "token unset" skip:
+    // surface it so the run fails and does not silently re-emit a stale contract
+    // or fetch the repo with credentials outside its selected pool.
+    const mintFailure = authTokenResolver.hardMintFailure?.(sc) ?? null;
+    if (mintFailure) {
+      const error = `GitHub App token mint failed with no usable fallback token: ${mintFailure}`;
+      log.error(`error ${sc.source_id}: ${error}`);
+      errored.push({ source_id: sc.source_id, status: "error", items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0, error });
+      continue;
+    }
     const hasAnyTokens = tokens.length > 0 || (sc.kind === "github" && [...projectTokens.values()].some((projectTokenSet) => projectTokenSet.length > 0));
     if (!hasAnyTokens) {
       const envNames = sourceTokenEnvNames(sc).join(", ");
@@ -241,7 +260,7 @@ export async function runConfiguredSync(
           );
         }
       : undefined;
-    return await executeSyncRun(store, prepared, skipped, opts, emit, deps.onProgress);
+    return await executeSyncRun(store, prepared, skipped, opts, emit, deps.onProgress, errored);
   } finally {
     await store.close();
   }
