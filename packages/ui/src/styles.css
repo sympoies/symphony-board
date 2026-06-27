@@ -607,8 +607,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 }
 .card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .icon-item-kind { flex: none; color: var(--muted); }
-.icon-item-kind-pr { color: color-mix(in srgb, var(--accent) 76%, var(--muted)); }
-.icon-item-kind-issue { color: color-mix(in srgb, var(--live) 76%, var(--muted)); }
+.icon-item-kind-pr,
+.icon-item-kind-issue { color: color-mix(in srgb, var(--accent) 76%, var(--muted)); }
 .card-kind-icon { width: 15px; height: 15px; }
 /* "focus in graph" link — pushed to the right of the head row (the title wraps
    to its own line below it); muted until hovered, mirroring the graph side
