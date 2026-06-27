@@ -15,7 +15,7 @@ import type { Store } from "./db/store.ts";
 import { openConfiguredStore } from "./db/factory.ts";
 import { buildSource as defaultBuildSource } from "./sources/registry.ts";
 import { syncSource } from "./sync-engine.ts";
-import type { Source } from "./sources/types.ts";
+import type { Source, SourceRunTelemetry } from "./sources/types.ts";
 import { emitContractToFile } from "./contract/emit.ts";
 import { log } from "./log.ts";
 
@@ -36,6 +36,7 @@ export interface SourceRunResult {
   items: number;
   edges: number;
   activities: number;
+  graphql_requests?: number | null;
   soft_deleted: number;
   soft_deleted_edges: number;
   error: string | null;
@@ -63,6 +64,7 @@ export interface SyncRunResult {
 export interface PreparedSource {
   config: SourceConfig;
   source: Source;
+  telemetry?: SourceRunTelemetry | null;
 }
 
 // Mid-run progress for a live run status (the daemon's RunStatus): the
@@ -124,6 +126,7 @@ export async function executeSyncRun(
         items: 0,
         edges: 0,
         activities: 0,
+        graphql_requests: null,
         soft_deleted: 0,
         soft_deleted_edges: 0,
         error: null,
@@ -131,16 +134,21 @@ export async function executeSyncRun(
       ...errored,
     ];
 
-    for (const { config, source } of prepared) {
+    for (const { config, source, telemetry } of prepared) {
       const prev = full ? null : await store.getWatermark(config.source_id);
       // Announce the in-flight source before the (possibly slow) fetch so a tail of
       // the logs shows which source is currently syncing — the prior line, if it has
       // no matching result, is where a stall is happening.
       log.info(`[${config.source_id}] syncing…`);
       onProgress?.({ sources: [...results], active_source_id: config.source_id });
-      const rep = await syncSource(store, source, prev, { full, dryRun: opts.dryRun });
+      const rep = await syncSource(store, source, prev, {
+        full,
+        dryRun: opts.dryRun,
+        graphqlRequestCount: () => telemetry?.graphqlRequests ?? null,
+      });
       log.info(
         `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
+          `graphql=${rep.graphqlRequests ?? "-"} ` +
           `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
       );
       results.push({
@@ -149,6 +157,7 @@ export async function executeSyncRun(
         items: rep.itemsSeen,
         edges: rep.edgesSeen,
         activities: rep.activitiesSeen,
+        graphql_requests: rep.graphqlRequests,
         soft_deleted: rep.softDeleted,
         soft_deleted_edges: rep.softDeletedEdges,
         error: rep.error,
@@ -237,7 +246,7 @@ export async function runConfiguredSync(
     if (mintFailure) {
       const error = `GitHub App token mint failed with no usable fallback token: ${mintFailure}`;
       log.error(`error ${sc.source_id}: ${error}`);
-      errored.push({ source_id: sc.source_id, status: "error", items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0, error });
+      errored.push({ source_id: sc.source_id, status: "error", items: 0, edges: 0, activities: 0, graphql_requests: null, soft_deleted: 0, soft_deleted_edges: 0, error });
       continue;
     }
     const hasAnyTokens = tokens.length > 0 || (sc.kind === "github" && [...projectTokens.values()].some((projectTokenSet) => projectTokenSet.length > 0));
@@ -247,7 +256,8 @@ export async function runConfiguredSync(
       skipped.push(sc.source_id);
       continue;
     }
-    prepared.push({ config: sc, source: buildSource(sc, tokens, projectTokens) });
+    const telemetry: SourceRunTelemetry = { graphqlRequests: 0 };
+    prepared.push({ config: sc, source: buildSource(sc, tokens, projectTokens, telemetry), telemetry });
   }
 
   const store = await openStore(cfg);

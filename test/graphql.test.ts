@@ -146,6 +146,32 @@ test("GitHub GraphQL primary rate limit rotates to the next token for the same r
   assert.deepEqual(auths, ["Bearer primary", "Bearer backup"]);
 });
 
+test("GraphQL request telemetry counts each HTTP attempt, including fallback retries", async () => {
+  let attempts = 0;
+  mockFetch(() => {
+    attempts++;
+    if (attempts === 1) {
+      return new Response(JSON.stringify({ message: "rate limited" }), {
+        status: 403,
+        headers: {
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": String(Math.ceil(Date.now() / 1000) + 3600),
+        },
+      });
+    }
+    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  });
+
+  let graphqlRequests = 0;
+  const gql = makeGqlClient("https://api.github.com/graphql", [
+    { env: "PRIMARY", value: "primary", kind: "pat", strategy: "failover" },
+    { env: "BACKUP", value: "backup", kind: "pat", strategy: "failover" },
+  ], { provider: "github", onRequest: () => { graphqlRequests++; } });
+
+  assert.deepEqual(await gql("query { ok }"), { ok: true });
+  assert.equal(graphqlRequests, 2);
+});
+
 test("GitHub GraphQL budget-aware bot tokens probe unknown budgets across bots", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {

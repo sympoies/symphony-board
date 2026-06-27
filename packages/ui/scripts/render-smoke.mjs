@@ -90,11 +90,12 @@ const STORE_STATS_MOCK = (() => {
     items_seen: 1800 + i,
     edges_seen: 2300 + i,
     activities_seen: 11000 + i * 3,
+    graphql_requests: i % 5 === 0 ? null : 40 + i,
     error: i % 7 === 0 ? "rate limited: secondary limit hit, backing off" : null,
   }));
   return {
     generated_at: "2026-06-23T05:02:00Z",
-    db: { driver: "postgres", schema_version: 10 },
+    db: { driver: "postgres", schema_version: 11 },
     tables: {},
     items: { live: 1836, tombstoned: 0, by_kind: {}, by_state: {}, by_source: {} },
     edges: { live: 2368, tombstoned: 0, by_type: {}, by_lifecycle: {} },
@@ -3859,6 +3860,12 @@ try {
           if (!page || !scroller) return { found: false };
           const pr = page.getBoundingClientRect();
           const th = ${tab.sticky} ? document.querySelector(${JSON.stringify(tab.scroller + " thead th")}) : null;
+          const table = ${tab.sticky} ? document.querySelector(${JSON.stringify(tab.scroller + " table")}) : null;
+          const headers = table ? [...table.querySelectorAll('thead th')].map((cell) => (cell.textContent || '').trim().toLowerCase()) : [];
+          const gqlIndex = headers.indexOf('gql');
+          const gqlValues = gqlIndex >= 0
+            ? [...table.querySelectorAll('tbody tr')].map((row) => (row.children[gqlIndex]?.textContent || '').trim())
+            : [];
           return {
             found: true,
             pageBottomGap: Math.round(window.innerHeight - pr.bottom),
@@ -3866,6 +3873,9 @@ try {
             scrollerScrolls: scroller.scrollHeight > scroller.clientHeight + 2,
             scrollerOverflowY: getComputedStyle(scroller).overflowY,
             stickyHeader: th ? getComputedStyle(th).position : 'n/a',
+            syncGqlHeader: gqlIndex >= 0,
+            syncGqlNumeric: gqlValues.some((value) => /^[1-9][0-9]*$/.test(value)),
+            syncGqlNullPlaceholder: gqlValues.includes('—'),
           };
         })()`,
         returnByValue: true,
@@ -3967,10 +3977,15 @@ try {
   });
   const debugSync = debugFillResults.find((r) => r.tab === "sync" && r.found);
   const debugStickyCheck = [!!debugSync && debugSync.stickyHeader === "sticky", `debug fill: Sync runs header sticky (${debugSync ? debugSync.stickyHeader : "n/a"})`];
+  const debugSyncGqlCheck = [
+    !!debugSync && debugSync.syncGqlHeader === true && debugSync.syncGqlNumeric === true && debugSync.syncGqlNullPlaceholder === true,
+    `debug fill: Sync runs renders gql counts and null placeholder (${JSON.stringify(debugSync)})`,
+  ];
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
   const checks = [
     ...debugFillChecks,
     debugStickyCheck,
+    debugSyncGqlCheck,
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],

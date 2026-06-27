@@ -85,6 +85,7 @@ const MIGRATIONS: Migration[] = [
   { version: 8, file: "0008_review_thread_last_comment_at.sql" },
   { version: 9, file: "0009_item_body.sql" },
   { version: 10, file: "0010_item_comment_total.sql" },
+  { version: 11, file: "0011_sync_run_graphql_requests.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -437,11 +438,12 @@ export class PgStore implements Store {
     itemsSeen: number,
     edgesSeen: number,
     activitiesSeen: number,
+    graphqlRequests: number | null,
     error: string | null,
   ): Promise<void> {
     await this.#q`
       UPDATE sync_run SET status = ${status}, finished_at = ${finishedAt}, items_seen = ${itemsSeen},
-        edges_seen = ${edgesSeen}, activities_seen = ${activitiesSeen}, error = ${nz(error)}
+        edges_seen = ${edgesSeen}, activities_seen = ${activitiesSeen}, graphql_requests = ${nz(graphqlRequests)}, error = ${nz(error)}
       WHERE run_id = ${runId}`;
   }
 
@@ -655,7 +657,7 @@ export class PgStore implements Store {
       sync_runs: (
         await q`
           SELECT run_id, source_id, mode, status, started_at, finished_at,
-                 items_seen, edges_seen, activities_seen, error
+                 items_seen, edges_seen, activities_seen, graphql_requests, error
           FROM sync_run ORDER BY run_id DESC LIMIT ${runsLimit}`
       ).map((r) => ({
         ...r,
@@ -663,6 +665,7 @@ export class PgStore implements Store {
         items_seen: Number(r.items_seen),
         edges_seen: Number(r.edges_seen),
         activities_seen: Number(r.activities_seen),
+        graphql_requests: r.graphql_requests == null ? null : Number(r.graphql_requests),
       })) as unknown as StoreSyncRunRow[],
     };
   }

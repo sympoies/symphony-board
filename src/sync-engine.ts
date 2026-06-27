@@ -16,6 +16,7 @@ export interface SyncOptions {
   dryRun: boolean;
   ciRefreshGraceMs?: number;
   ciRefreshLimit?: number;
+  graphqlRequestCount?: () => number | null;
 }
 
 export interface SyncReport {
@@ -26,8 +27,13 @@ export interface SyncReport {
   activitiesSeen: number;
   softDeleted: number;
   softDeletedEdges: number;
+  graphqlRequests: number | null;
   watermark: string | null;
   error: string | null;
+}
+
+function graphqlRequests(opts: SyncOptions): number | null {
+  return opts.graphqlRequestCount?.() ?? null;
 }
 
 function refreshCutoffIso(startedAt: string, graceMs: number): string {
@@ -112,10 +118,21 @@ async function recordFailedRun(
   if (!opts.dryRun) {
     await store.ensureSource(source.descriptor, startedAt);
     const runId = await store.startRun(sourceId, opts.full ? "full" : "incremental", startedAt);
-    await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, msg);
+    await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, graphqlRequests(opts), msg);
     await store.updateSyncState(sourceId, null, "error", msg, startedAt);
   }
-  return { sourceId, status: "error", itemsSeen: 0, edgesSeen: 0, activitiesSeen: 0, softDeleted: 0, softDeletedEdges: 0, watermark: null, error: msg };
+  return {
+    sourceId,
+    status: "error",
+    itemsSeen: 0,
+    edgesSeen: 0,
+    activitiesSeen: 0,
+    softDeleted: 0,
+    softDeletedEdges: 0,
+    graphqlRequests: graphqlRequests(opts),
+    watermark: null,
+    error: msg,
+  };
 }
 
 export async function syncSource(
@@ -188,6 +205,7 @@ export async function syncSource(
     activitiesSeen: activities.length,
     softDeleted: 0,
     softDeletedEdges: 0,
+    graphqlRequests: graphqlRequests(opts),
     watermark,
     error: result.error,
   };
@@ -231,7 +249,7 @@ export async function syncSource(
         await tx.softDeleteUnseenReviewThreads(sourceId, startedAt, sweepAt);
       }
 
-      await tx.finishRun(runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, result.error);
+      await tx.finishRun(runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, report.graphqlRequests, result.error);
       await tx.updateSyncState(sourceId, watermark, status, result.error, startedAt);
     });
   } catch (err) {

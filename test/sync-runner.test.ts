@@ -29,6 +29,87 @@ test("a successful run emits and reports aggregated totals", async () => {
   await db.close();
 });
 
+test("a successful source run persists its GraphQL request count", async () => {
+  const db = await openSqliteStore(":memory:");
+  const source = prepared("fake:a", [item("A1")]);
+  const result = await executeSyncRun(
+    db,
+    [{ ...source, telemetry: { graphqlRequests: 7 } }],
+    [],
+    { mode: "full", dryRun: false, sourceId: null },
+  );
+
+  assert.equal(result.sources[0]!.graphql_requests, 7);
+  assert.equal((await db.overview(10)).sync_runs[0]!.graphql_requests, 7);
+  await db.close();
+});
+
+test("runConfiguredSync counts real GraphQL attempts and persists them", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "symphony-runner-gql-"));
+  const dbPath = join(dir, "board.db");
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ method: string; path: string; body: string }> = [];
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const method = init?.method ?? "GET";
+    const body = String(init?.body ?? "");
+    calls.push({ method, path: url.pathname, body });
+
+    const json = (payload: unknown) => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+    if (method === "POST") {
+      const field = body.includes("pullRequests(") ? "pullRequests" : "issues";
+      return json({
+        data: {
+          repository: {
+            [field]: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [],
+            },
+          },
+        },
+      });
+    }
+    if (url.pathname === "/repos/sympoies/repo") return json({ default_branch: "main" });
+    return json([]);
+  }) as typeof fetch;
+
+  process.env.RUNNER_GQL_COUNT_TOKEN = "token";
+  const cfg: AppConfig = {
+    db_path: dbPath,
+    sources: [{
+      source_id: "github:github.com",
+      kind: "github",
+      host: "github.com",
+      token_env: "RUNNER_GQL_COUNT_TOKEN",
+      graphql_url: "https://api.github.com/graphql",
+      rest_url: "https://api.github.com",
+      projects: ["sympoies/repo"],
+    }],
+  };
+
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: false, sourceId: null }, null);
+    const graphqlCalls = calls.filter((call) => call.method === "POST" && call.path === "/graphql");
+    assert.equal(graphqlCalls.length, 2);
+    assert.equal(result.sources.find((source) => source.source_id === "github:github.com")?.graphql_requests, 2);
+
+    const db = await openSqliteStore(dbPath);
+    try {
+      assert.equal((await db.overview(10)).sync_runs[0]!.graphql_requests, 2);
+    } finally {
+      await db.close();
+    }
+  } finally {
+    delete process.env.RUNNER_GQL_COUNT_TOKEN;
+    globalThis.fetch = originalFetch;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a dry-run never emits and writes nothing", async () => {
   const db = await openSqliteStore(":memory:");
   let emitCalls = 0;

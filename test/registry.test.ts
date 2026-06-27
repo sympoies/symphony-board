@@ -69,10 +69,12 @@ test("a github config with tokenless projects marks the source partial", async (
     return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   try {
+    const telemetry = { graphqlRequests: 0 };
     const src = buildSource(
       cfg({ projects: ["default/repo", { path: "sympoies/repo", token_pool: "sympoies" }] }),
       [],
       new Map([["default/repo", []], ["sympoies/repo", [{ env: "RUNNER_PROJECT_POOL", value: "repo-token" }]]]),
+      telemetry,
     );
 
     const result = await src.fetch({ since: null, full: true });
@@ -81,6 +83,7 @@ test("a github config with tokenless projects marks the source partial", async (
     assert.match(result.error ?? "", /missing token for projects: default\/repo/);
     const graphqlCalls = calls.filter((call) => call.method === "POST");
     assert.equal(graphqlCalls.length, 2, "only the token-covered repo is fetched over GraphQL");
+    assert.equal(telemetry.graphqlRequests, 2, "source telemetry counts GraphQL POSTs only");
     assert.ok(calls.every((call) => call.auth === "Bearer repo-token"));
     assert.ok(graphqlCalls.every((call) => call.body.includes('"owner":"sympoies"') && call.body.includes('"name":"repo"')));
     assert.ok(calls.every((call) => !call.url.includes("default/repo") && !call.body.includes('"owner":"default"')));

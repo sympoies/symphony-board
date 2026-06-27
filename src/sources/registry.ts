@@ -1,7 +1,7 @@
 // Build a Source from its config entry. Adding a provider is a case here plus a
 // class implementing the Source interface — the DB and contract are untouched.
 
-import type { Source, SourceDescriptor } from "./types.ts";
+import type { Source, SourceDescriptor, SourceRunTelemetry } from "./types.ts";
 import type { AuthToken } from "./http.ts";
 import { type SourceConfig, projectPaths } from "../config.ts";
 import { makeGqlClient } from "./graphql.ts";
@@ -15,14 +15,26 @@ function tokenKey(tokens: AuthToken[]): string {
   return tokens.map((token) => token.env).join("\0");
 }
 
-export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[], projectTokens: ProjectTokenMap = new Map()): Source {
+function gqlOptions(kind: string, telemetry: SourceRunTelemetry | null | undefined): { provider: string; onRequest?: () => void } {
+  return {
+    provider: kind,
+    ...(telemetry ? { onRequest: () => { telemetry.graphqlRequests++; } } : {}),
+  };
+}
+
+export function buildSource(
+  cfg: SourceConfig,
+  tokens: string | AuthToken[],
+  projectTokens: ProjectTokenMap = new Map(),
+  telemetry?: SourceRunTelemetry | null,
+): Source {
   const descriptor: SourceDescriptor = {
     sourceId: cfg.source_id,
     kind: cfg.kind,
     host: cfg.host,
     displayName: cfg.display_name ?? null,
   };
-  const gql = makeGqlClient(cfg.graphql_url, tokens, { provider: cfg.kind });
+  const gql = makeGqlClient(cfg.graphql_url, tokens, gqlOptions(cfg.kind, telemetry));
   const paths = projectPaths(cfg);
   switch (cfg.kind) {
     case "github": {
@@ -45,7 +57,7 @@ export function buildSource(cfg: SourceConfig, tokens: string | AuthToken[], pro
         let clients = clientsByKey.get(key);
         if (!clients) {
           clients = {
-            gql: makeGqlClient(cfg.graphql_url, repoTokens, { provider: cfg.kind }),
+            gql: makeGqlClient(cfg.graphql_url, repoTokens, gqlOptions(cfg.kind, telemetry)),
             rest: makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), repoTokens, "github"),
           };
           clientsByKey.set(key, clients);

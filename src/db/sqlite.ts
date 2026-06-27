@@ -70,6 +70,7 @@ const MIGRATIONS: Migration[] = [
   { version: 8, file: "0008_review_thread_last_comment_at.sql" },
   { version: 9, file: "0009_item_body.sql" },
   { version: 10, file: "0010_item_comment_total.sql" },
+  { version: 11, file: "0011_sync_run_graphql_requests.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -155,6 +156,7 @@ function applyMigration(db: DatabaseSync, m: Migration, ddl: string): void {
 
 function migrationAlreadyApplied(db: DatabaseSync, m: Migration): boolean {
   if (m.version === 9) return sqliteColumnExists(db, "item", "body");
+  if (m.version === 11) return sqliteColumnExists(db, "sync_run", "graphql_requests");
   return false;
 }
 
@@ -449,13 +451,14 @@ export class SqliteStore implements Store {
     itemsSeen: number,
     edgesSeen: number,
     activitiesSeen: number,
+    graphqlRequests: number | null,
     error: string | null,
   ): Promise<void> {
     this.#db
       .prepare(
-        `UPDATE sync_run SET status=?, finished_at=?, items_seen=?, edges_seen=?, activities_seen=?, error=? WHERE run_id=?`,
+        `UPDATE sync_run SET status=?, finished_at=?, items_seen=?, edges_seen=?, activities_seen=?, graphql_requests=?, error=? WHERE run_id=?`,
       )
-      .run(status, finishedAt, itemsSeen, edgesSeen, activitiesSeen, nz(error), runId);
+      .run(status, finishedAt, itemsSeen, edgesSeen, activitiesSeen, nz(graphqlRequests), nz(error), runId);
   }
 
   async updateSyncState(
@@ -741,7 +744,7 @@ export class SqliteStore implements Store {
       sync_runs: this.#db
         .prepare(
           `SELECT run_id, source_id, mode, status, started_at, finished_at,
-                  items_seen, edges_seen, activities_seen, error
+                  items_seen, edges_seen, activities_seen, graphql_requests, error
            FROM sync_run ORDER BY run_id DESC LIMIT ?`,
         )
         .all(runsLimit) as unknown as StoreSyncRunRow[],

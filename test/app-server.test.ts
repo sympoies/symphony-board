@@ -114,7 +114,7 @@ test("standalone full cadence uses stored sync history across restarts", async (
     try {
       await db.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-27T10:59:00Z");
       const runId = await db.startRun("github:github.com", "full", "2026-06-27T11:00:00Z");
-      await db.finishRun(runId, "error", "2026-06-27T11:02:00Z", 0, 0, 0, "provider down");
+      await db.finishRun(runId, "error", "2026-06-27T11:02:00Z", 0, 0, 0, null, "provider down");
     } finally {
       await db.close();
     }
@@ -133,7 +133,7 @@ test("standalone full cadence uses stored sync history across restarts", async (
     try {
       await db.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-25T09:59:00Z");
       const runId = await db.startRun("github:github.com", "full", "2026-06-25T10:00:00Z");
-      await db.finishRun(runId, "ok", "2026-06-25T10:05:00Z", 10, 1, 2, null);
+      await db.finishRun(runId, "ok", "2026-06-25T10:05:00Z", 10, 1, 2, 6, null);
     } finally {
       await db.close();
     }
