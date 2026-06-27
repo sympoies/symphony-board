@@ -110,7 +110,12 @@ function ItemDetail({
                 <DetailFact label="state reason" value={item.state_reason} />
                 <DetailFact label="milestone" value={item.milestone} />
               </dl>
-              <ItemMetricStrip item={item} related={related} className="items-detail-metrics" />
+              <ItemMetricStrip
+                item={item}
+                related={related}
+                relatedHref={related && related.total > 0 ? graphFocusHref(item, lens) : null}
+                className="items-detail-metrics"
+              />
 
               {hasSignals ? (
                 <div className="items-detail-signals" aria-label="Status signals">

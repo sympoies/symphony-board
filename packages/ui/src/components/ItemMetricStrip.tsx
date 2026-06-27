@@ -30,21 +30,38 @@ function MetricIcon({ kind }: { kind: ItemMetricKind }) {
 export function ItemMetricStrip({
   item,
   related,
+  relatedHref,
   className,
 }: {
   item: ItemDTO;
   related?: RelationCount | null;
+  relatedHref?: string | null;
   className?: string;
 }) {
   const entries = itemMetricEntries(item, related);
   if (entries.length === 0) return null;
   return (
     <span className={`item-metric-strip${className ? ` ${className}` : ""}`}>
-      {entries.map((entry) => (
-        <span key={entry.kind} className={`item-metric item-metric-${entry.kind}`} title={entry.title}>
-          <MetricIcon kind={entry.kind} /> {entry.value}
-        </span>
-      ))}
+      {entries.map((entry) => {
+        const body = (
+          <>
+            <MetricIcon kind={entry.kind} /> {entry.value}
+          </>
+        );
+        const metricClass = `item-metric item-metric-${entry.kind}`;
+        if (entry.kind === "related" && relatedHref) {
+          return (
+            <a key={entry.kind} className={metricClass} href={relatedHref} title={entry.title}>
+              {body}
+            </a>
+          );
+        }
+        return (
+          <span key={entry.kind} className={metricClass} title={entry.title}>
+            {body}
+          </span>
+        );
+      })}
     </span>
   );
 }
