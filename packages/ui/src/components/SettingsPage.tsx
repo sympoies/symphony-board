@@ -70,6 +70,8 @@ interface Props {
   config?: ConfigState; // writer-owned producer config, when the capability is enabled
   tab?: SettingsTab; // URL-backed sub-tab; only meaningful when config is available
   onTab?: (tab: SettingsTab) => void;
+  standalone?: boolean;
+  setupLocked?: boolean;
 }
 
 // "display" is the shared, browser-local view-preferences page every
@@ -147,6 +149,8 @@ export function SettingsPage({
   config,
   tab = "display",
   onTab,
+  standalone = false,
+  setupLocked = false,
 }: Props) {
   const allKeys = repos.map((r) => r.key);
   const shownTotal = allKeys.filter((k) => !hidden.has(k)).length;
@@ -171,34 +175,39 @@ export function SettingsPage({
   // (resolveDefaultTab), so a stored "live" default shows as Activity here while
   // Live is off — matching an offered option without rewriting the stored
   // preference, which re-applies once Live is available and turned back on.
-  const liveTabEffectivelyEnabled = liveTabEnabled && !liveDisabled;
+  const liveTabEffectivelyEnabled = !standalone && liveTabEnabled && !liveDisabled;
   const tabOptions = liveTabEffectivelyEnabled
     ? DEFAULT_TAB_OPTIONS
     : DEFAULT_TAB_OPTIONS.filter((t) => t.id !== "live");
   const contentTabLabels = new Map(CONTENT_TAB_OPTIONS.map((t) => [t.id, t.label]));
 
   const showTabs = config?.available === true;
-  const activeTab: SettingsTab = showTabs && tab === "sources" ? "sources" : "display";
+  const activeTab: SettingsTab = setupLocked || (showTabs && tab === "sources") ? "sources" : "display";
 
   if (showTabs && activeTab === "sources" && config) {
     return (
       <section className="settings-page">
-        <SettingsTabs active={activeTab} onTab={onTab} />
-        <SourcesEditor config={config} sync={sync} />
+        <SettingsTabs active={activeTab} onTab={onTab} lockedToSources={setupLocked} />
+        {setupLocked ? (
+          <div className="banner warn standalone-setup-banner">
+            GitHub PAT required before sync. Navigation unlocks after the token validates and saves.
+          </div>
+        ) : null}
+        <SourcesEditor config={config} sync={sync} variant={standalone ? "standalone" : "default"} />
       </section>
     );
   }
 
   return (
     <section className="settings-page">
-      {showTabs ? <SettingsTabs active={activeTab} onTab={onTab} /> : null}
+      {showTabs ? <SettingsTabs active={activeTab} onTab={onTab} lockedToSources={setupLocked} /> : null}
       <div className="settings-head">
         <div>
           <h2>Display</h2>
           <p className="muted">
             View-only preferences saved in your browser — display basics, board data and defaults,
-            Live preferences, connection, and which repos and sources appear. The daemon keeps
-            syncing every source regardless.
+            connection, and which repos and sources appear. The daemon keeps syncing every source
+            regardless.
           </p>
         </div>
       </div>
@@ -248,8 +257,9 @@ export function SettingsPage({
         <div>
           <h3>Board data</h3>
           <p className="muted">
-            Turn contract-backed board data on or off. When off, only the Live feed is shown —
-            open the Live tab below.
+            {standalone
+              ? "Turn contract-backed board data on or off for this device."
+              : "Turn contract-backed board data on or off. When off, only the Live feed is shown — open the Live tab below."}
           </p>
         </div>
         <label className="settings-toggle">
@@ -311,7 +321,7 @@ export function SettingsPage({
         <div>
           <h3>Tab order</h3>
           <p className="muted">
-            Order of the content tabs between Live and Settings. Saved on this device only.
+            Order of the content tabs before Settings. Saved on this device only.
           </p>
         </div>
         <ol className="settings-tab-order-list" aria-label="Content tab order">
@@ -348,83 +358,76 @@ export function SettingsPage({
         </ol>
       </div>
 
-      <SettingsSectionTitle title="Live" />
-      <div
-        className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
-        title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
-      >
-        <div>
-          <h3>Live tab</h3>
-          <p className="muted">
-            Show the realtime Live tab and stream activity as it lands. Off by default — while off
-            the tab is hidden and the app opens no live connection, so it costs nothing. Saved on
-            this device only.
-          </p>
-          {liveDisabled ? (
-            <p className="muted">Live needs a running server — unavailable in this static demo.</p>
-          ) : null}
-        </div>
-        <label className="settings-toggle">
-          <input
-            type="checkbox"
-            checked={liveTabEnabled}
-            disabled={liveDisabled}
-            onChange={(e) => onLiveTabEnabled(e.target.checked)}
-            aria-label="Enable the Live tab"
-          />
-        </label>
-      </div>
-
-      {liveTabEffectivelyEnabled ? (
+      {!standalone ? (
         <>
-          <div
-            className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
-            title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
-          >
+          <SettingsSectionTitle title="Live" />
+          <div className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`} title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}>
             <div>
-              <h3>Live feed preview</h3>
+              <h3>Live tab</h3>
               <p className="muted">
-                Lines of an event body shown in the Live feed before it clamps; the full body opens in
-                the detail pane. Saved on this device only.
+                Show the realtime Live tab and stream activity as it lands. Off by default — while off
+                the tab is hidden and the app opens no live connection, so it costs nothing. Saved on
+                this device only.
               </p>
+              {liveDisabled ? <p className="muted">Live needs a running server — unavailable in this static demo.</p> : null}
             </div>
-            <input
-              className="settings-number"
-              type="number"
-              min={MIN_LIVE_PREVIEW_LINES}
-              max={MAX_LIVE_PREVIEW_LINES}
-              step={1}
-              value={livePreviewLines}
-              disabled={liveDisabled}
-              onChange={(e) => onLivePreviewLines(clampLivePreviewLines(Number(e.target.value)))}
-            />
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={liveTabEnabled}
+                disabled={liveDisabled}
+                onChange={(e) => onLiveTabEnabled(e.target.checked)}
+                aria-label="Enable the Live tab"
+              />
+            </label>
           </div>
 
-          <div
-            className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`}
-            title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}
-          >
-            <div>
-              <h3>Live event types</h3>
-              <p className="muted">
-                Which event categories appear in the Live feed and its filter strip. Unticking one
-                hides it everywhere on the Live tab. Saved on this device only.
-              </p>
-            </div>
-            <div className="settings-types">
-              {LIVE_CATEGORY_ORDER.map((category) => (
-                <label key={category} className="settings-type">
-                  <input
-                    type="checkbox"
-                    checked={!hiddenEventTypes.has(category)}
-                    disabled={liveDisabled}
-                    onChange={() => onToggleEventType(category)}
-                  />
-                  <span>{humanizeCategory(category)}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+          {liveTabEffectivelyEnabled ? (
+            <>
+              <div className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`} title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}>
+                <div>
+                  <h3>Live feed preview</h3>
+                  <p className="muted">
+                    Lines of an event body shown in the Live feed before it clamps; the full body opens in
+                    the detail pane. Saved on this device only.
+                  </p>
+                </div>
+                <input
+                  className="settings-number"
+                  type="number"
+                  min={MIN_LIVE_PREVIEW_LINES}
+                  max={MAX_LIVE_PREVIEW_LINES}
+                  step={1}
+                  value={livePreviewLines}
+                  disabled={liveDisabled}
+                  onChange={(e) => onLivePreviewLines(clampLivePreviewLines(Number(e.target.value)))}
+                />
+              </div>
+
+              <div className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`} title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}>
+                <div>
+                  <h3>Live event types</h3>
+                  <p className="muted">
+                    Which event categories appear in the Live feed and its filter strip. Unticking one
+                    hides it everywhere on the Live tab. Saved on this device only.
+                  </p>
+                </div>
+                <div className="settings-types">
+                  {LIVE_CATEGORY_ORDER.map((category) => (
+                    <label key={category} className="settings-type">
+                      <input
+                        type="checkbox"
+                        checked={!hiddenEventTypes.has(category)}
+                        disabled={liveDisabled}
+                        onChange={() => onToggleEventType(category)}
+                      />
+                      <span>{humanizeCategory(category)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : null}
         </>
       ) : null}
 
@@ -553,7 +556,16 @@ function SettingsSectionTitle({ title }: { title: string }) {
   return <div className="settings-section-title">{title}</div>;
 }
 
-function SettingsTabs({ active, onTab }: { active: SettingsTab; onTab?: (tab: SettingsTab) => void }) {
+function SettingsTabs({ active, onTab, lockedToSources = false }: { active: SettingsTab; onTab?: (tab: SettingsTab) => void; lockedToSources?: boolean }) {
+  if (lockedToSources) {
+    return (
+      <nav className="settings-tabs" role="tablist" aria-label="Settings sections">
+        <button type="button" role="tab" aria-selected="true" className="settings-tab settings-tab-active" disabled>
+          Sources
+        </button>
+      </nav>
+    );
+  }
   return (
     <nav className="settings-tabs" role="tablist" aria-label="Settings sections">
       <button type="button" role="tab" aria-selected={active === "display"} className={`settings-tab${active === "display" ? " settings-tab-active" : ""}`} onClick={() => onTab?.("display")}>

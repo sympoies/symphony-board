@@ -2,6 +2,7 @@ import type { ContractEnvelope } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { relativeTime, isSyncRunActive, liveSourceStatus, syncRunSummary, visibleHeaderSources } from "../model.ts";
 import type { SyncState } from "../useSync.ts";
+import { standaloneBrandClass } from "../viewconfig.ts";
 
 const NO_HIDDEN_SOURCES: ReadonlySet<string> = new Set();
 
@@ -33,7 +34,7 @@ function RefreshIcon() {
 
 export function BrandHeader() {
   return (
-    <header className="app-header app-header-brand-only">
+    <header className={`app-header app-header-brand-only${standaloneBrandClass()}`}>
       <div className="brand">
         <div className="brand-main">
           <span className="brand-refresh brand-mark-static" aria-hidden="true">
@@ -69,7 +70,7 @@ export function Header({
   const summary = showSync ? (sync!.error ?? syncRunSummary(running ? sync!.current : sync!.last)) : "";
   const sources = visibleHeaderSources(env.sources, hiddenSources);
   return (
-    <header className="app-header">
+    <header className={`app-header${standaloneBrandClass()}`}>
       <div className="brand">
         <div className="brand-main">
           <button

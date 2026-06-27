@@ -2444,6 +2444,7 @@ export interface SyncControlInfo {
   last: SyncRunStatus | null;
   interval_seconds?: number;
   full_every?: number;
+  full_interval_seconds?: number;
 }
 
 export interface SyncRunRequest {
@@ -2602,9 +2603,16 @@ export interface ConfigSourceDoc {
   [extra: string]: unknown;
 }
 
+export interface ConfigSyncDoc {
+  interval_seconds?: number;
+  full_interval_seconds?: number;
+  [extra: string]: unknown;
+}
+
 export interface ConfigDocument {
   db_path: string;
   timezone?: string;
+  sync?: ConfigSyncDoc;
   sources: ConfigSourceDoc[];
   [extra: string]: unknown;
 }
@@ -2645,12 +2653,43 @@ export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fal
   return out;
 }
 
+export function sourcePatTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools" | "auth_pools">): string[] {
+  const out: string[] = [];
+  const push = (env: string | undefined): void => {
+    if (typeof env !== "string") return;
+    const trimmed = env.trim();
+    if (trimmed.length > 0 && !out.includes(trimmed)) out.push(trimmed);
+  };
+  for (const env of [source.token_env, ...(source.fallback_token_envs ?? [])]) push(env);
+  for (const pool of Object.values(source.token_pools ?? {})) {
+    for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+  }
+  for (const pool of Object.values(source.auth_pools ?? {})) {
+    if (pool.kind !== "pat") continue;
+    for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+  }
+  return out;
+}
+
+export function shouldValidateSecretBeforeSave(
+  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools" | "auth_pools">,
+  env: string,
+  standalone: boolean,
+): boolean {
+  return standalone && sourcePatTokenEnvs(source).includes(env);
+}
+
 // True when ANY of a source's credential envs has a secret set.
 export function isSourceTokenSet(
   source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "github_app" | "token_pools" | "auth_pools">,
   secrets: Record<string, boolean>,
 ): boolean {
   return sourceTokenEnvs(source).some((env) => secrets[env] === true);
+}
+
+export function configNeedsCredentialSetup(config: ConfigDocument | null, secrets: Record<string, boolean>): boolean {
+  if (!config) return true;
+  return config.sources.some((source) => source.enabled !== false && sourceTokenEnvs(source).length > 0 && !isSourceTokenSet(source, secrets));
 }
 
 export interface ConfigControlInfo {
@@ -2937,6 +2976,9 @@ export function runDuration(startedAt: string, finishedAt: string | null): strin
 // db_path seeded into a config created in-app. Relative to the daemon's
 // working directory — the standalone data dir — matching the shipped template.
 export const NEW_CONFIG_DB_PATH = "data/symphony.db";
+export const STANDALONE_DEFAULT_PROJECT = "sympoies/symphony-board";
+export const STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS = 600;
+export const STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS = 86400;
 
 export type ConfigSourceKind = "github" | "gitlab";
 
@@ -2975,8 +3017,35 @@ export function suggestSourceDefaults(
   };
 }
 
+export function standaloneDefaultConfig(): ConfigDocument {
+  return {
+    db_path: NEW_CONFIG_DB_PATH,
+    sync: {
+      interval_seconds: STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS,
+      full_interval_seconds: STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS,
+    },
+    sources: [
+      {
+        ...suggestSourceDefaults("github", "github.com"),
+        display_name: "GitHub",
+        projects: [STANDALONE_DEFAULT_PROJECT],
+      },
+    ],
+  };
+}
+
 // Immutable draft mutations for the Sources editor. Each returns a new
 // document and leaves fields the editor does not own untouched.
+
+export function configWithSyncCadence(doc: ConfigDocument, patch: Partial<ConfigSyncDoc>): ConfigDocument {
+  return {
+    ...doc,
+    sync: {
+      ...(doc.sync ?? {}),
+      ...patch,
+    },
+  };
+}
 
 export function configWithSource(doc: ConfigDocument | null, source: ConfigSourceDoc): ConfigDocument {
   const base = doc ?? { db_path: NEW_CONFIG_DB_PATH, sources: [] };

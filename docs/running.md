@@ -199,6 +199,12 @@ The Postgres stack runs with `INTERVAL=${SYNC_INTERVAL:-300}` and
 `FULL_EVERY` iterations, with incremental runs in between. Set `FULL_EVERY=1`
 to always full-sweep. See [DESIGN.md](DESIGN.md) for the stack cadence summary.
 
+The standalone macOS app intentionally uses a slower personal-token cadence:
+incremental sync every 600 seconds and a full sweep about once per day. Adjust
+those under Settings -> Sources; the values are saved as top-level
+`sync.interval_seconds` and `sync.full_interval_seconds` in the standalone
+`sources.json`.
+
 Within a single source's sweep, the per-item resolve pass runs at a bounded
 concurrency of `SYNC_RESOLVE_CONCURRENCY` (default 4; a value below 1 or
 non-integer falls back to the default, read fresh each run). Raising it shortens
@@ -332,9 +338,11 @@ Docker stack. Change it from Settings -> Server for an always-on hosted server.
 
 **Standalone** (`packages/desktop-standalone`) is the fully self-contained app:
 UI plus the bundled Node runtime, sync daemon, SQLite store, and contract server
-in one `.app`, no Docker or server required. First run onboards entirely in-app
-by adding a source, pasting a token, and running the first sync. Config, tokens,
-and data live under:
+in one `.app`, no Docker or server required. First run seeds one GitHub source
+for `sympoies/symphony-board`; until the PAT is set, the UI stays locked on
+Settings -> Sources. Paste the highlighted GitHub PAT, let the app validate it,
+then run the first sync. GitLab or other sources are added later in Settings ->
+Sources. Config, tokens, and data live under:
 
 ```text
 ~/Library/Application Support/com.sympoies.symphony-board.standalone/

@@ -12,6 +12,7 @@ import {
   saveConfig,
   saveSecret,
   sourceTokenEnvNames,
+  syncScheduleFromConfig,
   tokenFor,
   tokensForSource,
   tokensForProject,
@@ -88,6 +89,42 @@ test("accepts commit_branches all/default and rejects any other value", () => {
   const errors = configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "branches" })] }, "config");
   assert.equal(errors.length, 1);
   assert.match(errors[0]!, /commit_branches must be "all" or "default"/);
+});
+
+test("accepts sync cadence settings and rejects malformed values", () => {
+  assert.deepEqual(
+    configErrors({ db_path: "x", sync: { interval_seconds: 600, full_interval_seconds: 86400 }, sources: [baseSource()] }, "config"),
+    [],
+  );
+
+  assert.match(
+    configErrors({ db_path: "x", sync: "fast", sources: [baseSource()] }, "config")[0]!,
+    /"sync" must be an object/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sync: { interval_seconds: 0 }, sources: [baseSource()] }, "config")[0]!,
+    /sync\.interval_seconds must be a positive integer/,
+  );
+  assert.match(
+    configErrors({ db_path: "x", sync: { full_interval_seconds: 3.5 }, sources: [baseSource()] }, "config")[0]!,
+    /sync\.full_interval_seconds must be a positive integer/,
+  );
+});
+
+test("syncScheduleFromConfig derives full sweeps from requested full interval", () => {
+  assert.deepEqual(
+    syncScheduleFromConfig({ sync: { interval_seconds: 600, full_interval_seconds: 86400 } }, { intervalSeconds: 120, fullEvery: 30 }),
+    { intervalSeconds: 600, fullEvery: 144, fullIntervalSeconds: 86400 },
+  );
+  assert.deepEqual(
+    syncScheduleFromConfig({ sync: { interval_seconds: 700, full_interval_seconds: 86400 } }, { intervalSeconds: 120, fullEvery: 30 }),
+    { intervalSeconds: 700, fullEvery: 124, fullIntervalSeconds: 86800 },
+  );
+  assert.deepEqual(syncScheduleFromConfig({ sync: { interval_seconds: 300 } }, { intervalSeconds: 120, fullEvery: 30 }), {
+    intervalSeconds: 300,
+    fullEvery: 30,
+    fullIntervalSeconds: 9000,
+  });
 });
 
 test("accepts fallback_token_envs and rejects malformed token pools", () => {

@@ -23,7 +23,10 @@ import { tmpdir, platform } from "node:os";
 import { LIVE_SEED_LIMIT, LIVE_EVENT_BUFFER_LIMIT } from "../src/live-config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIST = join(__dirname, "..", "dist");
+const ROOT = join(__dirname, "..", "..", "..");
+const DIST = join(__dirname, "..", process.env.SYMPHONY_BOARD_SMOKE_DIST || "dist");
+const STANDALONE_SEED_CONFIG = join(ROOT, "config", "standalone-default-sources.json");
+const STANDALONE_SMOKE = process.env.SYMPHONY_BOARD_SMOKE_STANDALONE === "1";
 const FIRST_PAINT_SCRIPT_MARKER = "Apply the persisted color mode BEFORE first paint";
 
 function firstPaintScriptFromHtml(html) {
@@ -46,6 +49,7 @@ function envPort(name, fallback) {
   return n;
 }
 const HTTP_PORT = envPort("SYMPHONY_BOARD_SMOKE_HTTP_PORT", 4399);
+const STANDALONE_API_PORT = envPort("SYMPHONY_BOARD_SMOKE_STANDALONE_API_PORT", 8787);
 const CDP_PORT = envPort("SYMPHONY_BOARD_SMOKE_CDP_PORT", 9333);
 const DEADLINE_MS = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,7 +63,15 @@ let contractResponseDelayMs = 0;
 // headless render exercises the writer-owned manual-sync affordance (the static
 // dist has no daemon). A POST starts a "running" run that completes shortly after
 // (current -> last), so the UI shows running, then reloaded.
-const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+const CORS_HEADERS = STANDALONE_SMOKE
+  ? {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, X-Symphony-Sync-Control, x-symphony-sync-control",
+      "Access-Control-Max-Age": "600",
+    }
+  : {};
+const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS_HEADERS };
 const syncMock = { current: null, last: null, seq: 0 };
 // The hidden #/debug fill-height tabs read these two writer-daemon surfaces:
 // GET /api/stats feeds the Sync runs table (stats.sync_runs) and GET /api/logs
@@ -108,6 +120,8 @@ let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
 let liveSnapshotLarge = false;
 let liveSnapshotRankFit = false;
+let secretValidationRequestCount = 0;
+const secretRequestLog = [];
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -181,8 +195,15 @@ function withSmokeHeaderSources(env) {
 // credential set and one missing). PUTs adopt the submitted document like the real
 // daemon (validation is not mocked — the editor only sees success here).
 const configMock = { doc: null, secrets: {} };
+async function standaloneSeedConfig() {
+  return JSON.parse(await readFile(STANDALONE_SEED_CONFIG, "utf8"));
+}
 async function configMockDoc() {
   if (configMock.doc) return configMock.doc;
+  if (STANDALONE_SMOKE) {
+    configMock.doc = await standaloneSeedConfig();
+    return configMock.doc;
+  }
   const sources = (await syncSources()).map((s) => ({
     source_id: s.source_id,
     kind: s.kind,
@@ -194,6 +215,17 @@ async function configMockDoc() {
   }));
   configMock.doc = { db_path: "data/board.db", sources };
   return configMock.doc;
+}
+
+function configCredentialEnvs(source) {
+  const out = [];
+  const push = (env) => {
+    if (typeof env !== "string") return;
+    const trimmed = env.trim();
+    if (trimmed && !out.includes(trimmed)) out.push(trimmed);
+  };
+  for (const env of [source.token_env, ...(source.fallback_token_envs || [])]) push(env);
+  return out;
 }
 
 // A small, valid `live-snapshot/1` payload for the #/live seed. Three events
@@ -500,9 +532,14 @@ if (!existsSync(join(DIST, "index.html"))) {
 }
 
 // --- in-process static server for dist/ ---
-const server = createServer(async (req, res) => {
+async function handleSmokeRequest(req, res) {
   try {
     let p = decodeURIComponent((req.url || "/").split("?")[0]);
+    if (p.startsWith("/api/secrets")) secretRequestLog.push(`${req.method} ${p}`);
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, CORS_HEADERS).end();
+      return;
+    }
     if (p === "/api/range") {
       rangeRequestCount += 1;
       const delayMs = rangeResponseDelayMs;
@@ -514,7 +551,7 @@ const server = createServer(async (req, res) => {
       }
       const rawBody = await readFile(join(DIST, "contract.json"));
       const response = rangeProjection(rawBody, req.url || "/api/range");
-      res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(response.body);
+      res.writeHead(response.status, JSON_HEADERS).end(response.body);
       return;
     }
     if (p === "/__smoke/contract-count") {
@@ -600,7 +637,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (p === "/api/sync-control") {
-      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, sources: await syncSources(), current: syncMock.current, last: syncMock.last, interval_seconds: 120, full_every: 30 }));
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, sources: await syncSources(), current: syncMock.current, last: syncMock.last, interval_seconds: 120, full_every: 30, full_interval_seconds: 3600 }));
       return;
     }
     if (p === "/api/sync-runs/current") {
@@ -638,6 +675,22 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, config: await configMockDoc(), error: null }));
       return;
     }
+    if (p === "/api/secrets/validate" && req.method === "POST") {
+      secretValidationRequestCount += 1;
+      const raw = await readBody(req);
+      let body = {};
+      try {
+        body = JSON.parse(raw || "{}");
+      } catch {
+        body = {};
+      }
+      if (body.source_id === "github:github.com" && body.env === "GITHUB_TOKEN" && typeof body.value === "string" && body.value.trim()) {
+        res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ ok: true, source_id: body.source_id, env: body.env, provider: "github", account: "smoke", project_path: "sympoies/symphony-board" }));
+        return;
+      }
+      res.writeHead(422, JSON_HEADERS).end(JSON.stringify({ ok: false, source_id: body.source_id ?? "", env: body.env ?? "", provider: "github", error: "invalid_token", message: "invalid smoke token" }));
+      return;
+    }
     if (p === "/api/secrets") {
       if (req.method === "PUT") {
         const raw = await readBody(req);
@@ -653,7 +706,11 @@ const server = createServer(async (req, res) => {
       }
       const doc = await configMockDoc();
       const secrets = {};
-      for (const s of doc.sources) secrets[s.token_env] = configMock.secrets[s.token_env] ?? s.token_env === "GITHUB_TOKEN";
+      for (const s of doc.sources) {
+        for (const env of configCredentialEnvs(s)) {
+          secrets[env] = configMock.secrets[env] ?? (!STANDALONE_SMOKE && env === "GITHUB_TOKEN");
+        }
+      }
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ enabled: true, writable: true, secrets }));
       return;
     }
@@ -669,19 +726,27 @@ const server = createServer(async (req, res) => {
     if (isContract && contractResponseDelayMs > 0) await sleep(contractResponseDelayMs);
     const body = isContract ? inflateActivityContract(rawBody) : rawBody;
     const ext = file.slice(file.lastIndexOf("."));
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" }).end(body);
+    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream", ...CORS_HEADERS }).end(body);
   } catch {
     res.writeHead(404).end("not found");
   }
-});
-await new Promise((resolve, reject) => {
-  const onError = (err) => reject(err);
-  server.once("error", onError);
-  server.listen(HTTP_PORT, "127.0.0.1", () => {
-    server.off("error", onError);
-    resolve();
+}
+
+function listen(serverToStart, port) {
+  return new Promise((resolve, reject) => {
+    const onError = (err) => reject(err);
+    serverToStart.once("error", onError);
+    serverToStart.listen(port, "127.0.0.1", () => {
+      serverToStart.off("error", onError);
+      resolve();
+    });
   });
-});
+}
+
+const server = createServer(handleSmokeRequest);
+const standaloneApiServer = STANDALONE_SMOKE ? createServer(handleSmokeRequest) : null;
+await listen(server, HTTP_PORT);
+if (standaloneApiServer) await listen(standaloneApiServer, STANDALONE_API_PORT);
 
 // --- launch headless Chrome ---
 const userDataDir = mkdtempSync(join(tmpdir(), "sb-render-"));
@@ -699,6 +764,7 @@ const chrome = spawn(
 function cleanup() {
   try { chrome.kill("SIGKILL"); } catch {}
   try { server.close(); } catch {}
+  try { standaloneApiServer?.close(); } catch {}
   try { rmSync(userDataDir, { recursive: true, force: true }); } catch {}
 }
 
@@ -771,6 +837,130 @@ try {
     }
     return value;
   };
+  if (STANDALONE_SMOKE) {
+    await send("Runtime.evaluate", { expression: "try { localStorage.clear(); } catch (e) {}", returnByValue: true });
+    await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/` });
+    const setupHtml = await waitHtml("location.hash === '#/settings?tab=sources' && document.querySelector('.settings-config') && document.querySelector('.config-token-missing')");
+    const setupState = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const pageTabs = Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => el.textContent?.trim() || '');
+        const settingsTabs = Array.from(document.querySelectorAll('.settings-tabs .settings-tab')).map((el) => el.textContent?.trim() || '');
+        const h3s = Array.from(document.querySelectorAll('.settings-page h3')).map((el) => el.textContent?.trim() || '');
+        return {
+          hash: location.hash,
+          pageTabs,
+          settingsTabs,
+          tokenMissing: !!document.querySelector('.config-token-missing'),
+          missingBadge: document.body.innerText.includes('credentials missing'),
+          tokenInput: !!document.querySelector('.config-token-env input[type="password"]'),
+          sourceCount: document.querySelectorAll('.config-source').length,
+          liveTab: !!document.querySelector('.tab-live') || pageTabs.includes('Live'),
+          hasLiveControls: h3s.includes('Live tab'),
+          syncCadence: document.body.innerText.includes('Background sync'),
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    await waitValue(`(() => {
+      const input = document.querySelector('.config-token-env input[type="password"]');
+      if (!input) return null;
+      input.focus();
+      return document.activeElement === input;
+    })()`);
+    await send("Input.insertText", { text: "ghp_smoke_valid" });
+    await waitValue(`(() => {
+      const button = document.querySelector('.config-token-env button.toggle');
+      if (!button || button.disabled) return null;
+      return true;
+    })()`);
+    await send("Runtime.evaluate", { expression: "document.querySelector('.config-token-env button.toggle')?.click()", returnByValue: true });
+    await sleep(500);
+    const postClickState = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const tokenButton = document.querySelector('.config-token-env button.toggle');
+        const tokenInput = document.querySelector('.config-token-env input[type="password"]');
+        const saveButton = document.querySelector('.config-save-button');
+        return {
+          hash: location.hash,
+          tokenButtonText: tokenButton?.textContent?.trim() || '',
+          tokenButtonDisabled: tokenButton ? tokenButton.disabled : null,
+          tokenInputLength: tokenInput?.value?.length ?? null,
+          tokenError: document.querySelector('.config-token-env .config-error')?.textContent?.trim() || '',
+          saveButtonDisabled: saveButton ? saveButton.disabled : null,
+          saveButtonText: saveButton?.textContent?.trim() || '',
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    const unlockState = await waitValue(`(() => {
+      if (!location.hash.startsWith('#/activity') || !document.querySelector('.activity-page')) return null;
+      const pageTabs = Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => el.textContent?.trim() || '');
+      return {
+        hash: location.hash,
+        hasActivity: true,
+        liveTab: !!document.querySelector('.tab-live') || pageTabs.includes('Live'),
+        settingsLocked: !!document.querySelector('.page-tabs-locked'),
+      };
+    })()`);
+    const unlockOk = unlockState?.hasActivity === true && unlockState?.hash?.startsWith("#/activity");
+    const saveOk = secretValidationRequestCount === 1 && configMock.secrets.GITHUB_TOKEN === true;
+    await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/#/settings?tab=sources` });
+    const configuredSettingsState = await waitValue(`(() => {
+      const settingsPage = document.querySelector('.settings-page');
+      const activityPage = document.querySelector('.activity-page');
+      if (!settingsPage && !activityPage) return null;
+      const pageTabs = Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => el.textContent?.trim() || '');
+      return {
+        hash: location.hash,
+        settingsPage: !!settingsPage,
+        settingsConfig: !!document.querySelector('.settings-config'),
+        activityPage: !!activityPage,
+        tokenMissing: !!document.querySelector('.config-token-missing'),
+        settingsLocked: !!document.querySelector('.page-tabs-locked'),
+        pageTabs,
+      };
+    })()`);
+    const postWaitState = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const tokenButton = document.querySelector('.config-token-env button.toggle');
+        const tokenInput = document.querySelector('.config-token-env input[type="password"]');
+        return {
+          hash: location.hash,
+          tokenButtonText: tokenButton?.textContent?.trim() || '',
+          tokenButtonDisabled: tokenButton ? tokenButton.disabled : null,
+          tokenInputLength: tokenInput?.value?.length ?? null,
+          tokenError: document.querySelector('.config-token-env .config-error')?.textContent?.trim() || '',
+          bodyText: document.body.innerText.slice(0, 500),
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    const checks = [
+      [setupHtml.length > 200, "standalone: setup screen rendered"],
+      [setupState.hash === "#/settings?tab=sources", `standalone: missing PAT lands on Settings -> Sources (${setupState.hash || "empty"})`],
+      [JSON.stringify(setupState.pageTabs) === JSON.stringify(["Settings"]), `standalone: setup lock exposes only Settings tab (${JSON.stringify(setupState.pageTabs || [])})`],
+      [JSON.stringify(setupState.settingsTabs) === JSON.stringify(["Sources"]), `standalone: setup lock exposes only Sources sub-tab (${JSON.stringify(setupState.settingsTabs || [])})`],
+      [setupState.sourceCount === 1 && setupState.tokenMissing === true && setupState.missingBadge === true && setupState.tokenInput === true, `standalone: missing PAT is highlighted (${JSON.stringify(setupState)})`],
+      [setupState.hasLiveControls === false && setupState.liveTab === false, "standalone: Live controls and tab are absent during setup"],
+      [setupState.syncCadence === true, "standalone: sync cadence controls render in Sources"],
+      [unlockOk, unlockOk ? `standalone: validated PAT unlocks to Activity (${unlockState.hash})` : `standalone: validated PAT unlocks to Activity (${JSON.stringify(unlockState || {})}; post-click=${JSON.stringify(postClickState)}; post-wait=${JSON.stringify(postWaitState)}; secret-requests=${JSON.stringify(secretRequestLog)})`],
+      [unlockState?.liveTab === false && unlockState?.settingsLocked === false, `standalone: unlocked chrome remains non-Live and no longer locked (${JSON.stringify(unlockState || {})})`],
+      [saveOk, saveOk ? "standalone: Set token validated once and saved" : `standalone: Set token validated once and saved (${secretValidationRequestCount}; post-click=${JSON.stringify(postClickState)}; post-wait=${JSON.stringify(postWaitState)}; secret-requests=${JSON.stringify(secretRequestLog)})`],
+      [configuredSettingsState?.hash === "#/settings?tab=sources" && configuredSettingsState?.settingsConfig === true && configuredSettingsState?.activityPage === false && configuredSettingsState?.settingsLocked === false && configuredSettingsState?.tokenMissing === false, `standalone: configured cold start preserves Settings -> Sources (${JSON.stringify(configuredSettingsState || {})})`],
+      [liveSnapshotRequestCount === 0, `standalone: no Live snapshot probe (${liveSnapshotRequestCount})`],
+      [consoleErrors.length === 0, `standalone: no console errors (${consoleErrors.length})`],
+      [exceptions.length === 0, `standalone: no uncaught exceptions (${exceptions.length})`],
+    ];
+    let ok = true;
+    for (const [pass, label] of checks) {
+      console.log(`  ${pass ? "✓" : "✗"} ${label}`);
+      if (!pass) ok = false;
+    }
+    consoleErrors.slice(0, 5).forEach((e) => console.error("    console.error:", e.slice(0, 200)));
+    exceptions.slice(0, 5).forEach((e) => console.error("    exception:", e.slice(0, 200)));
+    if (!ok) fail("one or more standalone render assertions failed");
+    else console.log("render-smoke PASS: standalone setup rendered cleanly");
+  } else {
   let firstPaintProbeSeq = 0;
   const firstPaintProbe = async ({ scheme, stored = "", storage = "" }) => {
     await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
@@ -4107,6 +4297,7 @@ try {
   exceptions.slice(0, 5).forEach((e) => console.error("    exception:", e.slice(0, 200)));
   if (!ok) fail("one or more render assertions failed");
   else console.log("render-smoke PASS: board rendered cleanly");
+  }
 } catch (err) {
   fail(err.message);
 } finally {

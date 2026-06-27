@@ -1,13 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import { request as httpRequest, type Server } from "node:http";
 import { gunzipSync } from "node:zlib";
 import { SyncController, SYNC_CONTROL_HEADER } from "../src/cli/sync-daemon.ts";
-import { createAppServer, type AppServerOptions } from "../src/cli/app-server.ts";
+import {
+  STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS,
+  STANDALONE_DEFAULT_INTERVAL_SECONDS,
+  createAppServer,
+  shouldRunStandaloneFullSync,
+  type AppServerOptions,
+} from "../src/cli/app-server.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
 import type { SyncRunResult } from "../src/sync-runner.ts";
 
@@ -97,6 +103,52 @@ async function sandbox(): Promise<{ dir: string; opts: AppServerOptions }> {
   };
 }
 
+test("standalone full cadence uses stored sync history across restarts", async () => {
+  const schedule = { fullEvery: 144, fullIntervalSeconds: 86400 };
+  const now = Date.parse("2026-06-27T12:00:00Z");
+
+  const recent = await sandbox();
+  try {
+    assert.equal(await shouldRunStandaloneFullSync(recent.opts.configPath, schedule, now), true, "no full history bootstraps with full");
+    const db = await openSqliteStore(join(recent.dir, "data", "board.db"));
+    try {
+      await db.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-27T10:59:00Z");
+      const runId = await db.startRun("github:github.com", "full", "2026-06-27T11:00:00Z");
+      await db.finishRun(runId, "error", "2026-06-27T11:02:00Z", 0, 0, 0, "provider down");
+    } finally {
+      await db.close();
+    }
+    assert.equal(
+      await shouldRunStandaloneFullSync(recent.opts.configPath, schedule, now),
+      false,
+      "a recent full attempt suppresses another full on restart",
+    );
+  } finally {
+    rmSync(recent.dir, { recursive: true, force: true });
+  }
+
+  const old = await sandbox();
+  try {
+    const db = await openSqliteStore(join(old.dir, "data", "board.db"));
+    try {
+      await db.ensureSource({ sourceId: "github:github.com", kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-25T09:59:00Z");
+      const runId = await db.startRun("github:github.com", "full", "2026-06-25T10:00:00Z");
+      await db.finishRun(runId, "ok", "2026-06-25T10:05:00Z", 10, 1, 2, null);
+    } finally {
+      await db.close();
+    }
+    assert.equal(await shouldRunStandaloneFullSync(old.opts.configPath, schedule, now), true, "older-than-cadence full is due again");
+  } finally {
+    rmSync(old.dir, { recursive: true, force: true });
+  }
+});
+
+test("standalone app-server fallback cadence matches the bundled first-run seed", () => {
+  const seed = JSON.parse(readFileSync(new URL("../config/standalone-default-sources.json", import.meta.url), "utf8"));
+  assert.equal(STANDALONE_DEFAULT_INTERVAL_SECONDS, seed.sync.interval_seconds);
+  assert.equal(STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS, seed.sync.full_interval_seconds);
+});
+
 test("app-server serves health, contract, range, and the sync control surface", async () => {
   const { dir, opts } = await sandbox();
   const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
@@ -155,6 +207,9 @@ test("app-server serves health, contract, range, and the sync control surface", 
     const info = await json(control);
     assert.equal(info.enabled, true);
     assert.deepEqual(info.sources.map((s: { source_id: string }) => s.source_id), ["github:github.com"]);
+    assert.equal(info.interval_seconds, 120);
+    assert.equal(info.full_every, 30);
+    assert.equal(info.full_interval_seconds, 3600);
 
     const started = await fetch(`${base}/api/sync-runs`, {
       method: "POST",
@@ -172,6 +227,7 @@ test("app-server serves health, contract, range, and the sync control surface", 
 
     // PUT applies without a restart: the next control probe sees the new source
     const next = cfgBody.config;
+    next.sync = { interval_seconds: 600, full_interval_seconds: 86400 };
     next.sources.push({
       source_id: "gitlab:gitlab.com",
       kind: "gitlab",
@@ -191,6 +247,20 @@ test("app-server serves health, contract, range, and the sync control surface", 
       probeAfter.sources.map((s: { source_id: string }) => s.source_id),
       ["github:github.com", "gitlab:gitlab.com"],
     );
+    assert.equal(probeAfter.interval_seconds, 600);
+    assert.equal(probeAfter.full_every, 144);
+    assert.equal(probeAfter.full_interval_seconds, 86400);
+
+    // PAT validation route is mounted on the standalone server. Use an
+    // unconfigured env so the route validates request/config wiring without
+    // touching the network.
+    const validate = await fetch(`${base}/api/secrets/validate`, {
+      method: "POST",
+      headers: { [SYNC_CONTROL_HEADER]: "1" },
+      body: JSON.stringify({ source_id: "github:github.com", env: "NOT_CONFIGURED", value: "ghp_x" }),
+    });
+    assert.equal(validate.status, 400);
+    assert.equal((await json(validate)).error, "bad_request");
 
     // unknown routes 404
     const nope = await fetch(`${base}/api/nope`);

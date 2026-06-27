@@ -12,7 +12,8 @@ import {
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadLivePulseOpen, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
-  isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled,
+  isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, STANDALONE_CLIENT_KIND, isStandaloneClient,
+  standaloneBrandClass, loadStandaloneSetupRedirectPending, saveStandaloneSetupRedirectPending,
   deviceCeilingDays, clampRangeToCeiling, isDefaultWindowRange, usesStaticContractFastPath, defaultRangePresetForClient,
   loadLastContractTimezone, saveLastContractTimezone,
   loadWideLayout, saveWideLayout,
@@ -240,17 +241,35 @@ test("board scope is a device-local on/off setting; legacy window values normali
   assert.equal(loadBoardScope(), "full", "invalid stored value -> default");
 });
 
-test("liveControlsDisabled disables the Live preferences only on a static, server-less deployment (Pages demo)", () => {
+test("liveControlsDisabled disables the Live preferences on static and standalone deployments", () => {
   // Live needs a running receiver (the SSE/snapshot server). A static host (the
   // GitHub Pages demo) has none, so the Live tab can never appear there and
   // toggling it is a no-op trap — the Settings Live controls must render disabled,
-  // the same way the date range suspends on a static host. Every normal
-  // deployment (Docker web / standalone / Android) keeps them interactive.
+  // the same way the date range suspends on a static host. Standalone also ships
+  // without the Live receiver, so it should remove Live from the runtime surface
+  // instead of probing a route that can never exist.
   assert.equal(liveControlsDisabled(true), true, "static deployment disables the Live controls");
   assert.equal(liveControlsDisabled(false), false, "a normal server-backed deployment keeps them interactive");
+  assert.equal(liveControlsDisabled(false, STANDALONE_CLIENT_KIND), true, "standalone disables Live even with an API sidecar");
+  assert.equal(isStandaloneClient(STANDALONE_CLIENT_KIND), true);
+  assert.equal(isStandaloneClient("desktop"), false);
 });
 
-test("effectiveLiveTabEnabled forces a stored Live opt-in OFF on a static, server-less deployment", () => {
+test("standaloneBrandClass isolates standalone-only app icon branding", () => {
+  assert.equal(standaloneBrandClass(STANDALONE_CLIENT_KIND), " app-header-standalone");
+  assert.equal(standaloneBrandClass("desktop"), "");
+  assert.equal(standaloneBrandClass(null), "");
+});
+
+test("standalone setup redirect flag persists and clears", () => {
+  assert.equal(loadStandaloneSetupRedirectPending(), false);
+  saveStandaloneSetupRedirectPending(true);
+  assert.equal(loadStandaloneSetupRedirectPending(), true);
+  saveStandaloneSetupRedirectPending(false);
+  assert.equal(loadStandaloneSetupRedirectPending(), false);
+});
+
+test("effectiveLiveTabEnabled forces a stored Live opt-in OFF on static and standalone deployments", () => {
   // A static host (the Pages demo) has no live receiver, so the Settings Live
   // controls render disabled — but a stale `live-tab-enabled=true` in localStorage
   // must not leak past that UI, or App would still probe ./api/live-snapshot (404),
@@ -258,6 +277,7 @@ test("effectiveLiveTabEnabled forces a stored Live opt-in OFF on a static, serve
   // on is the stored flag AND a non-static deployment.
   assert.equal(effectiveLiveTabEnabled(true, false), true, "stored opt-in stays on for a normal server-backed deployment");
   assert.equal(effectiveLiveTabEnabled(true, true), false, "a stale stored opt-in is coerced off on a static deployment");
+  assert.equal(effectiveLiveTabEnabled(true, false, STANDALONE_CLIENT_KIND), false, "standalone never enables Live");
   assert.equal(effectiveLiveTabEnabled(false, false), false, "no stored opt-in is off");
   assert.equal(effectiveLiveTabEnabled(false, true), false, "no stored opt-in is off on a static deployment too");
 });

@@ -18,8 +18,8 @@ This is the second desktop option, beside the thin client:
 On launch the app:
 
 1. prepares `~/Library/Application Support/com.sympoies.symphony-board.standalone/`
-   (`secrets.env` token file, `data/`, `logs/`; `config/sources.json` is
-   created by the in-app Settings -> Sources editor, not seeded);
+   (`config/sources.json`, `secrets.env`, `data/`, `logs/`). New installs seed
+   a GitHub-only `sympoies/symphony-board` config; no token value is seeded;
 2. spawns the bundled Node runtime running `src/cli/app-server.ts` — one
    process that owns the sync + emit loop, the manual-sync and config control
    surfaces, `/contract.json`, and `/api/range` on `127.0.0.1:8787` (loopback
@@ -28,26 +28,30 @@ On launch the app:
    daemon. If port 8787 is already serving (an earlier instance's daemon), the
    app adopts it instead of starting a second SQLite writer.
 
-The cadence matches the Docker loop defaults: incremental sync every 2
-minutes, full sweep hourly (`INTERVAL` / `FULL_EVERY` in the app-server
-environment).
+The default cadence is tuned for a personal PAT: incremental sync every 600
+seconds and a full sweep about once per day. Settings -> Sources exposes both
+values; they are saved as `sync.interval_seconds` and
+`sync.full_interval_seconds` in the standalone config. Environment variables
+`INTERVAL` / `FULL_EVERY` remain fallback overrides when the config omits
+`sync`.
 
 ## Setup
 
 Everything happens in-app:
 
-1. Build and open the app (below). With no config yet, it opens straight into
-   onboarding.
-2. Add a source (provider + host; sensible defaults are suggested), add its
-   repos, and paste the provider token — tokens land in `secrets.env` through
-   a write-only surface and are never displayed back.
+1. Build and open the app (below). It starts with one GitHub source for
+   `sympoies/symphony-board`.
+2. Until a PAT is set, the UI opens locked on Settings -> Sources and does not
+   expose the board tabs. Paste the highlighted GitHub PAT there. The app
+   validates the PAT against the provider API before writing it to
+   `secrets.env`; token values are never displayed back.
 3. Save, then run the first sync from the same screen. The board renders once
    the first contract is emitted. `.../logs/app-server.log` carries the daemon
    log.
 
-Sources, repos, display names, and tokens remain editable later under
+Sync cadence, sources, repos, display names, and tokens remain editable later under
 Settings -> Sources; changes apply on the next sync run without restarting
-the app. Hand-editing
+the app. Add GitLab or other sources there when needed. Hand-editing
 `~/Library/Application Support/com.sympoies.symphony-board.standalone/config/sources.json`
 (same format as `config/sources.example.json`) and `.../secrets.env` still
 works as a fallback — the daemon re-reads both per run.

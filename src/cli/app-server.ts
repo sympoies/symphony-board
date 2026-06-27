@@ -16,8 +16,8 @@
 // crashing the daemon.
 //
 // Env: HOST (default 127.0.0.1 — loopback only; the desktop shell is the
-// intended client), PORT (default 8787), INTERVAL (seconds, default 120),
-// FULL_EVERY (full sweep every Nth iteration, default 30), SYMPHONY_CONFIG
+// intended client), PORT (default 8787), INTERVAL (seconds, default 600),
+// FULL_EVERY (full sweep every Nth iteration, default ~1 day), SYMPHONY_CONFIG
 // (default config/sources.json, resolved from the working directory — the
 // desktop app sets cwd to its data dir), CONTRACT_OUT (default
 // data/contract.json), SYNC_CONTROL_ENABLED (default ON here, unlike the Docker
@@ -35,7 +35,8 @@ import { readFileSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 import type { AppConfig } from "../config.ts";
-import { loadConfig, resolveConfigPath, resolveSecretsPath } from "../config.ts";
+import { loadConfig, resolveConfigPath, resolveSecretsPath, syncScheduleFromConfig, type SyncSchedule } from "../config.ts";
+import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { runConfiguredSync } from "../sync-runner.ts";
 import {
   SyncController,
@@ -50,6 +51,9 @@ import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
 import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
+
+export const STANDALONE_DEFAULT_INTERVAL_SECONDS = 600;
+export const STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS = 86400;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -141,19 +145,23 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
 
   const controlCtx = (): ControlContext => {
     let sources: ControlContext["sources"] = [];
+    let cfg: AppConfig | null = null;
     try {
-      sources = sourceOptions(freshConfig());
+      cfg = freshConfig();
+      sources = sourceOptions(cfg);
     } catch {
       // Missing/broken config: the control surface stays up with no source
       // scopes; runs started against it report the config error as their result.
     }
+    const schedule = syncScheduleFromConfig(cfg, { intervalSeconds: opts.intervalSeconds, fullEvery: opts.fullEvery });
     return {
       controlEnabled: opts.controlEnabled,
       configControl: { enabled: opts.configControlEnabled, path: resolveConfigPath(opts.configPath), secretsPath: opts.secretsPath },
       logsEnabled: opts.logsEnabled,
       sources,
-      intervalSeconds: opts.intervalSeconds,
-      fullEvery: opts.fullEvery,
+      intervalSeconds: schedule.intervalSeconds,
+      fullEvery: schedule.fullEvery,
+      fullIntervalSeconds: schedule.fullIntervalSeconds,
     };
   };
 
@@ -214,8 +222,38 @@ function envFlag(name: string, defaultValue: boolean): boolean {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
+async function latestFinishedFullSyncAt(configPath: string | null, runsLimit: number): Promise<string | null> {
+  const { cfg } = loadConfig(configPath);
+  const store = await openConfiguredStoreReadOnly(cfg);
+  try {
+    const overview = await store.overview(runsLimit);
+    return overview.sync_runs.find((run) => run.mode === "full" && run.finished_at !== null)?.finished_at ?? null;
+  } finally {
+    await store.close();
+  }
+}
+
+export async function shouldRunStandaloneFullSync(
+  configPath: string | null,
+  schedule: Pick<SyncSchedule, "fullEvery" | "fullIntervalSeconds">,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  try {
+    const lastFull = await latestFinishedFullSyncAt(configPath, Math.max(200, Math.trunc(schedule.fullEvery) + 10));
+    if (!lastFull) return true;
+    const lastFullMs = Date.parse(lastFull);
+    if (!Number.isFinite(lastFullMs)) return true;
+    return nowMs - lastFullMs >= Math.max(1, Math.trunc(schedule.fullIntervalSeconds)) * 1000;
+  } catch {
+    // No readable store yet: a first full sweep is still the right bootstrap.
+    return true;
+  }
+}
+
 function main(): void {
   const configPath = process.env.SYMPHONY_CONFIG ?? null;
+  const intervalSeconds = Math.max(1, Number(process.env.INTERVAL ?? String(STANDALONE_DEFAULT_INTERVAL_SECONDS)) || STANDALONE_DEFAULT_INTERVAL_SECONDS);
+  const fullEveryDefault = Math.max(1, Math.ceil(STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS / intervalSeconds));
   const opts: AppServerOptions = {
     configPath,
     contractOut: process.env.CONTRACT_OUT ?? "data/contract.json",
@@ -223,8 +261,8 @@ function main(): void {
     configControlEnabled: envFlag("CONFIG_CONTROL_ENABLED", true),
     logsEnabled: envFlag("LOG_CONTROL_ENABLED", true),
     secretsPath: resolveSecretsPath(),
-    intervalSeconds: Math.max(1, Number(process.env.INTERVAL ?? "120") || 120),
-    fullEvery: Math.max(1, Number(process.env.FULL_EVERY ?? "30") || 30),
+    intervalSeconds,
+    fullEvery: Math.max(1, Number(process.env.FULL_EVERY ?? String(fullEveryDefault)) || fullEveryDefault),
   };
   const port = Number(process.env.PORT ?? "8787") || 8787;
   const host = process.env.HOST ?? "127.0.0.1";
@@ -252,7 +290,21 @@ function main(): void {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
-  void runLoop(controller, { intervalMs: opts.intervalSeconds * 1000, fullEvery: opts.fullEvery, signal: aborter.signal }).then(() => {
+  const schedule = () => {
+    try {
+      return syncScheduleFromConfig(loadConfig(configPath).cfg, { intervalSeconds: opts.intervalSeconds, fullEvery: opts.fullEvery });
+    } catch {
+      return syncScheduleFromConfig(null, { intervalSeconds: opts.intervalSeconds, fullEvery: opts.fullEvery });
+    }
+  };
+
+  void runLoop(controller, {
+    intervalMs: opts.intervalSeconds * 1000,
+    fullEvery: opts.fullEvery,
+    schedule,
+    shouldRunFull: (_iteration, currentSchedule) => shouldRunStandaloneFullSync(configPath, currentSchedule),
+    signal: aborter.signal,
+  }).then(() => {
     server.close();
     process.exit(0);
   });

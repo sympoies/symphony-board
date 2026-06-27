@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   configProjectPath,
+  configWithSyncCadence,
   configWithProject,
   configWithSource,
   configWithSourcePatch,
@@ -8,10 +9,13 @@ import {
   configWithoutSource,
   isSourceTokenSet,
   isSyncRunActive,
+  shouldValidateSecretBeforeSave,
   sourceTokenEnvs,
   sourcesNeedingSync,
+  standaloneDefaultConfig,
+  STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS,
+  STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS,
   suggestSourceDefaults,
-  NEW_CONFIG_DB_PATH,
   type ConfigAuthPolicyDoc,
   type ConfigDocument,
   type ConfigProjectEntry,
@@ -24,6 +28,7 @@ import type { SyncState } from "../useSync.ts";
 interface Props {
   config: ConfigState; // writer-owned config control plane (capability already probed)
   sync?: SyncState; // for the post-save "run a first sync" affordance
+  variant?: "default" | "standalone";
 }
 
 function authPolicyLabel(policy: ConfigAuthPolicyDoc | undefined): string {
@@ -38,6 +43,11 @@ function projectAuthPolicy(entry: ConfigProjectEntry): ConfigAuthPolicyDoc | und
   return typeof entry === "string" ? undefined : entry.auth_policy;
 }
 
+function syncCadenceValue(draft: ConfigDocument, field: "interval_seconds" | "full_interval_seconds", fallback: number): number {
+  const value = draft.sync?.[field];
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 // The Sources editor: edits the PRODUCER config through the writer-owned
 // control plane — unlike everything else on the Settings page, this changes
 // what the daemon syncs for every consumer of this server, not browser-local
@@ -45,7 +55,7 @@ function projectAuthPolicy(entry: ConfigProjectEntry): ConfigAuthPolicyDoc | und
 // Save; the daemon validates authoritatively and its field-level messages
 // render verbatim. Tokens never ride in the config document: they go through
 // the write-only secrets surface, and existing values are never displayed.
-export function SourcesEditor({ config, sync }: Props) {
+export function SourcesEditor({ config, sync, variant = "default" }: Props) {
   const [draft, setDraft] = useState<ConfigDocument | null>(null);
   const [baseline, setBaseline] = useState<string | null>(null); // JSON of the adopted server document
   const [newProject, setNewProject] = useState<Record<string, string>>({});
@@ -56,6 +66,7 @@ export function SourcesEditor({ config, sync }: Props) {
   const [addName, setAddName] = useState("");
   const [syncOffer, setSyncOffer] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
+  const standalone = variant === "standalone";
 
   const dirty = draft !== null && baseline !== null ? JSON.stringify(draft) !== baseline : draft !== null && baseline === null;
 
@@ -65,9 +76,9 @@ export function SourcesEditor({ config, sync }: Props) {
   dirtyRef.current = dirty;
   useEffect(() => {
     if (dirtyRef.current) return;
-    setDraft(config.config ? (JSON.parse(JSON.stringify(config.config)) as ConfigDocument) : null);
+    setDraft(config.config ? (JSON.parse(JSON.stringify(config.config)) as ConfigDocument) : standalone ? standaloneDefaultConfig() : null);
     setBaseline(config.config ? JSON.stringify(config.config) : null);
-  }, [config.config]);
+  }, [config.config, standalone]);
 
   const update = (next: ConfigDocument) => {
     setDraft(next);
@@ -101,16 +112,27 @@ export function SourcesEditor({ config, sync }: Props) {
     setSaved(false);
   };
 
-  const setToken = async (env: string) => {
+  const setToken = async (sourceId: string, env: string) => {
     const value = (tokenInput[env] ?? "").trim();
     if (!value) return;
-    const err = await config.setSecret(env, value);
+    if (standalone && dirty) {
+      setTokenError((m) => ({ ...m, [env]: "Save source changes before setting this token." }));
+      return;
+    }
+    const source = draft?.sources.find((s) => s.source_id === sourceId);
+    const err = await config.setSecret(env, value, { sourceId, validate: source ? shouldValidateSecretBeforeSave(source, env, standalone) : false });
     setTokenError((m) => ({ ...m, [env]: err ?? "" }));
     if (!err) setTokenInput((m) => ({ ...m, [env]: "" }));
   };
 
   const syncRunning = isSyncRunActive(sync?.current);
   const canOfferSync = sync?.available && sync.enabled;
+  const setSyncCadence = (field: "interval_seconds" | "full_interval_seconds", value: string) => {
+    if (!draft) return;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1) return;
+    update(configWithSyncCadence(draft, { [field]: n }));
+  };
 
   return (
     <div className="settings-pref settings-config">
@@ -126,12 +148,45 @@ export function SourcesEditor({ config, sync }: Props) {
       {!draft ? (
         <div className="config-empty">
           <p className="muted">No producer config exists yet on this server.</p>
-          <button type="button" className="toggle" onClick={() => update({ db_path: NEW_CONFIG_DB_PATH, sources: [] })}>
-            Create config
+          <button type="button" className="toggle" onClick={() => update(standalone ? standaloneDefaultConfig() : { db_path: "data/symphony.db", sources: [] })}>
+            {standalone ? "Create GitHub setup" : "Create config"}
           </button>
         </div>
       ) : (
         <>
+          {standalone ? (
+            <div className="config-sync-cadence">
+              <div className="config-sync-cadence-head">
+                <span className="source-name">Background sync</span>
+                <span className="muted">saved with this standalone config</span>
+              </div>
+              <label className="config-sync-field">
+                <span>Incremental every</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="settings-number config-sync-number"
+                  value={syncCadenceValue(draft, "interval_seconds", STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS)}
+                  onChange={(e) => setSyncCadence("interval_seconds", e.target.value)}
+                />
+                <span className="muted">seconds</span>
+              </label>
+              <label className="config-sync-field">
+                <span>Full sync every</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="settings-number config-sync-number"
+                  value={syncCadenceValue(draft, "full_interval_seconds", STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS)}
+                  onChange={(e) => setSyncCadence("full_interval_seconds", e.target.value)}
+                />
+                <span className="muted">seconds</span>
+              </label>
+            </div>
+          ) : null}
+
           {draft.sources.map((s) => {
             const credentialEnvs = sourceTokenEnvs(s);
             const credentialsSet = isSourceTokenSet(s, config.secrets);
@@ -168,8 +223,9 @@ export function SourcesEditor({ config, sync }: Props) {
                     remove
                   </button>
                 </div>
-                <div className="config-token">
+                <div className={`config-token${sourceEnabled && !credentialsSet ? " config-token-missing" : ""}`}>
                   <Badge text={credentialsSet ? "credentials set" : "credentials missing"} kind={credentialsSet ? "status-ok" : "status-error"} />
+                  {sourceEnabled && !credentialsSet ? <span className="config-token-note">Required before sync</span> : null}
                   {credentialEnvs.map((env) => {
                     const envSet = config.secrets[env] === true;
                     return (
@@ -185,7 +241,7 @@ export function SourcesEditor({ config, sync }: Props) {
                               value={tokenInput[env] ?? ""}
                               onChange={(e) => setTokenInput((m) => ({ ...m, [env]: e.target.value }))}
                             />
-                            <button type="button" className="toggle" disabled={!(tokenInput[env] ?? "").trim()} onClick={() => void setToken(env)}>
+                            <button type="button" className="toggle" disabled={!(tokenInput[env] ?? "").trim()} onClick={() => void setToken(s.source_id, env)}>
                               {envSet ? "Replace" : "Set"}
                             </button>
                           </>

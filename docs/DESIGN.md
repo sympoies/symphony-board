@@ -530,6 +530,12 @@ runs incrementals about every 2 minutes and full sweeps roughly hourly; the
 Postgres stack runs incrementals about every 5 minutes and full sweeps roughly
 every 2.5 hours. Set `FULL_EVERY=1` for every iteration to be full.
 
+The standalone app uses a more conservative local default for personal PATs:
+incremental sync every 600 seconds and a requested full sweep interval of one
+day (`sync.interval_seconds=600`, `sync.full_interval_seconds=86400` in its
+config document). Its app server converts the requested full interval to
+`full_every` loop ticks and applies config edits on the next scheduled tick.
+
 ## UI-Triggered Sync Control Plane
 
 A browser reload of the UI only reloads the latest emitted `contract.json`; it
@@ -562,7 +568,7 @@ sweeps, the rest incremental.
 
 | Route | Method | Purpose |
 | --- | --- | --- |
-| `/api/sync-control` | GET | availability probe: `{enabled, sources[], current, last, interval_seconds, full_every}` |
+| `/api/sync-control` | GET | availability probe: `{enabled, sources[], current, last, interval_seconds, full_every, full_interval_seconds}` |
 | `/api/sync-runs/current` | GET | the active run status, or `null` |
 | `/api/sync-runs/last` | GET | the last finished run status, or `null` |
 | `/api/sync-runs` | POST | start a manual run |
@@ -630,6 +636,12 @@ standalone sidecar enables by default and the Docker stack keeps off.
 | `/api/config` | PUT | replace the document (validated, atomic temp+rename write) |
 | `/api/secrets` | GET | which token env names are set — booleans only, never values |
 | `/api/secrets` | PUT | set/replace a token for an env name, or remove it with `value: null` |
+
+**Standalone cadence settings.** The same config document may carry top-level
+`sync.interval_seconds` and `sync.full_interval_seconds`. Settings -> Sources in
+the standalone app edits those values beside source/repo/PAT settings. Docker
+deployments may keep cadence in environment variables instead; when the config
+omits `sync`, the daemon's environment/default cadence remains authoritative.
 
 **Capability split.** Mutations are gated by `CONFIG_CONTROL_ENABLED` plus the
 same same-origin custom header as sync control (`X-Symphony-Sync-Control`).
@@ -722,10 +734,14 @@ A disabled source (`"enabled": false`) stays declared in config, so it keeps
 appearing (the operational-pause contract above) — only ABSENCE from config
 hides a source/repo. Added in contract `4.2.1`.
 
-**First-run onboarding.** The standalone app no longer seeds a config template;
-a missing config plus an enabled capability is the onboarding state: the UI
-guides add-source -> set-token -> first sync entirely in-app, and the board
-appears when the first contract is emitted.
+**First-run onboarding.** A new standalone install seeds a minimal GitHub-only
+config for `sympoies/symphony-board`, with `token_env: "GITHUB_TOKEN"` but no
+token value. `GET /api/secrets` therefore reports the required PAT as missing,
+the standalone UI locks navigation to Settings -> Sources, highlights the
+missing credential, and `POST /api/secrets/validate` probes the provider API
+before `PUT /api/secrets` persists the value. The lock lifts after the PAT is
+validated and saved. GitLab and other sources are added manually by the user
+through the same editor.
 
 **Config stays JSON, not TOML.** Evaluated and rejected: TOML's human benefits
 are comments and hand-formatting, but the UI write path would clobber both (no

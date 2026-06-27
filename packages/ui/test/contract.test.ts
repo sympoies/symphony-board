@@ -15,6 +15,7 @@ import {
   saveConfigDocument,
   fetchSecrets,
   saveSecretValue,
+  validateSecretValue,
   fetchActivityDaily,
   SYNC_CONTROL_HEADER,
   initLoadRetryDelayMs,
@@ -254,6 +255,39 @@ test("fetchContractWithMetadata probes the precompressed contract when native fe
     assert.equal(loaded.meta.encodedBytes, 37);
     assert.equal(loaded.meta.contentEncoding, "gzip");
     assert.equal(loaded.meta.encodedBytesSource, "precompressed-content-length");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("validateSecretValue posts a PAT validation request and surfaces provider errors without echoing the value", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return {
+        ok: false,
+        status: 422,
+        json: async () => ({ ok: false, error: "invalid_token", message: "GitHub rejected the token" }),
+      };
+    }) as unknown as typeof fetch;
+
+    const res = await validateSecretValue("github:github.com", "GITHUB_TOKEN", "ghp_secret_value", "http://127.0.0.1:8787/");
+
+    assert.equal(res.ok, false);
+    assert.equal(res.status, 422);
+    assert.equal(res.error, "GitHub rejected the token");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.url, "http://127.0.0.1:8787/api/secrets/validate");
+    assert.equal(calls[0]!.init?.method, "POST");
+    assert.equal((calls[0]!.init?.headers as Record<string, string>)[SYNC_CONTROL_HEADER], "1");
+    assert.deepEqual(JSON.parse(String(calls[0]!.init?.body)), {
+      source_id: "github:github.com",
+      env: "GITHUB_TOKEN",
+      value: "ghp_secret_value",
+    });
+    assert.ok(!JSON.stringify(res).includes("ghp_secret_value"), "the response object never echoes the token");
   } finally {
     globalThis.fetch = realFetch;
   }
