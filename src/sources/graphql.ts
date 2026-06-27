@@ -31,19 +31,27 @@ export type GqlClient = <T = any>(query: string, variables?: Record<string, unkn
 export interface GqlClientOptions {
   timeoutMs?: number;
   provider?: string;
+  onRequest?: () => void;
 }
 
-function gqlOptions(input: number | GqlClientOptions | undefined, url: string): Required<GqlClientOptions> {
+type ResolvedGqlClientOptions = {
+  timeoutMs: number;
+  provider: string;
+  onRequest?: () => void;
+};
+
+function gqlOptions(input: number | GqlClientOptions | undefined, url: string): ResolvedGqlClientOptions {
   if (typeof input === "number") return { timeoutMs: input, provider: url.includes("github") ? "github" : "" };
   return {
     timeoutMs: input?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
     provider: input?.provider ?? (url.includes("github") ? "github" : ""),
+    ...(input?.onRequest ? { onRequest: input.onRequest } : {}),
   };
 }
 
 export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: number | GqlClientOptions): GqlClient {
   const tokens = normalizeAuthTokens(tokenInput);
-  const { timeoutMs, provider } = gqlOptions(opts, url);
+  const { timeoutMs, provider, onRequest } = gqlOptions(opts, url);
   // Shared across all callers of this client, now including the bounded-concurrent
   // resolve passes (lib/concurrency.ts). Writes are idempotent cooldown stamps and
   // reads only pick an available token, so concurrent callers racing on it is
@@ -75,6 +83,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
       recordAuthAttemptStart(tokens, idx, selection);
       let attemptRecorded = false;
       try {
+        onRequest?.();
         const res = await fetchWithTimeout(
           url,
           {

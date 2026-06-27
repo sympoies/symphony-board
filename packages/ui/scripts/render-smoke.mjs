@@ -90,6 +90,7 @@ const STORE_STATS_MOCK = (() => {
     items_seen: 1800 + i,
     edges_seen: 2300 + i,
     activities_seen: 11000 + i * 3,
+    graphql_requests: i % 5 === 0 ? null : 40 + i,
     error: i % 7 === 0 ? "rate limited: secondary limit hit, backing off" : null,
   }));
   return {

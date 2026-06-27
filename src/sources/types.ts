@@ -36,6 +36,10 @@ export interface SourceOptions {
   partialReason?: string | null;
 }
 
+export interface SourceRunTelemetry {
+  graphqlRequests: number;
+}
+
 export interface FetchOptions {
   // Incremental watermark: only fetch records updated at/after this ISO instant.
   // null => no lower bound (used on the first run or a forced full sync).

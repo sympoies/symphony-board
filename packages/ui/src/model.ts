@@ -2724,6 +2724,7 @@ export interface StoreStatsSyncRun {
   items_seen: number;
   edges_seen: number;
   activities_seen: number;
+  graphql_requests: number | null;
   error: string | null;
 }
 

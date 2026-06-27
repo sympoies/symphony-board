@@ -29,6 +29,21 @@ test("a successful run emits and reports aggregated totals", async () => {
   await db.close();
 });
 
+test("a successful source run persists its GraphQL request count", async () => {
+  const db = await openSqliteStore(":memory:");
+  const source = prepared("fake:a", [item("A1")]);
+  const result = await executeSyncRun(
+    db,
+    [{ ...source, telemetry: { graphqlRequests: 7 } }],
+    [],
+    { mode: "full", dryRun: false, sourceId: null },
+  );
+
+  assert.equal(result.sources[0]!.graphql_requests, 7);
+  assert.equal((await db.overview(10)).sync_runs[0]!.graphql_requests, 7);
+  await db.close();
+});
+
 test("a dry-run never emits and writes nothing", async () => {
   const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
