@@ -555,22 +555,20 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   background: color-mix(in srgb, var(--h) 16%, transparent);
 }
 .badge-draft { background: var(--panel-2); color: var(--muted); }
-/* CI / review / merge signal badges share the filled-pill shape of the
-   lifecycle / status badges above: each sets a hue in --h and the grouped rule
-   derives a lifted-but-quiet text colour, a solid border, and a faint fill — so
-   they read as the SAME pill family as the threads (status-ok / status-error)
-   badges instead of flat outline text. Healthy / neutral states take the muted
-   hue so they stay quiet (no green to compete with the lifecycle pill); only
-   states that need attention carry a saturated hue.
-   The [class*=] selectors are also the FALLBACK: every CiState / MergeState /
-   ReviewState value maps explicitly below, but an unmapped or newly-added
-   provider state still lands on the quiet filled pill rather than the bare
-   default badge (bright --text on --panel-2). Note `badge-merged` (the merged
-   lifecycle pill) is NOT matched — it has no hyphen after "merge". */
-[class*="badge-ci-"], [class*="badge-review-"], [class*="badge-merge-"] { --h: var(--muted); }
-.badge-ci-failing, .badge-merge-conflicting, .badge-review-changes_requested { --h: var(--broken); }
-.badge-ci-pending, .badge-merge-blocked, .badge-review-review_required { --h: var(--declared); }
-[class*="badge-ci-"], [class*="badge-review-"], [class*="badge-merge-"] {
+/* Items keeps CI / review / merge signal badges in the same filled-pill family
+   as status badges without changing Board or Graph card chrome. */
+.items-page [class*="badge-ci-"],
+.items-page [class*="badge-review-"],
+.items-page [class*="badge-merge-"] { --h: var(--muted); }
+.items-page .badge-ci-failing,
+.items-page .badge-merge-conflicting,
+.items-page .badge-review-changes_requested { --h: var(--broken); }
+.items-page .badge-ci-pending,
+.items-page .badge-merge-blocked,
+.items-page .badge-review-review_required { --h: var(--declared); }
+.items-page [class*="badge-ci-"],
+.items-page [class*="badge-review-"],
+.items-page [class*="badge-merge-"] {
   color: color-mix(in srgb, var(--h) 82%, var(--text));
   border-color: var(--h);
   background: color-mix(in srgb, var(--h) 16%, transparent);
