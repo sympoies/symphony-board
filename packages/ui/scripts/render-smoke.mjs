@@ -830,10 +830,11 @@ try {
           return aShort - bShort || a.textLength - b.textLength || b.containerWidth - a.containerWidth;
         });
         const picked = candidates[0] || null;
+        const hasTextSizedHitTarget = !picked || (picked.trailingGap >= 16 && picked.fillRatio <= 0.92);
         return {
           surface: ${JSON.stringify(surface)},
           found: !!picked,
-          ok: !picked || picked.trailingGap >= 24,
+          ok: hasTextSizedHitTarget,
           picked,
         };
       })()`,
