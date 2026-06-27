@@ -306,6 +306,12 @@ variable `DEPLOY_DISPATCH_REPOSITORY=owner/repo` and the secret
 repository. `DEPLOY_DISPATCH_EVENT_TYPE` is optional and defaults to
 `symphony-board-release`. Prereleases do not dispatch.
 
+Stable releases can also notify a Homebrew tap after both GHCR publishing and
+desktop asset upload complete. Set `HOMEBREW_TAP_DISPATCH_REPOSITORY=owner/repo`
+and the secret `HOMEBREW_TAP_DISPATCH_TOKEN` with permission to call
+`repository_dispatch` on that tap. `HOMEBREW_TAP_DISPATCH_EVENT_TYPE` is
+optional and defaults to `symphony-board-release`.
+
 ## macOS Apps
 
 Two desktop options share the same UI.

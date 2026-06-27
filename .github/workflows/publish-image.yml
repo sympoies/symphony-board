@@ -12,6 +12,8 @@ concurrency:
   group: publish-image-${{ github.ref }}
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
   # Gate the published tag against the repo's version files BEFORE anything is
   # published. publish and desktop run in parallel with no ordering, and publish
@@ -341,3 +343,46 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  homebrew-tap:
+    name: dispatch Homebrew cask update
+    needs:
+      - publish
+      - desktop
+    if: ${{ !github.event.release.prerelease && vars.HOMEBREW_TAP_DISPATCH_REPOSITORY != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch Homebrew tap cask update
+        env:
+          HOMEBREW_TAP_DISPATCH_REPOSITORY: ${{ vars.HOMEBREW_TAP_DISPATCH_REPOSITORY }}
+          HOMEBREW_TAP_DISPATCH_EVENT_TYPE: ${{ vars.HOMEBREW_TAP_DISPATCH_EVENT_TYPE || 'symphony-board-release' }}
+          HOMEBREW_TAP_DISPATCH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HOMEBREW_TAP_DISPATCH_TOKEN" || {
+            echo "HOMEBREW_TAP_DISPATCH_TOKEN is required when HOMEBREW_TAP_DISPATCH_REPOSITORY is set" >&2
+            exit 1
+          }
+          case "$HOMEBREW_TAP_DISPATCH_REPOSITORY" in
+            */*) ;;
+            *) echo "HOMEBREW_TAP_DISPATCH_REPOSITORY must be owner/repo" >&2; exit 1 ;;
+          esac
+          version="${GITHUB_REF_NAME#v}"
+          payload="$(
+            jq -nc \
+              --arg event_type "$HOMEBREW_TAP_DISPATCH_EVENT_TYPE" \
+              --arg version "$version" \
+              --arg tag "$GITHUB_REF_NAME" \
+              --arg source_repo "$GITHUB_REPOSITORY" \
+              --arg source_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+              --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              '{event_type: $event_type, client_payload: {version: $version, tag: $tag, source_repo: $source_repo, source_url: $source_url, run_url: $run_url}}'
+          )"
+          curl -fsS \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $HOMEBREW_TAP_DISPATCH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${HOMEBREW_TAP_DISPATCH_REPOSITORY}/dispatches" \
+            -d "$payload"

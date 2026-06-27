@@ -118,6 +118,14 @@ Desktop assets (the `desktop` job, in parallel):
 Building on a native arm64 runner is what lets the standalone app bundle the
 matching Node sidecar for Apple Silicon Macs.
 
+Optional downstream dispatch:
+
+8. If `DEPLOY_DISPATCH_REPOSITORY` is configured, the publish job dispatches the
+   release after public GHCR manifests are verified.
+9. If `HOMEBREW_TAP_DISPATCH_REPOSITORY` is configured, the workflow dispatches
+   the release after both the publish and desktop jobs complete, so the tap can
+   read the macOS SHA256SUMS asset.
+
 ## Pulling And Running
 
 Published images can run with the same runtime mounts as the local build. Set
