@@ -190,6 +190,7 @@ export interface HashRoute {
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
   itemDetail: string | null; // Items phone overlay state; route-backed so Back closes the item detail before leaving Items.
+  itemSort: string | null; // Items list order; absent = recent (default), "open" = open work first.
   reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-change-request layout.
 }
 
@@ -226,11 +227,12 @@ export function parseHashRoute(hash: string): HashRoute {
     liveDetail: routeParam(params?.get("liveDetail")),
     reviewDetail: routeParam(params?.get("reviewDetail")),
     itemDetail: routeParam(params?.get("itemDetail")),
+    itemSort: routeParam(params?.get("itemSort")),
     reviewSort: routeParam(params?.get("reviewSort")),
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -252,6 +254,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const liveDetail = routeParam(route.liveDetail);
   const reviewDetail = routeParam(route.reviewDetail);
   const itemDetail = routeParam(route.itemDetail);
+  const itemSort = routeParam(route.itemSort);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
@@ -273,6 +276,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (liveDetail) params.push(`liveDetail=${encodeURIComponent(liveDetail)}`);
   if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
   if (itemDetail) params.push(`itemDetail=${encodeURIComponent(itemDetail)}`);
+  if (itemSort) params.push(`itemSort=${encodeURIComponent(itemSort)}`);
   if (reviewSort) params.push(`reviewSort=${encodeURIComponent(reviewSort)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }
@@ -592,7 +596,17 @@ export function activityInTimeRange(activity: ActivityDTO, range: TimeRange, tz:
   return timestampInTimeRange(activity.occurred_at, range, tz);
 }
 
-function compareItemUpdatedDesc(a: ItemDTO, b: ItemDTO): number {
+// --- Items list order -------------------------------------------------------
+
+export type ItemSort = "recent" | "open";
+
+export const DEFAULT_ITEM_SORT: ItemSort = "recent";
+
+export function itemSortFromRoute(value: string | null | undefined): ItemSort {
+  return value === "open" ? "open" : "recent";
+}
+
+export function compareItemsRecent(a: ItemDTO, b: ItemDTO): number {
   const aMs = timestampMs(a.updated_at);
   const bMs = timestampMs(b.updated_at);
   if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
@@ -601,8 +615,19 @@ function compareItemUpdatedDesc(a: ItemDTO, b: ItemDTO): number {
   return (b.iid ?? 0) - (a.iid ?? 0) || (a.title ?? "").localeCompare(b.title ?? "") || a.id.localeCompare(b.id);
 }
 
-export function filterItemsByRange(items: ItemDTO[], range: TimeRange, tz: string = DEFAULT_TIMEZONE): ItemDTO[] {
-  return items.filter((item) => itemInTimeRange(item, range, tz)).sort(compareItemUpdatedDesc);
+export function compareItemsOpenFirst(a: ItemDTO, b: ItemDTO): number {
+  const aOpen = a.state === "open";
+  const bOpen = b.state === "open";
+  if (aOpen !== bOpen) return aOpen ? -1 : 1;
+  return compareItemsRecent(a, b);
+}
+
+export function itemComparator(sort: ItemSort): (a: ItemDTO, b: ItemDTO) => number {
+  return sort === "open" ? compareItemsOpenFirst : compareItemsRecent;
+}
+
+export function filterItemsByRange(items: ItemDTO[], range: TimeRange, tz: string = DEFAULT_TIMEZONE, sort: ItemSort = DEFAULT_ITEM_SORT): ItemDTO[] {
+  return items.filter((item) => itemInTimeRange(item, range, tz)).sort(itemComparator(sort));
 }
 
 function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {

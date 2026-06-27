@@ -1063,6 +1063,10 @@ a.rf-node-title:hover { color: var(--accent); }
   margin: 0 0 10px;
 }
 .items-head h2 { margin: 0; border: none; padding: 0; }
+.items-head .items-sort { margin-left: auto; }
+@media (max-width: 560px) {
+  .items-head .items-sort { margin-left: 0; flex-basis: 100%; }
+}
 .items-split {
   display: grid;
   grid-template-columns: var(--master-detail-columns);

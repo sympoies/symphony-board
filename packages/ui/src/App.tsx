@@ -45,10 +45,12 @@ import {
   rangeQueryWindow,
   sourceDisplayName,
   configNeedsCredentialSetup,
+  itemSortFromRoute,
   reviewSortFromRoute,
   type TimeRangePresetId,
   type TimeRange,
   type Filters,
+  type ItemSort,
   type ReviewSort,
 } from "./model.ts";
 import {
@@ -1151,9 +1153,10 @@ export function App() {
     () => (activeRange ? filterItemsByRange(primaryItems, activeRange, tz) : []),
     [primaryItems, activeRange, tz],
   );
+  const itemSortValue = itemSortFromRoute(route.itemSort);
   const itemLogItems = useMemo(
-    () => (activeRange ? filterItemsByRange(filteredItems, activeRange, tz) : []),
-    [filteredItems, activeRange, tz],
+    () => (activeRange ? filterItemsByRange(filteredItems, activeRange, tz, itemSortValue) : []),
+    [filteredItems, activeRange, tz, itemSortValue],
   );
 
   // The Commits page is a focused SCM log over commit records, with SCM filters
@@ -1224,6 +1227,7 @@ export function App() {
       ...itemFacetFields(nextFacets),
       // Preserve the Reviews sort toggle across a facet change (page-local view
       // state, like focus for Graph); null off Reviews so it never leaks.
+      itemSort: page === "items" ? route.itemSort : null,
       reviewSort: page === "reviews" ? route.reviewSort : null,
       q: filters.search,
       from: explicitRange?.from,
@@ -1556,6 +1560,16 @@ export function App() {
     if (readHash() !== nextHash) window.location.hash = nextHash;
   }
 
+  // Items list order (?itemSort=open). Route-backed like reviewSort so a reload
+  // or shared link keeps the active-work scan mode; recency is the clean default.
+  function setItemSort(next: ItemSort) {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    if (current.page !== "items") return;
+    const nextHash = buildHashRoute({ ...current, page: "items", itemSort: next === "open" ? "open" : null });
+    if (readHash() !== nextHash) window.location.hash = nextHash;
+  }
+
   function setRouteSearch(q: string) {
     setFilters((f) => ({ ...f, search: q }));
     if (typeof window === "undefined") return;
@@ -1576,6 +1590,7 @@ export function App() {
       ireview: route.ireview,
       irepo: route.irepo,
       unresolved: route.unresolved,
+      itemSort: page === "items" ? route.itemSort : null,
       reviewSort: page === "reviews" ? route.reviewSort : null,
       q,
       from: explicitRange?.from,
@@ -1672,6 +1687,7 @@ export function App() {
       ireview: route.ireview,
       irepo: route.irepo,
       unresolved: route.unresolved,
+      itemSort: page === "items" ? route.itemSort : null,
       reviewSort: page === "reviews" ? route.reviewSort : null,
       q: filters.search,
       from: range.from,
@@ -2071,6 +2087,8 @@ export function App() {
           colorOf={colorOf}
           relationCounts={boardRelationCounts}
           lens={itemFacetFields(itemFacetState)}
+          sort={itemSortValue}
+          onSortChange={setItemSort}
           detailRouteOpen={route.itemDetail === "1"}
           onOpenDetailRoute={openItemDetailRoute}
           onCloseDetailRoute={closeItemDetailRoute}

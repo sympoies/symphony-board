@@ -1760,6 +1760,7 @@ try {
       const initialDetailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.trim() || '';
       second?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       setTimeout(() => {
+        const headText = document.querySelector('.items-page .items-head')?.textContent?.replace(/\\s+/g, ' ').trim() || '';
         const splitBox = document.querySelector('.items-page .items-split')?.getBoundingClientRect();
         const splitStyle = document.querySelector('.items-page .items-split')
           ? getComputedStyle(document.querySelector('.items-page .items-split'))
@@ -1774,42 +1775,58 @@ try {
         const bottomGap = listBox && detailBox ? window.innerHeight - Math.max(listBox.bottom, detailBox.bottom) : 0;
         const kindGroup = Array.from(document.querySelectorAll('.controls .toggle-group'))
           .find((g) => g.querySelector('.toggle-label')?.textContent === 'kind');
-        resolve({
-          rows: rows.length,
-          providerLinks: Array.from(document.querySelectorAll('.items-page .item-row-title[href]')).length,
-          graphLinks: Array.from(document.querySelectorAll('.items-page .item-row-graph[href^="#/graph"]')).length,
-          detailMetricGraphLinks: Array.from(document.querySelectorAll('.items-page .items-detail .item-metric-related[href^="#/graph"]')).length,
-          firstUpdated: first?.querySelector('time[title]')?.textContent || '',
-          split: !!document.querySelector('.items-page .items-split'),
-          detail: !!document.querySelector('.items-page .items-detail'),
-          detailBodyText: document.querySelector('.items-page .items-detail-body')?.textContent?.trim() || '',
-          selectedRows: document.querySelectorAll('.items-page .item-row-selected').length,
-          firstTitle,
-          secondTitle,
-          initialDetailTitle,
-          afterClickDetailTitle,
-          listLeftOfDetail: !!listBox && !!detailBox && listBox.left < detailBox.left && listBox.right <= detailBox.left + 24,
-          listHeight: Math.round(listBox?.height || 0),
-          listWidth: Math.round(listBox?.width || 0),
-          detailHeight: Math.round(detailBox?.height || 0),
-          detailWidth: Math.round(detailBox?.width || 0),
-          detailCardHeight: Math.round(detailCardBox?.height || 0),
-          splitHeightVarRaw,
-          splitHeightVar: Number.isFinite(splitHeightVar) ? Math.round(splitHeightVar) : 0,
-          expectedPaneHeight,
-          paneHeightStyleActive: Number.isFinite(splitHeightVar)
-            && Math.abs(splitHeightVar - expectedPaneHeight) <= 2
-            && !!listBox
-            && Math.abs(listBox.height - splitHeightVar) <= 2
-            && !!detailBox
-            && Math.abs(detailBox.height - splitHeightVar) <= 2,
-          detailFillsListHeight: !!listBox && !!detailBox && detailBox.height >= listBox.height - 2,
-          detailCardFillsPane: !!detailBox && !!detailCardBox && detailCardBox.height >= detailBox.height - 2,
-          bottomGap: Math.round(bottomGap),
-          fillsViewport: !!listBox && !!detailBox && bottomGap >= 8 && bottomGap <= 32,
-          hasKindGroup: !!kindGroup,
-          kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
-        });
+        const sortButtons = Array.from(document.querySelectorAll('.items-page .items-sort .toggle'));
+        const activeSortBefore = sortButtons.find((el) => el.classList.contains('toggle-on'))?.textContent?.trim() || '';
+        sortButtons.find((el) => el.textContent?.trim() === 'Open')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        setTimeout(() => {
+          const openSortRows = Array.from(document.querySelectorAll('.items-page .item-row'));
+          const openSortStates = openSortRows.map((row) => row.querySelector('.badge')?.textContent?.trim() || '');
+          const activeSortAfter = Array.from(document.querySelectorAll('.items-page .items-sort .toggle'))
+            .find((el) => el.classList.contains('toggle-on'))?.textContent?.trim() || '';
+          resolve({
+            headText,
+            rows: rows.length,
+            providerLinks: Array.from(document.querySelectorAll('.items-page .item-row-title[href]')).length,
+            graphLinks: Array.from(document.querySelectorAll('.items-page .item-row-graph[href^="#/graph"]')).length,
+            detailMetricGraphLinks: Array.from(document.querySelectorAll('.items-page .items-detail .item-metric-related[href^="#/graph"]')).length,
+            firstUpdated: first?.querySelector('time[title]')?.textContent || '',
+            split: !!document.querySelector('.items-page .items-split'),
+            detail: !!document.querySelector('.items-page .items-detail'),
+            detailBodyText: document.querySelector('.items-page .items-detail-body')?.textContent?.trim() || '',
+            selectedRows: document.querySelectorAll('.items-page .item-row-selected').length,
+            firstTitle,
+            secondTitle,
+            initialDetailTitle,
+            afterClickDetailTitle,
+            listLeftOfDetail: !!listBox && !!detailBox && listBox.left < detailBox.left && listBox.right <= detailBox.left + 24,
+            listHeight: Math.round(listBox?.height || 0),
+            listWidth: Math.round(listBox?.width || 0),
+            detailHeight: Math.round(detailBox?.height || 0),
+            detailWidth: Math.round(detailBox?.width || 0),
+            detailCardHeight: Math.round(detailCardBox?.height || 0),
+            splitHeightVarRaw,
+            splitHeightVar: Number.isFinite(splitHeightVar) ? Math.round(splitHeightVar) : 0,
+            expectedPaneHeight,
+            paneHeightStyleActive: Number.isFinite(splitHeightVar)
+              && Math.abs(splitHeightVar - expectedPaneHeight) <= 2
+              && !!listBox
+              && Math.abs(listBox.height - splitHeightVar) <= 2
+              && !!detailBox
+              && Math.abs(detailBox.height - splitHeightVar) <= 2,
+            detailFillsListHeight: !!listBox && !!detailBox && detailBox.height >= listBox.height - 2,
+            detailCardFillsPane: !!detailBox && !!detailCardBox && detailCardBox.height >= detailBox.height - 2,
+            bottomGap: Math.round(bottomGap),
+            fillsViewport: !!listBox && !!detailBox && bottomGap >= 8 && bottomGap <= 32,
+            hasKindGroup: !!kindGroup,
+            kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
+            sortButtons: sortButtons.map((el) => el.textContent?.trim() || ''),
+            activeSortBefore,
+            activeSortAfter,
+            openSortHash: location.hash,
+            openSortHasOpen: openSortStates.includes('open'),
+            openSortFirstState: openSortStates[0] || '',
+          });
+        }, 80);
       }, 0);
     })`,
     awaitPromise: true,
@@ -4150,6 +4167,9 @@ try {
     [itemsSummary.graphLinks >= 1, `items: related rows keep a focus-in-graph affordance (${itemsSummary.graphLinks || 0} >= 1)`],
     [itemsSummary.detailMetricGraphLinks >= 1, `items: detail related metric remains a focus-in-graph link (${itemsSummary.detailMetricGraphLinks || 0} >= 1)`],
     [/updated \d/.test(itemsSummary.firstUpdated || ""), `items: newest row exposes the updated timestamp first (${itemsSummary.firstUpdated || "empty"})`],
+    [!/\bupdated \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}\b/.test(itemsSummary.headText || "") && /\d+ window \/ \d+ total · \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}/.test(itemsSummary.headText || ""), `items: header uses the shared count/window/range summary style (${itemsSummary.headText || "empty"})`],
+    [(itemsSummary.sortButtons || []).join(", ") === "Recent, Open" && itemsSummary.activeSortBefore === "Recent", `items: sort control defaults to Recent (${(itemsSummary.sortButtons || []).join(", ") || "none"}; active=${itemsSummary.activeSortBefore || "none"})`],
+    [/[?&]itemSort=open/.test(itemsSummary.openSortHash || "") && itemsSummary.activeSortAfter === "Open" && (!itemsSummary.openSortHasOpen || itemsSummary.openSortFirstState === "open"), `items: Open sort is route-backed and puts open rows first (${JSON.stringify({ hash: itemsSummary.openSortHash, active: itemsSummary.activeSortAfter, first: itemsSummary.openSortFirstState, hasOpen: itemsSummary.openSortHasOpen })})`],
     [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("change request") && !(itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with change request display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
     [itemsSummary.split === true && itemsSummary.detail === true && itemsSummary.listLeftOfDetail === true, `items: renders a left list with a right detail pane (${JSON.stringify({ split: itemsSummary.split, detail: itemsSummary.detail, listLeftOfDetail: itemsSummary.listLeftOfDetail })})`],
     [itemsSummary.initialDetailTitle.includes(itemsSummary.firstTitle || "__missing__"), `items: defaults the detail pane to the newest row (${JSON.stringify({ row: itemsSummary.firstTitle, detail: itemsSummary.initialDetailTitle })})`],

@@ -700,7 +700,7 @@ export function ReviewsPage({
         <div className="reviews-head">
           <h2>Reviews</h2>
           <span className="count">0 open threads</span>
-          <span className="muted">{range.from} to {range.to}</span>
+          <span className="muted">0 resolved · 0 total · {range.from} to {range.to}</span>
         </div>
         {emptyState ?? <p className="empty">No review threads match the current view.</p>}
       </main>
@@ -712,7 +712,7 @@ export function ReviewsPage({
       <div className="reviews-head">
         <h2>Reviews</h2>
         <span className="count">{openThreads} open threads</span>
-        <span className="muted">{resolvedThreads} resolved · {threadRows.length} total</span>
+        <span className="muted">{resolvedThreads} resolved · {threadRows.length} total · {range.from} to {range.to}</span>
         <div className="reviews-sort toggle-group" role="group" aria-label="Sort review threads">
           <span className="toggle-label">Sort</span>
           <button
