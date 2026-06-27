@@ -852,12 +852,6 @@ try {
     await sleep(60);
     return textOf(".stats");
   };
-  const contractRequests = async () =>
-    (await send("Runtime.evaluate", {
-      expression: "fetch('/__smoke/contract-count').then((res) => res.json()).then((body) => body.contractRequests || 0)",
-      awaitPromise: true,
-      returnByValue: true,
-    })).result.value || 0;
   const rangeRequests = async () =>
     (await send("Runtime.evaluate", {
       expression: "fetch('/__smoke/range-count').then((res) => res.json()).then((body) => body.rangeRequests || 0)",
