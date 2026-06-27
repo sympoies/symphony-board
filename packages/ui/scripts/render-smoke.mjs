@@ -1237,6 +1237,46 @@ try {
   graphPaneLayout.boardLaneWidths = boardLaneWidths;
   graphPaneLayout.listMatchesBoardLane =
     graphPaneLayout.listWidth > 0 && boardLaneWidths.some((width) => Math.abs(width - graphPaneLayout.listWidth) <= 2);
+  const graphBoardWidthSamples = [];
+  for (const width of [1280, 2200]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 1100, deviceScaleFactor: 1, mobile: false });
+    await sleep(100);
+    await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+    await sleep(250);
+    await waitHtml("document.querySelector('.board-7 .card')");
+    const boardSample = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const widths = Array.from(document.querySelectorAll('.board-7 .col'))
+          .filter((el) => getComputedStyle(el).display !== 'none' && !el.classList.contains('col-collapsed'))
+          .map((el) => Math.round(el.getBoundingClientRect().width));
+        return { widths };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+    await sleep(400);
+    await waitHtml("document.querySelector('.react-flow__node')");
+    const graphSample = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const list = document.querySelector('.graph-list');
+        const listRect = list?.getBoundingClientRect();
+        return { listWidth: Math.round(listRect?.width || 0) };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    const sampleBoardLaneWidths = Array.isArray(boardSample.widths) ? boardSample.widths : [];
+    graphBoardWidthSamples.push({
+      width,
+      boardLaneWidths: sampleBoardLaneWidths,
+      graphListWidth: graphSample.listWidth || 0,
+      matches: (graphSample.listWidth || 0) > 0 && sampleBoardLaneWidths.some((laneWidth) => Math.abs(laneWidth - graphSample.listWidth) <= 2),
+    });
+  }
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.react-flow__node')");
   // The mounted canvas pane reads the theme base, not ReactFlow's default dark
   // pane grey (#141414 → rgb(20, 20, 20)): .graph-canvas re-points RF's
   // --xy-background-color at --bg, so the resolved .react-flow background must be
@@ -3655,6 +3695,7 @@ try {
     [hasStatText(graphInitialStats, "scope graph window"), "graph: stats are labelled as graph-window scoped"],
     [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when range narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
     [graphPaneLayout.found === true && graphPaneLayout.heightsMatch === true && graphPaneLayout.listMatchesBoardLane === true && graphPaneLayout.fillsViewport === true, `graph: side list matches Board lane width and shares the canvas viewport height (${JSON.stringify(graphPaneLayout)})`],
+    [graphBoardWidthSamples.length === 2 && graphBoardWidthSamples.every((sample) => sample.matches === true), `graph: Board/Graph width parity holds across desktop clamp regimes (${JSON.stringify(graphBoardWidthSamples)})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListKindIcons >= graphCards, `graph: side-list item kind renders as shared SVG icons (${graphListKindIcons} icons for ${graphCards} cards)`],
