@@ -17,6 +17,8 @@ export interface SyncOptions {
   ciRefreshGraceMs?: number;
   ciRefreshLimit?: number;
   graphqlRequestCount?: () => number | null;
+  graphqlCost?: () => number | null;
+  graphqlCostUnknown?: () => number | null;
 }
 
 export interface SyncReport {
@@ -28,12 +30,22 @@ export interface SyncReport {
   softDeleted: number;
   softDeletedEdges: number;
   graphqlRequests: number | null;
+  graphqlCost: number | null;
+  graphqlCostUnknown: number | null;
   watermark: string | null;
   error: string | null;
 }
 
 function graphqlRequests(opts: SyncOptions): number | null {
   return opts.graphqlRequestCount?.() ?? null;
+}
+
+function graphqlCost(opts: SyncOptions): number | null {
+  return opts.graphqlCost?.() ?? null;
+}
+
+function graphqlCostUnknown(opts: SyncOptions): number | null {
+  return opts.graphqlCostUnknown?.() ?? null;
 }
 
 function refreshCutoffIso(startedAt: string, graceMs: number): string {
@@ -118,7 +130,7 @@ async function recordFailedRun(
   if (!opts.dryRun) {
     await store.ensureSource(source.descriptor, startedAt);
     const runId = await store.startRun(sourceId, opts.full ? "full" : "incremental", startedAt);
-    await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, graphqlRequests(opts), msg);
+    await store.finishRun(runId, "error", new Date().toISOString(), 0, 0, 0, graphqlRequests(opts), graphqlCost(opts), graphqlCostUnknown(opts), msg);
     await store.updateSyncState(sourceId, null, "error", msg, startedAt);
   }
   return {
@@ -130,6 +142,8 @@ async function recordFailedRun(
     softDeleted: 0,
     softDeletedEdges: 0,
     graphqlRequests: graphqlRequests(opts),
+    graphqlCost: graphqlCost(opts),
+    graphqlCostUnknown: graphqlCostUnknown(opts),
     watermark: null,
     error: msg,
   };
@@ -206,6 +220,8 @@ export async function syncSource(
     softDeleted: 0,
     softDeletedEdges: 0,
     graphqlRequests: graphqlRequests(opts),
+    graphqlCost: graphqlCost(opts),
+    graphqlCostUnknown: graphqlCostUnknown(opts),
     watermark,
     error: result.error,
   };
@@ -249,7 +265,18 @@ export async function syncSource(
         await tx.softDeleteUnseenReviewThreads(sourceId, startedAt, sweepAt);
       }
 
-      await tx.finishRun(runId, status, new Date().toISOString(), itemBundles.length, edges.length, activities.length, report.graphqlRequests, result.error);
+      await tx.finishRun(
+        runId,
+        status,
+        new Date().toISOString(),
+        itemBundles.length,
+        edges.length,
+        activities.length,
+        report.graphqlRequests,
+        report.graphqlCost,
+        report.graphqlCostUnknown,
+        result.error,
+      );
       await tx.updateSyncState(sourceId, watermark, status, result.error, startedAt);
     });
   } catch (err) {

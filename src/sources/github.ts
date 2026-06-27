@@ -76,6 +76,7 @@ const COMMON = `__typename id number title body url createdAt updatedAt closedAt
   ${MENTIONS}`;
 
 const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
+  rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
     issues(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
@@ -87,6 +88,7 @@ const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
 }`;
 
 const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
+  rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
     pullRequests(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
@@ -101,6 +103,7 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
 }`;
 
 const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
+  rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
     pullRequest(number:$number) { ${COMMON} totalCommentsCount mergedAt isDraft reviewDecision mergeable
       commits(last:1){ nodes { commit { statusCheckRollup { state } } } }

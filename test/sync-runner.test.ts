@@ -11,6 +11,10 @@ import { executeSyncRun, runConfiguredSync, type SyncRunProgress } from "../src/
 // Postgres live e2e; see test/helpers/fake-source.ts.
 import { BoomSource, item, prepared, sc } from "./helpers/fake-source.ts";
 
+function hasGraphqlCostSelection(body: string): boolean {
+  return body.includes("rateLimit { cost remaining used resetAt }");
+}
+
 test("a successful run emits and reports aggregated totals", async () => {
   const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
@@ -34,17 +38,22 @@ test("a successful source run persists its GraphQL request count", async () => {
   const source = prepared("fake:a", [item("A1")]);
   const result = await executeSyncRun(
     db,
-    [{ ...source, telemetry: { graphqlRequests: 7 } }],
+    [{ ...source, telemetry: { graphqlRequests: 7, graphqlCost: 19, graphqlCostUnknown: 1 } }],
     [],
     { mode: "full", dryRun: false, sourceId: null },
   );
 
   assert.equal(result.sources[0]!.graphql_requests, 7);
-  assert.equal((await db.overview(10)).sync_runs[0]!.graphql_requests, 7);
+  assert.equal(result.sources[0]!.graphql_cost, 19);
+  assert.equal(result.sources[0]!.graphql_cost_unknown, 1);
+  const run = (await db.overview(10)).sync_runs[0]!;
+  assert.equal(run.graphql_requests, 7);
+  assert.equal(run.graphql_cost, 19);
+  assert.equal(run.graphql_cost_unknown, 1);
   await db.close();
 });
 
-test("runConfiguredSync counts real GraphQL attempts and persists them", async () => {
+test("runConfiguredSync counts real GraphQL attempts and rate-limit cost, then persists them", async () => {
   const dir = mkdtempSync(join(tmpdir(), "symphony-runner-gql-"));
   const dbPath = join(dir, "board.db");
   const originalFetch = globalThis.fetch;
@@ -62,6 +71,7 @@ test("runConfiguredSync counts real GraphQL attempts and persists them", async (
     });
     if (method === "POST") {
       const field = body.includes("pullRequests(") ? "pullRequests" : "issues";
+      const includesCost = hasGraphqlCostSelection(body);
       return json({
         data: {
           repository: {
@@ -70,6 +80,9 @@ test("runConfiguredSync counts real GraphQL attempts and persists them", async (
               nodes: [],
             },
           },
+          ...(includesCost
+            ? { rateLimit: { limit: 1000, remaining: 990, used: 10, cost: field === "issues" ? 3 : 5, resetAt: "2286-11-20T17:46:39.000Z" } }
+            : {}),
         },
       });
     }
@@ -95,16 +108,102 @@ test("runConfiguredSync counts real GraphQL attempts and persists them", async (
     const result = await runConfiguredSync(cfg, { mode: "full", dryRun: false, sourceId: null }, null);
     const graphqlCalls = calls.filter((call) => call.method === "POST" && call.path === "/graphql");
     assert.equal(graphqlCalls.length, 2);
-    assert.equal(result.sources.find((source) => source.source_id === "github:github.com")?.graphql_requests, 2);
+    assert.ok(graphqlCalls.every((call) => hasGraphqlCostSelection(call.body)), "all GitHub source GraphQL queries request rateLimit cost");
+    const sourceResult = result.sources.find((source) => source.source_id === "github:github.com");
+    assert.equal(sourceResult?.graphql_requests, 2);
+    assert.equal(sourceResult?.graphql_cost, 8);
+    assert.equal(sourceResult?.graphql_cost_unknown, 0);
 
     const db = await openSqliteStore(dbPath);
     try {
-      assert.equal((await db.overview(10)).sync_runs[0]!.graphql_requests, 2);
+      const run = (await db.overview(10)).sync_runs[0]!;
+      assert.equal(run.graphql_requests, 2);
+      assert.equal(run.graphql_cost, 8);
+      assert.equal(run.graphql_cost_unknown, 0);
     } finally {
       await db.close();
     }
   } finally {
     delete process.env.RUNNER_GQL_COUNT_TOKEN;
+    globalThis.fetch = originalFetch;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runConfiguredSync persists GitHub rate-limit cost from a partial GraphQL failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "symphony-runner-gql-partial-"));
+  const dbPath = join(dir, "board.db");
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ method: string; path: string; body: string }> = [];
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const method = init?.method ?? "GET";
+    const body = String(init?.body ?? "");
+    calls.push({ method, path: url.pathname, body });
+
+    const json = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+    if (method === "POST") {
+      assert.ok(hasGraphqlCostSelection(body), "GitHub source query requests rateLimit cost");
+      if (body.includes("pullRequests(")) {
+        return json({ errors: [{ message: "temporary GraphQL failure" }], data: { repository: null } });
+      }
+      return json({
+        data: {
+          repository: {
+            issues: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [],
+            },
+          },
+          rateLimit: { limit: 1000, remaining: 997, used: 3, cost: 3, resetAt: "2286-11-20T17:46:39.000Z" },
+        },
+      });
+    }
+    if (url.pathname === "/repos/sympoies/repo") return json({ default_branch: "main" });
+    return json([]);
+  }) as typeof fetch;
+
+  process.env.RUNNER_GQL_PARTIAL_TOKEN = "token";
+  const cfg: AppConfig = {
+    db_path: dbPath,
+    sources: [{
+      source_id: "github:github.com",
+      kind: "github",
+      host: "github.com",
+      token_env: "RUNNER_GQL_PARTIAL_TOKEN",
+      graphql_url: "https://api.github.com/graphql",
+      rest_url: "https://api.github.com",
+      projects: ["sympoies/repo"],
+    }],
+  };
+
+  try {
+    const result = await runConfiguredSync(cfg, { mode: "full", dryRun: false, sourceId: null }, null);
+    const graphqlCalls = calls.filter((call) => call.method === "POST" && call.path === "/graphql");
+    assert.equal(graphqlCalls.length, 2);
+    const sourceResult = result.sources.find((source) => source.source_id === "github:github.com");
+    assert.equal(sourceResult?.status, "partial");
+    assert.match(sourceResult?.error ?? "", /temporary GraphQL failure/);
+    assert.equal(sourceResult?.graphql_requests, 2);
+    assert.equal(sourceResult?.graphql_cost, 3);
+    assert.equal(sourceResult?.graphql_cost_unknown, 1);
+
+    const db = await openSqliteStore(dbPath);
+    try {
+      const run = (await db.overview(10)).sync_runs[0]!;
+      assert.equal(run.status, "partial");
+      assert.equal(run.graphql_requests, 2);
+      assert.equal(run.graphql_cost, 3);
+      assert.equal(run.graphql_cost_unknown, 1);
+    } finally {
+      await db.close();
+    }
+  } finally {
+    delete process.env.RUNNER_GQL_PARTIAL_TOKEN;
     globalThis.fetch = originalFetch;
     rmSync(dir, { recursive: true, force: true });
   }

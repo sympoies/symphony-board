@@ -135,11 +135,11 @@ function logField(value: string): string {
 }
 
 export function describeGraphqlQuery(query: string): string {
-  if (/\brateLimit\b/.test(query)) return "rateLimit";
   if (/\bpullRequest\s*\(/.test(query)) return "pullRequest";
   if (/\bpullRequests\s*\(/.test(query)) return "pullRequests";
   if (/\bissues\s*\(/.test(query)) return "issues";
   if (/\bviewer\b/.test(query)) return "viewer";
+  if (/\brateLimit\b/.test(query)) return "rateLimit";
   return "query";
 }
 
