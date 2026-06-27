@@ -4,7 +4,7 @@
 // STATE of one resolvable review thread: is it still open (needs attention) or
 // resolved (handled)? The layout mirrors the Live tab's master-detail so the two
 // read and operate the same: a compact thread list on the left (each row a
-// status glyph + the PR/MR it hangs off + a clamped markdown preview of the
+// status glyph + the change request it hangs off + a clamped markdown preview of the
 // opening comment) and the selected thread's full comment chain on the right.
 // Status drives the row accent (--cat): salmon = unresolved, green = resolved,
 // muted = resolved-but-outdated — so unhandled vs handled is scannable at a
@@ -729,7 +729,7 @@ export function ReviewsPage({
             className={`toggle${sort === "grouped" ? " toggle-on" : ""}`}
             aria-pressed={sort === "grouped"}
             onClick={() => onSortChange("grouped")}
-            title="Unresolved first, grouped by repo and the PR/MR each thread hangs off"
+            title="Unresolved first, grouped by repo and the change request each thread hangs off"
           >
             Grouped
           </button>

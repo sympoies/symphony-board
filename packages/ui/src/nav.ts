@@ -233,7 +233,7 @@ export function activityViewTab(view: ActivityView): string | null {
 // searchable/focus LIST or the React Flow CANVAS, chosen by a segmented control
 // and route-backed via the shared `tab` field (`tab=graph`). The list is the
 // default: it browses items AND, once one is focused (route `focus=`), surfaces
-// that item's related issues/PRs inline — so selecting a node never forces the
+// that item's related issues and change requests inline — so selecting a node never forces the
 // hard-to-touch canvas, which stays opt-in. A top-nav hop drops `tab` and lands
 // back on the list. Wide viewports render both side by side and the view is
 // ignored.

@@ -37,7 +37,7 @@ import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
-// repo / #iid / state — not just a label. closes edges (issue <-> PR/MR) are
+// repo / #iid / state — not just a label. closes edges (issue <-> change request) are
 // solid; opt-in mentions are dashed — de-emphasised (thin, faint) in the dense
 // overview, but drawn full-strength in the focus view. Layout is computed (RF
 // ships none): dagre for the hierarchy view, d3-force for the knowledge-graph view.
@@ -471,7 +471,7 @@ function GraphListCard({
 // reframes it by remounting the canvas (this list no longer drives the camera
 // itself). Two modes share one <aside>:
 //   • list  — searchable, demand-sorted cards of the in-range relationship
-//             candidates, with an all/issue/pr kind toggle; click a card to
+//             candidates, with an all/issue/change-request kind toggle; click a card to
 //             focus it. Cards hidden only by the canvas edge filter are marked.
 //   • focus — that item + its related items (other edge ends, from the FULL edge
 //             set, off-window ones flagged). A related card re-focuses
@@ -504,8 +504,8 @@ function GraphSideList({
   onBack: () => void;
 }) {
   const [q, setQ] = useState("");
-  // Side-list kind toggle (all / issue / pr). Defaults to "issue" so the list
-  // opens on the smaller, more actionable issue set rather than the PR-heavy
+  // Side-list kind toggle (all / issue / change request). Defaults to "issue" so the list
+  // opens on the smaller, more actionable issue set rather than the change-request-heavy
   // full graph. Reuses MentionTarget — same three-way issue|change_request|all
   // shape. Applies only to the flat list below, not the focus view.
   const [kindFilter, setKindFilter] = useState<GraphMentionTarget>("issue");
@@ -598,7 +598,7 @@ function GraphSideList({
         {([
           ["all", "all"],
           ["issue", "issue"],
-          ["change_request", "pr"],
+          ["change_request", "change request"],
         ] as Array<[GraphMentionTarget, string]>).map(([val, lab]) => (
           <button key={val} type="button" className={`toggle${kindFilter === val ? " toggle-on" : ""}`} onClick={() => setKindFilter(val)}>
             {lab}
@@ -652,7 +652,7 @@ function GraphCanvasEmptyState({
       </div>
     );
   }
-  const target = reason.mentionTarget === "issue" ? "issues" : "PRs";
+  const target = reason.mentionTarget === "issue" ? "issues" : "change requests";
   const noun = pluralize(reason.hiddenLinks, "mention link");
   return (
     <div className="graph-empty">
@@ -721,8 +721,8 @@ export function GraphPage({
   const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   // Below the breakpoint the list and canvas can't share the narrow column
   // usefully, so we show one at a time. The list stays the default: focusing an
-  // item (route `focus=`) makes the list itself show that item's related
-  // issues/PRs, so the relationship view never depends on the canvas — the
+  // item (route `focus=`) makes the list itself show that item's related issues
+  // and change requests, so the relationship view never depends on the canvas — the
   // canvas is opt-in via the toggle. Above the breakpoint both render.
   const showListPane = !isMobile || mobileView === "list";
   const showGraphPane = !isMobile || mobileView === "graph";
@@ -918,7 +918,7 @@ export function GraphPage({
             {([
               ["all", "all"],
               ["issue", "issues"],
-              ["change_request", "PRs"],
+              ["change_request", "change requests"],
             ] as Array<[GraphMentionTarget, string]>).map(([val, lab]) => (
               <button
                 key={val}

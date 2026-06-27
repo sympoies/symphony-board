@@ -26,8 +26,8 @@ export const DEFAULT_TIMEZONE = "UTC";
 
 // Board status columns, after project-board-automation's Status model
 // (Open / Trailing / Closed) plus an explicit In Progress lane:
-//   open        – open, no open linked PR
-//   in_progress – open AND part of a `declared` edge (open linked PR = work underway)
+//   open        – open, no open linked change request
+//   in_progress – open AND part of a `declared` edge (open linked change request = work underway)
 //   trailing    – closed/merged BUT a related item is still open
 //   closed      – closed/merged with no related item still open
 // `trailing` was renamed from "Tracking" to avoid confusion with the
@@ -41,8 +41,8 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
   closed: "Closed",
 };
 export const STATUS_DESC: Record<ItemStatus, string> = {
-  open: "open · no open linked PR",
-  in_progress: "open · has an open linked PR",
+  open: "open · no open linked change request",
+  in_progress: "open · has an open linked change request",
   trailing: "closed/merged · a related item is still open",
   closed: "closed/merged · nothing related still open",
 };
@@ -180,7 +180,7 @@ export interface HashRoute {
   ireview: string | null;
   // exact project_path pin for the board/graph lens (single value, rendered pinned; rides tab hops).
   irepo: string | null;
-  // Activity-local toggle: "1" shows only review rows whose target PR/MR still
+  // Activity-local toggle: "1" shows only review rows whose target change request still
   // has open threads. Page-local (like source/kind/action), not part of the lens.
   unresolved: string | null;
   from: string | null; // YYYY-MM-DD explicit time-range start
@@ -190,7 +190,7 @@ export interface HashRoute {
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
   itemDetail: string | null; // Items phone overlay state; route-backed so Back closes the item detail before leaving Items.
-  reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-PR layout.
+  reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-change-request layout.
 }
 
 const routeParam = (value: string | null | undefined): string | null => {
@@ -1379,8 +1379,8 @@ export function reviewThreadDisplayTime(thread: ReviewThreadDTO): string | null 
 // The Reviews inbox sorts two ways. "recent" (the default) orders strictly by
 // latest comment time across every source, so GitHub and GitLab interleave by
 // recency — what a reviewer scanning "what happened lately" expects, and what
-// every other list view already does. "grouped" keeps the legacy by-PR layout:
-// unresolved-first, then bucketed by repo and the PR/MR each thread hangs off.
+// every other list view already does. "grouped" keeps the legacy grouped layout:
+// unresolved-first, then bucketed by repo and the change request each thread hangs off.
 // The buckets only LOOK chronological within one repo (higher item iid ≈ newer
 // item) — a correlation that breaks the moment two repos or two sources mix.
 export type ReviewSort = "recent" | "grouped";
@@ -1413,9 +1413,9 @@ export function compareReviewThreadsRecent(a: ReviewThreadDTO, b: ReviewThreadDT
   return a.id.localeCompare(b.id);
 }
 
-// Legacy by-PR order: unresolved threads first (the inbox is "what still needs
-// attention"), then grouped by repo and the PR/MR they hang off, newest activity
-// last as a stable tie-break. Preserved as the opt-in "By pull request" mode.
+// Legacy grouped order: unresolved threads first (the inbox is "what still needs
+// attention"), then grouped by repo and the change request they hang off, newest
+// activity last as a stable tie-break. Preserved as the opt-in grouped mode.
 export function compareReviewThreadsGrouped(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
   if (a.is_resolved !== b.is_resolved) return a.is_resolved ? 1 : -1;
   const repo = (a.project_path ?? "").localeCompare(b.project_path ?? "");
@@ -1530,7 +1530,7 @@ export function itemReviewMatches(it: ItemDTO, reviews: ReadonlySet<string>): bo
 }
 
 // Is this a review activity whose TARGET change_request still has open review
-// threads? Resolved against the current item set, so it reflects the PR/MR's
+// threads? Resolved against the current item set, so it reflects the change request's
 // state as of the last sync (not the moment of the review event). Backs the
 // Activity "unresolved only" toggle.
 export function reviewActivityIsUnresolved(a: ActivityDTO, itemsById: ReadonlyMap<string, ItemDTO>): boolean {

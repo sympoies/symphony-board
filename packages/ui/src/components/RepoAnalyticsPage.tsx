@@ -246,10 +246,10 @@ export function RepoAnalyticsPage({
         <StatTile label="commits">{totals.commits}</StatTile>
         <StatTile label="comments">{totals.comments}</StatTile>
         <StatTile label="issues opened">{issuesOpened(totals)}</StatTile>
-        <StatTile label="PR/MRs opened">{totals.change_requests_opened}</StatTile>
+        <StatTile label="change requests opened">{totals.change_requests_opened}</StatTile>
         <StatTile label="total opened">{totals.items_opened}</StatTile>
         <StatTile label="closed / merged">{totals.items_closed}</StatTile>
-        <StatTile label="merged PR/MRs">{totals.change_requests_merged}</StatTile>
+        <StatTile label="merged change requests">{totals.change_requests_merged}</StatTile>
         <StatTile label="reviews">{totals.reviews}</StatTile>
         <StatTile label="open threads">{totals.unresolved_review_threads ?? 0}</StatTile>
       </div>
@@ -277,7 +277,7 @@ export function RepoAnalyticsPage({
                 <th>Commits</th>
                 <th>Comments</th>
                 <th>Issues</th>
-                <th>PR/MRs</th>
+                <th>Change requests</th>
                 <th>Total</th>
                 <th>Closed</th>
                 <th>Merged</th>
@@ -325,7 +325,7 @@ export function RepoAnalyticsPage({
                     <td className="repo-metric-cell repo-metric-primary" data-label="Commits"><MetricValue value={metric.totals.commits} href={commitsHref(metric, range, lens)} label={`Open commits for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Comments"><MetricValue value={metric.totals.comments} href={activityHref(metric, range, { action: "commented" }, lens)} label={`Open comment activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Issues"><MetricValue value={issuesOpened(metric.totals)} href={activityHref(metric, range, { kind: "issue", action: "opened" }, lens)} label={`Open issue activity for ${metric.project_path ?? "repo"}`} /></td>
-                    <td className="repo-metric-cell repo-metric-primary" data-label="PR/MRs"><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" }, lens)} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
+                    <td className="repo-metric-cell repo-metric-primary" data-label="Change requests"><MetricValue value={metric.totals.change_requests_opened} href={activityHref(metric, range, { kind: "change_request", action: "opened" }, lens)} label={`Open change request activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Total"><MetricValue value={metric.totals.items_opened} href={activityHref(metric, range, { action: "opened" }, lens)} label={`Open opened item activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Closed"><MetricValue value={metric.totals.items_closed} href={activityHref(metric, range, { action: "closed,merged" }, lens)} label={`Open closed or merged item activity for ${metric.project_path ?? "repo"}`} /></td>
                     <td className="repo-metric-cell repo-metric-secondary" data-label="Merged"><MetricValue value={metric.totals.change_requests_merged} href={activityHref(metric, range, { kind: "change_request", action: "merged" }, lens)} label={`Open merged change request activity for ${metric.project_path ?? "repo"}`} /></td>

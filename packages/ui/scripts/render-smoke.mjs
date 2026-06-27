@@ -1316,6 +1316,23 @@ try {
   // Page 1 — the full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
   await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
+  const boardKindLabelSummary = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const lane = document.querySelector('.board-7 .col-lane-pr');
+      const head = lane?.querySelector('.col-head');
+      const label = head ? Array.from(head.childNodes)
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent?.replace(/\\s+/g, ' ').trim() || '')
+        .filter(Boolean)
+        .join(' ')
+        .trim() : '';
+      return {
+        label,
+        sub: lane?.querySelector('.col-sub')?.textContent?.trim() || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const boardPaneLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
       const board = document.querySelector('.board-7');
@@ -1393,6 +1410,29 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  const graphKindLabelSummary = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const labelsOf = (group) => Array.from(group?.querySelectorAll('.toggle') || [])
+        .map((el) => el.textContent?.replace(/\\s+/g, ' ').trim())
+        .filter(Boolean);
+      const sideKindGroup = document.querySelector('.graph-list-kinds');
+      const mentionsButton = Array.from(document.querySelectorAll('.graph-controls .toggle'))
+        .find((el) => el.textContent?.trim() === '+ mentions');
+      mentionsButton?.click();
+      return new Promise((resolve) => setTimeout(() => {
+        const mentionGroup = Array.from(document.querySelectorAll('.graph-controls .toggle-group'))
+          .find((group) => group.querySelector('.toggle-label')?.textContent?.trim() === 'mentions of');
+        const mentionLabels = labelsOf(mentionGroup);
+        mentionsButton?.click();
+        resolve({
+          sideKindLabels: labelsOf(sideKindGroup),
+          mentionLabels,
+        });
+      }, 80));
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
   let graphNodeMetricCounts = {};
   await captureTitleLinkHitTarget("graph canvas node", ".graph-page .rf-node-title[href]", ".rf-node");
   const graphPaneLayout = (await send("Runtime.evaluate", {
@@ -1559,7 +1599,13 @@ try {
     expression: `(() => {
       const group = ${kindGroupExpr};
       const chip = group?.querySelector('.toggle');
-      return { hasGroup: !!group, value: chip?.textContent?.trim() || null, anyOn: !!group?.querySelector('.toggle.toggle-on'), hashHasKind: location.hash.includes('kind=') };
+      return {
+        hasGroup: !!group,
+        value: chip?.textContent?.trim() || null,
+        kindChips: Array.from(group?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
+        anyOn: !!group?.querySelector('.toggle.toggle-on'),
+        hashHasKind: location.hash.includes('kind='),
+      };
     })()`,
     returnByValue: true,
   })).result.value || {};
@@ -1693,7 +1739,7 @@ try {
       returnByValue: true,
     })).result.value || {};
   }
-  // Page 3b — Items: a chronological issue + PR/MR lookup surface over items[].
+  // Page 3b — Items: a chronological issue + change request lookup surface over items[].
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
@@ -2183,6 +2229,9 @@ try {
       const cardRect = card?.getBoundingClientRect();
       return {
         rows: document.querySelectorAll('.reviews-page .live-feed .live-event').length,
+        groupedSortTitle: Array.from(document.querySelectorAll('.reviews-page .reviews-sort .toggle'))
+          .find((el) => el.textContent?.trim() === 'Grouped')
+          ?.getAttribute('title') || '',
         statuses: Array.from(document.querySelectorAll('.reviews-page .live-feed .live-event .badge')).map((el) => (el.textContent || '').trim()),
         previews: Array.from(document.querySelectorAll('.reviews-page .live-feed .live-event-preview')).map((el) => el.textContent || ''),
         detailLink: document.querySelector('.reviews-page .live-detail .live-detail-title-link')?.getAttribute('href') || '',
@@ -3941,7 +3990,9 @@ try {
     [has(boardHtml, "board-7"), "board: 7-column board rendered"],
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
-    [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
+    [has(boardHtml, "col-lane-pr"), "board: change request spotlight lane present"],
+    [boardKindLabelSummary.label === "Change requests" && boardKindLabelSummary.sub === "change requests, any state", `board: change request spotlight lane uses neutral visible label and hint (${JSON.stringify(boardKindLabelSummary)})`],
+    [!has(boardHtml, "PR/MR"), "board: no PR/MR label remains in board markup"],
     [boardPaneLayout.fillsViewport === true, `board: lane height fills to the same viewport bottom gutter as list tabs (${JSON.stringify(boardPaneLayout)})`],
     [boardPaneLayout.readableColumns === true && boardPaneLayout.scrollsHorizontally === true, `board: full board keeps readable column widths and scrolls inside the board when needed (${JSON.stringify(boardPaneLayout)})`],
     [boardCardChrome.found === true && boardCardChrome.badgeStartsAfterIcon === true && boardCardChrome.titleStartsAfterIcon === true, `board: card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(boardCardChrome)})`],
@@ -4007,6 +4058,8 @@ try {
     [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when range narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
     [graphPaneLayout.found === true && graphPaneLayout.heightsMatch === true && graphPaneLayout.listMatchesBoardLane === true && graphPaneLayout.fillsViewport === true, `graph: side list matches Board lane width and shares the canvas viewport height (${JSON.stringify(graphPaneLayout)})`],
     [graphBoardWidthSamples.length === 2 && graphBoardWidthSamples.every((sample) => sample.matches === true), `graph: Board/Graph width parity holds across desktop clamp regimes (${JSON.stringify(graphBoardWidthSamples)})`],
+    [JSON.stringify(graphKindLabelSummary.sideKindLabels || []) === JSON.stringify(["all", "issue", "change request"]), `graph: side-list kind toggles use neutral change request label (${(graphKindLabelSummary.sideKindLabels || []).join(", ") || "none"})`],
+    [JSON.stringify(graphKindLabelSummary.mentionLabels || []) === JSON.stringify(["all", "issues", "change requests"]), `graph: mention target toggles use neutral change request label (${(graphKindLabelSummary.mentionLabels || []).join(", ") || "none"})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListKindIcons >= graphCards, `graph: side-list item kind renders as shared SVG icons (${graphListKindIcons} icons for ${graphCards} cards)`],
@@ -4038,6 +4091,7 @@ try {
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [activityFacetInitial.hasGroup === true, "activity: route-backed facet Controls render a kind group"],
+    [(activityFacetInitial.kindChips || []).includes("change request") && !(activityFacetInitial.kindChips || []).includes("PR/MR") && !(activityFacetInitial.kindChips || []).includes("change_request"), `activity: kind chips use neutral change request wording (${(activityFacetInitial.kindChips || []).join(", ") || "none"})`],
     [activityFacetInitial.anyOn === false && activityFacetInitial.hashHasKind === false, "activity: no kind chip is active before any drill-down"],
     [activityFacetOn.chipOn === true && activityFacetOn.chipText === activityFacetInitial.value && activityFacetOn.onCount === 1, `activity: clicking a kind chip lights up that chip (${activityFacetOn.chipText})`],
     [/[?&]kind=/.test(activityFacetOn.hash || ""), `activity: the lit kind chip is written into the route (${activityFacetOn.hash})`],
@@ -4073,7 +4127,7 @@ try {
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "4px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
-    // page 3b: Items renders issues and PR/MRs in one chronological lookup surface
+    // page 3b: Items renders issues and change requests in one chronological lookup surface
     [has(itemsHtml, "items-page"), "items: page rendered"],
     [sameRangeButtons(itemsRangeButtons), `items: shared range quick presets rendered without all (${itemsRangeButtons.join(", ")})`],
     [itemsSummary.rows >= 2, `items: rows rendered (${itemsSummary.rows || 0} >= 2)`],
@@ -4081,7 +4135,7 @@ try {
     [itemsSummary.graphLinks >= 1, `items: related rows keep a focus-in-graph affordance (${itemsSummary.graphLinks || 0} >= 1)`],
     [itemsSummary.detailMetricGraphLinks >= 1, `items: detail related metric remains a focus-in-graph link (${itemsSummary.detailMetricGraphLinks || 0} >= 1)`],
     [/updated \d/.test(itemsSummary.firstUpdated || ""), `items: newest row exposes the updated timestamp first (${itemsSummary.firstUpdated || "empty"})`],
-    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("change_request") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with PR/MR display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
+    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("change request") && !(itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with change request display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
     [itemsSummary.split === true && itemsSummary.detail === true && itemsSummary.listLeftOfDetail === true, `items: renders a left list with a right detail pane (${JSON.stringify({ split: itemsSummary.split, detail: itemsSummary.detail, listLeftOfDetail: itemsSummary.listLeftOfDetail })})`],
     [itemsSummary.initialDetailTitle.includes(itemsSummary.firstTitle || "__missing__"), `items: defaults the detail pane to the newest row (${JSON.stringify({ row: itemsSummary.firstTitle, detail: itemsSummary.initialDetailTitle })})`],
     [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],
@@ -4188,6 +4242,7 @@ try {
     [repoRows >= 2, `repo analytics: repo rows rendered (${repoRows} >= 2)`],
     [/repos/.test(repoCountText), `repo analytics: repo count rendered (${repoCountText})`],
     [has(repoHtml, "Activity") && has(repoHtml, "Commits") && has(repoHtml, "Comments"), "repo analytics: activity, commits, and comments columns rendered"],
+    [has(repoHtml, "change requests opened") && has(repoHtml, "merged change requests") && has(repoHtml, "Change requests") && has(repoHtml, 'data-label="Change requests"') && !has(repoHtml, "PR/MR"), "repo analytics: summary, table, and mobile labels use neutral change request wording"],
     [has(repoHtml, "repo-trend-bar"), "repo analytics: trend bars rendered"],
     [repoLinks.providerLinks.some((href) => href.startsWith("https://")), "repo analytics: repo names link to provider repo pages"],
     [repoLinks.metricLinks.some((href) => href.startsWith("#/activity") && href.includes("source=") && href.includes("repo=")), "repo analytics: activity metric links are source-aware"],
@@ -4206,6 +4261,7 @@ try {
     [has(reviewsHtml, "reviews-page"), "reviews: page rendered"],
     [sameRangeButtons(reviewsRangeButtons), `reviews: shared range quick presets rendered without all (${reviewsRangeButtons.join(", ")})`],
     [reviewsSummary.rows >= 1 && /open threads/.test(reviewsCountText), `reviews: unresolved thread rows rendered (${reviewsSummary.rows || 0}, ${reviewsCountText || "empty"})`],
+    [reviewsSummary.groupedSortTitle === "Unresolved first, grouped by repo and the change request each thread hangs off" && !/PR\/MR|PRs/.test(reviewsSummary.groupedSortTitle || ""), `reviews: grouped sort tooltip uses neutral change request wording (${reviewsSummary.groupedSortTitle || "empty"})`],
     [reviewsSummary.detailLink.includes("/pull/15#discussion_"), `reviews: detail title links to provider discussion (${reviewsSummary.detailLink || "none"})`],
     [reviewsSummary.statuses.includes("unresolved"), `reviews: unresolved status badge rendered (${reviewsSummary.statuses.join(", ") || "none"})`],
     [reviewsSummary.previews.some((text) => text.includes("Cache the compiled pattern")), "reviews: comment preview text rendered inline"],

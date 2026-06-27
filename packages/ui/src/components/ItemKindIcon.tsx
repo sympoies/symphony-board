@@ -1,6 +1,6 @@
 const ITEM_KIND_LABELS: Record<string, string> = {
-  issue: "Issue",
-  change_request: "PR/MR",
+  issue: "issue",
+  change_request: "change request",
 };
 
 function iconClass(kind: string, className?: string): string {

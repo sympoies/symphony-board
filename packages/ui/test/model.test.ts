@@ -2857,7 +2857,7 @@ test("spotlight lanes pick by kind + label convention; closed items stay visible
   const byKey = new Map(lanes.map((l) => [l.lane.key, l.items.map((i) => i.id)]));
   assert.deepEqual(byKey.get("follow-up"), ["i|f"], "issue kind + label only — and a closed item is still shown");
   assert.deepEqual(byKey.get("plan"), ["i|p"]);
-  assert.deepEqual(byKey.get("pr")?.sort(), ["i|pr", "i|wk"], "the PR lane takes every change_request regardless of label or state");
+  assert.deepEqual(byKey.get("pr")?.sort(), ["i|pr", "i|wk"], "the change request lane takes every change_request regardless of label or state");
 });
 
 test("spotlight lanes sort newest created_at first; missing created_at sinks to the tail", () => {
