@@ -1599,7 +1599,13 @@ try {
     expression: `(() => {
       const group = ${kindGroupExpr};
       const chip = group?.querySelector('.toggle');
-      return { hasGroup: !!group, value: chip?.textContent?.trim() || null, anyOn: !!group?.querySelector('.toggle.toggle-on'), hashHasKind: location.hash.includes('kind=') };
+      return {
+        hasGroup: !!group,
+        value: chip?.textContent?.trim() || null,
+        kindChips: Array.from(group?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
+        anyOn: !!group?.querySelector('.toggle.toggle-on'),
+        hashHasKind: location.hash.includes('kind='),
+      };
     })()`,
     returnByValue: true,
   })).result.value || {};
@@ -4085,6 +4091,7 @@ try {
     // page 3: activity feed renders activity rows and shared filtering surfaces
     [has(activityHtml, "activity-page"), "activity: page rendered"],
     [activityFacetInitial.hasGroup === true, "activity: route-backed facet Controls render a kind group"],
+    [(activityFacetInitial.kindChips || []).includes("change request") && !(activityFacetInitial.kindChips || []).includes("PR/MR") && !(activityFacetInitial.kindChips || []).includes("change_request"), `activity: kind chips use neutral change request wording (${(activityFacetInitial.kindChips || []).join(", ") || "none"})`],
     [activityFacetInitial.anyOn === false && activityFacetInitial.hashHasKind === false, "activity: no kind chip is active before any drill-down"],
     [activityFacetOn.chipOn === true && activityFacetOn.chipText === activityFacetInitial.value && activityFacetOn.onCount === 1, `activity: clicking a kind chip lights up that chip (${activityFacetOn.chipText})`],
     [/[?&]kind=/.test(activityFacetOn.hash || ""), `activity: the lit kind chip is written into the route (${activityFacetOn.hash})`],
