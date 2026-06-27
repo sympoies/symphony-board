@@ -1222,10 +1222,28 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .items-detail-back { display: none; }
 .items-detail-shell {
+  position: relative;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   align-items: start;
   gap: 8px;
+  animation: live-detail-in 360ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.items-detail-shell::before {
+  content: "";
+  position: absolute;
+  inset: -8px -10px;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--detail-accent, var(--accent)) 48%, transparent);
+  border-left-width: 3px;
+  border-radius: 9px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--detail-accent, var(--accent)) 16%, transparent), transparent 56%);
+  opacity: 0;
+  animation: live-detail-accent 1600ms ease-out;
+}
+.items-detail-shell > * {
+  position: relative;
+  z-index: 1;
 }
 .items-detail-shell[data-motion="next"] { animation: live-detail-in-next 360ms cubic-bezier(0.2, 0.7, 0.3, 1); }
 .items-detail-shell[data-motion="previous"] { animation: live-detail-in-previous 360ms cubic-bezier(0.2, 0.7, 0.3, 1); }
@@ -4090,6 +4108,7 @@ a.rf-node-title:hover { color: var(--accent); }
    detail follows a new event and replays this reveal. A keyed remount (not a
    class toggle) keeps the animation off the 1s relative-time re-render. */
 .live-detail-shell {
+  --detail-accent: var(--cat, var(--live));
   position: relative;
   display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start;
   animation: live-detail-in 360ms cubic-bezier(0.2, 0.7, 0.3, 1);
@@ -4099,10 +4118,10 @@ a.rf-node-title:hover { color: var(--accent); }
   position: absolute;
   inset: -8px -10px;
   pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--cat, var(--live)) 48%, transparent);
+  border: 1px solid color-mix(in srgb, var(--detail-accent, var(--live)) 48%, transparent);
   border-left-width: 3px;
   border-radius: 9px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--cat, var(--live)) 16%, transparent), transparent 56%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--detail-accent, var(--live)) 16%, transparent), transparent 56%);
   opacity: 0;
   animation: live-detail-accent 1600ms ease-out;
 }
@@ -4263,11 +4282,14 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .live-feed[data-animate-shift="true"] .live-event { transition: none; }
   .live-feed .live-event[data-feed-index="0"] { animation: none; }
+  .items-detail-shell,
   .live-detail-shell,
   .live-detail-shell[data-motion="next"],
   .live-detail-shell[data-motion="previous"],
   .items-detail-shell[data-motion="next"],
   .items-detail-shell[data-motion="previous"] { animation: none; }
+  .items-detail-shell::before { animation: none; }
   .live-detail-shell::before { animation: none; }
   .live-split[data-detail-open="true"] .live-detail { animation: none; }
+  .items-split[data-detail-open="true"] .items-detail { animation: none; }
 }

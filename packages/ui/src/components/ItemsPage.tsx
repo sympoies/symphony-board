@@ -88,6 +88,7 @@ function DetailFact({ label, value }: { label: string; value: ReactNode }) {
 
 function ItemDetail({
   item,
+  accentColor,
   sourceKind,
   relationCounts,
   lens,
@@ -99,6 +100,7 @@ function ItemDetail({
   children,
 }: {
   item: ItemDTO;
+  accentColor: string | null;
   sourceKind: ReadonlyMap<string, string>;
   relationCounts: ReadonlyMap<string, RelationCount>;
   lens?: ItemRouteFields;
@@ -126,7 +128,12 @@ function ItemDetail({
         <button type="button" className="items-detail-back" onClick={onClose}>
           ← Back to items
         </button>
-        <div className="items-detail-shell" key={item.id} data-motion={motion}>
+        <div
+          className="items-detail-shell"
+          key={item.id}
+          data-motion={motion}
+          style={accentColor ? ({ "--detail-accent": accentColor } as CSSProperties) : undefined}
+        >
           <div className="items-detail-kind" title={itemKindLabel(item.kind)}>
             <ItemKindIcon kind={item.kind} className="items-detail-kind-icon" />
           </div>
@@ -489,6 +496,7 @@ export function ItemsPage({
           {selectedItem ? (
             <ItemDetail
               item={selectedItem}
+              accentColor={colorOf(selectedItem.source_id, selectedItem.project_path)}
               sourceKind={sourceKind}
               relationCounts={relationCounts}
               lens={lens}
