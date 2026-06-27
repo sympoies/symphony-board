@@ -1227,13 +1227,16 @@ try {
         canvasHeight: Math.round(canvasRect?.height || 0),
         listShare,
         heightsMatch: !!(listRect && canvasRect) && Math.abs(listRect.height - canvasRect.height) <= 2,
-        masterDetailShare: listShare >= 0.38 && listShare <= 0.44,
         fillsViewport: !!(listRect && canvasRect) && bottomGap >= 8 && bottomGap <= 32,
         bottomGap: Math.round(bottomGap),
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
+  const boardLaneWidths = Array.isArray(boardPaneLayout.regularWidths) ? boardPaneLayout.regularWidths : [];
+  graphPaneLayout.boardLaneWidths = boardLaneWidths;
+  graphPaneLayout.listMatchesBoardLane =
+    graphPaneLayout.listWidth > 0 && boardLaneWidths.some((width) => Math.abs(width - graphPaneLayout.listWidth) <= 2);
   // The mounted canvas pane reads the theme base, not ReactFlow's default dark
   // pane grey (#141414 → rgb(20, 20, 20)): .graph-canvas re-points RF's
   // --xy-background-color at --bg, so the resolved .react-flow background must be
@@ -1508,7 +1511,9 @@ try {
           afterClickDetailTitle,
           listLeftOfDetail: !!listBox && !!detailBox && listBox.left < detailBox.left && listBox.right <= detailBox.left + 24,
           listHeight: Math.round(listBox?.height || 0),
+          listWidth: Math.round(listBox?.width || 0),
           detailHeight: Math.round(detailBox?.height || 0),
+          detailWidth: Math.round(detailBox?.width || 0),
           detailCardHeight: Math.round(detailCardBox?.height || 0),
           splitHeightVarRaw,
           splitHeightVar: Number.isFinite(splitHeightVar) ? Math.round(splitHeightVar) : 0,
@@ -2347,9 +2352,11 @@ try {
         selectedAccent,
         unselectedAccent,
         feedHeight: feedRect?.height || 0,
+        feedWidth: Math.round(feedRect?.width || 0),
         feedTop: feedRect?.top || 0,
         feedBottom: feedRect?.bottom || 0,
         detailPaneHeight: detailPaneRect?.height || 0,
+        detailPaneWidth: Math.round(detailPaneRect?.width || 0),
         detailCardHeight: detailCardRect?.height || 0,
         detailCardFillsPane: !!(detailPaneRect && detailCardRect) && detailCardRect.height >= detailPaneRect.height - 2,
         firstRowTop: firstRowRect?.top || 0,
@@ -3647,7 +3654,7 @@ try {
     [sameRangeButtons(graphRangeButtons), `graph: shared range quick presets rendered without all (${graphRangeButtons.join(", ")})`],
     [hasStatText(graphInitialStats, "scope graph window"), "graph: stats are labelled as graph-window scoped"],
     [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when range narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
-    [graphPaneLayout.found === true && graphPaneLayout.heightsMatch === true && graphPaneLayout.masterDetailShare === true && graphPaneLayout.fillsViewport === true, `graph: list/canvas use the shared master-detail proportion and viewport height (${JSON.stringify(graphPaneLayout)})`],
+    [graphPaneLayout.found === true && graphPaneLayout.heightsMatch === true && graphPaneLayout.listMatchesBoardLane === true && graphPaneLayout.fillsViewport === true, `graph: side list matches Board lane width and shares the canvas viewport height (${JSON.stringify(graphPaneLayout)})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListKindIcons >= graphCards, `graph: side-list item kind renders as shared SVG icons (${graphListKindIcons} icons for ${graphCards} cards)`],
@@ -3728,6 +3735,7 @@ try {
     [itemsSummary.selectedRows === 1, `items: exactly one row is marked selected (${itemsSummary.selectedRows || 0})`],
     [(itemsSummary.detailBodyText || "").includes("Provider body"), `items: detail pane renders the synced provider body (${itemsSummary.detailBodyText || "empty"})`],
     [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true && itemsSummary.fillsViewport === true && itemsSummary.paneHeightStyleActive === true, `items: detail pane stretches to list height, fills the viewport gutter, uses the measured pane-height style, and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight, bottomGap: itemsSummary.bottomGap, splitHeightVar: itemsSummary.splitHeightVar, expectedPaneHeight: itemsSummary.expectedPaneHeight, splitHeightVarRaw: itemsSummary.splitHeightVarRaw })})`],
+    [itemsSummary.listWidth > 0 && live.feedWidth > 0 && Math.abs(itemsSummary.listWidth - live.feedWidth) <= 8, `items: left list width matches Live feed width (${JSON.stringify({ itemsList: itemsSummary.listWidth, liveFeed: live.feedWidth, itemsDetail: itemsSummary.detailWidth, liveDetail: live.detailPaneWidth })})`],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
