@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useState, type CSSProperties, type RefCallback } from "react";
-import { clampLivePaneHeight } from "./live-follow.ts";
+import { clampContentPaneHeight } from "./pane-height.ts";
 
 type PaneHeightStyle = CSSProperties & { "--content-pane-height"?: string };
 
@@ -19,7 +19,7 @@ export function useContentPaneHeight<T extends HTMLElement>(
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         const rect = node.getBoundingClientRect();
-        const next = clampLivePaneHeight(window.innerHeight, rect.top, bottomGutter, min);
+        const next = clampContentPaneHeight(window.innerHeight, rect.top, bottomGutter, min);
         setHeight((current) => (current === next ? current : next));
       });
     };

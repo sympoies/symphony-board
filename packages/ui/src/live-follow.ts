@@ -1,4 +1,5 @@
 import { liveEventKey, type LiveEvent } from "./model.ts";
+import { clampContentPaneHeight } from "./pane-height.ts";
 
 // The newest feed row's `live-enter` and `live-arrive` durations. In follow
 // mode the detail pane holds its content swap until the row has reached its
@@ -53,21 +54,7 @@ export function resolveLiveFollowDecision({
   return { action: "schedule-hold", holdKey: newestKey };
 }
 
-// The Live feed/detail panes fill the viewport below the split. `min` is a soft
-// target: honor it only when the viewport can fit it. On a short window where
-// less than `min` remains below the split, forcing `min` would push the sticky
-// panes past the viewport and reintroduce document-level scrolling — contrary to
-// the viewport-fit layout — so clamp to the space that actually remains.
-export function clampLivePaneHeight(
-  innerHeight: number,
-  splitTop: number,
-  bottomGutter: number,
-  min: number,
-): number {
-  const available = Math.floor(innerHeight - splitTop - bottomGutter);
-  if (available <= min) return Math.max(0, available);
-  return available;
-}
+export const clampLivePaneHeight = clampContentPaneHeight;
 
 export function liveFeedSelectedKey(
   following: boolean,

@@ -1469,6 +1469,7 @@ try {
         const listBox = document.querySelector('.items-page .items-list')?.getBoundingClientRect();
         const detailBox = document.querySelector('.items-page .items-detail')?.getBoundingClientRect();
         const detailCardBox = document.querySelector('.items-page .items-detail-card')?.getBoundingClientRect();
+        const bottomGap = listBox && detailBox ? window.innerHeight - Math.max(listBox.bottom, detailBox.bottom) : 0;
         const kindGroup = Array.from(document.querySelectorAll('.controls .toggle-group'))
           .find((g) => g.querySelector('.toggle-label')?.textContent === 'kind');
         resolve({
@@ -1491,6 +1492,8 @@ try {
           detailCardHeight: Math.round(detailCardBox?.height || 0),
           detailFillsListHeight: !!listBox && !!detailBox && detailBox.height >= listBox.height - 2,
           detailCardFillsPane: !!detailBox && !!detailCardBox && detailCardBox.height >= detailBox.height - 2,
+          bottomGap: Math.round(bottomGap),
+          fillsViewport: !!listBox && !!detailBox && bottomGap >= 8 && bottomGap <= 32,
           hasKindGroup: !!kindGroup,
           kindChips: Array.from(kindGroup?.querySelectorAll('.toggle') || []).map((el) => el.textContent?.trim() || ''),
         });
@@ -3694,7 +3697,7 @@ try {
     [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],
     [itemsSummary.selectedRows === 1, `items: exactly one row is marked selected (${itemsSummary.selectedRows || 0})`],
     [(itemsSummary.detailBodyText || "").includes("Provider body"), `items: detail pane renders the synced provider body (${itemsSummary.detailBodyText || "empty"})`],
-    [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true, `items: detail pane stretches to list height and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight })})`],
+    [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true && itemsSummary.fillsViewport === true, `items: detail pane stretches to list height, fills the viewport gutter, and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight, bottomGap: itemsSummary.bottomGap })})`],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
