@@ -119,7 +119,8 @@ export class GitHubSource implements Source {
   // github/5: review/comment activity details carry provider actor profile URLs.
   // github/6: items carry provider body text for detail views.
   // github/7: items carry provider-native comment/conversation totals.
-  readonly normalizerVersion = "github/7";
+  // github/8: legacy PR raw without totalCommentsCount replays comment_total as unknown.
+  readonly normalizerVersion = "github/8";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -743,7 +744,7 @@ export class GitHubSource implements Source {
 
   private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState" | "openReviewThreads" | "totalReviewThreads"> {
     const issueCommentTotal = typeof p.comments?.totalCount === "number" ? p.comments.totalCount : null;
-    const commentTotal = kind === "change_request" && typeof p.totalCommentsCount === "number" ? p.totalCommentsCount : issueCommentTotal;
+    const commentTotal = kind === "change_request" ? (typeof p.totalCommentsCount === "number" ? p.totalCommentsCount : null) : issueCommentTotal;
     const demand = (p.comments?.totalCount ?? 0) + (p.reactions?.totalCount ?? 0);
     return {
       sourceId: this.descriptor.sourceId,

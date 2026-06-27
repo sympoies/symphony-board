@@ -648,6 +648,24 @@ test("GitHub: PR comment total uses totalCommentsCount, not issue comments, revi
   assert.equal(item.demand, 3, "demand remains comments + reactions");
 });
 
+test("GitHub: PR comment total is unknown when totalCommentsCount is absent from stored raw", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const payload = {
+    ...prNode("PR_comment_total_legacy", "MERGED", "UNKNOWN"),
+    comments: { totalCount: 1 },
+    reactions: { totalCount: 2 },
+  };
+  delete (payload as { totalCommentsCount?: number }).totalCommentsCount;
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "PR_comment_total_legacy", apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload,
+  };
+  const item = src.normalize(raw)!.item!;
+  assert.equal(item.commentTotal, null);
+  assert.equal(item.demand, 3, "legacy raw still preserves demand from issue comments + reactions");
+});
+
 test("GitHub: issue comment total uses Issue.comments.totalCount without reactions", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {
@@ -1636,7 +1654,7 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/7");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/8");
   assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/8");
 });
 

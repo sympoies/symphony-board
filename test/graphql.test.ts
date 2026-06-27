@@ -263,7 +263,7 @@ test("GitHub GraphQL budget-aware bot tokens account for in-flight request cost"
   assert.equal(auths[4], "Bearer bot-a", "released in-flight state lets bot-a win the next tie again");
 });
 
-test("GitHub GraphQL budget cache does not stale-block a replaced token with the same env label", async () => {
+test("GitHub GraphQL budget cache survives renewed token strings for the same installation", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
     const auth = (init.headers as Record<string, string>).Authorization;
@@ -282,11 +282,11 @@ test("GitHub GraphQL budget cache does not stale-block a replaced token with the
   ]);
   await assert.rejects(() => oldClient("query { x }"), /rate limit/);
 
-  const newClient = makeGqlClient("https://api.github.com/graphql", [
-    { env: "github_app:BOT_INSTALLATION_ID", value: "bot-new", kind: "github_app", name: "example-bot", strategy: "budget_aware" },
+  const renewedClient = makeGqlClient("https://api.github.com/graphql", [
+    { env: "github_app:BOT_INSTALLATION_ID", value: "bot-renewed", kind: "github_app", name: "example-bot", strategy: "budget_aware" },
   ]);
-  assert.equal((await newClient<{ ok: boolean }>("query { x }")).ok, true);
-  assert.deepEqual(auths, ["Bearer bot-old", "Bearer bot-new"]);
+  await assert.rejects(() => renewedClient("query { x }"), /all 1 token\(s\) are rate-limited/);
+  assert.deepEqual(auths, ["Bearer bot-old"]);
 });
 
 test("GitHub GraphQL diagnostics clients do not clear another client's budget state", async () => {
