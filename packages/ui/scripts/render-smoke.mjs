@@ -1584,6 +1584,124 @@ try {
     awaitPromise: true,
     returnByValue: true,
   })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(120);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
+  await sleep(300);
+  await waitHtml("document.querySelectorAll('.items-page .item-row').length >= 2");
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.items-page .item-row')[1]?.click()" });
+  await sleep(180);
+  const itemsMobileDetail = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.items-page .items-split');
+      const rows = Array.from(document.querySelectorAll('.items-page .item-row'));
+      const selected = document.querySelector('.items-page .item-row-selected');
+      const detail = document.querySelector('.items-page .items-detail');
+      const back = document.querySelector('.items-page .items-detail-back');
+      const rowTitle = rows[1]?.querySelector('.item-row-title')?.textContent?.trim() || '';
+      const detailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.replace('↗', '').trim() || '';
+      const nav = document.querySelector('.items-page .items-detail .live-detail-nav');
+      const navButtons = Array.from(document.querySelectorAll('.items-page .items-detail .live-detail-nav-button'));
+      const count = document.querySelector('.items-page .items-detail .live-detail-nav-count')?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+      const selectedIndex = rows.findIndex((row) => row.classList.contains('item-row-selected'));
+      const state = () => {
+        const currentRows = Array.from(document.querySelectorAll('.items-page .item-row'));
+        const currentSelectedIndex = currentRows.findIndex((row) => row.classList.contains('item-row-selected'));
+        return {
+          selectedIndex: currentSelectedIndex,
+          detailTitle: document.querySelector('.items-page .items-detail-title')?.textContent?.replace('↗', '').trim() || '',
+          rowTitle: currentRows[currentSelectedIndex]?.querySelector('.item-row-title')?.textContent?.trim() || '',
+          motion: document.querySelector('.items-page .items-detail-shell')?.getAttribute('data-motion') || '',
+          count: document.querySelector('.items-page .items-detail .live-detail-nav-count')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        };
+      };
+      const swipe = (dx) => {
+        const target = document.querySelector('.items-page .items-detail');
+        if (!target) return { dispatched: false, reason: 'missing-target' };
+        const rect = target.getBoundingClientRect();
+        const startX = Math.round(rect.left + rect.width * 0.5);
+        const startY = Math.round(rect.top + rect.height * 0.65);
+        const endX = startX + dx;
+        const endY = startY + 4;
+        try {
+          const makeTouch = (x, y) => new Touch({
+            identifier: 23,
+            target,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            pageX: x,
+            pageY: y,
+            radiusX: 1,
+            radiusY: 1,
+          });
+          const start = makeTouch(startX, startY);
+          const end = makeTouch(endX, endY);
+          target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], targetTouches: [start], changedTouches: [start] }));
+          target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [end] }));
+          return { dispatched: true, method: 'TouchEvent', dx };
+        } catch (error) {
+          const touch = (x, y) => ({ identifier: 23, target, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
+          const makeEvent = (type, touches, changedTouches) => {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperties(event, {
+              touches: { value: touches },
+              targetTouches: { value: touches },
+              changedTouches: { value: changedTouches },
+            });
+            return event;
+          };
+          const start = touch(startX, startY);
+          const end = touch(endX, endY);
+          target.dispatchEvent(makeEvent('touchstart', [start], [start]));
+          target.dispatchEvent(makeEvent('touchend', [], [end]));
+          return { dispatched: true, method: 'event-props', dx, reason: String(error?.message || error) };
+        }
+      };
+      const open = {
+        detailOpen: split?.getAttribute('data-detail-open') || '',
+        detailDisplay: detail ? getComputedStyle(detail).display : '',
+        detailPosition: detail ? getComputedStyle(detail).position : '',
+        backVisible: back ? getComputedStyle(back).display !== 'none' : false,
+        navVisible: nav ? getComputedStyle(nav).display !== 'none' : false,
+        navButtons: navButtons.length,
+        newerDisabled: navButtons[0]?.disabled === true,
+        olderDisabled: navButtons[1]?.disabled === true,
+        count,
+        selectedIndex,
+        hash: location.hash,
+        rowTitle,
+        detailTitle,
+        selectedMatchesDetail: !!selected && rowTitle.length > 0 && selected.textContent?.includes(rowTitle) === true && detailTitle.includes(rowTitle),
+      };
+      const leftSwipe = swipe(-112);
+      return new Promise((resolve) => setTimeout(() => {
+        const afterLeft = state();
+        const rightSwipe = swipe(112);
+        setTimeout(() => {
+          const afterRight = state();
+          history.back();
+          setTimeout(() => {
+        const splitAfter = document.querySelector('.items-page .items-split');
+        const detailAfter = document.querySelector('.items-page .items-detail');
+        resolve({
+          ...open,
+          leftSwipe,
+          afterLeft,
+          rightSwipe,
+          afterRight,
+          afterBackDetailOpen: splitAfter?.getAttribute('data-detail-open') || '',
+          afterBackDetailDisplay: detailAfter ? getComputedStyle(detailAfter).display : '',
+          afterBackHash: location.hash,
+        });
+          }, 180);
+        }, 180);
+      }, 180));
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
   // Page 3c — Commits: a focused, GitHub-like commit log with SCM filters. Repo
   // uses the self-styled combobox; branch uses optional commit ref details when
   // present. The smoke inflation above adds synthetic refs to exercise that path
@@ -3788,6 +3906,11 @@ try {
     [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true && itemsSummary.fillsViewport === true && itemsSummary.paneHeightStyleActive === true, `items: detail pane stretches to list height, fills the viewport gutter, uses the measured pane-height style, and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight, bottomGap: itemsSummary.bottomGap, splitHeightVar: itemsSummary.splitHeightVar, expectedPaneHeight: itemsSummary.expectedPaneHeight, splitHeightVarRaw: itemsSummary.splitHeightVarRaw })})`],
     [itemsSummary.listWidth > 0 && live.feedWidth > 0 && Math.abs(itemsSummary.listWidth - live.feedWidth) <= 8, `items: left list width matches Live feed width (${JSON.stringify({ itemsList: itemsSummary.listWidth, liveFeed: live.feedWidth, itemsDetail: itemsSummary.detailWidth, liveDetail: live.detailPaneWidth })})`],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
+    [itemsMobileDetail.detailOpen === "true" && itemsMobileDetail.detailDisplay !== "none" && itemsMobileDetail.detailPosition === "fixed" && itemsMobileDetail.backVisible === true && /[?&]itemDetail=1/.test(itemsMobileDetail.hash || "") && itemsMobileDetail.selectedMatchesDetail === true, `items: phone row opens a fixed detail overlay (${JSON.stringify(itemsMobileDetail)})`],
+    [itemsMobileDetail.navVisible === true && itemsMobileDetail.navButtons === 2 && itemsMobileDetail.count === `2 / ${itemsSummary.rows}` && itemsMobileDetail.newerDisabled === false && itemsMobileDetail.olderDisabled === false, `items: phone detail shows Live/Reviews-style previous/next navigation (${JSON.stringify(itemsMobileDetail)})`],
+    [itemsMobileDetail.leftSwipe?.dispatched === true && itemsMobileDetail.afterLeft?.selectedIndex === 2 && itemsMobileDetail.afterLeft?.motion === "next" && itemsMobileDetail.afterLeft?.count === `3 / ${itemsSummary.rows}` && itemsMobileDetail.afterLeft?.detailTitle.includes(itemsMobileDetail.afterLeft?.rowTitle || "__missing__"), `items: phone detail left-swipe advances to the older item and updates page count (${JSON.stringify(itemsMobileDetail)})`],
+    [itemsMobileDetail.rightSwipe?.dispatched === true && itemsMobileDetail.afterRight?.selectedIndex === 1 && itemsMobileDetail.afterRight?.motion === "previous" && itemsMobileDetail.afterRight?.count === `2 / ${itemsSummary.rows}` && itemsMobileDetail.afterRight?.detailTitle.includes(itemsMobileDetail.afterRight?.rowTitle || "__missing__"), `items: phone detail right-swipe returns to the newer item and updates page count (${JSON.stringify(itemsMobileDetail)})`],
+    [itemsMobileDetail.afterBackDetailOpen === "false" && itemsMobileDetail.afterBackDetailDisplay === "none" && itemsMobileDetail.afterBackHash === "#/items", `items: phone history.back returns from detail overlay to the list (${JSON.stringify(itemsMobileDetail)})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
     [(() => { try { const o = JSON.parse(sparkTap || "null"); return !!o && o.bars > 0 && o.isDefault === false && /\d\d:\d\d.\d\d:\d\d/.test(o.caption); } catch { return false; } })(), `live: a sparkline bar selects on the first tap (focus+click), showing its bucket window (${sparkTap})`],

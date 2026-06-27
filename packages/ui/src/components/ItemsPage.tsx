@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
@@ -10,6 +10,14 @@ import { itemMetricEntries } from "../item-metrics.ts";
 import { relativeTime, reviewThreadsLabel, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
+
+const ITEMS_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
+const ITEMS_DETAIL_SWIPE_MIN_PX = 54;
+const ITEMS_DETAIL_SWIPE_MAX_MS = 1100;
+
+type ItemDetailMove = "previous" | "next";
+type ItemDetailMotion = ItemDetailMove | "neutral";
 
 function GraphIcon() {
   return (
@@ -43,6 +51,26 @@ function stopRowSelection(event: { stopPropagation: () => void }) {
   event.stopPropagation();
 }
 
+function blocksDetailSwipe(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("a, button, input, textarea, select, summary, [role='button']"));
+}
+
+function horizontalSwipeScroller(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const scroller = target.closest("table, pre");
+  if (!(scroller instanceof HTMLElement)) return null;
+  return scroller.scrollWidth > scroller.clientWidth + 2 ? scroller : null;
+}
+
+function scrollCanConsumeSwipe(scroller: HTMLElement, scrollLeft: number, dx: number): boolean {
+  const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+  if (maxScrollLeft <= 2) return false;
+  if (dx < 0) return scrollLeft < maxScrollLeft - 2;
+  if (dx > 0) return scrollLeft > 2;
+  return false;
+}
+
 function relativeTimeValue(value: string | null | undefined): ReactNode {
   if (!value) return null;
   return <time title={value}>{relativeTime(value)}</time>;
@@ -63,11 +91,23 @@ function ItemDetail({
   sourceKind,
   relationCounts,
   lens,
+  motion,
+  onClose,
+  onTouchStart,
+  onTouchEnd,
+  onTouchCancel,
+  children,
 }: {
   item: ItemDTO;
   sourceKind: ReadonlyMap<string, string>;
   relationCounts: ReadonlyMap<string, RelationCount>;
   lens?: ItemRouteFields;
+  motion: ItemDetailMotion;
+  onClose?: () => void;
+  onTouchStart?: (event: TouchEvent<HTMLElement>) => void;
+  onTouchEnd?: (event: TouchEvent<HTMLElement>) => void;
+  onTouchCancel?: () => void;
+  children?: ReactNode;
 }) {
   const body = itemBody(item);
   const related = relationCounts.get(item.id) ?? null;
@@ -75,9 +115,18 @@ function ItemDetail({
   const hasSignals = Boolean(item.review_state || item.ci_state || item.merge_state || threadLabel);
 
   return (
-    <aside className="items-detail" aria-label="Item details">
+    <aside
+      className="items-detail"
+      aria-label="Item details"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchCancel}
+    >
       <div className="items-detail-card">
-        <div className="items-detail-shell">
+        <button type="button" className="items-detail-back" onClick={onClose}>
+          ← Back to items
+        </button>
+        <div className="items-detail-shell" key={item.id} data-motion={motion}>
           <div className="items-detail-kind" title={itemKindLabel(item.kind)}>
             <ItemKindIcon kind={item.kind} className="items-detail-kind-icon" />
           </div>
@@ -144,7 +193,63 @@ function ItemDetail({
           </div>
         </div>
       </div>
+      {children}
     </aside>
+  );
+}
+
+function ItemDetailNav({
+  position,
+  total,
+  canPrevious,
+  canNext,
+  onNavigate,
+}: {
+  position: number;
+  total: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  onNavigate: (move: ItemDetailMove) => void;
+}) {
+  if (total <= 1) return null;
+  const handleTouchNavigate = (move: ItemDetailMove) => (event: TouchEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onNavigate(move);
+  };
+  const stopTouchPropagation = (event: TouchEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
+  return (
+    <nav className="live-detail-nav" aria-label="Item navigation">
+      <button
+        type="button"
+        className="live-detail-nav-button"
+        disabled={!canPrevious}
+        aria-label="Show newer item"
+        title="Show newer item"
+        onTouchStart={stopTouchPropagation}
+        onTouchEnd={handleTouchNavigate("previous")}
+        onClick={() => onNavigate("previous")}
+      >
+        ‹ <span>Newer</span>
+      </button>
+      <span className="live-detail-nav-count" aria-live="polite">
+        {position > 0 ? position : "—"} / {total}
+      </span>
+      <button
+        type="button"
+        className="live-detail-nav-button"
+        disabled={!canNext}
+        aria-label="Show older item"
+        title="Show older item"
+        onTouchStart={stopTouchPropagation}
+        onTouchEnd={handleTouchNavigate("next")}
+        onClick={() => onNavigate("next")}
+      >
+        <span>Older</span> ›
+      </button>
+    </nav>
   );
 }
 
@@ -157,6 +262,10 @@ export function ItemsPage({
   colorOf,
   relationCounts,
   lens,
+  detailRouteOpen,
+  onOpenDetailRoute,
+  onCloseDetailRoute,
+  onClearDetailRoute,
   emptyState,
 }: {
   items: ItemDTO[];
@@ -167,14 +276,31 @@ export function ItemsPage({
   colorOf: ColorOf;
   relationCounts: ReadonlyMap<string, RelationCount>;
   lens?: ItemRouteFields;
+  detailRouteOpen: boolean;
+  onOpenDetailRoute: () => void;
+  onCloseDetailRoute: () => void;
+  onClearDetailRoute: () => void;
   emptyState?: ReactNode;
 }) {
   const countLabel = items.length === windowTotal ? `${items.length} in range` : `${items.length} of ${windowTotal}`;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailMotion, setDetailMotion] = useState<ItemDetailMotion>("neutral");
+  const isDetailOverlay = useMediaQuery(ITEMS_DETAIL_OVERLAY_QUERY);
+  const detailOpen = isDetailOverlay && detailRouteOpen;
   const selectedItem = useMemo(() => {
     if (items.length === 0) return null;
     return items.find((item) => item.id === selectedId) ?? items[0]!;
   }, [items, selectedId]);
+  const selectedIndex = useMemo(() => {
+    if (!selectedItem) return -1;
+    return items.findIndex((item) => item.id === selectedItem.id);
+  }, [items, selectedItem]);
+  const detailNav = useMemo(() => ({
+    position: selectedIndex >= 0 ? selectedIndex + 1 : 0,
+    total: items.length,
+    previous: selectedIndex > 0 ? items[selectedIndex - 1]! : null,
+    next: selectedIndex >= 0 && selectedIndex < items.length - 1 ? items[selectedIndex + 1]! : null,
+  }), [items, selectedIndex]);
   const { paneRef: splitPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
     items.length,
     selectedItem?.id ?? null,
@@ -183,16 +309,86 @@ export function ItemsPage({
   useEffect(() => {
     if (items.length === 0) {
       setSelectedId(null);
+      setDetailMotion("neutral");
+      if (detailRouteOpen) onClearDetailRoute();
       return;
     }
     setSelectedId((current) => (current && items.some((item) => item.id === current) ? current : items[0]!.id));
-  }, [items]);
+  }, [items, detailRouteOpen, onClearDetailRoute]);
+
+  useEffect(() => {
+    if (!isDetailOverlay && detailRouteOpen) onClearDetailRoute();
+  }, [detailRouteOpen, isDetailOverlay, onClearDetailRoute]);
+
+  const selectItem = useCallback((item: ItemDTO, motion: ItemDetailMotion = "neutral") => {
+    setDetailMotion(motion);
+    setSelectedId(item.id);
+    if (isDetailOverlay && !detailRouteOpen) onOpenDetailRoute();
+  }, [detailRouteOpen, isDetailOverlay, onOpenDetailRoute]);
+
+  const navigateDetail = useCallback((move: ItemDetailMove) => {
+    const target = move === "previous" ? detailNav.previous : detailNav.next;
+    if (!target) return;
+    selectItem(target, move);
+  }, [detailNav.next, detailNav.previous, selectItem]);
 
   const selectItemFromKey = (event: KeyboardEvent<HTMLElement>, item: ItemDTO) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    setSelectedId(item.id);
+    selectItem(item);
   };
+
+  const handleTitleClick = (event: MouseEvent<HTMLAnchorElement>, item: ItemDTO) => {
+    if (!isDetailOverlay) {
+      stopRowSelection(event);
+      return;
+    }
+    event.preventDefault();
+    selectItem(item);
+  };
+
+  const closeDetail = () => {
+    if (detailRouteOpen) onCloseDetailRoute();
+  };
+
+  const detailTouchRef = useRef<{
+    x: number;
+    y: number;
+    t: number;
+    scroller: HTMLElement | null;
+    scrollLeft: number;
+  } | null>(null);
+  const handleDetailTouchStart = useCallback((e: TouchEvent<HTMLElement>) => {
+    if (!selectedItem || e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
+      detailTouchRef.current = null;
+      return;
+    }
+    const touch = e.touches[0]!;
+    const scroller = horizontalSwipeScroller(e.target);
+    detailTouchRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      t: Date.now(),
+      scroller,
+      scrollLeft: scroller?.scrollLeft ?? 0,
+    };
+  }, [selectedItem]);
+  const handleDetailTouchEnd = useCallback((e: TouchEvent<HTMLElement>) => {
+    const start = detailTouchRef.current;
+    detailTouchRef.current = null;
+    if (!start || e.changedTouches.length !== 1) return;
+    const touch = e.changedTouches[0]!;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = Date.now() - start.t;
+    if (elapsed > ITEMS_DETAIL_SWIPE_MAX_MS) return;
+    if (Math.abs(dx) < ITEMS_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    if (start.scroller && scrollCanConsumeSwipe(start.scroller, start.scrollLeft, dx)) return;
+    navigateDetail(dx < 0 ? "next" : "previous");
+  }, [navigateDetail]);
+  const handleDetailTouchCancel = useCallback(() => {
+    detailTouchRef.current = null;
+  }, []);
 
   return (
     <section className="items-page">
@@ -207,7 +403,7 @@ export function ItemsPage({
       {items.length === 0 ? (
         emptyState ?? <p className="empty">No items.</p>
       ) : (
-        <div className="items-split" ref={splitPaneRef} style={paneHeightStyle}>
+        <div className="items-split" ref={splitPaneRef} data-detail-open={detailOpen ? "true" : "false"} style={paneHeightStyle}>
           <div className="items-list" role="list" aria-label="Items">
             {items.map((item) => {
               const accentColor = colorOf(item.source_id, item.project_path);
@@ -227,7 +423,7 @@ export function ItemsPage({
                   role="listitem"
                   tabIndex={0}
                   aria-current={selected ? "true" : undefined}
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => selectItem(item)}
                   onKeyDown={(event) => selectItemFromKey(event, item)}
                   style={accentColor ? ({ "--repo-color": accentColor } as CSSProperties) : undefined}
                 >
@@ -245,7 +441,7 @@ export function ItemsPage({
                       ) : null}
                       <span className="item-row-title-break" aria-hidden="true" />
                       {item.url ? (
-                        <a className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer" onClick={stopRowSelection}>
+                        <a className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer" onClick={(event) => handleTitleClick(event, item)}>
                           {item.title ?? "(untitled)"}
                         </a>
                       ) : (
@@ -290,7 +486,27 @@ export function ItemsPage({
               );
             })}
           </div>
-          {selectedItem ? <ItemDetail item={selectedItem} sourceKind={sourceKind} relationCounts={relationCounts} lens={lens} /> : null}
+          {selectedItem ? (
+            <ItemDetail
+              item={selectedItem}
+              sourceKind={sourceKind}
+              relationCounts={relationCounts}
+              lens={lens}
+              motion={detailMotion}
+              onClose={closeDetail}
+              onTouchStart={handleDetailTouchStart}
+              onTouchEnd={handleDetailTouchEnd}
+              onTouchCancel={handleDetailTouchCancel}
+            >
+              <ItemDetailNav
+                position={detailNav.position}
+                total={detailNav.total}
+                canPrevious={detailNav.previous !== null}
+                canNext={detailNav.next !== null}
+                onNavigate={navigateDetail}
+              />
+            </ItemDetail>
+          ) : null}
         </div>
       )}
     </section>
