@@ -83,25 +83,8 @@ const SECRETS_TEMPLATE: &str = "# Provider tokens for Symphony Board Standalone.
 # GITHUB_TOKEN=ghp_xxx\n\
 # GITHUB_TOKEN_BACKUP=ghp_xxx_from_a_different_account\n";
 
-const DEFAULT_SOURCES_CONFIG: &str = "{\n\
-  \"db_path\": \"data/symphony.db\",\n\
-  \"sync\": {\n\
-    \"interval_seconds\": 600,\n\
-    \"full_interval_seconds\": 86400\n\
-  },\n\
-  \"sources\": [\n\
-    {\n\
-      \"source_id\": \"github:github.com\",\n\
-      \"kind\": \"github\",\n\
-      \"host\": \"github.com\",\n\
-      \"display_name\": \"GitHub\",\n\
-      \"token_env\": \"GITHUB_TOKEN\",\n\
-      \"graphql_url\": \"https://api.github.com/graphql\",\n\
-      \"rest_url\": \"https://api.github.com\",\n\
-      \"projects\": [\"sympoies/symphony-board\"]\n\
-    }\n\
-  ]\n\
-}\n";
+const DEFAULT_SOURCES_CONFIG: &str =
+    include_str!("../../../../config/standalone-default-sources.json");
 
 fn ensure_data_layout(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;

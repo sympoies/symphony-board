@@ -9,6 +9,7 @@ import {
   configWithoutSource,
   isSourceTokenSet,
   isSyncRunActive,
+  shouldValidateSecretBeforeSave,
   sourceTokenEnvs,
   sourcesNeedingSync,
   standaloneDefaultConfig,
@@ -118,7 +119,8 @@ export function SourcesEditor({ config, sync, variant = "default" }: Props) {
       setTokenError((m) => ({ ...m, [env]: "Save source changes before setting this token." }));
       return;
     }
-    const err = await config.setSecret(env, value, { sourceId, validate: standalone });
+    const source = draft?.sources.find((s) => s.source_id === sourceId);
+    const err = await config.setSecret(env, value, { sourceId, validate: source ? shouldValidateSecretBeforeSave(source, env, standalone) : false });
     setTokenError((m) => ({ ...m, [env]: err ?? "" }));
     if (!err) setTokenInput((m) => ({ ...m, [env]: "" }));
   };

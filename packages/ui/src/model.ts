@@ -2653,6 +2653,32 @@ export function sourceTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fal
   return out;
 }
 
+export function sourcePatTokenEnvs(source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools" | "auth_pools">): string[] {
+  const out: string[] = [];
+  const push = (env: string | undefined): void => {
+    if (typeof env !== "string") return;
+    const trimmed = env.trim();
+    if (trimmed.length > 0 && !out.includes(trimmed)) out.push(trimmed);
+  };
+  for (const env of [source.token_env, ...(source.fallback_token_envs ?? [])]) push(env);
+  for (const pool of Object.values(source.token_pools ?? {})) {
+    for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+  }
+  for (const pool of Object.values(source.auth_pools ?? {})) {
+    if (pool.kind !== "pat") continue;
+    for (const env of [pool.token_env, ...(pool.fallback_token_envs ?? [])]) push(env);
+  }
+  return out;
+}
+
+export function shouldValidateSecretBeforeSave(
+  source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "token_pools" | "auth_pools">,
+  env: string,
+  standalone: boolean,
+): boolean {
+  return standalone && sourcePatTokenEnvs(source).includes(env);
+}
+
 // True when ANY of a source's credential envs has a secret set.
 export function isSourceTokenSet(
   source: Pick<ConfigSourceDoc, "token_env" | "fallback_token_envs" | "github_app" | "token_pools" | "auth_pools">,

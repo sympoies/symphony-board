@@ -52,8 +52,8 @@ import { handleActivityDailyRequest } from "../server/activity-daily.ts";
 import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
 
-const STANDALONE_DEFAULT_INTERVAL_SECONDS = 600;
-const STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS = 86400;
+export const STANDALONE_DEFAULT_INTERVAL_SECONDS = 600;
+export const STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS = 86400;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });

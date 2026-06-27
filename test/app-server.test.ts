@@ -1,13 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import { request as httpRequest, type Server } from "node:http";
 import { gunzipSync } from "node:zlib";
 import { SyncController, SYNC_CONTROL_HEADER } from "../src/cli/sync-daemon.ts";
-import { createAppServer, shouldRunStandaloneFullSync, type AppServerOptions } from "../src/cli/app-server.ts";
+import {
+  STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS,
+  STANDALONE_DEFAULT_INTERVAL_SECONDS,
+  createAppServer,
+  shouldRunStandaloneFullSync,
+  type AppServerOptions,
+} from "../src/cli/app-server.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
 import type { SyncRunResult } from "../src/sync-runner.ts";
 
@@ -135,6 +141,12 @@ test("standalone full cadence uses stored sync history across restarts", async (
   } finally {
     rmSync(old.dir, { recursive: true, force: true });
   }
+});
+
+test("standalone app-server fallback cadence matches the bundled first-run seed", () => {
+  const seed = JSON.parse(readFileSync(new URL("../config/standalone-default-sources.json", import.meta.url), "utf8"));
+  assert.equal(STANDALONE_DEFAULT_INTERVAL_SECONDS, seed.sync.interval_seconds);
+  assert.equal(STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS, seed.sync.full_interval_seconds);
 });
 
 test("app-server serves health, contract, range, and the sync control surface", async () => {

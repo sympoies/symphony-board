@@ -1,0 +1,19 @@
+{
+  "db_path": "data/symphony.db",
+  "sync": {
+    "interval_seconds": 600,
+    "full_interval_seconds": 86400
+  },
+  "sources": [
+    {
+      "source_id": "github:github.com",
+      "kind": "github",
+      "host": "github.com",
+      "display_name": "GitHub",
+      "token_env": "GITHUB_TOKEN",
+      "graphql_url": "https://api.github.com/graphql",
+      "rest_url": "https://api.github.com",
+      "projects": ["sympoies/symphony-board"]
+    }
+  ]
+}
