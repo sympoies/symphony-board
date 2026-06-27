@@ -1693,7 +1693,7 @@ try {
       returnByValue: true,
     })).result.value || {};
   }
-  // Page 3b — Items: a chronological issue + PR/MR lookup surface over items[].
+  // Page 3b — Items: a chronological issue + change request lookup surface over items[].
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
@@ -3941,7 +3941,7 @@ try {
     [has(boardHtml, "board-7"), "board: 7-column board rendered"],
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
-    [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
+    [has(boardHtml, "col-lane-pr"), "board: change request spotlight lane present"],
     [boardPaneLayout.fillsViewport === true, `board: lane height fills to the same viewport bottom gutter as list tabs (${JSON.stringify(boardPaneLayout)})`],
     [boardPaneLayout.readableColumns === true && boardPaneLayout.scrollsHorizontally === true, `board: full board keeps readable column widths and scrolls inside the board when needed (${JSON.stringify(boardPaneLayout)})`],
     [boardCardChrome.found === true && boardCardChrome.badgeStartsAfterIcon === true && boardCardChrome.titleStartsAfterIcon === true, `board: card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(boardCardChrome)})`],
@@ -4073,7 +4073,7 @@ try {
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "4px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
-    // page 3b: Items renders issues and PR/MRs in one chronological lookup surface
+    // page 3b: Items renders issues and change requests in one chronological lookup surface
     [has(itemsHtml, "items-page"), "items: page rendered"],
     [sameRangeButtons(itemsRangeButtons), `items: shared range quick presets rendered without all (${itemsRangeButtons.join(", ")})`],
     [itemsSummary.rows >= 2, `items: rows rendered (${itemsSummary.rows || 0} >= 2)`],
@@ -4081,7 +4081,7 @@ try {
     [itemsSummary.graphLinks >= 1, `items: related rows keep a focus-in-graph affordance (${itemsSummary.graphLinks || 0} >= 1)`],
     [itemsSummary.detailMetricGraphLinks >= 1, `items: detail related metric remains a focus-in-graph link (${itemsSummary.detailMetricGraphLinks || 0} >= 1)`],
     [/updated \d/.test(itemsSummary.firstUpdated || ""), `items: newest row exposes the updated timestamp first (${itemsSummary.firstUpdated || "empty"})`],
-    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("change_request") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with PR/MR display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
+    [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("change request") && !(itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with change request display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
     [itemsSummary.split === true && itemsSummary.detail === true && itemsSummary.listLeftOfDetail === true, `items: renders a left list with a right detail pane (${JSON.stringify({ split: itemsSummary.split, detail: itemsSummary.detail, listLeftOfDetail: itemsSummary.listLeftOfDetail })})`],
     [itemsSummary.initialDetailTitle.includes(itemsSummary.firstTitle || "__missing__"), `items: defaults the detail pane to the newest row (${JSON.stringify({ row: itemsSummary.firstTitle, detail: itemsSummary.initialDetailTitle })})`],
     [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],

@@ -26,5 +26,5 @@ export interface SpotlightLaneConfig {
 export const SPOTLIGHT_LANES: SpotlightLaneConfig[] = [
   { key: "follow-up", label: "Follow-up", hint: "issues labeled workflow::follow-up", kind: "issue", anyLabel: ["workflow::follow-up"] },
   { key: "plan", label: "Plan-tracking", hint: "issues labeled workflow::plan", kind: "issue", anyLabel: ["workflow::plan"] },
-  { key: "pr", label: "PR", hint: "pull/merge requests, any state", kind: "change_request" },
+  { key: "pr", label: "Change requests", hint: "change requests, any state", kind: "change_request" },
 ];

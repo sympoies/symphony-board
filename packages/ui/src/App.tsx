@@ -149,6 +149,7 @@ import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
 import { DebugPage } from "./components/DebugPage.tsx";
 import { LivePage } from "./components/LivePage.tsx";
 import { TimeRangeControls } from "./components/TimeRangeControls.tsx";
+import { itemKindLabel } from "./components/ItemKindIcon.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
 import { ServerConnectionForm } from "./components/ServerConnectionForm.tsx";
 import { isValidTimezone } from "./tz.ts";
@@ -164,7 +165,7 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 const UNRESOLVED_ON: ReadonlySet<string> = new Set(["unresolved"]);
 // Chip labels for the review lens: "threads" -> "has threads", "unresolved" as-is.
 const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads" : v);
-const itemKindFacetLabel = (v: string): string => (v === "change_request" ? "PR/MR" : v);
+const kindFacetLabel = (v: string): string => itemKindLabel(v);
 type MobileControlPanel = "search" | "filters" | "range" | null;
 type EnvAuthority = "server" | "file";
 
@@ -1104,7 +1105,7 @@ export function App() {
   const filteredActivities = useMemo(() => {
     const base = routeActivities.filter((a) => activityMatches(a, { ...emptyFilters(), search: filters.search }));
     // "unresolved only" (?unresolved=1): keep just the review rows whose target
-    // PR/MR still has open threads. Range projections include review-activity
+    // change request still has open threads. Range projections include review-activity
     // target support rows, so the active projection is enough here.
     return route.unresolved === "1" ? base.filter((a) => reviewActivityIsUnresolved(a, activityItemsById)) : base;
   }, [routeActivities, filters.search, route.unresolved, activityItemsById]);
@@ -1118,7 +1119,7 @@ export function App() {
     if (page === "activity") {
       return [
         { dim: "sources", label: "source", values: facets.sources, active: activityFacetState.sources, displayValue: sourceDisplayName },
-        { dim: "kinds", label: "kind", values: facets.kinds, active: activityFacetState.kinds },
+        { dim: "kinds", label: "kind", values: facets.kinds, active: activityFacetState.kinds, displayValue: kindFacetLabel },
         { dim: "actions", label: "action", values: facets.actions, active: activityFacetState.actions },
         // Boolean "unresolved only" switch (toggle mode shows the single value);
         // dim "unresolved" is dispatched to its own route flag, not a facet.
@@ -1130,7 +1131,7 @@ export function App() {
     const groups: ControlGroup[] = [
       { dim: "sources", label: "source", values: facets.sources, active: itemFacetState.sources, displayValue: sourceDisplayName },
       { dim: "states", label: "state", values: facets.states, active: itemFacetState.states },
-      { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds, displayValue: itemKindFacetLabel },
+      { dim: "kinds", label: "kind", values: facets.kinds, active: itemFacetState.kinds, displayValue: kindFacetLabel },
     ];
     // The review lens filters items (board/graph) but not aggregated repo
     // metrics (repoMetricMatches has no review predicate), so omit it on
@@ -1870,7 +1871,7 @@ export function App() {
               : liveTabEffectivelyEnabled
                 ? "Live is available from the Live tab. "
                 : ""}
-            To load issues, PRs, and the board, pick a data range in{" "}
+            To load issues, change requests, and the board, pick a data range in{" "}
             <a href={routeHref("settings")}>Settings → Display</a>.
           </p>
         </div>
