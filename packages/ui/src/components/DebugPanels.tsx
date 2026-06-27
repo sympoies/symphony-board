@@ -540,7 +540,9 @@ export function SyncPanel({ stats, loading }: Pick<StoreStatsState, "stats" | "l
                 <th className="num">items</th>
                 <th className="num">edges</th>
                 <th className="num">activities</th>
-                <th className="num">gql</th>
+                <th className="num">gql cost</th>
+                <th className="num">gql req</th>
+                <th className="num">gql no cost</th>
                 <th>took</th>
                 <th>error</th>
               </tr>
@@ -557,7 +559,9 @@ export function SyncPanel({ stats, loading }: Pick<StoreStatsState, "stats" | "l
                   <td className="num">{run.items_seen.toLocaleString()}</td>
                   <td className="num">{run.edges_seen.toLocaleString()}</td>
                   <td className="num">{run.activities_seen.toLocaleString()}</td>
+                  <td className="num">{run.graphql_cost == null ? "—" : run.graphql_cost.toLocaleString()}</td>
                   <td className="num">{run.graphql_requests == null ? "—" : run.graphql_requests.toLocaleString()}</td>
+                  <td className="num">{run.graphql_cost_unknown == null ? "—" : run.graphql_cost_unknown.toLocaleString()}</td>
                   <td>{runDuration(run.started_at, run.finished_at)}</td>
                   <td className="debug-run-error">{run.error ?? ""}</td>
                 </tr>

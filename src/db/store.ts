@@ -157,6 +157,8 @@ export interface StoreSyncRunRow {
   edges_seen: number;
   activities_seen: number;
   graphql_requests: number | null;
+  graphql_cost: number | null;
+  graphql_cost_unknown: number | null;
   error: string | null;
 }
 
@@ -226,6 +228,8 @@ export interface Store {
     edgesSeen: number,
     activitiesSeen: number,
     graphqlRequests: number | null,
+    graphqlCost: number | null,
+    graphqlCostUnknown: number | null,
     error: string | null,
   ): Promise<void>;
   updateSyncState(

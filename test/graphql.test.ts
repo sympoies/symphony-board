@@ -172,6 +172,67 @@ test("GraphQL request telemetry counts each HTTP attempt, including fallback ret
   assert.equal(graphqlRequests, 2);
 });
 
+test("GitHub GraphQL telemetry reports rate-limit cost from successful responses", async () => {
+  mockFetch(() =>
+    new Response(
+      JSON.stringify({
+        data: {
+          ok: true,
+          rateLimit: {
+            limit: 1000,
+            remaining: 991,
+            used: 9,
+            cost: 7,
+            resetAt: "2286-11-20T17:46:39.000Z",
+          },
+        },
+      }),
+      { status: 200 },
+    ),
+  );
+
+  let graphqlCost = 0;
+  let graphqlCostUnknown = 0;
+  const gql = makeGqlClient("https://api.github.com/graphql", "tok", {
+    provider: "github",
+    onRateLimitCost: (cost: number | null) => {
+      if (cost === null) graphqlCostUnknown++;
+      else graphqlCost += cost;
+    },
+  });
+
+  assert.deepEqual(await gql("query { ok rateLimit { cost remaining used resetAt } }"), { ok: true, rateLimit: { limit: 1000, remaining: 991, used: 9, cost: 7, resetAt: "2286-11-20T17:46:39.000Z" } });
+  assert.equal(graphqlCost, 7);
+  assert.equal(graphqlCostUnknown, 0);
+});
+
+test("GitHub GraphQL telemetry reports unknown cost when rateLimit cost is absent", async () => {
+  mockFetch(() =>
+    new Response(
+      JSON.stringify({
+        data: {
+          ok: true,
+        },
+      }),
+      { status: 200 },
+    ),
+  );
+
+  let graphqlCost = 0;
+  let graphqlCostUnknown = 0;
+  const gql = makeGqlClient("https://api.github.com/graphql", "tok", {
+    provider: "github",
+    onRateLimitCost: (cost: number | null) => {
+      if (cost === null) graphqlCostUnknown++;
+      else graphqlCost += cost;
+    },
+  });
+
+  assert.deepEqual(await gql("query { ok }"), { ok: true });
+  assert.equal(graphqlCost, 0);
+  assert.equal(graphqlCostUnknown, 1);
+});
+
 test("GitHub GraphQL budget-aware bot tokens probe unknown budgets across bots", async () => {
   const auths: Array<string | undefined> = [];
   mockFetch((_url, init) => {
@@ -359,7 +420,7 @@ test("GitHub GraphQL auth trace logs token labels without token values", async (
     { env: "github_app:BOT_A_INSTALLATION_ID", value: "bot-a-secret", kind: "github_app", name: "bot-a", strategy: "budget_aware" },
   ]);
 
-  assert.deepEqual(await gql("query($owner:String!, $name:String!) { repository(owner:$owner, name:$name) { issues(first:1) { nodes { id } } } }", {
+  assert.deepEqual(await gql("query($owner:String!, $name:String!) { rateLimit { cost remaining used resetAt } repository(owner:$owner, name:$name) { issues(first:1) { nodes { id } } } }", {
     owner: "sympoies",
     name: "symphony-board",
   }), { ok: true });

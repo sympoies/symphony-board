@@ -15,10 +15,21 @@ function tokenKey(tokens: AuthToken[]): string {
   return tokens.map((token) => token.env).join("\0");
 }
 
-function gqlOptions(kind: string, telemetry: SourceRunTelemetry | null | undefined): { provider: string; onRequest?: () => void } {
+function gqlOptions(
+  kind: string,
+  telemetry: SourceRunTelemetry | null | undefined,
+): { provider: string; onRequest?: () => void; onRateLimitCost?: (cost: number | null) => void } {
   return {
     provider: kind,
     ...(telemetry ? { onRequest: () => { telemetry.graphqlRequests++; } } : {}),
+    ...(kind === "github" && telemetry
+      ? {
+          onRateLimitCost: (cost: number | null) => {
+            if (cost === null) telemetry.graphqlCostUnknown = (telemetry.graphqlCostUnknown ?? 0) + 1;
+            else telemetry.graphqlCost = (telemetry.graphqlCost ?? 0) + cost;
+          },
+        }
+      : {}),
   };
 }
 

@@ -33,6 +33,10 @@ function issueNode(id: string, updatedAt: string) {
   };
 }
 
+function hasGraphqlCostSelection(query: string): boolean {
+  return query.includes("rateLimit { cost remaining used resetAt }");
+}
+
 // A fake gql that serves one page of two issues (a fresh one and a stale one)
 // and an empty PR connection. The issue list is UPDATED_AT desc, as the real
 // query requests, so the incremental early-stop can fire on the stale node.
@@ -84,6 +88,21 @@ test("GitHub item queries request provider body text", async () => {
   await src.fetch({ since: null, full: true });
   assert.match(queries.find((q) => q.includes("issues(")) ?? "", /\bbody\b/, "issue query selects body");
   assert.match(queries.find((q) => q.includes("pullRequests(")) ?? "", /\bbody\b/, "PR query selects body");
+});
+
+test("GitHub item queries request GraphQL rate-limit cost", async () => {
+  const queries: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    queries.push(query);
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  await src.fetch({ since: null, full: true });
+  assert.ok(hasGraphqlCostSelection(queries.find((q) => q.includes("issues(")) ?? ""), "issue query selects GraphQL rate-limit cost");
+  assert.ok(hasGraphqlCostSelection(queries.find((q) => q.includes("pullRequests(")) ?? ""), "PR query selects GraphQL rate-limit cost");
 });
 
 test("GitHub PR queries request the list-bubble comment aggregate", async () => {
@@ -870,6 +889,7 @@ test("GitHub CI refresh fetches configured PR candidates without advancing the w
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.vars.number, 9);
+  assert.ok(hasGraphqlCostSelection(calls[0]!.query), "PR refresh query selects GraphQL rate-limit cost");
   assert.equal(res.watermark, null, "refresh records must not move the updatedAt watermark");
   assert.equal(res.records[0]!.externalId, "PR_refresh");
   assert.equal(src.normalize(res.records[0]!)?.item?.ciState, "passing");

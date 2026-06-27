@@ -21,6 +21,10 @@ function cfg(over: Partial<SourceConfig> = {}): SourceConfig {
   };
 }
 
+function hasGraphqlCostSelection(body: string): boolean {
+  return body.includes("rateLimit { cost remaining used resetAt }");
+}
+
 test("a github config builds a GitHubSource with the descriptor mapped field-for-field", () => {
   const src = buildSource(cfg({ display_name: "GitHub" }), "tok");
   assert.ok(src instanceof GitHubSource);
@@ -63,13 +67,14 @@ test("a github config with tokenless projects marks the source partial", async (
       const restPayload = url.endsWith("/repos/sympoies/repo") ? { default_branch: "main" } : [];
       return new Response(JSON.stringify(restPayload), { status: 200, headers: { "content-type": "application/json" } });
     }
+    const includesCost = hasGraphqlCostSelection(String(init?.body ?? ""));
     const payload = String(init?.body ?? "").includes("pullRequests(")
-      ? { data: { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } }
-      : { data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } };
+      ? { data: { ...(includesCost ? { rateLimit: { cost: 5, remaining: 995, used: 5, resetAt: "2286-11-20T17:46:39.000Z" } } : {}), repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } }
+      : { data: { ...(includesCost ? { rateLimit: { cost: 3, remaining: 997, used: 3, resetAt: "2286-11-20T17:46:39.000Z" } } : {}), repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } };
     return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   try {
-    const telemetry = { graphqlRequests: 0 };
+    const telemetry = { graphqlRequests: 0, graphqlCost: 0, graphqlCostUnknown: 0 };
     const src = buildSource(
       cfg({ projects: ["default/repo", { path: "sympoies/repo", token_pool: "sympoies" }] }),
       [],
@@ -84,6 +89,9 @@ test("a github config with tokenless projects marks the source partial", async (
     const graphqlCalls = calls.filter((call) => call.method === "POST");
     assert.equal(graphqlCalls.length, 2, "only the token-covered repo is fetched over GraphQL");
     assert.equal(telemetry.graphqlRequests, 2, "source telemetry counts GraphQL POSTs only");
+    assert.equal(telemetry.graphqlCost, 8, "source telemetry sums GitHub GraphQL rate-limit cost");
+    assert.equal(telemetry.graphqlCostUnknown, 0);
+    assert.ok(graphqlCalls.every((call) => hasGraphqlCostSelection(call.body)), "source GraphQL queries request rateLimit cost");
     assert.ok(calls.every((call) => call.auth === "Bearer repo-token"));
     assert.ok(graphqlCalls.every((call) => call.body.includes('"owner":"sympoies"') && call.body.includes('"name":"repo"')));
     assert.ok(calls.every((call) => !call.url.includes("default/repo") && !call.body.includes('"owner":"default"')));

@@ -32,12 +32,14 @@ export interface GqlClientOptions {
   timeoutMs?: number;
   provider?: string;
   onRequest?: () => void;
+  onRateLimitCost?: (cost: number | null) => void;
 }
 
 type ResolvedGqlClientOptions = {
   timeoutMs: number;
   provider: string;
   onRequest?: () => void;
+  onRateLimitCost?: (cost: number | null) => void;
 };
 
 function gqlOptions(input: number | GqlClientOptions | undefined, url: string): ResolvedGqlClientOptions {
@@ -46,12 +48,13 @@ function gqlOptions(input: number | GqlClientOptions | undefined, url: string): 
     timeoutMs: input?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
     provider: input?.provider ?? (url.includes("github") ? "github" : ""),
     ...(input?.onRequest ? { onRequest: input.onRequest } : {}),
+    ...(input?.onRateLimitCost ? { onRateLimitCost: input.onRateLimitCost } : {}),
   };
 }
 
 export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: number | GqlClientOptions): GqlClient {
   const tokens = normalizeAuthTokens(tokenInput);
-  const { timeoutMs, provider, onRequest } = gqlOptions(opts, url);
+  const { timeoutMs, provider, onRequest, onRateLimitCost } = gqlOptions(opts, url);
   // Shared across all callers of this client, now including the bounded-concurrent
   // resolve passes (lib/concurrency.ts). Writes are idempotent cooldown stamps and
   // reads only pick an available token, so concurrent callers racing on it is
@@ -106,11 +109,15 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
           attemptRecorded = true;
           throw new Error(`GraphQL HTTP ${res.status}: non-JSON response from ${url}`);
         }
+        const graphqlBudget = provider === "github" ? githubGraphqlRateBudget(json?.data) : null;
+        if (provider === "github" && onRateLimitCost) {
+          onRateLimitCost(typeof graphqlBudget?.cost === "number" ? graphqlBudget.cost : null);
+        }
         recordAuthAttemptDone(
           tokens,
           idx,
           selection,
-          provider === "github" ? githubRateBudgetFromHeaders(res.headers, githubGraphqlRateBudget(json?.data)) : null,
+          provider === "github" ? githubRateBudgetFromHeaders(res.headers, graphqlBudget) : null,
         );
         attemptRecorded = true;
         if (!res.ok) {

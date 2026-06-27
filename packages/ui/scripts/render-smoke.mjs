@@ -91,11 +91,13 @@ const STORE_STATS_MOCK = (() => {
     edges_seen: 2300 + i,
     activities_seen: 11000 + i * 3,
     graphql_requests: i % 5 === 0 ? null : 40 + i,
+    graphql_cost: i % 5 === 0 ? null : 90 + i,
+    graphql_cost_unknown: i % 6 === 0 ? 1 : 0,
     error: i % 7 === 0 ? "rate limited: secondary limit hit, backing off" : null,
   }));
   return {
     generated_at: "2026-06-23T05:02:00Z",
-    db: { driver: "postgres", schema_version: 11 },
+    db: { driver: "postgres", schema_version: 12 },
     tables: {},
     items: { live: 1836, tombstoned: 0, by_kind: {}, by_state: {}, by_source: {} },
     edges: { live: 2368, tombstoned: 0, by_type: {}, by_lifecycle: {} },
@@ -3879,9 +3881,17 @@ try {
           const th = ${tab.sticky} ? document.querySelector(${JSON.stringify(tab.scroller + " thead th")}) : null;
           const table = ${tab.sticky} ? document.querySelector(${JSON.stringify(tab.scroller + " table")}) : null;
           const headers = table ? [...table.querySelectorAll('thead th')].map((cell) => (cell.textContent || '').trim().toLowerCase()) : [];
-          const gqlIndex = headers.indexOf('gql');
-          const gqlValues = gqlIndex >= 0
-            ? [...table.querySelectorAll('tbody tr')].map((row) => (row.children[gqlIndex]?.textContent || '').trim())
+          const gqlCostIndex = headers.indexOf('gql cost');
+          const gqlReqIndex = headers.indexOf('gql req');
+          const gqlNoCostIndex = headers.indexOf('gql no cost');
+          const gqlCostValues = gqlCostIndex >= 0
+            ? [...table.querySelectorAll('tbody tr')].map((row) => (row.children[gqlCostIndex]?.textContent || '').trim())
+            : [];
+          const gqlReqValues = gqlReqIndex >= 0
+            ? [...table.querySelectorAll('tbody tr')].map((row) => (row.children[gqlReqIndex]?.textContent || '').trim())
+            : [];
+          const gqlNoCostValues = gqlNoCostIndex >= 0
+            ? [...table.querySelectorAll('tbody tr')].map((row) => (row.children[gqlNoCostIndex]?.textContent || '').trim())
             : [];
           return {
             found: true,
@@ -3890,9 +3900,13 @@ try {
             scrollerScrolls: scroller.scrollHeight > scroller.clientHeight + 2,
             scrollerOverflowY: getComputedStyle(scroller).overflowY,
             stickyHeader: th ? getComputedStyle(th).position : 'n/a',
-            syncGqlHeader: gqlIndex >= 0,
-            syncGqlNumeric: gqlValues.some((value) => /^[1-9][0-9]*$/.test(value)),
-            syncGqlNullPlaceholder: gqlValues.includes('—'),
+            syncGqlCostHeader: gqlCostIndex >= 0,
+            syncGqlCostNumeric: gqlCostValues.some((value) => /^[1-9][0-9]*$/.test(value)),
+            syncGqlCostNullPlaceholder: gqlCostValues.includes('—'),
+            syncGqlReqHeader: gqlReqIndex >= 0,
+            syncGqlReqNumeric: gqlReqValues.some((value) => /^[1-9][0-9]*$/.test(value)),
+            syncGqlNoCostHeader: gqlNoCostIndex >= 0,
+            syncGqlNoCostNumeric: gqlNoCostValues.some((value) => /^[0-9]+$/.test(value)),
           };
         })()`,
         returnByValue: true,
@@ -3995,8 +4009,10 @@ try {
   const debugSync = debugFillResults.find((r) => r.tab === "sync" && r.found);
   const debugStickyCheck = [!!debugSync && debugSync.stickyHeader === "sticky", `debug fill: Sync runs header sticky (${debugSync ? debugSync.stickyHeader : "n/a"})`];
   const debugSyncGqlCheck = [
-    !!debugSync && debugSync.syncGqlHeader === true && debugSync.syncGqlNumeric === true && debugSync.syncGqlNullPlaceholder === true,
-    `debug fill: Sync runs renders gql counts and null placeholder (${JSON.stringify(debugSync)})`,
+    !!debugSync && debugSync.syncGqlCostHeader === true && debugSync.syncGqlCostNumeric === true && debugSync.syncGqlCostNullPlaceholder === true &&
+      debugSync.syncGqlReqHeader === true && debugSync.syncGqlReqNumeric === true &&
+      debugSync.syncGqlNoCostHeader === true && debugSync.syncGqlNoCostNumeric === true,
+    `debug fill: Sync runs renders gql telemetry columns (${JSON.stringify(debugSync)})`,
   ];
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
   const checks = [

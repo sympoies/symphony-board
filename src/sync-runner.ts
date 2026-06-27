@@ -37,6 +37,8 @@ export interface SourceRunResult {
   edges: number;
   activities: number;
   graphql_requests?: number | null;
+  graphql_cost?: number | null;
+  graphql_cost_unknown?: number | null;
   soft_deleted: number;
   soft_deleted_edges: number;
   error: string | null;
@@ -127,6 +129,8 @@ export async function executeSyncRun(
         edges: 0,
         activities: 0,
         graphql_requests: null,
+        graphql_cost: null,
+        graphql_cost_unknown: null,
         soft_deleted: 0,
         soft_deleted_edges: 0,
         error: null,
@@ -145,10 +149,12 @@ export async function executeSyncRun(
         full,
         dryRun: opts.dryRun,
         graphqlRequestCount: () => telemetry?.graphqlRequests ?? null,
+        graphqlCost: () => telemetry?.graphqlCost ?? null,
+        graphqlCostUnknown: () => telemetry?.graphqlCostUnknown ?? null,
       });
       log.info(
         `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
-          `graphql=${rep.graphqlRequests ?? "-"} ` +
+          `graphqlReq=${rep.graphqlRequests ?? "-"} graphqlCost=${rep.graphqlCost ?? "-"} graphqlCostUnknown=${rep.graphqlCostUnknown ?? "-"} ` +
           `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
       );
       results.push({
@@ -158,6 +164,8 @@ export async function executeSyncRun(
         edges: rep.edgesSeen,
         activities: rep.activitiesSeen,
         graphql_requests: rep.graphqlRequests,
+        graphql_cost: rep.graphqlCost,
+        graphql_cost_unknown: rep.graphqlCostUnknown,
         soft_deleted: rep.softDeleted,
         soft_deleted_edges: rep.softDeletedEdges,
         error: rep.error,
@@ -246,7 +254,19 @@ export async function runConfiguredSync(
     if (mintFailure) {
       const error = `GitHub App token mint failed with no usable fallback token: ${mintFailure}`;
       log.error(`error ${sc.source_id}: ${error}`);
-      errored.push({ source_id: sc.source_id, status: "error", items: 0, edges: 0, activities: 0, graphql_requests: null, soft_deleted: 0, soft_deleted_edges: 0, error });
+      errored.push({
+        source_id: sc.source_id,
+        status: "error",
+        items: 0,
+        edges: 0,
+        activities: 0,
+        graphql_requests: null,
+        graphql_cost: null,
+        graphql_cost_unknown: null,
+        soft_deleted: 0,
+        soft_deleted_edges: 0,
+        error,
+      });
       continue;
     }
     const hasAnyTokens = tokens.length > 0 || (sc.kind === "github" && [...projectTokens.values()].some((projectTokenSet) => projectTokenSet.length > 0));
@@ -256,7 +276,11 @@ export async function runConfiguredSync(
       skipped.push(sc.source_id);
       continue;
     }
-    const telemetry: SourceRunTelemetry = { graphqlRequests: 0 };
+    const telemetry: SourceRunTelemetry = {
+      graphqlRequests: 0,
+      graphqlCost: sc.kind === "github" ? 0 : null,
+      graphqlCostUnknown: sc.kind === "github" ? 0 : null,
+    };
     prepared.push({ config: sc, source: buildSource(sc, tokens, projectTokens, telemetry), telemetry });
   }
 

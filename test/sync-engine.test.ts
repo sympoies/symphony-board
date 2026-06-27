@@ -305,14 +305,25 @@ test("a failed fetch reports error, persists the error, and deletes nothing (eve
   assert.equal((await db.listLiveItems()).length, 1);
   await tick();
 
-  const rep = await syncSource(db, new BoomSource(), "wm", { full: true, dryRun: false, graphqlRequestCount: () => 4 });
+  const rep = await syncSource(db, new BoomSource(), "wm", {
+    full: true,
+    dryRun: false,
+    graphqlRequestCount: () => 4,
+    graphqlCost: () => 9,
+    graphqlCostUnknown: () => 1,
+  });
   assert.equal(rep.status, "error");
   assert.equal(rep.error, "network down");
   assert.equal(rep.graphqlRequests, 4);
+  assert.equal(rep.graphqlCost, 9);
+  assert.equal(rep.graphqlCostUnknown, 1);
   assert.equal(rep.watermark, null, "a failed fetch advances no watermark");
   assert.equal(rep.softDeleted, 0);
   assert.equal((await db.listLiveItems()).length, 1, "a failed fetch never tombstones");
-  assert.equal((await db.overview(10)).sync_runs[0]!.graphql_requests, 4);
+  const run = (await db.overview(10)).sync_runs[0]!;
+  assert.equal(run.graphql_requests, 4);
+  assert.equal(run.graphql_cost, 9);
+  assert.equal(run.graphql_cost_unknown, 1);
   // The error is persisted, but the prior good watermark is NOT clobbered.
   assert.equal(await db.getWatermark("fake:test"), "2026-06-01T00:00:00Z");
   await db.close();

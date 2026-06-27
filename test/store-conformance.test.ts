@@ -508,11 +508,13 @@ for (const driver of DRIVERS) {
     assert.equal(runs[0]!.run_id, runId);
     assert.equal(runs[0]!.status, "partial", "an unfinished run reads as partial");
 
-    await store.finishRun(runId, "ok", "2026-06-01T00:00:30Z", 2, 1, 1, 3, null);
+    await store.finishRun(runId, "ok", "2026-06-01T00:00:30Z", 2, 1, 1, 3, 8, 0, null);
     runs = (await store.overview(10)).sync_runs;
     assert.equal(runs[0]!.status, "ok");
     assert.equal(runs[0]!.items_seen, 2);
     assert.equal(runs[0]!.graphql_requests, 3);
+    assert.equal(runs[0]!.graphql_cost, 8);
+    assert.equal(runs[0]!.graphql_cost_unknown, 0);
     await store.close();
   });
 
@@ -524,9 +526,9 @@ for (const driver of DRIVERS) {
     await store.upsertEdge(fixtureEdge(), "2026-06-01T00:00:00Z");
     await store.upsertActivity(fixtureActivity(), "2026-06-01T00:00:00Z");
     const r1 = await store.startRun(SOURCE, "full", "2026-06-01T00:00:00Z");
-    await store.finishRun(r1, "ok", "2026-06-01T00:00:30Z", 1, 1, 1, 5, null);
+    await store.finishRun(r1, "ok", "2026-06-01T00:00:30Z", 1, 1, 1, 5, 13, 0, null);
     const r2 = await store.startRun(SOURCE, "incremental", "2026-06-01T00:02:00Z");
-    await store.finishRun(r2, "error", "2026-06-01T00:02:05Z", 0, 0, 0, 2, "boom");
+    await store.finishRun(r2, "error", "2026-06-01T00:02:05Z", 0, 0, 0, 2, 3, 1, "boom");
 
     const ov = await store.overview(10);
     assert.equal(ov.items.live, 1);
@@ -540,7 +542,11 @@ for (const driver of DRIVERS) {
     assert.equal(ov.sync_runs.length, 2);
     assert.equal(ov.sync_runs[0]!.error, "boom", "newest run first");
     assert.equal(ov.sync_runs[0]!.graphql_requests, 2);
+    assert.equal(ov.sync_runs[0]!.graphql_cost, 3);
+    assert.equal(ov.sync_runs[0]!.graphql_cost_unknown, 1);
     assert.equal(ov.sync_runs[1]!.graphql_requests, 5);
+    assert.equal(ov.sync_runs[1]!.graphql_cost, 13);
+    assert.equal(ov.sync_runs[1]!.graphql_cost_unknown, 0);
     assert.equal((await store.overview(1)).sync_runs.length, 1, "runsLimit bounds the history window");
     await store.close();
   });

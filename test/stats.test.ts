@@ -91,9 +91,9 @@ test("buildStoreStats summarizes rows, breakdowns, tombstones, and sync runs", a
     await db.upsertActivity(FIXTURE_ACTIVITY, "2026-06-01T00:00:00Z");
 
     const ok = await db.startRun(SOURCE, "full", "2026-06-01T00:00:00Z");
-    await db.finishRun(ok, "ok", "2026-06-01T00:00:30Z", 2, 1, 1, 4, null);
+    await db.finishRun(ok, "ok", "2026-06-01T00:00:30Z", 2, 1, 1, 4, 11, 0, null);
     const failed = await db.startRun(SOURCE, "incremental", "2026-06-01T00:02:00Z");
-    await db.finishRun(failed, "error", "2026-06-01T00:02:05Z", 0, 0, 0, 1, "boom");
+    await db.finishRun(failed, "error", "2026-06-01T00:02:05Z", 0, 0, 0, 1, 2, 1, "boom");
   } finally {
     await db.close();
   }
@@ -131,9 +131,13 @@ test("buildStoreStats summarizes rows, breakdowns, tombstones, and sync runs", a
   assert.equal(stats.sync_runs[0]!.status, "error");
   assert.equal(stats.sync_runs[0]!.error, "boom");
   assert.equal(stats.sync_runs[0]!.graphql_requests, 1);
+  assert.equal(stats.sync_runs[0]!.graphql_cost, 2);
+  assert.equal(stats.sync_runs[0]!.graphql_cost_unknown, 1);
   assert.equal(stats.sync_runs[1]!.status, "ok");
   assert.equal(stats.sync_runs[1]!.items_seen, 2);
   assert.equal(stats.sync_runs[1]!.graphql_requests, 4);
+  assert.equal(stats.sync_runs[1]!.graphql_cost, 11);
+  assert.equal(stats.sync_runs[1]!.graphql_cost_unknown, 0);
 
   assert.equal(newestOnly.sync_runs.length, 1, "runsLimit bounds the history window");
   assert.equal(newestOnly.sync_runs[0]!.status, "error");

@@ -2750,6 +2750,8 @@ export interface StoreStatsSyncRun {
   edges_seen: number;
   activities_seen: number;
   graphql_requests: number | null;
+  graphql_cost?: number | null;
+  graphql_cost_unknown?: number | null;
   error: string | null;
 }
 

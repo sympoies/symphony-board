@@ -38,6 +38,12 @@ export interface SourceOptions {
 
 export interface SourceRunTelemetry {
   graphqlRequests: number;
+  // GitHub GraphQL rate-limit points consumed by this source run. Non-GitHub
+  // providers report null because their GraphQL APIs do not expose this shape.
+  graphqlCost: number | null;
+  // Count of successful GitHub GraphQL responses that did not include a usable
+  // rateLimit.cost value. This is a response count, not a cost amount.
+  graphqlCostUnknown: number | null;
 }
 
 export interface FetchOptions {
