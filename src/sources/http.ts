@@ -1,4 +1,3 @@
-import { createHmac, randomBytes } from "node:crypto";
 import { log } from "../log.ts";
 
 // Shared fetch wrapper that bounds every provider request with an abort-based
@@ -33,7 +32,6 @@ export interface AuthSelectionState {
 const authSelectionStarts = new Map<string, number>();
 const authBudgetStates = new Map<string, AuthBudgetState>();
 const DEFAULT_ESTIMATED_COST = 1;
-const AUTH_BUDGET_KEY_SALT = randomBytes(16);
 
 interface AuthBudgetState {
   limit?: number;
@@ -78,18 +76,16 @@ function tokenSelectionKey(tokens: readonly AuthToken[], namespace: string): str
   ].join("\n");
 }
 
-function credentialFingerprint(value: string): string {
-  return createHmac("sha256", AUTH_BUDGET_KEY_SALT).update(value).digest("hex").slice(0, 16);
-}
-
 function budgetKeyFor(namespace: string, token: AuthToken): string {
+  // GitHub App installation tokens expire and are renewed regularly. The stable
+  // budget identity is the configured credential/installation label, not the
+  // bearer token string minted for this process.
   return [
     namespace,
     token.env,
     token.kind ?? "",
     canonicalAuthStrategy(token.strategy),
     token.name ?? "",
-    credentialFingerprint(token.value),
   ].join("\t");
 }
 
@@ -407,21 +403,33 @@ export function recordAuthAttemptDone(
 
   const priorRemaining = state.remaining;
   const priorResetAt = state.resetAtMs;
-  if (budget.limit !== undefined) state.limit = budget.limit;
-  if (budget.used !== undefined) state.used = budget.used;
-  if (budget.resetAtMs !== undefined) state.resetAtMs = budget.resetAtMs;
   if (budget.cost !== undefined && budget.cost > 0) state.lastCost = budget.cost;
+
+  const sameOrUnknownWindow =
+    priorResetAt === undefined ||
+    budget.resetAtMs === undefined ||
+    priorResetAt === budget.resetAtMs;
+  const newerWindow = priorResetAt !== undefined && budget.resetAtMs !== undefined && budget.resetAtMs > priorResetAt;
+  const olderWindow = priorResetAt !== undefined && budget.resetAtMs !== undefined && budget.resetAtMs < priorResetAt;
+  if (olderWindow) return;
+
+  if (newerWindow) delete state.blockedUntilMs;
+  if (budget.limit !== undefined) state.limit = budget.limit;
+  if (budget.resetAtMs !== undefined) state.resetAtMs = budget.resetAtMs;
+  if (budget.used !== undefined) {
+    state.used = sameOrUnknownWindow && state.used !== undefined ? Math.max(state.used, budget.used) : budget.used;
+  }
   if (budget.remaining !== undefined) {
     if (
       budget.cost === undefined &&
       priorRemaining !== undefined &&
       priorRemaining >= budget.remaining &&
-      (priorResetAt === undefined || budget.resetAtMs === undefined || priorResetAt === budget.resetAtMs)
+      sameOrUnknownWindow
     ) {
       const observedCost = priorRemaining - budget.remaining;
       if (observedCost > 0) state.lastCost = observedCost;
     }
-    state.remaining = budget.remaining;
+    state.remaining = sameOrUnknownWindow && priorRemaining !== undefined ? Math.min(priorRemaining, budget.remaining) : budget.remaining;
   }
   if (state.remaining === 0 && state.resetAtMs !== undefined) state.blockedUntilMs = state.resetAtMs;
 }
