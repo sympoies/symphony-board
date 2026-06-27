@@ -41,6 +41,7 @@ COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/ui/dist /usr/share/nginx/html
 # The public UI image must not bake a sample or runtime-emitted contract. The
 # nginx config serves /contract.json from the operator-mounted /srv/data path.
-RUN rm -f /usr/share/nginx/html/contract.json
+RUN rm -f /usr/share/nginx/html/contract.json \
+  && chmod 0644 /etc/nginx/conf.d/default.conf
 USER nginx
 EXPOSE 8080
