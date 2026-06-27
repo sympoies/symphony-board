@@ -42,6 +42,12 @@ test("a freshly built envelope passes the schema clean", () => {
   assert.deepEqual(validateContract(validEnvelope()), []);
 });
 
+test("items may omit the additive body field for pre-4.5 payload compatibility", () => {
+  const env: any = validEnvelope();
+  delete env.items[0].body;
+  assert.deepEqual(validateContract(env), []);
+});
+
 test("loadContractSchema reads the normative schema with the expected $id", () => {
   const schema = loadContractSchema();
   const major = CONTRACT_VERSION.split(".")[0];

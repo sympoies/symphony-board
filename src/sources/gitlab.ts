@@ -43,6 +43,7 @@ import type {
   MergeState,
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
+import { cleanProviderBody } from "../model/text.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
@@ -839,7 +840,7 @@ export class GitLabSource implements Source {
       iid: Number.isFinite(iidNum) ? iidNum : null,
       url: p.webUrl ?? "",
       title: p.title ?? null,
-      body: cleanText(p.description),
+      body: cleanProviderBody(p.description),
       state: mapState(p.state),
       stateRaw: p.state ?? null,
       author: p.author?.username ?? null,

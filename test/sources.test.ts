@@ -5,6 +5,7 @@ import { GitLabSource } from "../src/sources/gitlab.ts";
 import type { GqlClient } from "../src/sources/graphql.ts";
 import type { RestClient } from "../src/sources/rest.ts";
 import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
+import { PROVIDER_BODY_MAX_CHARS, PROVIDER_BODY_TRUNCATED_SUFFIX } from "../src/model/text.ts";
 
 const DESC: SourceDescriptor = { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null };
 
@@ -68,6 +69,36 @@ test("a full sweep ignores the watermark and fetches everything", async () => {
   const ids = res.records.map((r) => r.externalId).sort();
   assert.deepEqual(ids, ["I_fresh", "I_stale"], "full sweep keeps the stale issue too");
   assert.equal(res.watermark, "2026-06-10T00:00:00Z", "watermark is the max updatedAt seen");
+});
+
+test("GitHub item queries request provider body text", async () => {
+  const queries: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    queries.push(query);
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  await src.fetch({ since: null, full: true });
+  assert.match(queries.find((q) => q.includes("issues(")) ?? "", /\bbody\b/, "issue query selects body");
+  assert.match(queries.find((q) => q.includes("pullRequests(")) ?? "", /\bbody\b/, "PR query selects body");
+});
+
+test("GitHub provider bodies are bounded before canonical projection", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "issue",
+    externalId: "ISSUE_BIG_BODY",
+    apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: { ...issueNode("ISSUE_BIG_BODY", "2026-06-01T00:00:00Z"), body: ` ${"x".repeat(PROVIDER_BODY_MAX_CHARS + 100)} ` },
+  };
+  const body = src.normalize(raw)!.item!.body;
+  assert.equal(body?.length, PROVIDER_BODY_MAX_CHARS);
+  assert.ok(body?.endsWith(PROVIDER_BODY_TRUNCATED_SUFFIX));
 });
 
 test("GitHub fetch and normalize includes commit and repository activity from REST", async () => {
@@ -1231,6 +1262,24 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(mr1men.length, 1);
   assert.equal(mr1men[0]!.from.externalId, "gid:I6");
   assert.equal(mr1men[0]!.to.externalId, "gid:MR1");
+});
+
+test("GitLab item queries request provider descriptions", async () => {
+  const queries: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    queries.push(query);
+    if (query.includes("mergeRequests(")) {
+      return { project: { mergeRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    if (query.includes("issues(")) {
+      return { project: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return {};
+  }) as GqlClient;
+  const src = new GitLabSource(GL_DESC, gql, ["g/p"]);
+  await src.fetch({ since: null, full: true });
+  assert.match(queries.find((q) => q.includes("issues(")) ?? "", /\bdescription\b/, "issue query selects description");
+  assert.match(queries.find((q) => q.includes("mergeRequests(")) ?? "", /\bdescription\b/, "MR query selects description");
 });
 
 test("GitLab resolve pass overlaps per-item round-trips up to the concurrency bound", async () => {

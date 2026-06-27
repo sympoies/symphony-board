@@ -128,10 +128,38 @@ export function migrate(db: DatabaseSync): void {
   for (const m of MIGRATIONS) {
     if (m.version <= have) continue;
     const ddl = readFileSync(resolve(SCHEMA_DIR, m.file), "utf8");
-    db.exec(ddl);
+    applyMigration(db, m, ddl);
+  }
+}
+
+function applyMigration(db: DatabaseSync, m: Migration, ddl: string): void {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (!migrationAlreadyApplied(db, m)) {
+      db.exec(ddl);
+    }
     // user_version takes an integer literal; m.version is a trusted constant.
     db.exec(`PRAGMA user_version = ${m.version}`);
+    db.exec("COMMIT");
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // If SQLite already rolled the transaction back, preserve the original
+      // migration failure.
+    }
+    throw err;
   }
+}
+
+function migrationAlreadyApplied(db: DatabaseSync, m: Migration): boolean {
+  if (m.version === 9) return sqliteColumnExists(db, "item", "body");
+  return false;
+}
+
+function sqliteColumnExists(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
+  return rows.some((row) => row.name === column);
 }
 
 function fileSize(path: string): number {

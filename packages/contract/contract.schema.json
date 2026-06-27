@@ -160,7 +160,7 @@
         "iid": { "type": ["integer", "null"], "description": "Per-project number." },
         "url": { "type": "string" },
         "title": { "type": ["string", "null"] },
-        "body": { "type": ["string", "null"], "description": "Provider issue / PR/MR body text for detail views (4.5.0+)." },
+        "body": { "type": ["string", "null"], "description": "Bounded provider issue / PR/MR body text for detail views (4.5.0+)." },
         "state": {
           "type": "string",
           "enum": ["open", "closed", "merged"],

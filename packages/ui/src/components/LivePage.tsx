@@ -10,7 +10,7 @@
 // Settings-controlled line count) and the selected event's full markdown body on
 // the right. Bodies are rendered as markdown (lazy-loaded, untrusted-safe); the
 // feed is labelled best-effort with the board as the source of truth.
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
@@ -44,23 +44,9 @@ import {
   resolveLiveFollowDecision,
 } from "../live-follow.ts";
 import { Badge } from "./Badge.tsx";
+import { MarkdownBody } from "./MarkdownBody.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { activityVirtualRange, liveDetailNavigation, liveEventKey, type LiveEvent, type LiveEventActor } from "../model.ts";
-
-// react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
-// stay out of the board/graph bundles — only the Live tab pays for them.
-const Markdown = lazy(() => import("./Markdown.tsx"));
-
-// Memoized so the 1s relative-time tick (which re-renders the feed) never
-// re-parses an unchanged body. Falls back to the plain text while the markdown
-// chunk loads, so a row never flashes empty.
-const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: string; className?: string }) {
-  return (
-    <Suspense fallback={<div className={className}><div className="live-md-fallback">{text}</div></div>}>
-      <Markdown className={className}>{text}</Markdown>
-    </Suspense>
-  );
-});
 
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours

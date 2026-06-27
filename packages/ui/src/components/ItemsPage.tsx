@@ -1,21 +1,12 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemKindIcon, itemKindLabel } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
+import { MarkdownBody } from "./MarkdownBody.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { relativeTime, reviewThreadsLabel, pluralize, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
-
-const Markdown = lazy(() => import("./Markdown.tsx"));
-
-const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: string; className?: string }) {
-  return (
-    <Suspense fallback={<div className={className}><div className="live-md-fallback">{text}</div></div>}>
-      <Markdown className={className}>{text}</Markdown>
-    </Suspense>
-  );
-});
 
 function LinkIcon() {
   return (

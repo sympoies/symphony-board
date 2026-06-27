@@ -115,7 +115,7 @@ The current emitted contract is `4.5.0`. Important compatibility milestones:
   review activity's target change request only so consumers can resolve current
   review-thread state. This keeps `edge_endpoint` reserved for emitted edge
   endpoints.
-- 4.5.0 adds optional, nullable `ItemDTO.body`, the provider issue / PR / MR
+- 4.5.0 adds optional, nullable `ItemDTO.body`, bounded provider issue / PR / MR
   description text for detail views.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,

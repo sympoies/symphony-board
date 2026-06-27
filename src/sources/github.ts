@@ -17,6 +17,7 @@ import type {
   MergeState,
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
+import { cleanProviderBody } from "../model/text.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
@@ -749,7 +750,7 @@ export class GitHubSource implements Source {
       iid: typeof p.number === "number" ? p.number : null,
       url: p.url ?? "",
       title: p.title ?? null,
-      body: cleanText(p.body),
+      body: cleanProviderBody(p.body),
       state: mapState(p.state),
       stateRaw: p.state ?? null,
       author: p.author?.login ?? null,

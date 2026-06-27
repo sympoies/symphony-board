@@ -15,7 +15,7 @@
 // tab — the same affordance the Live tab uses. The shared facet Controls (search
 // + source/repo/state/kind/review-lens chips) live in App above this page, so the
 // FILTER operation stays identical to the other content tabs.
-import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
 import type { ItemDTO, ReviewThreadCommentDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import {
   activityVirtualRange,
@@ -32,22 +32,8 @@ import { safeHref } from "../url.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { Badge } from "./Badge.tsx";
+import { MarkdownBody } from "./MarkdownBody.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
-
-// react-markdown + remark-gfm are lazy-loaded so they form their own chunk and
-// stay out of the board/graph bundles — shared with the Live tab's chunk.
-const Markdown = lazy(() => import("./Markdown.tsx"));
-
-// Memoized so an unrelated re-render never re-parses an unchanged body; falls
-// back to the plain text while the markdown chunk loads so a row never flashes
-// empty.
-const MarkdownBody = memo(function MarkdownBody({ text, className }: { text: string; className?: string }) {
-  return (
-    <Suspense fallback={<div className={className}><div className="live-md-fallback">{text}</div></div>}>
-      <Markdown className={className}>{text}</Markdown>
-    </Suspense>
-  );
-});
 
 // Keep the row geometry in sync with the CSS: each row is a fixed-height card so
 // the list can virtualize. Mirrors the Live feed's constants.
