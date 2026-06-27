@@ -7,7 +7,7 @@ import { LabelChip } from "./LabelChip.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { relativeTime, reviewThreadsLabel, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
+import { relativeTime, reviewThreadsLabel, type ColorOf, type ItemSort, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
@@ -269,6 +269,8 @@ export function ItemsPage({
   colorOf,
   relationCounts,
   lens,
+  sort,
+  onSortChange,
   detailRouteOpen,
   onOpenDetailRoute,
   onCloseDetailRoute,
@@ -283,6 +285,8 @@ export function ItemsPage({
   colorOf: ColorOf;
   relationCounts: ReadonlyMap<string, RelationCount>;
   lens?: ItemRouteFields;
+  sort: ItemSort;
+  onSortChange: (sort: ItemSort) => void;
   detailRouteOpen: boolean;
   onOpenDetailRoute: () => void;
   onCloseDetailRoute: () => void;
@@ -290,6 +294,7 @@ export function ItemsPage({
   emptyState?: ReactNode;
 }) {
   const countLabel = items.length === windowTotal ? `${items.length} in range` : `${items.length} of ${windowTotal}`;
+  const summaryLabel = `${windowTotal} window / ${totalItems} total · ${range.from} to ${range.to}`;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailMotion, setDetailMotion] = useState<ItemDetailMotion>("neutral");
   const isDetailOverlay = useMediaQuery(ITEMS_DETAIL_OVERLAY_QUERY);
@@ -402,10 +407,28 @@ export function ItemsPage({
       <div className="items-head">
         <h2>Items</h2>
         <span className="count">{countLabel}</span>
-        <span className="muted">
-          updated {range.from} to {range.to}
-          {totalItems > windowTotal ? ` · ${totalItems} total` : ""}
-        </span>
+        <span className="muted">{summaryLabel}</span>
+        <div className="items-sort toggle-group" role="group" aria-label="Sort items">
+          <span className="toggle-label">Sort</span>
+          <button
+            type="button"
+            className={`toggle${sort === "recent" ? " toggle-on" : ""}`}
+            aria-pressed={sort === "recent"}
+            onClick={() => onSortChange("recent")}
+            title="Newest updated item first"
+          >
+            Recent
+          </button>
+          <button
+            type="button"
+            className={`toggle${sort === "open" ? " toggle-on" : ""}`}
+            aria-pressed={sort === "open"}
+            onClick={() => onSortChange("open")}
+            title="Open items first, then newest updated"
+          >
+            Open
+          </button>
+        </div>
       </div>
       {items.length === 0 ? (
         emptyState ?? <p className="empty">No items.</p>

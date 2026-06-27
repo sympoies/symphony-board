@@ -63,8 +63,12 @@ import {
   computeBoardWindowStats,
   computeGraphStats,
   relativeTime,
+  itemSortFromRoute,
   reviewThreadDisplayTime,
   reviewSortFromRoute,
+  compareItemsOpenFirst,
+  compareItemsRecent,
+  itemComparator,
   compareReviewThreadsRecent,
   compareReviewThreadsGrouped,
   reviewThreadComparator,
@@ -1172,6 +1176,34 @@ test("filterItemsByRange returns updated work items newest first", () => {
   );
 });
 
+test("filterItemsByRange can put open work first while keeping recency inside buckets", () => {
+  const openOld = item({ id: "open-old", state: "open", updated_at: "2026-06-02T09:00:00Z" });
+  const openNew = item({ id: "open-new", state: "open", updated_at: "2026-06-05T09:00:00Z" });
+  const mergedFresh = item({ id: "merged-fresh", state: "merged", updated_at: "2026-06-07T15:00:00Z" });
+  const closedMid = item({ id: "closed-mid", state: "closed", updated_at: "2026-06-04T12:00:00Z" });
+
+  assert.deepEqual(
+    filterItemsByRange([mergedFresh, openOld, closedMid, openNew], { from: "2026-06-01", to: "2026-06-07" }, "UTC", "open").map((it) => it.id),
+    ["open-new", "open-old", "merged-fresh", "closed-mid"],
+  );
+});
+
+// --- Items sort -------------------------------------------------------------
+
+test("itemSortFromRoute defaults to recency and only 'open' selects unclosed-first", () => {
+  assert.equal(itemSortFromRoute(null), "recent");
+  assert.equal(itemSortFromRoute(undefined), "recent");
+  assert.equal(itemSortFromRoute(""), "recent");
+  assert.equal(itemSortFromRoute("recent"), "recent");
+  assert.equal(itemSortFromRoute("nonsense"), "recent");
+  assert.equal(itemSortFromRoute("open"), "open");
+});
+
+test("itemComparator selects the comparator for the active sort", () => {
+  assert.equal(itemComparator("recent"), compareItemsRecent);
+  assert.equal(itemComparator("open"), compareItemsOpenFirst);
+});
+
 test("reviewThreadDisplayTime prefers the newest synced comment over last_seen_at", () => {
   const thread = reviewThread({
     last_seen_at: "2026-06-10T11:55:00Z",
@@ -1880,7 +1912,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, reviewSort: null };
+  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, itemSort: null, reviewSort: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -1925,6 +1957,8 @@ test("parseHashRoute splits page from optional deep-link and range params", () =
   assert.deepEqual(parseHashRoute("#/reviews?reviewDetail=%20"), { page: "reviews", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/items?itemDetail=1"), { page: "items", ...emptyRoute, itemDetail: "1" });
   assert.deepEqual(parseHashRoute("#/items?itemDetail=%20"), { page: "items", ...emptyRoute });
+  assert.deepEqual(parseHashRoute("#/items?itemSort=open"), { page: "items", ...emptyRoute, itemSort: "open" });
+  assert.deepEqual(parseHashRoute("#/items?itemSort=%20"), { page: "items", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/reviews?reviewSort=grouped"), { page: "reviews", ...emptyRoute, reviewSort: "grouped" });
   assert.deepEqual(parseHashRoute("#/reviews?reviewSort=%20"), { page: "reviews", ...emptyRoute });
 });
@@ -1951,6 +1985,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.equal(buildHashRoute({ page: "live", liveDetail: "1" }), "#/live?liveDetail=1");
   assert.equal(buildHashRoute({ page: "reviews", reviewDetail: "1" }), "#/reviews?reviewDetail=1");
   assert.equal(buildHashRoute({ page: "items", itemDetail: "1" }), "#/items?itemDetail=1");
+  assert.equal(buildHashRoute({ page: "items", itemSort: "open" }), "#/items?itemSort=open");
   assert.equal(buildHashRoute({ page: "reviews", reviewSort: "grouped" }), "#/reviews?reviewSort=grouped");
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "", q: "owner/repo #13" })), {
     page: "",
@@ -1974,6 +2009,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     liveDetail: null,
     reviewDetail: null,
     itemDetail: null,
+    itemSort: null,
     reviewSort: null,
   });
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "board", q: "owner/repo #13" })), {
@@ -1998,6 +2034,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     liveDetail: null,
     reviewDetail: null,
     itemDetail: null,
+    itemSort: null,
     reviewSort: null,
   });
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", source: "github:github.com", repo: "owner/repo", branch: "main" })), {
@@ -2022,6 +2059,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     liveDetail: null,
     reviewDetail: null,
     itemDetail: null,
+    itemSort: null,
     reviewSort: null,
   });
 });
@@ -2041,7 +2079,7 @@ test("graphFocusHref round-trips an item's id through parseHashRoute without tou
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, reviewSort: null });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, itemSort: null, reviewSort: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden

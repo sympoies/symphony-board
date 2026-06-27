@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ItemDTO } from "@symphony-board/contract";
-import { parseHashRoute, buildHashRoute, reviewSortFromRoute } from "../src/model.ts";
+import { parseHashRoute, buildHashRoute, itemSortFromRoute, reviewSortFromRoute } from "../src/model.ts";
 import {
   ACTIVITY_FACET_DIMS,
   activityFacets,
@@ -363,6 +363,16 @@ test("Reviews sort round-trips through the hash; recency is the clean default", 
   assert.equal(reviewSortFromRoute(parseHashRoute("#/reviews").reviewSort), "recent");
 });
 
+// The Items sort toggle is route-backed like Reviews. Recent is the default
+// lookup order, while "open" is an explicit view preference for active work.
+test("Items sort round-trips through the hash; recent is the clean default", () => {
+  assert.equal(buildHashRoute({ page: "items", itemSort: null }), "#/items", "recent default -> no itemSort field");
+  const open = buildHashRoute({ page: "items", itemSort: "open" });
+  assert.equal(open, "#/items?itemSort=open");
+  assert.equal(itemSortFromRoute(parseHashRoute(open).itemSort), "open", "the chosen sort survives reload / a shared link");
+  assert.equal(itemSortFromRoute(parseHashRoute("#/items").itemSort), "recent");
+});
+
 // The "default tab" setting decides where the app LANDS on a cold start (a fresh
 // open OR a reload). The bug it fixes: a restored hash (the browser keeps
 // `#/activity?...` across a reopen; the desktop launcher used to hardcode
@@ -429,6 +439,14 @@ test("startupRouteHash keeps a bare ?reviewSort cold start on Reviews", () => {
   assert.equal(startupRouteHash("#/reviews?reviewSort=grouped", "live"), "#/reviews?reviewSort=grouped");
   // recency default carries no param -> transient -> yields to the default tab
   assert.equal(startupRouteHash("#/reviews", "activity"), "#/activity");
+});
+
+// The Items Open sort is also a deliberate view preference, so cold-starting a
+// shared URL keeps Items instead of yielding to the configured default tab.
+test("startupRouteHash keeps a bare ?itemSort cold start on Items", () => {
+  assert.equal(startupRouteHash("#/items?itemSort=open", "activity"), "#/items?itemSort=open");
+  assert.equal(startupRouteHash("#/items?itemSort=open", "live"), "#/items?itemSort=open");
+  assert.equal(startupRouteHash("#/items", "activity"), "#/activity");
 });
 
 // The Live tab is opt-in (off by default). When it is disabled the configured
