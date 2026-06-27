@@ -53,6 +53,88 @@ test("validateProviderToken verifies a GitHub PAT against the configured repo wi
   assert.ok(!JSON.stringify(result).includes("ghp_secret_value"), "validation result never includes the token value");
 });
 
+test("validateProviderToken checks every source-level repo an env can authenticate", async () => {
+  const calls: Array<Record<string, unknown> | undefined> = [];
+  const clientFactory: TokenValidationClientFactory = (_url, _token, _provider) => {
+    return async <T = any>(_query: string, variables?: Record<string, unknown>): Promise<T> => {
+      calls.push(variables);
+      if (variables?.owner === "sympoies" && variables?.name === "symphony-board") {
+        return {
+          viewer: { login: "octocat" },
+          repository: { id: "R_1", nameWithOwner: "sympoies/symphony-board" },
+        } as T;
+      }
+      return {
+        viewer: { login: "octocat" },
+        repository: null,
+      } as T;
+    };
+  };
+
+  const result = await validateProviderToken(
+    {
+      ...cfg,
+      sources: [
+        {
+          ...cfg.sources[0]!,
+          projects: ["sympoies/symphony-board", "sympoies/private-board"],
+        },
+      ],
+    },
+    { source_id: "github:github.com", env: "GITHUB_TOKEN", value: "ghp_secret_value" },
+    { clientFactory },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "invalid_token");
+  assert.equal(result.project_path, "sympoies/private-board");
+  assert.deepEqual(calls, [
+    { owner: "sympoies", name: "symphony-board" },
+    { owner: "sympoies", name: "private-board" },
+  ]);
+});
+
+test("validateProviderToken validates repo token pool envs against their routed repo", async () => {
+  const calls: Array<Record<string, unknown> | undefined> = [];
+  const clientFactory: TokenValidationClientFactory = (_url, _token, _provider) => {
+    return async <T = any>(_query: string, variables?: Record<string, unknown>): Promise<T> => {
+      calls.push(variables);
+      if (variables?.owner !== "sympoies" || variables?.name !== "private-board") {
+        throw new Error(`unexpected validation project: ${JSON.stringify(variables)}`);
+      }
+      return {
+        viewer: { login: "octocat" },
+        repository: { id: "R_private", nameWithOwner: "sympoies/private-board" },
+      } as T;
+    };
+  };
+
+  const result = await validateProviderToken(
+    {
+      ...cfg,
+      sources: [
+        {
+          ...cfg.sources[0]!,
+          token_pools: { private: { token_env: "GITHUB_PRIVATE_TOKEN" } },
+          projects: ["sympoies/symphony-board", { path: "sympoies/private-board", token_pool: "private" }],
+        },
+      ],
+    },
+    { source_id: "github:github.com", env: "GITHUB_PRIVATE_TOKEN", value: "ghp_private_value" },
+    { clientFactory },
+  );
+
+  assert.deepEqual(result, {
+    ok: true,
+    source_id: "github:github.com",
+    env: "GITHUB_PRIVATE_TOKEN",
+    provider: "github",
+    account: "octocat",
+    project_path: "sympoies/private-board",
+  });
+  assert.deepEqual(calls, [{ owner: "sympoies", name: "private-board" }]);
+});
+
 test("validateProviderToken rejects unconfigured env names before any provider call", async () => {
   let called = false;
   const result = await validateProviderToken(

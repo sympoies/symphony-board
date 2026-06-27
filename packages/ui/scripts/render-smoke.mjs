@@ -904,6 +904,22 @@ try {
     })()`);
     const unlockOk = unlockState?.hasActivity === true && unlockState?.hash?.startsWith("#/activity");
     const saveOk = secretValidationRequestCount === 1 && configMock.secrets.GITHUB_TOKEN === true;
+    await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/#/settings?tab=sources` });
+    const configuredSettingsState = await waitValue(`(() => {
+      const settingsPage = document.querySelector('.settings-page');
+      const activityPage = document.querySelector('.activity-page');
+      if (!settingsPage && !activityPage) return null;
+      const pageTabs = Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => el.textContent?.trim() || '');
+      return {
+        hash: location.hash,
+        settingsPage: !!settingsPage,
+        settingsConfig: !!document.querySelector('.settings-config'),
+        activityPage: !!activityPage,
+        tokenMissing: !!document.querySelector('.config-token-missing'),
+        settingsLocked: !!document.querySelector('.page-tabs-locked'),
+        pageTabs,
+      };
+    })()`);
     const postWaitState = (await send("Runtime.evaluate", {
       expression: `(() => {
         const tokenButton = document.querySelector('.config-token-env button.toggle');
@@ -930,6 +946,7 @@ try {
       [unlockOk, unlockOk ? `standalone: validated PAT unlocks to Activity (${unlockState.hash})` : `standalone: validated PAT unlocks to Activity (${JSON.stringify(unlockState || {})}; post-click=${JSON.stringify(postClickState)}; post-wait=${JSON.stringify(postWaitState)}; secret-requests=${JSON.stringify(secretRequestLog)})`],
       [unlockState?.liveTab === false && unlockState?.settingsLocked === false, `standalone: unlocked chrome remains non-Live and no longer locked (${JSON.stringify(unlockState || {})})`],
       [saveOk, saveOk ? "standalone: Set token validated once and saved" : `standalone: Set token validated once and saved (${secretValidationRequestCount}; post-click=${JSON.stringify(postClickState)}; post-wait=${JSON.stringify(postWaitState)}; secret-requests=${JSON.stringify(secretRequestLog)})`],
+      [configuredSettingsState?.hash === "#/settings?tab=sources" && configuredSettingsState?.settingsConfig === true && configuredSettingsState?.activityPage === false && configuredSettingsState?.settingsLocked === false && configuredSettingsState?.tokenMissing === false, `standalone: configured cold start preserves Settings -> Sources (${JSON.stringify(configuredSettingsState || {})})`],
       [liveSnapshotRequestCount === 0, `standalone: no Live snapshot probe (${liveSnapshotRequestCount})`],
       [consoleErrors.length === 0, `standalone: no console errors (${consoleErrors.length})`],
       [exceptions.length === 0, `standalone: no uncaught exceptions (${exceptions.length})`],

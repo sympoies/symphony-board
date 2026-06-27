@@ -221,7 +221,6 @@ export function App() {
   const startupHashRef = useRef<string | null>(null);
   if (startupHashRef.current === null) startupHashRef.current = readStartupHash();
   const initialStartupHash = startupHashRef.current;
-  const userInteractedRef = useRef(false);
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [envAuthority, setEnvAuthority] = useState<EnvAuthority | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
@@ -626,17 +625,6 @@ export function App() {
     configState.secretsLoaded &&
     standaloneNeedsCredentialSetup;
   useEffect(() => {
-    const markInteracted = () => {
-      userInteractedRef.current = true;
-    };
-    window.addEventListener("pointerdown", markInteracted, { capture: true });
-    window.addEventListener("keydown", markInteracted, { capture: true });
-    return () => {
-      window.removeEventListener("pointerdown", markInteracted, { capture: true });
-      window.removeEventListener("keydown", markInteracted, { capture: true });
-    };
-  }, []);
-  useEffect(() => {
     if (!standaloneSetupLocked) return;
     saveStandaloneSetupRedirectPending(true);
     const target = buildHashRoute({ page: "settings", tab: "sources" });
@@ -644,16 +632,11 @@ export function App() {
   }, [standaloneSetupLocked]);
   useEffect(() => {
     if (!standaloneSetupComplete) return;
-    const startupRoute = parseHashRoute(startupHashRef.current ?? "");
     if (route.page !== "settings" || route.tab !== "sources") {
       saveStandaloneSetupRedirectPending(false);
       return;
     }
-    const shouldLeaveSetup =
-      loadStandaloneSetupRedirectPending() ||
-      (startupRoute.page === "settings" && startupRoute.tab === "sources") ||
-      !userInteractedRef.current;
-    if (!shouldLeaveSetup) return;
+    if (!loadStandaloneSetupRedirectPending()) return;
     saveStandaloneSetupRedirectPending(false);
     const target = buildHashRoute({ page: resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled) });
     if (readHash() !== target) window.location.hash = target;
