@@ -513,12 +513,26 @@ export function isContentTab(value: unknown): value is ContentTab {
 const DEFAULT_CONTENT_TAB_ORDER: ContentTab[] = CONTENT_TAB_OPTIONS.map((t) => t.id);
 const LEGACY_DEFAULT_CONTENT_TAB_ORDER: readonly ContentTab[] = ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"];
 
+type StoredContentTabOrder = {
+  order?: unknown;
+};
+
 function contentTabOrderEquals(order: readonly unknown[], expected: readonly ContentTab[]): boolean {
   return order.length === expected.length && expected.every((value, index) => order[index] === value);
 }
 
+// Legacy array values are eligible for the old-default migration. Current saves
+// wrap the order so an explicit user preference can still match that old order.
+function parseStoredContentTabOrder(parsed: unknown): { order: readonly unknown[] | null; legacyShape: boolean } {
+  if (Array.isArray(parsed)) return { order: parsed, legacyShape: true };
+  if (parsed && typeof parsed === "object") {
+    const order = (parsed as StoredContentTabOrder).order;
+    if (Array.isArray(order)) return { order, legacyShape: false };
+  }
+  return { order: null, legacyShape: false };
+}
+
 export function normalizeContentTabOrder(order: readonly unknown[] | null | undefined): ContentTab[] {
-  if (order && contentTabOrderEquals(order, LEGACY_DEFAULT_CONTENT_TAB_ORDER)) return [...DEFAULT_CONTENT_TAB_ORDER];
   const out: ContentTab[] = [];
   for (const value of order ?? []) {
     if (isContentTab(value) && !out.includes(value)) out.push(value);
@@ -551,7 +565,9 @@ export function loadContentTabOrder(): ContentTab[] {
     const raw = localStorage.getItem(CONTENT_TAB_ORDER_KEY);
     if (!raw) return [...DEFAULT_CONTENT_TAB_ORDER];
     const parsed = JSON.parse(raw) as unknown;
-    return normalizeContentTabOrder(Array.isArray(parsed) ? parsed : null);
+    const stored = parseStoredContentTabOrder(parsed);
+    if (stored.legacyShape && stored.order && contentTabOrderEquals(stored.order, LEGACY_DEFAULT_CONTENT_TAB_ORDER)) return [...DEFAULT_CONTENT_TAB_ORDER];
+    return normalizeContentTabOrder(stored.order);
   } catch {
     return [...DEFAULT_CONTENT_TAB_ORDER];
   }
@@ -559,7 +575,7 @@ export function loadContentTabOrder(): ContentTab[] {
 
 export function saveContentTabOrder(order: readonly unknown[]): void {
   try {
-    localStorage.setItem(CONTENT_TAB_ORDER_KEY, JSON.stringify(normalizeContentTabOrder(order)));
+    localStorage.setItem(CONTENT_TAB_ORDER_KEY, JSON.stringify({ order: normalizeContentTabOrder(order) }));
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }
