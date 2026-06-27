@@ -84,6 +84,7 @@ function toItemDTO(row: ItemRow, labels: LabelRow[], windowReasons?: ItemWindowR
       row.total_review_threads == null
         ? null
         : { open: row.open_review_threads ?? 0, total: row.total_review_threads },
+    comments: row.comment_total == null ? null : { total: row.comment_total },
     milestone: row.milestone,
     demand: row.demand,
     last_seen_at: row.last_seen_at,

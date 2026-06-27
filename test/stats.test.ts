@@ -44,6 +44,7 @@ function fixtureItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
     milestone: null,
     demand: 0,
     ...over,
+    commentTotal: over.commentTotal ?? null,
   };
 }
 

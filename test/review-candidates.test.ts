@@ -430,6 +430,7 @@ function staleOpenThreadRow(): ItemRow {
     merge_state: null,
     open_review_threads: 1,
     total_review_threads: 1,
+    comment_total: null,
     milestone: null,
     demand: null,
     last_seen_at: "2026-06-15T00:00:00Z",
@@ -460,6 +461,7 @@ function staleOpenThreadCanonical(): CanonicalItem {
     mergeState: null,
     openReviewThreads: 1,
     totalReviewThreads: 1,
+    commentTotal: null,
     milestone: null,
     demand: null,
   };

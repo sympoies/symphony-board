@@ -21,6 +21,7 @@ function item(externalId: string, over: Partial<CanonicalItem> = {}): CanonicalI
     closedAt: null, mergedAt: null, reviewState: null, ciState: null, mergeState: null,
     openReviewThreads: null, totalReviewThreads: null,
     milestone: null, demand: 0, ...over,
+    commentTotal: over.commentTotal ?? null,
   };
 }
 

@@ -86,6 +86,20 @@ test("GitHub item queries request provider body text", async () => {
   assert.match(queries.find((q) => q.includes("pullRequests(")) ?? "", /\bbody\b/, "PR query selects body");
 });
 
+test("GitHub PR queries request the list-bubble comment aggregate", async () => {
+  const queries: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    queries.push(query);
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  await src.fetch({ since: null, full: true });
+  assert.match(queries.find((q) => q.includes("pullRequests(")) ?? "", /\btotalCommentsCount\b/, "PR query selects GitHub's PR-list comment count");
+});
+
 test("GitHub provider bodies are bounded before canonical projection", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {
@@ -578,7 +592,7 @@ function prNode(id: string, state: string, mergeable: string) {
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
     mergedAt: state === "MERGED" ? "2026-06-01T00:00:00Z" : null, isDraft: false,
     author: { login: "a" }, repository: { nameWithOwner: "o/r" }, labels: { nodes: [] },
-    comments: { totalCount: 0 }, reactions: { totalCount: 0 }, reviewDecision: null,
+    comments: { totalCount: 0 }, totalCommentsCount: 0, reactions: { totalCount: 0 }, reviewDecision: null,
     mergeable, commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] },
     closingIssuesReferences: { nodes: [] },
   };
@@ -613,6 +627,40 @@ test("GitHub: an open PR keeps its real merge_state", () => {
   assert.equal(conflicting.mergeState, "conflicting");
   // UNKNOWN is a legitimate transient state while open and is preserved.
   assert.equal(unknown.mergeState, "unknown");
+});
+
+test("GitHub: PR comment total uses totalCommentsCount, not issue comments, reviews, or threads", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "change_request", externalId: "PR_comment_total", apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h",
+    payload: {
+      ...prNode("PR_comment_total", "MERGED", "UNKNOWN"),
+      comments: { totalCount: 1 },
+      totalCommentsCount: 24,
+      reviews: { totalCount: 18, nodes: [] },
+      reviewThreads: { totalCount: 6, pageInfo: { hasNextPage: false }, nodes: [] },
+      reactions: { totalCount: 2 },
+    },
+  };
+  const item = src.normalize(raw)!.item!;
+  assert.equal(item.commentTotal, 24);
+  assert.equal(item.demand, 3, "demand remains comments + reactions");
+});
+
+test("GitHub: issue comment total uses Issue.comments.totalCount without reactions", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "issue",
+    externalId: "ISSUE_comment_total",
+    apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: { ...issueNode("ISSUE_comment_total", "2026-06-01T00:00:00Z"), comments: { totalCount: 7 }, reactions: { totalCount: 4 } },
+  };
+  const item = src.normalize(raw)!.item!;
+  assert.equal(item.commentTotal, 7);
+  assert.equal(item.demand, 11, "demand remains comments + reactions");
 });
 
 test("GitHub: review threads normalize to open/total, and a truncated page reports unknown", () => {
@@ -901,6 +949,31 @@ test("GitLab: an open MR keeps its real merge_state", () => {
   assert.ok(blocked);
   assert.equal(mergeable.mergeState, "mergeable");
   assert.equal(blocked.mergeState, "blocked");
+});
+
+test("GitLab: item comment total uses userNotesCount without upvotes", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "change_request",
+    externalId: "gid:MR_comments",
+    apiVersion: "gitlab.graphql",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: glNode("gid:MR_comments", "10", {
+      userNotesCount: 5,
+      upvotes: 3,
+      state: "opened",
+      mergedAt: null,
+      draft: false,
+      approved: false,
+      approvalsRequired: 0,
+      headPipeline: { status: "SUCCESS" },
+      detailedMergeStatus: "MERGEABLE",
+    }),
+  };
+  const item = src.normalize(raw)!.item!;
+  assert.equal(item.commentTotal, 5);
+  assert.equal(item.demand, 8, "demand remains notes + upvotes");
 });
 
 test("GitLab CI refresh fetches configured MR candidates without advancing the watermark", async () => {
@@ -1563,8 +1636,8 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/6");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/7");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/7");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/8");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

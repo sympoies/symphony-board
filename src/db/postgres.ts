@@ -84,6 +84,7 @@ const MIGRATIONS: Migration[] = [
   { version: 7, file: "0007_review_thread_target_iid_bigint.sql" },
   { version: 8, file: "0008_review_thread_last_comment_at.sql" },
   { version: 9, file: "0009_item_body.sql" },
+  { version: 10, file: "0010_item_comment_total.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -262,7 +263,7 @@ export class PgStore implements Store {
         source_id, external_id, kind, project_path, iid, url, title, body, state, state_raw,
         state_reason, is_draft, author, created_at, updated_at, closed_at, merged_at,
         review_state, ci_state, merge_state, open_review_threads, total_review_threads,
-        milestone, demand, normalized_with,
+        comment_total, milestone, demand, normalized_with,
         last_seen_at, deleted_at
       ) VALUES (
         ${item.sourceId}, ${item.externalId}, ${item.kind}, ${nz(item.projectPath)}, ${nz(item.iid)},
@@ -270,7 +271,7 @@ export class PgStore implements Store {
         ${nz(item.isDraft)}, ${nz(item.author)}, ${nz(item.createdAt)}, ${nz(item.updatedAt)},
         ${nz(item.closedAt)}, ${nz(item.mergedAt)}, ${nz(item.reviewState)}, ${nz(item.ciState)},
         ${nz(item.mergeState)}, ${nz(item.openReviewThreads)}, ${nz(item.totalReviewThreads)},
-        ${nz(item.milestone)}, ${nz(item.demand)}, ${normalizerVersion},
+        ${nz(item.commentTotal)}, ${nz(item.milestone)}, ${nz(item.demand)}, ${normalizerVersion},
         ${seenAt}, NULL
       )
       ON CONFLICT (source_id, external_id) DO UPDATE SET
@@ -280,7 +281,8 @@ export class PgStore implements Store {
         created_at = excluded.created_at, updated_at = excluded.updated_at, closed_at = excluded.closed_at,
         merged_at = excluded.merged_at, review_state = excluded.review_state, ci_state = excluded.ci_state,
         merge_state = excluded.merge_state, open_review_threads = excluded.open_review_threads,
-        total_review_threads = excluded.total_review_threads, milestone = excluded.milestone, demand = excluded.demand,
+        total_review_threads = excluded.total_review_threads, comment_total = excluded.comment_total,
+        milestone = excluded.milestone, demand = excluded.demand,
         normalized_with = excluded.normalized_with, last_seen_at = excluded.last_seen_at, deleted_at = NULL
       RETURNING item_id`;
     return Number(rows[0]!.item_id);
@@ -498,7 +500,7 @@ export class PgStore implements Store {
       SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, body, state,
              state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
              merged_at, review_state, ci_state, merge_state, open_review_threads,
-             total_review_threads, milestone, demand, last_seen_at
+             total_review_threads, comment_total, milestone, demand, last_seen_at
       FROM item WHERE deleted_at IS NULL
       ORDER BY COALESCE(closed_at, merged_at, updated_at, created_at) DESC NULLS LAST, item_id DESC`;
     return rows as unknown as ItemRow[];

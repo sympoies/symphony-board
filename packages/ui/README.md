@@ -36,9 +36,10 @@ Contract v2 does not load all historical item rows. The Board renders primary
 Custom ranges are loaded through `/api/range`. Full totals still come from
 compatible `aggregates[]` rows on the default static contract.
 
-Cards show source, repo, iid, author, timestamps, demand, labels, draft state,
-review/CI/merge signals, and optional repo/source highlight color. Cards with at
-least one relationship include a graph-focus link.
+Cards show source, repo, iid, author, timestamps, provider comment counts,
+review-thread counts, related-item counts, labels, draft state, review/CI/merge
+signals, and optional repo/source highlight color. Cards with at least one
+relationship include a graph-focus link.
 
 ### Graph (`#/graph`)
 

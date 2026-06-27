@@ -655,6 +655,24 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 /* relation count: chain-link glyph + number of distinct related items */
 .related { display: inline-flex; align-items: center; gap: 4px; }
 .icon-related { flex: none; }
+.item-metric-strip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.item-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.item-metric-icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
 /* provider source mark (github / gitlab), leading the meta row */
 .icon-source { flex: none; color: var(--muted); }
 
@@ -1118,14 +1136,16 @@ a.rf-node-title:hover { color: var(--accent); }
 .item-row-activity {
   gap: 6px 12px;
 }
-.item-row-count {
+.item-row-count,
+.item-row-activity .item-metric {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   white-space: nowrap;
 }
 .item-row-count .icon-demand,
-.item-row-count .icon-related {
+.item-row-count .icon-related,
+.item-row-activity .item-metric-icon {
   width: 12px;
   height: 12px;
 }

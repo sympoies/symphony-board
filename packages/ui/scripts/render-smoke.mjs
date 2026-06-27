@@ -82,7 +82,7 @@ const STORE_STATS_MOCK = (() => {
   }));
   return {
     generated_at: "2026-06-23T05:02:00Z",
-    db: { driver: "postgres", schema_version: 9 },
+    db: { driver: "postgres", schema_version: 10 },
     tables: {},
     items: { live: 1836, tombstoned: 0, by_kind: {}, by_state: {}, by_source: {} },
     edges: { live: 2368, tombstoned: 0, by_type: {}, by_lifecycle: {} },
@@ -3379,8 +3379,8 @@ try {
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
-  const boardRelationCounts = m(board2Html, /class="muted related"/g);
-  const graphListRelationCounts = m(graphListHtml, /class="muted related"/g);
+  const boardRelationCounts = m(board2Html, /class="[^"]*\bitem-metric-related\b[^"]*"/g);
+  const graphListRelationCounts = m(graphListHtml, /class="[^"]*\bitem-metric-related\b[^"]*"/g);
   const graphListGraphLinks = m(graphListHtml, /class="card-graph"/g);
   const graphNodeRelationCounts = m(graphHtml, /class="rf-related"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");

@@ -90,7 +90,7 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
   repository(owner:$owner, name:$name) {
     pullRequests(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
-      nodes { ${COMMON} mergedAt isDraft reviewDecision mergeable
+      nodes { ${COMMON} totalCommentsCount mergedAt isDraft reviewDecision mergeable
         commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
         ${REVIEWS}
         ${REVIEW_THREADS}
@@ -102,7 +102,7 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
 
 const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
-    pullRequest(number:$number) { ${COMMON} mergedAt isDraft reviewDecision mergeable
+    pullRequest(number:$number) { ${COMMON} totalCommentsCount mergedAt isDraft reviewDecision mergeable
       commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
       ${REVIEWS}
       ${REVIEW_THREADS}
@@ -118,7 +118,8 @@ export class GitHubSource implements Source {
   // github/4: review-thread comments now carry avatarUrl in the canonical output.
   // github/5: review/comment activity details carry provider actor profile URLs.
   // github/6: items carry provider body text for detail views.
-  readonly normalizerVersion = "github/6";
+  // github/7: items carry provider-native comment/conversation totals.
+  readonly normalizerVersion = "github/7";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -741,6 +742,8 @@ export class GitHubSource implements Source {
   }
 
   private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState" | "openReviewThreads" | "totalReviewThreads"> {
+    const issueCommentTotal = typeof p.comments?.totalCount === "number" ? p.comments.totalCount : null;
+    const commentTotal = kind === "change_request" && typeof p.totalCommentsCount === "number" ? p.totalCommentsCount : issueCommentTotal;
     const demand = (p.comments?.totalCount ?? 0) + (p.reactions?.totalCount ?? 0);
     return {
       sourceId: this.descriptor.sourceId,
@@ -758,6 +761,7 @@ export class GitHubSource implements Source {
       updatedAt: p.updatedAt ?? null,
       closedAt: p.closedAt ?? null,
       milestone: null,
+      commentTotal,
       demand,
     };
   }

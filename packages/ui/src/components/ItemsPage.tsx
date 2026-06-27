@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
+import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon, itemKindLabel } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
-import { relativeTime, reviewThreadsLabel, pluralize, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
+import { itemMetricEntries } from "../item-metrics.ts";
+import { relativeTime, reviewThreadsLabel, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 
 function GraphIcon() {
@@ -27,45 +29,6 @@ function GraphIcon() {
       <circle cx="18" cy="19" r="3" />
       <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
       <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-    </svg>
-  );
-}
-
-function LinkIcon() {
-  return (
-    <svg
-      className="icon-related"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  );
-}
-
-function DemandIcon() {
-  return (
-    <svg
-      className="icon-demand"
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
@@ -146,19 +109,8 @@ function ItemDetail({
                 <DetailFact label="state raw" value={item.state_raw} />
                 <DetailFact label="state reason" value={item.state_reason} />
                 <DetailFact label="milestone" value={item.milestone} />
-                <DetailFact
-                  label="demand"
-                  value={item.demand != null && item.demand > 0 ? `${item.demand} ${pluralize(item.demand, "comment/reaction", "comments/reactions")}` : null}
-                />
-                <DetailFact
-                  label="related"
-                  value={related && related.total > 0 ? (
-                    <a className="items-detail-graph" href={graphFocusHref(item, lens)}>
-                      <LinkIcon /> {related.total} {pluralize(related.total, "related item")}
-                    </a>
-                  ) : null}
-                />
               </dl>
+              <ItemMetricStrip item={item} related={related} className="items-detail-metrics" />
 
               {hasSignals ? (
                 <div className="items-detail-signals" aria-label="Status signals">
@@ -254,7 +206,8 @@ export function ItemsPage({
               const labels = item.labels.slice(0, 4);
               const hiddenLabelCount = item.labels.length - labels.length;
               const selected = selectedItem?.id === item.id;
-              const hasActivityMeta = Boolean(item.author || (item.demand != null && item.demand > 0) || (related && related.total > 0));
+              const hasMetrics = itemMetricEntries(item, related).length > 0;
+              const hasActivityMeta = Boolean(item.author || hasMetrics);
               const hasTimes = Boolean(item.updated_at || item.created_at);
               const hasSignals = Boolean(item.review_state || item.ci_state || item.merge_state || threadLabel);
               return (
@@ -296,16 +249,7 @@ export function ItemsPage({
                     {hasActivityMeta ? (
                       <div className="item-row-meta item-row-activity">
                         {item.author ? <span>@{item.author}</span> : null}
-                        {item.demand != null && item.demand > 0 ? (
-                          <span className="item-row-count" title="comments + reactions">
-                            <DemandIcon /> {item.demand}
-                          </span>
-                        ) : null}
-                        {related && related.total > 0 ? (
-                          <span className="item-row-count" title={related.byType.map((part) => `${part.type} ${part.count}`).join(" · ")}>
-                            <LinkIcon /> {related.total}
-                          </span>
-                        ) : null}
+                        <ItemMetricStrip item={item} related={related} />
                       </div>
                     ) : null}
                     {hasTimes ? (

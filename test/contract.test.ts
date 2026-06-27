@@ -32,6 +32,7 @@ function itemRow(over: Partial<ItemRow>): ItemRow {
     merge_state: null,
     open_review_threads: null,
     total_review_threads: null,
+    comment_total: null,
     milestone: null,
     demand: 3,
     last_seen_at: "2026-06-01T00:00:00Z",
@@ -467,6 +468,38 @@ test("review_threads folds the two columns into a nested DTO, null for issues an
   assert.deepEqual(byExt.get("PR_open")?.review_threads, { open: 2, total: 3 });
   assert.deepEqual(byExt.get("PR_resolved")?.review_threads, { open: 0, total: 4 });
   assert.equal(byExt.get("PR_unknown")?.review_threads, null);
+});
+
+test("buildContract emits item comments separately from demand", () => {
+  const env = buildContract({
+    sources: [
+      { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+    ],
+    items: [
+      itemRow({
+        item_id: 1,
+        external_id: "PR_comments",
+        kind: "change_request",
+        demand: 99,
+        comment_total: 24,
+      }),
+      itemRow({
+        item_id: 2,
+        external_id: "PR_unreported",
+        kind: "change_request",
+        demand: 5,
+        comment_total: null,
+      }),
+    ],
+    labels: [],
+    edges: [],
+    generatedAt: "2026-06-08T00:00:00.000Z",
+  });
+  assert.deepEqual(validateContract(env), []);
+  const byExt = new Map(env.items.map((it) => [it.external_id, it]));
+  assert.deepEqual(byExt.get("PR_comments")?.comments, { total: 24 });
+  assert.equal(byExt.get("PR_comments")?.demand, 99, "demand remains the engagement signal");
+  assert.equal(byExt.get("PR_unreported")?.comments, null);
 });
 
 test("buildContract emits current review-thread detail rows for loaded change_requests", () => {

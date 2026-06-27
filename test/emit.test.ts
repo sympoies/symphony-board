@@ -51,6 +51,7 @@ function itemRow(over: Partial<ItemRow> = {}): ItemRow {
     demand: 3,
     last_seen_at: "2026-06-01T00:00:00Z",
     ...over,
+    comment_total: over.comment_total ?? null,
   };
 }
 
@@ -81,6 +82,7 @@ function canonicalItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
     milestone: null,
     demand: 3,
     ...over,
+    commentTotal: over.commentTotal ?? null,
   };
 }
 

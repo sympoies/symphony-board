@@ -191,6 +191,15 @@
             "total": { "type": "integer", "minimum": 0, "description": "All resolvable review threads." }
           }
         },
+        "comments": {
+          "description": "Provider-native item comment/conversation count for compact item metrics (4.6.0+). GitHub PRs use PullRequest.totalCommentsCount.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["total"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 }
+          }
+        },
         "milestone": { "type": ["string", "null"] },
         "demand": { "type": ["integer", "null"], "description": "comments + reactions." },
         "last_seen_at": { "type": ["string", "null"], "format": "date-time" },
