@@ -1029,11 +1029,12 @@ a.item-metric:hover {
 }
 a.rf-node-title:hover { color: var(--accent); }
 .rf-node-repo { font-size: 0.85em; margin-top: 3px; }
-/* counts row (@author / demand / relations) then the times row — the same
+/* metrics row (@author / comments / threads / relations) then the times row -- the same
    two-row order as the board card; small, legible once focused/zoomed */
 .rf-node-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 3px; font-size: 0.8em; }
-.rf-node-meta .rf-demand { display: inline-flex; align-items: center; gap: 3px; }
-.rf-node-meta .rf-related { display: inline-flex; align-items: center; gap: 3px; }
+.rf-node-meta .item-metric-strip { gap: 2px 8px; }
+.rf-node-meta .item-metric { gap: 3px; }
+.rf-node-meta .item-metric-icon { width: 1em; height: 1em; }
 .rf-node-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: 2px; font-size: 0.8em; }
 .rf-node-times .sep { opacity: .6; }
 .rf-handle { opacity: 0; border: none; min-width: 1px; min-height: 1px; }

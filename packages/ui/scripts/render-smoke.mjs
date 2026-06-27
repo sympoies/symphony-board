@@ -1209,6 +1209,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  let graphNodeMetricCounts = {};
   await captureTitleLinkHitTarget("graph canvas node", ".graph-page .rf-node-title[href]", ".rf-node");
   const graphPaneLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -1277,6 +1278,13 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(300);
   await waitHtml("document.querySelector('.react-flow__node')");
+  graphNodeMetricCounts = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      related: document.querySelectorAll('.react-flow__node .item-metric-related').length,
+      threads: document.querySelectorAll('.react-flow__node .item-metric-threads').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // The mounted canvas pane reads the theme base, not ReactFlow's default dark
   // pane grey (#141414 → rgb(20, 20, 20)): .graph-canvas re-points RF's
   // --xy-background-color at --bg, so the resolved .react-flow background must be
@@ -3547,7 +3555,8 @@ try {
   const boardRelationCounts = m(board2Html, /class="[^"]*\bitem-metric-related\b[^"]*"/g);
   const graphListRelationCounts = m(graphListHtml, /class="[^"]*\bitem-metric-related\b[^"]*"/g);
   const graphListGraphLinks = m(graphListHtml, /class="card-graph"/g);
-  const graphNodeRelationCounts = m(graphHtml, /class="rf-related"/g);
+  const graphNodeRelationCounts = graphNodeMetricCounts.related || 0;
+  const graphNodeThreadCounts = graphNodeMetricCounts.threads || 0;
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
   const graphNodeTimeOrder = updatedBeforeCreated(graphHtml, "rf-node-times muted");
   const graphListTimeOrder = updatedBeforeCreated(graphListHtml, "card-times muted");
@@ -3716,6 +3725,7 @@ try {
     // canvas nodes carry the chain-link count too — the FULL relation count
     // (what focusing reveals), not the windowed drawn-edge degree.
     [graphNodeRelationCounts >= 1, `graph: canvas nodes render the relation count (${graphNodeRelationCounts} >= 1)`],
+    [graphNodeThreadCounts >= 1, `graph: canvas nodes render review-thread metrics like item cards (${graphNodeThreadCounts} >= 1)`],
     [graphNodeOverflows.length === 0, `graph: node content fits inside the node box (${graphNodeOverflows.length} overflowing: ${graphNodeOverflow})`],
     [graphCanvasPaneBg === "rgb(1, 22, 39)", `graph: canvas pane paints the --bg theme token, not ReactFlow's default grey (${graphCanvasPaneBg})`],
     // focusing suspends the time-range controls (the range is not a condition in

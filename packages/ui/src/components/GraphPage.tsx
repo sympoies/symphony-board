@@ -26,8 +26,10 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
+import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
+import { itemMetricEntries } from "../item-metrics.ts";
 import { MOBILE_VIEWPORT_QUERY, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
@@ -92,49 +94,7 @@ const NODE_LEGEND = [
 ];
 
 type GraphListVisibility = "off-window" | "not-drawn";
-
-// Engagement marker (comments + reactions) — the same stroked speech-bubble as
-// the board card, sized in `em` so it scales with the surrounding font.
-function DemandIcon() {
-  return (
-    <svg
-      className="icon-demand"
-      width="1em"
-      height="1em"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-// Chain-link relation-count marker — the same glyph as the board / side-list
-// cards, sized in `em` like DemandIcon so it scales with the node font.
-function LinkIcon() {
-  return (
-    <svg
-      className="icon-related"
-      width="1em"
-      height="1em"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  );
-}
+type ItemNodeData = GraphNode & { item?: ItemDTO | null };
 
 // Tooltip for a node's relation count: the per-type breakdown, plus an explicit
 // callout when the CURRENT view draws fewer neighbours than the item has (the
@@ -148,8 +108,9 @@ function relatedTitle(d: GraphNode): string {
 }
 
 function ItemNode({ data }: NodeProps) {
-  const d = data as unknown as GraphNode;
+  const d = data as unknown as ItemNodeData;
   const { scale } = dims(d.demand);
+  const metricCount = d.item ? itemMetricEntries(d.item, d.related).length : 0;
   return (
     <div
       className={`rf-node${d.untracked ? " rf-node-untracked" : ""}`}
@@ -186,22 +147,13 @@ function ItemNode({ data }: NodeProps) {
         {d.iid != null ? <span className="card-iid"> #{d.iid}</span> : null}
       </div>
       {/* Two fixed rows mirroring the board/side-list card: the counts row
-          (@author 💬 🔗) then the times row (updated · created). Deterministic
-          line count — the old single mixed row wrapped unpredictably and could
-          overflow the fixed-height node box. */}
-      {!d.untracked && (d.author || d.demand != null || (d.related && d.related.total > 0)) && (
+          (@author + shared item metrics) then the times row (updated · created).
+          Deterministic line count -- the old single mixed row wrapped
+          unpredictably and could overflow the fixed-height node box. */}
+      {!d.untracked && (d.author || metricCount > 0) && (
         <div className="rf-node-meta muted">
           {d.author ? <span>@{d.author}</span> : null}
-          {d.demand != null ? (
-            <span className="rf-demand" title="comments + reactions">
-              <DemandIcon /> {d.demand}
-            </span>
-          ) : null}
-          {d.related && d.related.total > 0 ? (
-            <span className="rf-related" title={relatedTitle(d)}>
-              <LinkIcon /> {d.related.total}
-            </span>
-          ) : null}
+          {d.item ? <ItemMetricStrip item={d.item} related={d.related} relatedTitle={d.related ? relatedTitle(d) : undefined} /> : null}
         </div>
       )}
       {!d.untracked && (d.created_at || d.updated_at) && (
@@ -879,7 +831,7 @@ export function GraphPage({
     () =>
       view.nodes.map((n) => {
         const { w, h } = dimOf(n.id);
-        const it = itemsByRef.get(n.id);
+        const it = n.item ?? itemsByRef.get(n.id);
         const accentColor = it ? colorOf(it.source_id, it.project_path) : null;
         // The chain-link count comes from the FULL adjacency (same number as the
         // board / side-list chip — what focusing reveals), not the drawn degree.
@@ -889,7 +841,7 @@ export function GraphPage({
           type: "item",
           position: positions.get(n.id) ?? { x: 0, y: 0 },
           style: { width: w, height: h },
-          data: { ...n, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0 } as unknown as Record<string, unknown>,
+          data: { ...n, item: it ?? null, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0 } as unknown as Record<string, unknown>,
         };
       }),
     [view, positions, dimOf, itemsByRef, colorOf, adjacency, drawnNeighbours],

@@ -31,14 +31,18 @@ export function ItemMetricStrip({
   item,
   related,
   relatedHref,
+  relatedTitle,
   className,
 }: {
   item: ItemDTO;
   related?: RelationCount | null;
   relatedHref?: string | null;
+  relatedTitle?: string;
   className?: string;
 }) {
-  const entries = itemMetricEntries(item, related);
+  const entries = itemMetricEntries(item, related).map((entry) =>
+    entry.kind === "related" && relatedTitle ? { ...entry, title: relatedTitle } : entry,
+  );
   if (entries.length === 0) return null;
   return (
     <span className={`item-metric-strip${className ? ` ${className}` : ""}`}>

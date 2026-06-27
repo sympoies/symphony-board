@@ -2031,6 +2031,7 @@ export function resolveRepoColor(
 
 export interface GraphNode {
   id: string; // the endpoint ref (item id; may be an untracked, unresolved ref)
+  item?: ItemDTO | null; // resolved item payload, when this endpoint belongs to a tracked item
   label: string; // item title (or the bare ref tail when untracked)
   repo: string | null; // project_path, so a node shows which repo it belongs to
   iid: number | null;
@@ -2158,8 +2159,8 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
       nodes.set(
         ref,
         it
-          ? { id: ref, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-          : { id: ref, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
+          ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+          : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
       );
     };
     ensure(re.from, re.edge.from);
