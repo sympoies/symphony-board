@@ -1,6 +1,6 @@
 [package]
 name = "symphony-board-desktop"
-version = "1.10.1"
+version = "1.11.0"
 description = "macOS desktop shell for symphony-board"
 authors = ["sympoies"]
 edition = "2021"
