@@ -1,5 +1,5 @@
 {
-  "contract_version": "4.5.0",
+  "contract_version": "4.6.0",
   "generated_at": "2026-06-10T09:00:00Z",
   "generator": "symphony-board/1.0.1 (sample)",
   "timezone": "UTC",
@@ -58,6 +58,9 @@
       "merge_state": null,
       "review_threads": null,
       "milestone": "v1.1",
+      "comments": {
+        "total": 5
+      },
       "demand": 9,
       "last_seen_at": "2026-06-10T08:58:00Z",
       "window_reasons": [
@@ -98,6 +101,9 @@
         "total": 2
       },
       "milestone": "v1.1",
+      "comments": {
+        "total": 1
+      },
       "demand": 2,
       "last_seen_at": "2026-06-10T08:58:00Z",
       "window_reasons": [
@@ -146,6 +152,9 @@
       "merge_state": null,
       "review_threads": null,
       "milestone": null,
+      "comments": {
+        "total": 4
+      },
       "demand": 5,
       "last_seen_at": "2026-06-10T08:58:00Z",
       "window_reasons": [
@@ -181,6 +190,9 @@
         "total": 5
       },
       "milestone": null,
+      "comments": {
+        "total": 0
+      },
       "demand": 0,
       "last_seen_at": "2026-06-10T08:58:00Z",
       "window_reasons": [

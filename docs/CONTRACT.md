@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.5.0`.
+Current emitted version: `4.6.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.5.0",
+  "contract_version": "4.6.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -62,6 +62,7 @@ package version, to decide compatibility.
       "merge_state": null,
       "review_threads": null,
       "milestone": null,
+      "comments": { "total": 3 },
       "demand": 3,
       "last_seen_at": "2026-06-08T00:00:00.000Z",
       "window_reasons": ["primary", "edge_endpoint"]
@@ -309,7 +310,12 @@ Important fields:
   threads (3.3.0+); `null` for issues and when a provider did not report it. A
   point-in-time snapshot as of the item's last sync — like `ci_state`, NOT the
   state at any one review event. See the review derivation note below.
-- `demand`: comments plus reactions/upvotes.
+- `comments`: optional, nullable provider discussion comment count (4.6.0+).
+  GitHub change requests use `PullRequest.totalCommentsCount`, GitHub issues use
+  `Issue.comments.totalCount`, and GitLab items use `userNotesCount`.
+- `demand`: broader attention score; comments plus reactions/upvotes where the
+  provider supplies those signals. Use `comments.total` for provider-aligned
+  comment bubbles and `demand` for demand/attention ranking.
 - `last_seen_at`: latest successful observation in the canonical store.
 - `window_reasons`: v2 inclusion reasons. `primary` means the item belongs to
   `item_window`; `edge_endpoint` means it is included to resolve an emitted edge
@@ -484,6 +490,17 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.6.0` is additive: `items[]` rows may carry optional, nullable
+`comments`, currently shaped as `{ total }`, for the provider's native
+discussion comment count. GitHub change requests use the pull request
+`totalCommentsCount` field so the number can align with GitHub's PR-list comment
+bubble; GitHub issues use the issue `comments.totalCount`; GitLab issues and
+merge requests use `userNotesCount`. The field is persisted on an additive
+nullable `item.comment_total` column in every store driver. Old payloads without
+the field remain valid; consumers read it as `item.comments?.total ?? null`.
+This does not replace `demand`, which remains a broader attention signal that
+may include reactions/upvotes.
 
 Version `4.4.0` is additive: range projections may include item rows with
 `window_reasons: ["activity_target"]` plus optional

@@ -174,7 +174,8 @@ export class GitLabSource implements Source {
   // gitlab/6: review-thread comment URLs now deep-link to REST note permalinks
   // when GitLab omits web_url; gitlab/5 added review-thread comment avatarUrl.
   // gitlab/7: items carry provider description text as body for detail views.
-  readonly normalizerVersion = "gitlab/7";
+  // gitlab/8: items carry provider-native note/comment totals.
+  readonly normalizerVersion = "gitlab/8";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -831,6 +832,7 @@ export class GitLabSource implements Source {
 
   private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState" | "openReviewThreads" | "totalReviewThreads"> {
     const iidNum = Number(p.iid);
+    const commentTotal = typeof p.userNotesCount === "number" ? p.userNotesCount : null;
     const demand = (p.userNotesCount ?? 0) + (p.upvotes ?? 0);
     return {
       sourceId: this.descriptor.sourceId,
@@ -848,6 +850,7 @@ export class GitLabSource implements Source {
       updatedAt: p.updatedAt ?? null,
       closedAt: p.closedAt ?? null,
       milestone: null,
+      commentTotal,
       demand,
     };
   }

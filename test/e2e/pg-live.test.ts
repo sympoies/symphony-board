@@ -81,7 +81,7 @@ test(
       await t.test("from zero: opening migrated the empty database to the current schema", async () => {
         const diag = await store.diagnostics();
         assert.equal(diag.driver, "postgres");
-        assert.equal(diag.schema_version, 9, "all migrations applied on first open");
+        assert.equal(diag.schema_version, 10, "all migrations applied on first open");
         const tables = Object.keys((await store.overview(1)).tables).sort();
         assert.deepEqual(
           tables,
@@ -292,7 +292,7 @@ test(
       try {
         const diag = await ro.diagnostics();
         assert.equal(diag.driver, "postgres");
-        assert.equal(diag.schema_version, 9, "the migrated store opens at the current schema");
+        assert.equal(diag.schema_version, 10, "the migrated store opens at the current schema");
         assert.equal((await ro.listSources()).length, 1);
         assert.equal((await ro.listLiveItems()).length, 1);
 

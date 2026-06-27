@@ -252,6 +252,10 @@ export interface ReviewThreadsDTO {
   total: number;
 }
 
+export interface ItemCommentsDTO {
+  total: number;
+}
+
 export interface ItemDTO {
   id: Ref;
   source_id: string;
@@ -283,6 +287,11 @@ export interface ItemDTO {
   // (absent in pre-3.3 payloads and not in the schema's item `required`), so it
   // is optional here like the other additive fields. See ReviewThreadsDTO.
   review_threads?: ReviewThreadsDTO | null;
+  // Provider-native item comment/conversation count for compact item metrics.
+  // GitHub PRs use PullRequest.totalCommentsCount, matching the PR-list speech
+  // bubble; GitHub issues use Issue.comments.totalCount; GitLab uses
+  // userNotesCount. Added in 4.6.0 as an optional additive field.
+  comments?: ItemCommentsDTO | null;
   milestone: string | null;
   demand: number | null;
   last_seen_at: string | null;

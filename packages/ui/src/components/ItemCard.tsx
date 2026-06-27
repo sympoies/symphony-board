@@ -1,15 +1,16 @@
 import type { CSSProperties } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
+import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
+import { itemMetricEntries } from "../item-metrics.ts";
 import { relativeTime, reviewThreadsLabel, type RelationCount } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 
 // "Focus this item in the relationship graph" marker — three connected nodes
-// (Feather "share-2"), the same stroked-SVG idiom as DemandIcon. Shown only for
-// items that actually have a graph node (see `linked`).
+// (Feather "share-2"). Shown only for items that actually have a graph node.
 function GraphIcon() {
   return (
     <svg
@@ -29,51 +30,6 @@ function GraphIcon() {
       <circle cx="18" cy="19" r="3" />
       <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
       <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-    </svg>
-  );
-}
-
-// Relation-count marker: how many items this one is related to. A chain link —
-// the universal "linked items" glyph — in the same stroked-SVG idiom as
-// DemandIcon. (Feather "link".)
-function LinkIcon() {
-  return (
-    <svg
-      className="icon-related"
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  );
-}
-
-// Engagement (comments + reactions) marker. A line-style speech bubble drawn in
-// currentColor — deliberately a stroked SVG, not an emoji, to match the card's
-// minimal monochrome look. (Feather "message-square".)
-function DemandIcon() {
-  return (
-    <svg
-      className="icon-demand"
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
@@ -107,6 +63,7 @@ export function ItemCard({
   // graph-focus deep link, so a round-trip back to the board keeps the lens.
   lens?: ItemRouteFields;
 }) {
+  const hasMetrics = itemMetricEntries(item, related).length > 0;
   return (
     <article
       className={`card${accentColor ? " card-accent" : ""}`}
@@ -148,30 +105,15 @@ export function ItemCard({
         </a>
       </div>
 
-      {/* Two meta rows, mirroring the graph node card: the identity row
-          (source · repo · #iid) then the people/engagement row (@author ·
-          demand · related). The engagement row only renders when it has
-          content, so a bare item doesn't leave an empty line. */}
+      {/* Two meta rows: identity first, then author plus provider-aligned item metrics. */}
       <div className="card-meta">
         <SourceRepo kind={sourceKind} repo={item.project_path} />
         {item.iid != null ? <span className="card-iid">#{item.iid}</span> : null}
       </div>
-      {(item.author || item.demand != null || (related && related.total > 0)) && (
+      {(item.author || hasMetrics) && (
         <div className="card-meta">
           {item.author ? <span className="muted">@{item.author}</span> : null}
-          {item.demand != null ? (
-            <span className="muted demand" title="comments + reactions">
-              <DemandIcon /> {item.demand}
-            </span>
-          ) : null}
-          {/* Distinct related items, tooltip broken down by strongest edge type
-              ("closes 2 · mentions 3"). Same data that gates the graph link above,
-              so the count and the focus affordance can never disagree. */}
-          {related && related.total > 0 ? (
-            <span className="muted related" title={related.byType.map((t) => `${t.type} ${t.count}`).join(" · ")}>
-              <LinkIcon /> {related.total}
-            </span>
-          ) : null}
+          <ItemMetricStrip item={item} related={related} />
         </div>
       )}
 

@@ -59,6 +59,7 @@ function item(over: Partial<CanonicalItem> = {}): CanonicalItem {
     milestone: null,
     demand: 0,
     ...over,
+    commentTotal: over.commentTotal ?? null,
   };
 }
 
@@ -125,6 +126,7 @@ function itemRow(over: Partial<ItemRow> = {}): ItemRow {
     demand: 0,
     last_seen_at: "2026-05-15T12:00:00Z",
     ...over,
+    comment_total: over.comment_total ?? null,
   };
 }
 
@@ -509,7 +511,7 @@ test("SQLite migrations from v4 backfill cached repo activity bounds and review-
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 9, "opening a v4 store applies later migrations");
+    assert.equal(diag.schema_version, 10, "opening a v4 store applies later migrations");
     assert.equal((await db.overview(1)).tables.repo_activity_bounds, 1, "the summary table is backfilled once per repo");
     const bounds = await db.listRepoActivityBounds();
     assert.equal(bounds.length, 1);
@@ -529,7 +531,7 @@ test("SQLite migration recovers when item.body exists but user_version is still 
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 9, "opening advances the migration ledger after detecting the applied body column");
+    assert.equal(diag.schema_version, 10, "opening advances the migration ledger after detecting the applied body column");
     const live = await db.listLiveItems();
     assert.deepEqual(live, []);
     await db.close();

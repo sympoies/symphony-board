@@ -42,6 +42,7 @@ export interface ItemRow {
   merge_state: string | null;
   open_review_threads: number | null;
   total_review_threads: number | null;
+  comment_total: number | null;
   milestone: string | null;
   demand: number | null;
   last_seen_at: string | null;

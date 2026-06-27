@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.5.0`.
+Current contract version emitted by the backend: `4.6.0`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.5.0`. Important compatibility milestones:
+The current emitted contract is `4.6.0`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -117,6 +117,9 @@ The current emitted contract is `4.5.0`. Important compatibility milestones:
   endpoints.
 - 4.5.0 adds optional, nullable `ItemDTO.body`, bounded provider issue / PR / MR
   description text for detail views.
+- 4.6.0 adds optional, nullable `ItemDTO.comments` (`{ total }`) for the
+  provider's native discussion comment count, separate from the broader
+  `demand` attention score.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

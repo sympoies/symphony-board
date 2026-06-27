@@ -82,7 +82,7 @@ const STORE_STATS_MOCK = (() => {
   }));
   return {
     generated_at: "2026-06-23T05:02:00Z",
-    db: { driver: "postgres", schema_version: 9 },
+    db: { driver: "postgres", schema_version: 10 },
     tables: {},
     items: { live: 1836, tombstoned: 0, by_kind: {}, by_state: {}, by_source: {} },
     edges: { live: 2368, tombstoned: 0, by_type: {}, by_lifecycle: {} },
@@ -830,10 +830,11 @@ try {
           return aShort - bShort || a.textLength - b.textLength || b.containerWidth - a.containerWidth;
         });
         const picked = candidates[0] || null;
+        const hasTextSizedHitTarget = !picked || (picked.trailingGap >= 16 && picked.fillRatio <= 0.92);
         return {
           surface: ${JSON.stringify(surface)},
           found: !!picked,
-          ok: !picked || picked.trailingGap >= 24,
+          ok: hasTextSizedHitTarget,
           picked,
         };
       })()`,
@@ -1394,6 +1395,7 @@ try {
           rows: rows.length,
           providerLinks: Array.from(document.querySelectorAll('.items-page .item-row-title[href]')).length,
           graphLinks: Array.from(document.querySelectorAll('.items-page .item-row-graph[href^="#/graph"]')).length,
+          detailMetricGraphLinks: Array.from(document.querySelectorAll('.items-page .items-detail .item-metric-related[href^="#/graph"]')).length,
           firstUpdated: first?.querySelector('time[title]')?.textContent || '',
           split: !!document.querySelector('.items-page .items-split'),
           detail: !!document.querySelector('.items-page .items-detail'),
@@ -3379,8 +3381,8 @@ try {
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
   const boardGraphLinks = m(board2Html, /class="card-graph"/g);
-  const boardRelationCounts = m(board2Html, /class="muted related"/g);
-  const graphListRelationCounts = m(graphListHtml, /class="muted related"/g);
+  const boardRelationCounts = m(board2Html, /class="[^"]*\bitem-metric-related\b[^"]*"/g);
+  const graphListRelationCounts = m(graphListHtml, /class="[^"]*\bitem-metric-related\b[^"]*"/g);
   const graphListGraphLinks = m(graphListHtml, /class="card-graph"/g);
   const graphNodeRelationCounts = m(graphHtml, /class="rf-related"/g);
   const boardTimeOrder = updatedBeforeCreated(boardHtml, "card-times muted");
@@ -3596,6 +3598,7 @@ try {
     [itemsSummary.rows >= 2, `items: rows rendered (${itemsSummary.rows || 0} >= 2)`],
     [itemsSummary.providerLinks >= 1, `items: provider title links rendered (${itemsSummary.providerLinks || 0} >= 1)`],
     [itemsSummary.graphLinks >= 1, `items: related rows keep a focus-in-graph affordance (${itemsSummary.graphLinks || 0} >= 1)`],
+    [itemsSummary.detailMetricGraphLinks >= 1, `items: detail related metric remains a focus-in-graph link (${itemsSummary.detailMetricGraphLinks || 0} >= 1)`],
     [/updated \d/.test(itemsSummary.firstUpdated || ""), `items: newest row exposes the updated timestamp first (${itemsSummary.firstUpdated || "empty"})`],
     [itemsSummary.hasKindGroup === true && (itemsSummary.kindChips || []).includes("issue") && (itemsSummary.kindChips || []).includes("PR/MR") && !(itemsSummary.kindChips || []).includes("change_request") && !(itemsSummary.kindChips || []).includes("all"), `items: reuses the shared kind chips with PR/MR display and no separate all control (${(itemsSummary.kindChips || []).join(", ") || "none"})`],
     [itemsSummary.split === true && itemsSummary.detail === true && itemsSummary.listLeftOfDetail === true, `items: renders a left list with a right detail pane (${JSON.stringify({ split: itemsSummary.split, detail: itemsSummary.detail, listLeftOfDetail: itemsSummary.listLeftOfDetail })})`],

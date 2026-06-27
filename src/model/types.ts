@@ -78,6 +78,10 @@ export interface CanonicalItem {
   // folds them into ReviewThreadsDTO. A point-in-time snapshot, like ciState.
   openReviewThreads: number | null;
   totalReviewThreads: number | null;
+  // Provider-native item comment/conversation count for compact UI metrics.
+  // GitHub PRs use PullRequest.totalCommentsCount (the PR-list speech bubble),
+  // while GitHub issues and GitLab items use their provider comment/note totals.
+  commentTotal: number | null;
   milestone: string | null;
   demand: number | null;
 }
