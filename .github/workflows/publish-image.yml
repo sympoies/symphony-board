@@ -12,6 +12,8 @@ concurrency:
   group: publish-image-${{ github.ref }}
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
   # Gate the published tag against the repo's version files BEFORE anything is
   # published. publish and desktop run in parallel with no ordering, and publish
