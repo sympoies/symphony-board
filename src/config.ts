@@ -119,6 +119,15 @@ export interface IdentityConfig {
   source_ids?: string[]; // optional source_id allowlist for this identity
 }
 
+export interface SyncCadenceConfig {
+  // Background incremental cadence in seconds. The standalone app exposes this
+  // in Settings so a personal PAT can trade freshness for API budget.
+  interval_seconds?: number;
+  // Desired seconds between full sweeps. The loop runs on interval ticks, so
+  // runtime converts this to a full-every-N-ticks value.
+  full_interval_seconds?: number;
+}
+
 export interface AppConfig {
   db_path: string;
   // Optional NAME of an env var holding a postgres:// connection URL (the URL
@@ -135,6 +144,9 @@ export interface AppConfig {
   // this zone's day boundaries. Absolute instants stay UTC; only calendar-day
   // bucketing honors it. Display-only — never stored in the DB.
   timezone?: string;
+  // Local writer cadence. Optional so existing file-managed deployments keep
+  // using their env/default daemon settings; standalone seeds and edits it.
+  sync?: SyncCadenceConfig;
   sources: SourceConfig[];
   identities?: IdentityConfig[];
   // Actors to drop from repo-analytics `top_actors[]` as noise (CI / dependency
@@ -351,6 +363,37 @@ export function resolveConfigPath(explicitPath?: string | null): string {
   return resolve(explicitPath ?? process.env.SYMPHONY_CONFIG ?? DEFAULT_PATH);
 }
 
+export interface SyncSchedule {
+  intervalSeconds: number;
+  fullEvery: number;
+  fullIntervalSeconds: number;
+}
+
+export function syncScheduleFromConfig(
+  cfg: Pick<AppConfig, "sync"> | null | undefined,
+  fallback: Pick<SyncSchedule, "intervalSeconds" | "fullEvery">,
+): SyncSchedule {
+  const fallbackInterval = Math.max(1, Math.trunc(fallback.intervalSeconds));
+  const fallbackFullEvery = Math.max(1, Math.trunc(fallback.fullEvery));
+  const intervalSeconds = Math.max(1, Math.trunc(cfg?.sync?.interval_seconds ?? fallbackInterval));
+  const requestedFullInterval = cfg?.sync?.full_interval_seconds;
+  if (requestedFullInterval !== undefined) {
+    const fullEvery = Math.max(1, Math.ceil(Math.trunc(requestedFullInterval) / intervalSeconds));
+    return { intervalSeconds, fullEvery, fullIntervalSeconds: fullEvery * intervalSeconds };
+  }
+  return {
+    intervalSeconds,
+    fullEvery: fallbackFullEvery,
+    fullIntervalSeconds: intervalSeconds * fallbackFullEvery,
+  };
+}
+
+function validatePositiveInteger(value: unknown, label: string, errors: string[]): void {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    errors.push(`${label} must be a positive integer`);
+  }
+}
+
 // Validate a parsed config document and return every problem found (empty =
 // valid). `label` names the document in messages — a file path for loadConfig,
 // "config" for a control-plane PUT body. Collecting instead of throwing lets
@@ -365,6 +408,14 @@ export function configErrors(raw: unknown, label: string): string[] {
   if (!cfg.db_path) errors.push(`${label} is missing db_path`);
   if (cfg.db_url_env !== undefined && (typeof cfg.db_url_env !== "string" || cfg.db_url_env.trim().length === 0)) {
     errors.push(`${label}: "db_url_env" must be a non-empty env-var name when set (omit it for SQLite)`);
+  }
+  if (cfg.sync !== undefined) {
+    if (!isPlainObject(cfg.sync)) {
+      errors.push(`${label}: "sync" must be an object when set`);
+    } else {
+      if (cfg.sync.interval_seconds !== undefined) validatePositiveInteger(cfg.sync.interval_seconds, `${label}: sync.interval_seconds`, errors);
+      if (cfg.sync.full_interval_seconds !== undefined) validatePositiveInteger(cfg.sync.full_interval_seconds, `${label}: sync.full_interval_seconds`, errors);
+    }
   }
   if (!Array.isArray(cfg.sources) || cfg.sources.length === 0) {
     errors.push(`${label} has no sources`);

@@ -121,9 +121,11 @@ import {
   configWithoutProject,
   configWithoutSource,
   sourcesNeedingSync,
+  standaloneDefaultConfig,
   suggestSourceDefaults,
   sourceTokenEnvs,
   isSourceTokenSet,
+  configNeedsCredentialSetup,
   NEW_CONFIG_DB_PATH,
   type ConfigDocument,
   type ConfigProjectEntry,
@@ -2574,6 +2576,39 @@ test("suggestSourceDefaults: canonical hosts get conventional names, self-hosted
   });
   assert.equal(suggestSourceDefaults("github", "GHE.Corp.example").token_env, "GITHUB_TOKEN_GHE_CORP_EXAMPLE");
   assert.equal(suggestSourceDefaults("gitlab", "gitlab.com").token_env, "GITLAB_TOKEN");
+});
+
+test("standaloneDefaultConfig seeds GitHub-only symphony-board config with an empty PAT slot", () => {
+  const doc = standaloneDefaultConfig();
+
+  assert.equal(doc.db_path, NEW_CONFIG_DB_PATH);
+  assert.deepEqual(doc.sync, { interval_seconds: 600, full_interval_seconds: 86400 });
+  assert.deepEqual(doc.sources.map((source) => source.source_id), ["github:github.com"]);
+  assert.equal(doc.sources.some((source) => source.kind === "gitlab"), false, "GitLab is not preconfigured");
+
+  const github = doc.sources[0]!;
+  assert.equal(github.kind, "github");
+  assert.equal(github.host, "github.com");
+  assert.equal(github.token_env, "GITHUB_TOKEN");
+  assert.equal(github.graphql_url, "https://api.github.com/graphql");
+  assert.equal(github.rest_url, "https://api.github.com");
+  assert.deepEqual(github.projects.map(configProjectPath), ["sympoies/symphony-board"]);
+  assert.equal(isSourceTokenSet(github, {}), false, "the PAT starts unset and must be filled in the UI");
+});
+
+test("configNeedsCredentialSetup flags enabled sources with missing credentials", () => {
+  const doc = standaloneDefaultConfig();
+  const github = doc.sources[0]!;
+
+  assert.equal(configNeedsCredentialSetup(null, {}), true, "no config still needs setup");
+  assert.equal(configNeedsCredentialSetup(doc, {}), true, "the default GitHub source needs its PAT");
+  assert.equal(configNeedsCredentialSetup(doc, { GITHUB_TOKEN: true }), false, "a set PAT unlocks setup");
+  assert.equal(configNeedsCredentialSetup({ ...doc, sources: [{ ...github, enabled: false }] }, {}), false, "disabled sources do not lock setup");
+  assert.equal(
+    configNeedsCredentialSetup({ ...doc, sources: [{ ...github, token_env: undefined, fallback_token_envs: undefined }] }, {}),
+    false,
+    "sources without credential envs do not lock setup",
+  );
 });
 
 test("config draft mutations are immutable and leave unknown fields untouched", () => {

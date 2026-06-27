@@ -5,7 +5,7 @@
 // the daemon's field-level messages verbatim instead of re-validating.
 
 import { useCallback, useEffect, useState } from "react";
-import { fetchConfigControl, fetchSecrets, saveConfigDocument, saveSecretValue } from "./contract.ts";
+import { fetchConfigControl, fetchSecrets, saveConfigDocument, saveSecretValue, validateSecretValue } from "./contract.ts";
 import type { ConfigControlInfo, ConfigDocument, SecretsInfo } from "./model.ts";
 
 export interface ConfigState {
@@ -13,19 +13,21 @@ export interface ConfigState {
   config: ConfigDocument | null; // live document; null = none yet or unreadable
   configError: string | null; // the daemon's read error for the unreadable case
   secrets: Record<string, boolean>; // token env name -> set?
+  secretsLoaded: boolean; // the write-only secrets probe has answered
   secretsWritable: boolean; // a secrets file backs the write surface
   busy: boolean; // a save is in flight
   saveErrors: string[]; // field-level validation messages from the last save
   saveError: string | null; // non-validation failure from the last save
   save: (next: ConfigDocument) => Promise<boolean>;
   // Resolves to null on success, otherwise the error message for inline display.
-  setSecret: (env: string, value: string | null) => Promise<string | null>;
+  setSecret: (env: string, value: string | null, opts?: { sourceId?: string; validate?: boolean }) => Promise<string | null>;
   refresh: () => void;
 }
 
 export function useConfig(serverBaseUrl: string | null): ConfigState {
   const [info, setInfo] = useState<ConfigControlInfo | null>(null);
   const [secretsInfo, setSecretsInfo] = useState<SecretsInfo | null>(null);
+  const [secretsLoaded, setSecretsLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -38,8 +40,14 @@ export function useConfig(serverBaseUrl: string | null): ConfigState {
       setInfo(next);
       if (next?.enabled) {
         void fetchSecrets(serverBaseUrl).then((s) => {
-          if (!cancelled) setSecretsInfo(s);
+          if (!cancelled) {
+            setSecretsInfo(s);
+            setSecretsLoaded(true);
+          }
         });
+      } else {
+        setSecretsInfo(null);
+        setSecretsLoaded(true);
       }
     });
     return () => {
@@ -74,10 +82,19 @@ export function useConfig(serverBaseUrl: string | null): ConfigState {
   );
 
   const setSecret = useCallback(
-    async (env: string, value: string | null): Promise<string | null> => {
+    async (env: string, value: string | null, opts?: { sourceId?: string; validate?: boolean }): Promise<string | null> => {
       try {
+        if (value !== null && opts?.validate && opts.sourceId) {
+          const validation = await validateSecretValue(opts.sourceId, env, value, serverBaseUrl);
+          if (!validation.ok) return validation.error ?? `HTTP ${validation.status}`;
+        }
         const res = await saveSecretValue(env, value, serverBaseUrl);
         if (res.ok) {
+          setSecretsInfo((prev) =>
+            prev
+              ? { ...prev, secrets: { ...prev.secrets, [env]: value !== null } }
+              : prev,
+          );
           refresh();
           return null;
         }
@@ -94,6 +111,7 @@ export function useConfig(serverBaseUrl: string | null): ConfigState {
     config: info?.config ?? null,
     configError: info?.error ?? null,
     secrets: secretsInfo?.secrets ?? {},
+    secretsLoaded,
     secretsWritable: secretsInfo?.writable ?? false,
     busy,
     saveErrors,

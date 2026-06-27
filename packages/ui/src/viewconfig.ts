@@ -65,8 +65,10 @@ const LIVE_TAB_ENABLED_KEY = "symphony-board:live-tab-enabled";
 // category in this set is dropped from the Live feed and its filter chip. Stored
 // as the hidden set so a new provider category defaults visible.
 const HIDDEN_EVENT_TYPES_KEY = "symphony-board:hidden-event-types";
+const STANDALONE_SETUP_REDIRECT_KEY = "symphony-board:standalone-setup-redirect";
 export const DESKTOP_DEFAULT_SERVER_BASE_URL = "http://localhost:8080/";
 export const ANDROID_CLIENT_KIND = "android";
+export const STANDALONE_CLIENT_KIND = "standalone";
 export const VIEW_COLOR_MODES = [
   { id: "system", label: "System" },
   { id: "dark", label: "Dark" },
@@ -332,8 +334,33 @@ export function isStaticDeployment(): boolean {
 // trap. Disable the controls there, the same way the date range suspends on a
 // static host (App passes isStaticDeployment()). A normal deployment leaves them
 // interactive. Pure so the gate is unit-tested.
-export function liveControlsDisabled(staticDeployment: boolean): boolean {
-  return staticDeployment;
+export function isStandaloneClient(clientKind: string | null = currentClientKind()): boolean {
+  return clientKind === STANDALONE_CLIENT_KIND;
+}
+
+export function standaloneBrandClass(clientKind: string | null = currentClientKind()): string {
+  return isStandaloneClient(clientKind) ? " app-header-standalone" : "";
+}
+
+export function loadStandaloneSetupRedirectPending(): boolean {
+  try {
+    return localStorage.getItem(STANDALONE_SETUP_REDIRECT_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveStandaloneSetupRedirectPending(pending: boolean): void {
+  try {
+    if (pending) localStorage.setItem(STANDALONE_SETUP_REDIRECT_KEY, "true");
+    else localStorage.removeItem(STANDALONE_SETUP_REDIRECT_KEY);
+  } catch {
+    /* storage unavailable — the setup redirect falls back to route state */
+  }
+}
+
+export function liveControlsDisabled(staticDeployment: boolean, clientKind: string | null = currentClientKind()): boolean {
+  return staticDeployment || isStandaloneClient(clientKind);
 }
 
 // The EFFECTIVE Live opt-in the app routes on, given the stored Settings flag and
@@ -345,8 +372,8 @@ export function liveControlsDisabled(staticDeployment: boolean): boolean {
 // untouched (Settings still shows it), so the preference re-applies on a real,
 // server-backed deployment. App feeds this to useLive + liveTabVisible and to the
 // startup-route resolution; pure so the gate is unit-tested.
-export function effectiveLiveTabEnabled(storedEnabled: boolean, staticDeployment: boolean): boolean {
-  return storedEnabled && !liveControlsDisabled(staticDeployment);
+export function effectiveLiveTabEnabled(storedEnabled: boolean, staticDeployment: boolean, clientKind: string | null = currentClientKind()): boolean {
+  return storedEnabled && !liveControlsDisabled(staticDeployment, clientKind);
 }
 
 // --- range-as-download model (#488) -----------------------------------------

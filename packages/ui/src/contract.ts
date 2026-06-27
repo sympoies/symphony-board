@@ -670,6 +670,32 @@ export async function saveSecretValue(env: string, value: string | null, serverB
   };
 }
 
+// Validate a PAT against the configured source before it is persisted. The token
+// value is sent once for the provider probe and is never returned by the server.
+export async function validateSecretValue(
+  sourceId: string,
+  env: string,
+  value: string,
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+): Promise<SaveSecretResult> {
+  const res = await appFetch(resolveEndpoint("./api/secrets/validate", serverBaseUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
+    body: JSON.stringify({ source_id: sourceId, env, value }),
+  });
+  let body: { error?: string; message?: string } | null = null;
+  try {
+    body = (await readJson(res)) as { error?: string; message?: string };
+  } catch {
+    body = null;
+  }
+  return {
+    ok: res.ok,
+    status: res.status,
+    error: res.ok ? null : (body?.message ?? body?.error ?? `HTTP ${res.status}`),
+  };
+}
+
 // --- diagnostics client (the hidden #/debug page) ---
 // Probe-pattern GETs like the control planes above: null on ANY failure (route
 // missing, no store yet, network error) so the page renders "unavailable"

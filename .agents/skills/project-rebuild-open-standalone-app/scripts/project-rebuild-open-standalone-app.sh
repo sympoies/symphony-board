@@ -76,6 +76,27 @@ app_src="$repo_root/packages/desktop-standalone/src-tauri/target/release/bundle/
 app_dst="/Applications/Symphony Board Standalone.app"
 app_to_open="$app_src"
 
+stop_installed_sidecar() {
+  local pattern='Symphony Board Standalone\.app/Contents/MacOS/node .*backend/src/cli/app-server\.ts'
+  local pids
+  pids="$(pgrep -f "$pattern" 2>/dev/null || true)"
+  if [ -z "$pids" ]; then
+    return 0
+  fi
+
+  printf '[rebuild-open-standalone-app] stopping stale standalone sidecar(s): %s\n' "$(echo "$pids" | tr '\n' ' ')"
+  # The sidecar can outlive the Tauri shell during local rebuilds; if it keeps
+  # port 8787 open the new app adopts the stale server instead of the fresh one.
+  kill $pids 2>/dev/null || true
+  for _ in {1..20}; do
+    if ! pgrep -f "$pattern" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  kill -9 $pids 2>/dev/null || true
+}
+
 printf '[rebuild-open-standalone-app] building standalone desktop bundle\n'
 fnm exec --using 24 pnpm desktop-standalone:build
 
@@ -87,6 +108,7 @@ fi
 if [ "$install_app" -eq 1 ]; then
   printf '[rebuild-open-standalone-app] installing %s\n' "$app_dst"
   osascript -e 'quit app "Symphony Board Standalone"' >/dev/null 2>&1 || true
+  stop_installed_sidecar
   rm -rf "$app_dst"
   cp -R "$app_src" "$app_dst"
   touch "$app_dst"

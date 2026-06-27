@@ -2444,6 +2444,7 @@ export interface SyncControlInfo {
   last: SyncRunStatus | null;
   interval_seconds?: number;
   full_every?: number;
+  full_interval_seconds?: number;
 }
 
 export interface SyncRunRequest {
@@ -2602,9 +2603,16 @@ export interface ConfigSourceDoc {
   [extra: string]: unknown;
 }
 
+export interface ConfigSyncDoc {
+  interval_seconds?: number;
+  full_interval_seconds?: number;
+  [extra: string]: unknown;
+}
+
 export interface ConfigDocument {
   db_path: string;
   timezone?: string;
+  sync?: ConfigSyncDoc;
   sources: ConfigSourceDoc[];
   [extra: string]: unknown;
 }
@@ -2651,6 +2659,11 @@ export function isSourceTokenSet(
   secrets: Record<string, boolean>,
 ): boolean {
   return sourceTokenEnvs(source).some((env) => secrets[env] === true);
+}
+
+export function configNeedsCredentialSetup(config: ConfigDocument | null, secrets: Record<string, boolean>): boolean {
+  if (!config) return true;
+  return config.sources.some((source) => source.enabled !== false && sourceTokenEnvs(source).length > 0 && !isSourceTokenSet(source, secrets));
 }
 
 export interface ConfigControlInfo {
@@ -2937,6 +2950,9 @@ export function runDuration(startedAt: string, finishedAt: string | null): strin
 // db_path seeded into a config created in-app. Relative to the daemon's
 // working directory — the standalone data dir — matching the shipped template.
 export const NEW_CONFIG_DB_PATH = "data/symphony.db";
+export const STANDALONE_DEFAULT_PROJECT = "sympoies/symphony-board";
+export const STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS = 600;
+export const STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS = 86400;
 
 export type ConfigSourceKind = "github" | "gitlab";
 
@@ -2975,8 +2991,35 @@ export function suggestSourceDefaults(
   };
 }
 
+export function standaloneDefaultConfig(): ConfigDocument {
+  return {
+    db_path: NEW_CONFIG_DB_PATH,
+    sync: {
+      interval_seconds: STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS,
+      full_interval_seconds: STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS,
+    },
+    sources: [
+      {
+        ...suggestSourceDefaults("github", "github.com"),
+        display_name: "GitHub",
+        projects: [STANDALONE_DEFAULT_PROJECT],
+      },
+    ],
+  };
+}
+
 // Immutable draft mutations for the Sources editor. Each returns a new
 // document and leaves fields the editor does not own untouched.
+
+export function configWithSyncCadence(doc: ConfigDocument, patch: Partial<ConfigSyncDoc>): ConfigDocument {
+  return {
+    ...doc,
+    sync: {
+      ...(doc.sync ?? {}),
+      ...patch,
+    },
+  };
+}
 
 export function configWithSource(doc: ConfigDocument | null, source: ConfigSourceDoc): ConfigDocument {
   const base = doc ?? { db_path: NEW_CONFIG_DB_PATH, sources: [] };

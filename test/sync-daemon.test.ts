@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -35,7 +35,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 const SOURCES: SourceOption[] = [{ source_id: "fake:a", display_name: "A", kind: "fake", enabled: true }];
 const NO_CONFIG_CONTROL: ConfigControl = { enabled: false, path: "/nonexistent/sources.json", secretsPath: null };
 function ctx(controlEnabled: boolean, configControl: ConfigControl = NO_CONFIG_CONTROL, logsEnabled = false): ControlContext {
-  return { controlEnabled, configControl, logsEnabled, sources: SOURCES, intervalSeconds: 120, fullEvery: 30 };
+  return { controlEnabled, configControl, logsEnabled, sources: SOURCES, intervalSeconds: 120, fullEvery: 30, fullIntervalSeconds: 3600 };
 }
 
 test("sourceOptions exposes per-source enabled state for clients", () => {
@@ -556,6 +556,68 @@ test("secrets surface is write-only: set/remove tokens, report booleans, never v
     } finally {
       await close(noFile);
     }
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("secret validation route is guarded, validates against config, and never writes or echoes the PAT", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "secrets-validate-route-"));
+  const configPath = join(dir, "config", "sources.json");
+  const secretsPath = join(dir, "secrets.env");
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      db_path: join(dir, "board.db"),
+      sources: [
+        {
+          source_id: "github:github.com",
+          kind: "github",
+          host: "github.com",
+          token_env: "GITHUB_TOKEN",
+          graphql_url: "https://api.github.com/graphql",
+          projects: ["sympoies/symphony-board"],
+        },
+      ],
+    }),
+    "utf8",
+  );
+  const seen: Array<{ sourceCount: number; source_id: string; env: string; value: string }> = [];
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createControlServer(controller, {
+    ...ctx(true, { enabled: true, path: configPath, secretsPath }),
+    validateSecret: async (cfg, request) => {
+      seen.push({ sourceCount: cfg.sources.length, ...request });
+      return {
+        ok: false,
+        source_id: request.source_id,
+        env: request.env,
+        provider: "github",
+        error: "invalid_token",
+        message: "GitHub rejected the token",
+      };
+    },
+  });
+  const base = await listen(server);
+  const POST = (body: unknown, headers: Record<string, string> = {}) =>
+    fetch(`${base}/api/secrets/validate`, { method: "POST", headers, body: JSON.stringify(body) });
+  try {
+    let res = await POST({ source_id: "github:github.com", env: "GITHUB_TOKEN", value: "ghp_bad" });
+    assert.equal(res.status, 403);
+
+    res = await POST(
+      { source_id: "github:github.com", env: "GITHUB_TOKEN", value: "ghp_bad" },
+      { [SYNC_CONTROL_HEADER]: "1" },
+    );
+    assert.equal(res.status, 422);
+    const body = await json(res);
+    assert.equal(body.error, "invalid_token");
+    assert.equal(body.message, "GitHub rejected the token");
+    assert.ok(!JSON.stringify(body).includes("ghp_bad"), "response never echoes the token value");
+    assert.deepEqual(seen, [{ sourceCount: 1, source_id: "github:github.com", env: "GITHUB_TOKEN", value: "ghp_bad" }]);
+    assert.equal(existsSync(secretsPath), false, "validation does not persist the secret");
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

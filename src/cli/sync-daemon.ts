@@ -26,7 +26,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
-import type { AppConfig, SourceConfig } from "../config.ts";
+import type { AppConfig, SourceConfig, SyncSchedule } from "../config.ts";
 import { configErrors, loadConfig, readSecretsOverlay, resolveSecretsPath, saveConfig, saveSecret, sourceEnabled, sourceTokenEnvNames } from "../config.ts";
 import {
   runConfiguredSync,
@@ -38,6 +38,7 @@ import {
 } from "../sync-runner.ts";
 import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
 import { probeTokenRateLimits, tokenRateLimitsConfigError } from "../server/token-rate-limits.ts";
+import { validateProviderToken, type TokenValidationRequest, type TokenValidator } from "../server/token-validation.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -232,6 +233,8 @@ export interface ControlContext {
   sources: SourceOption[];
   intervalSeconds: number;
   fullEvery: number;
+  fullIntervalSeconds: number;
+  validateSecret?: TokenValidator;
 }
 
 export type ParsedRequest = { ok: true; request: SyncRequest } | { ok: false; message: string };
@@ -347,6 +350,7 @@ export async function handleControlRequest(
       last: controller.lastRun(),
       interval_seconds: ctx.intervalSeconds,
       full_every: ctx.fullEvery,
+      full_interval_seconds: ctx.fullIntervalSeconds,
     });
     return;
   }
@@ -526,6 +530,60 @@ export async function handleControlRequest(
     return;
   }
 
+  if (method === "POST" && path === "/api/secrets/validate") {
+    const cc = ctx.configControl;
+    if (!cc.enabled) {
+      sendJson(res, 403, { error: "control_disabled", message: "config control is not enabled on this deployment" });
+      return;
+    }
+    if (!req.headers[SYNC_CONTROL_HEADER]) {
+      sendJson(res, 403, { error: "forbidden", message: `missing ${SYNC_CONTROL_HEADER} header` });
+      return;
+    }
+    let raw: string;
+    try {
+      raw = await readBody(req);
+    } catch (err) {
+      sendJson(res, 413, { error: "payload_too_large", message: (err as Error).message });
+      return;
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      sendJson(res, 400, { error: "bad_request", message: "request body is not valid JSON" });
+      return;
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      sendJson(res, 400, { error: "bad_request", message: "request body must be a JSON object" });
+      return;
+    }
+    const { source_id: sourceId, env, value } = body as Record<string, unknown>;
+    if (typeof sourceId !== "string" || sourceId.trim().length === 0) {
+      sendJson(res, 400, { error: "bad_request", message: "source_id must be a non-empty string" });
+      return;
+    }
+    if (typeof env !== "string" || !ENV_NAME.test(env)) {
+      sendJson(res, 400, { error: "bad_request", message: "env must be a valid env-var name" });
+      return;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      sendJson(res, 400, { error: "bad_request", message: "value must be a non-empty string" });
+      return;
+    }
+    let cfg: AppConfig;
+    try {
+      cfg = loadConfig(cc.path).cfg;
+    } catch (err) {
+      sendJson(res, 400, { error: "config_error", message: (err as Error).message });
+      return;
+    }
+    const validator = ctx.validateSecret ?? validateProviderToken;
+    const result = await validator(cfg, { source_id: sourceId.trim(), env: env.trim(), value: value.trim() } satisfies TokenValidationRequest);
+    sendJson(res, result.ok ? 200 : result.error === "bad_request" ? 400 : 422, result);
+    return;
+  }
+
   if (path === "/api/sync-runs" && method === "POST") {
     if (!ctx.controlEnabled) {
       sendJson(res, 403, { error: "control_disabled", message: "manual sync control is not enabled on this deployment" });
@@ -581,16 +639,33 @@ export interface LoopOptions {
   intervalMs: number;
   fullEvery: number;
   signal: AbortSignal;
+  schedule?: () => Pick<SyncSchedule, "intervalSeconds" | "fullEvery" | "fullIntervalSeconds">;
+  shouldRunFull?: (
+    iteration: number,
+    schedule: Pick<SyncSchedule, "intervalSeconds" | "fullEvery" | "fullIntervalSeconds">,
+  ) => boolean | Promise<boolean>;
 }
 
 // The background cadence. Mirrors the prior shell loop: iteration 0 (and every
 // FULL_EVERY-th) is a full sweep, the rest incremental, sleeping `intervalMs`
 // between. A manual run in progress makes a scheduled tick skip rather than wait.
 export async function runLoop(controller: SyncController, opts: LoopOptions): Promise<void> {
-  log.info(`[loop] sync + emit every ${Math.round(opts.intervalMs / 1000)}s (full sweep every ${opts.fullEvery} iterations)`);
+  let scheduleKey = "";
   let i = 0;
   while (!opts.signal.aborted) {
-    const full = i % opts.fullEvery === 0;
+    const schedule = opts.schedule?.() ?? {
+      intervalSeconds: Math.max(1, Math.round(opts.intervalMs / 1000)),
+      fullEvery: opts.fullEvery,
+      fullIntervalSeconds: Math.max(1, Math.round(opts.intervalMs / 1000)) * opts.fullEvery,
+    };
+    const intervalMs = Math.max(1000, Math.trunc(schedule.intervalSeconds) * 1000);
+    const fullEvery = Math.max(1, Math.trunc(schedule.fullEvery));
+    const nextScheduleKey = `${Math.round(intervalMs / 1000)}:${fullEvery}`;
+    if (nextScheduleKey !== scheduleKey) {
+      log.info(`[loop] sync + emit every ${Math.round(intervalMs / 1000)}s (full sweep every ${fullEvery} iterations)`);
+      scheduleKey = nextScheduleKey;
+    }
+    const full = opts.shouldRunFull ? await opts.shouldRunFull(i, schedule) : i % fullEvery === 0;
     log.info(`[loop] iteration ${i} (${full ? "full" : "incremental"})`);
     try {
       const outcome = await controller.runScheduled(full);
@@ -599,7 +674,7 @@ export async function runLoop(controller: SyncController, opts: LoopOptions): Pr
       log.error(`[loop] iteration ${i} error: ${(err as Error).message}; continuing`);
     }
     i++;
-    await sleep(opts.intervalMs, opts.signal);
+    await sleep(intervalMs, opts.signal);
   }
 }
 
@@ -633,6 +708,7 @@ function main(): void {
     sources: sourceOptions(cfg),
     intervalSeconds,
     fullEvery,
+    fullIntervalSeconds: intervalSeconds * fullEvery,
   };
 
   const server = createControlServer(controller, ctx);

@@ -10,9 +10,10 @@
 //
 // Data layout (macOS: ~/Library/Application Support/com.sympoies.symphony-board.standalone/):
 //   config/sources.json   created and edited in-app (Settings -> Sources) via
-//                         the sidecar's config control plane; absent until the
-//                         first-run onboarding saves one. Hand-editing remains
-//                         a fallback — the daemon re-reads it per run.
+//                         the sidecar's config control plane. New installs seed
+//                         a GitHub-only sympoies/symphony-board config with no
+//                         token value. Hand-editing remains a fallback — the
+//                         daemon re-reads it per run.
 //   secrets.env           KEY=VALUE provider tokens (names match token_env /
 //                         fallback_token_envs);
 //                         written in-app through the write-only secrets surface
@@ -80,8 +81,27 @@ const SECRETS_TEMPLATE: &str = "# Provider tokens for Symphony Board Standalone.
 # token_env or fallback_token_envs in config/sources.json. Settings -> Sources\n\
 # writes entries here for you; hand edits also work and apply on the next sync run.\n\
 # GITHUB_TOKEN=ghp_xxx\n\
-# GITHUB_TOKEN_BACKUP=ghp_xxx_from_a_different_account\n\
-# GITLAB_TOKEN=glpat-xxx\n";
+# GITHUB_TOKEN_BACKUP=ghp_xxx_from_a_different_account\n";
+
+const DEFAULT_SOURCES_CONFIG: &str = "{\n\
+  \"db_path\": \"data/symphony.db\",\n\
+  \"sync\": {\n\
+    \"interval_seconds\": 600,\n\
+    \"full_interval_seconds\": 86400\n\
+  },\n\
+  \"sources\": [\n\
+    {\n\
+      \"source_id\": \"github:github.com\",\n\
+      \"kind\": \"github\",\n\
+      \"host\": \"github.com\",\n\
+      \"display_name\": \"GitHub\",\n\
+      \"token_env\": \"GITHUB_TOKEN\",\n\
+      \"graphql_url\": \"https://api.github.com/graphql\",\n\
+      \"rest_url\": \"https://api.github.com\",\n\
+      \"projects\": [\"sympoies/symphony-board\"]\n\
+    }\n\
+  ]\n\
+}\n";
 
 fn ensure_data_layout(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
@@ -89,9 +109,10 @@ fn ensure_data_layout(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
     fs::create_dir_all(data_dir.join("data"))?;
     fs::create_dir_all(data_dir.join("logs"))?;
 
-    // config/sources.json is deliberately NOT seeded: a missing config is the
-    // state the in-app onboarding starts from (Settings -> Sources creates it
-    // through the sidecar's config control plane).
+    let sources = data_dir.join("config").join("sources.json");
+    if !sources.exists() {
+        fs::write(&sources, DEFAULT_SOURCES_CONFIG)?;
+    }
 
     let secrets = data_dir.join("secrets.env");
     if !secrets.exists() {

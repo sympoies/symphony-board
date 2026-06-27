@@ -44,6 +44,7 @@ import {
   sameTimeRange,
   rangeQueryWindow,
   sourceDisplayName,
+  configNeedsCredentialSetup,
   reviewSortFromRoute,
   type TimeRangePresetId,
   type TimeRange,
@@ -110,6 +111,9 @@ import {
   loadWideLayout,
   saveWideLayout,
   currentClientKind,
+  isStandaloneClient,
+  loadStandaloneSetupRedirectPending,
+  saveStandaloneSetupRedirectPending,
   loadHiddenEventTypes,
   saveHiddenEventTypes,
   loadDefaultTab,
@@ -204,7 +208,7 @@ const readStartupHash = (): string =>
   // and the route would just bounce. Resolve the startup tab with Live forced off
   // there (matches App's liveTabEffectivelyEnabled); the stored preference is left
   // untouched and re-applies on a real, server-backed deployment.
-  startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), effectiveLiveTabEnabled(loadLiveTabEnabled(), isStaticDeployment())));
+  startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), effectiveLiveTabEnabled(loadLiveTabEnabled(), isStaticDeployment(), currentClientKind())));
 const historyStateObject = (): Record<string, unknown> => {
   const state = window.history.state;
   return state && typeof state === "object" && !Array.isArray(state) ? { ...(state as Record<string, unknown>) } : {};
@@ -217,6 +221,7 @@ export function App() {
   const startupHashRef = useRef<string | null>(null);
   if (startupHashRef.current === null) startupHashRef.current = readStartupHash();
   const initialStartupHash = startupHashRef.current;
+  const userInteractedRef = useRef(false);
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
   const [envAuthority, setEnvAuthority] = useState<EnvAuthority | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
@@ -417,6 +422,8 @@ export function App() {
   // (#424): never project a sub-range over the network, and land on the full
   // loaded extent so a fresh visitor sees the whole contract, not an out-of-window
   // empty range. A build-time constant; unset everywhere else, so false.
+  const clientKind = currentClientKind();
+  const standaloneClient = isStandaloneClient(clientKind);
   const staticDeployment = isStaticDeployment();
   const defaultRange = useMemo(() => {
     if (!env) return null;
@@ -568,8 +575,8 @@ export function App() {
   // it to the hook + tab visibility below. The raw `liveTabEnabled` stays the
   // persisted preference (Settings shows it, unchanged), so it re-applies on a
   // real server-backed deployment.
-  const livePreferencesDisabled = liveControlsDisabled(staticDeployment);
-  const liveTabEffectivelyEnabled = effectiveLiveTabEnabled(liveTabEnabled, staticDeployment);
+  const livePreferencesDisabled = liveControlsDisabled(staticDeployment, clientKind);
+  const liveTabEffectivelyEnabled = effectiveLiveTabEnabled(liveTabEnabled, staticDeployment, clientKind);
   // The live stream lives HERE, at the always-mounted shell — not inside LivePage
   // — so the event buffer survives tab switches: switching to Live is instant and
   // current instead of re-seeding from /api/live-snapshot (a >1s empty flash) on
@@ -603,6 +610,54 @@ export function App() {
     if (liveAvailable === false && route.page === "live") window.location.hash = "#/activity";
   }, [liveAvailable, route.page]);
   const configState = useConfig(serverBaseUrl);
+  const standaloneNeedsCredentialSetup =
+    standaloneClient &&
+    configState.available &&
+    configState.secretsLoaded &&
+    configNeedsCredentialSetup(configState.config, configState.secrets);
+  const standaloneSetupComplete =
+    standaloneClient &&
+    configState.available &&
+    configState.secretsLoaded &&
+    !configNeedsCredentialSetup(configState.config, configState.secrets);
+  const standaloneSetupLocked =
+    standaloneClient &&
+    configState.available &&
+    configState.secretsLoaded &&
+    standaloneNeedsCredentialSetup;
+  useEffect(() => {
+    const markInteracted = () => {
+      userInteractedRef.current = true;
+    };
+    window.addEventListener("pointerdown", markInteracted, { capture: true });
+    window.addEventListener("keydown", markInteracted, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", markInteracted, { capture: true });
+      window.removeEventListener("keydown", markInteracted, { capture: true });
+    };
+  }, []);
+  useEffect(() => {
+    if (!standaloneSetupLocked) return;
+    saveStandaloneSetupRedirectPending(true);
+    const target = buildHashRoute({ page: "settings", tab: "sources" });
+    if (readHash() !== target) window.location.hash = target;
+  }, [standaloneSetupLocked]);
+  useEffect(() => {
+    if (!standaloneSetupComplete) return;
+    const startupRoute = parseHashRoute(startupHashRef.current ?? "");
+    if (route.page !== "settings" || route.tab !== "sources") {
+      saveStandaloneSetupRedirectPending(false);
+      return;
+    }
+    const shouldLeaveSetup =
+      loadStandaloneSetupRedirectPending() ||
+      (startupRoute.page === "settings" && startupRoute.tab === "sources") ||
+      !userInteractedRef.current;
+    if (!shouldLeaveSetup) return;
+    saveStandaloneSetupRedirectPending(false);
+    const target = buildHashRoute({ page: resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled) });
+    if (readHash() !== target) window.location.hash = target;
+  }, [defaultTab, liveTabEffectivelyEnabled, route.page, route.tab, standaloneSetupComplete]);
   // Settings sub-tab, URL-backed so refresh and deep links keep it. Only the
   // "sources" value is meaningful; anything else renders the Display tab.
   const settingsTab = route.tab === "sources" ? ("sources" as const) : ("display" as const);
@@ -1689,6 +1744,13 @@ export function App() {
       </a>
     </nav>
   );
+  const setupLockedTabs = (
+    <nav className="page-tabs page-tabs-locked" data-board-data="setup">
+      <span className="tab tab-on" aria-current="page">
+        Settings
+      </span>
+    </nav>
+  );
 
   // Settings is built once and rendered BOTH from the early return below (so it is
   // reachable when the contract is off / still loading / failed — exactly when the
@@ -1732,10 +1794,22 @@ export function App() {
       onServerBaseUrl={applyServerBaseUrl}
       sync={sync}
       config={configState}
-      tab={settingsTab}
+      tab={standaloneSetupLocked ? "sources" : settingsTab}
       onTab={setSettingsTab}
+      standalone={standaloneClient}
+      setupLocked={standaloneSetupLocked}
     />
   );
+
+  if (standaloneSetupLocked) {
+    return (
+      <div className="app app-wide">
+        <BrandHeader />
+        {setupLockedTabs}
+        {settingsPageEl}
+      </div>
+    );
+  }
 
   // The Live tab renders BEFORE the contract gates: it is contract-independent
   // (its own SSE/snapshot data path), so it must work even when the contract is
@@ -1845,7 +1919,7 @@ export function App() {
               sync — the board appears as soon as the first contract is emitted.
             </p>
           </div>
-          <SourcesEditor config={configState} sync={sync} />
+          <SourcesEditor config={configState} sync={sync} variant={standaloneClient ? "standalone" : "default"} />
           {sync.available ? <SyncControls sync={sync} /> : null}
         </div>
       );
