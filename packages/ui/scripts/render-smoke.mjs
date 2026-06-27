@@ -1125,11 +1125,47 @@ try {
     expression: "!!document.querySelector('.brand-refresh .brand-refresh-app-icon')",
     returnByValue: true,
   })).result.value === true;
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   // Page 1 — the full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
   await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
+  const boardPaneLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const column = Array.from(document.querySelectorAll('.board-7 .col'))
+        .find((el) => getComputedStyle(el).display !== 'none' && !el.classList.contains('col-collapsed'));
+      const rect = column?.getBoundingClientRect();
+      return {
+        found: !!rect,
+        height: Math.round(rect?.height || 0),
+        bottomGap: rect ? Math.round(window.innerHeight - rect.bottom) : 0,
+        fillsViewport: !!rect && window.innerHeight - rect.bottom >= 8 && window.innerHeight - rect.bottom <= 32,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const boardCardChrome = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.board-7 .card');
+      const icon = card?.querySelector('.card-kind-icon');
+      const badge = card?.querySelector('.badge');
+      const title = card?.querySelector('.card-title');
+      const iconRect = icon?.getBoundingClientRect();
+      const badgeRect = badge?.getBoundingClientRect();
+      const titleRect = title?.getBoundingClientRect();
+      return {
+        found: !!(iconRect && badgeRect && titleRect),
+        iconRight: Math.round(iconRect?.right || 0),
+        badgeLeft: Math.round(badgeRect?.left || 0),
+        titleLeft: Math.round(titleRect?.left || 0),
+        badgeStartsAfterIcon: !!(iconRect && badgeRect) && badgeRect.left >= iconRect.right + 6,
+        titleStartsAfterIcon: !!(iconRect && titleRect) && titleRect.left >= iconRect.right + 6,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const boardRangeButtons = await rangeButtonLabels();
   const boardInitialStats = await statsTextOf();
   await send("Runtime.evaluate", {
@@ -1161,6 +1197,30 @@ try {
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
   await captureTitleLinkHitTarget("graph canvas node", ".graph-page .rf-node-title[href]", ".rf-node");
+  const graphPaneLayout = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const list = document.querySelector('.graph-list');
+      const canvas = document.querySelector('.graph-canvas');
+      const listRect = list?.getBoundingClientRect();
+      const canvasRect = canvas?.getBoundingClientRect();
+      const totalWidth = listRect && canvasRect ? canvasRect.right - listRect.left : 0;
+      const listShare = totalWidth > 0 ? Math.round((listRect.width / totalWidth) * 1000) / 1000 : 0;
+      const bottomGap = listRect && canvasRect ? window.innerHeight - Math.max(listRect.bottom, canvasRect.bottom) : 0;
+      return {
+        found: !!(listRect && canvasRect),
+        listWidth: Math.round(listRect?.width || 0),
+        canvasWidth: Math.round(canvasRect?.width || 0),
+        listHeight: Math.round(listRect?.height || 0),
+        canvasHeight: Math.round(canvasRect?.height || 0),
+        listShare,
+        heightsMatch: !!(listRect && canvasRect) && Math.abs(listRect.height - canvasRect.height) <= 2,
+        masterDetailShare: listShare >= 0.30 && listShare <= 0.36,
+        fillsViewport: !!(listRect && canvasRect) && bottomGap >= 8 && bottomGap <= 32,
+        bottomGap: Math.round(bottomGap),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // The mounted canvas pane reads the theme base, not ReactFlow's default dark
   // pane grey (#141414 → rgb(20, 20, 20)): .graph-canvas re-points RF's
   // --xy-background-color at --bg, so the resolved .react-flow background must be
@@ -1189,6 +1249,26 @@ try {
   // the focus view and confirm the back button + related-items header render.
   await waitHtml("document.querySelector('.graph-list-card')");
   await captureTitleLinkHitTarget("graph list card", ".graph-page .graph-list-card .card-title[href]", ".graph-list-card .card");
+  const graphCardChrome = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.graph-page .graph-list-card .card');
+      const icon = card?.querySelector('.card-kind-icon');
+      const badge = card?.querySelector('.badge');
+      const title = card?.querySelector('.card-title');
+      const iconRect = icon?.getBoundingClientRect();
+      const badgeRect = badge?.getBoundingClientRect();
+      const titleRect = title?.getBoundingClientRect();
+      return {
+        found: !!(iconRect && badgeRect && titleRect),
+        iconRight: Math.round(iconRect?.right || 0),
+        badgeLeft: Math.round(badgeRect?.left || 0),
+        titleLeft: Math.round(titleRect?.left || 0),
+        badgeStartsAfterIcon: !!(iconRect && badgeRect) && badgeRect.left >= iconRect.right + 6,
+        titleStartsAfterIcon: !!(iconRect && titleRect) && titleRect.left >= iconRect.right + 6,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   await sleep(400);
@@ -2810,6 +2890,8 @@ try {
           const boardSelector = document.querySelector('.board-mobile-selector');
           const cols = Array.from(document.querySelectorAll('.board-7 .col'));
           const graphBody = document.querySelector('.graph-body');
+          const graphListRect = document.querySelector('.graph-list')?.getBoundingClientRect();
+          const graphCanvasRect = document.querySelector('.graph-canvas')?.getBoundingClientRect();
           const graphKindToggles = Array.from(document.querySelectorAll('.graph-list-kinds .toggle'));
           const repoTable = document.querySelector('.repo-table');
           const controls = document.querySelector('.controls');
@@ -2870,7 +2952,9 @@ try {
             primarySurfaceTop: primarySurfaceRect ? Math.round(primarySurfaceRect.top) : 0,
             boardSelectorVisible: !!boardSelector && getComputedStyle(boardSelector).display !== 'none',
             visibleBoardColumns: cols.filter((el) => getComputedStyle(el).display !== 'none').length,
-            graphStacked: !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
+            graphStacked: !!(graphListRect && graphCanvasRect)
+              ? graphCanvasRect.top > graphListRect.bottom - 2
+              : !graphBody || getComputedStyle(graphBody).flexDirection === 'column',
             // The narrow-viewport List/Graph segmented toggle and which single
             // coupled pane it currently shows (default: the list, canvas absent).
             graphViewTogglePresent: !!document.querySelector('.graph-view-toggle'),
@@ -3468,6 +3552,8 @@ try {
     [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
+    [boardPaneLayout.fillsViewport === true, `board: lane height fills to the same viewport bottom gutter as list tabs (${JSON.stringify(boardPaneLayout)})`],
+    [boardCardChrome.found === true && boardCardChrome.badgeStartsAfterIcon === true && boardCardChrome.titleStartsAfterIcon === true, `board: card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(boardCardChrome)})`],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
     [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.contentRetained, `board: a range refetch keeps app chrome + loaded content mounted, no full-screen reload (${JSON.stringify(initialRangePending)})`],
     [rangeFailureRetained?.header && rangeFailureRetained?.tabs && rangeFailureRetained?.rangeControls && rangeFailureRetained?.contentRetained && /Could not load selected range/.test(rangeFailureRetained.error || ""), `board: a failed range refetch keeps stale content mounted with an inline error (${JSON.stringify(rangeFailureRetained)})`],
@@ -3528,10 +3614,12 @@ try {
     [sameRangeButtons(graphRangeButtons), `graph: shared range quick presets rendered without all (${graphRangeButtons.join(", ")})`],
     [hasStatText(graphInitialStats, "scope graph window"), "graph: stats are labelled as graph-window scoped"],
     [Number.isFinite(graphInitialTotal) && graphNarrowTotal < graphInitialTotal, `graph: scoped stats change when range narrows (${graphInitialTotal} -> ${graphNarrowTotal})`],
+    [graphPaneLayout.found === true && graphPaneLayout.heightsMatch === true && graphPaneLayout.masterDetailShare === true && graphPaneLayout.fillsViewport === true, `graph: list/canvas use the shared master-detail proportion and viewport height (${JSON.stringify(graphPaneLayout)})`],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListKindIcons >= graphCards, `graph: side-list item kind renders as shared SVG icons (${graphListKindIcons} icons for ${graphCards} cards)`],
     [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
+    [graphCardChrome.found === true && graphCardChrome.badgeStartsAfterIcon === true && graphCardChrome.titleStartsAfterIcon === true, `graph: side-list card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(graphCardChrome)})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],

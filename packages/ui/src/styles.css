@@ -592,8 +592,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .empty-action:disabled { opacity: 0.6; cursor: not-allowed; border-color: var(--line); }
 
 .card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start;
 }
 .card:target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 /* repo/source highlight: a colored left bar drawn as a ::before so it layers
@@ -603,13 +603,27 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .card-accent { position: relative; }
 .card-accent::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  background: var(--repo-color); border-radius: 10px 0 0 10px; pointer-events: none;
+  background: var(--repo-color); border-radius: 8px 0 0 8px; pointer-events: none;
 }
-.card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.card-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.card-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  padding-top: 2px;
+}
+.card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .icon-item-kind { flex: none; color: var(--muted); }
 .icon-item-kind-pr,
 .icon-item-kind-issue { color: color-mix(in srgb, var(--accent) 76%, var(--muted)); }
-.card-kind-icon { width: 15px; height: 15px; }
+.card-kind-icon { width: 16px; height: 16px; }
 /* "focus in graph" link — pushed to the right of the head row (the title wraps
    to its own line below it); muted until hovered, mirroring the graph side
    list's ↗ provider link. */
@@ -628,6 +642,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .card-title {
   display: inline-block;
   max-width: 100%;
+  min-width: 0;
   color: var(--text);
   font-weight: 600;
   flex: 0 1 auto;
@@ -644,7 +659,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
    Same class everywhere it appears (board + graph list cards, graph canvas
    nodes). */
 .card-iid { color: var(--iid); font-weight: 500; }
-.card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
+.card-meta, .card-signals, .card-labels { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-width: 0; font-size: 12px; }
 /* created · updated, on their own row beneath the meta line */
 .card-times { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; }
 .card-times time { white-space: nowrap; }
@@ -711,7 +726,7 @@ a.item-metric:hover {
 .col {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   /* grow to share spare width equally, but stay within a readable card band:
@@ -727,7 +742,7 @@ a.item-metric:hover {
      cards it holds — a sparse lane would otherwise collapse to a short stub
      while a full one stood tall. .col-cards scrolls internally past this, and
      collapsed rails inherit the same height. */
-  height: 78vh;
+  height: var(--content-pane-height, 78vh);
 }
 /* a collapsed column drops to a slim, fixed-width rail: it keeps the board's
    structure (and the "this lane is empty" signal) on screen while handing its
@@ -804,7 +819,7 @@ a.item-metric:hover {
 .board-7 .card { width: 100%; }
 
 /* graph page (relationship graph, cytoscape) */
-.graph-page { margin: 8px 0; }
+.graph-page { margin: 12px 0; max-width: 1580px; }
 .graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
 .date-filter .date-input {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
@@ -917,14 +932,19 @@ a.item-metric:hover {
 .graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
 .graph-legend > span { display: inline-flex; align-items: center; }
 .graph-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
-/* [ list | canvas ]: the side list jumps to a node; the canvas grows to fill. */
-.graph-body { display: flex; gap: 10px; align-items: stretch; }
+/* [ list | canvas ]: mirrors the Items master-detail split. */
+.graph-body {
+  display: grid;
+  grid-template-columns: minmax(400px, 0.48fr) minmax(0, 1fr);
+  gap: 4px;
+  align-items: stretch;
+}
 .graph-canvas {
-  flex: 1 1 auto; min-width: 0; height: 74vh; overflow: hidden;
+  min-width: 0; height: var(--content-pane-height, 74vh); overflow: hidden;
   /* The box background is the canvas fill for the empty-state branch (where
      GraphCanvasEmptyState renders in place of <Flow>, so no .react-flow paints)
      and the brief pre-mount paint — keep it even though a mounted pane covers it. */
-  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   /* Once <Flow> mounts, the .react-flow pane fills this box and paints its OWN
      background over that fill. RF defaults the pane to a neutral #141414 grey in
      dark/night-owl mode (its light mode defaults to transparent); re-pointing
@@ -946,16 +966,12 @@ a.item-metric:hover {
 .graph-empty-body { font-size: 13px; color: var(--muted); max-width: 42ch; line-height: 1.5; margin: 0; }
 .graph-empty-action { margin-top: 4px; }
 /* side list — searchable, scrolls independently, same height as the canvas. Its
-   width tracks ONE board column at any resolution so the detailed cards stay as
-   roomy as the board: the board is 7 flex columns with a 300px basis inside
-   .app-wide's 40px padding (20px each side) with 6 × 12px gaps, i.e. a column is
-   clamp(300px, (100vw - 112px) / 7, 380px). On wide screens the board columns
-   stretch past 300px (up to the 380px cap), so the list grows with them instead
-   of staying a fixed 300px. */
+   width follows the same master-detail grid ratio as Items, so Graph does not
+   collapse to a narrow one-column board lane while the canvas fills the rest. */
 .graph-list {
-  flex: 0 0 auto; width: clamp(300px, calc((100vw - 112px) / 7), 380px);
-  height: 74vh; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  min-width: 0;
+  height: var(--content-pane-height, 74vh); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
 /* kind toggle (all / issue / pr) above the side-list search */
 .graph-list-kinds { margin: 8px 8px 0; flex-wrap: wrap; }
@@ -1054,7 +1070,8 @@ a.rf-node-title:hover { color: var(--accent); }
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  max-height: calc(100vh - 280px);
+  height: var(--content-pane-height, calc(100vh - 280px));
+  max-height: var(--content-pane-height, calc(100vh - 280px));
   overflow: auto;
   padding-right: 2px;
 }
@@ -1191,8 +1208,8 @@ a.rf-node-title:hover { color: var(--accent); }
   position: sticky;
   top: 12px;
   min-width: 0;
-  height: calc(100vh - 280px);
-  max-height: calc(100vh - 280px);
+  height: var(--content-pane-height, calc(100vh - 280px));
+  max-height: var(--content-pane-height, calc(100vh - 280px));
   overflow: auto;
 }
 .items-detail-card {
@@ -3211,7 +3228,7 @@ a.rf-node-title:hover { color: var(--accent); }
     white-space: normal;
   }
 
-  .graph-body { flex-direction: column; }
+  .graph-body { grid-template-columns: minmax(0, 1fr); }
   .graph-list {
     width: 100%;
     height: min(42vh, 420px);
@@ -3433,7 +3450,7 @@ a.rf-node-title:hover { color: var(--accent); }
      toolbar; the 640px cap keeps it from over-stretching on tall screens. */
   .board-7 .col-mobile-active {
     display: flex;
-    height: min(74dvh, 640px);
+    height: var(--content-pane-height, min(74dvh, 640px));
   }
   /* A collapsed active lane is just a short rail — don't stretch it to full
      pane height. */
@@ -3454,10 +3471,10 @@ a.rf-node-title:hover { color: var(--accent); }
      toggle), so each reclaims most of the viewport instead of the ~48/50vh split
      it took when both were stacked. */
   .graph-list {
-    height: min(74vh, 560px);
+    height: var(--content-pane-height, min(74vh, 560px));
   }
   .graph-canvas {
-    height: min(74vh, 620px);
+    height: var(--content-pane-height, min(74vh, 620px));
   }
   .repo-table tr {
     position: relative;

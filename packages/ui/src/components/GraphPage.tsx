@@ -30,6 +30,7 @@ import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { MOBILE_VIEWPORT_QUERY, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
+import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
 
@@ -497,11 +498,15 @@ function GraphListCard({
         <ItemCard item={item} sourceKind={sourceKind} accentColor={accentColor} related={related} />
       ) : (
         <article className="card card-untracked">
-          <div className="card-head">
+          <div className="card-kind" title="unknown">
             <ItemKindIcon kind="unknown" className="card-kind-icon" />
-            <span className="card-title">{fallbackLabel}</span>
           </div>
-          <div className="card-meta muted">untracked</div>
+          <div className="card-main">
+            <div className="card-head">
+              <span className="card-title">{fallbackLabel}</span>
+            </div>
+            <div className="card-meta muted">untracked</div>
+          </div>
         </article>
       )}
     </div>
@@ -923,6 +928,14 @@ export function GraphPage({
   // item visibly switch the canvas to that item (the old design only panned the
   // full graph, so a neighbour barely moved the camera).
   const flowKey = `${layout}|${showMentions}|${mentionTarget}|${range.from}|${range.to}|${focusId ?? ""}|${view.nodes.length}`;
+  const { paneRef: graphPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
+    showListPane,
+    showGraphPane,
+    mobileView,
+    focusId,
+    view.nodes.length,
+    view.links.length,
+  ]);
 
   return (
     <section className="graph-page">
@@ -1017,7 +1030,7 @@ export function GraphPage({
         // <Flow> on a focus change (flowKey) is what reframes the camera now.
         <ReactFlowProvider>
           {isMobile ? <GraphViewToggle view={mobileView} onView={onMobileView} /> : null}
-          <div className="graph-body">
+          <div className="graph-body" ref={graphPaneRef} style={paneHeightStyle}>
             {showListPane ? (
               <GraphSideList
                 nodes={listGraph.nodes}

@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
-import { ItemKindIcon } from "./ItemKindIcon.tsx";
+import { ItemKindIcon, itemKindLabel } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
@@ -70,89 +70,95 @@ export function ItemCard({
       id={anchorId}
       style={accentColor ? ({ "--repo-color": accentColor } as CSSProperties) : undefined}
     >
-      <div className="card-head">
+      <div className="card-kind" title={itemKindLabel(item.kind)}>
         <ItemKindIcon kind={item.kind} className="card-kind-icon" />
-        <Badge text={item.state} kind={item.state} />
-        {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        {/* Focus-in-graph link: edge-endpoint items on surfaces that opted in
+      </div>
+      <div className="card-main">
+        <div className="card-head">
+          <Badge text={item.state} kind={item.state} />
+          {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
+          {/* Focus-in-graph link: edge-endpoint items on surfaces that opted in
             via `graphLink` (the board). stopPropagation so that if the card is
             ever wrapped in a click target it opens the graph without also
             triggering the wrapper, matching the card title below. */}
-        {related && graphLink ? (
-          <a
-            className="card-graph"
-            href={graphFocusHref(item, lens)}
-            title="focus this item in the relationship graph"
-            aria-label="focus in graph"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GraphIcon />
-          </a>
-        ) : null}
-        <span className="card-title-break" aria-hidden="true" />
-        {/* stopPropagation so opening the issue from a card that is itself
+          {related && graphLink ? (
+            <a
+              className="card-graph"
+              href={graphFocusHref(item, lens)}
+              title="focus this item in the relationship graph"
+              aria-label="focus in graph"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GraphIcon />
+            </a>
+          ) : null}
+          <span className="card-title-break" aria-hidden="true" />
+          {/* stopPropagation so opening the issue from a card that is itself
             clickable (e.g. the graph side list's focus target) doesn't also
             trigger the wrapper's click; harmless on the board where the card has
             no click handler. */}
-        <a
-          className="card-title"
-          href={item.url || undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {item.title ?? "(untitled)"}
-        </a>
-      </div>
+          <a
+            className="card-title"
+            href={item.url || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {item.title ?? "(untitled)"}
+          </a>
+        </div>
 
-      {/* Two meta rows: identity first, then author plus provider-aligned item metrics. */}
-      <div className="card-meta">
-        <SourceRepo kind={sourceKind} repo={item.project_path} />
-        {item.iid != null ? <span className="card-iid">#{item.iid}</span> : null}
-      </div>
-      {(item.author || hasMetrics) && (
+        {/* Two meta rows, mirroring the graph node card: the identity row
+          (source · repo · #iid) then the people/metric row. The metric row only renders when it has
+          content, so a bare item doesn't leave an empty line. */}
         <div className="card-meta">
-          {item.author ? <span className="muted">@{item.author}</span> : null}
-          <ItemMetricStrip item={item} related={related} />
+          <SourceRepo kind={sourceKind} repo={item.project_path} />
+          {item.iid != null ? <span className="card-iid">#{item.iid}</span> : null}
         </div>
-      )}
+        {(item.author || hasMetrics) && (
+          <div className="card-meta">
+            {item.author ? <span className="muted">@{item.author}</span> : null}
+            <ItemMetricStrip item={item} related={related} />
+          </div>
+        )}
 
-      {/* updated · created, on their own line beneath the meta row */}
-      {(item.created_at || item.updated_at) && (
-        <div className="card-times muted">
-          {item.updated_at ? (
-            <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time>
-          ) : null}
-          {item.created_at && item.updated_at ? <span className="sep">·</span> : null}
-          {item.created_at ? (
-            <time title={item.created_at}>created {relativeTime(item.created_at)}</time>
-          ) : null}
-        </div>
-      )}
+        {/* updated · created, on their own line beneath the meta row */}
+        {(item.created_at || item.updated_at) && (
+          <div className="card-times muted">
+            {item.updated_at ? (
+              <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time>
+            ) : null}
+            {item.created_at && item.updated_at ? <span className="sep">·</span> : null}
+            {item.created_at ? (
+              <time title={item.created_at}>created {relativeTime(item.created_at)}</time>
+            ) : null}
+          </div>
+        )}
 
-      {(item.review_state || item.ci_state || item.merge_state || reviewThreadsLabel(item.review_threads)) && (
-        <div className="card-signals">
-          {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
-          {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
-          {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
-          {/* Open review threads: red while any remain, neutral once resolved.
+        {(item.review_state || item.ci_state || item.merge_state || reviewThreadsLabel(item.review_threads)) && (
+          <div className="card-signals">
+            {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
+            {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
+            {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
+            {/* Open review threads: red while any remain, neutral once resolved.
               A point-in-time signal (last sync), like the others on this row. */}
-          {reviewThreadsLabel(item.review_threads) ? (
-            <Badge
-              text={`threads: ${item.review_threads!.open > 0 ? `${item.review_threads!.open} open` : "resolved"}`}
-              kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"}
-            />
-          ) : null}
-        </div>
-      )}
+            {reviewThreadsLabel(item.review_threads) ? (
+              <Badge
+                text={`threads: ${item.review_threads!.open > 0 ? `${item.review_threads!.open} open` : "resolved"}`}
+                kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"}
+              />
+            ) : null}
+          </div>
+        )}
 
-      {item.labels.length > 0 && (
-        <div className="card-labels">
-          {item.labels.map((l) => (
-            <LabelChip key={l.name} label={l} />
-          ))}
-        </div>
-      )}
+        {item.labels.length > 0 && (
+          <div className="card-labels">
+            {item.labels.map((l) => (
+              <LabelChip key={l.name} label={l} />
+            ))}
+          </div>
+        )}
+      </div>
     </article>
   );
 }
