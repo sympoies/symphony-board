@@ -189,6 +189,7 @@ export interface HashRoute {
   tab: string | null; // a sub-tab within a page (Settings: "sources" | default display)
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
+  itemDetail: string | null; // Items phone overlay state; route-backed so Back closes the item detail before leaving Items.
   reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-PR layout.
 }
 
@@ -224,11 +225,12 @@ export function parseHashRoute(hash: string): HashRoute {
     tab: routeParam(params?.get("tab")),
     liveDetail: routeParam(params?.get("liveDetail")),
     reviewDetail: routeParam(params?.get("reviewDetail")),
+    itemDetail: routeParam(params?.get("itemDetail")),
     reviewSort: routeParam(params?.get("reviewSort")),
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const q = routeParam(route.q);
@@ -249,6 +251,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const tab = routeParam(route.tab);
   const liveDetail = routeParam(route.liveDetail);
   const reviewDetail = routeParam(route.reviewDetail);
+  const itemDetail = routeParam(route.itemDetail);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
@@ -269,6 +272,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   if (tab) params.push(`tab=${encodeURIComponent(tab)}`);
   if (liveDetail) params.push(`liveDetail=${encodeURIComponent(liveDetail)}`);
   if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
+  if (itemDetail) params.push(`itemDetail=${encodeURIComponent(itemDetail)}`);
   if (reviewSort) params.push(`reviewSort=${encodeURIComponent(reviewSort)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
 }

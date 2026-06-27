@@ -1464,6 +1464,47 @@ export function App() {
     replaceReviewDetailRouteClosed();
   }
 
+  // Items phone-overlay route, mirroring Live/Reviews: narrow screens show the
+  // item detail as a full-screen overlay and Android/browser Back closes it
+  // before leaving the Items tab. Wide screens render detail inline and clear
+  // any stale route flag.
+  function itemDetailHash(open: boolean): string | null {
+    const current = parseHashRoute(readHash());
+    if (current.page !== "items") return null;
+    return buildHashRoute({ ...current, page: "items", itemDetail: open ? "1" : null });
+  }
+
+  function openItemDetailRoute() {
+    if (typeof window === "undefined") return;
+    const next = itemDetailHash(true);
+    if (!next || readHash() === next) return;
+    window.history.pushState({ ...historyStateObject(), symphonyItemDetail: true }, "", next);
+    setHash(next);
+  }
+
+  function replaceItemDetailRouteClosed() {
+    if (typeof window === "undefined") return;
+    const next = itemDetailHash(false);
+    if (!next || readHash() === next) return;
+    const state = historyStateObject();
+    delete state.symphonyItemDetail;
+    window.history.replaceState(state, "", next);
+    setHash(next);
+  }
+
+  function closeItemDetailRoute() {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    if (current.page !== "items" || current.itemDetail !== "1") return;
+    const next = itemDetailHash(false);
+    if ((window.history.state as { symphonyItemDetail?: unknown } | null)?.symphonyItemDetail === true) {
+      window.history.back();
+      if (next) setHash(next);
+      return;
+    }
+    replaceItemDetailRouteClosed();
+  }
+
   // Reviews list order (?reviewSort=grouped). Route-backed like reviewDetail so a
   // reload / shared link preserves it; recency is the default, so it maps to a
   // null field and keeps the URL clean. Spreads the current route to preserve the
@@ -1972,6 +2013,10 @@ export function App() {
           colorOf={colorOf}
           relationCounts={boardRelationCounts}
           lens={itemFacetFields(itemFacetState)}
+          detailRouteOpen={route.itemDetail === "1"}
+          onOpenDetailRoute={openItemDetailRoute}
+          onCloseDetailRoute={closeItemDetailRoute}
+          onClearDetailRoute={replaceItemDetailRouteClosed}
           emptyState={
             <EmptyState noun="items" total={fullItemTotal} windowTotal={windowItems.length} {...emptyStateShared} dataExtent={staticRange} />
           }
