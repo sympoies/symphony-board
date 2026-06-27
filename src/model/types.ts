@@ -59,6 +59,7 @@ export interface CanonicalItem {
   iid: number | null;
   url: string;
   title: string | null;
+  body: string | null;
   state: ItemState;
   stateRaw: string | null;
   stateReason: string | null;

@@ -5,6 +5,7 @@ import { GitLabSource } from "../src/sources/gitlab.ts";
 import type { GqlClient } from "../src/sources/graphql.ts";
 import type { RestClient } from "../src/sources/rest.ts";
 import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
+import { PROVIDER_BODY_MAX_CHARS, PROVIDER_BODY_TRUNCATED_SUFFIX } from "../src/model/text.ts";
 
 const DESC: SourceDescriptor = { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null };
 
@@ -24,7 +25,7 @@ async function withResolveConcurrency(value: string, fn: () => Promise<void>): P
 
 function issueNode(id: string, updatedAt: string) {
   return {
-    __typename: "Issue", id, number: 1, title: id, url: `https://x/${id}`, state: "OPEN",
+    __typename: "Issue", id, number: 1, title: id, body: `${id} body`, url: `https://x/${id}`, state: "OPEN",
     createdAt: "2026-01-01T00:00:00Z", updatedAt, closedAt: null, stateReason: null,
     author: { login: "a" }, repository: { nameWithOwner: "o/r" },
     labels: { nodes: [] }, comments: { totalCount: 0 }, reactions: { totalCount: 0 },
@@ -68,6 +69,36 @@ test("a full sweep ignores the watermark and fetches everything", async () => {
   const ids = res.records.map((r) => r.externalId).sort();
   assert.deepEqual(ids, ["I_fresh", "I_stale"], "full sweep keeps the stale issue too");
   assert.equal(res.watermark, "2026-06-10T00:00:00Z", "watermark is the max updatedAt seen");
+});
+
+test("GitHub item queries request provider body text", async () => {
+  const queries: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    queries.push(query);
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  await src.fetch({ since: null, full: true });
+  assert.match(queries.find((q) => q.includes("issues(")) ?? "", /\bbody\b/, "issue query selects body");
+  assert.match(queries.find((q) => q.includes("pullRequests(")) ?? "", /\bbody\b/, "PR query selects body");
+});
+
+test("GitHub provider bodies are bounded before canonical projection", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw: RawRecord = {
+    entityKind: "issue",
+    externalId: "ISSUE_BIG_BODY",
+    apiVersion: "github.graphql.v4",
+    fetchedAt: "2026-06-01T00:00:00Z",
+    contentHash: "h",
+    payload: { ...issueNode("ISSUE_BIG_BODY", "2026-06-01T00:00:00Z"), body: ` ${"x".repeat(PROVIDER_BODY_MAX_CHARS + 100)} ` },
+  };
+  const body = src.normalize(raw)!.item!.body;
+  assert.equal(body?.length, PROVIDER_BODY_MAX_CHARS);
+  assert.ok(body?.endsWith(PROVIDER_BODY_TRUNCATED_SUFFIX));
 });
 
 test("GitHub fetch and normalize includes commit and repository activity from REST", async () => {
@@ -543,7 +574,7 @@ test("normalize emits mentions from non-closing cross-references (source -> self
 
 function prNode(id: string, state: string, mergeable: string) {
   return {
-    __typename: "PullRequest", id, number: 9, title: id, url: `https://x/${id}`, state,
+    __typename: "PullRequest", id, number: 9, title: id, body: `${id} body`, url: `https://x/${id}`, state,
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
     mergedAt: state === "MERGED" ? "2026-06-01T00:00:00Z" : null, isDraft: false,
     author: { login: "a" }, repository: { nameWithOwner: "o/r" }, labels: { nodes: [] },
@@ -566,6 +597,7 @@ test("GitHub: a merged PR drops merge_state (UNKNOWN would otherwise read as 'un
   const b = ghPrBundle("MERGED", "UNKNOWN");
   assert.ok(b.item);
   assert.equal(b.item.state, "merged");
+  assert.equal(b.item.body, "PR_MERGED body");
   assert.equal(b.item.mergeState, null, "merged PR carries no merge badge");
   assert.equal(b.item.ciState, "passing", "CI is still meaningful after merge");
 });
@@ -1156,7 +1188,7 @@ const GL_DESC: SourceDescriptor = { sourceId: "gitlab:gitlab.com", kind: "gitlab
 
 function glNode(id: string, iid: string, extra: Record<string, unknown> = {}) {
   return {
-    id, iid, title: id, webUrl: `https://gl/${iid}`, state: "opened",
+    id, iid, title: id, description: `${id} description`, webUrl: `https://gl/${iid}`, state: "opened",
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-01T00:00:00Z", closedAt: null,
     author: { username: "a" }, labels: { nodes: [] }, userNotesCount: 0, upvotes: 0, ...extra,
   };
@@ -1200,6 +1232,8 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(res.complete, true);
   const byId = new Map(res.records.map((r) => [r.externalId, r]));
   const edgesOf = (id: string) => src.normalize(byId.get(id)!)!.edges;
+  assert.equal(src.normalize(byId.get("gid:I5")!)!.item?.body, "gid:I5 description");
+  assert.equal(src.normalize(byId.get("gid:MR1")!)!.item?.body, "gid:MR1 description");
 
   // I5: MR1 closes it; relates to I6; the "!1" mention is the closing MR (deduped)
   // and the commit ref is skipped -> 0 mentions.
@@ -1228,6 +1262,24 @@ test("GitLab fetch resolves system notes into mentions/relates edges (with close
   assert.equal(mr1men.length, 1);
   assert.equal(mr1men[0]!.from.externalId, "gid:I6");
   assert.equal(mr1men[0]!.to.externalId, "gid:MR1");
+});
+
+test("GitLab item queries request provider descriptions", async () => {
+  const queries: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    queries.push(query);
+    if (query.includes("mergeRequests(")) {
+      return { project: { mergeRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    if (query.includes("issues(")) {
+      return { project: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return {};
+  }) as GqlClient;
+  const src = new GitLabSource(GL_DESC, gql, ["g/p"]);
+  await src.fetch({ since: null, full: true });
+  assert.match(queries.find((q) => q.includes("issues(")) ?? "", /\bdescription\b/, "issue query selects description");
+  assert.match(queries.find((q) => q.includes("mergeRequests(")) ?? "", /\bdescription\b/, "MR query selects description");
 });
 
 test("GitLab resolve pass overlaps per-item round-trips up to the concurrency bound", async () => {
@@ -1509,10 +1561,10 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 });
 
 test("source normalizer versions are bumped for canonical output changes", () => {
-  // Changing canonical review-thread or activity detail output needs fresh
+  // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/5");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/6");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/6");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/7");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.4.0`.
+Current emitted version: `4.5.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.4.0",
+  "contract_version": "4.5.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -46,6 +46,7 @@ package version, to decide compatibility.
       "iid": 56,
       "url": "https://github.com/sympoies/symphony-board/issues/56",
       "title": "Contract windowing",
+      "body": "Provider issue or PR/MR body text.",
       "state": "open",
       "state_raw": "OPEN",
       "state_reason": null,
@@ -297,6 +298,9 @@ Important fields:
 - `id`: composite ref.
 - `source_id` / `external_id`: immutable source identity.
 - `project_path` / `iid`: mutable human metadata for display and search.
+- `body`: optional provider issue / PR/MR body text for detail views (4.5.0+).
+  Producers may cap very large bodies and append a visible truncation marker;
+  consumers should treat it as display text, not as an archival full-text copy.
 - `state`: normalized `open`, `closed`, or `merged`.
 - `state_raw`: provider state string for debugging/escape hatch.
 - `labels`: verbatim provider labels plus parsed `scope` for `scope::value`.
@@ -469,6 +473,17 @@ GraphQL field; GitLab from the discussion note `author.avatar_url`, resolved to 
 absolute URL against the source host for self-hosted instances. It is persisted
 inside the canonical `comments_json` blob (no schema migration), and the Reviews
 UI renders it as the comment author's photo, falling back to initials.
+
+Version `4.5.0` is additive: `items[]` rows may carry optional, nullable
+`body`, the provider issue / PR / MR description text. GitHub supplies it from
+the Issue/PullRequest GraphQL `body` field; GitLab supplies it from
+Issue/MergeRequest `description`. It is persisted on an additive nullable
+`item.body` column in every store driver and lets detail-oriented UI surfaces
+show the provider body without jumping out to the provider page. The canonical
+copy is bounded for payload and sync-write safety; when a source body exceeds
+the cap, the producer appends a visible truncation marker and the provider URL
+remains the full-text destination. Old payloads without the field remain valid;
+consumers read it as `item.body ?? null`.
 
 Version `4.4.0` is additive: range projections may include item rows with
 `window_reasons: ["activity_target"]` plus optional

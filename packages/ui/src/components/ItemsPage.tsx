@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
+import { ItemKindIcon, itemKindLabel } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
+import { MarkdownBody } from "./MarkdownBody.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { relativeTime, reviewThreadsLabel, pluralize, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
@@ -26,14 +28,8 @@ function LinkIcon() {
   );
 }
 
-function kindLabel(kind: string): string {
-  if (kind === "change_request") return "PR/MR";
-  if (kind === "issue") return "issue";
-  return kind.replace(/_/g, " ");
-}
-
 function itemBody(item: ItemDTO): string | null {
-  const body = (item as { body?: unknown }).body;
+  const body = item.body;
   return typeof body === "string" && body.trim() ? body.trim() : null;
 }
 
@@ -70,19 +66,12 @@ function ItemDetail({
   const body = itemBody(item);
   const related = relationCounts.get(item.id) ?? null;
   const threadLabel = reviewThreadsLabel(item.review_threads);
-  const bodyText = body ?? [
-    item.state ? `State: ${item.state}` : null,
-    item.review_state ? `Review: ${item.review_state}` : null,
-    item.ci_state ? `CI: ${item.ci_state}` : null,
-    item.merge_state ? `Merge: ${item.merge_state}` : null,
-    threadLabel ? `Threads: ${threadLabel}` : null,
-  ].filter(Boolean).join(" · ");
 
   return (
     <aside className="items-detail" aria-label="Item details">
       <div className="items-detail-card">
         <div className="items-detail-head">
-          <span className="items-detail-kind">{kindLabel(item.kind)}</span>
+          <ItemKindIcon kind={item.kind} className="items-detail-kind-icon" />
           <Badge text={item.state} kind={item.state} />
           {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
         </div>
@@ -101,9 +90,11 @@ function ItemDetail({
           {item.author ? <span>@{item.author}</span> : null}
         </div>
 
-        <div className="items-detail-body">
-          {body ? <p>{body}</p> : <p>{bodyText || "Synced item details are unavailable."}</p>}
-        </div>
+        {body ? (
+          <MarkdownBody text={body} className="live-md items-detail-body" />
+        ) : (
+          <p className="items-detail-body items-detail-body-empty">No synced provider body.</p>
+        )}
 
         <dl className="items-detail-facts">
           <DetailFact label="updated" value={itemRelativeTime(item.updated_at, "updated")} />
@@ -218,12 +209,12 @@ export function ItemsPage({
                   onKeyDown={(event) => selectItemFromKey(event, item)}
                   style={accentColor ? ({ "--repo-color": accentColor } as CSSProperties) : undefined}
                 >
-                  <div className="item-row-kind">
-                    <span>{kindLabel(item.kind)}</span>
-                    <Badge text={item.state} kind={item.state} />
+                  <div className="item-row-kind" title={itemKindLabel(item.kind)}>
+                    <ItemKindIcon kind={item.kind} />
                   </div>
                   <div className="item-row-main">
                     <div className="item-row-title-line">
+                      <Badge text={item.state} kind={item.state} />
                       {item.url ? (
                         <a className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer" onClick={stopRowSelection}>
                           {item.title ?? "(untitled)"}

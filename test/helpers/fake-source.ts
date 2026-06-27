@@ -13,7 +13,7 @@ import type { PreparedSource } from "../../src/sync-runner.ts";
 export function item(externalId: string, over: Partial<CanonicalItem> = {}): CanonicalItem {
   return {
     sourceId: "fake:test", externalId, kind: "issue", projectPath: "x/y", iid: 1,
-    url: "http://x", title: "t", state: "open", stateRaw: "open", stateReason: null,
+    url: "http://x", title: "t", body: null, state: "open", stateRaw: "open", stateReason: null,
     isDraft: null, author: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     closedAt: null, mergedAt: null, reviewState: null, ciState: null, mergeState: null,
     openReviewThreads: null, totalReviewThreads: null,

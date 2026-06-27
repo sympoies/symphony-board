@@ -17,6 +17,7 @@ import type {
   MergeState,
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
+import { cleanProviderBody } from "../model/text.ts";
 import { itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
@@ -68,7 +69,7 @@ const MENTIONS = `timelineItems(itemTypes:[CROSS_REFERENCED_EVENT], first:30){
       source { __typename ... on Issue { id state } ... on PullRequest { id state } }
     } }
   }`;
-const COMMON = `__typename id number title url createdAt updatedAt closedAt state
+const COMMON = `__typename id number title body url createdAt updatedAt closedAt state
   author { login } repository { nameWithOwner }
   labels(first:50){ nodes { name color } }
   comments { totalCount } reactions { totalCount }
@@ -116,7 +117,8 @@ export class GitHubSource implements Source {
   readonly descriptor: SourceDescriptor;
   // github/4: review-thread comments now carry avatarUrl in the canonical output.
   // github/5: review/comment activity details carry provider actor profile URLs.
-  readonly normalizerVersion = "github/5";
+  // github/6: items carry provider body text for detail views.
+  readonly normalizerVersion = "github/6";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -748,6 +750,7 @@ export class GitHubSource implements Source {
       iid: typeof p.number === "number" ? p.number : null,
       url: p.url ?? "",
       title: p.title ?? null,
+      body: cleanProviderBody(p.body),
       state: mapState(p.state),
       stateRaw: p.state ?? null,
       author: p.author?.login ?? null,

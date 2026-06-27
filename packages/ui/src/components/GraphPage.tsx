@@ -26,6 +26,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, t
 import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemCard } from "./ItemCard.tsx";
+import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { MOBILE_VIEWPORT_QUERY, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
@@ -58,7 +59,6 @@ import type { GraphView } from "../nav.ts";
 // window still lists, marked "off-window"; overview candidates hidden only from
 // the canvas carry "not drawn". A "← all items" button returns.
 
-const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄", unknown: "•" };
 // Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
 // the muted "other" grey, which is near-invisible on the dark canvas — a problem
 // the dense overview hides via opacity/width but the sparse focus view exposes.
@@ -165,7 +165,7 @@ function ItemNode({ data }: NodeProps) {
     >
       <Handle type="target" position={Position.Top} className="rf-handle" />
       <div className="rf-node-head">
-        <span className="kind">{KIND_ICON[d.kind] ?? "•"}</span>
+        <ItemKindIcon kind={d.kind} className="rf-node-kind-icon" />
         <Badge text={d.state} kind={d.state} />
       </div>
       {/* The title is a real anchor to the provider page when the item has a
@@ -498,7 +498,7 @@ function GraphListCard({
       ) : (
         <article className="card card-untracked">
           <div className="card-head">
-            <span className="kind">•</span>
+            <ItemKindIcon kind="unknown" className="card-kind-icon" />
             <span className="card-title">{fallbackLabel}</span>
           </div>
           <div className="card-meta muted">untracked</div>

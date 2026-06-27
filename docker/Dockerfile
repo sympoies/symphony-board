@@ -31,7 +31,8 @@ COPY schema ./schema
 COPY packages/contract ./packages/contract
 COPY src ./src
 COPY docker/docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+RUN chmod -R a+rX package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json schema packages/contract src \
+  && chmod 0755 docker-entrypoint.sh
 
 # Silence the type-stripping / node:sqlite experimental warnings globally.
 ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning

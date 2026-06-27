@@ -261,6 +261,10 @@ export interface ItemDTO {
   iid: number | null;
   url: string;
   title: string | null;
+  // Provider issue / PR/MR body text for detail views. Producers may cap very
+  // large bodies and append a truncation marker. Added in 4.5.0 as an optional
+  // additive field so pre-4.5 payloads remain readable.
+  body?: string | null;
   state: ItemState;
   state_raw: string | null;
   state_reason: string | null;

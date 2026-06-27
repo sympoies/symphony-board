@@ -63,6 +63,7 @@ function toItemDTO(row: ItemRow, labels: LabelRow[], windowReasons?: ItemWindowR
     iid: row.iid,
     url: row.url ?? "",
     title: row.title,
+    body: row.body,
     state: asState(row.state),
     state_raw: row.state_raw,
     state_reason: row.state_reason,

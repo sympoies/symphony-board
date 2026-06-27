@@ -1,12 +1,11 @@
 import type { CSSProperties } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
+import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { relativeTime, reviewThreadsLabel, type RelationCount } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
-
-const KIND_ICON: Record<string, string> = { issue: "◇", change_request: "⇄" };
 
 // "Focus this item in the relationship graph" marker — three connected nodes
 // (Feather "share-2"), the same stroked-SVG idiom as DemandIcon. Shown only for
@@ -108,7 +107,6 @@ export function ItemCard({
   // graph-focus deep link, so a round-trip back to the board keeps the lens.
   lens?: ItemRouteFields;
 }) {
-  const icon = KIND_ICON[item.kind] ?? "•";
   return (
     <article
       className={`card${accentColor ? " card-accent" : ""}`}
@@ -116,9 +114,7 @@ export function ItemCard({
       style={accentColor ? ({ "--repo-color": accentColor } as CSSProperties) : undefined}
     >
       <div className="card-head">
-        <span className="kind" title={item.kind}>
-          {icon}
-        </span>
+        <ItemKindIcon kind={item.kind} className="card-kind-icon" />
         <Badge text={item.state} kind={item.state} />
         {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
         {/* Focus-in-graph link: edge-endpoint items on surfaces that opted in

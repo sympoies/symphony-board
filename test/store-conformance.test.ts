@@ -117,6 +117,7 @@ function fixtureItem(over: Partial<CanonicalItem> = {}): CanonicalItem {
     iid: 1,
     url: "https://example/1",
     title: "t",
+    body: null,
     state: "open",
     stateRaw: "OPEN",
     stateReason: null,
@@ -202,10 +203,12 @@ for (const driver of DRIVERS) {
   t("upsertItem is idempotent on (source_id, external_id) and resurrects on re-seen", async () => {
     const store = await fresh();
     const id1 = await store.upsertItem(fixtureItem(), "github/1", "2026-06-01T00:00:00Z");
-    const id2 = await store.upsertItem(fixtureItem({ title: "updated" }), "github/1", "2026-06-01T00:01:00Z");
+    const id2 = await store.upsertItem(fixtureItem({ title: "updated", body: "Updated provider body" }), "github/1", "2026-06-01T00:01:00Z");
     assert.equal(id1, id2, "same row id on re-upsert");
-    assert.equal((await store.listLiveItems()).length, 1);
-    assert.equal((await store.listLiveItems())[0]!.title, "updated");
+    const liveItems = await store.listLiveItems();
+    assert.equal(liveItems.length, 1);
+    assert.equal(liveItems[0]!.title, "updated");
+    assert.equal(liveItems[0]!.body, "Updated provider body");
     await store.close();
   });
 

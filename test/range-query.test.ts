@@ -13,12 +13,24 @@ import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
 
 const SQLITE_SCHEMA_DIR = join(process.cwd(), "schema", "sqlite");
-const SQLITE_V4_MIGRATIONS = [
+const SQLITE_MIGRATIONS = [
   "0001_init.sql",
   "0002_activity.sql",
   "0003_actor_identity.sql",
   "0004_review_threads.sql",
+  "0005_repo_activity_bounds.sql",
+  "0006_review_thread_detail.sql",
+  "0007_review_thread_target_iid_bigint.sql",
+  "0008_review_thread_last_comment_at.sql",
 ];
+const SQLITE_V4_MIGRATIONS = SQLITE_MIGRATIONS.slice(0, 4);
+
+function applyLegacySqliteMigrations(db: DatabaseSync, files: string[]): void {
+  files.forEach((file, index) => {
+    db.exec(readFileSync(join(SQLITE_SCHEMA_DIR, file), "utf8"));
+    db.exec(`PRAGMA user_version = ${index + 1}`);
+  });
+}
 
 function item(over: Partial<CanonicalItem> = {}): CanonicalItem {
   return {
@@ -29,6 +41,7 @@ function item(over: Partial<CanonicalItem> = {}): CanonicalItem {
     iid: 1,
     url: "https://example/1",
     title: "Recent issue",
+    body: null,
     state: "open",
     stateRaw: "OPEN",
     stateReason: null,
@@ -93,6 +106,7 @@ function itemRow(over: Partial<ItemRow> = {}): ItemRow {
     iid: 1,
     url: "https://example/1",
     title: "Recent issue",
+    body: null,
     state: "open",
     state_raw: "OPEN",
     state_reason: null,
@@ -142,10 +156,7 @@ function createLegacySqliteV4Store(dbPath: string): void {
   const db = new DatabaseSync(dbPath);
   try {
     db.exec("PRAGMA foreign_keys = ON;");
-    SQLITE_V4_MIGRATIONS.forEach((file, index) => {
-      db.exec(readFileSync(join(SQLITE_SCHEMA_DIR, file), "utf8"));
-      db.exec(`PRAGMA user_version = ${index + 1}`);
-    });
+    applyLegacySqliteMigrations(db, SQLITE_V4_MIGRATIONS);
     db.prepare(`INSERT INTO source (source_id, kind, host, display_name, created_at) VALUES (?,?,?,?,?)`)
       .run("github:github.com", "github", "github.com", "GitHub", "2026-06-01T00:00:00Z");
     const insertActivity = db.prepare(
@@ -195,6 +206,18 @@ function createLegacySqliteV4Store(dbPath: string): void {
       "2026-06-01T00:00:00Z",
       "provider-user:github:github.com:dev-a",
     );
+  } finally {
+    db.close();
+  }
+}
+
+function createSqliteV8StoreWithAppliedBodyColumn(dbPath: string): void {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA foreign_keys = ON;");
+    applyLegacySqliteMigrations(db, SQLITE_MIGRATIONS);
+    db.exec("ALTER TABLE item ADD COLUMN body TEXT");
+    db.exec("PRAGMA user_version = 8");
   } finally {
     db.close();
   }
@@ -486,12 +509,29 @@ test("SQLite migrations from v4 backfill cached repo activity bounds and review-
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 8, "opening a v4 store applies later migrations");
+    assert.equal(diag.schema_version, 9, "opening a v4 store applies later migrations");
     assert.equal((await db.overview(1)).tables.repo_activity_bounds, 1, "the summary table is backfilled once per repo");
     const bounds = await db.listRepoActivityBounds();
     assert.equal(bounds.length, 1);
     assert.equal(bounds[0]?.observed_since, "2026-01-01T05:00:00.000+08:00", "backfill preserves instant-earliest row text");
     assert.equal(bounds[0]?.last_activity_at, "2026-05-31T20:00:00.000-10:00", "backfill preserves instant-latest row text");
+    await db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("SQLite migration recovers when item.body exists but user_version is still 8", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sb-body-migration-skew-"));
+  const dbPath = join(dir, "store.db");
+  try {
+    createSqliteV8StoreWithAppliedBodyColumn(dbPath);
+
+    const db = await openSqliteStore(dbPath);
+    const diag = await db.diagnostics();
+    assert.equal(diag.schema_version, 9, "opening advances the migration ledger after detecting the applied body column");
+    const live = await db.listLiveItems();
+    assert.deepEqual(live, []);
     await db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
