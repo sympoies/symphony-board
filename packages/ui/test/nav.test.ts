@@ -328,7 +328,7 @@ test("Activity view round-trips through the hash, and a fresh tab hop resets to 
 // The Graph page's mobile sub-view: the searchable/focus LIST (default) or the
 // relationship CANVAS. Same route-backed `tab` mechanism as the Activity view
 // (`tab=graph`); the list is the default because, once an item is focused, the
-// list itself surfaces that item's related issues/PRs — so selecting never
+// list itself surfaces that item's related issues and change requests — so selecting never
 // forces the canvas, which stays opt-in. A fresh tab hop resets to the list.
 test("graphView defaults to the list and reads `graph` from the route", () => {
   assert.equal(graphView({ tab: null }), "list", "no tab -> the searchable/focus list by default");

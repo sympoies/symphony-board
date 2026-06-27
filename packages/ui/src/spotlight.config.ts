@@ -1,5 +1,5 @@
 // Spotlight lane configuration — the recency lanes shown beside the status
-// columns (Follow-up / Plan-tracking / PR by default). These lanes encode label
+// columns (Follow-up / Plan-tracking / Change requests by default). These lanes encode label
 // and kind CONVENTIONS (here, agent-runtime-kit's `workflow::*` labels), kept as
 // DATA in this one file so retargeting the board to a different label scheme is a
 // config edit, not a code change in model.ts. model.ts compiles each entry into a

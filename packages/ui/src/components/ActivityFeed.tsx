@@ -34,7 +34,7 @@ export function ActivityFeed({
   // Empty-state node rendered when there are no rows; falls back to a plain line.
   empty?: ReactNode;
   // Item index by ref, so a `review` row can resolve its `target_ref` to the
-  // change_request and show that PR/MR's current open-thread count. Optional:
+  // change_request and show that change request's current open-thread count. Optional:
   // callers without it simply render no review-resolution chip.
   itemsById?: ReadonlyMap<string, ItemDTO>;
 }) {
