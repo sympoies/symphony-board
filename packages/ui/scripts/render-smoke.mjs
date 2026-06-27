@@ -803,6 +803,45 @@ try {
 
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  const titleLinkHitTargets = [];
+  const captureTitleLinkHitTarget = async (surface, linkSelector, containerSelector) => {
+    const result = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const links = Array.from(document.querySelectorAll(${JSON.stringify(linkSelector)}));
+        const candidates = links.map((link) => {
+          const container = link.closest(${JSON.stringify(containerSelector)});
+          const linkRect = link.getBoundingClientRect();
+          const containerRect = container?.getBoundingClientRect();
+          const text = (link.textContent || '').replace(/↗/g, '').replace(/\\s+/g, ' ').trim();
+          if (!containerRect || !text || linkRect.width <= 0 || linkRect.height <= 0 || containerRect.width <= 0) return null;
+          return {
+            surface: ${JSON.stringify(surface)},
+            text,
+            textLength: text.length,
+            linkWidth: Math.round(linkRect.width),
+            containerWidth: Math.round(containerRect.width),
+            trailingGap: Math.round(containerRect.right - linkRect.right),
+            fillRatio: Math.round((linkRect.width / containerRect.width) * 1000) / 1000,
+          };
+        }).filter(Boolean);
+        candidates.sort((a, b) => {
+          const aShort = a.textLength <= 44 ? 0 : 1;
+          const bShort = b.textLength <= 44 ? 0 : 1;
+          return aShort - bShort || a.textLength - b.textLength || b.containerWidth - a.containerWidth;
+        });
+        const picked = candidates[0] || null;
+        return {
+          surface: ${JSON.stringify(surface)},
+          found: !!picked,
+          ok: !picked || picked.trailingGap >= 24,
+          picked,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || { surface, found: false, ok: false, picked: null };
+    titleLinkHitTargets.push(result);
+    return result;
+  };
   // The stat summary collapses behind a disclosure at narrow widths (incl. the
   // headless default window), so expand it before reading its text.
   const statsTextOf = async () => {
@@ -1089,6 +1128,7 @@ try {
   await sleep(300);
   // Page 1 — the full-bleed 7-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
+  await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
   const boardRangeButtons = await rangeButtonLabels();
   const boardInitialStats = await statsTextOf();
   await send("Runtime.evaluate", {
@@ -1119,6 +1159,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
   await sleep(400);
   const graphHtml = await waitHtml("document.querySelector('.react-flow__node')");
+  await captureTitleLinkHitTarget("graph canvas node", ".graph-page .rf-node-title[href]", ".rf-node");
   // The mounted canvas pane reads the theme base, not ReactFlow's default dark
   // pane grey (#141414 → rgb(20, 20, 20)): .graph-canvas re-points RF's
   // --xy-background-color at --bg, so the resolved .react-flow background must be
@@ -1146,6 +1187,7 @@ try {
   // Graph side list: capture the (enriched) list cards, then click one to enter
   // the focus view and confirm the back button + related-items header render.
   await waitHtml("document.querySelector('.graph-list-card')");
+  await captureTitleLinkHitTarget("graph list card", ".graph-page .graph-list-card .card-title[href]", ".graph-list-card .card");
   const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   await sleep(400);
@@ -1170,6 +1212,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   const activityHtml = await waitHtml("document.querySelector('.activity-row')");
+  await captureTitleLinkHitTarget("activity row", ".activity-page .activity-title[href]", ".activity-row");
   const activityRangeButtons = await rangeButtonLabels();
   const activityCountText = await textOf(".activity-head .count");
   const activityDomRows = (await send("Runtime.evaluate", {
@@ -1327,6 +1370,8 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
   await sleep(300);
   const itemsHtml = await waitHtml("document.querySelector('.items-page .item-row')");
+  await captureTitleLinkHitTarget("items row", ".items-page .item-row-title[href]", ".item-row");
+  await captureTitleLinkHitTarget("items detail", ".items-page .items-detail-title-link", ".items-detail-title");
   const itemsRangeButtons = await rangeButtonLabels();
   const itemsCountText = await textOf(".items-head .count");
   const itemsSummary = (await send("Runtime.evaluate", {
@@ -1381,6 +1426,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
+  await captureTitleLinkHitTarget("commits row", ".commits-page .commit-message-link[href]", ".commit-row-body");
   // The repo + branch filters collapse by default at narrow widths; expand them
   // so the toolbar layout / chrome / combobox checks below can see the controls.
   await send("Runtime.evaluate", {
@@ -1584,6 +1630,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
   await sleep(300);
   const repoHtml = await waitHtml("document.querySelector('.repo-table tbody tr')");
+  await captureTitleLinkHitTarget("metrics repo", ".repo-analytics-page .repo-provider-link[href]", ".repo-name-main");
   const repoRangeButtons = await rangeButtonLabels();
   const repoCountText = await textOf(".repo-analytics-head .count");
   const repoQualityBadgeLayout = (await send("Runtime.evaluate", {
@@ -1654,6 +1701,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/reviews?ireview=unresolved'" });
   await sleep(300);
   const reviewsHtml = await waitHtml("document.querySelector('.reviews-page .live-feed .live-event')");
+  await captureTitleLinkHitTarget("reviews detail", ".reviews-page .live-detail-title-link", ".live-detail-title");
   const reviewsRangeButtons = await rangeButtonLabels();
   const reviewsCountText = await textOf(".reviews-head .count");
   const reviewsSummary = (await send("Runtime.evaluate", {
@@ -1933,6 +1981,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
   const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
+  await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
   await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
   await sleep(500);
   const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
@@ -2126,6 +2175,7 @@ try {
   await sleep(300);
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
   await sleep(120); // let the auto-select effect populate the detail pane
+  await captureTitleLinkHitTarget("live detail", ".live-page .live-detail-title-link", ".live-detail-title");
   const live = (await send("Runtime.evaluate", {
     expression: `(() => {
       const page = document.querySelector('.live-page');
@@ -3392,9 +3442,11 @@ try {
   });
   const debugSync = debugFillResults.find((r) => r.tab === "sync" && r.found);
   const debugStickyCheck = [!!debugSync && debugSync.stickyHeader === "sticky", `debug fill: Sync runs header sticky (${debugSync ? debugSync.stickyHeader : "n/a"})`];
+  const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
   const checks = [
     ...debugFillChecks,
     debugStickyCheck,
+    [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],
     // default entry: with Live enabled and pinned as the default, opening with no hash lands on Live.

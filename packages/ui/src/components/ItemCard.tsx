@@ -132,6 +132,7 @@ export function ItemCard({
             <GraphIcon />
           </a>
         ) : null}
+        <span className="card-title-break" aria-hidden="true" />
         {/* stopPropagation so opening the issue from a card that is itself
             clickable (e.g. the graph side list's focus target) doesn't also
             trigger the wrapper's click; harmless on the board where the card has

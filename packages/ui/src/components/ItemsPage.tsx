@@ -280,6 +280,7 @@ export function ItemsPage({
                           <GraphIcon />
                         </a>
                       ) : null}
+                      <span className="item-row-title-break" aria-hidden="true" />
                       {item.url ? (
                         <a className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer" onClick={stopRowSelection}>
                           {item.title ?? "(untitled)"}
