@@ -9,6 +9,7 @@ import { SourceRepo } from "./SourceRepo.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
 import { relativeTime, reviewThreadsLabel, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
+import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 
 function GraphIcon() {
   return (
@@ -174,6 +175,10 @@ export function ItemsPage({
     if (items.length === 0) return null;
     return items.find((item) => item.id === selectedId) ?? items[0]!;
   }, [items, selectedId]);
+  const { paneRef: splitPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
+    items.length,
+    selectedItem?.id ?? null,
+  ]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -202,7 +207,7 @@ export function ItemsPage({
       {items.length === 0 ? (
         emptyState ?? <p className="empty">No items.</p>
       ) : (
-        <div className="items-split">
+        <div className="items-split" ref={splitPaneRef} style={paneHeightStyle}>
           <div className="items-list" role="list" aria-label="Items">
             {items.map((item) => {
               const accentColor = colorOf(item.source_id, item.project_path);

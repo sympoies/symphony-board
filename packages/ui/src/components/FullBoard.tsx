@@ -17,6 +17,7 @@ import {
   type RelationCount,
   type TimeRange,
 } from "../model.ts";
+import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 
 // A column renders at most `cap` cards (the list arrives already sorted, newest
 // first). The header ALWAYS shows the true total (items.length); when the cap
@@ -166,6 +167,13 @@ export function FullBoard({
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
   for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(boardItems);
+  const { paneRef: boardPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLElement>([
+    boardItems.length,
+    lanes.length,
+    collapsed.size,
+    peeked.size,
+    mobileKind,
+  ]);
   const mobileColumns = [
     ...STATUS_ORDER.map((kind) => ({ kind, label: STATUS_LABEL[kind], count: statusCols[kind].length })),
     ...lanes.map(({ lane, items: laneItems }) => ({ kind: `lane-${lane.key}`, label: lane.label, count: laneItems.length })),
@@ -192,7 +200,7 @@ export function FullBoard({
           </button>
         ))}
       </div>
-      <section className="board-7">
+      <section className="board-7" ref={boardPaneRef} style={paneHeightStyle}>
         {STATUS_ORDER.map((s) => (
           <Column
             key={s}
