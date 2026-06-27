@@ -1134,14 +1134,27 @@ try {
   await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
   const boardPaneLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
+      const board = document.querySelector('.board-7');
       const column = Array.from(document.querySelectorAll('.board-7 .col'))
         .find((el) => getComputedStyle(el).display !== 'none' && !el.classList.contains('col-collapsed'));
+      const columns = Array.from(document.querySelectorAll('.board-7 .col'))
+        .filter((el) => getComputedStyle(el).display !== 'none');
+      const regularWidths = columns
+        .filter((el) => !el.classList.contains('col-collapsed'))
+        .map((el) => Math.round(el.getBoundingClientRect().width));
       const rect = column?.getBoundingClientRect();
+      const minRegularWidth = regularWidths.length ? Math.min(...regularWidths) : 0;
       return {
         found: !!rect,
         height: Math.round(rect?.height || 0),
+        boardClientWidth: Math.round(board?.clientWidth || 0),
+        boardScrollWidth: Math.round(board?.scrollWidth || 0),
+        regularWidths,
+        minRegularWidth,
         bottomGap: rect ? Math.round(window.innerHeight - rect.bottom) : 0,
         fillsViewport: !!rect && window.innerHeight - rect.bottom >= 8 && window.innerHeight - rect.bottom <= 32,
+        readableColumns: minRegularWidth >= 380,
+        scrollsHorizontally: !!board && board.scrollWidth > board.clientWidth + 2,
       };
     })()`,
     returnByValue: true,
@@ -1214,7 +1227,7 @@ try {
         canvasHeight: Math.round(canvasRect?.height || 0),
         listShare,
         heightsMatch: !!(listRect && canvasRect) && Math.abs(listRect.height - canvasRect.height) <= 2,
-        masterDetailShare: listShare >= 0.30 && listShare <= 0.36,
+        masterDetailShare: listShare >= 0.38 && listShare <= 0.44,
         fillsViewport: !!(listRect && canvasRect) && bottomGap >= 8 && bottomGap <= 32,
         bottomGap: Math.round(bottomGap),
       };
@@ -1465,6 +1478,13 @@ try {
       const initialDetailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.trim() || '';
       second?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       setTimeout(() => {
+        const splitBox = document.querySelector('.items-page .items-split')?.getBoundingClientRect();
+        const splitStyle = document.querySelector('.items-page .items-split')
+          ? getComputedStyle(document.querySelector('.items-page .items-split'))
+          : null;
+        const splitHeightVarRaw = splitStyle?.getPropertyValue('--content-pane-height')?.trim() || '';
+        const splitHeightVar = Number.parseFloat(splitHeightVarRaw);
+        const expectedPaneHeight = splitBox ? Math.floor(window.innerHeight - splitBox.top - 16) : 0;
         const afterClickDetailTitle = document.querySelector('.items-page .items-detail-title')?.textContent?.trim() || '';
         const listBox = document.querySelector('.items-page .items-list')?.getBoundingClientRect();
         const detailBox = document.querySelector('.items-page .items-detail')?.getBoundingClientRect();
@@ -1490,6 +1510,15 @@ try {
           listHeight: Math.round(listBox?.height || 0),
           detailHeight: Math.round(detailBox?.height || 0),
           detailCardHeight: Math.round(detailCardBox?.height || 0),
+          splitHeightVarRaw,
+          splitHeightVar: Number.isFinite(splitHeightVar) ? Math.round(splitHeightVar) : 0,
+          expectedPaneHeight,
+          paneHeightStyleActive: Number.isFinite(splitHeightVar)
+            && Math.abs(splitHeightVar - expectedPaneHeight) <= 2
+            && !!listBox
+            && Math.abs(listBox.height - splitHeightVar) <= 2
+            && !!detailBox
+            && Math.abs(detailBox.height - splitHeightVar) <= 2,
           detailFillsListHeight: !!listBox && !!detailBox && detailBox.height >= listBox.height - 2,
           detailCardFillsPane: !!detailBox && !!detailCardBox && detailCardBox.height >= detailBox.height - 2,
           bottomGap: Math.round(bottomGap),
@@ -3556,6 +3585,7 @@ try {
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: PR spotlight lane present"],
     [boardPaneLayout.fillsViewport === true, `board: lane height fills to the same viewport bottom gutter as list tabs (${JSON.stringify(boardPaneLayout)})`],
+    [boardPaneLayout.readableColumns === true && boardPaneLayout.scrollsHorizontally === true, `board: full board keeps readable column widths and scrolls inside the board when needed (${JSON.stringify(boardPaneLayout)})`],
     [boardCardChrome.found === true && boardCardChrome.badgeStartsAfterIcon === true && boardCardChrome.titleStartsAfterIcon === true, `board: card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(boardCardChrome)})`],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
     [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.contentRetained, `board: a range refetch keeps app chrome + loaded content mounted, no full-screen reload (${JSON.stringify(initialRangePending)})`],
@@ -3697,7 +3727,7 @@ try {
     [itemsSummary.afterClickDetailTitle.includes(itemsSummary.secondTitle || "__missing__"), `items: selecting a row updates the detail pane (${JSON.stringify({ row: itemsSummary.secondTitle, detail: itemsSummary.afterClickDetailTitle })})`],
     [itemsSummary.selectedRows === 1, `items: exactly one row is marked selected (${itemsSummary.selectedRows || 0})`],
     [(itemsSummary.detailBodyText || "").includes("Provider body"), `items: detail pane renders the synced provider body (${itemsSummary.detailBodyText || "empty"})`],
-    [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true && itemsSummary.fillsViewport === true, `items: detail pane stretches to list height, fills the viewport gutter, and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight, bottomGap: itemsSummary.bottomGap })})`],
+    [itemsSummary.detailFillsListHeight === true && itemsSummary.detailCardFillsPane === true && itemsSummary.fillsViewport === true && itemsSummary.paneHeightStyleActive === true, `items: detail pane stretches to list height, fills the viewport gutter, uses the measured pane-height style, and its card fills the pane (${JSON.stringify({ list: itemsSummary.listHeight, detail: itemsSummary.detailHeight, card: itemsSummary.detailCardHeight, bottomGap: itemsSummary.bottomGap, splitHeightVar: itemsSummary.splitHeightVar, expectedPaneHeight: itemsSummary.expectedPaneHeight, splitHeightVarRaw: itemsSummary.splitHeightVarRaw })})`],
     [/\d+ in range|\d+ of \d+/.test(itemsCountText || ""), `items: in-range count rendered (${itemsCountText || "empty"})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
