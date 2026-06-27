@@ -8,6 +8,29 @@ import { SourceRepo } from "./SourceRepo.tsx";
 import { relativeTime, reviewThreadsLabel, pluralize, type ColorOf, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 
+function GraphIcon() {
+  return (
+    <svg
+      className="icon-graph"
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  );
+}
+
 function LinkIcon() {
   return (
     <svg
@@ -28,6 +51,25 @@ function LinkIcon() {
   );
 }
 
+function DemandIcon() {
+  return (
+    <svg
+      className="icon-demand"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 function itemBody(item: ItemDTO): string | null {
   const body = item.body;
   return typeof body === "string" && body.trim() ? body.trim() : null;
@@ -37,9 +79,9 @@ function stopRowSelection(event: { stopPropagation: () => void }) {
   event.stopPropagation();
 }
 
-function itemRelativeTime(value: string | null | undefined, label: string): ReactNode {
+function relativeTimeValue(value: string | null | undefined): ReactNode {
   if (!value) return null;
-  return <time title={value}>{label} {relativeTime(value)}</time>;
+  return <time title={value}>{relativeTime(value)}</time>;
 }
 
 function DetailFact({ label, value }: { label: string; value: ReactNode }) {
@@ -66,69 +108,83 @@ function ItemDetail({
   const body = itemBody(item);
   const related = relationCounts.get(item.id) ?? null;
   const threadLabel = reviewThreadsLabel(item.review_threads);
+  const hasSignals = Boolean(item.review_state || item.ci_state || item.merge_state || threadLabel);
 
   return (
     <aside className="items-detail" aria-label="Item details">
       <div className="items-detail-card">
-        <div className="items-detail-head">
-          <ItemKindIcon kind={item.kind} className="items-detail-kind-icon" />
-          <Badge text={item.state} kind={item.state} />
-          {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
-        </div>
-        <h3 className="items-detail-title">
-          {item.url ? (
-            <a className="items-detail-title-link" href={item.url} target="_blank" rel="noopener noreferrer">
-              {item.title ?? "(untitled)"} <span className="items-detail-title-arrow" aria-hidden="true">↗</span>
-            </a>
-          ) : (
-            item.title ?? "(untitled)"
-          )}
-        </h3>
-        <div className="items-detail-ref">
-          <SourceRepo kind={sourceKind.get(item.source_id)} repo={item.project_path} />
-          {item.iid != null ? <span>#{item.iid}</span> : null}
-          {item.author ? <span>@{item.author}</span> : null}
-        </div>
-
-        {body ? (
-          <MarkdownBody text={body} className="live-md items-detail-body" />
-        ) : (
-          <p className="items-detail-body items-detail-body-empty">No synced provider body.</p>
-        )}
-
-        <dl className="items-detail-facts">
-          <DetailFact label="updated" value={itemRelativeTime(item.updated_at, "updated")} />
-          <DetailFact label="created" value={itemRelativeTime(item.created_at, "created")} />
-          <DetailFact label="closed" value={itemRelativeTime(item.closed_at, "closed")} />
-          <DetailFact label="merged" value={itemRelativeTime(item.merged_at, "merged")} />
-          <DetailFact label="state raw" value={item.state_raw} />
-          <DetailFact label="state reason" value={item.state_reason} />
-          <DetailFact label="milestone" value={item.milestone} />
-          <DetailFact label="demand" value={item.demand != null && item.demand > 0 ? `${item.demand} comments/reactions` : null} />
-          <DetailFact label="review" value={item.review_state ? <Badge text={item.review_state} kind={`review-${item.review_state}`} /> : null} />
-          <DetailFact label="ci" value={item.ci_state ? <Badge text={item.ci_state} kind={`ci-${item.ci_state}`} /> : null} />
-          <DetailFact label="merge" value={item.merge_state ? <Badge text={item.merge_state} kind={`merge-${item.merge_state}`} /> : null} />
-          <DetailFact
-            label="threads"
-            value={threadLabel ? <Badge text={threadLabel} kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"} /> : null}
-          />
-          <DetailFact
-            label="related"
-            value={related && related.total > 0 ? (
-              <a className="items-detail-graph" href={graphFocusHref(item, lens)}>
-                <LinkIcon /> {related.total} {pluralize(related.total, "related item")}
-              </a>
-            ) : null}
-          />
-        </dl>
-
-        {item.labels.length > 0 ? (
-          <div className="items-detail-labels" aria-label="Labels">
-            {item.labels.map((label) => (
-              <LabelChip key={label.name} label={label} />
-            ))}
+        <div className="items-detail-shell">
+          <div className="items-detail-kind" title={itemKindLabel(item.kind)}>
+            <ItemKindIcon kind={item.kind} className="items-detail-kind-icon" />
           </div>
-        ) : null}
+          <div className="items-detail-main">
+            <div className="items-detail-head">
+              <Badge text={item.state} kind={item.state} />
+              {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
+            </div>
+            <h3 className="items-detail-title">
+              {item.url ? (
+                <a className="items-detail-title-link" href={item.url} target="_blank" rel="noopener noreferrer">
+                  {item.title ?? "(untitled)"} <span className="items-detail-title-arrow" aria-hidden="true">↗</span>
+                </a>
+              ) : (
+                item.title ?? "(untitled)"
+              )}
+            </h3>
+            <div className="items-detail-meta">
+              <div className="items-detail-ref">
+                <SourceRepo kind={sourceKind.get(item.source_id)} repo={item.project_path} />
+                {item.iid != null ? <span>#{item.iid}</span> : null}
+                {item.author ? <span>@{item.author}</span> : null}
+              </div>
+
+              <dl className="items-detail-facts">
+                <DetailFact label="updated" value={relativeTimeValue(item.updated_at)} />
+                <DetailFact label="created" value={relativeTimeValue(item.created_at)} />
+                <DetailFact label="closed" value={relativeTimeValue(item.closed_at)} />
+                <DetailFact label="merged" value={relativeTimeValue(item.merged_at)} />
+                <DetailFact label="state raw" value={item.state_raw} />
+                <DetailFact label="state reason" value={item.state_reason} />
+                <DetailFact label="milestone" value={item.milestone} />
+                <DetailFact
+                  label="demand"
+                  value={item.demand != null && item.demand > 0 ? `${item.demand} ${pluralize(item.demand, "comment/reaction", "comments/reactions")}` : null}
+                />
+                <DetailFact
+                  label="related"
+                  value={related && related.total > 0 ? (
+                    <a className="items-detail-graph" href={graphFocusHref(item, lens)}>
+                      <LinkIcon /> {related.total} {pluralize(related.total, "related item")}
+                    </a>
+                  ) : null}
+                />
+              </dl>
+
+              {hasSignals ? (
+                <div className="items-detail-signals" aria-label="Status signals">
+                  {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
+                  {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
+                  {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
+                  {threadLabel ? <Badge text={`threads: ${threadLabel}`} kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"} /> : null}
+                </div>
+              ) : null}
+
+              {item.labels.length > 0 ? (
+                <div className="items-detail-labels" aria-label="Labels">
+                  {item.labels.map((label) => (
+                    <LabelChip key={label.name} label={label} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            {body ? (
+              <MarkdownBody text={body} className="live-md items-detail-body" />
+            ) : (
+              <p className="items-detail-body items-detail-body-empty">No synced provider body.</p>
+            )}
+          </div>
+        </div>
       </div>
     </aside>
   );
@@ -198,6 +254,9 @@ export function ItemsPage({
               const labels = item.labels.slice(0, 4);
               const hiddenLabelCount = item.labels.length - labels.length;
               const selected = selectedItem?.id === item.id;
+              const hasActivityMeta = Boolean(item.author || (item.demand != null && item.demand > 0) || (related && related.total > 0));
+              const hasTimes = Boolean(item.updated_at || item.created_at);
+              const hasSignals = Boolean(item.review_state || item.ci_state || item.merge_state || threadLabel);
               return (
                 <article
                   key={item.id}
@@ -213,8 +272,14 @@ export function ItemsPage({
                     <ItemKindIcon kind={item.kind} />
                   </div>
                   <div className="item-row-main">
-                    <div className="item-row-title-line">
+                    <div className="item-row-head">
                       <Badge text={item.state} kind={item.state} />
+                      {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
+                      {related && related.total > 0 ? (
+                        <a className="item-row-graph" href={graphFocusHref(item, lens)} title="Focus this item in Graph" aria-label="Focus in Graph" onClick={stopRowSelection}>
+                          <GraphIcon />
+                        </a>
+                      ) : null}
                       {item.url ? (
                         <a className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer" onClick={stopRowSelection}>
                           {item.title ?? "(untitled)"}
@@ -222,37 +287,50 @@ export function ItemsPage({
                       ) : (
                         <span className="item-row-title item-row-title-text">{item.title ?? "(untitled)"}</span>
                       )}
-                      {item.is_draft ? <Badge text="draft" kind="draft" /> : null}
                     </div>
                     <div className="item-row-meta">
                       <SourceRepo kind={sourceKind.get(item.source_id)} repo={item.project_path} />
                       {item.iid != null ? <span>#{item.iid}</span> : null}
-                      {item.author ? <span>@{item.author}</span> : null}
-                      {item.updated_at ? <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time> : null}
-                      {item.created_at ? <time title={item.created_at}>created {relativeTime(item.created_at)}</time> : null}
                     </div>
-                    <div className="item-row-signals">
-                      {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
-                      {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
-                      {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
-                      {threadLabel ? <Badge text={`threads: ${threadLabel}`} kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"} /> : null}
-                      {item.demand != null && item.demand > 0 ? <span className="item-row-chip">{item.demand} comments/reactions</span> : null}
-                      {related && related.total > 0 ? (
-                        <span className="item-row-chip" title={related.byType.map((part) => `${part.type} ${part.count}`).join(" · ")}>
-                          {related.total} {pluralize(related.total, "related item")}
-                        </span>
-                      ) : null}
-                      {labels.map((label) => (
-                        <LabelChip key={label.name} label={label} />
-                      ))}
-                      {hiddenLabelCount > 0 ? <span className="item-row-chip">+{hiddenLabelCount} labels</span> : null}
-                    </div>
+                    {hasActivityMeta ? (
+                      <div className="item-row-meta item-row-activity">
+                        {item.author ? <span>@{item.author}</span> : null}
+                        {item.demand != null && item.demand > 0 ? (
+                          <span className="item-row-count" title="comments + reactions">
+                            <DemandIcon /> {item.demand}
+                          </span>
+                        ) : null}
+                        {related && related.total > 0 ? (
+                          <span className="item-row-count" title={related.byType.map((part) => `${part.type} ${part.count}`).join(" · ")}>
+                            <LinkIcon /> {related.total}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {hasTimes ? (
+                      <div className="item-row-times muted">
+                        {item.updated_at ? <time title={item.updated_at}>updated {relativeTime(item.updated_at)}</time> : null}
+                        {item.created_at && item.updated_at ? <span className="sep">·</span> : null}
+                        {item.created_at ? <time title={item.created_at}>created {relativeTime(item.created_at)}</time> : null}
+                      </div>
+                    ) : null}
+                    {hasSignals ? (
+                      <div className="item-row-signals">
+                        {item.review_state ? <Badge text={`review: ${item.review_state}`} kind={`review-${item.review_state}`} /> : null}
+                        {item.ci_state ? <Badge text={`ci: ${item.ci_state}`} kind={`ci-${item.ci_state}`} /> : null}
+                        {item.merge_state ? <Badge text={`merge: ${item.merge_state}`} kind={`merge-${item.merge_state}`} /> : null}
+                        {threadLabel ? <Badge text={`threads: ${threadLabel}`} kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"} /> : null}
+                      </div>
+                    ) : null}
+                    {(labels.length > 0 || hiddenLabelCount > 0) ? (
+                      <div className="item-row-labels">
+                        {labels.map((label) => (
+                          <LabelChip key={label.name} label={label} />
+                        ))}
+                        {hiddenLabelCount > 0 ? <span className="item-row-chip">+{hiddenLabelCount} labels</span> : null}
+                      </div>
+                    ) : null}
                   </div>
-                  {related && related.total > 0 ? (
-                    <a className="item-row-graph" href={graphFocusHref(item, lens)} title="Focus this item in Graph" aria-label="Focus in Graph" onClick={stopRowSelection}>
-                      <LinkIcon />
-                    </a>
-                  ) : null}
                 </article>
               );
             })}
