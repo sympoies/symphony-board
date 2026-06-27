@@ -179,6 +179,14 @@ test("content tab order migrates the auto-saved old default order", () => {
   assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"]);
 });
 
+test("content tab order preserves an explicit legacy-shaped user order", () => {
+  const legacyDefaultOrder = ["activity", "items", "commits", "reviews", "board", "graph", "repo-analytics"];
+  assert.deepEqual(normalizeContentTabOrder(legacyDefaultOrder), legacyDefaultOrder);
+
+  saveContentTabOrder(legacyDefaultOrder);
+  assert.deepEqual(loadContentTabOrder(), legacyDefaultOrder);
+});
+
 test("content tab order round-trips as a normalized device-local setting", () => {
   saveContentTabOrder(["graph", "activity"]);
   assert.deepEqual(loadContentTabOrder(), ["graph", "activity", "repo-analytics", "board", "items", "reviews", "commits"]);

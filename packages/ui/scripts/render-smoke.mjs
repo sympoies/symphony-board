@@ -3322,7 +3322,7 @@ try {
   const expectedTabOrderBeforeMove = ["Live", "Activity", "Metrics", "Board", "Graph", "Items", "Reviews", "Commits", "Settings"];
   const expectedTabOrderAfterMove = ["Live", "Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Commits", "Settings"];
   const expectedContentRowsAfterMove = ["Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Commits"];
-  const expectedStoredTabOrderAfterMove = '["activity","repo-analytics","graph","board","items","reviews","commits"]';
+  const expectedStoredTabOrderAfterMove = JSON.stringify({ order: ["activity", "repo-analytics", "graph", "board", "items", "reviews", "commits"] });
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
   const repoRows = m(repoHtml, /class="repo-name-main/g);
