@@ -22,14 +22,15 @@ import {
 } from "../src/live/types.ts";
 import type { LiveEventInput } from "../src/live/types.ts";
 import { resolvePruneConfig, startPruneTimer } from "../src/live/prune.ts";
+import { relativeExpiry } from "./helpers/clock.ts";
 
 const NUL = String.fromCharCode(0);
 
-// Actor-profile cache rows are filtered by `expires_at >= now` (src/live/store.ts),
-// so fixtures that exercise hydration must stay unexpired. Use an expiry RELATIVE
-// to now, never a hardcoded date: a literal "2026-06-28" silently expired once that
-// day passed and turned these hydration tests into time-bomb CI failures.
-const UNEXPIRED = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+// Hydration fixtures round-trip the real-clock `expires_at >= now` filter
+// (src/live/store.ts), so their expiry must be RELATIVE to now — never a
+// hardcoded date (a literal "2026-06-28" silently expired and broke CI, #527).
+// See test/helpers/clock.ts and the no-time-bomb-fixtures guard.
+const UNEXPIRED = relativeExpiry();
 
 async function until(
   predicate: () => boolean | Promise<boolean>,

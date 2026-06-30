@@ -195,6 +195,19 @@ production repos. Live provider calls are useful for smoke validation but should
 not be required for CI because credentials, rate limits, and network boundaries
 vary.
 
+Time in fixtures must be relative, never a hardcoded near-future date. Some
+production paths compare a stored timestamp against the real clock — for example
+`src/live/store.ts` filters the actor-profile cache with `expires_at >= now` — so
+a fixture like `expires_at: "2026-06-28"` passes until that day, then silently
+expires and reddens CI with no code change (the #527 regression). For a fixture
+that must stay unexpired, use `relativeExpiry()` from `test/helpers/clock.ts`;
+when a test asserts exact expiry math, inject a fixed clock into the code under
+test instead (see the prune tests in `test/live-store.test.ts`). The
+`no-time-bomb-fixtures` test enforces this mechanically — it fails when a
+near-term/future ISO date is assigned to a TTL key (`expires_at`, `fetched_at`,
+…) in a test or fixture file; annotate a legitimate fixed-clock fixture with a
+`// fixed-clock: <reason>` comment on the same line as the literal to exempt it.
+
 ## Common Change Paths
 
 ### Adding A Source
