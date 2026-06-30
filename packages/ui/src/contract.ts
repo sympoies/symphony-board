@@ -370,6 +370,63 @@ function isTransient(err: unknown): boolean {
   return !!(err && typeof err === "object" && (err as TaggedError).transient === true);
 }
 
+// --- Render-time load-error classification ----------------------------------
+// By the time a load failure reaches the UI it is only a STRING: App stores
+// `(err as Error).message` and drops the TaggedError `.status`/`.transient` tags
+// the throwers above attach. So the degraded-data banner re-derives a coarse kind
+// from the message TEXT to pick friendly copy. This is a best-effort heuristic
+// over non-contractual third-party strings — browser fetch ("Failed to fetch" /
+// "Load failed" / "NetworkError"), Tauri plugin-http / reqwest ("error sending
+// request for url (…)"), and abort/timeout wording all differ and can drift. Only
+// the `HTTP <n>` template WE emit below (loadContractAttempt) is authoritative;
+// every other match is a fuzzy `contains` that FAILS SAFE to a generic banner.
+// The raw message is shown only behind a details disclosure, never inline — so a
+// miss degrades to "unknown" (friendly copy), it never re-leaks the URL.
+export type ContractLoadErrorKind = "offline" | "unreachable" | "server" | "client" | "malformed" | "unknown";
+
+// SyntaxError text from a fully-received but non-JSON body (wording varies by engine).
+const MALFORMED_LOAD_MESSAGE = /unexpected token|unexpected end of (json|input)|in json|is not valid json|json\.parse|json parse error/i;
+// Transport / abort / timeout throws (no HTTP status reached): reqwest "error
+// sending request", Chromium "Failed to fetch", WebKit "Load failed", Firefox
+// "NetworkError", and AbortSignal.timeout / AbortController-fallback messages.
+const TRANSPORT_LOAD_MESSAGE = /error sending request|failed to fetch|load failed|network ?error|aborted|abort|timed out|timeout|operation was aborted|signal is aborted/i;
+
+// Map a caught load-error message to a coarse kind for the inline banner. The
+// optional `online` flag (default true) keeps existing callers unchanged; a caller
+// that knows the device is offline passes `false` so a transport failure reads as
+// "offline" rather than "unreachable". HTTP-status and malformed-body outcomes
+// IGNORE `online` — a real response proves the server was reached. Pure + total.
+export function classifyContractLoadError(message: string | null | undefined, online = true): ContractLoadErrorKind {
+  const m = (message ?? "").trim();
+  if (!m) return "unknown";
+  // (1) The one string we own — authoritative HTTP status split (5xx vs 4xx).
+  const http = /HTTP (\d{3})/.exec(m);
+  if (http) return Number(http[1]) >= 500 ? "server" : "client";
+  // (2) Received-but-unparseable body. Checked before transport so an aborted
+  //     mid-body read (transport) is not mistaken for a content error.
+  if (MALFORMED_LOAD_MESSAGE.test(m)) return "malformed";
+  // (3) Transport throw with no status. Offline device wins the copy when known.
+  if (TRANSPORT_LOAD_MESSAGE.test(m)) return online ? "unreachable" : "offline";
+  // (4) Unrecognized — generic friendly fallback, never an inline raw dump.
+  return "unknown";
+}
+
+// User-facing English banner copy per kind. `{freshness}` is substituted at render
+// with the cache age (relativeTime(env.generated_at)). Keep every string English.
+export const contractLoadErrorCopy: Record<ContractLoadErrorKind, string> = {
+  offline: "You're offline — showing cached data from {freshness}.",
+  unreachable: "Can't reach Symphony Board — showing cached data from {freshness}.",
+  server: "Symphony Board hit an error — showing cached data from {freshness}.",
+  client: "Couldn't load this range — showing cached data from {freshness}.",
+  malformed: "Got an unreadable response — showing cached data from {freshness}.",
+  unknown: "Can't reach Symphony Board — showing cached data from {freshness}.",
+};
+
+// Resolve a banner headline for a kind, substituting the cache-age phrase.
+export function formatContractLoadError(kind: ContractLoadErrorKind, freshness: string): string {
+  return contractLoadErrorCopy[kind].replace("{freshness}", freshness);
+}
+
 // Per-attempt overall-timeout signal. `AbortSignal.timeout` is the direct path,
 // but some older WebViews (e.g. an older WKWebView, since the Tauri configs do
 // not raise the default macOS minimum) have not implemented the static helper;

@@ -28,7 +28,12 @@ import {
   CONTRACT_REQUEST_TIMEOUT_MS_ANDROID,
   LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS,
   LIVE_SNAPSHOT_REQUEST_TIMEOUT_MS_ANDROID,
+  classifyContractLoadError,
+  contractLoadErrorCopy,
+  formatContractLoadError,
 } from "../src/contract.ts";
+
+const CONTRACT_LOAD_ERROR_KINDS = ["offline", "unreachable", "server", "client", "malformed", "unknown"] as const;
 
 // The blocking "Loading contract…" view must show ONLY while there is no content
 // yet — never on top of a board the cold-start cache already painted. Gating it on
@@ -728,4 +733,84 @@ test("initLoadRetryDelayMs grows exponentially from the base and caps at the max
   // Honors injected base/max for testability.
   assert.equal(initLoadRetryDelayMs(4, 1000, 5000), 5000);
   assert.equal(initLoadRetryDelayMs(2, 1000, 5000), 2000);
+});
+
+// By render time a load failure is only a STRING (App stores (err).message and
+// drops the TaggedError .status/.transient tags), so the inline banner re-derives
+// a coarse kind from the message. These pin the heuristic against the literal
+// strings each engine actually throws, so a future wording drift trips a test
+// rather than silently re-leaking the raw URL the banner is meant to hide.
+test("classifyContractLoadError: transport throws (no HTTP status) read as unreachable", () => {
+  // The motivating case: Tauri plugin-http (reqwest) embeds the full URL.
+  assert.equal(
+    classifyContractLoadError("error sending request for url (https://g14.example.ts.net:8443/api/range?from=2026-06-01&to=2026-06-30)"),
+    "unreachable",
+  );
+  assert.equal(classifyContractLoadError("Failed to fetch"), "unreachable", "Chromium");
+  assert.equal(classifyContractLoadError("Load failed"), "unreachable", "WebKit/Safari");
+  assert.equal(classifyContractLoadError("NetworkError when attempting to fetch resource."), "unreachable", "Firefox");
+  assert.equal(classifyContractLoadError("The operation was aborted due to timeout"), "unreachable", "AbortSignal.timeout");
+  assert.equal(classifyContractLoadError("signal is aborted without reason"), "unreachable", "AbortController fallback");
+});
+
+test("classifyContractLoadError: our own HTTP template splits server (5xx) from client (4xx)", () => {
+  assert.equal(classifyContractLoadError("could not load ./api/range?from=..&to=..: HTTP 503"), "server");
+  assert.equal(classifyContractLoadError("could not load ./api/range: HTTP 500"), "server", "lower 5xx boundary");
+  assert.equal(classifyContractLoadError("could not load ./api/range: HTTP 404"), "client");
+  assert.equal(classifyContractLoadError("could not load ./api/range: HTTP 400"), "client");
+  assert.equal(classifyContractLoadError("could not load ./api/range: HTTP 499"), "client", "upper 4xx boundary stays client");
+});
+
+test("classifyContractLoadError: precedence holds when error tokens overlap (HTTP > malformed > transport)", () => {
+  // HTTP status wins even when a transport token ("error sending request") is in
+  // the SAME string — proves the HTTP check runs before the transport regex.
+  assert.equal(classifyContractLoadError("error sending request for url (https://x/api/range): HTTP 503"), "server");
+  // ...and even when a malformed-body token is present.
+  assert.equal(classifyContractLoadError("could not load ./x: HTTP 500 (Unexpected token <)"), "server");
+  // A parse failure that also mentions an aborted read is malformed, not transport
+  // — the documented aborted-mid-body ordering (malformed checked before transport).
+  assert.equal(classifyContractLoadError("Unexpected end of JSON input (request aborted)"), "malformed");
+});
+
+test("classifyContractLoadError: a received-but-unparseable body reads as malformed", () => {
+  assert.equal(classifyContractLoadError("Unexpected token < in JSON at position 0"), "malformed");
+  assert.equal(classifyContractLoadError("Unexpected end of JSON input"), "malformed");
+  assert.equal(classifyContractLoadError("JSON Parse error: Unrecognized token '<'"), "malformed", "WebKit");
+});
+
+test("classifyContractLoadError: unrecognized / empty messages fall back to unknown, never throw", () => {
+  assert.equal(classifyContractLoadError("some weird message"), "unknown");
+  assert.equal(classifyContractLoadError(""), "unknown");
+  assert.equal(classifyContractLoadError("   "), "unknown");
+  assert.equal(classifyContractLoadError(undefined), "unknown");
+  assert.equal(classifyContractLoadError(null), "unknown");
+});
+
+test("classifyContractLoadError: HTTP template shape stays in sync with the thrown message", () => {
+  // loadContractAttempt throws `could not load <target>: HTTP <status>`; if that
+  // format ever changes, this trips instead of mislabeling every HTTP error.
+  assert.match("could not load ./contract.json: HTTP 500", /HTTP (\d{3})/);
+});
+
+test("contractLoadErrorCopy: every kind has English, non-empty, URL-free copy", () => {
+  for (const kind of CONTRACT_LOAD_ERROR_KINDS) {
+    const template = contractLoadErrorCopy[kind];
+    assert.equal(typeof template, "string", `${kind} has copy`);
+    assert.ok(template.length > 0, `${kind} copy is non-empty`);
+    assert.ok(template.includes("{freshness}"), `${kind} copy carries the freshness slot`);
+    // English, not CJK/Hangul/Kana (em-dash and ellipsis are allowed, like the
+    // app's existing "Reconnecting…" copy). Guards an accidental Chinese string.
+    assert.doesNotMatch(template, /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uff00-\uffef]/, `${kind} copy is English`);
+    // The raw error / URL must never live in the headline template.
+    assert.doesNotMatch(template, /https?:\/\/|HTTP \d|error sending request/i, `${kind} copy does not leak raw error text`);
+  }
+});
+
+test("formatContractLoadError: substitutes the cache age and leaves no slot behind", () => {
+  for (const kind of CONTRACT_LOAD_ERROR_KINDS) {
+    const headline = formatContractLoadError(kind, "3h ago");
+    assert.ok(headline.includes("3h ago"), `${kind} headline shows the freshness`);
+    assert.ok(!headline.includes("{freshness}"), `${kind} headline has no leftover slot`);
+    assert.ok(headline.endsWith("."), `${kind} headline is a full sentence`);
+  }
 });

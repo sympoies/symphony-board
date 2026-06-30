@@ -2550,6 +2550,14 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   return `${Math.round(mo / 12)}y ago`;
 }
 
+// The cache-age phrase for the degraded-data banner: relativeTime, but clamped so
+// a future generated_at (device clock skew) or an unparseable timestamp renders
+// "just now" rather than a negative "-3h ago". now is injectable for testing.
+export function freshnessLabel(iso: string | null, now: number = Date.now()): string {
+  const ms = Date.parse(iso ?? "");
+  return Number.isFinite(ms) && ms <= now ? relativeTime(iso, now) : "just now";
+}
+
 // "resets in 42m" for a FUTURE instant — the mirror of relativeTime (which only
 // renders the past). Used by the Diagnostics rate-limit tab, where a GitHub
 // GraphQL window always resets within the hour. A non-positive delta clamps to

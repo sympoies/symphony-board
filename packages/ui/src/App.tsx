@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, type ContractLoadMetadata } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
@@ -40,6 +40,7 @@ import {
   buildHashRoute,
   applyRouteSearch,
   relationCounts,
+  freshnessLabel,
   routeTimeRange,
   sameTimeRange,
   rangeQueryWindow,
@@ -1958,6 +1959,14 @@ export function App() {
   if (!visibleEnv) return null;
   const unsupported = majorOf(env.contract_version) !== SUPPORTED_MAJOR;
   const rangeLoadError = error;
+  // Degraded-data banner: the inline error means the live range refetch failed but
+  // a cached contract is still on screen. Classify the (string-only) error to a
+  // friendly English headline and fold in the cache age (freshnessLabel clamps a
+  // skewed/future generated_at to "just now"). The raw message/URL lives only
+  // behind the Details disclosure, never inline.
+  const rangeLoadBannerText = rangeLoadError
+    ? formatContractLoadError(classifyContractLoadError(rangeLoadError), freshnessLabel(env.generated_at))
+    : null;
 
   // The whole board has no data at all (fresh install / not yet synced) — drives
   // the board-empty treatment instead of a misleading "nothing in this range".
@@ -2049,9 +2058,24 @@ export function App() {
         </div>
       )}
       {rangeLoadError ? (
-        <div className="state-msg state-msg-inline error">
-          <p>Could not load selected range: {rangeLoadError}</p>
-          <p className="muted">Showing the previous loaded data until a retry succeeds.</p>
+        // Compact strip on the .banner family (not the full-page .state-msg), so it
+        // stays a short left-aligned bar instead of a tall centered block. Mirrors
+        // the fatal screen's good affordances: a live-`retrying` status line and the
+        // same Retry now button, with the raw error tucked into a Details disclosure.
+        <div className="banner warn banner-degraded" data-testid="range-load-banner">
+          <p className="banner-degraded-msg">{rangeLoadBannerText}</p>
+          <div className="banner-degraded-actions">
+            <button type="button" className="toggle" onClick={retryContractLoad}>
+              Retry now
+            </button>
+            <span className="banner-degraded-status" role="status" aria-live="polite">
+              {retrying ? "Reconnecting automatically…" : "Automatic retries are paused."}
+            </span>
+          </div>
+          <details className="banner-degraded-details">
+            <summary>Details</summary>
+            <pre className="banner-degraded-raw">{rangeLoadError}</pre>
+          </details>
         </div>
       ) : null}
       {page === "settings" ? (

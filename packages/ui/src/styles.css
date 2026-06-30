@@ -271,7 +271,6 @@ h3 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; }
 
 .state-msg { max-width: 720px; margin: 80px auto; padding: 24px; text-align: center; }
 .state-actions { display: flex; justify-content: center; gap: 8px; margin: 14px 0; }
-.state-msg-inline { margin-top: 32px; margin-bottom: 32px; }
 .state-msg.error { color: var(--text); }
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
@@ -406,6 +405,24 @@ html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animat
 
 .banner { padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
 .banner.warn { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); border: 1px solid var(--warn); color: var(--warn); }
+/* Degraded-data banner: a failed live range refetch while a cached board is still
+   shown. Built on .banner.warn so it is a short left-aligned strip (no centered
+   720px column / 80px margins of .state-msg) — content-height only, so it never
+   reopens the empty whitespace gap regardless of message length or theme. */
+.banner-degraded { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.banner-degraded .banner-degraded-msg { margin: 0; font-weight: 600; }
+.banner-degraded .banner-degraded-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 2px; }
+.banner-degraded .banner-degraded-status { font-size: 12px; color: var(--muted); }
+/* Keep the Retry pill on the strip's gold treatment instead of the global muted .toggle. */
+.banner-degraded .toggle { color: var(--warn); border-color: var(--warn); }
+.banner-degraded .toggle:hover { color: var(--accent); border-color: var(--accent); }
+.banner-degraded details { font-size: 12px; }
+.banner-degraded details > summary { cursor: pointer; color: var(--muted); list-style: revert; }
+.banner-degraded details > summary:hover { color: var(--text); }
+.banner-degraded details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* Raw error (incl. the long Tauri/reqwest URL) wraps inside the panel — never
+   widens the banner or scrolls the page horizontally on a phone. */
+.banner-degraded .banner-degraded-raw { margin: 6px 0 0; padding: 6px 8px; background: var(--panel-2); color: var(--text); border-radius: 4px; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
 
 /* controls */
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; }

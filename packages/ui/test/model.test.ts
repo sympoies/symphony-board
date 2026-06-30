@@ -63,6 +63,7 @@ import {
   computeBoardWindowStats,
   computeGraphStats,
   relativeTime,
+  freshnessLabel,
   itemSortFromRoute,
   reviewThreadDisplayTime,
   reviewSortFromRoute,
@@ -1162,6 +1163,17 @@ test("relativeTime renders coarse buckets from an injected now", () => {
   assert.equal(relativeTime("2026-06-07T00:00:00Z", now), "3d ago");
   assert.equal(relativeTime("2026-06-09T23:59:40Z", now), "just now");
   assert.equal(relativeTime(null, now), "—");
+});
+
+test("freshnessLabel clamps skewed/unparseable timestamps so the banner never shows a negative age", () => {
+  const now = Date.parse("2026-06-10T00:00:00Z");
+  // A normal past timestamp reads as the relativeTime bucket.
+  assert.equal(freshnessLabel("2026-06-07T00:00:00Z", now), "3d ago");
+  // A future generated_at (device clock skew) clamps to "just now", not "-3d ago".
+  assert.equal(freshnessLabel("2026-06-13T00:00:00Z", now), "just now");
+  // Unparseable / null timestamps fall back to "just now", never relativeTime's "—".
+  assert.equal(freshnessLabel("not-a-date", now), "just now");
+  assert.equal(freshnessLabel(null, now), "just now");
 });
 
 test("filterItemsByRange returns updated work items newest first", () => {
