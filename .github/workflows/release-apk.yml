@@ -138,7 +138,7 @@ jobs:
         run: gh release upload "${{ inputs.tag }}" "${{ steps.apk.outputs.path }}" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Upload APK as a workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.apk.outputs.path }}
           path: ${{ steps.apk.outputs.path }}
