@@ -1165,7 +1165,7 @@ try {
     })()`,
   });
   const rangeFailureRetained = await waitValue(`(() => {
-    const error = document.querySelector('.state-msg-inline.error');
+    const error = document.querySelector('[data-testid="range-load-banner"]');
     const rows = document.querySelectorAll('.activity-row').length;
     if (!error) return null;
     return {
@@ -1225,7 +1225,7 @@ try {
     return {
       hash: location.hash,
       sentinel: document.body.innerText.includes('uploaded-file-sentinel'),
-      hasInlineRangeError: !!document.querySelector('.state-msg-inline.error'),
+      hasInlineRangeError: !!document.querySelector('[data-testid="range-load-banner"]'),
     };
   })()`);
   await sleep(900);
@@ -1234,7 +1234,7 @@ try {
     expression: `(() => ({
       sentinel: document.body.innerText.includes('uploaded-file-sentinel'),
       hasBoardCard: !!document.querySelector('.board-7 .card'),
-      hasInlineRangeError: !!document.querySelector('.state-msg-inline.error'),
+      hasInlineRangeError: !!document.querySelector('[data-testid="range-load-banner"]'),
     }))()`,
     returnByValue: true,
   })).result.value || {};
@@ -4046,7 +4046,7 @@ try {
     [boardCardChrome.found === true && boardCardChrome.badgeStartsAfterIcon === true && boardCardChrome.titleStartsAfterIcon === true, `board: card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(boardCardChrome)})`],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
     [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.contentRetained, `board: a range refetch keeps app chrome + loaded content mounted, no full-screen reload (${JSON.stringify(initialRangePending)})`],
-    [rangeFailureRetained?.header && rangeFailureRetained?.tabs && rangeFailureRetained?.rangeControls && rangeFailureRetained?.contentRetained && /Could not load selected range/.test(rangeFailureRetained.error || ""), `board: a failed range refetch keeps stale content mounted with an inline error (${JSON.stringify(rangeFailureRetained)})`],
+    [rangeFailureRetained?.header && rangeFailureRetained?.tabs && rangeFailureRetained?.rangeControls && rangeFailureRetained?.contentRetained && /Symphony Board hit an error/.test(rangeFailureRetained.error || ""), `board: a failed range refetch keeps stale content mounted with an inline error (${JSON.stringify(rangeFailureRetained)})`],
     [fileAuthorityUpload.input === true && fileAuthorityVisible?.sentinel === true && fileAuthorityAfterPending.sentinel === true && fileAuthorityAfterPending.hasBoardCard === true, `board: uploaded file env stays authoritative over a pending server reload (${JSON.stringify({ fileAuthorityUpload, fileAuthorityVisible, fileAuthorityAfterPending })})`],
     [activityDailyAfterFileUpload === activityDailyBeforeFileUpload, `board: uploaded range contract does not fetch server /api/activity-daily (${activityDailyBeforeFileUpload} -> ${activityDailyAfterFileUpload})`],
     [boardThisWeekClick.hash?.includes("preset=this-week") && JSON.stringify(boardThisWeekClick.active) === JSON.stringify(["this week"]), `board: clicking this week preserves this week as the only active preset (${boardThisWeekClick.hash || "empty"})`],
