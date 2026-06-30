@@ -772,6 +772,21 @@ test("classifyContractLoadError: precedence holds when error tokens overlap (HTT
   assert.equal(classifyContractLoadError("Unexpected end of JSON input (request aborted)"), "malformed");
 });
 
+test("classifyContractLoadError: the online flag splits offline from unreachable for transport failures only", () => {
+  // Device offline: a transport failure reads as "offline" rather than "unreachable".
+  assert.equal(classifyContractLoadError("error sending request for url (https://g14/api/range)", false), "offline");
+  assert.equal(classifyContractLoadError("Failed to fetch", false), "offline");
+  // Device online but server unreachable: stays "unreachable" (distinct copy).
+  assert.equal(classifyContractLoadError("Failed to fetch", true), "unreachable");
+  // The offline flag never overrides a definitive outcome — an HTTP status or a
+  // received-then-unparseable body proves the server WAS reached.
+  assert.equal(classifyContractLoadError("could not load ./api/range: HTTP 404", false), "client");
+  assert.equal(classifyContractLoadError("could not load ./api/range: HTTP 503", false), "server");
+  assert.equal(classifyContractLoadError("Unexpected token < in JSON at position 0", false), "malformed");
+  // online defaults to true (back-compat with callers that omit it).
+  assert.equal(classifyContractLoadError("Failed to fetch"), classifyContractLoadError("Failed to fetch", true));
+});
+
 test("classifyContractLoadError: a received-but-unparseable body reads as malformed", () => {
   assert.equal(classifyContractLoadError("Unexpected token < in JSON at position 0"), "malformed");
   assert.equal(classifyContractLoadError("Unexpected end of JSON input"), "malformed");
