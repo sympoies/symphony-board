@@ -3,6 +3,7 @@ import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contrac
 import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
+import { useOnlineStatus } from "./online-status.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
   emptyFilters,
@@ -252,6 +253,9 @@ export function App() {
   // reload does not pay for a full cold-start init round.
   const [dataReloadEpoch, setDataReloadEpoch] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  // Device connectivity (best-effort) — refines the degraded-data banner copy
+  // (offline vs server-unreachable) and triggers an immediate retry on reconnect.
+  const online = useOnlineStatus();
   const [bootDismissed, setBootDismissed] = useState(false);
   const initAttemptRef = useRef(0);
   const initRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -568,6 +572,17 @@ export function App() {
     setRetrying(true);
     setReloadKey((k) => k + 1);
   }, []);
+  // On the offline->online edge, retry immediately instead of waiting out the
+  // backoff — but only when a load error is actually showing, and exactly once per
+  // transition (tracked via a prevOnline ref). retryContractLoad cancels the
+  // pending backoff timer, so this accelerates recovery without racing a second
+  // timer; the auto-backoff loop stays the floor when navigator.onLine never fires.
+  const prevOnlineRef = useRef(online);
+  useEffect(() => {
+    const cameOnline = prevOnlineRef.current === false && online;
+    prevOnlineRef.current = online;
+    if (cameOnline && error) retryContractLoad();
+  }, [online, error, retryContractLoad]);
   const sync = useSync(reloadDataAfterSync, serverBaseUrl);
   // Live can't run on a static, server-less deployment (the Pages demo): it has no
   // SSE/snapshot receiver, so the Settings Live controls render disabled there
@@ -1965,7 +1980,7 @@ export function App() {
   // skewed/future generated_at to "just now"). The raw message/URL lives only
   // behind the Details disclosure, never inline.
   const rangeLoadBannerText = rangeLoadError
-    ? formatContractLoadError(classifyContractLoadError(rangeLoadError), freshnessLabel(env.generated_at))
+    ? formatContractLoadError(classifyContractLoadError(rangeLoadError, online), freshnessLabel(env.generated_at))
     : null;
 
   // The whole board has no data at all (fresh install / not yet synced) — drives
