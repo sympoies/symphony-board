@@ -25,6 +25,12 @@ import { resolvePruneConfig, startPruneTimer } from "../src/live/prune.ts";
 
 const NUL = String.fromCharCode(0);
 
+// Actor-profile cache rows are filtered by `expires_at >= now` (src/live/store.ts),
+// so fixtures that exercise hydration must stay unexpired. Use an expiry RELATIVE
+// to now, never a hardcoded date: a literal "2026-06-28" silently expired once that
+// day passed and turned these hydration tests into time-bomb CI failures.
+const UNEXPIRED = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
 async function until(
   predicate: () => boolean | Promise<boolean>,
   attempts = 200,
@@ -267,7 +273,7 @@ test("cached actor profiles hydrate events whose actor lacks avatar fields", () 
       avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
       profile_url: "https://github.com/graysurf",
       fetched_at: "2026-06-21T00:00:00.000Z",
-      expires_at: "2026-06-28T00:00:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
 
@@ -291,7 +297,7 @@ test("partial actor profile seeds preserve existing avatar fields", () => {
       avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
       profile_url: "https://github.com/octocat",
       fetched_at: "2026-06-21T00:00:00.000Z",
-      expires_at: "2026-06-28T00:00:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
     store.upsertActorProfile({
@@ -302,7 +308,7 @@ test("partial actor profile seeds preserve existing avatar fields", () => {
       avatar_url: null,
       profile_url: null,
       fetched_at: "2026-06-21T00:01:00.000Z",
-      expires_at: "2026-06-28T00:01:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
     store.append(ev(2, {
@@ -335,7 +341,7 @@ test("partial actor profile rows do not count as resolved until an avatar or err
       avatar_url: null,
       profile_url: null,
       fetched_at: "2026-06-21T00:00:00.000Z",
-      expires_at: "2026-06-28T00:00:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
     assert.equal(
@@ -355,7 +361,7 @@ test("partial actor profile rows do not count as resolved until an avatar or err
       avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
       profile_url: null,
       fetched_at: "2026-06-21T00:01:00.000Z",
-      expires_at: "2026-06-28T00:01:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
     assert.equal(
@@ -427,7 +433,7 @@ test("opening a v1 live.db preserves rows and adds the actor profile cache", () 
       avatar_url: "https://avatars.githubusercontent.com/u/583231?v=4",
       profile_url: "https://github.com/octocat",
       fetched_at: "2026-06-21T00:00:00.000Z",
-      expires_at: "2026-06-28T00:00:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
     assert.equal(head(store.recent(1)).actor?.avatar_url, "https://avatars.githubusercontent.com/u/583231?v=4");
@@ -672,7 +678,7 @@ test("prune drops expired actor profile cache rows", () => {
       avatar_url: "https://avatars.githubusercontent.com/u/2?v=4",
       profile_url: "https://github.com/fresh",
       fetched_at: "2026-06-21T00:00:00.000Z",
-      expires_at: "2026-06-28T00:00:00.000Z",
+      expires_at: UNEXPIRED,
       last_error: null,
     });
 
