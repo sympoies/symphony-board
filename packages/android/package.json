@@ -1,6 +1,6 @@
 {
   "name": "@symphony-board/android",
-  "version": "1.12.6",
+  "version": "1.12.7",
   "private": true,
   "description": "Android thin-client shell for the Symphony Board read-only UI.",
   "type": "module",
