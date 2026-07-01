@@ -4,7 +4,7 @@
   "private": true,
   "description": "Provider-agnostic work-item board: aggregate GitHub/GitLab issues & PR/MRs into a canonical store and emit a versioned JSON contract.",
   "type": "module",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=24",
     "pnpm": ">=11"

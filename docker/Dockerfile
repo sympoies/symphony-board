@@ -16,12 +16,19 @@ WORKDIR /app
 
 # Production deps first for Docker layer caching. `--ignore-scripts` deliberately
 # skips the root prepare hook (lefthook is dev-only) and dependency postinstalls;
-# postgres.js has no build step or transitive deps.
+# postgres.js has no build step or transitive deps. The final step drops
+# build-only tooling from the runtime layer: the base image's bundled npm (which
+# carries its own vulnerable undici/tar) and the corepack pnpm cache are never
+# used at runtime — the entrypoint only runs `node`. Removing them in this same
+# layer keeps them out of the image entirely (smaller image, and no Trivy
+# image-scan findings for tooling the app never executes).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY packages/contract/package.json ./packages/contract/package.json
 RUN corepack enable \
-  && corepack prepare pnpm@11.7.0 --activate \
-  && pnpm install --prod --frozen-lockfile --ignore-scripts
+  && corepack prepare pnpm@11.9.0 --activate \
+  && pnpm install --prod --frozen-lockfile --ignore-scripts \
+  && rm -rf /root/.cache/node/corepack \
+     /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Source + the normative SQL schema (read at runtime by each migrator) + the
 # contract package (its JSON Schema is read by the emit-time validator) + the
