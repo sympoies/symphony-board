@@ -316,6 +316,22 @@ function liveSnapshotMock() {
         ...longRows,
         "",
         "This trailing paragraph intentionally makes the mobile detail body tall enough to need its own scroll region.",
+        "",
+        // Untrusted raw HTML in a provider body — exercises the rehype-raw +
+        // rehype-sanitize chain (react-markdown 10, liveMarkdownSchema). Safe
+        // inline tags must survive; <script>, <img> (dropped from the schema to
+        // block tracking pixels), and javascript: URLs must be stripped. If any
+        // survived, window.__xss would be set on render.
+        "Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search — H<sub>2</sub>O stays inline.",
+        // A surviving safe tag carrying an event-handler attribute: the tag is
+        // kept but the onclick must be stripped (attribute-level sanitization).
+        'Then <kbd onclick="window.__xss = \'kbd\';">Esc</kbd> keeps no handler.',
+        "",
+        '<script>window.__xss = "script";</script>',
+        "",
+        '<img src="x" alt="pixel" onerror="window.__xss = \'img\';">',
+        "",
+        "A [tracking link](javascript:window.__xss='href') must render with a neutralized href.",
       ].join("\n");
       const rankEvents = Array.from({ length: 6 }, (_, i) => {
         const seq = 20 - i;
@@ -3182,6 +3198,30 @@ try {
   const liveMobileLeftSwipeDispatch = await dispatchLiveMobileSwipe({ dx: -112 });
   await sleep(300);
   const liveMobileLeftSwipe = await liveMobileDetailState({ dispatch: liveMobileLeftSwipeDispatch });
+  // With the long delivery-review body open, assert react-markdown 10 renders
+  // its GFM table AND runs the raw-HTML pipeline through the hardened sanitize
+  // schema: safe inline tags (<kbd>/<sub>) survive, while <script>, <img>, and
+  // javascript: hrefs are stripped and no XSS payload executed.
+  const liveMarkdownSanitize = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const body = document.querySelector('.live-detail-body');
+      const html = body?.innerHTML || '';
+      return {
+        hasTable: !!body?.querySelector('table'),
+        keepsSafeRawTag: !!(body?.querySelector('kbd') && body?.querySelector('sub')),
+        stripsScript: !html.includes('<script'),
+        stripsImg: !body?.querySelector('img'),
+        // Safe tags survive but event-handler attributes on them are stripped.
+        stripsEventHandler: !body?.querySelector('[onclick]'),
+        // The javascript: link renders as a real <a> (proving urlTransform ran),
+        // but its href is neutralized — never a javascript: URL.
+        linkRendered: Array.from(body?.querySelectorAll('a') || []).some((a) => (a.textContent || '').includes('tracking link')),
+        stripsJsHref: !Array.from(body?.querySelectorAll('a[href]') || []).some((a) => /^\\s*javascript:/i.test(a.getAttribute('href') || '')),
+        xssNotExecuted: typeof window.__xss === 'undefined',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const liveMobileTableMidSwipeDispatch = await dispatchLiveMobileSwipe({ dx: -112, selector: ".live-detail-body table", yRatio: 0.08, scrollX: "middle" });
   await sleep(300);
   const liveMobileTableMidSwipe = await liveMobileDetailState({ dispatch: liveMobileTableMidSwipeDispatch });
@@ -4245,6 +4285,7 @@ try {
     [liveMobileLeftSwipe.dispatch?.dispatched === true && liveMobileLeftSwipe.motion === "next" && liveMobileLeftSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileLeftSwipe.count || "") && liveMobileLeftSwipe.selectedMatchesDetail === true && liveMobileLeftSwipe.newerDisabled === false && liveMobileLeftSwipe.olderDisabled === false, `live: phone detail left-swipe advances to the older event and selected feed row (${JSON.stringify(liveMobileLeftSwipe)})`],
     [liveMobileTableMidSwipe.dispatch?.dispatched === true && liveMobileTableMidSwipe.dispatch.scrollLeft > 0 && liveMobileTableMidSwipe.dispatch.scrollLeft < liveMobileTableMidSwipe.dispatch.maxScrollLeft && liveMobileTableMidSwipe.motion === "next" && liveMobileTableMidSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileTableMidSwipe.count || "") && liveMobileTableMidSwipe.selectedMatchesDetail === true, `live: phone detail lets a horizontally scrollable markdown table consume swipes before its edge (${JSON.stringify(liveMobileTableMidSwipe)})`],
     [liveMobileTableEdgeSwipe.dispatch?.dispatched === true && liveMobileTableEdgeSwipe.dispatch.maxScrollLeft > 0 && liveMobileTableEdgeSwipe.dispatch.scrollLeft === liveMobileTableEdgeSwipe.dispatch.maxScrollLeft && liveMobileTableEdgeSwipe.motion === "next" && liveMobileTableEdgeSwipe.selectedIndex === "2" && /3\s*\/\s*\d+/.test(liveMobileTableEdgeSwipe.count || "") && liveMobileTableEdgeSwipe.selectedMatchesDetail === true, `live: phone detail changes page from a markdown table once the horizontal edge is reached (${JSON.stringify(liveMobileTableEdgeSwipe)})`],
+    [liveMarkdownSanitize.hasTable === true && liveMarkdownSanitize.keepsSafeRawTag === true && liveMarkdownSanitize.stripsScript === true && liveMarkdownSanitize.stripsImg === true && liveMarkdownSanitize.stripsEventHandler === true && liveMarkdownSanitize.linkRendered === true && liveMarkdownSanitize.stripsJsHref === true && liveMarkdownSanitize.xssNotExecuted === true, `live: react-markdown renders GFM tables + raw HTML through the hardened sanitize schema — keeps <kbd>/<sub>, strips <script>/<img>/event-handlers, neutralizes javascript: hrefs, no XSS executed (${JSON.stringify(liveMarkdownSanitize)})`],
     [liveMobileAfterTableReturn.dispatch?.dispatched === true && liveMobileAfterTableReturn.motion === "previous" && liveMobileAfterTableReturn.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileAfterTableReturn.count || "") && liveMobileAfterTableReturn.selectedMatchesDetail === true, `live: phone detail returns from the table-edge page for subsequent gesture checks (${JSON.stringify(liveMobileAfterTableReturn)})`],
     [liveMobileIgnoredLinkSwipe.dispatch?.dispatched === true && liveMobileIgnoredLinkSwipe.motion === liveMobileAfterTableReturn.motion && liveMobileIgnoredLinkSwipe.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileIgnoredLinkSwipe.count || "") && liveMobileIgnoredLinkSwipe.selectedMatchesDetail === true && liveMobileIgnoredLinkSwipe.newerDisabled === false && liveMobileIgnoredLinkSwipe.olderDisabled === false, `live: phone detail ignores swipes that start on the title link (${JSON.stringify(liveMobileIgnoredLinkSwipe)})`],
     [liveMobileOverlaySwipe.dispatch?.dispatched === true && liveMobileOverlaySwipe.motion === "previous" && liveMobileOverlaySwipe.selectedIndex === "0" && /1\s*\/\s*\d+/.test(liveMobileOverlaySwipe.count || "") && liveMobileOverlaySwipe.selectedMatchesDetail === true && liveMobileOverlaySwipe.newerDisabled === true && liveMobileOverlaySwipe.olderDisabled === false, `live: phone detail accepts swipe gestures from the full overlay surface (${JSON.stringify(liveMobileOverlaySwipe)})`],

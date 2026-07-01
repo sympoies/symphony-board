@@ -12,6 +12,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "smoke": "node --disable-warning=ExperimentalWarning scripts/render-smoke.mjs",
     "smoke:standalone": "SYMPHONY_BOARD_SMOKE_DIST=dist-standalone SYMPHONY_BOARD_SMOKE_STANDALONE=1 node --disable-warning=ExperimentalWarning scripts/render-smoke.mjs",
+    "build:dev": "SYMPHONY_BOARD_SMOKE_DEV=1 vite build",
+    "smoke:dev": "SYMPHONY_BOARD_SMOKE_DIST=dist-dev node --disable-warning=ExperimentalWarning scripts/render-smoke.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
