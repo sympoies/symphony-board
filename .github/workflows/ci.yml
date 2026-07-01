@@ -51,6 +51,14 @@ jobs:
       - run: pnpm --filter @symphony-board/ui run smoke
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+      # StrictMode render smoke: builds React's development bundle (dist-dev) so
+      # StrictMode's deliberate double-invoke of mount + effects actually runs —
+      # the production smoke above strips it. Catches non-idempotent effects
+      # (unbalanced subscriptions, missing cleanup) that React 19 tightened.
+      - run: pnpm --filter @symphony-board/ui run build:dev
+      - run: pnpm --filter @symphony-board/ui run smoke:dev
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
 
   # PgStore gate: the store conformance suite with the Postgres driver
   # registered, plus the live e2e (from zero through migrate, full sync,

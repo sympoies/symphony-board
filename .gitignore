@@ -31,6 +31,7 @@ out/
 # Build output.
 dist/
 dist-standalone/
+dist-dev/
 target/
 packages/desktop/src-tauri/gen/
 packages/desktop-standalone/src-tauri/gen/
