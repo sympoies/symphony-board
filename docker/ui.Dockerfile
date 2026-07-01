@@ -39,9 +39,15 @@ LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-boar
 USER root
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/ui/dist /usr/share/nginx/html
-# The public UI image must not bake a sample or runtime-emitted contract. The
-# nginx config serves /contract.json from the operator-mounted /srv/data path.
-RUN rm -f /usr/share/nginx/html/contract.json \
+# Patch a base-image OS package the nginx-alpine image ships with known CVEs:
+# libexpat < 2.8.2-r0 carries the CVE-2026-50219 / -561xx / -564xx cluster. The
+# UI server only serves static files and never parses XML, so real exposure is
+# negligible, but pull the fixed package so the container scan stays clean and
+# the image is not shipping a known-vulnerable lib. Then strip the sample
+# contract (the public UI must not bake one; nginx serves /contract.json from
+# the operator-mounted /srv/data path) and lock down the config perms.
+RUN apk add --no-cache --upgrade "libexpat>=2.8.2-r0" \
+  && rm -f /usr/share/nginx/html/contract.json \
   && chmod 0644 /etc/nginx/conf.d/default.conf
 USER nginx
 EXPOSE 8080
