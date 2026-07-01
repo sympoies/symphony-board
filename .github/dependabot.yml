@@ -19,7 +19,10 @@ updates:
       # Keep @types/node aligned with the pinned Node runtime (.node-version=24):
       # the DefinitelyTyped major tracks the latest Node, not the LTS/pinned
       # line, so a major bump surfaces Node-25/26-only API types while CI runs
-      # 24. Minor/patch within the 24 line still flow.
+      # 24. Minor/patch within the 24 line still flow. LOCKSTEP: when the Node
+      # runtime major moves (.node-version + package.json engines.node), lift
+      # this ignore AND the `^24` @types/node pin in package.json together —
+      # otherwise the types silently stay frozen on 24.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:

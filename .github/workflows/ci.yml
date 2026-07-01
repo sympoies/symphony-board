@@ -59,6 +59,11 @@ jobs:
       - run: pnpm --filter @symphony-board/ui run smoke:dev
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          # Distinct ports from the prod smoke above: the two run sequentially so
+          # the default 4399/9333 would not actually collide, but isolating them
+          # removes any zombie-Chrome overlap on reused/self-hosted runners.
+          SYMPHONY_BOARD_SMOKE_HTTP_PORT: "4401"
+          SYMPHONY_BOARD_SMOKE_CDP_PORT: "9335"
 
   # PgStore gate: the store conformance suite with the Postgres driver
   # registered, plus the live e2e (from zero through migrate, full sync,
