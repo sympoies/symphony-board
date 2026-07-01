@@ -43,4 +43,5 @@ signal, not a changelog. Not every session earns an entry.
 
 ## Months
 
+- [2026-07](2026-07.md)
 - [2026-06](2026-06.md)
