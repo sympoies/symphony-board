@@ -2994,6 +2994,17 @@ a.rf-node-title:hover { color: var(--accent); }
 .settings-types { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: flex-start; max-width: 320px; }
 .settings-type { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .settings-type input { accent-color: var(--accent); cursor: pointer; }
+.settings-live-diagnostics { align-items: flex-start; }
+.settings-live-status-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-live-status-list li { margin: 3px 0; }
+.settings-live-status-ok { color: var(--open); }
+.settings-live-status-warn { color: var(--warn); }
+.settings-live-status-muted { color: var(--muted); }
 .settings-tab-order-pref { align-items: flex-start; }
 .settings-tab-order-list {
   flex: 0 0 min(260px, 100%);

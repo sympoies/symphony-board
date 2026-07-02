@@ -2838,6 +2838,47 @@ export interface TokenRateLimitsInfo {
   error?: string; // a config-load failure on the server (no tokens probed)
 }
 
+// --- read-side server capabilities (Settings / Diagnostics) ---
+// Non-contract operational metadata from GET /api/capabilities. It contains only
+// route availability, Live read status, and optional deployment-provided webhook
+// setup hints. It must never contain tokens, webhook secrets, private keys, or
+// raw auth material.
+
+export type LiveCapabilityStatus = "unsupported" | "unreachable" | "empty" | "ready";
+
+export interface ServerCapabilities {
+  schema: string;
+  generated_at?: string | null;
+  server: {
+    mode?: string;
+    contract?: boolean;
+    range?: boolean;
+    stats?: boolean;
+    activity_daily?: boolean;
+    review_candidates?: boolean;
+  };
+  live: {
+    reads: boolean;
+    snapshot?: boolean;
+    stream?: boolean;
+    transport?: string[];
+    provider_webhooks?: string[];
+    status?: LiveCapabilityStatus;
+    latest_seq?: number | null;
+    latest_event_at?: string | null;
+    snapshot_generated_at?: string | null;
+    webhook_setup?: {
+      provider?: string;
+      public_url?: string;
+      events?: string[];
+    };
+    allowlist?: {
+      enabled: boolean;
+      count: number;
+    };
+  };
+}
+
 // --- live event stream (the #/live page) ---
 // View-model mirror of the receiver's `live-event/1` record. Independent of the
 // product contract: the Live page renders from these alone, with no contract

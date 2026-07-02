@@ -31,6 +31,8 @@ import {
 } from "../viewconfig.ts";
 import { LIVE_CATEGORY_ORDER, humanizeCategory } from "../live-stats.ts";
 import { resolveDefaultTab, type Page } from "../nav.ts";
+import { liveCapabilitiesStatusRows } from "../live-capabilities.ts";
+import { useCapabilities, type CapabilitiesState } from "../useCapabilities.ts";
 
 interface Props {
   sources: SourceDTO[]; // per-source health + configured color, read-only (from the contract)
@@ -158,6 +160,7 @@ export function SettingsPage({
   // The wide-layout toggle only does anything in the Android WebView (the browser
   // and desktop shell are freely resizable), so it is shown only there.
   const isAndroid = currentClientKind() === ANDROID_CLIENT_KIND;
+  const capabilities = useCapabilities(serverBaseUrl);
 
   // Group repos by source, preserving deriveRepos' (source, path) ordering.
   const bySource = new Map<string, RepoOption[]>();
@@ -382,6 +385,8 @@ export function SettingsPage({
             </label>
           </div>
 
+          <LiveCapabilitiesStatus state={capabilities} />
+
           {liveTabEffectivelyEnabled ? (
             <>
               <div className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`} title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}>
@@ -554,6 +559,35 @@ export function SettingsPage({
 
 function SettingsSectionTitle({ title }: { title: string }) {
   return <div className="settings-section-title">{title}</div>;
+}
+
+function LiveCapabilitiesStatus({ state }: { state: CapabilitiesState }) {
+  const rows = liveCapabilitiesStatusRows(state.info);
+  return (
+    <div className="settings-pref settings-live-diagnostics">
+      <div>
+        <h3>Live server status</h3>
+        <p className="muted">
+          Server URL covers board, range, and Live reads. Webhook ingress is configured separately by
+          the operator.
+        </p>
+        {state.loading ? (
+          <p className="muted">Checking Live capabilities…</p>
+        ) : (
+          <ul className="settings-live-status-list">
+            {rows.map((row) => (
+              <li key={row.text} className={`settings-live-status-${row.kind}`}>
+                {row.text}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <button type="button" className="toggle" onClick={state.refresh} disabled={state.loading}>
+        {state.loading ? "Checking…" : "Refresh"}
+      </button>
+    </div>
+  );
 }
 
 function SettingsTabs({ active, onTab, lockedToSources = false }: { active: SettingsTab; onTab?: (tab: SettingsTab) => void; lockedToSources?: boolean }) {

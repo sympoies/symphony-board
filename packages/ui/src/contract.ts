@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, LiveSnapshot } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
 
@@ -811,6 +811,40 @@ export async function fetchTokenRateLimits(serverBaseUrl: string | null = loadSe
     if (!res.ok) return null;
     const body = (await readJson(res)) as TokenRateLimitsInfo | null;
     return body && Array.isArray((body as { tokens?: unknown }).tokens) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCapabilitiesStatus(value: unknown): value is ServerCapabilities["live"]["status"] {
+  return value === "unsupported" || value === "unreachable" || value === "empty" || value === "ready";
+}
+
+export function isServerCapabilities(body: unknown): body is ServerCapabilities {
+  if (!body || typeof body !== "object") return false;
+  const record = body as Partial<ServerCapabilities>;
+  if (record.schema !== "symphony-board-capabilities/1") return false;
+  if (!record.server || typeof record.server !== "object") return false;
+  const live = record.live;
+  if (!live || typeof live !== "object") return false;
+  if (typeof live.reads !== "boolean") return false;
+  if (live.status !== undefined && !isCapabilitiesStatus(live.status)) return false;
+  if (live.latest_seq !== undefined && live.latest_seq !== null && typeof live.latest_seq !== "number") return false;
+  if (live.allowlist) {
+    if (typeof live.allowlist !== "object") return false;
+    if (typeof live.allowlist.enabled !== "boolean" || typeof live.allowlist.count !== "number") return false;
+  }
+  if (live.transport !== undefined && !Array.isArray(live.transport)) return false;
+  if (live.provider_webhooks !== undefined && !Array.isArray(live.provider_webhooks)) return false;
+  return true;
+}
+
+export async function fetchCapabilities(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ServerCapabilities | null> {
+  try {
+    const res = await appFetch(resolveEndpoint("./api/capabilities", serverBaseUrl), { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = await readJson(res);
+    return isServerCapabilities(body) ? body : null;
   } catch {
     return null;
   }

@@ -100,6 +100,16 @@ services:
       # GET /api/activity-daily (the full-history activity_daily aggregate); must
       # match the board's CONTRACT_OUT.
       CONTRACT_OUT: data/contract.json
+      # Safe read-side capability metadata for GET /api/capabilities. The api
+      # sidecar probes only the internal Live reads listener; webhook ingress
+      # remains deployment-owned and is never proxied by web.
+      SYMPHONY_SERVER_MODE: docker
+      LIVE_READ_BASE_URL: http://live:8090
+      LIVE_PROVIDER_WEBHOOKS: github
+      LIVE_WEBHOOK_PUBLIC_URL: ${LIVE_WEBHOOK_PUBLIC_URL:-}
+      LIVE_WEBHOOK_PROVIDER: ${LIVE_WEBHOOK_PROVIDER:-}
+      LIVE_WEBHOOK_EVENTS: ${LIVE_WEBHOOK_EVENTS:-}
+      LIVE_PROJECT_ALLOWLIST: ${LIVE_PROJECT_ALLOWLIST:-}
     env_file:
       - path: ${SYMPHONY_ENV_FILE:-../.env}
         required: false

@@ -195,6 +195,16 @@ test("app-server serves health, contract, range, and the sync control surface", 
     assert.equal(reviewCandidatesRes.status, 200);
     assert.deepEqual(await json(reviewCandidatesRes), []);
 
+    // read-side capabilities: standalone has no bundled Live receiver, so Live
+    // reads are advertised as unsupported without exposing any webhook metadata.
+    const capsRes = await fetch(`${base}/api/capabilities`);
+    assert.equal(capsRes.status, 200);
+    const caps = await json(capsRes);
+    assert.equal(caps.schema, "symphony-board-capabilities/1");
+    assert.equal(caps.server.mode, "standalone");
+    assert.equal(caps.live.reads, false);
+    assert.equal(caps.live.status, "unsupported");
+
     // recent-log tail: enabled here; "?after=latest" means caught up
     const logs = await json(await fetch(`${base}/api/logs`));
     assert.equal(logs.enabled, true);

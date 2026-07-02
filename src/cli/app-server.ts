@@ -49,6 +49,7 @@ import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
+import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest } from "../server/capabilities.ts";
 import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
 
@@ -186,6 +187,11 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
     // range as its primary env. See src/server/activity-daily.ts.
     if (method === "GET" && path === "/api/activity-daily") {
       handleActivityDailyRequest(opts.contractOut, res, req.headers["accept-encoding"]);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/capabilities") {
+      await handleCapabilitiesRequest(capabilitiesOptionsFromEnv(process.env, { serverMode: "standalone" }), res);
       return;
     }
 

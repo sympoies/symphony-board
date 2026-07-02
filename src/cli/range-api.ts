@@ -12,6 +12,7 @@ import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
+import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
 
 interface Args {
   config: string | null;
@@ -54,6 +55,9 @@ export interface RangeApiOptions {
   // /api/activity-daily aggregate; matches the CONTRACT_OUT the board daemon
   // writes.
   contractOut: string;
+  // Optional test/deployment override for GET /api/capabilities. Runtime defaults
+  // come from safe, non-secret environment metadata.
+  capabilities?: Partial<CapabilitiesOptions>;
 }
 
 // Build the read-only range-query server (not yet listening). Exported so tests
@@ -75,6 +79,16 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
     // Reads the emitted contract file directly (no config, no store access).
     if (req.method === "GET" && url.pathname === "/api/activity-daily") {
       handleActivityDailyRequest(opts.contractOut, res, req.headers["accept-encoding"]);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/capabilities") {
+      void handleCapabilitiesRequest(
+        {
+          ...capabilitiesOptionsFromEnv(process.env, { serverMode: "api" }),
+          ...opts.capabilities,
+        },
+        res,
+      );
       return;
     }
     if (
