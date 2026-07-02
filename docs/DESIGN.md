@@ -761,19 +761,28 @@ fails to load — exactly when it is needed.
 
 | Route | Method | Served by | Purpose |
 | --- | --- | --- | --- |
+| `/api/capabilities` | GET | read-only `api` sidecar / app server | safe server capability/status document: board read routes, Live read availability, Live snapshot status, optional non-secret webhook setup hint, and allowlist enabled/count |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
 | `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
 | `/api/logs` | GET | writer (`board` daemon / app server) | the writer process's in-memory recent-log tail; `?after=<seq>` returns only newer entries |
 
-**Stats and review candidates are operational surfaces, not contract.**
-`/api/stats` describes the store (sizes, row counts, run history), never the
-work-item data model, so it carries no `contract_version` and needs no bump.
+**Capabilities, stats, and review candidates are operational surfaces, not
+contract.** `/api/capabilities` describes route availability and Live setup
+state, never work-item data, so it carries no `contract_version` and needs no
+bump. It may probe the internal Live reads listener (`LIVE_READ_BASE_URL`) and
+may echo only non-secret deployment metadata such as `LIVE_WEBHOOK_PUBLIC_URL`,
+`LIVE_WEBHOOK_PROVIDER`, `LIVE_WEBHOOK_EVENTS`, and the count of
+`LIVE_PROJECT_ALLOWLIST`; it must never return webhook secrets, provider tokens,
+private keys, or raw auth headers. `/api/stats` describes the store (sizes, row
+counts, run history), never the work-item data model, so it carries no
+`contract_version` and needs no bump.
 `/api/review-candidates` is an agent/workflow surface for review-thread cleanup:
 it computes from the full canonical store, not the windowed UI contract, so an
 old merged PR with a lingering unresolved thread still appears. Both follow the
 `/api/range` access discipline — every request opens the configured store
 read-only and closes it — and live on the read-only `api` sidecar in the Docker
-stack (the generic `/api/` proxy covers them).
+stack (the generic `/api/` proxy covers them). Capabilities needs no canonical
+store handle.
 
 **Logs are a per-process ring buffer.** `src/log.ts` tees every line into a
 1000-entry in-memory buffer with a monotonic `seq`; `GET /api/logs` is gated by
@@ -835,6 +844,12 @@ public/tailnet boundary does not depend on out-of-repo proxy config alone:
   and a connection cap to bound an unauthenticated POST flood, and the SSE
   broadcaster evicts a subscriber whose buffer backs up past a cap (so one slow
   reader cannot grow receiver memory without bound).
+- **Read-side setup diagnostics:** `GET /api/capabilities` is served by the
+  read-only API/app-server surface the UI already uses. In Docker it may probe
+  the internal Live reads listener (`http://live:8090`) and return current
+  `unsupported` / `unreachable` / `empty` / `ready` state, latest sequence/time,
+  and optional deployment-provided webhook setup hints. It never proxies
+  `/webhooks/*`, never talks to providers, and never returns secrets.
 
 ### Least-privilege receiver
 

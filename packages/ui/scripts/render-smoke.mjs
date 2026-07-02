@@ -121,10 +121,40 @@ let rangeFailOnce = false;
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
+let capabilitiesRequestCount = 0;
 let liveSnapshotLarge = false;
 let liveSnapshotRankFit = false;
 let secretValidationRequestCount = 0;
 const secretRequestLog = [];
+const CAPABILITIES_MOCK = {
+  schema: "symphony-board-capabilities/1",
+  generated_at: "2026-07-02T12:00:00.000Z",
+  server: {
+    mode: "smoke",
+    contract: true,
+    range: true,
+    stats: true,
+    activity_daily: true,
+    review_candidates: true,
+  },
+  live: {
+    reads: true,
+    snapshot: true,
+    stream: true,
+    transport: ["sse"],
+    provider_webhooks: ["github"],
+    status: "ready",
+    latest_seq: 3,
+    latest_event_at: "2026-07-02T11:59:00.000Z",
+    snapshot_generated_at: "2026-07-02T12:00:00.000Z",
+    allowlist: { enabled: true, count: 2 },
+    webhook_setup: {
+      provider: "github",
+      public_url: "https://deploy.example/webhooks/github",
+      events: ["issues", "pull_request"],
+    },
+  },
+};
 async function syncSources() {
   if (cachedSyncSources) return cachedSyncSources;
   try {
@@ -592,6 +622,10 @@ async function handleSmokeRequest(req, res) {
       }));
       return;
     }
+    if (p === "/__smoke/capabilities-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ capabilitiesRequests: capabilitiesRequestCount }));
+      return;
+    }
     if (p === "/__smoke/first-paint") {
       const url = new URL(req.url || "/__smoke/first-paint", `http://127.0.0.1:${HTTP_PORT}`);
       const indexHtml = await readFile(join(DIST, "index.html"), "utf8");
@@ -636,6 +670,11 @@ async function handleSmokeRequest(req, res) {
       liveSnapshotRequestCount += 1;
       liveSnapshotRequestUrls.push(req.url || "/api/live-snapshot");
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify(liveSnapshotMock()));
+      return;
+    }
+    if (p === "/api/capabilities") {
+      capabilitiesRequestCount += 1;
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify(CAPABILITIES_MOCK));
       return;
     }
     if (p === "/api/stats") {
@@ -1079,6 +1118,20 @@ try {
       awaitPromise: true,
       returnByValue: true,
     })).result.value || 0;
+  const capabilitiesRequests = async () =>
+    (await send("Runtime.evaluate", {
+      expression: "fetch('/__smoke/capabilities-count').then((res) => res.json()).then((body) => body.capabilitiesRequests || 0)",
+      awaitPromise: true,
+      returnByValue: true,
+    })).result.value || 0;
+  const waitForCapabilitiesRequests = async (previous) => {
+    let count = await capabilitiesRequests();
+    while (Date.now() < deadline && count <= previous) {
+      await sleep(50);
+      count = await capabilitiesRequests();
+    }
+    return count;
+  };
   const liveSnapshotState = async () =>
     (await send("Runtime.evaluate", {
       expression: "fetch('/__smoke/live-snapshot-count').then((res) => res.json())",
@@ -2329,6 +2382,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  await waitValue("document.querySelectorAll('.settings-live-status-list li').length > 0 ? true : null");
   const colorModeBefore = (await send("Runtime.evaluate", {
     expression: `(() => {
       const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
@@ -2374,16 +2428,34 @@ try {
       const board = prefByTitle('Board data');
       const boardBox = board?.querySelector('input[type="checkbox"]');
       const liveBox = prefByTitle('Live tab')?.querySelector('input[type="checkbox"]');
+      const liveStatusRows = Array.from(document.querySelectorAll('.settings-live-status-list li')).map((el) => el.textContent?.replace(/\\s+/g, ' ').trim() || '');
+      const liveRefresh = document.querySelector('.settings-live-diagnostics button');
       return {
         headings: Array.from(document.querySelectorAll('.settings-page h3')).map((el) => el.textContent?.trim() || ''),
         boardControl: boardBox?.type || '',
         boardChecked: !!boardBox?.checked,
         liveControl: liveBox?.type || '',
         boardHelp: board?.querySelector('.muted')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        liveStatusRows,
+        liveRefreshLabel: liveRefresh?.textContent?.trim() || '',
       };
     })()`,
     returnByValue: true,
-  })).result.value || { headings: [], boardControl: "", liveControl: "", boardHelp: "" };
+  })).result.value || { headings: [], boardControl: "", liveControl: "", boardHelp: "", liveStatusRows: [], liveRefreshLabel: "" };
+  const liveCapabilitiesBeforeRefresh = await capabilitiesRequests();
+  const liveStatusRefresh = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const button = document.querySelector('.settings-live-diagnostics button');
+      if (!button || button.disabled) return { clicked: false, label: button?.textContent?.trim() || '' };
+      const label = button.textContent?.trim() || '';
+      button.click();
+      return { clicked: true, label };
+    })()`,
+    returnByValue: true,
+  })).result.value || { clicked: false, label: "" };
+  const liveCapabilitiesAfterRefresh = liveStatusRefresh.clicked
+    ? await waitForCapabilitiesRequests(liveCapabilitiesBeforeRefresh)
+    : liveCapabilitiesBeforeRefresh;
   const tabOrderBefore = (await send("Runtime.evaluate", {
     expression: `(() => Array.from(document.querySelectorAll('.page-tabs .tab')).map((el) => el.textContent?.replace(/\\s+/g, ' ').trim() || ''))()`,
     returnByValue: true,
@@ -4421,9 +4493,11 @@ try {
 	    [firstPaintStoredDark?.theme === "night-owl" && firstPaintStoredDark?.colorScheme === "dark" && firstPaintStoredDark?.themeColor === "#030b22", `settings: first-paint stored Dark wins over light system mode (${JSON.stringify(firstPaintStoredDark)})`],
 	    [firstPaintLegacyPaper?.theme === "paper" && firstPaintLegacyPaper?.colorScheme === "light" && firstPaintLegacyPaper?.themeColor === "#f4f3ed", `settings: first-paint legacy Paper storage maps to Light (${JSON.stringify(firstPaintLegacyPaper)})`],
 	    [firstPaintLegacyNightOwl?.theme === "night-owl" && firstPaintLegacyNightOwl?.colorScheme === "dark" && firstPaintLegacyNightOwl?.themeColor === "#030b22", `settings: first-paint legacy Night Owl storage maps to Dark (${JSON.stringify(firstPaintLegacyNightOwl)})`],
-	    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.before === "night-owl" && colorModeBefore.colorScheme === "dark" && colorModeBefore.themeColor === "#030b22" && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System and resolves dark (${JSON.stringify(colorModeBefore)})`],
+    [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.before === "night-owl" && colorModeBefore.colorScheme === "dark" && colorModeBefore.themeColor === "#030b22" && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System and resolves dark (${JSON.stringify(colorModeBefore)})`],
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
+    [(settingsDisplayModel.liveStatusRows || []).some((row) => /latest seq 3/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Webhook setup hint: github https:\/\/deploy\.example\/webhooks\/github/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Allowlist enabled for 2 projects/.test(row)), `settings: Live diagnostics render latest event, webhook hint, and allowlist (${JSON.stringify(settingsDisplayModel.liveStatusRows || [])})`],
+    [settingsDisplayModel.liveRefreshLabel === "Refresh" && liveStatusRefresh.clicked === true && liveCapabilitiesAfterRefresh > liveCapabilitiesBeforeRefresh, `settings: Live diagnostics refresh re-probes capabilities (${liveCapabilitiesBeforeRefresh} -> ${liveCapabilitiesAfterRefresh}, ${JSON.stringify(liveStatusRefresh)})`],
     [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Live tab") > settingIndex("Tab order") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
     [tabOrderClick.clicked === true && JSON.stringify(tabOrderBefore) === JSON.stringify(expectedTabOrderBeforeMove) && JSON.stringify(tabOrderAfterMove.labels) === JSON.stringify(expectedTabOrderAfterMove) && JSON.stringify(tabOrderAfterMove.rows) === JSON.stringify(expectedContentRowsAfterMove) && tabOrderAfterMove.stored === expectedStoredTabOrderAfterMove, `settings: tab order control moves Graph before Board while Live/Settings stay anchored (${JSON.stringify(tabOrderAfterMove)})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],

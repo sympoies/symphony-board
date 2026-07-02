@@ -134,14 +134,15 @@ Docker Compose runs these services in the default SQLite stack:
 - `api`: a read-only Node sidecar. It opens the configured store read-only and
   serves `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`, review cleanup
   discovery on `GET /api/review-candidates`, plus store statistics on
-  `GET /api/stats`.
+  `GET /api/stats`, and safe server/Live metadata on `GET /api/capabilities`.
 - `live`: a least-privilege webhook receiver. It owns its own append-only
   `live.db`; it does not mount provider config, provider tokens, or the
   canonical store.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
   latest `data/contract.json` as `/contract.json`, proxies `/api/range`,
-  `/api/stats`, `/api/review-candidates`, and `/api/live*` to read-only
-  services, and proxies sync-control and log-tail routes to `board`.
+  `/api/stats`, `/api/review-candidates`, `/api/capabilities`, and
+  `/api/live*` to read-only services, and proxies sync-control and log-tail
+  routes to `board`.
 
 ```sh
 cat > .env <<'EOF'
@@ -289,6 +290,13 @@ publicly and keep the SSE/snapshot reads (`/api/live*`) behind a private network
 or authenticated UI edge. The app repo owns the listener split; host-specific
 ingress wiring belongs in the deployment repo or operator runbook.
 
+Thin clients use the single Settings -> Server URL for `/contract.json`,
+`/api/range`, `/api/capabilities`, and `/api/live*` reads. Do not add a separate
+Live URL for the browser. `GET /api/capabilities` is safe to expose on the same
+read side because it returns only route booleans, Live read status, optional
+webhook setup hints, and allowlist enabled/count; it never returns the webhook
+secret, provider tokens, private keys, or raw credential material.
+
 Set `WEBHOOK_GITHUB_SECRET` and, during a rotation window,
 `WEBHOOK_GITHUB_SECRET_PREVIOUS`, to match the GitHub org webhook secret. The
 `live` service reads it by `environment:` interpolation, which resolves the
@@ -301,7 +309,9 @@ WEBHOOK_GITHUB_SECRET=... docker compose -f docker/compose.yaml up -d live
 ```
 
 See [`.env.example`](../.env.example) for bind ports, retention settings, and
-allowlist variables.
+allowlist variables. Deployments may also set `LIVE_WEBHOOK_PUBLIC_URL`,
+`LIVE_WEBHOOK_PROVIDER`, and `LIVE_WEBHOOK_EVENTS` to show a non-secret webhook
+setup hint in Settings; leave them unset for local/static deployments.
 
 ## Optional Release Dispatch
 
@@ -417,8 +427,8 @@ tailscale serve --bg 18080
 ```
 
 Use the resulting tailnet URL in Settings -> Server. Validate from a tailnet
-device with `/contract.json`, `/api/range?...`, and `/api/stats`. Do not expose
-Postgres or provider config/token files to Android.
+device with `/contract.json`, `/api/range?...`, `/api/capabilities`, and
+`/api/stats`. Do not expose Postgres or provider config/token files to Android.
 
 ## Inspection Helpers
 

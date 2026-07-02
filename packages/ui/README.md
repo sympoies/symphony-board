@@ -178,6 +178,20 @@ adds a **Manual sync** section for full sweeps, dry-runs, and source-scoped runs
 The UI is still read-only with respect to providers: this only triggers a local
 provider-read sync owned by the daemon; it never writes back to a provider.
 
+## Live Capabilities
+
+Settings uses the configured Server URL for board reads and Live diagnostics:
+`./api/capabilities` advertises safe read-side capabilities, and older
+deployments fall back to a small `./api/live-snapshot` probe. The UI shows
+whether Live reads are unsupported, unreachable, reachable with no retained
+events, or reachable with the latest sequence/time. When a deployment provides a
+non-secret webhook setup hint, Settings can show the provider, public webhook
+URL, subscribed events, and allowlist count.
+
+There is intentionally no separate Live URL setting. Public webhook ingress is a
+deployment/operator concern and remains outside the UI sidecar; `/webhooks/*` is
+not proxied through the app.
+
 ## Run
 
 From the repository root:
@@ -235,8 +249,9 @@ pnpm --filter @symphony-board/ui dev
 
 For deployment, use the repo's Docker Compose stack. The `web` service serves
 the built UI, aliases the daemon-emitted `data/contract.json` to
-`/contract.json`, proxies `/api/range` to the read-only range API sidecar, and
-proxies the sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the
-`board` daemon. The UI therefore reads the latest static contract, can request
-explicit date ranges, and can trigger a daemon-owned manual sync — all without
-becoming a database writer itself.
+`/contract.json`, proxies `/api/range` and `/api/capabilities` to the read-only
+range API sidecar, proxies `/api/live*` to the Live reads listener, and proxies
+the sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the `board`
+daemon. The UI therefore reads the latest static contract, can request explicit
+date ranges, can explain Live read/webhook setup state, and can trigger a
+daemon-owned manual sync — all without becoming a database writer itself.

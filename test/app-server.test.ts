@@ -99,6 +99,12 @@ async function sandbox(): Promise<{ dir: string; opts: AppServerOptions }> {
       secretsPath: join(dir, "secrets.env"),
       intervalSeconds: 120,
       fullEvery: 30,
+      capabilities: {
+        liveReadBaseUrl: null,
+        providerWebhooks: [],
+        allowlistProjects: [],
+        webhookSetup: null,
+      },
     },
   };
 }
@@ -194,6 +200,16 @@ test("app-server serves health, contract, range, and the sync control surface", 
     const reviewCandidatesRes = await fetch(`${base}/api/review-candidates`);
     assert.equal(reviewCandidatesRes.status, 200);
     assert.deepEqual(await json(reviewCandidatesRes), []);
+
+    // read-side capabilities: standalone has no bundled Live receiver, so Live
+    // reads are advertised as unsupported without exposing any webhook metadata.
+    const capsRes = await fetch(`${base}/api/capabilities`);
+    assert.equal(capsRes.status, 200);
+    const caps = await json(capsRes);
+    assert.equal(caps.schema, "symphony-board-capabilities/1");
+    assert.equal(caps.server.mode, "standalone");
+    assert.equal(caps.live.reads, false);
+    assert.equal(caps.live.status, "unsupported");
 
     // recent-log tail: enabled here; "?after=latest" means caught up
     const logs = await json(await fetch(`${base}/api/logs`));
@@ -327,6 +343,27 @@ test("app-server gzips /contract.json for Accept-Encoding: gzip, serves raw othe
     const decodedB = JSON.parse(gunzipSync(gz2.body).toString("utf8"));
     assert.equal(decodedB.activities[0].id, "b-0", "re-compressed after the contract file changed");
   } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("app-server capability overrides keep standalone tests isolated from ambient Live env", async () => {
+  const originalLiveReadBaseUrl = process.env.LIVE_READ_BASE_URL;
+  process.env.LIVE_READ_BASE_URL = "http://ambient-live.invalid";
+  const { dir, opts } = await sandbox();
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const server = createAppServer(controller, opts);
+  const base = await listen(server);
+  try {
+    const capsRes = await fetch(`${base}/api/capabilities`);
+    assert.equal(capsRes.status, 200);
+    const caps = await json(capsRes);
+    assert.equal(caps.live.reads, false);
+    assert.equal(caps.live.status, "unsupported");
+  } finally {
+    if (originalLiveReadBaseUrl === undefined) delete process.env.LIVE_READ_BASE_URL;
+    else process.env.LIVE_READ_BASE_URL = originalLiveReadBaseUrl;
     await close(server);
     rmSync(dir, { recursive: true, force: true });
   }

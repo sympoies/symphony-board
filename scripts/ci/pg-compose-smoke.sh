@@ -99,6 +99,7 @@ contract="$WORKDIR/contract.json"
 contract_gzip="$WORKDIR/contract.json.gz"
 contract_gzip_headers="$WORKDIR/contract.gzip.headers"
 stats="$WORKDIR/stats.json"
+capabilities="$WORKDIR/capabilities.json"
 config_probe="$WORKDIR/config-probe.json"
 config_next="$WORKDIR/config-next.json"
 secrets_probe="$WORKDIR/secrets-probe.json"
@@ -150,6 +151,31 @@ if (stats.db?.schema_version !== 12) {
   process.exit(1);
 }
 ' "$stats"
+
+curl -fsS "$base/api/capabilities" >"$capabilities"
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
+node -e '
+const fs = require("fs");
+const caps = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (caps.schema !== "symphony-board-capabilities/1") {
+  console.error(`expected capabilities schema, got ${caps.schema ?? "(missing)"}`);
+  process.exit(1);
+}
+if (caps.server?.mode !== "docker") {
+  console.error(`expected server.mode=docker, got ${caps.server?.mode ?? "(missing)"}`);
+  process.exit(1);
+}
+if (!["unsupported", "unreachable", "empty", "ready"].includes(caps.live?.status)) {
+  console.error(`unexpected live.status ${caps.live?.status ?? "(missing)"}`);
+  process.exit(1);
+}
+const text = JSON.stringify(caps);
+if (/secret|token|private[_-]?key/i.test(text)) {
+  console.error("capabilities response must not expose credential fields");
+  process.exit(1);
+}
+' "$capabilities"
 
 # The full-history activity_daily aggregate, served by the api sidecar from the
 # contract volume (mounted read-only) and proxied by nginx. Proves the route is
