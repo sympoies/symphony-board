@@ -84,6 +84,63 @@ test("range-api serves read-side capabilities with Live unsupported by default",
   }
 });
 
+test("capabilities reports configured Live reads as unreachable when the probe fails", async () => {
+  const failures: Array<{ name: string; fetchImpl: typeof fetch }> = [
+    {
+      name: "http_500",
+      fetchImpl: (async () => new Response(JSON.stringify({ error: "down" }), { status: 500 })) as typeof fetch,
+    },
+    {
+      name: "network",
+      fetchImpl: (async () => {
+        throw new Error("network down");
+      }) as typeof fetch,
+    },
+    {
+      name: "malformed",
+      fetchImpl: (async () => new Response(JSON.stringify({ schema: "not-live", events: [], max_seq: 1 }))) as typeof fetch,
+    },
+  ];
+
+  for (const { name, fetchImpl } of failures) {
+    const caps = await buildCapabilities({
+      serverMode: "docker",
+      liveReadBaseUrl: `http://live.invalid/${name}`,
+      fetchImpl,
+      liveProbeTimeoutMs: 1,
+    });
+    assert.equal(caps.live.reads, true, name);
+    assert.equal(caps.live.snapshot, true, name);
+    assert.equal(caps.live.stream, true, name);
+    assert.equal(caps.live.status, "unreachable", name);
+    assert.equal(caps.live.latest_seq, null, name);
+    assert.equal(caps.live.latest_event_at, null, name);
+  }
+});
+
+test("capabilities reports an empty but reachable Live receiver distinctly", async () => {
+  const caps = await buildCapabilities({
+    serverMode: "docker",
+    liveReadBaseUrl: "http://live.invalid",
+    fetchImpl: (async () =>
+      new Response(
+        JSON.stringify({
+          schema: "live-snapshot/1",
+          generated_at: "2026-07-02T12:00:00.000Z",
+          events: [],
+          max_seq: 0,
+        }),
+        { status: 200 },
+      )) as typeof fetch,
+  });
+
+  assert.equal(caps.live.reads, true);
+  assert.equal(caps.live.status, "empty");
+  assert.equal(caps.live.latest_seq, 0);
+  assert.equal(caps.live.latest_event_at, null);
+  assert.equal(caps.live.snapshot_generated_at, "2026-07-02T12:00:00.000Z");
+});
+
 class NoopProvider implements WebhookProvider {
   readonly id = "github" as const;
   readonly eventHeaderName = "x-github-event";

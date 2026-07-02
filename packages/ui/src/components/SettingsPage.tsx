@@ -160,7 +160,6 @@ export function SettingsPage({
   // The wide-layout toggle only does anything in the Android WebView (the browser
   // and desktop shell are freely resizable), so it is shown only there.
   const isAndroid = currentClientKind() === ANDROID_CLIENT_KIND;
-  const capabilities = useCapabilities(serverBaseUrl);
 
   // Group repos by source, preserving deriveRepos' (source, path) ordering.
   const bySource = new Map<string, RepoOption[]>();
@@ -186,6 +185,7 @@ export function SettingsPage({
 
   const showTabs = config?.available === true;
   const activeTab: SettingsTab = setupLocked || (showTabs && tab === "sources") ? "sources" : "display";
+  const capabilities = useCapabilities(serverBaseUrl, !standalone && activeTab === "display");
 
   if (showTabs && activeTab === "sources" && config) {
     return (

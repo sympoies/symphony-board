@@ -820,6 +820,21 @@ function isCapabilitiesStatus(value: unknown): value is ServerCapabilities["live
   return value === "unsupported" || value === "unreachable" || value === "empty" || value === "ready";
 }
 
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isCapabilitiesWebhookSetup(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const setup = value as { provider?: unknown; public_url?: unknown; events?: unknown };
+  return isOptionalString(setup.provider) && isOptionalString(setup.public_url) && (setup.events === undefined || isStringArray(setup.events));
+}
+
 export function isServerCapabilities(body: unknown): body is ServerCapabilities {
   if (!body || typeof body !== "object") return false;
   const record = body as Partial<ServerCapabilities>;
@@ -836,12 +851,29 @@ export function isServerCapabilities(body: unknown): body is ServerCapabilities 
   }
   if (live.transport !== undefined && !Array.isArray(live.transport)) return false;
   if (live.provider_webhooks !== undefined && !Array.isArray(live.provider_webhooks)) return false;
+  if (!isCapabilitiesWebhookSetup(live.webhook_setup)) return false;
   return true;
 }
 
-export async function fetchCapabilities(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ServerCapabilities | null> {
+export const CAPABILITIES_CONNECT_TIMEOUT_MS = 5_000;
+export const CAPABILITIES_REQUEST_TIMEOUT_MS = 8_000;
+
+export interface CapabilitiesFetchOptions {
+  requestTimeoutMs?: number;
+  connectTimeoutMs?: number;
+}
+
+export async function fetchCapabilities(
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  opts: CapabilitiesFetchOptions = {},
+): Promise<ServerCapabilities | null> {
+  const signal = createAttemptTimeoutSignal(opts.requestTimeoutMs ?? CAPABILITIES_REQUEST_TIMEOUT_MS);
   try {
-    const res = await appFetch(resolveEndpoint("./api/capabilities", serverBaseUrl), { cache: "no-store" });
+    const res = await appFetch(resolveEndpoint("./api/capabilities", serverBaseUrl), {
+      cache: "no-store",
+      signal,
+      connectTimeout: opts.connectTimeoutMs ?? CAPABILITIES_CONNECT_TIMEOUT_MS,
+    });
     if (!res.ok) return null;
     const body = await readJson(res);
     return isServerCapabilities(body) ? body : null;

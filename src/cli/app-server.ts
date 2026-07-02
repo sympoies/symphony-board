@@ -49,7 +49,7 @@ import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
-import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest } from "../server/capabilities.ts";
+import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
 import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
 
@@ -135,6 +135,7 @@ export interface AppServerOptions {
   secretsPath: string | null;
   intervalSeconds: number;
   fullEvery: number;
+  capabilities?: Partial<CapabilitiesOptions>;
 }
 
 // Build the unified HTTP server (not yet listening). Exported so tests can
@@ -191,7 +192,13 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
     }
 
     if (method === "GET" && path === "/api/capabilities") {
-      await handleCapabilitiesRequest(capabilitiesOptionsFromEnv(process.env, { serverMode: "standalone" }), res);
+      await handleCapabilitiesRequest(
+        {
+          ...capabilitiesOptionsFromEnv(process.env, { serverMode: "standalone" }),
+          ...opts.capabilities,
+        },
+        res,
+      );
       return;
     }
 
