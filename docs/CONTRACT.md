@@ -291,6 +291,11 @@ emitted edges. This is a major-version change because consumers must no longer
 derive full totals, full repo inventory, or full historical Board cards from
 `items[]`.
 
+Consumers that need a full current open-work queue should use the operational
+`GET /api/actionable` surface instead of deriving it from `items[]`. That route
+reads the canonical store through the read-only API sidecar and is not part of
+this semver contract.
+
 Known `kind` values are `issue` and `change_request`, but the contract keeps
 `kind` as an open string.
 

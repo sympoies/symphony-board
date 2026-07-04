@@ -478,7 +478,8 @@ The Docker deployment keeps the same process split in both store modes:
 
 - `board`: backend loop daemon and sole writer; also serves the writer-owned
   sync control surface (see below)
-- `api`: read-only range query sidecar over the configured store
+- `api`: read-only range query and operational discovery sidecar over the
+  configured store
 - `web`: read-only nginx sidecar serving the built UI and `/contract.json`
 - `live`: least-privilege webhook receiver + tailnet SSE/snapshot for the Live
   page; owns its own `live.db`, with no canonical store / token / config (see
@@ -506,13 +507,13 @@ Postgres, provider tokens, or config files to Android.
 The daemon writes `data/contract.json` inside its deployment's data volume. The
 API sidecar mounts config read-only, opens the configured store read-only
 (SQLite `query_only` or Postgres `default_transaction_read_only`), and serves
-`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`. The web sidecar mounts the
-emitted contract read-only, serves `/contract.json` with `Cache-Control:
-no-store`, proxies `/api/range` to the read-only API sidecar, and proxies the
-sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the `board`
-daemon's internal control port. `web` depends on both `board` and `api`
-healthchecks so it does not serve before the first contract and read-only API
-are ready.
+`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus operational discovery
+routes such as `/api/actionable`. The web sidecar mounts the emitted contract
+read-only, serves `/contract.json` with `Cache-Control: no-store`, proxies
+read-only `/api/*` routes to the API sidecar, and proxies the sync-control
+routes (`/api/sync-control`, `/api/sync-runs`) to the `board` daemon's internal
+control port. `web` depends on both `board` and `api` healthchecks so it does
+not serve before the first contract and read-only API are ready.
 
 There is intentionally no external cron and no second writer **of the canonical
 store**. The `live` receiver is the single writer of its own, separate `live.db`
@@ -764,25 +765,29 @@ fails to load — exactly when it is needed.
 | `/api/capabilities` | GET | read-only `api` sidecar / app server | safe server capability/status document: board read routes, Live read availability, Live snapshot status, optional non-secret webhook setup hint, and allowlist enabled/count |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
 | `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
+| `/api/actionable` | GET | read-only `api` sidecar / app server | open-work discovery over the full canonical store; accepts `repo`, `source`, `limit`, `stale_days`, and `include_unconfigured`, and returns items grouped into actionable buckets |
 | `/api/logs` | GET | writer (`board` daemon / app server) | the writer process's in-memory recent-log tail; `?after=<seq>` returns only newer entries |
 
-**Capabilities, stats, and review candidates are operational surfaces, not
-contract.** `/api/capabilities` describes route availability and Live setup
-state, never work-item data, so it carries no `contract_version` and needs no
-bump. It may probe the internal Live reads listener (`LIVE_READ_BASE_URL`) and
-may echo only non-secret deployment metadata such as `LIVE_WEBHOOK_PUBLIC_URL`,
-`LIVE_WEBHOOK_PROVIDER`, `LIVE_WEBHOOK_EVENTS`, and the count of
-`LIVE_PROJECT_ALLOWLIST`; it must never return webhook secrets, provider tokens,
-private keys, or raw auth headers. `/api/stats` describes the store (sizes, row
-counts, run history), never the work-item data model, so it carries no
-`contract_version` and needs no bump.
+**Capabilities, stats, review candidates, and actionable work are operational
+surfaces, not contract.** `/api/capabilities` describes route availability and
+Live setup state, never work-item data, so it carries no `contract_version` and
+needs no bump. It may probe the internal Live reads listener
+(`LIVE_READ_BASE_URL`) and may echo only non-secret deployment metadata such as
+`LIVE_WEBHOOK_PUBLIC_URL`, `LIVE_WEBHOOK_PROVIDER`, `LIVE_WEBHOOK_EVENTS`, and
+the count of `LIVE_PROJECT_ALLOWLIST`; it must never return webhook secrets,
+provider tokens, private keys, or raw auth headers. `/api/stats` describes the
+store (sizes, row counts, run history), never the work-item data model, so it
+carries no `contract_version` and needs no bump.
 `/api/review-candidates` is an agent/workflow surface for review-thread cleanup:
 it computes from the full canonical store, not the windowed UI contract, so an
-old merged PR with a lingering unresolved thread still appears. Both follow the
-`/api/range` access discipline — every request opens the configured store
-read-only and closes it — and live on the read-only `api` sidecar in the Docker
-stack (the generic `/api/` proxy covers them). Capabilities needs no canonical
-store handle.
+old merged PR with a lingering unresolved thread still appears. `/api/actionable`
+does the same for currently open work items: it defaults to the active source
+config so historical rows from removed repos do not pollute the queue, while
+`include_unconfigured=1` keeps them available for diagnostics. These
+store-backed routes follow the `/api/range` access discipline — every request
+opens the configured store read-only and closes it — and live on the read-only
+`api` sidecar in the Docker stack (the generic `/api/` proxy covers them).
+Capabilities needs no canonical store handle.
 
 **Logs are a per-process ring buffer.** `src/log.ts` tees every line into a
 1000-entry in-memory buffer with a monotonic `seq`; `GET /api/logs` is gated by
