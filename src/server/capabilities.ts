@@ -18,6 +18,7 @@ export interface ServerCapabilities {
     stats: boolean;
     activity_daily: boolean;
     review_candidates: boolean;
+    actionable: boolean;
   };
   live: {
     reads: boolean;
@@ -201,6 +202,7 @@ export async function buildCapabilities(opts: CapabilitiesOptions): Promise<Serv
       stats: true,
       activity_daily: true,
       review_candidates: true,
+      actionable: true,
     },
     live: {
       ...liveBase,

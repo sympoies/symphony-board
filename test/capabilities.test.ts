@@ -74,6 +74,7 @@ test("range-api serves read-side capabilities with Live unsupported by default",
     assert.equal(body.server.contract, true);
     assert.equal(body.server.range, true);
     assert.equal(body.server.stats, true);
+    assert.equal(body.server.actionable, true);
     assert.equal(body.live.reads, false);
     assert.equal(body.live.status, "unsupported");
     assert.equal(body.live.latest_seq, null);

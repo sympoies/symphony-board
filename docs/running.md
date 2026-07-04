@@ -133,16 +133,17 @@ Docker Compose runs these services in the default SQLite stack:
   (`#/debug`, toggled with Cmd+/ or Ctrl+/).
 - `api`: a read-only Node sidecar. It opens the configured store read-only and
   serves `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`, review cleanup
-  discovery on `GET /api/review-candidates`, plus store statistics on
-  `GET /api/stats`, and safe server/Live metadata on `GET /api/capabilities`.
+  discovery on `GET /api/review-candidates`, actionable open-work discovery on
+  `GET /api/actionable`, plus store statistics on `GET /api/stats`, and safe
+  server/Live metadata on `GET /api/capabilities`.
 - `live`: a least-privilege webhook receiver. It owns its own append-only
   `live.db`; it does not mount provider config, provider tokens, or the
   canonical store.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
   latest `data/contract.json` as `/contract.json`, proxies `/api/range`,
-  `/api/stats`, `/api/review-candidates`, `/api/capabilities`, and
-  `/api/live*` to read-only services, and proxies sync-control and log-tail
-  routes to `board`.
+  `/api/stats`, `/api/review-candidates`, `/api/actionable`,
+  `/api/capabilities`, and `/api/live*` to read-only services, and proxies
+  sync-control and log-tail routes to `board`.
 
 ```sh
 cat > .env <<'EOF'
@@ -180,6 +181,11 @@ override `SYMPHONY_PG_USER`, `SYMPHONY_PG_PASSWORD`, or `SYMPHONY_PG_DATABASE`,
 set `SYMPHONY_DB_URL` to the matching URL as well. Use `docker compose -f
 docker/compose.pg.yaml down -v` to delete the independent pg database and
 generated contract volume.
+
+Use `GET /api/actionable` when a tool needs the full open-work candidate queue.
+It reads the canonical store directly and filters to the active source config by
+default; the contract's `items[]` payload remains windowed and should not be
+used as a full queue inventory.
 
 The agent deploy entrypoint (`.agents/scripts/deploy.sh`, used by the `deploy`
 skill) builds and starts whichever stack the `SYMPHONY_BOARD_ENV` switch in

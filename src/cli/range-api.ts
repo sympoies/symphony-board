@@ -12,6 +12,7 @@ import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
+import { handleActionableRequest } from "../server/actionable.ts";
 import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
 
 interface Args {
@@ -93,7 +94,10 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
     }
     if (
       req.method === "GET" &&
-      (url.pathname === "/api/range" || url.pathname === "/api/stats" || url.pathname === "/api/review-candidates")
+      (url.pathname === "/api/range" ||
+        url.pathname === "/api/stats" ||
+        url.pathname === "/api/review-candidates" ||
+        url.pathname === "/api/actionable")
     ) {
       let cfg: AppConfig;
       try {
@@ -106,6 +110,7 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
       // promise never rejects and is safe to detach.
       if (url.pathname === "/api/stats") void handleStatsRequest(cfg, url, res);
       else if (url.pathname === "/api/review-candidates") void handleReviewCandidatesRequest(cfg, url, res);
+      else if (url.pathname === "/api/actionable") void handleActionableRequest(cfg, url, res);
       else void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
       return;
     }

@@ -41,6 +41,10 @@ The full product path is implemented end to end:
   Settings surface.
 - Docker Compose runs a sole-writer sync/emit daemon, a read-only API sidecar,
   a read-only web sidecar, and the least-privilege Live webhook receiver.
+- The read-only API sidecar also exposes operational views such as store stats,
+  review-cleanup candidates, and actionable open-work buckets for thin local
+  automation. These endpoints read the canonical store; they are not the
+  semver contract.
 - Desktop and Android shells reuse the same read-only UI. The thin clients
   connect to a server; the standalone macOS app bundles the backend for a
   single-machine install.

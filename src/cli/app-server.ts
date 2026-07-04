@@ -49,6 +49,7 @@ import { handleRangeRequest } from "../server/range.ts";
 import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
+import { handleActionableRequest } from "../server/actionable.ts";
 import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
 import { acceptsGzip } from "../server/http.ts";
 import { log } from "../log.ts";
@@ -202,7 +203,10 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       return;
     }
 
-    if (method === "GET" && (path === "/api/range" || path === "/api/stats" || path === "/api/review-candidates")) {
+    if (
+      method === "GET" &&
+      (path === "/api/range" || path === "/api/stats" || path === "/api/review-candidates" || path === "/api/actionable")
+    ) {
       let cfg: AppConfig;
       try {
         cfg = freshConfig();
@@ -212,6 +216,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       }
       if (path === "/api/stats") await handleStatsRequest(cfg, url, res);
       else if (path === "/api/review-candidates") await handleReviewCandidatesRequest(cfg, url, res);
+      else if (path === "/api/actionable") await handleActionableRequest(cfg, url, res);
       else await handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
       return;
     }
