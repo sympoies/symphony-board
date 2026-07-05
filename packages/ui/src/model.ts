@@ -1426,8 +1426,8 @@ export function reviewSortFromRoute(value: string | null | undefined): ReviewSor
 // sort key here: it is a visible filter (the review lens) and a row accent, so
 // recency stays the single ordering axis.
 export function compareReviewThreadsRecent(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
-  const aMs = timestampMs(reviewThreadDisplayTime(a));
-  const bMs = timestampMs(reviewThreadDisplayTime(b));
+  const aMs = reviewThreadTimeMs(a);
+  const bMs = reviewThreadTimeMs(b);
   if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
   if (aMs !== null && bMs === null) return -1;
   if (aMs === null && bMs !== null) return 1;
@@ -1438,22 +1438,70 @@ export function compareReviewThreadsRecent(a: ReviewThreadDTO, b: ReviewThreadDT
   return a.id.localeCompare(b.id);
 }
 
-// Legacy grouped order: unresolved threads first (the inbox is "what still needs
-// attention"), then grouped by repo and the change request they hang off, newest
-// activity last as a stable tie-break. Preserved as the opt-in grouped mode.
-export function compareReviewThreadsGrouped(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
+function reviewThreadTimeMs(thread: ReviewThreadDTO): number | null {
+  return timestampMs(reviewThreadDisplayTime(thread));
+}
+
+function compareReviewThreadTimesDesc(aMs: number | null, bMs: number | null): number {
+  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
+  if (aMs !== null && bMs === null) return -1;
+  if (aMs === null && bMs !== null) return 1;
+  return 0;
+}
+
+function reviewThreadGroupKey(thread: ReviewThreadDTO): string {
+  return `${thread.source_id}\0${thread.project_path ?? ""}\0${thread.target_ref}`;
+}
+
+function reviewThreadGroupRecency(threads: readonly ReviewThreadDTO[]): Map<string, number | null> {
+  const recency = new Map<string, number | null>();
+  for (const thread of threads) {
+    const key = reviewThreadGroupKey(thread);
+    const ms = reviewThreadTimeMs(thread);
+    if (!recency.has(key)) {
+      recency.set(key, ms);
+      continue;
+    }
+    const prev = recency.get(key);
+    if (ms !== null && (prev == null || ms > prev)) {
+      recency.set(key, ms);
+    }
+  }
+  return recency;
+}
+
+function compareReviewThreadsGroupedWithRecency(a: ReviewThreadDTO, b: ReviewThreadDTO, groupRecency?: ReadonlyMap<string, number | null>): number {
   if (a.is_resolved !== b.is_resolved) return a.is_resolved ? 1 : -1;
+  const recency = compareReviewThreadTimesDesc(
+    groupRecency?.get(reviewThreadGroupKey(a)) ?? reviewThreadTimeMs(a),
+    groupRecency?.get(reviewThreadGroupKey(b)) ?? reviewThreadTimeMs(b),
+  );
+  if (recency !== 0) return recency;
+  const source = a.source_id.localeCompare(b.source_id);
+  if (source !== 0) return source;
   const repo = (a.project_path ?? "").localeCompare(b.project_path ?? "");
   if (repo !== 0) return repo;
   const target = (b.target_iid ?? 0) - (a.target_iid ?? 0);
   if (target !== 0) return target;
   const path = (a.path ?? "").localeCompare(b.path ?? "");
   if (path !== 0) return path;
-  return (timestampMs(reviewThreadDisplayTime(b)) ?? 0) - (timestampMs(reviewThreadDisplayTime(a)) ?? 0);
+  const threadTime = compareReviewThreadTimesDesc(reviewThreadTimeMs(a), reviewThreadTimeMs(b));
+  if (threadTime !== 0) return threadTime;
+  return a.id.localeCompare(b.id);
 }
 
-export function reviewThreadComparator(sort: ReviewSort): (a: ReviewThreadDTO, b: ReviewThreadDTO) => number {
-  return sort === "grouped" ? compareReviewThreadsGrouped : compareReviewThreadsRecent;
+// Grouped order: unresolved threads first (the inbox is "what still needs
+// attention"), then newest active change-request groups first, then source/repo
+// and the change request they hang off as stable grouping keys.
+export function compareReviewThreadsGrouped(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
+  return compareReviewThreadsGroupedWithRecency(a, b);
+}
+
+export function reviewThreadComparator(sort: ReviewSort, threads?: readonly ReviewThreadDTO[]): (a: ReviewThreadDTO, b: ReviewThreadDTO) => number {
+  if (sort !== "grouped") return compareReviewThreadsRecent;
+  if (!threads) return compareReviewThreadsGrouped;
+  const groupRecency = reviewThreadGroupRecency(threads);
+  return (a, b) => compareReviewThreadsGroupedWithRecency(a, b, groupRecency);
 }
 
 export interface ReviewResolution {
