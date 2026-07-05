@@ -4425,7 +4425,7 @@ try {
     [has(reviewsHtml, "reviews-page"), "reviews: page rendered"],
     [sameRangeButtons(reviewsRangeButtons), `reviews: shared range quick presets rendered without all (${reviewsRangeButtons.join(", ")})`],
     [reviewsSummary.rows >= 1 && /open threads/.test(reviewsCountText), `reviews: unresolved thread rows rendered (${reviewsSummary.rows || 0}, ${reviewsCountText || "empty"})`],
-    [reviewsSummary.groupedSortTitle === "Unresolved first, grouped by repo and the change request each thread hangs off" && !/PR\/MR|PRs/.test(reviewsSummary.groupedSortTitle || ""), `reviews: grouped sort tooltip uses neutral change request wording (${reviewsSummary.groupedSortTitle || "empty"})`],
+    [reviewsSummary.groupedSortTitle === "Unresolved first, newest groups first, then grouped by repo and the change request each thread hangs off" && !/PR\/MR|PRs/.test(reviewsSummary.groupedSortTitle || ""), `reviews: grouped sort tooltip uses neutral change request wording (${reviewsSummary.groupedSortTitle || "empty"})`],
     [reviewsSummary.detailLink.includes("/pull/15#discussion_"), `reviews: detail title links to provider discussion (${reviewsSummary.detailLink || "none"})`],
     [reviewsSummary.statuses.includes("unresolved"), `reviews: unresolved status badge rendered (${reviewsSummary.statuses.join(", ") || "none"})`],
     [reviewsSummary.previews.some((text) => text.includes("Cache the compiled pattern")), "reviews: comment preview text rendered inline"],

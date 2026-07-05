@@ -502,11 +502,11 @@ export function ReviewsPage({
 }) {
   const windowById = useMemo(() => new Map(windowItems.map((item) => [item.id, item])), [windowItems]);
   const threadRows = useMemo(() => {
-    const compare = reviewThreadComparator(sort);
-    return reviewThreads
+    const rows = reviewThreads
       .map((thread): ThreadRow => ({ thread, target: itemsById.get(thread.target_ref) ?? windowById.get(thread.target_ref) ?? null }))
-      .filter((row) => threadMatches(row, filters))
-      .sort((a, b) => compare(a.thread, b.thread));
+      .filter((row) => threadMatches(row, filters));
+    const compare = reviewThreadComparator(sort, rows.map((row) => row.thread));
+    return rows.sort((a, b) => compare(a.thread, b.thread));
   }, [reviewThreads, itemsById, windowById, filters, sort]);
 
   const openThreads = useMemo(() => threadRows.reduce((n, row) => (row.thread.is_resolved ? n : n + 1), 0), [threadRows]);
@@ -729,7 +729,7 @@ export function ReviewsPage({
             className={`toggle${sort === "grouped" ? " toggle-on" : ""}`}
             aria-pressed={sort === "grouped"}
             onClick={() => onSortChange("grouped")}
-            title="Unresolved first, grouped by repo and the change request each thread hangs off"
+            title="Unresolved first, newest groups first, then grouped by repo and the change request each thread hangs off"
           >
             Grouped
           </button>
