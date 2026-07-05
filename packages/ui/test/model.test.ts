@@ -1402,6 +1402,31 @@ test("compareReviewThreadsGrouped orders unresolved groups by newest review acti
   );
 });
 
+test("reviewThreadComparator keeps unresolved groups ahead of newer resolved groups", () => {
+  const olderUnresolved = reviewThread({
+    id: "github:github.com|T_open_old",
+    target_ref: "github:github.com|PR_58",
+    target_iid: 58,
+    is_resolved: false,
+    last_comment_at: "2026-07-01T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-01T09:00:00Z" })],
+  });
+  const newerResolved = reviewThread({
+    id: "github:github.com|T_done_new",
+    target_ref: "github:github.com|PR_59",
+    target_iid: 59,
+    is_resolved: true,
+    last_comment_at: "2026-07-05T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-05T09:00:00Z" })],
+  });
+  const compare = reviewThreadComparator("grouped", [newerResolved, olderUnresolved]);
+  const sorted = [newerResolved, olderUnresolved].sort(compare);
+  assert.deepEqual(
+    sorted.map((t) => t.id),
+    ["github:github.com|T_open_old", "github:github.com|T_done_new"],
+  );
+});
+
 test("reviewThreadComparator keeps a fresh target group together ahead of older groups", () => {
   const olderThreadInFreshGroup = reviewThread({
     id: "github:github.com|T_fresh_a",
@@ -1435,6 +1460,89 @@ test("reviewThreadComparator keeps a fresh target group together ahead of older 
   assert.deepEqual(
     sorted.map((t) => t.id),
     ["github:github.com|T_fresh_a", "github:github.com|T_fresh_z", "github:github.com|T_middle"],
+  );
+});
+
+test("reviewThreadComparator groups target_ref even when repo display metadata differs", () => {
+  const olderRenamedRepoRow = reviewThread({
+    id: "github:github.com|T_renamed_old",
+    source_id: "github:github.com",
+    project_path: "old/name",
+    target_ref: "github:github.com|PR_58",
+    target_iid: 58,
+    is_resolved: false,
+    path: "a.ts",
+    last_comment_at: "2026-07-01T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-01T09:00:00Z" })],
+  });
+  const freshRenamedRepoRow = reviewThread({
+    id: "github:github.com|T_renamed_new",
+    source_id: "github:github.com",
+    project_path: "new/name",
+    target_ref: "github:github.com|PR_58",
+    target_iid: 58,
+    is_resolved: false,
+    path: "z.ts",
+    last_comment_at: "2026-07-05T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-05T09:00:00Z" })],
+  });
+  const middleOtherGroup = reviewThread({
+    id: "github:github.com|T_other_middle",
+    source_id: "github:github.com",
+    project_path: "between/name",
+    target_ref: "github:github.com|PR_27",
+    target_iid: 27,
+    is_resolved: false,
+    path: "m.ts",
+    last_comment_at: "2026-07-03T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-03T09:00:00Z" })],
+  });
+  const compare = reviewThreadComparator("grouped", [olderRenamedRepoRow, middleOtherGroup, freshRenamedRepoRow]);
+  const sorted = [olderRenamedRepoRow, middleOtherGroup, freshRenamedRepoRow].sort(compare);
+  assert.deepEqual(
+    sorted.map((t) => t.id),
+    ["github:github.com|T_renamed_new", "github:github.com|T_renamed_old", "github:github.com|T_other_middle"],
+  );
+});
+
+test("compareReviewThreadsGrouped stays a thread-local fallback without collection recency", () => {
+  const olderThreadInFreshGroup = reviewThread({
+    id: "github:github.com|T_fallback_old",
+    target_ref: "github:github.com|PR_58",
+    target_iid: 58,
+    is_resolved: false,
+    path: "a.ts",
+    last_comment_at: "2026-07-01T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-01T09:00:00Z" })],
+  });
+  const freshThreadInFreshGroup = reviewThread({
+    id: "github:github.com|T_fallback_new",
+    target_ref: "github:github.com|PR_58",
+    target_iid: 58,
+    is_resolved: false,
+    path: "z.ts",
+    last_comment_at: "2026-07-05T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-05T09:00:00Z" })],
+  });
+  const middleOtherGroup = reviewThread({
+    id: "github:github.com|T_fallback_middle",
+    target_ref: "github:github.com|PR_27",
+    target_iid: 27,
+    is_resolved: false,
+    path: "m.ts",
+    last_comment_at: "2026-07-03T09:00:00Z",
+    comments: [reviewComment({ created_at: "2026-07-03T09:00:00Z" })],
+  });
+  const directSorted = [olderThreadInFreshGroup, middleOtherGroup, freshThreadInFreshGroup].sort(compareReviewThreadsGrouped);
+  const collectionSorted = [olderThreadInFreshGroup, middleOtherGroup, freshThreadInFreshGroup]
+    .sort(reviewThreadComparator("grouped", [olderThreadInFreshGroup, middleOtherGroup, freshThreadInFreshGroup]));
+  assert.deepEqual(
+    directSorted.map((t) => t.id),
+    ["github:github.com|T_fallback_new", "github:github.com|T_fallback_middle", "github:github.com|T_fallback_old"],
+  );
+  assert.deepEqual(
+    collectionSorted.map((t) => t.id),
+    ["github:github.com|T_fallback_old", "github:github.com|T_fallback_new", "github:github.com|T_fallback_middle"],
   );
 });
 

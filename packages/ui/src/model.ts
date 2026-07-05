@@ -1450,7 +1450,7 @@ function compareReviewThreadTimesDesc(aMs: number | null, bMs: number | null): n
 }
 
 function reviewThreadGroupKey(thread: ReviewThreadDTO): string {
-  return `${thread.source_id}\0${thread.project_path ?? ""}\0${thread.target_ref}`;
+  return thread.target_ref;
 }
 
 function reviewThreadGroupRecency(threads: readonly ReviewThreadDTO[]): Map<string, number | null> {
@@ -1490,9 +1490,10 @@ function compareReviewThreadsGroupedWithRecency(a: ReviewThreadDTO, b: ReviewThr
   return a.id.localeCompare(b.id);
 }
 
-// Grouped order: unresolved threads first (the inbox is "what still needs
-// attention"), then newest active change-request groups first, then source/repo
-// and the change request they hang off as stable grouping keys.
+// Grouped order fallback for individual thread comparisons. Passing the visible
+// thread collection to `reviewThreadComparator("grouped", threads)` enables the
+// full target-group recency behavior; this direct comparator falls back to each
+// thread's own recency when no collection is available.
 export function compareReviewThreadsGrouped(a: ReviewThreadDTO, b: ReviewThreadDTO): number {
   return compareReviewThreadsGroupedWithRecency(a, b);
 }
