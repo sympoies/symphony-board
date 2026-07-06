@@ -79,7 +79,9 @@ function BranchIcon() {
 function dateLabel(iso: string, tz: string): string {
   const parsed = Date.parse(iso);
   if (!Number.isFinite(parsed)) return "unknown date";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: tz }).format(parsed);
+  // Pin to en-US so the label reads the same on every viewer's device instead
+  // of inheriting the runtime locale (e.g. a zh-TW phone rendered "2026年7月7日").
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: tz }).format(parsed);
 }
 
 function copyToClipboard(text: string): Promise<void> {

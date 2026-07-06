@@ -41,7 +41,7 @@ const TREND_LINE_LABELS: Record<string, string> = {
 const seriesLabel = (kind: string) => TREND_LINE_LABELS[kind] ?? kind.replace(/_/g, " ");
 
 const cellTip = (cell: HeatmapCell) =>
-  `${cell.date} · ${cell.count.toLocaleString()} ${pluralize(cell.count, "event")}`;
+  `${cell.date} · ${cell.count.toLocaleString("en-US")} ${pluralize(cell.count, "event")}`;
 
 function formatKind(kind: string): string {
   return kind.replace(/_/g, " ");
@@ -89,8 +89,8 @@ function rangeLabel(from: string, to: string): string {
 function activeDaysItem(activeDays: number, dayCount: number) {
   return {
     label: "active days",
-    value: activeDays.toLocaleString(),
-    detail: `of ${dayCount.toLocaleString()} ${pluralize(dayCount, "day")}`,
+    value: activeDays.toLocaleString("en-US"),
+    detail: `of ${dayCount.toLocaleString("en-US")} ${pluralize(dayCount, "day")}`,
   };
 }
 
@@ -177,7 +177,7 @@ function ActivityTrendChart({
     const label = visible[0]!.points[index]?.label ?? points[index]?.label;
     if (!label) return null;
     const parts = visible.map(
-      (series) => `${seriesLabel(series.kind)} ${(series.points[index]?.count ?? 0).toLocaleString()}`,
+      (series) => `${seriesLabel(series.kind)} ${(series.points[index]?.count ?? 0).toLocaleString("en-US")}`,
     );
     return `${label} · ${parts.join(" · ")}`;
   };
@@ -222,7 +222,7 @@ function ActivityTrendChart({
           Selected range activity by {byLabel}
           <small>{selectedRange}</small>
         </span>
-        <b>{shownTotal.toLocaleString()} events</b>
+        <b>{shownTotal.toLocaleString("en-US")} events</b>
       </div>
       <div className="hm-trend-legend" role="group" aria-label="Toggle activity lines">
         {legend.map((kind) => {
@@ -242,7 +242,7 @@ function ActivityTrendChart({
             >
               <span className="hm-trend-swatch" data-kind={kind} aria-hidden="true" />
               {seriesLabel(kind)}
-              <small>{(seriesByKind.get(kind)?.total ?? 0).toLocaleString()}</small>
+              <small>{(seriesByKind.get(kind)?.total ?? 0).toLocaleString("en-US")}</small>
             </button>
           );
         })}
@@ -348,14 +348,14 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
   const selectedRange = rangeLabel(trend.from, trend.to);
   const byLabel = bucketLabel(trend.bucket);
   const items = [
-    { label: "events", value: trend.total.toLocaleString(), detail: selectedRange },
+    { label: "events", value: trend.total.toLocaleString("en-US"), detail: selectedRange },
     ...(trend.busiest
-      ? [{ label: `busiest ${byLabel}`, value: trend.busiest.count.toLocaleString(), detail: trend.busiest.label }]
+      ? [{ label: `busiest ${byLabel}`, value: trend.busiest.count.toLocaleString("en-US"), detail: trend.busiest.label }]
       : []),
     activeDaysItem(trend.activeDays, trend.dayCount),
     ...activitySummaryKindCounts(trend.byKind).map((k) => ({
       label: formatKind(k.kind),
-      value: k.count.toLocaleString(),
+      value: k.count.toLocaleString("en-US"),
       detail: "events",
     })),
   ];
@@ -405,7 +405,7 @@ function ActivityTopRepos({ trend }: { trend: ActivityTrend }) {
                 <span className="hm-range-repo-name">{repo.project_path ?? "(no project)"}</span>
                 <small>{sourceDisplayName(repo.source_id) || repo.source_id}</small>
               </span>
-              <b>{repo.count.toLocaleString()}</b>
+              <b>{repo.count.toLocaleString("en-US")}</b>
               <span className="hm-range-repo-bar" aria-hidden="true" />
             </li>
           ))}
@@ -463,14 +463,14 @@ export function ActivityHeatmap({
   const hasRange = Boolean(range.from) && Boolean(range.to) && range.from <= range.to;
   const inSelectedRange = (date: string) => hasRange && date >= range.from && date <= range.to;
   const summary = [
-    { label: "events", value: hm.total.toLocaleString(), detail: "events" },
+    { label: "events", value: hm.total.toLocaleString("en-US"), detail: "events" },
     ...(hm.busiest
-      ? [{ label: "busiest day", value: hm.busiest.count.toLocaleString(), detail: hm.busiest.date }]
+      ? [{ label: "busiest day", value: hm.busiest.count.toLocaleString("en-US"), detail: hm.busiest.date }]
       : []),
     activeDaysItem(hm.activeDays, hm.dayCount),
     ...activitySummaryKindCounts(hm.byKind).map((k) => ({
       label: formatKind(k.kind),
-      value: k.count.toLocaleString(),
+      value: k.count.toLocaleString("en-US"),
       detail: "events",
     })),
   ];
