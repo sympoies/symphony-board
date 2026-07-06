@@ -46,7 +46,7 @@ function CountsTable({ title, counts }: { title: string; counts: Record<string, 
           {rows.map(([key, n]) => (
             <tr key={key}>
               <td>{key}</td>
-              <td className="num">{n.toLocaleString()}</td>
+              <td className="num">{n.toLocaleString("en-US")}</td>
             </tr>
           ))}
         </tbody>
@@ -133,7 +133,7 @@ function sourceSummary(counts: Record<string, number>): ReactNode {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   const detail = Object.entries(counts)
     .filter(([, n]) => n > 0)
-    .map(([status, n]) => `${n.toLocaleString()} ${status}`)
+    .map(([status, n]) => `${n.toLocaleString("en-US")} ${status}`)
     .join(" ");
   const okCount = counts.ok ?? 0;
   const state =
@@ -147,7 +147,7 @@ function sourceSummary(counts: Record<string, number>): ReactNode {
   return (
     <span className="debug-summary-health">
       <span>
-        {total.toLocaleString()} {total === 1 ? "source" : "sources"}
+        {total.toLocaleString("en-US")} {total === 1 ? "source" : "sources"}
       </span>
       <Badge text={state.text} kind={state.kind} title={detail || state.text} />
     </span>
@@ -258,7 +258,7 @@ function SectionSizesTable({ env }: { env: ContractEnvelope }) {
           {sections.map((section) => (
             <tr key={section.key}>
               <td>{section.label}</td>
-              <td className="num">{section.rows == null ? "—" : section.rows.toLocaleString()}</td>
+              <td className="num">{section.rows == null ? "—" : section.rows.toLocaleString("en-US")}</td>
               <td className="num">{formatBytes(section.bytes)}</td>
             </tr>
           ))}
@@ -276,12 +276,12 @@ function ItemWindowTable({ env }: { env: ContractEnvelope }) {
     ["window", itemWindow.window.kind],
     ["basis", itemWindow.window.basis],
     ["since", itemWindow.window.since ?? "—"],
-    ["days", itemWindow.window.days == null ? "—" : itemWindow.window.days.toLocaleString()],
+    ["days", itemWindow.window.days == null ? "—" : itemWindow.window.days.toLocaleString("en-US")],
     ["edge filter", itemWindow.window.edge_filter ?? "—"],
-    ["primary items", itemWindow.primary_items.toLocaleString()],
-    ["edge endpoints", itemWindow.edge_endpoint_items.toLocaleString()],
-    ["activity targets", (itemWindow.activity_target_items ?? 0).toLocaleString()],
-    ["total items", itemWindow.total_items.toLocaleString()],
+    ["primary items", itemWindow.primary_items.toLocaleString("en-US")],
+    ["edge endpoints", itemWindow.edge_endpoint_items.toLocaleString("en-US")],
+    ["activity targets", (itemWindow.activity_target_items ?? 0).toLocaleString("en-US")],
+    ["total items", itemWindow.total_items.toLocaleString("en-US")],
     ["truncated", itemWindow.truncated ? "yes" : "no"],
   ];
   return (
@@ -432,11 +432,11 @@ export function StorePanel({ stats, loading }: Pick<StoreStatsState, "stats" | "
               {typeof dbSize === "number" ? formatBytes(dbSize) : "n/a"}
               {typeof walSize === "number" && walSize > 0 ? <span className="muted"> +{formatBytes(walSize)} WAL</span> : null}
             </SummaryMetric>
-            <SummaryMetric label="Live items">{stats.items.live.toLocaleString()}</SummaryMetric>
-            <SummaryMetric label="Live edges">{stats.edges.live.toLocaleString()}</SummaryMetric>
-            <SummaryMetric label="Activities">{stats.activities.total.toLocaleString()}</SummaryMetric>
+            <SummaryMetric label="Live items">{stats.items.live.toLocaleString("en-US")}</SummaryMetric>
+            <SummaryMetric label="Live edges">{stats.edges.live.toLocaleString("en-US")}</SummaryMetric>
+            <SummaryMetric label="Activities">{stats.activities.total.toLocaleString("en-US")}</SummaryMetric>
             <SummaryMetric label="Tombstoned">
-              {stats.items.tombstoned.toLocaleString()} <span className="muted">/ {stats.edges.tombstoned.toLocaleString()} edges</span>
+              {stats.items.tombstoned.toLocaleString("en-US")} <span className="muted">/ {stats.edges.tombstoned.toLocaleString("en-US")} edges</span>
             </SummaryMetric>
             <SummaryMetric label="Schema">v{stats.db.schema_version}</SummaryMetric>
           </section>
@@ -488,11 +488,11 @@ export function LivePanel({ live, serverBaseUrl }: { live: LiveSnapshotState; se
         <>
           <section className="debug-summary-strip debug-section-summary" aria-label="Live receiver summary">
             <SummaryMetric label="Buffer">
-              {live.info.events.toLocaleString()} <span className="muted">/ {LIVE_EVENT_BUFFER_LIMIT}</span>
+              {live.info.events.toLocaleString("en-US")} <span className="muted">/ {LIVE_EVENT_BUFFER_LIMIT}</span>
             </SummaryMetric>
-            <SummaryMetric label="Cursor (max seq)">{live.info.maxSeq?.toLocaleString() ?? "n/a"}</SummaryMetric>
-            <SummaryMetric label="Active repos">{live.info.repos.toLocaleString()}</SummaryMetric>
-            <SummaryMetric label="Active people">{live.info.people.toLocaleString()}</SummaryMetric>
+            <SummaryMetric label="Cursor (max seq)">{live.info.maxSeq?.toLocaleString("en-US") ?? "n/a"}</SummaryMetric>
+            <SummaryMetric label="Active repos">{live.info.repos.toLocaleString("en-US")}</SummaryMetric>
+            <SummaryMetric label="Active people">{live.info.people.toLocaleString("en-US")}</SummaryMetric>
             <SummaryMetric label="Newest event">{live.info.newestAt ? relativeTime(live.info.newestAt) : "—"}</SummaryMetric>
           </section>
           <div className="debug-subsection">
@@ -556,12 +556,12 @@ export function SyncPanel({ stats, loading }: Pick<StoreStatsState, "stats" | "l
                   <td>
                     <Badge text={run.status} kind={`status-${run.status}`} />
                   </td>
-                  <td className="num">{run.items_seen.toLocaleString()}</td>
-                  <td className="num">{run.edges_seen.toLocaleString()}</td>
-                  <td className="num">{run.activities_seen.toLocaleString()}</td>
-                  <td className="num">{run.graphql_cost == null ? "—" : run.graphql_cost.toLocaleString()}</td>
-                  <td className="num">{run.graphql_requests == null ? "—" : run.graphql_requests.toLocaleString()}</td>
-                  <td className="num">{run.graphql_cost_unknown == null ? "—" : run.graphql_cost_unknown.toLocaleString()}</td>
+                  <td className="num">{run.items_seen.toLocaleString("en-US")}</td>
+                  <td className="num">{run.edges_seen.toLocaleString("en-US")}</td>
+                  <td className="num">{run.activities_seen.toLocaleString("en-US")}</td>
+                  <td className="num">{run.graphql_cost == null ? "—" : run.graphql_cost.toLocaleString("en-US")}</td>
+                  <td className="num">{run.graphql_requests == null ? "—" : run.graphql_requests.toLocaleString("en-US")}</td>
+                  <td className="num">{run.graphql_cost_unknown == null ? "—" : run.graphql_cost_unknown.toLocaleString("en-US")}</td>
                   <td>{runDuration(run.started_at, run.finished_at)}</td>
                   <td className="debug-run-error">{run.error ?? ""}</td>
                 </tr>
@@ -627,9 +627,9 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
                       <code>{t.env}</code>
                     </td>
                     <td className="num">
-                      {t.ok && t.remaining != null ? `${t.remaining.toLocaleString()} / ${(t.limit ?? 0).toLocaleString()}` : "—"}
+                      {t.ok && t.remaining != null ? `${t.remaining.toLocaleString("en-US")} / ${(t.limit ?? 0).toLocaleString("en-US")}` : "—"}
                     </td>
-                    <td className="num">{t.ok && t.used != null ? t.used.toLocaleString() : "—"}</td>
+                    <td className="num">{t.ok && t.used != null ? t.used.toLocaleString("en-US") : "—"}</td>
                     <td title={t.reset_at}>{t.ok ? resetsIn(t.reset_at) : "—"}</td>
                     <td className="debug-run-error">
                       {t.ok ? (
