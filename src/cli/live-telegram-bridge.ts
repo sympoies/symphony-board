@@ -39,7 +39,26 @@ export interface TelegramBridgeConfig {
   minIntervalMs: number;
   // Body preview line cap passed to the pure Telegram formatter.
   bodyLines: number;
+  // Bound snapshot, SSE-header, and Telegram request establishment. The
+  // timeout is released after SSE headers arrive so idle streams stay open.
+  connectionTimeoutMs: number;
+  // Exit after this long in a rapid-failure loop so Docker can recreate the
+  // process. A stable SSE session resets the failure window.
+  restartAfterMs: number;
   warnings: string[];
+}
+
+const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
+const DEFAULT_RESTART_AFTER_MS = 10 * 60_000;
+const MAX_CONNECTION_TIMEOUT_MS = 5 * 60_000;
+
+function positiveMs(
+  raw: string | undefined,
+  fallback: number,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 && value <= max ? value : fallback;
 }
 
 // Pure environment -> config resolution (no IO), unit-testable without a socket.
@@ -58,6 +77,15 @@ export function resolveTelegramBridgeConfig(
   }
   const minIntervalMs = Number(env.LIVE_TELEGRAM_MIN_INTERVAL_MS ?? "350");
   const bodyLines = Number(env.LIVE_TELEGRAM_BODY_LINES ?? String(MAX_BODY_LINES));
+  const connectionTimeoutMs = positiveMs(
+    env.LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS,
+    DEFAULT_CONNECTION_TIMEOUT_MS,
+    MAX_CONNECTION_TIMEOUT_MS,
+  );
+  const restartAfterMs = positiveMs(
+    env.LIVE_TELEGRAM_RESTART_AFTER_MS,
+    DEFAULT_RESTART_AFTER_MS,
+  );
   return {
     liveUrl: (env.LIVE_URL ?? "http://127.0.0.1:8090").replace(/\/+$/, ""),
     botToken,
@@ -68,6 +96,8 @@ export function resolveTelegramBridgeConfig(
       ? minIntervalMs
       : 350,
     bodyLines: Number.isInteger(bodyLines) && bodyLines > 0 ? bodyLines : MAX_BODY_LINES,
+    connectionTimeoutMs,
+    restartAfterMs,
     warnings,
   };
 }
@@ -100,8 +130,19 @@ export function parseSseFrame(block: string): SseFrame {
   return frame;
 }
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 // Per-message retry budget for transient failures (429 rate limit + 5xx server
 // errors). Exhausting it throws so the cursor stays put and a reconnect
@@ -111,6 +152,50 @@ const MAX_SEND_RETRIES = 5;
 // smaller; a stream that never emits a frame delimiter is treated as hostile
 // and the connection is dropped rather than letting the buffer OOM the process.
 const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
+
+interface ConnectedResponse {
+  response: Response;
+  dispose: () => void;
+}
+
+// Bound connection/header establishment, and optionally the response body. For
+// SSE the timeout is cleared once headers arrive, while the parent signal stays
+// linked until dispose so shutdown can still cancel the long-lived body.
+async function fetchConnected(
+  input: string,
+  init: RequestInit,
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+  label: string,
+  releaseTimeoutAfterHeaders: boolean,
+): Promise<ConnectedResponse> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromParent = (): void => controller.abort(parentSignal.reason);
+  if (parentSignal.aborted) abortFromParent();
+  else parentSignal.addEventListener("abort", abortFromParent, { once: true });
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error(`${label} connection timed out`));
+  }, timeoutMs);
+  const dispose = (): void => {
+    clearTimeout(timer);
+    parentSignal.removeEventListener("abort", abortFromParent);
+  };
+
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    if (releaseTimeoutAfterHeaders) clearTimeout(timer);
+    return { response, dispose };
+  } catch (err) {
+    dispose();
+    if (timedOut) {
+      throw new Error(`${label} connection timed out after ${timeoutMs}ms`, { cause: err });
+    }
+    throw err;
+  }
+}
 
 function isTelegramAuthOrConfigFailure(status: number, detail: string): boolean {
   if (status === 401 || status === 403 || status === 404) return true;
@@ -151,15 +236,31 @@ function writeCursor(path: string, seq: number): boolean {
 
 // Seed the cursor from the snapshot's max_seq so a cold start streams only NEW
 // activity (a `since=0` resume would replay the whole backlog as a flood).
-async function seedCursor(liveUrl: string): Promise<number> {
-  const res = await fetch(`${liveUrl}/api/live-snapshot?limit=1`);
-  if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
-  const body = (await res.json()) as { max_seq?: unknown };
-  const maxSeq = body.max_seq;
-  if (typeof maxSeq !== "number" || !Number.isFinite(maxSeq)) {
-    throw new Error("snapshot missing a numeric max_seq");
+async function seedCursor(
+  cfg: TelegramBridgeConfig,
+  signal: AbortSignal,
+  timeoutMs = cfg.connectionTimeoutMs,
+): Promise<number> {
+  const connected = await fetchConnected(
+    `${cfg.liveUrl}/api/live-snapshot?limit=1`,
+    {},
+    signal,
+    timeoutMs,
+    "snapshot",
+    false,
+  );
+  try {
+    const res = connected.response;
+    if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
+    const body = (await res.json()) as { max_seq?: unknown };
+    const maxSeq = body.max_seq;
+    if (typeof maxSeq !== "number" || !Number.isFinite(maxSeq)) {
+      throw new Error("snapshot missing a numeric max_seq");
+    }
+    return maxSeq;
+  } finally {
+    connected.dispose();
   }
-  return maxSeq;
 }
 
 // Cold-start seed with retry: the receiver may not be reachable yet (the sidecar
@@ -167,20 +268,34 @@ async function seedCursor(liveUrl: string): Promise<number> {
 // transient — retry with capped backoff rather than exiting and crash-looping.
 // Returns null only if shutdown was requested before a seed succeeded.
 async function seedCursorWithRetry(
-  liveUrl: string,
+  cfg: TelegramBridgeConfig,
   signal: AbortSignal,
 ): Promise<number | null> {
   let backoff = 3000;
+  const startedAt = Date.now();
   for (;;) {
     if (signal.aborted) return null;
     try {
-      return await seedCursor(liveUrl);
+      const remainingMs = Math.max(1, cfg.restartAfterMs - (Date.now() - startedAt));
+      return await seedCursor(
+        cfg,
+        signal,
+        Math.min(cfg.connectionTimeoutMs, remainingMs),
+      );
     } catch (err) {
       if (signal.aborted) return null;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= cfg.restartAfterMs) {
+        throw new Error(
+          `snapshot unavailable for ${elapsed}ms; exiting for container restart`,
+          { cause: err },
+        );
+      }
+      const waitMs = Math.min(backoff, cfg.restartAfterMs - elapsed);
       log.warn(
-        `[tg] snapshot seed failed: ${(err as Error).message}; retrying in ${backoff}ms`,
+        `[tg] snapshot seed failed: ${(err as Error).message}; retrying in ${waitMs}ms`,
       );
-      await sleep(backoff);
+      await sleep(waitMs, signal);
       backoff = Math.min(backoff * 2, 30_000);
     }
   }
@@ -199,12 +314,13 @@ export class TelegramSender {
   // Transient 429 / 5xx failures are retried within MAX_SEND_RETRIES; exhausting
   // that budget also throws. Remaining 4xx responses are treated as poison
   // messages and dropped so one malformed event cannot wedge the stream forever.
-  async send(text: string): Promise<void> {
+  async send(text: string, signal?: AbortSignal): Promise<void> {
     if (this.#cfg.dryRun) {
       log.info(`[tg] (dry-run) would send:\n${text}`);
       return;
     }
-    await this.#throttle();
+    await this.#throttle(signal);
+    signal?.throwIfAborted();
     let retries = 0;
     for (;;) {
       const res = await fetch(
@@ -219,6 +335,12 @@ export class TelegramSender {
             parse_mode: "HTML",
             disable_web_page_preview: true,
           }),
+          signal: signal
+            ? AbortSignal.any([
+                signal,
+                AbortSignal.timeout(this.#cfg.connectionTimeoutMs),
+              ])
+            : AbortSignal.timeout(this.#cfg.connectionTimeoutMs),
         },
       );
       if (res.ok) return;
@@ -241,7 +363,8 @@ export class TelegramSender {
           waitMs = Math.min(2000 * retries, 30_000);
         }
         log.warn(`[tg] Telegram HTTP ${res.status}; retrying in ${Math.round(waitMs / 1000)}s`);
-        await sleep(waitMs);
+        await sleep(waitMs, signal);
+        signal?.throwIfAborted();
         continue;
       }
       const detail = await res.text().catch(() => "");
@@ -255,68 +378,99 @@ export class TelegramSender {
     }
   }
 
-  async #throttle(): Promise<void> {
+  async #throttle(signal?: AbortSignal): Promise<void> {
     const wait = this.#lastSendAt + this.#cfg.minIntervalMs - Date.now();
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) await sleep(wait, signal);
+    signal?.throwIfAborted();
     this.#lastSendAt = Date.now();
   }
 }
 
 // One SSE connection: stream frames until the connection ends or aborts. Returns
 // the (possibly advanced) cursor so the next reconnect resumes from it.
+interface StreamOnceHooks {
+  onConnected?: () => void;
+  onDeliveryStart?: () => void;
+  onDeliveryEnd?: () => void;
+  onProgress?: () => void;
+  deliverySignal?: () => AbortSignal;
+  connectionTimeoutMs?: number;
+}
+
 export async function streamOnce(
   cfg: TelegramBridgeConfig,
   sender: TelegramSender,
   startCursor: number,
   signal: AbortSignal,
+  hooks: StreamOnceHooks = {},
 ): Promise<number> {
   let cursor = startCursor;
-  const res = await fetch(`${cfg.liveUrl}/api/live`, {
-    headers: {
-      Accept: "text/event-stream",
-      "Last-Event-ID": String(cursor),
+  const connected = await fetchConnected(
+    `${cfg.liveUrl}/api/live`,
+    {
+      headers: {
+        Accept: "text/event-stream",
+        "Last-Event-ID": String(cursor),
+      },
     },
     signal,
-  });
-  if (!res.ok || !res.body) {
-    throw new Error(`live stream HTTP ${res.status}`);
-  }
-  log.info(`[tg] connected to ${cfg.liveUrl}/api/live (since seq ${cursor})`);
+    hooks.connectionTimeoutMs ?? cfg.connectionTimeoutMs,
+    "live stream",
+    true,
+  );
+  try {
+    const res = connected.response;
+    if (!res.ok || !res.body) {
+      throw new Error(`live stream HTTP ${res.status}`);
+    }
+    hooks.onConnected?.();
+    log.info(`[tg] connected to ${cfg.liveUrl}/api/live (since seq ${cursor})`);
 
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true });
-    if (buffer.length > MAX_SSE_BUFFER_BYTES) {
-      throw new Error("SSE buffer exceeded limit without a frame delimiter");
-    }
-    let sep: number;
-    // SSE frames are separated by a blank line ("\n\n").
-    while ((sep = buffer.indexOf("\n\n")) !== -1) {
-      const block = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      const frame = parseSseFrame(block);
-      // Advance the in-memory cursor ONLY when the new value is persisted, so a
-      // disk failure never lets memory run ahead of disk (which would re-send
-      // already-delivered events after a reconnect/restart).
-      if (frame.event === "reset") {
-        // A reset is an authoritative reseed: adopt max_seq in EITHER direction.
-        // A `stale_cursor` reset (the receiver's store was recreated or pruned
-        // below our cursor) carries a LOWER max_seq; if we refused to move back,
-        // every fresh event would look like a duplicate against the stale-high
-        // cursor and nothing would ever forward again.
-        const maxSeq = handleReset(frame.data, cursor);
-        if (maxSeq !== cursor && writeCursor(cfg.cursorPath, maxSeq)) cursor = maxSeq;
-      } else if (frame.event === "live" && frame.data) {
-        const advanced = await handleLiveFrame(frame.data, cursor, sender, cfg.bodyLines);
-        if (advanced > cursor && writeCursor(cfg.cursorPath, advanced)) {
-          cursor = advanced;
-        }
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
+      buffer += decoder.decode(chunk, { stream: true });
+      if (buffer.length > MAX_SSE_BUFFER_BYTES) {
+        throw new Error("SSE buffer exceeded limit without a frame delimiter");
       }
-      // Comment/heartbeat/`retry:` frames carry no event+data and are skipped.
+      let sep: number;
+      // SSE frames are separated by a blank line ("\n\n").
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const frame = parseSseFrame(block);
+        // Advance the in-memory cursor ONLY when the new value is persisted, so a
+        // disk failure never lets memory run ahead of disk (which would re-send
+        // already-delivered events after a reconnect/restart).
+        if (frame.event === "reset") {
+          // A reset is an authoritative reseed: adopt max_seq in EITHER direction.
+          // A `stale_cursor` reset (the receiver's store was recreated or pruned
+          // below our cursor) carries a LOWER max_seq; if we refused to move back,
+          // every fresh event would look like a duplicate against the stale-high
+          // cursor and nothing would ever forward again.
+          const maxSeq = handleReset(frame.data, cursor);
+          if (maxSeq !== cursor && writeCursor(cfg.cursorPath, maxSeq)) cursor = maxSeq;
+        } else if (frame.event === "live" && frame.data) {
+          const advanced = await handleLiveFrame(
+            frame.data,
+            cursor,
+            sender,
+            cfg.bodyLines,
+            hooks.deliverySignal?.() ?? signal,
+            hooks,
+          );
+          if (advanced > cursor && writeCursor(cfg.cursorPath, advanced)) {
+            cursor = advanced;
+            hooks.onProgress?.();
+          }
+        }
+        // Comment/heartbeat/`retry:` frames carry no event+data and are skipped.
+      }
     }
+    return cursor;
+  } finally {
+    connected.dispose();
   }
-  return cursor;
 }
 
 function handleReset(data: string | undefined, cursor: number): number {
@@ -344,6 +498,8 @@ async function handleLiveFrame(
   cursor: number,
   sender: TelegramSender,
   bodyLines: number,
+  signal: AbortSignal,
+  hooks: StreamOnceHooks,
 ): Promise<number> {
   let parsed: unknown;
   try {
@@ -358,7 +514,9 @@ async function handleLiveFrame(
   }
   const event = parsed as LiveEvent;
   if (event.seq <= cursor) return cursor; // already delivered (replay dedupe)
-  await sender.send(formatLiveEvent(event, bodyLines));
+  hooks.onDeliveryStart?.();
+  await sender.send(formatLiveEvent(event, bodyLines), signal);
+  hooks.onDeliveryEnd?.();
   return event.seq;
 }
 
@@ -380,7 +538,7 @@ export async function runBridge(
 
   let cursor = readCursor(cfg.cursorPath);
   if (cursor === null) {
-    const seeded = await seedCursorWithRetry(cfg.liveUrl, signal);
+    const seeded = await seedCursorWithRetry(cfg, signal);
     if (seeded === null) return; // shutdown requested before the first seed
     cursor = seeded;
     if (!writeCursor(cfg.cursorPath, cursor)) {
@@ -394,18 +552,47 @@ export async function runBridge(
   }
 
   const sender = new TelegramSender(cfg);
+  let activeCursor: number = cursor;
   const BASE_RETRY_MS = 3000;
   const MAX_RETRY_MS = 30_000;
   let backoff = BASE_RETRY_MS;
+  let unstableSince = Date.now();
   while (!signal.aborted) {
     // Trust the persisted cursor as the source of truth: every successful send
     // advances it on disk. A mid-stream error throws out of streamOnce without
     // returning the advanced value, so reloading here recovers those advances —
     // otherwise we would resume from the connection's start seq and re-send
     // everything already delivered this session (duplicate messages).
-    cursor = readCursor(cfg.cursorPath) ?? cursor;
+    activeCursor = readCursor(cfg.cursorPath) ?? activeCursor;
+    const attemptCursor = activeCursor;
+    let connectedAt: number | null = null;
+    let deliveryStartedAt: number | null = null;
+    const remainingRecoveryMs = (): number =>
+      Math.max(1, cfg.restartAfterMs - (Date.now() - unstableSince));
     try {
-      cursor = await streamOnce(cfg, sender, cursor, signal);
+      activeCursor = await streamOnce(cfg, sender, activeCursor, signal, {
+        onConnected: () => {
+          connectedAt = Date.now();
+        },
+        onDeliveryStart: () => {
+          deliveryStartedAt = Date.now();
+        },
+        onDeliveryEnd: () => {
+          deliveryStartedAt = null;
+        },
+        onProgress: () => {
+          unstableSince = Date.now();
+        },
+        deliverySignal: () =>
+          AbortSignal.any([
+            signal,
+            AbortSignal.timeout(remainingRecoveryMs()),
+          ]),
+        connectionTimeoutMs: Math.min(
+          cfg.connectionTimeoutMs,
+          remainingRecoveryMs(),
+        ),
+      });
       if (signal.aborted) break;
       // A clean stream end means we were connected; reset the backoff so a
       // routine idle disconnect reconnects promptly.
@@ -415,7 +602,22 @@ export async function runBridge(
       if (signal.aborted) break;
       log.warn(`[tg] stream error: ${(err as Error).message}; reconnecting in ${backoff}ms`);
     }
-    await sleep(backoff);
+    const persistedCursor: number = readCursor(cfg.cursorPath) ?? activeCursor;
+    const now = Date.now();
+    const madeProgress = persistedCursor !== attemptCursor;
+    const stableUntil = deliveryStartedAt ?? now;
+    const stableSession =
+      connectedAt !== null && stableUntil - connectedAt >= cfg.restartAfterMs;
+    activeCursor = persistedCursor;
+    if (madeProgress || stableSession) unstableSince = now;
+    const failedFor = Date.now() - unstableSince;
+    if (failedFor >= cfg.restartAfterMs) {
+      throw new Error(
+        `bridge remained in a rapid-failure loop for ${failedFor}ms; exiting for container restart`,
+      );
+    }
+    const waitMs = Math.min(backoff, cfg.restartAfterMs - failedFor);
+    await sleep(waitMs, signal);
     // Capped exponential backoff: a persistently-down receiver is not hammered
     // at a fixed 20 req/min; a healthy reconnect resets it above.
     backoff = Math.min(backoff * 2, MAX_RETRY_MS);
