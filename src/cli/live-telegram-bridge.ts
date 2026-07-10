@@ -50,10 +50,15 @@ export interface TelegramBridgeConfig {
 
 const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
 const DEFAULT_RESTART_AFTER_MS = 10 * 60_000;
+const MAX_CONNECTION_TIMEOUT_MS = 5 * 60_000;
 
-function positiveMs(raw: string | undefined, fallback: number): number {
+function positiveMs(
+  raw: string | undefined,
+  fallback: number,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
   const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
+  return Number.isInteger(value) && value > 0 && value <= max ? value : fallback;
 }
 
 // Pure environment -> config resolution (no IO), unit-testable without a socket.
@@ -75,6 +80,7 @@ export function resolveTelegramBridgeConfig(
   const connectionTimeoutMs = positiveMs(
     env.LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS,
     DEFAULT_CONNECTION_TIMEOUT_MS,
+    MAX_CONNECTION_TIMEOUT_MS,
   );
   const restartAfterMs = positiveMs(
     env.LIVE_TELEGRAM_RESTART_AFTER_MS,
@@ -124,8 +130,19 @@ export function parseSseFrame(block: string): SseFrame {
   return frame;
 }
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 // Per-message retry budget for transient failures (429 rate limit + 5xx server
 // errors). Exhausting it throws so the cursor stays put and a reconnect
@@ -222,12 +239,13 @@ function writeCursor(path: string, seq: number): boolean {
 async function seedCursor(
   cfg: TelegramBridgeConfig,
   signal: AbortSignal,
+  timeoutMs = cfg.connectionTimeoutMs,
 ): Promise<number> {
   const connected = await fetchConnected(
     `${cfg.liveUrl}/api/live-snapshot?limit=1`,
     {},
     signal,
-    cfg.connectionTimeoutMs,
+    timeoutMs,
     "snapshot",
     false,
   );
@@ -258,7 +276,12 @@ async function seedCursorWithRetry(
   for (;;) {
     if (signal.aborted) return null;
     try {
-      return await seedCursor(cfg, signal);
+      const remainingMs = Math.max(1, cfg.restartAfterMs - (Date.now() - startedAt));
+      return await seedCursor(
+        cfg,
+        signal,
+        Math.min(cfg.connectionTimeoutMs, remainingMs),
+      );
     } catch (err) {
       if (signal.aborted) return null;
       const elapsed = Date.now() - startedAt;
@@ -291,12 +314,13 @@ export class TelegramSender {
   // Transient 429 / 5xx failures are retried within MAX_SEND_RETRIES; exhausting
   // that budget also throws. Remaining 4xx responses are treated as poison
   // messages and dropped so one malformed event cannot wedge the stream forever.
-  async send(text: string): Promise<void> {
+  async send(text: string, signal?: AbortSignal): Promise<void> {
     if (this.#cfg.dryRun) {
       log.info(`[tg] (dry-run) would send:\n${text}`);
       return;
     }
-    await this.#throttle();
+    await this.#throttle(signal);
+    signal?.throwIfAborted();
     let retries = 0;
     for (;;) {
       const res = await fetch(
@@ -311,7 +335,12 @@ export class TelegramSender {
             parse_mode: "HTML",
             disable_web_page_preview: true,
           }),
-          signal: AbortSignal.timeout(this.#cfg.connectionTimeoutMs),
+          signal: signal
+            ? AbortSignal.any([
+                signal,
+                AbortSignal.timeout(this.#cfg.connectionTimeoutMs),
+              ])
+            : AbortSignal.timeout(this.#cfg.connectionTimeoutMs),
         },
       );
       if (res.ok) return;
@@ -334,7 +363,8 @@ export class TelegramSender {
           waitMs = Math.min(2000 * retries, 30_000);
         }
         log.warn(`[tg] Telegram HTTP ${res.status}; retrying in ${Math.round(waitMs / 1000)}s`);
-        await sleep(waitMs);
+        await sleep(waitMs, signal);
+        signal?.throwIfAborted();
         continue;
       }
       const detail = await res.text().catch(() => "");
@@ -348,9 +378,10 @@ export class TelegramSender {
     }
   }
 
-  async #throttle(): Promise<void> {
+  async #throttle(signal?: AbortSignal): Promise<void> {
     const wait = this.#lastSendAt + this.#cfg.minIntervalMs - Date.now();
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) await sleep(wait, signal);
+    signal?.throwIfAborted();
     this.#lastSendAt = Date.now();
   }
 }
@@ -362,6 +393,8 @@ export async function streamOnce(
   sender: TelegramSender,
   startCursor: number,
   signal: AbortSignal,
+  onConnected?: () => void,
+  connectionTimeoutMs = cfg.connectionTimeoutMs,
 ): Promise<number> {
   let cursor = startCursor;
   const connected = await fetchConnected(
@@ -373,7 +406,7 @@ export async function streamOnce(
       },
     },
     signal,
-    cfg.connectionTimeoutMs,
+    connectionTimeoutMs,
     "live stream",
     true,
   );
@@ -382,6 +415,7 @@ export async function streamOnce(
     if (!res.ok || !res.body) {
       throw new Error(`live stream HTTP ${res.status}`);
     }
+    onConnected?.();
     log.info(`[tg] connected to ${cfg.liveUrl}/api/live (since seq ${cursor})`);
 
     const decoder = new TextDecoder();
@@ -409,7 +443,13 @@ export async function streamOnce(
           const maxSeq = handleReset(frame.data, cursor);
           if (maxSeq !== cursor && writeCursor(cfg.cursorPath, maxSeq)) cursor = maxSeq;
         } else if (frame.event === "live" && frame.data) {
-          const advanced = await handleLiveFrame(frame.data, cursor, sender, cfg.bodyLines);
+          const advanced = await handleLiveFrame(
+            frame.data,
+            cursor,
+            sender,
+            cfg.bodyLines,
+            signal,
+          );
           if (advanced > cursor && writeCursor(cfg.cursorPath, advanced)) {
             cursor = advanced;
           }
@@ -448,6 +488,7 @@ async function handleLiveFrame(
   cursor: number,
   sender: TelegramSender,
   bodyLines: number,
+  signal: AbortSignal,
 ): Promise<number> {
   let parsed: unknown;
   try {
@@ -462,7 +503,7 @@ async function handleLiveFrame(
   }
   const event = parsed as LiveEvent;
   if (event.seq <= cursor) return cursor; // already delivered (replay dedupe)
-  await sender.send(formatLiveEvent(event, bodyLines));
+  await sender.send(formatLiveEvent(event, bodyLines), signal);
   return event.seq;
 }
 
@@ -498,6 +539,7 @@ export async function runBridge(
   }
 
   const sender = new TelegramSender(cfg);
+  let activeCursor: number = cursor;
   const BASE_RETRY_MS = 3000;
   const MAX_RETRY_MS = 30_000;
   let backoff = BASE_RETRY_MS;
@@ -508,25 +550,32 @@ export async function runBridge(
     // returning the advanced value, so reloading here recovers those advances —
     // otherwise we would resume from the connection's start seq and re-send
     // everything already delivered this session (duplicate messages).
-    cursor = readCursor(cfg.cursorPath) ?? cursor;
-    const attemptStartedAt = Date.now();
+    activeCursor = readCursor(cfg.cursorPath) ?? activeCursor;
+    const attemptCursor = activeCursor;
+    let connectedAt: number | null = null;
+    const remainingRecoveryMs = Math.max(
+      1,
+      cfg.restartAfterMs - (Date.now() - unstableSince),
+    );
     try {
-      cursor = await streamOnce(cfg, sender, cursor, signal);
+      activeCursor = await streamOnce(cfg, sender, activeCursor, signal, () => {
+        connectedAt = Date.now();
+      }, Math.min(cfg.connectionTimeoutMs, remainingRecoveryMs));
       if (signal.aborted) break;
-      if (Date.now() - attemptStartedAt >= cfg.restartAfterMs) {
-        unstableSince = Date.now();
-      }
       // A clean stream end means we were connected; reset the backoff so a
       // routine idle disconnect reconnects promptly.
       backoff = BASE_RETRY_MS;
       log.warn("[tg] stream ended; reconnecting");
     } catch (err) {
       if (signal.aborted) break;
-      if (Date.now() - attemptStartedAt >= cfg.restartAfterMs) {
-        unstableSince = Date.now();
-      }
       log.warn(`[tg] stream error: ${(err as Error).message}; reconnecting in ${backoff}ms`);
     }
+    const persistedCursor: number = readCursor(cfg.cursorPath) ?? activeCursor;
+    const now = Date.now();
+    const madeProgress = persistedCursor !== attemptCursor;
+    const stableSession = connectedAt !== null && now - connectedAt >= cfg.restartAfterMs;
+    activeCursor = persistedCursor;
+    if (madeProgress || stableSession) unstableSince = now;
     const failedFor = Date.now() - unstableSince;
     if (failedFor >= cfg.restartAfterMs) {
       throw new Error(
@@ -534,7 +583,7 @@ export async function runBridge(
       );
     }
     const waitMs = Math.min(backoff, cfg.restartAfterMs - failedFor);
-    await sleep(waitMs);
+    await sleep(waitMs, signal);
     // Capped exponential backoff: a persistently-down receiver is not hammered
     // at a fixed 20 req/min; a healthy reconnect resets it above.
     backoff = Math.min(backoff * 2, MAX_RETRY_MS);

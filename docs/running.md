@@ -321,10 +321,11 @@ setup hint in Settings; leave them unset for local/static deployments.
 
 Deployments that run `SYNC_MODE=live-telegram` get a cursor-preserving
 Live-to-Telegram bridge. Connection establishment and Telegram requests default
-to a 30-second timeout (`LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS`); a rapid-failure
-loop exits after 10 minutes (`LIVE_TELEGRAM_RESTART_AFTER_MS`) so the container
-restart policy can recreate the process. The connection timeout is released
-after SSE headers arrive, so a healthy idle stream remains open indefinitely.
+to a 30-second timeout (`LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS`, capped at five
+minutes). A rapid-failure loop exits after 10 minutes
+(`LIVE_TELEGRAM_RESTART_AFTER_MS`) so the container restart policy can recreate
+the process. The connection timeout is released after SSE headers arrive, so a
+healthy idle stream remains open indefinitely.
 
 ## Optional Release Dispatch
 

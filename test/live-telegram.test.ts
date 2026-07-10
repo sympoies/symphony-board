@@ -289,6 +289,12 @@ test("resolveTelegramBridgeConfig strips trailing slashes and applies defaults",
   assert.equal(invalid.bodyLines, MAX_BODY_LINES);
   assert.equal(invalid.connectionTimeoutMs, 30_000);
   assert.equal(invalid.restartAfterMs, 10 * 60_000);
+
+  const oversized = resolveTelegramBridgeConfig({
+    LIVE_TELEGRAM_DRY_RUN: "1",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "2147483648",
+  });
+  assert.equal(oversized.connectionTimeoutMs, 30_000);
 });
 
 test("streamOnce uses a dedicated timeout signal for SSE connection establishment", async () => {
@@ -391,6 +397,72 @@ test("runBridge exits after a prolonged rapid-failure loop", async () => {
   }
 });
 
+test("runBridge exits when a failed connection outlasts the restart window", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 100);
+  try {
+    const cursorPath = join(dir, "cursor");
+    writeFileSync(cursorPath, "0", "utf8");
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+      LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "60",
+      LIVE_TELEGRAM_RESTART_AFTER_MS: "5",
+    });
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason ?? new Error("aborted")),
+          { once: true },
+        );
+      })) as typeof fetch;
+
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => runBridge(cfg, controller.signal),
+      /rapid-failure loop.*container restart/,
+    );
+    assert.ok(Date.now() - startedAt < cfg.connectionTimeoutMs);
+  } finally {
+    clearTimeout(abortTimer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runBridge treats cursor progress across short SSE sessions as healthy", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 80);
+  try {
+    const cursorPath = join(dir, "cursor");
+    writeFileSync(cursorPath, "0", "utf8");
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+      LIVE_TELEGRAM_RESTART_AFTER_MS: "30",
+    });
+    let seq = 0;
+    globalThis.fetch = (async () => {
+      seq += 1;
+      const event = makeEvent({ seq, event_id: `d-${seq}` });
+      return new Response(
+        sseBody(`id: ${seq}\nevent: live\ndata: ${JSON.stringify(event)}\n\n`),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    }) as typeof fetch;
+
+    await runBridge(cfg, controller.signal);
+    assert.ok(Number(readFileSync(cursorPath, "utf8")) >= 2);
+  } finally {
+    clearTimeout(abortTimer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("TelegramSender throws on auth/config HTTP failures so the cursor is not advanced", async () => {
   const cfg = resolveTelegramBridgeConfig({
     TELEGRAM_BOT_TOKEN: "token",
@@ -451,6 +523,28 @@ test("TelegramSender aborts a request that never returns headers", async () => {
     () => new TelegramSender(cfg).send("hello"),
     (err: unknown) => err instanceof DOMException && err.name === "TimeoutError",
   );
+});
+
+test("TelegramSender cancels an in-flight request on bridge shutdown", async () => {
+  const cfg = resolveTelegramBridgeConfig({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_CHAT_ID: "chat",
+    LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "1000",
+  });
+  const controller = new AbortController();
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        "abort",
+        () => reject(init.signal?.reason ?? new Error("aborted")),
+        { once: true },
+      );
+    })) as typeof fetch;
+
+  const sending = new TelegramSender(cfg).send("hello", controller.signal);
+  controller.abort(new Error("bridge shutdown"));
+  await assert.rejects(() => sending, /bridge shutdown/);
 });
 
 test("streamOnce leaves the cursor file unchanged when Telegram auth/config send fails", async () => {
