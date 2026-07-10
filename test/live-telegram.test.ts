@@ -373,6 +373,29 @@ test("runBridge aborts a snapshot response whose body never completes", async ()
   }
 });
 
+test("runBridge stops promptly when shutdown interrupts snapshot retry backoff", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  const controller = new AbortController();
+  try {
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: join(dir, "cursor"),
+    });
+    globalThis.fetch = (async () => {
+      throw new Error("receiver unavailable");
+    }) as typeof fetch;
+
+    const startedAt = Date.now();
+    const running = runBridge(cfg, controller.signal);
+    setTimeout(() => controller.abort(), 5);
+    await running;
+    assert.ok(Date.now() - startedAt < 100);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runBridge exits after a prolonged rapid-failure loop", async () => {
   const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
   try {
@@ -457,6 +480,60 @@ test("runBridge treats cursor progress across short SSE sessions as healthy", as
 
     await runBridge(cfg, controller.signal);
     assert.ok(Number(readFileSync(cursorPath, "utf8")) >= 2);
+  } finally {
+    clearTimeout(abortTimer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runBridge does not treat a stalled Telegram send as stable SSE health", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 100);
+  try {
+    const cursorPath = join(dir, "cursor");
+    writeFileSync(cursorPath, "0", "utf8");
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      TELEGRAM_BOT_TOKEN: "token",
+      TELEGRAM_CHAT_ID: "chat",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+      LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
+      LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "60",
+      LIVE_TELEGRAM_RESTART_AFTER_MS: "10",
+    });
+    let liveCalls = 0;
+    let telegramCalls = 0;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith("http://live")) {
+        liveCalls += 1;
+        const event = makeEvent({ seq: 1, event_id: "d-1" });
+        return Promise.resolve(
+          new Response(
+            sseBody(`id: 1\nevent: live\ndata: ${JSON.stringify(event)}\n\n`),
+            { status: 200, headers: { "content-type": "text/event-stream" } },
+          ),
+        );
+      }
+      telegramCalls += 1;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason ?? new Error("aborted")),
+          { once: true },
+        );
+      });
+    }) as typeof fetch;
+
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => runBridge(cfg, controller.signal),
+      /rapid-failure loop.*container restart/,
+    );
+    assert.ok(Date.now() - startedAt < cfg.connectionTimeoutMs);
+    assert.equal(liveCalls, 1);
+    assert.equal(telegramCalls, 1);
+    assert.equal(readFileSync(cursorPath, "utf8"), "0");
   } finally {
     clearTimeout(abortTimer);
     rmSync(dir, { recursive: true, force: true });

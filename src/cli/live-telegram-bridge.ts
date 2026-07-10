@@ -295,7 +295,7 @@ async function seedCursorWithRetry(
       log.warn(
         `[tg] snapshot seed failed: ${(err as Error).message}; retrying in ${waitMs}ms`,
       );
-      await sleep(waitMs);
+      await sleep(waitMs, signal);
       backoff = Math.min(backoff * 2, 30_000);
     }
   }
@@ -388,13 +388,21 @@ export class TelegramSender {
 
 // One SSE connection: stream frames until the connection ends or aborts. Returns
 // the (possibly advanced) cursor so the next reconnect resumes from it.
+interface StreamOnceHooks {
+  onConnected?: () => void;
+  onDeliveryStart?: () => void;
+  onDeliveryEnd?: () => void;
+  onProgress?: () => void;
+  deliverySignal?: () => AbortSignal;
+  connectionTimeoutMs?: number;
+}
+
 export async function streamOnce(
   cfg: TelegramBridgeConfig,
   sender: TelegramSender,
   startCursor: number,
   signal: AbortSignal,
-  onConnected?: () => void,
-  connectionTimeoutMs = cfg.connectionTimeoutMs,
+  hooks: StreamOnceHooks = {},
 ): Promise<number> {
   let cursor = startCursor;
   const connected = await fetchConnected(
@@ -406,7 +414,7 @@ export async function streamOnce(
       },
     },
     signal,
-    connectionTimeoutMs,
+    hooks.connectionTimeoutMs ?? cfg.connectionTimeoutMs,
     "live stream",
     true,
   );
@@ -415,7 +423,7 @@ export async function streamOnce(
     if (!res.ok || !res.body) {
       throw new Error(`live stream HTTP ${res.status}`);
     }
-    onConnected?.();
+    hooks.onConnected?.();
     log.info(`[tg] connected to ${cfg.liveUrl}/api/live (since seq ${cursor})`);
 
     const decoder = new TextDecoder();
@@ -448,10 +456,12 @@ export async function streamOnce(
             cursor,
             sender,
             cfg.bodyLines,
-            signal,
+            hooks.deliverySignal?.() ?? signal,
+            hooks,
           );
           if (advanced > cursor && writeCursor(cfg.cursorPath, advanced)) {
             cursor = advanced;
+            hooks.onProgress?.();
           }
         }
         // Comment/heartbeat/`retry:` frames carry no event+data and are skipped.
@@ -489,6 +499,7 @@ async function handleLiveFrame(
   sender: TelegramSender,
   bodyLines: number,
   signal: AbortSignal,
+  hooks: StreamOnceHooks,
 ): Promise<number> {
   let parsed: unknown;
   try {
@@ -503,7 +514,9 @@ async function handleLiveFrame(
   }
   const event = parsed as LiveEvent;
   if (event.seq <= cursor) return cursor; // already delivered (replay dedupe)
+  hooks.onDeliveryStart?.();
   await sender.send(formatLiveEvent(event, bodyLines), signal);
+  hooks.onDeliveryEnd?.();
   return event.seq;
 }
 
@@ -553,14 +566,33 @@ export async function runBridge(
     activeCursor = readCursor(cfg.cursorPath) ?? activeCursor;
     const attemptCursor = activeCursor;
     let connectedAt: number | null = null;
-    const remainingRecoveryMs = Math.max(
-      1,
-      cfg.restartAfterMs - (Date.now() - unstableSince),
-    );
+    let deliveryStartedAt: number | null = null;
+    const remainingRecoveryMs = (): number =>
+      Math.max(1, cfg.restartAfterMs - (Date.now() - unstableSince));
     try {
-      activeCursor = await streamOnce(cfg, sender, activeCursor, signal, () => {
-        connectedAt = Date.now();
-      }, Math.min(cfg.connectionTimeoutMs, remainingRecoveryMs));
+      activeCursor = await streamOnce(cfg, sender, activeCursor, signal, {
+        onConnected: () => {
+          connectedAt = Date.now();
+        },
+        onDeliveryStart: () => {
+          deliveryStartedAt = Date.now();
+        },
+        onDeliveryEnd: () => {
+          deliveryStartedAt = null;
+        },
+        onProgress: () => {
+          unstableSince = Date.now();
+        },
+        deliverySignal: () =>
+          AbortSignal.any([
+            signal,
+            AbortSignal.timeout(remainingRecoveryMs()),
+          ]),
+        connectionTimeoutMs: Math.min(
+          cfg.connectionTimeoutMs,
+          remainingRecoveryMs(),
+        ),
+      });
       if (signal.aborted) break;
       // A clean stream end means we were connected; reset the backoff so a
       // routine idle disconnect reconnects promptly.
@@ -573,7 +605,9 @@ export async function runBridge(
     const persistedCursor: number = readCursor(cfg.cursorPath) ?? activeCursor;
     const now = Date.now();
     const madeProgress = persistedCursor !== attemptCursor;
-    const stableSession = connectedAt !== null && now - connectedAt >= cfg.restartAfterMs;
+    const stableUntil = deliveryStartedAt ?? now;
+    const stableSession =
+      connectedAt !== null && stableUntil - connectedAt >= cfg.restartAfterMs;
     activeCursor = persistedCursor;
     if (madeProgress || stableSession) unstableSince = now;
     const failedFor = Date.now() - unstableSince;
