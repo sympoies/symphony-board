@@ -261,6 +261,8 @@ test("resolveTelegramBridgeConfig strips trailing slashes and applies defaults",
   assert.equal(def.liveUrl, "http://127.0.0.1:8090");
   assert.equal(def.cursorPath, "data/live-telegram.cursor");
   assert.equal(def.minIntervalMs, 350);
+  assert.equal(def.connectionTimeoutMs, 30_000);
+  assert.equal(def.restartAfterMs, 10 * 60_000);
 
   const over = resolveTelegramBridgeConfig({
     LIVE_URL: "http://live:8090///",
@@ -268,17 +270,125 @@ test("resolveTelegramBridgeConfig strips trailing slashes and applies defaults",
     TELEGRAM_CHAT_ID: "c",
     LIVE_TELEGRAM_MIN_INTERVAL_MS: "1000",
     LIVE_TELEGRAM_BODY_LINES: "5",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "2500",
+    LIVE_TELEGRAM_RESTART_AFTER_MS: "90000",
   });
   assert.equal(over.liveUrl, "http://live:8090");
   assert.equal(over.warnings.length, 0);
   assert.equal(over.minIntervalMs, 1000);
   assert.equal(over.bodyLines, 5);
+  assert.equal(over.connectionTimeoutMs, 2500);
+  assert.equal(over.restartAfterMs, 90_000);
 
   const invalid = resolveTelegramBridgeConfig({
     LIVE_TELEGRAM_DRY_RUN: "1",
     LIVE_TELEGRAM_BODY_LINES: "nope",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "0",
+    LIVE_TELEGRAM_RESTART_AFTER_MS: "nope",
   });
   assert.equal(invalid.bodyLines, MAX_BODY_LINES);
+  assert.equal(invalid.connectionTimeoutMs, 30_000);
+  assert.equal(invalid.restartAfterMs, 10 * 60_000);
+});
+
+test("streamOnce uses a dedicated timeout signal for SSE connection establishment", async () => {
+  const cfg = resolveTelegramBridgeConfig({
+    LIVE_URL: "http://live",
+    LIVE_TELEGRAM_DRY_RUN: "1",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "10",
+  });
+  const controller = new AbortController();
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    assert.ok(init?.signal, "SSE fetch has an abort signal");
+    assert.notEqual(
+      init.signal,
+      controller.signal,
+      "SSE connection establishment needs its own timeout-linked signal",
+    );
+    return new Response(sseBody(""), {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  await streamOnce(cfg, new TelegramSender(cfg), 0, controller.signal);
+});
+
+test("streamOnce aborts an SSE connection attempt that never returns headers", async () => {
+  const cfg = resolveTelegramBridgeConfig({
+    LIVE_URL: "http://live",
+    LIVE_TELEGRAM_DRY_RUN: "1",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "5",
+  });
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        "abort",
+        () => reject(init.signal?.reason ?? new Error("aborted")),
+        { once: true },
+      );
+    })) as typeof fetch;
+
+  await assert.rejects(
+    () => streamOnce(cfg, new TelegramSender(cfg), 0, new AbortController().signal),
+    /live stream connection timed out after 5ms/,
+  );
+});
+
+test("runBridge aborts a snapshot response whose body never completes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  try {
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: join(dir, "cursor"),
+      LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "5",
+      LIVE_TELEGRAM_RESTART_AFTER_MS: "5",
+    });
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener(
+            "abort",
+            () => controller.error(init.signal?.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => runBridge(cfg, new AbortController().signal),
+      /snapshot unavailable.*container restart/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runBridge exits after a prolonged rapid-failure loop", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
+  try {
+    const cursorPath = join(dir, "cursor");
+    writeFileSync(cursorPath, "0", "utf8");
+    const cfg = resolveTelegramBridgeConfig({
+      LIVE_URL: "http://live",
+      LIVE_TELEGRAM_DRY_RUN: "1",
+      LIVE_TELEGRAM_CURSOR_PATH: cursorPath,
+      LIVE_TELEGRAM_RESTART_AFTER_MS: "10",
+    });
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => runBridge(cfg, new AbortController().signal),
+      /rapid-failure loop.*container restart/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("TelegramSender throws on auth/config HTTP failures so the cursor is not advanced", async () => {
@@ -319,6 +429,28 @@ test("TelegramSender drops message-specific HTTP 400 poison without retrying for
   const sender = new TelegramSender(cfg);
   await sender.send("hello");
   assert.equal(calls, 1);
+});
+
+test("TelegramSender aborts a request that never returns headers", async () => {
+  const cfg = resolveTelegramBridgeConfig({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_CHAT_ID: "chat",
+    LIVE_TELEGRAM_MIN_INTERVAL_MS: "0",
+    LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS: "5",
+  });
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        "abort",
+        () => reject(init.signal?.reason ?? new Error("aborted")),
+        { once: true },
+      );
+    })) as typeof fetch;
+
+  await assert.rejects(
+    () => new TelegramSender(cfg).send("hello"),
+    (err: unknown) => err instanceof DOMException && err.name === "TimeoutError",
+  );
 });
 
 test("streamOnce leaves the cursor file unchanged when Telegram auth/config send fails", async () => {

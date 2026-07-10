@@ -319,6 +319,13 @@ allowlist variables. Deployments may also set `LIVE_WEBHOOK_PUBLIC_URL`,
 `LIVE_WEBHOOK_PROVIDER`, and `LIVE_WEBHOOK_EVENTS` to show a non-secret webhook
 setup hint in Settings; leave them unset for local/static deployments.
 
+Deployments that run `SYNC_MODE=live-telegram` get a cursor-preserving
+Live-to-Telegram bridge. Connection establishment and Telegram requests default
+to a 30-second timeout (`LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS`); a rapid-failure
+loop exits after 10 minutes (`LIVE_TELEGRAM_RESTART_AFTER_MS`) so the container
+restart policy can recreate the process. The connection timeout is released
+after SSE headers arrive, so a healthy idle stream remains open indefinitely.
+
 ## Optional Release Dispatch
 
 Stable GitHub Releases can notify an external deployment repository after the
