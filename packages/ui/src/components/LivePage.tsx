@@ -14,6 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
+import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
@@ -481,7 +482,7 @@ function LiveDetail({
   const link = eventLink(ev);
   const action = liveAction(ev);
   return (
-    <article className="live-detail-card">
+    <article className="live-detail-card" data-detail-scroll>
       <button type="button" className="live-detail-back" onClick={onClose}>
         ← Back to feed
       </button>
@@ -773,6 +774,7 @@ export function LivePage({
   useEffect(() => clearHold, [clearHold]); // clear any pending timer on unmount
   const detail = pinned ?? followed ?? null;
   const detailKey = detail ? liveEventKey(detail) : null;
+  const detailScrollRef = useDetailScrollReset<HTMLDivElement>(detailKey);
   const feedSelectedKey = liveFeedSelectedKey(following, newestKey, detailKey);
   const detailNav = useMemo(() => liveDetailNavigation(shown, detail), [shown, detail]);
   useEffect(() => {
@@ -1072,6 +1074,7 @@ export function LivePage({
           )}
           <div
             className="live-detail"
+            ref={detailScrollRef}
             onTouchStart={handleDetailTouchStart}
             onTouchEnd={handleDetailTouchEnd}
             onTouchCancel={handleDetailTouchCancel}
