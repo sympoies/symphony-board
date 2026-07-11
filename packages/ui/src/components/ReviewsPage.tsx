@@ -30,6 +30,7 @@ import {
 import { liveAvatarModel } from "../live-avatar.ts";
 import { safeHref } from "../url.ts";
 import { useListViewport } from "../useListViewport.ts";
+import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { Badge } from "./Badge.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
@@ -407,7 +408,7 @@ function ReviewDetail({
   const displayTime = reviewThreadDisplayTime(thread);
   const resolution = reviewResolution(thread);
   return (
-    <article className="live-detail-card">
+    <article className="live-detail-card" data-detail-scroll>
       <button type="button" className="live-detail-back" onClick={onClose}>
         ← Back to threads
       </button>
@@ -527,6 +528,7 @@ export function ReviewsPage({
     return threadRows[0] ?? null;
   }, [selectedId, threadRows]);
   const detailKey = detail ? threadKey(detail) : null;
+  const detailScrollRef = useDetailScrollReset<HTMLDivElement>(detailKey);
   const detailNav = useMemo(() => threadNavigation(threadRows, detail), [threadRows, detail]);
 
   // Drives the NARROW-screen overlay; route-backed so Back closes detail first.
@@ -766,6 +768,7 @@ export function ReviewsPage({
         </ul>
         <div
           className="live-detail"
+          ref={detailScrollRef}
           onTouchStart={handleDetailTouchStart}
           onTouchEnd={handleDetailTouchEnd}
           onTouchCancel={handleDetailTouchCancel}

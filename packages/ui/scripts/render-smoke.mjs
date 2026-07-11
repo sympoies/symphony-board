@@ -1926,12 +1926,16 @@ try {
       const state = () => {
         const currentRows = Array.from(document.querySelectorAll('.items-page .item-row'));
         const currentSelectedIndex = currentRows.findIndex((row) => row.classList.contains('item-row-selected'));
+        const currentDetail = document.querySelector('.items-page .items-detail');
+        const currentCard = currentDetail?.querySelector('.items-detail-card');
         return {
           selectedIndex: currentSelectedIndex,
           detailTitle: document.querySelector('.items-page .items-detail-title')?.textContent?.replace('↗', '').trim() || '',
           rowTitle: currentRows[currentSelectedIndex]?.querySelector('.item-row-title')?.textContent?.trim() || '',
           motion: document.querySelector('.items-page .items-detail-shell')?.getAttribute('data-motion') || '',
           count: document.querySelector('.items-page .items-detail .live-detail-nav-count')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+          detailScrollTop: currentDetail?.scrollTop || 0,
+          cardScrollTop: currentCard?.scrollTop || 0,
         };
       };
       const swipe = (dx) => {
@@ -1994,9 +1998,17 @@ try {
         detailTitle,
         selectedMatchesDetail: !!selected && rowTitle.length > 0 && selected.textContent?.includes(rowTitle) === true && detailTitle.includes(rowTitle),
       };
+      const scrollCard = detail?.querySelector('.items-detail-card');
+      if (scrollCard) {
+        scrollCard.style.paddingBottom = '1400px';
+        scrollCard.scrollTop = scrollCard.scrollHeight;
+      }
+      const beforeLeftScrollTop = scrollCard?.scrollTop || 0;
       const leftSwipe = swipe(-112);
       return new Promise((resolve) => setTimeout(() => {
         const afterLeft = state();
+        if (scrollCard) scrollCard.scrollTop = scrollCard.scrollHeight;
+        const beforeRightScrollTop = scrollCard?.scrollTop || 0;
         const rightSwipe = swipe(112);
         setTimeout(() => {
           const afterRight = state();
@@ -2006,8 +2018,10 @@ try {
         const detailAfter = document.querySelector('.items-page .items-detail');
         resolve({
           ...open,
+          beforeLeftScrollTop,
           leftSwipe,
           afterLeft,
+          beforeRightScrollTop,
           rightSwipe,
           afterRight,
           afterBackDetailOpen: splitAfter?.getAttribute('data-detail-open') || '',
@@ -2377,6 +2391,48 @@ try {
       comments: document.querySelectorAll('.reviews-page .live-detail .review-comment-card').length,
     };
   })()`)) || { selectedTitle: "", detailTitle: "", comments: 0 };
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(120);
+  await send("Runtime.evaluate", { expression: "location.replace('#/reviews')" });
+  await sleep(300);
+  await waitHtml("document.querySelectorAll('.reviews-page .live-feed .live-event').length >= 2");
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.reviews-page .live-feed .live-event')[0]?.click()" });
+  await sleep(180);
+  const reviewsMobileScrollReset = (await send("Runtime.evaluate", {
+    expression: `new Promise((resolve) => {
+      const detail = document.querySelector('.reviews-page .live-detail');
+      const card = detail?.querySelector('.live-detail-card');
+      const beforeTitle = detail?.querySelector('.live-detail-title')?.textContent?.trim() || '';
+      const beforeSelectedIndex = document.querySelector('.reviews-page .live-event-selected')?.getAttribute('data-feed-index') || '';
+      if (card) {
+        card.style.paddingBottom = '1400px';
+        card.scrollTop = card.scrollHeight;
+      }
+      const beforeCardScrollTop = card?.scrollTop || 0;
+      const next = detail?.querySelector('.live-detail-nav-button[aria-label="Show next thread"]');
+      next?.click();
+      setTimeout(() => {
+        const currentDetail = document.querySelector('.reviews-page .live-detail');
+        const currentCard = currentDetail?.querySelector('.live-detail-card');
+        resolve({
+          beforeTitle,
+          beforeSelectedIndex,
+          afterTitle: currentDetail?.querySelector('.live-detail-title')?.textContent?.trim() || '',
+          afterSelectedIndex: document.querySelector('.reviews-page .live-event-selected')?.getAttribute('data-feed-index') || '',
+          beforeCardScrollTop,
+          afterCardScrollTop: currentCard?.scrollTop || 0,
+          afterDetailScrollTop: currentDetail?.scrollTop || 0,
+          nextDisabled: next?.disabled === true,
+        });
+      }, 180);
+    })`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await sleep(180);
+  await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
   // Page 6 — the Settings display filter: a per-repo checkbox list with bulk
   // controls (the sample contract spans two repos across two sources).
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -3112,10 +3168,12 @@ try {
         cardHeight: Math.round(cardRect?.height || 0),
         cardClientHeight: card?.clientHeight || 0,
         cardScrollHeight: card?.scrollHeight || 0,
+        cardScrollTop: card?.scrollTop || 0,
         cardScrollable: !!card && card.scrollHeight > card.clientHeight + 4,
         detailHeight: Math.round(detailRect?.height || 0),
         detailClientHeight: detail?.clientHeight || 0,
         detailScrollHeight: detail?.scrollHeight || 0,
+        detailScrollTop: detail?.scrollTop || 0,
       }, ${JSON.stringify(extra)});
     })()`,
     returnByValue: true,
@@ -3244,10 +3302,24 @@ try {
       })(${JSON.stringify(label)})`,
     returnByValue: true,
   })).result.value || {};
+  const liveMobileBeforeNavScroll = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.live-detail-card');
+      if (!card) return 0;
+      card.style.paddingBottom = '1400px';
+      card.scrollTop = card.scrollHeight;
+      return card.scrollTop;
+    })()`,
+    returnByValue: true,
+  })).result.value || 0;
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await sleep(120);
   const liveMobileOlderClick = await tapLiveMobileNavButton("Show older event");
   await sleep(300);
+  await send("Runtime.evaluate", {
+    expression: "(() => { const card = document.querySelector('.live-detail-card'); if (card) card.style.paddingBottom = ''; })()",
+  });
+  await sleep(60);
   const liveMobileNav = await liveMobileDetailState({ click: liveMobileOlderClick });
   const liveMobileReducedMotion = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -4311,6 +4383,7 @@ try {
     [itemsMobileDetail.navVisible === true && itemsMobileDetail.navButtons === 2 && itemsMobileDetail.count === `2 / ${itemsSummary.rows}` && itemsMobileDetail.newerDisabled === false && itemsMobileDetail.olderDisabled === false, `items: phone detail shows Live/Reviews-style previous/next navigation (${JSON.stringify(itemsMobileDetail)})`],
     [itemsMobileDetail.leftSwipe?.dispatched === true && itemsMobileDetail.afterLeft?.selectedIndex === 2 && itemsMobileDetail.afterLeft?.motion === "next" && itemsMobileDetail.afterLeft?.count === `3 / ${itemsSummary.rows}` && itemsMobileDetail.afterLeft?.detailTitle.includes(itemsMobileDetail.afterLeft?.rowTitle || "__missing__"), `items: phone detail left-swipe advances to the older item and updates page count (${JSON.stringify(itemsMobileDetail)})`],
     [itemsMobileDetail.rightSwipe?.dispatched === true && itemsMobileDetail.afterRight?.selectedIndex === 1 && itemsMobileDetail.afterRight?.motion === "previous" && itemsMobileDetail.afterRight?.count === `2 / ${itemsSummary.rows}` && itemsMobileDetail.afterRight?.detailTitle.includes(itemsMobileDetail.afterRight?.rowTitle || "__missing__"), `items: phone detail right-swipe returns to the newer item and updates page count (${JSON.stringify(itemsMobileDetail)})`],
+    [itemsMobileDetail.beforeLeftScrollTop > 0 && itemsMobileDetail.afterLeft?.cardScrollTop === 0 && itemsMobileDetail.afterLeft?.detailScrollTop === 0 && itemsMobileDetail.beforeRightScrollTop > 0 && itemsMobileDetail.afterRight?.cardScrollTop === 0 && itemsMobileDetail.afterRight?.detailScrollTop === 0, `items: switching detail identities resets both mobile and desktop scroll containers (${JSON.stringify(itemsMobileDetail)})`],
     [itemsMobileDetail.afterBackDetailOpen === "false" && itemsMobileDetail.afterBackDetailDisplay === "none" && itemsMobileDetail.afterBackHash === "#/items", `items: phone history.back returns from detail overlay to the list (${JSON.stringify(itemsMobileDetail)})`],
     // live: the realtime feed seeds from the snapshot and renders precise links
     [has(liveHtml, "live-page"), "live: page rendered"],
@@ -4350,6 +4423,7 @@ try {
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileNav.navButtons === 2 && liveMobileNav.motion === "next" && liveMobileNav.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileNav.count || "") && liveMobileNav.selectedMatchesDetail === true && liveMobileNav.newerDisabled === false && liveMobileNav.olderDisabled === false, `live: phone detail Older button advances detail and selected feed row together (${JSON.stringify(liveMobileNav)})`],
+    [liveMobileBeforeNavScroll > 0 && liveMobileNav.cardScrollTop === 0 && liveMobileNav.detailScrollTop === 0, `live: switching detail identities resets both mobile and desktop scroll containers (${JSON.stringify({ before: liveMobileBeforeNavScroll, after: liveMobileNav })})`],
     [liveMobileNav.navInsideCard === false && liveMobileNav.navTop >= liveMobileNav.cardBottom, `live: phone detail navigation sits below the detail card (${JSON.stringify(liveMobileNav)})`],
     [liveMobileNav.cardScrollable === true && liveMobileNav.navBottom <= liveMobileNav.viewportHeight && liveMobileNav.navViewportBottomGap >= 8 && liveMobileNav.navViewportBottomGap <= 48 && liveMobileNav.detailScrollHeight <= liveMobileNav.detailClientHeight + 4, `live: phone long detail body scrolls inside a fixed-height card while navigation stays pinned (${JSON.stringify(liveMobileNav)})`],
     [liveMobileReducedMotion.matches === true && liveMobileReducedMotion.motion === "next" && liveMobileReducedMotion.animationName === "none", `live: phone detail directional motion respects reduced-motion (${JSON.stringify(liveMobileReducedMotion)})`],
@@ -4436,6 +4510,7 @@ try {
     [reviewsSummary.commentAvatarLayout?.avatarIsCardChild === true && reviewsSummary.commentAvatarLayout?.mainStartsAfterAvatar === true, `reviews: thread comment avatar leads the comment body like Live detail rows (${JSON.stringify(reviewsSummary.commentAvatarLayout || {})})`],
     [reviewsSummary.navInsideCard === false && reviewsSummary.navIsDetailChild === true, `reviews: detail nav is a card sibling so the shared overlay pins it (${JSON.stringify({ navInsideCard: reviewsSummary.navInsideCard, navIsDetailChild: reviewsSummary.navIsDetailChild })})`],
     [reviewsRowClick.rowTitle !== "" && reviewsSelect.detailTitle.includes(reviewsRowClick.rowTitle) && reviewsSelect.comments >= 1, `reviews: selecting a thread row swaps the detail pane (${JSON.stringify(reviewsSelect)})`],
+    [reviewsMobileScrollReset.beforeCardScrollTop > 0 && reviewsMobileScrollReset.beforeSelectedIndex !== reviewsMobileScrollReset.afterSelectedIndex && reviewsMobileScrollReset.afterCardScrollTop === 0 && reviewsMobileScrollReset.afterDetailScrollTop === 0 && reviewsMobileScrollReset.nextDisabled === false, `reviews: switching detail identities resets both mobile and desktop scroll containers (${JSON.stringify(reviewsMobileScrollReset)})`],
     // deep link: a board card's focus link opens the graph in the focus view
     [boardGraphLinks >= 1, `board: "focus in graph" links rendered (${boardGraphLinks} >= 1)`],
     // every linked card also shows its relation count in the meta row — the two

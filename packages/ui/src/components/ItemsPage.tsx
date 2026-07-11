@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type TouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref, type TouchEvent } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
@@ -10,6 +10,7 @@ import { itemMetricEntries } from "../item-metrics.ts";
 import { relativeTime, reviewThreadsLabel, type ColorOf, type ItemSort, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
+import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 
 const ITEMS_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
@@ -97,6 +98,7 @@ function ItemDetail({
   onTouchStart,
   onTouchEnd,
   onTouchCancel,
+  scrollRootRef,
   children,
 }: {
   item: ItemDTO;
@@ -109,6 +111,7 @@ function ItemDetail({
   onTouchStart?: (event: TouchEvent<HTMLElement>) => void;
   onTouchEnd?: (event: TouchEvent<HTMLElement>) => void;
   onTouchCancel?: () => void;
+  scrollRootRef: Ref<HTMLElement>;
   children?: ReactNode;
 }) {
   const body = itemBody(item);
@@ -119,12 +122,13 @@ function ItemDetail({
   return (
     <aside
       className="items-detail"
+      ref={scrollRootRef}
       aria-label="Item details"
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
-      <div className="items-detail-card">
+      <div className="items-detail-card" data-detail-scroll>
         <button type="button" className="items-detail-back" onClick={onClose}>
           ← Back to items
         </button>
@@ -307,6 +311,7 @@ export function ItemsPage({
     if (!selectedItem) return -1;
     return items.findIndex((item) => item.id === selectedItem.id);
   }, [items, selectedItem]);
+  const detailScrollRef = useDetailScrollReset<HTMLElement>(selectedItem?.id ?? null);
   const detailNav = useMemo(() => ({
     position: selectedIndex >= 0 ? selectedIndex + 1 : 0,
     total: items.length,
@@ -528,6 +533,7 @@ export function ItemsPage({
               onTouchStart={handleDetailTouchStart}
               onTouchEnd={handleDetailTouchEnd}
               onTouchCancel={handleDetailTouchCancel}
+              scrollRootRef={detailScrollRef}
             >
               <ItemDetailNav
                 position={detailNav.position}
