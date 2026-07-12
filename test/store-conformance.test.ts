@@ -257,7 +257,7 @@ for (const driver of DRIVERS) {
 
   t("graph neighborhood reads stay ref-scoped and bounded", async () => {
     const store = await fresh();
-    const focusId = await store.upsertItem(fixtureItem(), "github/1", "2026-06-01T00:00:00Z");
+    const focusId = await store.upsertItem(fixtureItem({ body: "x".repeat(65_536) }), "github/1", "2026-06-01T00:00:00Z");
     const neighbourId = await store.upsertItem(fixtureItem({ externalId: "ISSUE_2", iid: 2 }), "github/1", "2026-06-01T00:00:00Z");
     await store.upsertItem(fixtureItem({ externalId: "ISSUE_3", iid: 3 }), "github/1", "2026-06-01T00:00:00Z");
     await store.replaceLabels(focusId, [toLabel("focus")]);
@@ -278,6 +278,11 @@ for (const driver of DRIVERS) {
     assert.deepEqual(
       (await store.listLiveItemsBySourceRefs(SOURCE, ["ISSUE_2", "missing"])).map((row) => row.external_id),
       ["ISSUE_2"],
+    );
+    assert.equal(
+      (await store.listLiveItemsBySourceRefs(SOURCE, ["ISSUE_1"]))[0]?.body,
+      null,
+      "the graph-only item query never materializes provider bodies",
     );
     assert.deepEqual(
       (await store.listLabelsByItemIds([neighbourId])).map((row) => row.name),

@@ -547,7 +547,7 @@ export class SqliteStore implements Store {
     const placeholders = refs.map(() => "?").join(", ");
     const rows = this.#db
       .prepare(
-        `SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, body, state,
+        `SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, NULL AS body, state,
                 state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
                 merged_at, review_state, ci_state, merge_state, open_review_threads,
                 total_review_threads, comment_total, milestone, demand, last_seen_at

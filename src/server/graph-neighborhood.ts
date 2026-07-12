@@ -390,10 +390,22 @@ export async function graphNeighborhoodProjection(
   signal?: AbortSignal,
 ): Promise<GraphNeighborhoodResponse> {
   const key = projectionKey(cfg, options);
+  return coalesceGraphNeighborhoodProjection(
+    key,
+    (sharedSignal) => loadGraphNeighborhoodProjection(cfg, options, sharedSignal),
+    signal,
+  );
+}
+
+export function coalesceGraphNeighborhoodProjection(
+  key: string,
+  loader: (signal: AbortSignal) => Promise<GraphNeighborhoodResponse>,
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
   let entry = inFlightProjections.get(key);
   if (!entry) {
     const controller = new AbortController();
-    const promise = loadGraphNeighborhoodProjection(cfg, options, controller.signal).finally(() => {
+    const promise = loader(controller.signal).finally(() => {
       if (inFlightProjections.get(key)?.promise === promise) inFlightProjections.delete(key);
     });
     entry = { promise, controller, consumers: 0 };

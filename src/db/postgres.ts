@@ -516,7 +516,7 @@ export class PgStore implements Store {
     const refs = [...new Set(externalIds.filter(Boolean))].sort();
     if (refs.length === 0) return [];
     const rows = await this.#q`
-      SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, body, state,
+      SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, NULL AS body, state,
              state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
              merged_at, review_state, ci_state, merge_state, open_review_threads,
              total_review_threads, comment_total, milestone, demand, last_seen_at

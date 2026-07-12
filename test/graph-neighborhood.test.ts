@@ -12,6 +12,7 @@ import { openSqliteStore } from "../src/db/sqlite.ts";
 import { createRangeApiServer } from "../src/cli/range-api.ts";
 import {
   buildGraphNeighborhood,
+  coalesceGraphNeighborhoodProjection,
   GRAPH_NEIGHBORHOOD_MAX_DEPTH,
   parseGraphNeighborhoodOptions,
 } from "../src/server/graph-neighborhood.ts";
@@ -223,6 +224,36 @@ test("graph neighborhood options validate ref and depth", () => {
   });
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?depth=2")), /ref is required/);
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&depth=6")), /1 to 5/);
+});
+
+test("identical projections coalesce and the final consumer abort stops the loader", async () => {
+  const first = new AbortController();
+  const second = new AbortController();
+  let loads = 0;
+  let laterStages = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const loader = async (signal: AbortSignal) => {
+    loads++;
+    await gate;
+    if (signal.aborted) throw new DOMException("aborted", "AbortError");
+    laterStages++;
+    return build(["I0"], [], { depth: 1 });
+  };
+  const key = `test:${Date.now()}:${Math.random()}`;
+  const one = coalesceGraphNeighborhoodProjection(key, loader, first.signal);
+  const two = coalesceGraphNeighborhoodProjection(key, loader, second.signal);
+  const settled = Promise.allSettled([one, two]);
+  assert.equal(loads, 1, "identical callers share one loader");
+  first.abort();
+  await Promise.resolve();
+  second.abort();
+  release();
+  const results = await settled;
+  assert.ok(results.every((result) => result.status === "rejected"));
+  assert.equal(laterStages, 0, "the shared loader stops before its next stage after the final consumer aborts");
 });
 
 test("range API serves older multi-hop canonical relations through the read-only route", async () => {
