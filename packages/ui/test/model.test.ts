@@ -2258,6 +2258,18 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   });
 });
 
+test("graph focus depth is URL-backed and restricted to the supported 1..5 range", () => {
+  const explicit = parseHashRoute("#/graph?focus=github%3Agithub.com%7C42&depth=3") as ReturnType<typeof parseHashRoute> & { depth?: number | null };
+  assert.equal(explicit.depth, 3);
+  assert.equal(
+    buildHashRoute({ page: "graph", focus: "github:github.com|42", depth: 5 } as Parameters<typeof buildHashRoute>[0] & { depth: number }),
+    "#/graph?focus=github%3Agithub.com%7C42&depth=5",
+  );
+  assert.equal((parseHashRoute("#/graph?focus=x&depth=0") as typeof explicit).depth, null);
+  assert.equal((parseHashRoute("#/graph?focus=x&depth=6") as typeof explicit).depth, null);
+  assert.equal((parseHashRoute("#/graph?focus=x&depth=nope") as typeof explicit).depth, null);
+});
+
 test("graphFocusHref round-trips an item's id through parseHashRoute without touching q", () => {
   const it = (over: Partial<ItemDTO>) => item(over);
   for (const over of [
