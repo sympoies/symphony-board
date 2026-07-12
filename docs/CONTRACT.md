@@ -607,6 +607,32 @@ route to keep the overview a true 12 months without downloading the whole contra
 the first emit. It needs no store access (the aggregate is already computed at
 emit), so it adds no query, driver, or schema surface.
 
+## Graph Neighborhood Query (operational, not contract)
+
+`GET /api/graph-neighborhood?ref=<item-ref>&depth=<1..5>` is the focused Graph
+view's canonical-history read. It is intentionally separate from
+`ContractEnvelope`: range and static envelopes stay bounded for normal pages,
+while a user can follow older relations wholly outside the loaded item window.
+It therefore has its own operational schema,
+`symphony-board-graph-neighborhood/1`, and does not carry or bump
+`contract_version`.
+
+The endpoint defaults to five hops and returns current live configured-repo data:
+
+- `focus_ref`, `requested_depth`, and `reached_depth`;
+- `nodes[]` with `ref`, shortest `hop`, and the resolved `ItemDTO` when tracked;
+- original directed `edges[]` for the induced neighborhood, across all edge types;
+- `complete`, ordered `limit_reasons` (`depth`, `nodes`, `edges`), fixed limits,
+  and returned node/edge counts.
+
+Traversal treats edges as undirected only for neighborhood membership, retains
+their original direction in the response, and uses stable ordering so cycles
+and repeated reads are deterministic. The production bounds are depth 5, 200
+nodes, and 500 edges. Invalid/missing query parameters return `400`; an unknown
+focus returns `404`. Every request opens the configured canonical store
+read-only and closes it. Static/local-file clients cannot use this route and
+must clearly label their loaded one-hop fallback.
+
 ## Aggregates
 
 Version `1.3.0` added optional `aggregates[]`. These rows provide

@@ -17,6 +17,7 @@ import {
   saveSecretValue,
   validateSecretValue,
   fetchActivityDaily,
+  fetchGraphNeighborhood,
   SYNC_CONTROL_HEADER,
   initLoadRetryDelayMs,
   INIT_LOAD_RETRY_BASE_MS,
@@ -147,6 +148,63 @@ test("fetchActivityDaily returns the full aggregate on 2xx and null on any failu
       throw new Error("offline");
     }) as unknown as typeof fetch;
     assert.equal(await fetchActivityDaily(null), null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchGraphNeighborhood encodes focus/depth, forwards cancellation, and validates the response", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let seenUrl = "";
+    let seenSignal: AbortSignal | null | undefined;
+    const controller = new AbortController();
+    const body = {
+      schema: "symphony-board-graph-neighborhood/1",
+      generated_at: "2026-07-12T00:00:00Z",
+      focus_ref: "github:github.com|I1",
+      requested_depth: 5,
+      reached_depth: 2,
+      complete: true,
+      limit_reasons: [],
+      limits: { max_depth: 5, max_nodes: 200, max_edges: 500 },
+      counts: { nodes: 3, edges: 2 },
+      nodes: [
+        { ref: "github:github.com|I1", hop: 0, item: null },
+        { ref: "github:github.com|I2", hop: 1, item: null },
+        { ref: "github:github.com|I3", hop: 2, item: null },
+      ],
+      edges: [
+        { type: "mentions", from: "github:github.com|I1", to: "github:github.com|I2" },
+        { type: "mentions", from: "github:github.com|I2", to: "github:github.com|I3" },
+      ],
+    };
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      seenUrl = String(url);
+      seenSignal = init?.signal;
+      return { ok: true, status: 200, json: async () => body };
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await fetchGraphNeighborhood("github:github.com|I1", 5, "https://board.example/app/", controller.signal), body);
+    assert.equal(seenUrl, "https://board.example/app/api/graph-neighborhood?ref=github%3Agithub.com%7CI1&depth=5");
+    assert.equal(seenSignal, controller.signal);
+
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ schema: "wrong" }) })) as unknown as typeof fetch;
+    await assert.rejects(fetchGraphNeighborhood("x", 1, null), /invalid response/);
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ ...body, focus_ref: "wrong" }) })) as unknown as typeof fetch;
+    await assert.rejects(fetchGraphNeighborhood("github:github.com|I1", 5, null), /invalid response/);
+    const invalidBodies = [
+      { ...body, limits: { ...body.limits, max_nodes: 201 } },
+      { ...body, counts: { nodes: 201, edges: 0 }, nodes: Array.from({ length: 201 }, (_, hop) => ({ ref: `x|${hop}`, hop: 0, item: null })), edges: [] },
+      { ...body, nodes: [{ ref: "x|dup", hop: 0, item: null }, { ref: "x|dup", hop: 1, item: null }, body.nodes[2]], counts: { nodes: 3, edges: 2 } },
+      { ...body, nodes: body.nodes.map((node, index) => index === 2 ? { ...node, hop: 6 } : node) },
+      { ...body, edges: [{ type: "mentions", from: "x|missing", to: body.nodes[1].ref }, body.edges[1]] },
+    ];
+    for (const invalidBody of invalidBodies) {
+      globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => invalidBody })) as unknown as typeof fetch;
+      await assert.rejects(fetchGraphNeighborhood("github:github.com|I1", 5, null), /invalid response/);
+    }
+    globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    await assert.rejects(fetchGraphNeighborhood("x", 1, null), /HTTP 404/);
   } finally {
     globalThis.fetch = realFetch;
   }

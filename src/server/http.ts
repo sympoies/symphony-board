@@ -4,11 +4,20 @@
 import type { ServerResponse } from "node:http";
 import { gzipSync } from "node:zlib";
 
-// Coarse Accept-Encoding check: real clients send `gzip` or `gzip, deflate, br`.
-// We honor presence only (no `q=0` refusals — no client we serve sends one).
+// Accept gzip only when its quality value is positive. Browsers normally send
+// a bare token, but API clients may explicitly refuse it with `gzip;q=0`; in
+// that case identity is the compatible response.
 export function acceptsGzip(acceptEncoding: string | string[] | undefined): boolean {
   const header = Array.isArray(acceptEncoding) ? acceptEncoding.join(",") : acceptEncoding;
-  return !!header && /(^|,)\s*gzip\b/i.test(header);
+  if (!header) return false;
+  return header.split(",").some((entry) => {
+    const [coding, ...parameters] = entry.split(";").map((part) => part.trim());
+    if (coding?.toLowerCase() !== "gzip") return false;
+    const quality = parameters.find((parameter) => /^q\s*=/i.test(parameter));
+    if (!quality) return true;
+    const value = Number(quality.slice(quality.indexOf("=") + 1).trim());
+    return Number.isFinite(value) && value > 0 && value <= 1;
+  });
 }
 
 // Write a JSON body, gzipping on the fly when the client accepts it. Used for

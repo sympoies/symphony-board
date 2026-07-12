@@ -66,6 +66,11 @@ export interface EdgeRow {
   lifecycle: string | null;
 }
 
+export interface BoundedEdgeRows {
+  rows: EdgeRow[];
+  truncated: boolean;
+}
+
 export interface SourceRow {
   source_id: string;
   kind: string;
@@ -258,6 +263,15 @@ export interface Store {
   // merged_at, updated_at, created_at) DESC. merged_at MUST participate —
   // GitLab carries merged_at (not closed_at) for a merged MR.
   listLiveItems(): Promise<ItemRow[]>;
+  // Bounded Graph focus reads. Callers batch the current BFS frontier by
+  // source; drivers must keep these predicates on indexed immutable refs and
+  // enforce the supplied edge limit in SQL.
+  listLiveItemsBySourceRefs(sourceId: string, externalIds: string[]): Promise<ItemRow[]>;
+  listLabelsByItemIds(itemIds: number[]): Promise<LabelRow[]>;
+  listLiveEdgesForSourceRefs(sourceId: string, externalIds: string[], limit: number): Promise<BoundedEdgeRows>;
+  // Run related reads against one database snapshot. SQLite holds one deferred
+  // read transaction; Postgres uses REPEATABLE READ READ ONLY.
+  readSnapshot<T>(fn: (snapshot: Store) => Promise<T>): Promise<T>;
   // Change requests worth a CI re-check: unresolved ci_state first, then open,
   // then recently resolved (>= cutoff), ordered by resolution recency.
   listCiRefreshCandidates(sourceId: string, cutoffIso: string, limit: number): Promise<CiRefreshCandidateRow[]>;

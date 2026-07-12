@@ -87,6 +87,15 @@ test("range-api serves health, range, stats, review-candidates, activity-daily, 
     const bad = await fetch(`${base}/api/range?from=nope&to=2026-01-02`);
     assert.equal(bad.status, 400);
 
+    // A graph-neighbourhood request is a first-class config-backed read route.
+    // Missing identity is a validation error, not the generic route 404.
+    const missingGraphRef = await fetch(`${base}/api/graph-neighborhood?depth=5`);
+    assert.equal(missingGraphRef.status, 400);
+    assert.deepEqual(await json(missingGraphRef), {
+      error: "invalid_graph_neighborhood",
+      message: "ref is required",
+    });
+
     // store stats: the migrated empty store summarizes to zero rows
     const stats = await json(await fetch(`${base}/api/stats`));
     assert.equal(stats.items.live, 0);
@@ -110,6 +119,7 @@ test("range-api serves health, range, stats, review-candidates, activity-daily, 
     assert.equal((await fetch(`${base}/api/range?from=2026-01-01&to=2026-01-02`, { method: "POST" })).status, 404);
     assert.equal((await fetch(`${base}/api/stats`, { method: "POST" })).status, 404);
     assert.equal((await fetch(`${base}/api/review-candidates`, { method: "POST" })).status, 404);
+    assert.equal((await fetch(`${base}/api/graph-neighborhood?ref=x`, { method: "POST" })).status, 404);
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

@@ -429,6 +429,14 @@ Pages:
   subgraph instead of reusing overview totals. Contract aggregates are used only
   for the default no-mentions overview when the static window exactly matches an
   emitted aggregate row; custom range responses compute from the returned edges.
+  Overview remains range-windowed, but focus is a canonical-history inspection:
+  the UI calls `GET /api/graph-neighborhood?ref=<ref>&depth=<1..5>`, defaults to
+  five hops, and draws every returned edge type. The read-only projection walks
+  edges as undirected for membership while retaining their original direction,
+  is deterministic across cycles, and caps a response at 200 nodes / 500 edges.
+  It reports whether depth or a safety cap limited the result. A static/local
+  file deployment cannot query the store, so it keeps the previous loaded
+  one-hop fallback and labels that limitation in the focus view.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It uses the same date range as Board and Graph. The
   range is applied before source/kind/search filters, and the page virtualizes
@@ -507,8 +515,8 @@ Postgres, provider tokens, or config files to Android.
 The daemon writes `data/contract.json` inside its deployment's data volume. The
 API sidecar mounts config read-only, opens the configured store read-only
 (SQLite `query_only` or Postgres `default_transaction_read_only`), and serves
-`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus operational discovery
-routes such as `/api/actionable`. The web sidecar mounts the emitted contract
+`GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD` plus operational read routes
+such as `/api/graph-neighborhood` and `/api/actionable`. The web sidecar mounts the emitted contract
 read-only, serves `/contract.json` with `Cache-Control: no-store`, proxies
 read-only `/api/*` routes to the API sidecar, and proxies the sync-control
 routes (`/api/sync-control`, `/api/sync-runs`) to the `board` daemon's internal
@@ -763,13 +771,14 @@ fails to load — exactly when it is needed.
 | Route | Method | Served by | Purpose |
 | --- | --- | --- | --- |
 | `/api/capabilities` | GET | read-only `api` sidecar / app server | safe server capability/status document: board read routes, Live read availability, Live snapshot status, optional non-secret webhook setup hint, and allowlist enabled/count |
+| `/api/graph-neighborhood` | GET | read-only `api` sidecar / app server | bounded canonical-history relationship neighborhood for one `ref`; accepts `depth=1..5` (default 5), returns deterministic nodes with hop distance and original directed edges, and reports depth/node/edge limit reasons |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
 | `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
 | `/api/actionable` | GET | read-only `api` sidecar / app server | open-work discovery over the full canonical store; accepts `repo`, `source`, `limit`, `stale_days`, and `include_unconfigured`, and returns items grouped into actionable buckets |
 | `/api/logs` | GET | writer (`board` daemon / app server) | the writer process's in-memory recent-log tail; `?after=<seq>` returns only newer entries |
 
-**Capabilities, stats, review candidates, and actionable work are operational
-surfaces, not contract.** `/api/capabilities` describes route availability and
+**Capabilities, graph neighborhoods, stats, review candidates, and actionable
+work are operational surfaces, not contract.** `/api/capabilities` describes route availability and
 Live setup state, never work-item data, so it carries no `contract_version` and
 needs no bump. It may probe the internal Live reads listener
 (`LIVE_READ_BASE_URL`) and may echo only non-secret deployment metadata such as
@@ -778,6 +787,11 @@ the count of `LIVE_PROJECT_ALLOWLIST`; it must never return webhook secrets,
 provider tokens, private keys, or raw auth headers. `/api/stats` describes the
 store (sizes, row counts, run history), never the work-item data model, so it
 carries no `contract_version` and needs no bump.
+`/api/graph-neighborhood` reads current live canonical items and edges from
+configured repos rather than the range-windowed contract. It is deliberately
+bounded (five hops, 200 nodes, 500 edges), returns `404` for an unknown focus,
+and carries its own `symphony-board-graph-neighborhood/1` operational schema;
+changing it does not bump `contract_version`.
 `/api/review-candidates` is an agent/workflow surface for review-thread cleanup:
 it computes from the full canonical store, not the windowed UI contract, so an
 old merged PR with a lingering unresolved thread still appears. `/api/actionable`

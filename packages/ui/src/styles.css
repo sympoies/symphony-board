@@ -841,6 +841,9 @@ a.item-metric:hover {
 /* graph page (relationship graph, cytoscape) */
 .graph-page { margin: 12px 0; max-width: 1580px; }
 .graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
+.graph-focus-load { margin: -2px 0 8px; color: var(--muted); font-size: 12px; }
+.graph-focus-load-ready { color: var(--text); }
+.graph-focus-load-fallback { color: var(--warning, #e0af68); }
 .date-filter .date-input {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px 0 0 6px; padding: 3px 6px; margin-left: 0;

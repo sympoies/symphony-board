@@ -1333,7 +1333,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
   };
 }
 
-function mapRows(input: BuildInput): {
+export function mapRows(input: BuildInput): {
   sources: SourceDTO[];
   items: ItemDTO[];
   edges: EdgeDTO[];

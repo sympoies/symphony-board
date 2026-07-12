@@ -13,6 +13,7 @@ import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
 import { handleStatsRequest } from "../server/stats.ts";
 import { handleActivityDailyRequest } from "../server/activity-daily.ts";
 import { handleActionableRequest } from "../server/actionable.ts";
+import { handleGraphNeighborhoodRequest } from "../server/graph-neighborhood.ts";
 import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
 
 interface Args {
@@ -97,7 +98,8 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
       (url.pathname === "/api/range" ||
         url.pathname === "/api/stats" ||
         url.pathname === "/api/review-candidates" ||
-        url.pathname === "/api/actionable")
+        url.pathname === "/api/actionable" ||
+        url.pathname === "/api/graph-neighborhood")
     ) {
       let cfg: AppConfig;
       try {
@@ -111,6 +113,11 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
       if (url.pathname === "/api/stats") void handleStatsRequest(cfg, url, res);
       else if (url.pathname === "/api/review-candidates") void handleReviewCandidatesRequest(cfg, url, res);
       else if (url.pathname === "/api/actionable") void handleActionableRequest(cfg, url, res);
+      else if (url.pathname === "/api/graph-neighborhood") {
+        const controller = new AbortController();
+        req.once("aborted", () => controller.abort());
+        void handleGraphNeighborhoodRequest(cfg, url, res, req.headers["accept-encoding"], controller.signal);
+      }
       else void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
       return;
     }

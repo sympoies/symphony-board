@@ -161,6 +161,7 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 export interface HashRoute {
   page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" | "debug" (hidden; Cmd+/)
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
+  depth: number | null; // focused Graph neighbourhood hops (1..5); null = default 5
   q: string | null; // a search token to seed the search bar (narrows the graph)
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
   repo: string | null; // a project_path the Commits page filters to
@@ -199,6 +200,14 @@ const routeParam = (value: string | null | undefined): string | null => {
   return v ? v : null;
 };
 
+export const GRAPH_FOCUS_DEFAULT_DEPTH = 5;
+export const GRAPH_FOCUS_MAX_DEPTH = 5;
+
+export function graphFocusDepth(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+  return Number.isInteger(n) && n >= 1 && n <= GRAPH_FOCUS_MAX_DEPTH ? n : null;
+}
+
 export function parseHashRoute(hash: string): HashRoute {
   const raw = hash.replace(/^#\/?/, "");
   const i = raw.indexOf("?");
@@ -208,6 +217,7 @@ export function parseHashRoute(hash: string): HashRoute {
   return {
     page,
     focus: routeParam(params?.get("focus")),
+    depth: graphFocusDepth(params?.get("depth")),
     q: routeParam(params?.get("q")),
     source: routeParam(params?.get("source")),
     repo: routeParam(params?.get("repo")),
@@ -232,9 +242,10 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
+  const depth = graphFocusDepth(route.depth);
   const q = routeParam(route.q);
   const source = routeParam(route.source);
   const repo = routeParam(route.repo);
@@ -257,6 +268,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const itemSort = routeParam(route.itemSort);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
+  if (focus && depth !== null) params.push(`depth=${depth}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (source) params.push(`source=${encodeURIComponent(source)}`);
   if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
@@ -1802,12 +1814,51 @@ export interface ResolvedEdge {
   to: ItemDTO | null;
 }
 
-export function resolveEdges(env: ContractEnvelope, byId: Map<string, ItemDTO>): ResolvedEdge[] {
-  return env.edges.map((edge) => ({
+export interface GraphNeighborhoodNode {
+  ref: string;
+  hop: number;
+  item: ItemDTO | null;
+}
+
+export type GraphNeighborhoodLimitReason = "depth" | "nodes" | "edges";
+
+export interface GraphNeighborhoodResponse {
+  schema: "symphony-board-graph-neighborhood/1";
+  generated_at: string;
+  focus_ref: string;
+  requested_depth: number;
+  reached_depth: number;
+  complete: boolean;
+  limit_reasons: GraphNeighborhoodLimitReason[];
+  limits: { max_depth: number; max_nodes: number; max_edges: number };
+  counts: { nodes: number; edges: number };
+  nodes: GraphNeighborhoodNode[];
+  edges: EdgeDTO[];
+}
+
+export function focusNeighborhoodNodes(
+  nodes: readonly GraphNeighborhoodNode[],
+  focusRef: string,
+  filteredEdges: readonly ResolvedEdge[],
+): GraphNeighborhoodNode[] {
+  const retained = new Set<string>([focusRef]);
+  for (const { edge } of filteredEdges) {
+    retained.add(edge.from);
+    retained.add(edge.to);
+  }
+  return nodes.filter((node) => retained.has(node.ref));
+}
+
+export function resolveEdgeList(edges: readonly EdgeDTO[], byId: ReadonlyMap<string, ItemDTO>): ResolvedEdge[] {
+  return edges.map((edge) => ({
     edge,
     from: byId.get(edge.from) ?? null,
     to: byId.get(edge.to) ?? null,
   }));
+}
+
+export function resolveEdges(env: ContractEnvelope, byId: Map<string, ItemDTO>): ResolvedEdge[] {
+  return resolveEdgeList(env.edges, byId);
 }
 
 // An edge passes the filter if either resolved endpoint passes (so a cross-repo
@@ -2233,20 +2284,21 @@ export function graphCanvasEmptyReason(
 
 // Build a relationship graph from already-windowed resolved edges, keeping only
 // nodes that take part in an edge (no isolated-dot sea).
-export function buildGraph(edges: ResolvedEdge[]): GraphData {
+export function buildGraph(edges: ResolvedEdge[], extraNodes: readonly GraphNeighborhoodNode[] = []): GraphData {
   const nodes = new Map<string, GraphNode>();
   const links: GraphLink[] = [];
   let i = 0;
+  const ensure = (it: ItemDTO | null, ref: string) => {
+    if (nodes.has(ref)) return;
+    nodes.set(
+      ref,
+      it
+        ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+        : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
+    );
+  };
+  for (const node of extraNodes) ensure(node.item, node.ref);
   for (const re of edges) {
-    const ensure = (it: ItemDTO | null, ref: string) => {
-      if (nodes.has(ref)) return;
-      nodes.set(
-        ref,
-        it
-          ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-          : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
-      );
-    };
     ensure(re.from, re.edge.from);
     ensure(re.to, re.edge.to);
     links.push({
@@ -2259,6 +2311,28 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
     });
   }
   return { nodes: [...nodes.values()], links };
+}
+
+// React Flow owns local drag/layout state, so the parent remount key must
+// identify the actual topology rather than merely its node count. Include the
+// expansion mode because fallback and canonical focus views can otherwise
+// carry identical counts while representing different neighborhoods.
+export function graphTopologyKey(graph: GraphData, expanded: boolean): string {
+  const nodes = graph.nodes.map((node) => node.id).sort();
+  const links = graph.links
+    .map((link) => [link.source, link.target, link.type, link.lifecycle ?? ""])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return JSON.stringify([expanded, nodes, links]);
+}
+
+// d3-force ticks synchronously. Preserve the high-quality small-graph layout,
+// then reduce work as the safety caps are approached so a 200-node response
+// cannot monopolize the main thread for hundreds of ticks.
+export function graphForceLayoutTicks(nodeCount: number): number {
+  if (nodeCount <= 24) return 320;
+  if (nodeCount <= 80) return 220;
+  if (nodeCount <= 150) return 140;
+  return 96;
 }
 
 // Graph side-list ordering: actionable state first, then newest-created.
@@ -2911,6 +2985,8 @@ export interface ServerCapabilities {
     stats?: boolean;
     activity_daily?: boolean;
     review_candidates?: boolean;
+    actionable?: boolean;
+    graph_neighborhood?: boolean;
   };
   live: {
     reads: boolean;

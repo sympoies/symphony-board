@@ -353,6 +353,7 @@ export function clearFiltersHref(route: HashRoute, page: string = route.page): s
   return buildHashRoute({
     page,
     focus: page === "graph" ? route.focus : null,
+    depth: page === "graph" && route.focus ? route.depth : null,
     from: route.from,
     to: route.to,
     preset: route.preset,

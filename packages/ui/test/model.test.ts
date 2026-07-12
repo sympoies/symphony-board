@@ -113,6 +113,9 @@ import {
   graphWindowEdgesInRange,
   graphOverviewVisibility,
   graphCanvasEmptyReason,
+  graphTopologyKey,
+  graphForceLayoutTicks,
+  focusNeighborhoodNodes,
   isSyncRunActive,
   syncProducedFreshData,
   liveSourceStatus,
@@ -1738,6 +1741,47 @@ test("buildGraph keeps only edge-connected nodes and flags untracked ends", () =
   assert.equal(buildGraph(edges).links.length, 3, "the graph renderer keeps every supplied edge");
 });
 
+test("graphTopologyKey changes for same-size topology and expansion transitions", () => {
+  const one = item({ id: "one" });
+  const two = item({ id: "two" });
+  const three = item({ id: "three" });
+  const a = buildGraph([{ edge: edge("one", "two", null, "mentions"), from: one, to: two }]);
+  const b = buildGraph([{ edge: edge("one", "three", null, "mentions"), from: one, to: three }]);
+  assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(b, false));
+  assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(a, true));
+});
+
+test("buildGraph retains an isolated canonical focus node", () => {
+  const focus = item({ id: "isolated" });
+  const graph = buildGraph([], [{ ref: focus.id, hop: 0, item: focus }]);
+  assert.deepEqual(graph.nodes.map((node) => node.id), [focus.id]);
+  assert.equal(graph.links.length, 0);
+});
+
+test("focusNeighborhoodNodes retains only focus and filtered-edge endpoints", () => {
+  const focus = item({ id: "focus", title: "Focus" });
+  const matching = item({ id: "matching", title: "Matching" });
+  const filteredOut = item({ id: "filtered-out", title: "Filtered out" });
+  const nodes = [focus, matching, filteredOut].map((entry, hop) => ({ ref: entry.id, hop, item: entry }));
+
+  assert.deepEqual(
+    focusNeighborhoodNodes(nodes, focus.id, []).map((node) => node.ref),
+    [focus.id],
+    "an item facet that removes every edge keeps only the focused item",
+  );
+  assert.deepEqual(
+    focusNeighborhoodNodes(nodes, focus.id, [redge(focus.id, matching.id, "mentions")]).map((node) => node.ref),
+    [focus.id, matching.id],
+    "surviving edge endpoints remain visible without reviving unrelated canonical nodes",
+  );
+});
+
+test("graphForceLayoutTicks caps synchronous work for a safety-cap graph", () => {
+  assert.equal(graphForceLayoutTicks(1), 320);
+  assert.ok(graphForceLayoutTicks(200) <= 100);
+  assert.ok(graphForceLayoutTicks(200) < graphForceLayoutTicks(80));
+});
+
 // The Graph page's focus view: focusSubgraph builds the focused item + its direct
 // neighbours and every edge among that set, from the loaded/range edge payload.
 // A focus shows every available relationship; the overview graph's mentions
@@ -2106,7 +2150,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, itemSort: null, reviewSort: null };
+  const emptyRoute = { focus: null, depth: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, itemSort: null, reviewSort: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -2185,6 +2229,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     page: "",
     source: null,
     focus: null,
+    depth: null,
     q: "owner/repo #13",
     repo: null,
     branch: null,
@@ -2210,6 +2255,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     page: "board",
     source: null,
     focus: null,
+    depth: null,
     q: "owner/repo #13",
     repo: null,
     branch: null,
@@ -2234,6 +2280,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", source: "github:github.com", repo: "owner/repo", branch: "main" })), {
     page: "commits",
     focus: null,
+    depth: null,
     q: null,
     source: "github:github.com",
     repo: "owner/repo",
@@ -2256,6 +2303,18 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     itemSort: null,
     reviewSort: null,
   });
+});
+
+test("graph focus depth is URL-backed and restricted to the supported 1..5 range", () => {
+  const explicit = parseHashRoute("#/graph?focus=github%3Agithub.com%7C42&depth=3") as ReturnType<typeof parseHashRoute> & { depth?: number | null };
+  assert.equal(explicit.depth, 3);
+  assert.equal(
+    buildHashRoute({ page: "graph", focus: "github:github.com|42", depth: 5 } as Parameters<typeof buildHashRoute>[0] & { depth: number }),
+    "#/graph?focus=github%3Agithub.com%7C42&depth=5",
+  );
+  assert.equal((parseHashRoute("#/graph?focus=x&depth=0") as typeof explicit).depth, null);
+  assert.equal((parseHashRoute("#/graph?focus=x&depth=6") as typeof explicit).depth, null);
+  assert.equal((parseHashRoute("#/graph?focus=x&depth=nope") as typeof explicit).depth, null);
 });
 
 test("graphFocusHref round-trips an item's id through parseHashRoute without touching q", () => {

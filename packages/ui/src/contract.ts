@@ -4,7 +4,8 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot, GraphNeighborhoodResponse } from "./model.ts";
+import { GRAPH_FOCUS_MAX_DEPTH } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
 
@@ -573,6 +574,75 @@ export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string
 export async function fetchRangeContractWithMetadata(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<LoadedContract> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
   return fetchContractWithMetadata(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
+}
+
+const GRAPH_NEIGHBORHOOD_CLIENT_MAX_NODES = 200;
+const GRAPH_NEIGHBORHOOD_CLIENT_MAX_EDGES = 500;
+
+export function isGraphNeighborhood(body: unknown): body is GraphNeighborhoodResponse {
+  if (!body || typeof body !== "object") return false;
+  const value = body as Partial<GraphNeighborhoodResponse>;
+  const limitReasons = new Set(["depth", "nodes", "edges"]);
+  const limits = value.limits as Partial<GraphNeighborhoodResponse["limits"]> | undefined;
+  const counts = value.counts as Partial<GraphNeighborhoodResponse["counts"]> | undefined;
+  if (!(
+    value.schema === "symphony-board-graph-neighborhood/1" &&
+    typeof value.generated_at === "string" &&
+    typeof value.focus_ref === "string" && value.focus_ref.length > 0 &&
+    Number.isInteger(value.requested_depth) && value.requested_depth! >= 1 && value.requested_depth! <= GRAPH_FOCUS_MAX_DEPTH &&
+    Number.isInteger(value.reached_depth) && value.reached_depth! >= 0 && value.reached_depth! <= value.requested_depth! &&
+    typeof value.complete === "boolean" &&
+    Array.isArray(value.limit_reasons) && value.limit_reasons.every((reason) => limitReasons.has(reason)) &&
+    new Set(value.limit_reasons).size === value.limit_reasons.length &&
+    value.complete === (value.limit_reasons.length === 0) &&
+    !!limits && Number.isInteger(limits.max_depth) && limits.max_depth! >= 1 && limits.max_depth! <= GRAPH_FOCUS_MAX_DEPTH &&
+    Number.isInteger(limits.max_nodes) && limits.max_nodes! >= 1 && limits.max_nodes! <= GRAPH_NEIGHBORHOOD_CLIENT_MAX_NODES &&
+    Number.isInteger(limits.max_edges) && limits.max_edges! >= 1 && limits.max_edges! <= GRAPH_NEIGHBORHOOD_CLIENT_MAX_EDGES &&
+    value.requested_depth! <= limits.max_depth! &&
+    !!counts && Number.isInteger(counts.nodes) && counts.nodes! >= 1 && counts.nodes! <= limits.max_nodes! &&
+    Number.isInteger(counts.edges) && counts.edges! >= 0 && counts.edges! <= limits.max_edges! &&
+    Array.isArray(value.nodes) && Array.isArray(value.edges) &&
+    counts.nodes === value.nodes.length && counts.edges === value.edges.length
+  )) return false;
+
+  const nodeRefs = new Set<string>();
+  let reachedDepth = 0;
+  for (const node of value.nodes) {
+    if (!node || typeof node !== "object" || typeof node.ref !== "string" || !node.ref || nodeRefs.has(node.ref)) return false;
+    if (!Number.isInteger(node.hop) || node.hop < 0 || node.hop > value.requested_depth!) return false;
+    if (node.item !== null && (!node.item || node.item.id !== node.ref || typeof node.item.source_id !== "string" || typeof node.item.project_path !== "string")) return false;
+    nodeRefs.add(node.ref);
+    reachedDepth = Math.max(reachedDepth, node.hop);
+  }
+  if (!nodeRefs.has(value.focus_ref!) || !value.nodes.some((node) => node.ref === value.focus_ref && node.hop === 0)) return false;
+  if (reachedDepth !== value.reached_depth) return false;
+
+  const edgeKeys = new Set<string>();
+  for (const edge of value.edges) {
+    if (!edge || typeof edge !== "object" || typeof edge.type !== "string" || !edge.type || typeof edge.from !== "string" || typeof edge.to !== "string") return false;
+    if (!nodeRefs.has(edge.from) || !nodeRefs.has(edge.to)) return false;
+    const key = JSON.stringify([edge.type, edge.from, edge.to]);
+    if (edgeKeys.has(key)) return false;
+    edgeKeys.add(key);
+  }
+  return true;
+}
+
+export async function fetchGraphNeighborhood(
+  focusRef: string,
+  depth: number,
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
+  const params = new URLSearchParams({ ref: focusRef, depth: String(depth) });
+  const target = resolveEndpoint(`./api/graph-neighborhood?${params.toString()}`, serverBaseUrl);
+  const res = await appFetch(target, { cache: "no-store", signal });
+  if (!res.ok) throw new Error(`graph neighborhood: HTTP ${res.status}`);
+  const body = await readJson(res);
+  if (!isGraphNeighborhood(body) || body.focus_ref !== focusRef || body.requested_depth !== depth) {
+    throw new Error("graph neighborhood: invalid response");
+  }
+  return body;
 }
 
 // --- UI-triggered manual sync control plane client ---

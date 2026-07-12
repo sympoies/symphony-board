@@ -188,6 +188,10 @@ test("app-server serves health, contract, range, and the sync control surface", 
     const bad = await fetch(`${base}/api/range?from=nope&to=2026-01-02`);
     assert.equal(bad.status, 400);
 
+    const graphMissingRef = await fetch(`${base}/api/graph-neighborhood?depth=5`);
+    assert.equal(graphMissingRef.status, 400);
+    assert.equal((await json(graphMissingRef)).error, "invalid_graph_neighborhood");
+
     // store stats: the migrated empty store summarizes to zero rows
     const statsRes = await fetch(`${base}/api/stats`);
     assert.equal(statsRes.status, 200);
