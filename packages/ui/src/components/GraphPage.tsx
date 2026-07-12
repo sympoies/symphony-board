@@ -30,7 +30,7 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
@@ -293,7 +293,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
     // more room and overlap less.
     .force("collide", forceCollide((d) => nodeRadius((d as SimNode).id, dimOf) + collisionGap))
     .stop();
-  for (let i = 0; i < 320; i++) sim.tick();
+  for (let i = 0; i < graphForceLayoutTicks(nodes.length); i++) sim.tick();
   const m = new Map<string, { x: number; y: number }>();
   for (const n of simNodes) {
     const { w, h } = dimOf(n.id);
@@ -670,6 +670,7 @@ function GraphCanvasEmptyState({
 export function GraphPage({
   edges,
   focusEdges,
+  focusNodes,
   sourceKind,
   colorOf,
   focusRef,
@@ -695,6 +696,10 @@ export function GraphPage({
   // without the overview's client-side time/mention filters. Under
   // range-as-download this is still bounded by the loaded primary env.
   focusEdges: ResolvedEdge[];
+  // Canonical focus responses can legitimately contain an isolated item and no
+  // edges. Keep those nodes as first-class render input instead of falling back
+  // to the unrelated overview graph.
+  focusNodes: readonly GraphNeighborhoodNode[];
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   // The focused item ref, owned by the ROUTE ("?focus="): a deep-link sets it,
@@ -757,12 +762,13 @@ export function GraphPage({
   // to the overview list/canvas.
   const itemsByRef = useMemo(() => {
     const m = new Map<string, ItemDTO>();
+    for (const node of focusNodes) if (node.item) m.set(node.ref, node.item);
     for (const re of focusEdges) {
       if (re.from) m.set(re.edge.from, re.from);
       if (re.to) m.set(re.edge.to, re.to);
     }
     return m;
-  }, [focusEdges]);
+  }, [focusEdges, focusNodes]);
   const adjacency = useMemo(() => buildAdjacency(focusEdges), [focusEdges]);
   const candidateIds = overview.candidateIds;
   const drawnIds = overview.drawnIds;
@@ -790,9 +796,9 @@ export function GraphPage({
   // Falls back to the full graph if the focus has no edges (nothing to render).
   const view = useMemo<GraphData>(() => {
     if (!focusId) return graph;
-    const sub = focusExpanded ? buildGraph(focusEdges) : focusSubgraph(focusEdges, focusId);
+    const sub = focusExpanded ? buildGraph(focusEdges, focusNodes) : focusSubgraph(focusEdges, focusId);
     return sub.nodes.length ? sub : graph;
-  }, [focusEdges, focusId, focusExpanded, graph]);
+  }, [focusEdges, focusNodes, focusId, focusExpanded, graph]);
   // True when the canvas is showing a focus subgraph (not the full overview). In
   // focus there is no clutter to fight, so edges — mentions especially — are
   // drawn at full strength rather than the overview's de-emphasised styling.
@@ -889,7 +895,7 @@ export function GraphPage({
   // `fitView` to frame the new subgraph — that is what makes clicking a related
   // item visibly switch the canvas to that item (the old design only panned the
   // full graph, so a neighbour barely moved the camera).
-  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${range.from}|${range.to}|${focusId ?? ""}|${focusDepth}|${view.nodes.length}`;
+  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${range.from}|${range.to}|${focusId ?? ""}|${focusDepth}|${graphTopologyKey(view, focusExpanded)}`;
   const { paneRef: graphPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
     showListPane,
     showGraphPane,
@@ -910,7 +916,7 @@ export function GraphPage({
         {focusId ? (
           <div className="toggle-group graph-depth-controls">
             <span className="toggle-label">depth</span>
-            {[1, 2, 3, 4, 5].map((depth) => (
+            {Array.from({ length: GRAPH_FOCUS_MAX_DEPTH }, (_, index) => index + 1).map((depth) => (
               <button
                 key={depth}
                 type="button"

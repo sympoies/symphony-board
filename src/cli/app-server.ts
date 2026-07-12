@@ -218,7 +218,11 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       if (path === "/api/stats") await handleStatsRequest(cfg, url, res);
       else if (path === "/api/review-candidates") await handleReviewCandidatesRequest(cfg, url, res);
       else if (path === "/api/actionable") await handleActionableRequest(cfg, url, res);
-      else if (path === "/api/graph-neighborhood") await handleGraphNeighborhoodRequest(cfg, url, res);
+      else if (path === "/api/graph-neighborhood") {
+        const controller = new AbortController();
+        req.once("aborted", () => controller.abort());
+        await handleGraphNeighborhoodRequest(cfg, url, res, req.headers["accept-encoding"], controller.signal);
+      }
       else await handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
       return;
     }

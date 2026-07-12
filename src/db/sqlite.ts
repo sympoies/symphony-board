@@ -541,6 +541,58 @@ export class SqliteStore implements Store {
     return rows.map((r) => ({ ...r, is_draft: r.is_draft === null ? null : r.is_draft !== 0 }));
   }
 
+  async listLiveItemsBySourceRefs(sourceId: string, externalIds: string[]): Promise<ItemRow[]> {
+    const refs = [...new Set(externalIds.filter(Boolean))].sort();
+    if (refs.length === 0) return [];
+    const placeholders = refs.map(() => "?").join(", ");
+    const rows = this.#db
+      .prepare(
+        `SELECT item_id, source_id, external_id, kind, project_path, iid, url, title, body, state,
+                state_raw, state_reason, is_draft, author, created_at, updated_at, closed_at,
+                merged_at, review_state, ci_state, merge_state, open_review_threads,
+                total_review_threads, comment_total, milestone, demand, last_seen_at
+         FROM item
+         WHERE deleted_at IS NULL AND source_id=? AND external_id IN (${placeholders})
+         ORDER BY external_id`,
+      )
+      .all(sourceId, ...refs) as unknown as Array<Omit<ItemRow, "is_draft"> & { is_draft: number | null }>;
+    return rows.map((row) => ({ ...row, is_draft: row.is_draft === null ? null : row.is_draft !== 0 }));
+  }
+
+  async listLabelsByItemIds(itemIds: number[]): Promise<LabelRow[]> {
+    const ids = [...new Set(itemIds.filter((id) => Number.isInteger(id) && id > 0))].sort((a, b) => a - b);
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(", ");
+    return this.#db
+      .prepare(`SELECT item_id, name, scope, color FROM item_label WHERE item_id IN (${placeholders}) ORDER BY item_id, name`)
+      .all(...ids) as unknown as LabelRow[];
+  }
+
+  async listLiveEdgesForSourceRefs(sourceId: string, externalIds: string[], limit: number): Promise<EdgeRow[]> {
+    const refs = [...new Set(externalIds.filter(Boolean))].sort();
+    const safeLimit = Math.max(0, Math.trunc(Number.isFinite(limit) ? limit : 0));
+    if (refs.length === 0 || safeLimit === 0) return [];
+    const placeholders = refs.map(() => "?").join(", ");
+    const select = `SELECT type, from_source_id, from_external_id, to_source_id, to_external_id,
+                           from_state, to_state, lifecycle
+                    FROM edge`;
+    const from = this.#db
+      .prepare(`${select} WHERE deleted_at IS NULL AND from_source_id=? AND from_external_id IN (${placeholders})
+                ORDER BY from_external_id, to_source_id, to_external_id, type LIMIT ?`)
+      .all(sourceId, ...refs, safeLimit) as unknown as EdgeRow[];
+    const to = this.#db
+      .prepare(`${select} WHERE deleted_at IS NULL AND to_source_id=? AND to_external_id IN (${placeholders})
+                ORDER BY to_external_id, from_source_id, from_external_id, type LIMIT ?`)
+      .all(sourceId, ...refs, safeLimit) as unknown as EdgeRow[];
+    const byKey = new Map<string, EdgeRow>();
+    for (const edge of [...from, ...to]) {
+      byKey.set(JSON.stringify([edge.type, edge.from_source_id, edge.from_external_id, edge.to_source_id, edge.to_external_id]), edge);
+    }
+    return [...byKey.values()]
+      .sort((a, b) => a.from_source_id.localeCompare(b.from_source_id) || a.from_external_id.localeCompare(b.from_external_id) || a.to_source_id.localeCompare(b.to_source_id) || a.to_external_id.localeCompare(b.to_external_id) || a.type.localeCompare(b.type))
+      .slice(0, safeLimit);
+  }
+
   async listCiRefreshCandidates(sourceId: string, cutoffIso: string, limit: number): Promise<CiRefreshCandidateRow[]> {
     const safeLimit = Math.max(0, Math.trunc(Number.isFinite(limit) ? limit : 0));
     if (safeLimit === 0) return [];
@@ -772,6 +824,25 @@ export class SqliteStore implements Store {
   }
 
   // ---- lifecycle -----------------------------------------------------------
+
+  async readSnapshot<T>(fn: (snapshot: Store) => Promise<T>): Promise<T> {
+    const run = this.#txQueue.then(async () => {
+      this.#db.exec("BEGIN");
+      this.#inTransaction = true;
+      try {
+        const result = await fn(this);
+        this.#db.exec("COMMIT");
+        return result;
+      } catch (err) {
+        this.#db.exec("ROLLBACK");
+        throw err;
+      } finally {
+        this.#inTransaction = false;
+      }
+    });
+    this.#txQueue = run.catch(() => undefined);
+    return run;
+  }
 
   async transaction<T>(fn: (tx: Store) => Promise<T>): Promise<T> {
     const run = this.#txQueue.then(async () => {

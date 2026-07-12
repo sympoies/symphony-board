@@ -12,8 +12,10 @@ import { openSqliteStore } from "../src/db/sqlite.ts";
 import { createRangeApiServer } from "../src/cli/range-api.ts";
 import {
   buildGraphNeighborhood,
+  GRAPH_NEIGHBORHOOD_MAX_DEPTH,
   parseGraphNeighborhoodOptions,
 } from "../src/server/graph-neighborhood.ts";
+import { GRAPH_FOCUS_MAX_DEPTH } from "../packages/ui/src/model.ts";
 
 const SOURCE = "github:github.com";
 const PROJECT = "example/repo";
@@ -152,6 +154,7 @@ test("graph neighborhood defaults to five hops and reports a deeper frontier", (
   assert.equal(result.edges.length, 5);
   assert.equal(result.complete, false);
   assert.deepEqual(result.limit_reasons, ["depth"]);
+  assert.equal(GRAPH_NEIGHBORHOOD_MAX_DEPTH, GRAPH_FOCUS_MAX_DEPTH);
 });
 
 test("graph neighborhood handles cycles and keeps induced multi-type edges deterministically", () => {
@@ -230,7 +233,7 @@ test("range API serves older multi-hop canonical relations through the read-only
   try {
     await store.ensureSource({ sourceId: SOURCE, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-07-12T00:00:00Z");
     for (const [index, id] of ["I0", "I1", "I2"].entries()) {
-      await store.upsertItem(canonicalItem(id, index + 1), "test", "2026-07-12T00:00:00Z");
+      await store.upsertItem({ ...canonicalItem(id, index + 1), body: `provider body ${id}` }, "test", "2026-07-12T00:00:00Z");
     }
     await store.upsertEdge(reconciledEdge("I0", "I1"), "2026-07-12T00:00:00Z");
     await store.upsertEdge(reconciledEdge("I1", "I2"), "2026-07-12T00:00:00Z");
@@ -254,12 +257,16 @@ test("range API serves older multi-hop canonical relations through the read-only
   const server = createRangeApiServer({ configPath, contractOut: join(dir, "data", "contract.json") });
   const base = await listen(server);
   try {
-    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=2`);
+    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=2`, {
+      headers: { "Accept-Encoding": "gzip" },
+    });
     assert.equal(response.status, 200);
-    const body = await response.json() as { schema: string; nodes: Array<{ ref: string; hop: number }>; edges: unknown[] };
+    assert.equal(response.headers.get("content-encoding"), "gzip");
+    const body = await response.json() as { schema: string; nodes: Array<{ ref: string; hop: number; item: Record<string, unknown> | null }>; edges: unknown[] };
     assert.equal(body.schema, "symphony-board-graph-neighborhood/1");
     assert.deepEqual(body.nodes.map((node) => [node.ref, node.hop]), [[ref("I0"), 0], [ref("I1"), 1], [ref("I2"), 2]]);
     assert.equal(body.edges.length, 2);
+    assert.ok(body.nodes.every((node) => node.item === null || !("body" in node.item)), "Graph payload omits unused provider bodies");
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

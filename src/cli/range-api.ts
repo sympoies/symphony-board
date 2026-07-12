@@ -113,7 +113,11 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
       if (url.pathname === "/api/stats") void handleStatsRequest(cfg, url, res);
       else if (url.pathname === "/api/review-candidates") void handleReviewCandidatesRequest(cfg, url, res);
       else if (url.pathname === "/api/actionable") void handleActionableRequest(cfg, url, res);
-      else if (url.pathname === "/api/graph-neighborhood") void handleGraphNeighborhoodRequest(cfg, url, res);
+      else if (url.pathname === "/api/graph-neighborhood") {
+        const controller = new AbortController();
+        req.once("aborted", () => controller.abort());
+        void handleGraphNeighborhoodRequest(cfg, url, res, req.headers["accept-encoding"], controller.signal);
+      }
       else void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
       return;
     }

@@ -1250,13 +1250,19 @@ export function App() {
     graphNeighborhood?.focus_ref === route.focus && graphNeighborhood.requested_depth === graphFocusDepthValue
       ? graphNeighborhood
       : null;
+  const graphNeighborhoodNodes = useMemo(() => {
+    if (!activeGraphNeighborhood) return [];
+    return activeGraphNeighborhood.nodes.filter((node) => {
+      if (node.ref === activeGraphNeighborhood.focus_ref || node.item === null) return true;
+      return !hiddenSources.has(node.item.source_id) && !hidden.has(repoKey(node.item.source_id, node.item.project_path));
+    });
+  }, [activeGraphNeighborhood, hidden, hiddenSources]);
   const graphNeighborhoodEdges = useMemo(() => {
     if (!activeGraphNeighborhood) return [];
     const trackedIds = new Set(activeGraphNeighborhood.nodes.filter((node) => node.item !== null).map((node) => node.ref));
-    const visibleItems = activeGraphNeighborhood.nodes
+    const visibleItems = graphNeighborhoodNodes
       .map((node) => node.item)
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-      .filter((item) => !hiddenSources.has(item.source_id) && !hidden.has(repoKey(item.source_id, item.project_path)));
+      .filter((item): item is NonNullable<typeof item> => item !== null);
     const visibleIds = new Set(visibleItems.map((item) => item.id));
     const byId = new Map(visibleItems.map((item) => [item.id, item]));
     return resolveEdgeList(activeGraphNeighborhood.edges, byId).filter((re) => {
@@ -1264,7 +1270,7 @@ export function App() {
       if (trackedIds.has(re.edge.to) && !visibleIds.has(re.edge.to)) return false;
       return edgeMatches(re, itemFilters);
     });
-  }, [activeGraphNeighborhood, hidden, hiddenSources, itemFilters]);
+  }, [activeGraphNeighborhood, graphNeighborhoodNodes, itemFilters]);
 
   // A ready server projection owns focused rendering; loading/error/static cases
   // intentionally preserve the pre-feature one-hop derivation over loaded edges.
@@ -2289,6 +2295,7 @@ export function App() {
           <GraphPage
             edges={filteredEdges}
             focusEdges={graphFocusEdges}
+            focusNodes={graphFocusExpanded ? graphNeighborhoodNodes : []}
             sourceKind={sourceKind}
             colorOf={colorOf}
             focusRef={route.focus}

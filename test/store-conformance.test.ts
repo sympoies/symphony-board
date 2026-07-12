@@ -255,6 +255,51 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("graph neighborhood reads stay ref-scoped and bounded", async () => {
+    const store = await fresh();
+    const focusId = await store.upsertItem(fixtureItem(), "github/1", "2026-06-01T00:00:00Z");
+    const neighbourId = await store.upsertItem(fixtureItem({ externalId: "ISSUE_2", iid: 2 }), "github/1", "2026-06-01T00:00:00Z");
+    await store.upsertItem(fixtureItem({ externalId: "ISSUE_3", iid: 3 }), "github/1", "2026-06-01T00:00:00Z");
+    await store.replaceLabels(focusId, [toLabel("focus")]);
+    await store.replaceLabels(neighbourId, [toLabel("neighbour")]);
+    await store.upsertEdge(fixtureEdge({
+      type: "mentions",
+      from: { sourceId: SOURCE, externalId: "ISSUE_1" },
+      to: { sourceId: SOURCE, externalId: "ISSUE_2" },
+      lifecycle: null,
+    }), "2026-06-01T00:00:00Z");
+    await store.upsertEdge(fixtureEdge({
+      type: "relates",
+      from: { sourceId: SOURCE, externalId: "ISSUE_3" },
+      to: { sourceId: SOURCE, externalId: "ISSUE_1" },
+      lifecycle: null,
+    }), "2026-06-01T00:00:00Z");
+
+    assert.deepEqual(
+      (await store.listLiveItemsBySourceRefs(SOURCE, ["ISSUE_2", "missing"])).map((row) => row.external_id),
+      ["ISSUE_2"],
+    );
+    assert.deepEqual(
+      (await store.listLabelsByItemIds([neighbourId])).map((row) => row.name),
+      ["neighbour"],
+    );
+    const incident = await store.listLiveEdgesForSourceRefs(SOURCE, ["ISSUE_1"], 1);
+    assert.equal(incident.length, 1, "the SQL query enforces the requested edge ceiling");
+    assert.ok(
+      incident[0]!.from_external_id === "ISSUE_1" || incident[0]!.to_external_id === "ISSUE_1",
+      "both edge directions are queryable",
+    );
+    assert.deepEqual(await store.listLiveEdgesForSourceRefs(SOURCE, ["ISSUE_1"], 0), []);
+    assert.deepEqual(
+      await store.readSnapshot(async (snapshot) =>
+        (await snapshot.listLiveItemsBySourceRefs(SOURCE, ["ISSUE_1", "ISSUE_2"])).map((row) => row.external_id),
+      ),
+      ["ISSUE_1", "ISSUE_2"],
+      "a multi-stage graph read can be pinned to one driver snapshot",
+    );
+    await store.close();
+  });
+
   t("upsertRaw reports whether the payload changed by content hash", async () => {
     const store = await fresh();
     const first = await store.upsertRaw(SOURCE, "issue", "ISSUE_1", "v1", "hash-a", "2026-06-01T00:00:00Z", "{}");

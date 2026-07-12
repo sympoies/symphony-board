@@ -192,6 +192,17 @@ test("fetchGraphNeighborhood encodes focus/depth, forwards cancellation, and val
     await assert.rejects(fetchGraphNeighborhood("x", 1, null), /invalid response/);
     globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ ...body, focus_ref: "wrong" }) })) as unknown as typeof fetch;
     await assert.rejects(fetchGraphNeighborhood("github:github.com|I1", 5, null), /invalid response/);
+    const invalidBodies = [
+      { ...body, limits: { ...body.limits, max_nodes: 201 } },
+      { ...body, counts: { nodes: 201, edges: 0 }, nodes: Array.from({ length: 201 }, (_, hop) => ({ ref: `x|${hop}`, hop: 0, item: null })), edges: [] },
+      { ...body, nodes: [{ ref: "x|dup", hop: 0, item: null }, { ref: "x|dup", hop: 1, item: null }, body.nodes[2]], counts: { nodes: 3, edges: 2 } },
+      { ...body, nodes: body.nodes.map((node, index) => index === 2 ? { ...node, hop: 6 } : node) },
+      { ...body, edges: [{ type: "mentions", from: "x|missing", to: body.nodes[1].ref }, body.edges[1]] },
+    ];
+    for (const invalidBody of invalidBodies) {
+      globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => invalidBody })) as unknown as typeof fetch;
+      await assert.rejects(fetchGraphNeighborhood("github:github.com|I1", 5, null), /invalid response/);
+    }
     globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
     await assert.rejects(fetchGraphNeighborhood("x", 1, null), /HTTP 404/);
   } finally {

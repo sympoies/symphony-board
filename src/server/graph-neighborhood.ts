@@ -8,7 +8,8 @@ import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import { mapRows } from "../contract/build.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
-import type { EdgeRow, ItemRow, LabelRow, SourceRow } from "../db/store.ts";
+import type { EdgeRow, ItemRow, LabelRow, SourceRow, Store } from "../db/store.ts";
+import { sendJsonMaybeGzip } from "./http.ts";
 
 export const GRAPH_NEIGHBORHOOD_DEFAULT_DEPTH = 5;
 export const GRAPH_NEIGHBORHOOD_MAX_DEPTH = 5;
@@ -81,6 +82,20 @@ function otherRef(edge: EdgeDTO, ref: string): string | null {
   if (edge.from === ref) return edge.to;
   if (edge.to === ref) return edge.from;
   return null;
+}
+
+function splitRef(ref: string): { sourceId: string; externalId: string } | null {
+  const separator = ref.indexOf("|");
+  if (separator <= 0 || separator === ref.length - 1) return null;
+  return { sourceId: ref.slice(0, separator), externalId: ref.slice(separator + 1) };
+}
+
+function rowRef(sourceId: string, externalId: string): string {
+  return `${sourceId}|${externalId}`;
+}
+
+function edgeRowKey(edge: EdgeRow): string {
+  return JSON.stringify([edge.type, edge.from_source_id, edge.from_external_id, edge.to_source_id, edge.to_external_id]);
 }
 
 export function parseGraphNeighborhoodOptions(url: URL): GraphNeighborhoodOptions {
@@ -190,50 +205,255 @@ export function buildGraphNeighborhood(input: BuildGraphNeighborhoodInput): Grap
   };
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(body) + "\n");
+function configuredRepoKey(sourceId: string, projectPath: string): string {
+  return JSON.stringify([sourceId, projectPath]);
 }
 
-export async function graphNeighborhoodProjection(
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException("graph neighborhood request aborted", "AbortError");
+}
+
+async function readGraphNeighborhoodSnapshot(
   cfg: AppConfig,
   options: GraphNeighborhoodOptions,
+  snapshot: Store,
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
+  throwIfAborted(signal);
+  const focus = splitRef(options.focusRef);
+  if (!focus) throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${options.focusRef}`);
+  const configuredRepos = configuredRepoRefs(cfg);
+  const configuredRepoKeys = new Set(configuredRepos.map((repo) => configuredRepoKey(repo.source_id, repo.project_path)));
+  const configuredSourceIds = new Set(configuredRepos.map((repo) => repo.source_id));
+  if (!configuredSourceIds.has(focus.sourceId)) {
+    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${options.focusRef}`);
+  }
+
+  const focusRows = await snapshot.listLiveItemsBySourceRefs(focus.sourceId, [focus.externalId]);
+  throwIfAborted(signal);
+  const focusRow = focusRows[0];
+  if (!focusRow || !focusRow.project_path || !configuredRepoKeys.has(configuredRepoKey(focusRow.source_id, focusRow.project_path))) {
+    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${options.focusRef}`);
+  }
+
+  const itemsByRef = new Map<string, ItemRow>([[options.focusRef, focusRow]]);
+  const allowedRefs = new Set<string>([options.focusRef]);
+  const visitedRefs = new Set<string>();
+  const edgesByKey = new Map<string, EdgeRow>();
+  let frontier = [options.focusRef];
+  let edgeReadCapped = false;
+
+  // Read one frontier at a time through immutable-ref indexes. The +1 row is
+  // a truncation sentinel; production work remains bounded even for an
+  // invalid/depth-one focus in a very large store.
+  for (let hop = 0; hop <= options.depth && frontier.length > 0; hop++) {
+    throwIfAborted(signal);
+    const grouped = new Map<string, string[]>();
+    for (const ref of frontier.sort()) {
+      if (visitedRefs.has(ref)) continue;
+      visitedRefs.add(ref);
+      const parsed = splitRef(ref);
+      if (!parsed || !configuredSourceIds.has(parsed.sourceId)) continue;
+      const refs = grouped.get(parsed.sourceId) ?? [];
+      refs.push(parsed.externalId);
+      grouped.set(parsed.sourceId, refs);
+    }
+
+    const frontierEdges: EdgeRow[] = [];
+    for (const [sourceId, externalIds] of [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const remaining = GRAPH_NEIGHBORHOOD_MAX_EDGES + 1 - frontierEdges.length;
+      if (remaining <= 0) {
+        edgeReadCapped = true;
+        break;
+      }
+      const rows = await snapshot.listLiveEdgesForSourceRefs(
+        sourceId,
+        externalIds,
+        remaining,
+      );
+      throwIfAborted(signal);
+      if (rows.length > GRAPH_NEIGHBORHOOD_MAX_EDGES) edgeReadCapped = true;
+      frontierEdges.push(...rows);
+    }
+
+    const candidateRefs = new Set<string>();
+    for (const edge of frontierEdges) {
+      candidateRefs.add(rowRef(edge.from_source_id, edge.from_external_id));
+      candidateRefs.add(rowRef(edge.to_source_id, edge.to_external_id));
+    }
+    const candidatesBySource = new Map<string, string[]>();
+    for (const ref of [...candidateRefs].sort()) {
+      if (allowedRefs.has(ref)) continue;
+      const parsed = splitRef(ref);
+      if (!parsed || !configuredSourceIds.has(parsed.sourceId)) continue;
+      const ids = candidatesBySource.get(parsed.sourceId) ?? [];
+      ids.push(parsed.externalId);
+      candidatesBySource.set(parsed.sourceId, ids);
+    }
+    const foundCandidateRefs = new Set<string>();
+    const rejectedCandidateRefs = new Set<string>();
+    for (const [sourceId, externalIds] of [...candidatesBySource.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      for (const item of await snapshot.listLiveItemsBySourceRefs(sourceId, externalIds)) {
+        const ref = rowRef(item.source_id, item.external_id);
+        foundCandidateRefs.add(ref);
+        if (item.project_path && configuredRepoKeys.has(configuredRepoKey(item.source_id, item.project_path))) {
+          itemsByRef.set(ref, item);
+          allowedRefs.add(ref);
+        } else {
+          rejectedCandidateRefs.add(ref);
+        }
+      }
+      throwIfAborted(signal);
+    }
+    // Missing canonical rows are valid untracked endpoints as long as their
+    // source remains configured. They may participate in traversal.
+    for (const ref of candidateRefs) {
+      const parsed = splitRef(ref);
+      if (parsed && configuredSourceIds.has(parsed.sourceId) && !foundCandidateRefs.has(ref)) allowedRefs.add(ref);
+    }
+
+    for (const edge of frontierEdges) {
+      const from = rowRef(edge.from_source_id, edge.from_external_id);
+      const to = rowRef(edge.to_source_id, edge.to_external_id);
+      if (rejectedCandidateRefs.has(from) || rejectedCandidateRefs.has(to)) continue;
+      if (!allowedRefs.has(from) || !allowedRefs.has(to)) continue;
+      edgesByKey.set(edgeRowKey(edge), edge);
+    }
+    if (edgesByKey.size > GRAPH_NEIGHBORHOOD_MAX_EDGES) edgeReadCapped = true;
+
+    frontier = [...candidateRefs]
+      .filter((ref) => allowedRefs.has(ref) && !visitedRefs.has(ref))
+      .sort()
+      .slice(0, GRAPH_NEIGHBORHOOD_MAX_NODES + 1);
+    if (edgeReadCapped) break;
+  }
+
+  throwIfAborted(signal);
+  const items = [...itemsByRef.values()];
+  const response = buildGraphNeighborhood({
+    sources: await snapshot.listSources(),
+    items,
+    labels: await snapshot.listLabelsByItemIds(items.map((item) => item.item_id)),
+    edges: [...edgesByKey.values()],
+    generatedAt: new Date().toISOString(),
+    configuredRepos,
+    focusRef: options.focusRef,
+    depth: options.depth,
+  });
+  const reasons = new Set(response.limit_reasons);
+  if (edgeReadCapped) reasons.add("edges");
+  const limitReasons = (["depth", "nodes", "edges"] as const).filter((reason) => reasons.has(reason));
+  return {
+    ...response,
+    complete: limitReasons.length === 0,
+    limit_reasons: limitReasons,
+    nodes: response.nodes.map((node) => {
+      if (!node.item) return node;
+      const { body: _body, ...item } = node.item;
+      return { ...node, item: item as ItemDTO };
+    }),
+  };
+}
+
+async function loadGraphNeighborhoodProjection(
+  cfg: AppConfig,
+  options: GraphNeighborhoodOptions,
+  signal?: AbortSignal,
 ): Promise<GraphNeighborhoodResponse> {
   const store = await openConfiguredStoreReadOnly(cfg);
   try {
-    return buildGraphNeighborhood({
-      sources: await store.listSources(),
-      items: await store.listLiveItems(),
-      labels: await store.listLabels(),
-      edges: await store.listLiveEdges(),
-      generatedAt: new Date().toISOString(),
-      configuredRepos: configuredRepoRefs(cfg),
-      focusRef: options.focusRef,
-      depth: options.depth,
-    });
+    return await store.readSnapshot((snapshot) => readGraphNeighborhoodSnapshot(cfg, options, snapshot, signal));
   } finally {
     await store.close();
   }
 }
 
-export async function handleGraphNeighborhoodRequest(cfg: AppConfig, url: URL, res: ServerResponse): Promise<void> {
+interface InFlightProjection {
+  promise: Promise<GraphNeighborhoodResponse>;
+  controller: AbortController;
+  consumers: number;
+}
+
+const inFlightProjections = new Map<string, InFlightProjection>();
+
+function projectionKey(cfg: AppConfig, options: GraphNeighborhoodOptions): string {
+  const store = cfg.db_url_env ? `postgres:${cfg.db_url_env}` : `sqlite:${cfg.db_path}`;
+  const repos = configuredRepoRefs(cfg)
+    .map((repo) => configuredRepoKey(repo.source_id, repo.project_path))
+    .sort();
+  return JSON.stringify([store, repos, options.focusRef, options.depth]);
+}
+
+export async function graphNeighborhoodProjection(
+  cfg: AppConfig,
+  options: GraphNeighborhoodOptions,
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
+  const key = projectionKey(cfg, options);
+  let entry = inFlightProjections.get(key);
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = loadGraphNeighborhoodProjection(cfg, options, controller.signal).finally(() => {
+      if (inFlightProjections.get(key)?.promise === promise) inFlightProjections.delete(key);
+    });
+    entry = { promise, controller, consumers: 0 };
+    inFlightProjections.set(key, entry);
+  }
+  entry.consumers++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    entry!.consumers--;
+    if (entry!.consumers === 0 && signal?.aborted) entry!.controller.abort();
+  };
+  if (signal?.aborted) {
+    release();
+    throw new DOMException("graph neighborhood request aborted", "AbortError");
+  }
+  return new Promise<GraphNeighborhoodResponse>((resolve, reject) => {
+    const onAbort = () => {
+      release();
+      reject(new DOMException("graph neighborhood request aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    entry!.promise.then(resolve, reject).finally(() => {
+      signal?.removeEventListener("abort", onAbort);
+      release();
+    });
+  });
+}
+
+export async function handleGraphNeighborhoodRequest(
+  cfg: AppConfig,
+  url: URL,
+  res: ServerResponse,
+  acceptEncoding?: string | string[],
+  signal?: AbortSignal,
+): Promise<void> {
   let options: GraphNeighborhoodOptions;
   try {
     options = parseGraphNeighborhoodOptions(url);
   } catch (error) {
-    json(res, 400, {
+    sendJsonMaybeGzip(res, 400, {
       error: "invalid_graph_neighborhood",
       message: error instanceof Error ? error.message : String(error),
-    });
+    }, acceptEncoding);
     return;
   }
   try {
-    json(res, 200, await graphNeighborhoodProjection(cfg, options));
+    sendJsonMaybeGzip(res, 200, await graphNeighborhoodProjection(cfg, options, signal), acceptEncoding);
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
     if (error instanceof GraphNeighborhoodNotFoundError) {
-      json(res, 404, { error: "graph_focus_not_found", message: error.message });
+      sendJsonMaybeGzip(res, 404, { error: "graph_focus_not_found", message: error.message }, acceptEncoding);
       return;
     }
-    json(res, 500, { error: "internal_error", message: error instanceof Error ? error.message : String(error) });
+    sendJsonMaybeGzip(
+      res,
+      500,
+      { error: "internal_error", message: error instanceof Error ? error.message : String(error) },
+      acceptEncoding,
+    );
   }
 }

@@ -2271,20 +2271,21 @@ export function graphCanvasEmptyReason(
 
 // Build a relationship graph from already-windowed resolved edges, keeping only
 // nodes that take part in an edge (no isolated-dot sea).
-export function buildGraph(edges: ResolvedEdge[]): GraphData {
+export function buildGraph(edges: ResolvedEdge[], extraNodes: readonly GraphNeighborhoodNode[] = []): GraphData {
   const nodes = new Map<string, GraphNode>();
   const links: GraphLink[] = [];
   let i = 0;
+  const ensure = (it: ItemDTO | null, ref: string) => {
+    if (nodes.has(ref)) return;
+    nodes.set(
+      ref,
+      it
+        ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+        : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
+    );
+  };
+  for (const node of extraNodes) ensure(node.item, node.ref);
   for (const re of edges) {
-    const ensure = (it: ItemDTO | null, ref: string) => {
-      if (nodes.has(ref)) return;
-      nodes.set(
-        ref,
-        it
-          ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-          : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
-      );
-    };
     ensure(re.from, re.edge.from);
     ensure(re.to, re.edge.to);
     links.push({
@@ -2297,6 +2298,28 @@ export function buildGraph(edges: ResolvedEdge[]): GraphData {
     });
   }
   return { nodes: [...nodes.values()], links };
+}
+
+// React Flow owns local drag/layout state, so the parent remount key must
+// identify the actual topology rather than merely its node count. Include the
+// expansion mode because fallback and canonical focus views can otherwise
+// carry identical counts while representing different neighborhoods.
+export function graphTopologyKey(graph: GraphData, expanded: boolean): string {
+  const nodes = graph.nodes.map((node) => node.id).sort();
+  const links = graph.links
+    .map((link) => [link.source, link.target, link.type, link.lifecycle ?? ""])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return JSON.stringify([expanded, nodes, links]);
+}
+
+// d3-force ticks synchronously. Preserve the high-quality small-graph layout,
+// then reduce work as the safety caps are approached so a 200-node response
+// cannot monopolize the main thread for hundreds of ticks.
+export function graphForceLayoutTicks(nodeCount: number): number {
+  if (nodeCount <= 24) return 320;
+  if (nodeCount <= 80) return 220;
+  if (nodeCount <= 150) return 140;
+  return 96;
 }
 
 // Graph side-list ordering: actionable state first, then newest-created.

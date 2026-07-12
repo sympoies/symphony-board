@@ -119,6 +119,11 @@ let contractRequestCount = 0;
 let rangeRequestCount = 0;
 let rangeFailOnce = false;
 let graphNeighborhoodRequestCount = 0;
+const graphNeighborhoodRequestUrls = [];
+let graphNeighborhoodFailOnce = false;
+let graphNeighborhoodDelayDepth = null;
+let graphNeighborhoodDelayMs = 0;
+let graphNeighborhoodForcedLimitReason = null;
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
@@ -602,14 +607,14 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
     to_state: direct.state,
     lifecycle: null,
   };
-  const secondHopId = `${focus.source_id}|SMOKE_SECOND_HOP`;
+  const secondHopId = `${focus.source_id}|SMOKE_SECOND_HOP_${requestedDepth}`;
   const secondHop = {
     ...focus,
     id: secondHopId,
-    external_id: "SMOKE_SECOND_HOP",
+    external_id: `SMOKE_SECOND_HOP_${requestedDepth}`,
     iid: 99999,
     url: `${focus.url}#second-hop-smoke`,
-    title: "Second-hop smoke relation",
+    title: `Second-hop smoke relation depth ${requestedDepth}`,
     state: "closed",
     state_raw: "CLOSED",
     state_reason: "completed",
@@ -642,8 +647,8 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
       focus_ref: focusRef,
       requested_depth: requestedDepth,
       reached_depth: includeSecondHop ? 2 : 1,
-      complete: includeSecondHop,
-      limit_reasons: includeSecondHop ? [] : ["depth"],
+      complete: graphNeighborhoodForcedLimitReason ? false : includeSecondHop,
+      limit_reasons: graphNeighborhoodForcedLimitReason ? [graphNeighborhoodForcedLimitReason] : includeSecondHop ? [] : ["depth"],
       limits: { max_depth: 5, max_nodes: 200, max_edges: 500 },
       counts: { nodes: nodes.length, edges: edges.length },
       nodes,
@@ -682,6 +687,15 @@ async function handleSmokeRequest(req, res) {
     }
     if (p === "/api/graph-neighborhood") {
       graphNeighborhoodRequestCount += 1;
+      graphNeighborhoodRequestUrls.push(req.url || "/api/graph-neighborhood");
+      const requestUrl = new URL(req.url || "/api/graph-neighborhood", `http://127.0.0.1:${HTTP_PORT}`);
+      const requestDepth = Number(requestUrl.searchParams.get("depth") || 5);
+      if (graphNeighborhoodDelayDepth === requestDepth && graphNeighborhoodDelayMs > 0) await sleep(graphNeighborhoodDelayMs);
+      if (graphNeighborhoodFailOnce) {
+        graphNeighborhoodFailOnce = false;
+        res.writeHead(404, JSON_HEADERS).end(JSON.stringify({ error: "smoke_graph_neighborhood_failed" }));
+        return;
+      }
       const rawBody = await readFile(join(DIST, "contract.json"));
       const response = graphNeighborhoodProjection(rawBody, req.url || "/api/graph-neighborhood");
       res.writeHead(response.status, JSON_HEADERS).end(response.body);
@@ -696,7 +710,21 @@ async function handleSmokeRequest(req, res) {
       return;
     }
     if (p === "/__smoke/graph-neighborhood-count") {
-      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ graphNeighborhoodRequests: graphNeighborhoodRequestCount }));
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ graphNeighborhoodRequests: graphNeighborhoodRequestCount, urls: graphNeighborhoodRequestUrls }));
+      return;
+    }
+    if (p === "/__smoke/graph-neighborhood-control") {
+      const url = new URL(req.url || "/__smoke/graph-neighborhood-control", `http://127.0.0.1:${HTTP_PORT}`);
+      graphNeighborhoodFailOnce = url.searchParams.get("fail") === "1";
+      graphNeighborhoodDelayDepth = url.searchParams.has("delayDepth") ? Number(url.searchParams.get("delayDepth")) : null;
+      graphNeighborhoodDelayMs = Number(url.searchParams.get("delayMs") || 0);
+      graphNeighborhoodForcedLimitReason = ["depth", "nodes", "edges"].includes(url.searchParams.get("limit")) ? url.searchParams.get("limit") : null;
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({
+        graphNeighborhoodFailOnce,
+        graphNeighborhoodDelayDepth,
+        graphNeighborhoodDelayMs,
+        graphNeighborhoodForcedLimitReason,
+      }));
       return;
     }
     if (p === "/__smoke/activity-daily-count") {
@@ -1396,6 +1424,16 @@ try {
     returnByValue: true,
   })).result.value || {};
   const activityDailyAfterFileUpload = await activityDailyRequests();
+  const fileGraphRequestBefore = graphNeighborhoodRequestCount;
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+  await waitHtml("document.querySelector('.graph-list-card')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
+  const fileGraphFallbackHtml = await waitHtml("document.querySelector('.graph-focus-load-fallback')");
+  const fileGraphFallback = {
+    requestDelta: graphNeighborhoodRequestCount - fileGraphRequestBefore,
+    labelled: fileGraphFallbackHtml.includes("Full relationship history is unavailable in this static contract"),
+    hasFocusedList: fileGraphFallbackHtml.includes("graph-list-back"),
+  };
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   // Auto-hiding scrollbars: the styled scrollbars are transparent at rest and only
@@ -1726,6 +1764,60 @@ try {
     returnByValue: true,
   })).result.value || [];
   const focusStats = await statsTextOf();
+  const graphNeighborhoodControl = async (query = "") => {
+    await send("Runtime.evaluate", {
+      expression: `fetch('/__smoke/graph-neighborhood-control${query ? `?${query}` : ""}').then((response) => response.json())`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+  };
+  const clickGraphDepth = async (depth) => {
+    await send("Runtime.evaluate", {
+      expression: `([...document.querySelectorAll('.graph-depth-controls button')].find((button) => button.textContent?.trim() === '${depth}'))?.click()`,
+    });
+  };
+
+  await clickGraphDepth(3);
+  const graphDepthRefetchHtml = await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('2/3 hops') && document.body.innerText.includes('Second-hop smoke relation depth 3')");
+  const graphDepthRefetchRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+
+  await graphNeighborhoodControl("delayDepth=2&delayMs=700");
+  await clickGraphDepth(2);
+  await sleep(50);
+  await clickGraphDepth(4);
+  await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('2/4 hops') && document.body.innerText.includes('Second-hop smoke relation depth 4')");
+  await sleep(800);
+  const graphStaleRace = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      status: document.querySelector('.graph-focus-load-ready')?.textContent || '',
+      hasDepth4: document.body.innerText.includes('Second-hop smoke relation depth 4'),
+      hasDepth2: document.body.innerText.includes('Second-hop smoke relation depth 2'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await graphNeighborhoodControl();
+
+  const graphLimitResults = [];
+  for (const [reason, depth] of [["depth", 3], ["nodes", 4], ["edges", 5]]) {
+    await graphNeighborhoodControl(`limit=${reason}`);
+    await clickGraphDepth(depth);
+    const html = await waitHtml(`document.querySelector('.graph-focus-load-ready')?.textContent.includes('limited by ${reason}')`);
+    graphLimitResults.push({ reason, shown: html.includes(`limited by ${reason}`), route: (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "" });
+  }
+  await graphNeighborhoodControl();
+
+  await graphNeighborhoodControl("fail=1");
+  await clickGraphDepth(2);
+  const graphNetworkFallbackHtml = await waitHtml("document.querySelector('.graph-focus-load-fallback')");
+  const graphNetworkFallback = {
+    labelled: graphNetworkFallbackHtml.includes("Could not load full relationship history"),
+    hasFocusedList: graphNetworkFallbackHtml.includes("graph-list-back"),
+    hasDirectRelation: graphNetworkFallbackHtml.includes("glc-rel-type"),
+  };
+  await graphNeighborhoodControl();
+  await clickGraphDepth(5);
+  await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('2/5 hops')");
   // Re-click the focused (active) card to toggle focus OFF — it returns to the
   // searchable list, the same exit as "← all items". Then re-enter focus so the
   // back-button assertion below still exercises that path.
@@ -4325,6 +4417,7 @@ try {
     [rangeFailureRetained?.header && rangeFailureRetained?.tabs && rangeFailureRetained?.rangeControls && rangeFailureRetained?.contentRetained && /Symphony Board hit an error/.test(rangeFailureRetained.error || ""), `board: a failed range refetch keeps stale content mounted with an inline error (${JSON.stringify(rangeFailureRetained)})`],
     [fileAuthorityUpload.input === true && fileAuthorityVisible?.sentinel === true && fileAuthorityAfterPending.sentinel === true && fileAuthorityAfterPending.hasBoardCard === true, `board: uploaded file env stays authoritative over a pending server reload (${JSON.stringify({ fileAuthorityUpload, fileAuthorityVisible, fileAuthorityAfterPending })})`],
     [activityDailyAfterFileUpload === activityDailyBeforeFileUpload, `board: uploaded range contract does not fetch server /api/activity-daily (${activityDailyBeforeFileUpload} -> ${activityDailyAfterFileUpload})`],
+    [fileGraphFallback.requestDelta === 0 && fileGraphFallback.labelled === true && fileGraphFallback.hasFocusedList === true, `graph: uploaded local-file focus uses explicit one-hop fallback without an API request (${JSON.stringify(fileGraphFallback)})`],
     [boardThisWeekClick.hash?.includes("preset=this-week") && JSON.stringify(boardThisWeekClick.active) === JSON.stringify(["this week"]), `board: clicking this week preserves this week as the only active preset (${boardThisWeekClick.hash || "empty"})`],
     [has(boardNarrowHtml, "range 2026-06-10 to 2026-06-10"), "board: custom range label rendered after API projection"],
     [hasStatText(boardInitialStats, "scope board window"), "board: stats are labelled as board-window scoped"],
@@ -4395,6 +4488,10 @@ try {
     [/[?&]depth=5(?:&|$)/.test(focusRoute), `graph: focused route persists the default five-hop bound (${focusRoute})`],
     [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
     [has(focusHtml, "2/5 hops") && has(focusHtml, "complete"), "graph: focus reports reached/requested hops and completeness"],
+    [/[?&]depth=3(?:&|$)/.test(graphDepthRefetchRoute) && has(graphDepthRefetchHtml, "Second-hop smoke relation depth 3"), `graph: changing depth refetches canonical history and persists the route (${graphDepthRefetchRoute})`],
+    [/[?&]depth=4(?:&|$)/.test(graphStaleRace.hash || "") && /2\/4 hops/.test(graphStaleRace.status || "") && graphStaleRace.hasDepth4 === true && graphStaleRace.hasDepth2 === false, `graph: a delayed stale depth response cannot replace the latest topology (${JSON.stringify(graphStaleRace)})`],
+    [graphLimitResults.length === 3 && graphLimitResults.every((result) => result.shown === true), `graph: all safety truncation reasons are explicit (${JSON.stringify(graphLimitResults)})`],
+    [graphNetworkFallback.labelled === true && graphNetworkFallback.hasFocusedList === true && graphNetworkFallback.hasDirectRelation === true, `graph: operational API failure preserves the focused one-hop fallback (${JSON.stringify(graphNetworkFallback)})`],
     [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],

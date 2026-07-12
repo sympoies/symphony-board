@@ -113,6 +113,8 @@ import {
   graphWindowEdgesInRange,
   graphOverviewVisibility,
   graphCanvasEmptyReason,
+  graphTopologyKey,
+  graphForceLayoutTicks,
   isSyncRunActive,
   syncProducedFreshData,
   liveSourceStatus,
@@ -1736,6 +1738,29 @@ test("buildGraph keeps only edge-connected nodes and flags untracked ends", () =
   assert.equal(tracked?.author, "a", "tracked node carries the author");
   assert.equal(untracked?.author, null, "untracked node has no author");
   assert.equal(buildGraph(edges).links.length, 3, "the graph renderer keeps every supplied edge");
+});
+
+test("graphTopologyKey changes for same-size topology and expansion transitions", () => {
+  const one = item({ id: "one" });
+  const two = item({ id: "two" });
+  const three = item({ id: "three" });
+  const a = buildGraph([{ edge: edge("one", "two", null, "mentions"), from: one, to: two }]);
+  const b = buildGraph([{ edge: edge("one", "three", null, "mentions"), from: one, to: three }]);
+  assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(b, false));
+  assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(a, true));
+});
+
+test("buildGraph retains an isolated canonical focus node", () => {
+  const focus = item({ id: "isolated" });
+  const graph = buildGraph([], [{ ref: focus.id, hop: 0, item: focus }]);
+  assert.deepEqual(graph.nodes.map((node) => node.id), [focus.id]);
+  assert.equal(graph.links.length, 0);
+});
+
+test("graphForceLayoutTicks caps synchronous work for a safety-cap graph", () => {
+  assert.equal(graphForceLayoutTicks(1), 320);
+  assert.ok(graphForceLayoutTicks(200) <= 100);
+  assert.ok(graphForceLayoutTicks(200) < graphForceLayoutTicks(80));
 });
 
 // The Graph page's focus view: focusSubgraph builds the focused item + its direct
