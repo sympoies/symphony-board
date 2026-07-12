@@ -107,7 +107,7 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
         id="global-search"
         className="search"
         type="search"
-        placeholder="Search title / author / repo / label…"
+        placeholder="Search title / author / repo / label / #number…"
         value={search}
         onChange={(e) => onSearch(e.target.value)}
       />
@@ -170,7 +170,7 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
                 id="global-search-mobile"
                 className="search mobile-control-search"
                 type="search"
-                placeholder="Search title / author / repo / label…"
+                placeholder="Search title / author / repo / label / #number…"
                 value={search}
                 onChange={(e) => onSearch(e.target.value)}
               />

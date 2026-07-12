@@ -1613,6 +1613,8 @@ export function reviewActivityIsUnresolved(a: ActivityDTO, itemsById: ReadonlyMa
   return !!rt && rt.open > 0;
 }
 
+const wholeQueryWorkItemNumber = (query: string): string | null => /^(\d+)$/.exec(query)?.[1] ?? null;
+
 export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (f.sources.size && !f.sources.has(it.source_id)) return false;
   if (f.states.size && !f.states.has(it.state)) return false;
@@ -1621,9 +1623,11 @@ export function itemMatches(it: ItemDTO, f: Filters): boolean {
   if (!itemReviewMatches(it, f.reviews)) return false;
   const q = f.search.trim().toLowerCase();
   if (q) {
+    const wholeQueryNumber = wholeQueryWorkItemNumber(q);
+    if (wholeQueryNumber !== null) return it.iid != null && String(it.iid) === wholeQueryNumber;
     // iid is intentionally NOT in the hay — it is matched ONLY via the exact
-    // number term below. Putting it in the hay would reintroduce substring
-    // collisions between short and longer identifiers.
+    // whole-query number above or explicit #number term below. Putting it in
+    // the hay would reintroduce substring collisions between identifiers.
     const hay = [it.title, it.author, it.project_path, it.external_id, ...it.labels.map((l) => l.name)]
       .filter((s): s is string => !!s)
       .join(" ")
@@ -1650,6 +1654,8 @@ export function activityMatches(a: ActivityDTO, f: Filters): boolean {
   if (f.kinds.size && !f.kinds.has(a.kind)) return false;
   const q = f.search.trim().toLowerCase();
   if (q) {
+    const wholeQueryNumber = wholeQueryWorkItemNumber(q);
+    if (wholeQueryNumber !== null) return a.target_iid != null && String(a.target_iid) === wholeQueryNumber;
     const details = a.details ? JSON.stringify(a.details) : "";
     // action/kind are included so action-only terms ("approved", "merged",
     // "force pushed") still match after 4.0.0 dropped `summary`, which used to

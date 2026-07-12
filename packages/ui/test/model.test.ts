@@ -357,7 +357,7 @@ test("reviewActivityIsUnresolved resolves the target PR's current open-thread co
   assert.equal(reviewActivityIsUnresolved(nonReview, byId), false, "only review rows qualify");
 });
 
-test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one item)", () => {
+test("itemMatches: multi-term AND + exact bare/#iid work-item numbers", () => {
   const it13 = item({ id: "g|13", project_path: "owner/repo", iid: 13, title: "Add thing" });
   const it130 = item({ id: "g|130", project_path: "owner/repo", iid: 130, title: "Other" });
   const otherRepo = item({ id: "g|x", project_path: "owner/other", iid: 13, title: "Elsewhere" });
@@ -373,13 +373,20 @@ test("itemMatches: multi-term AND + exact #iid (so a 'repo #iid' search pins one
   assert.equal(itemMatches(it13, f("#")), false, "a bare # is not a number term -> substring miss");
   assert.equal(itemMatches(item({ iid: 0 }), f("#0")), true, "iid 0 matches #0 (guard is != null, not truthiness)");
   assert.equal(itemMatches(it13, f("#013")), false, "leading zeros do not widen the iid match");
+  // A whole-query bare number is the convenient form of the same exact lookup.
+  assert.equal(itemMatches(it13, f("13")), true);
+  assert.equal(itemMatches(it130, f("13")), false, "bare 13 must not match #130");
+  assert.equal(itemMatches(it13, f("013")), false, "bare leading zeros remain exact");
+  // Only a whole-query number gets iid semantics; numeric terms inside general
+  // text searches keep matching text so existing search behavior is unchanged.
+  assert.equal(itemMatches(item({ iid: 130, title: "Milestone 13" }), f("milestone 13")), true);
   // the "repo #iid" token pins exactly one item even across repos sharing an iid
   assert.equal(itemMatches(it13, f("owner/repo #13")), true);
   assert.equal(itemMatches(it130, f("owner/repo #13")), false, "same repo, wrong iid");
   assert.equal(itemMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
 });
 
-test("activityMatches applies source/kind/search filters with exact target #iid", () => {
+test("activityMatches applies source/kind/search filters with exact bare/# target iid", () => {
   const a13 = activity({ project_path: "owner/repo", target_iid: 13, title: "Closed issue" });
   const a130 = activity({ external_id: "A130", project_path: "owner/repo", target_iid: 130 });
   const otherRepo = activity({ external_id: "B13", project_path: "owner/other", target_iid: 13 });
@@ -394,6 +401,9 @@ test("activityMatches applies source/kind/search filters with exact target #iid"
   assert.equal(activityMatches(a13, f("abc1234")), true, "search includes provider details");
   assert.equal(activityMatches(a13, f("#13")), true);
   assert.equal(activityMatches(a130, f("#13")), false, "#13 must not match #130");
+  assert.equal(activityMatches(a13, f("13")), true);
+  assert.equal(activityMatches(a130, f("13")), false, "bare 13 must not match target #130");
+  assert.equal(activityMatches(a13, f("013")), false, "bare leading zeros remain exact");
   assert.equal(activityMatches(otherRepo, f("owner/repo #13")), false, "same iid, wrong repo");
 });
 
