@@ -48,3 +48,14 @@ test("sendJsonMaybeGzip reports the identity byte length when the client does no
   assert.equal(out.headers["Content-Encoding"], undefined, "no gzip when not accepted");
   assert.equal(out.headers["X-Encoded-Length"], String(Buffer.byteLength(text)));
 });
+
+test("sendJsonMaybeGzip honors an explicit gzip quality refusal", () => {
+  for (const header of ["gzip;q=0", "br, gzip; q=0"]) {
+    const { res, out } = fakeRes();
+    const body = { hello: "identity" };
+    sendJsonMaybeGzip(res, 200, body, header);
+    assert.equal(out.headers["Content-Encoding"], undefined, header);
+    assert.equal(out.headers.Vary, "Accept-Encoding");
+    assert.equal(typeof out.body, "string");
+  }
+});
