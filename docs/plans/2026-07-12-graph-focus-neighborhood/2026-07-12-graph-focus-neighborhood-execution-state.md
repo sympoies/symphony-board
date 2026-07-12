@@ -12,7 +12,7 @@
 - Branch/commit/PR: `feat/graph-focus-neighborhood`; PR pending.
 - Source document: docs/plans/2026-07-12-graph-focus-neighborhood/2026-07-12-graph-focus-neighborhood-plan.md
 - Direct source-doc execution waiver: not applicable
-- Tracking issue: pending
+- Tracking issue: <https://github.com/sympoies/symphony-board/issues/565>
 
 ## Validation Plan
 
