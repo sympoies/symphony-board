@@ -9,7 +9,7 @@
 - Current task: deliver the feature PR and run independent pre-merge review.
 - Next task: merge, close the tracker, archive the plan, and rebuild the macOS app.
 - Last updated: 2026-07-12
-- Branch/commit/PR: `feat/graph-focus-neighborhood`; PR pending.
+- Branch/commit/PR: `feat/graph-focus-neighborhood`; implementation `aedc85f`; PR <https://github.com/sympoies/symphony-board/pull/566>.
 - Source document: docs/plans/2026-07-12-graph-focus-neighborhood/2026-07-12-graph-focus-neighborhood-plan.md
 - Direct source-doc execution waiver: not applicable
 - Tracking issue: <https://github.com/sympoies/symphony-board/issues/565>
@@ -42,6 +42,9 @@
 - 2026-07-12: Captured backend/API and UI route meaningful reds, then implemented
   the bounded read-only projection and five-hop focus UI. Focused backend tests
   and the full UI test/build/render-smoke gates pass; full validation is next.
+- 2026-07-12: Opened PR #566 after the test-first record verified against the
+  delivered head; all 12 required provider checks passed. Independent review is
+  the remaining pre-merge gate.
 
 ## Validation
 
