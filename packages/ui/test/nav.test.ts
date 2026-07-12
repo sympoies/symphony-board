@@ -167,10 +167,11 @@ test("clearFiltersHref drops search and page filters while preserving range and 
   assert.equal(activity.tab, "overview", "sub-view state is not a filter");
 
   const graph = parseHashRoute(
-    clearFiltersHref(parseHashRoute("#/graph?focus=github%3Agithub.com%7Cissue-1&q=issue&isource=github%3Agithub.com&from=2026-06-15&to=2026-06-21&tab=graph")),
+    clearFiltersHref(parseHashRoute("#/graph?focus=github%3Agithub.com%7Cissue-1&depth=3&q=issue&isource=github%3Agithub.com&from=2026-06-15&to=2026-06-21&tab=graph")),
   );
   assert.equal(graph.page, "graph");
   assert.equal(graph.focus, "github:github.com|issue-1", "focused graph item is preserved");
+  assert.equal(graph.depth, 3, "focused graph depth is preserved");
   assert.equal(graph.q, null);
   assert.equal(graph.isource, null);
   assert.equal(graph.from, "2026-06-15");

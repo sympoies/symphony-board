@@ -161,6 +161,7 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 export interface HashRoute {
   page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" | "debug" (hidden; Cmd+/)
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
+  depth: number | null; // focused Graph neighbourhood hops (1..5); null = default 5
   q: string | null; // a search token to seed the search bar (narrows the graph)
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
   repo: string | null; // a project_path the Commits page filters to
@@ -199,6 +200,14 @@ const routeParam = (value: string | null | undefined): string | null => {
   return v ? v : null;
 };
 
+export const GRAPH_FOCUS_DEFAULT_DEPTH = 5;
+export const GRAPH_FOCUS_MAX_DEPTH = 5;
+
+export function graphFocusDepth(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+  return Number.isInteger(n) && n >= 1 && n <= GRAPH_FOCUS_MAX_DEPTH ? n : null;
+}
+
 export function parseHashRoute(hash: string): HashRoute {
   const raw = hash.replace(/^#\/?/, "");
   const i = raw.indexOf("?");
@@ -208,6 +217,7 @@ export function parseHashRoute(hash: string): HashRoute {
   return {
     page,
     focus: routeParam(params?.get("focus")),
+    depth: graphFocusDepth(params?.get("depth")),
     q: routeParam(params?.get("q")),
     source: routeParam(params?.get("source")),
     repo: routeParam(params?.get("repo")),
@@ -232,9 +242,10 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
+  const depth = graphFocusDepth(route.depth);
   const q = routeParam(route.q);
   const source = routeParam(route.source);
   const repo = routeParam(route.repo);
@@ -257,6 +268,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; q?:
   const itemSort = routeParam(route.itemSort);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
+  if (focus && depth !== null) params.push(`depth=${depth}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (source) params.push(`source=${encodeURIComponent(source)}`);
   if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
@@ -1802,12 +1814,38 @@ export interface ResolvedEdge {
   to: ItemDTO | null;
 }
 
-export function resolveEdges(env: ContractEnvelope, byId: Map<string, ItemDTO>): ResolvedEdge[] {
-  return env.edges.map((edge) => ({
+export interface GraphNeighborhoodNode {
+  ref: string;
+  hop: number;
+  item: ItemDTO | null;
+}
+
+export type GraphNeighborhoodLimitReason = "depth" | "nodes" | "edges";
+
+export interface GraphNeighborhoodResponse {
+  schema: "symphony-board-graph-neighborhood/1";
+  generated_at: string;
+  focus_ref: string;
+  requested_depth: number;
+  reached_depth: number;
+  complete: boolean;
+  limit_reasons: GraphNeighborhoodLimitReason[];
+  limits: { max_depth: number; max_nodes: number; max_edges: number };
+  counts: { nodes: number; edges: number };
+  nodes: GraphNeighborhoodNode[];
+  edges: EdgeDTO[];
+}
+
+export function resolveEdgeList(edges: readonly EdgeDTO[], byId: ReadonlyMap<string, ItemDTO>): ResolvedEdge[] {
+  return edges.map((edge) => ({
     edge,
     from: byId.get(edge.from) ?? null,
     to: byId.get(edge.to) ?? null,
   }));
+}
+
+export function resolveEdges(env: ContractEnvelope, byId: Map<string, ItemDTO>): ResolvedEdge[] {
+  return resolveEdgeList(env.edges, byId);
 }
 
 // An edge passes the filter if either resolved endpoint passes (so a cross-repo
@@ -2911,6 +2949,8 @@ export interface ServerCapabilities {
     stats?: boolean;
     activity_daily?: boolean;
     review_candidates?: boolean;
+    actionable?: boolean;
+    graph_neighborhood?: boolean;
   };
   live: {
     reads: boolean;

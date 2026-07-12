@@ -118,6 +118,7 @@ let contractRequestCount = 0;
 // the refresh assertion below counts range requests, not contract.json hits.
 let rangeRequestCount = 0;
 let rangeFailOnce = false;
+let graphNeighborhoodRequestCount = 0;
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
@@ -133,6 +134,7 @@ const CAPABILITIES_MOCK = {
     mode: "smoke",
     contract: true,
     range: true,
+    graph_neighborhood: true,
     stats: true,
     activity_daily: true,
     review_candidates: true,
@@ -575,6 +577,81 @@ function rangeProjection(rawBody, reqUrl) {
   };
 }
 
+function graphNeighborhoodProjection(rawBody, reqUrl) {
+  const env = parseInflatedContract(rawBody);
+  const url = new URL(reqUrl, `http://127.0.0.1:${HTTP_PORT}`);
+  const focusRef = url.searchParams.get("ref") || "";
+  const requestedDepth = Number(url.searchParams.get("depth") || 5);
+  const byId = new Map(env.items.map((item) => [item.id, item]));
+  const focus = byId.get(focusRef);
+  if (!focus) return { status: 404, body: JSON.stringify({ error: "focus ref not found" }) };
+
+  const directEdge = env.edges.find((edge) =>
+    (edge.from === focusRef && byId.has(edge.to)) || (edge.to === focusRef && byId.has(edge.from)),
+  );
+  const direct = directEdge
+    ? byId.get(directEdge.from === focusRef ? directEdge.to : directEdge.from)
+    : env.items.find((item) => item.id !== focusRef);
+  if (!direct) return { status: 404, body: JSON.stringify({ error: "smoke neighbour not found" }) };
+
+  const firstEdge = directEdge ?? {
+    type: "mentions",
+    from: focusRef,
+    to: direct.id,
+    from_state: focus.state,
+    to_state: direct.state,
+    lifecycle: null,
+  };
+  const secondHopId = `${focus.source_id}|SMOKE_SECOND_HOP`;
+  const secondHop = {
+    ...focus,
+    id: secondHopId,
+    external_id: "SMOKE_SECOND_HOP",
+    iid: 99999,
+    url: `${focus.url}#second-hop-smoke`,
+    title: "Second-hop smoke relation",
+    state: "closed",
+    state_raw: "CLOSED",
+    state_reason: "completed",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+    closed_at: "2026-01-02T00:00:00Z",
+    merged_at: null,
+    window_reasons: ["edge_endpoint"],
+  };
+  const secondEdge = {
+    type: "mentions",
+    from: direct.id,
+    to: secondHopId,
+    from_state: direct.state,
+    to_state: secondHop.state,
+    lifecycle: null,
+  };
+  const includeSecondHop = requestedDepth >= 2;
+  const nodes = [
+    { ref: focus.id, hop: 0, item: focus },
+    { ref: direct.id, hop: 1, item: direct },
+    ...(includeSecondHop ? [{ ref: secondHop.id, hop: 2, item: secondHop }] : []),
+  ];
+  const edges = [firstEdge, ...(includeSecondHop ? [secondEdge] : [])];
+  return {
+    status: 200,
+    body: JSON.stringify({
+      schema: "symphony-board-graph-neighborhood/1",
+      generated_at: "2026-07-02T12:00:00.000Z",
+      focus_ref: focusRef,
+      requested_depth: requestedDepth,
+      reached_depth: includeSecondHop ? 2 : 1,
+      complete: includeSecondHop,
+      limit_reasons: includeSecondHop ? [] : ["depth"],
+      limits: { max_depth: 5, max_nodes: 200, max_edges: 500 },
+      counts: { nodes: nodes.length, edges: edges.length },
+      nodes,
+      edges,
+    }),
+  };
+}
+
 if (!existsSync(join(DIST, "index.html"))) {
   fail(`dist not built (${DIST}/index.html missing) — run \`vite build\` first`);
   process.exit(1);
@@ -603,12 +680,23 @@ async function handleSmokeRequest(req, res) {
       res.writeHead(response.status, JSON_HEADERS).end(response.body);
       return;
     }
+    if (p === "/api/graph-neighborhood") {
+      graphNeighborhoodRequestCount += 1;
+      const rawBody = await readFile(join(DIST, "contract.json"));
+      const response = graphNeighborhoodProjection(rawBody, req.url || "/api/graph-neighborhood");
+      res.writeHead(response.status, JSON_HEADERS).end(response.body);
+      return;
+    }
     if (p === "/__smoke/contract-count") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ contractRequests: contractRequestCount }));
       return;
     }
     if (p === "/__smoke/range-count") {
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ rangeRequests: rangeRequestCount }));
+      return;
+    }
+    if (p === "/__smoke/graph-neighborhood-count") {
+      res.writeHead(200, JSON_HEADERS).end(JSON.stringify({ graphNeighborhoodRequests: graphNeighborhoodRequestCount }));
       return;
     }
     if (p === "/__smoke/activity-daily-count") {
@@ -1631,8 +1719,12 @@ try {
   })).result.value || {};
   const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
-  await sleep(400);
-  const focusHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  const focusHtml = await waitHtml("document.querySelector('.graph-focus-load-ready') && document.body.innerText.includes('Second-hop smoke relation')");
+  const focusRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  const focusDepthButtons = (await send("Runtime.evaluate", {
+    expression: "[...document.querySelectorAll('.graph-depth-controls button')].map((button) => ({ text: button.textContent?.trim(), active: button.classList.contains('toggle-on') }))",
+    returnByValue: true,
+  })).result.value || [];
   const focusStats = await statsTextOf();
   // Re-click the focused (active) card to toggle focus OFF — it returns to the
   // searchable list, the same exit as "← all items". Then re-enter focus so the
@@ -1641,7 +1733,7 @@ try {
   await sleep(300);
   const toggleOffHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
-  await sleep(300);
+  await waitHtml("document.querySelector('.graph-focus-load-ready')");
   // Click "← all items" and confirm the searchable list returns.
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
   await sleep(300);
@@ -4298,6 +4390,11 @@ try {
     [graphListTimeOrder.count >= 1 && graphListTimeOrder.ok, `graph: side-list timestamps render updated before created (${graphListTimeOrder.count})`],
     [graphCardChrome.found === true && graphCardChrome.badgeStartsAfterIcon === true && graphCardChrome.titleStartsAfterIcon === true, `graph: side-list card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(graphCardChrome)})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
+    [graphNeighborhoodRequestCount >= 2, `graph: focus loads canonical neighbourhood history (${graphNeighborhoodRequestCount} requests)`],
+    [has(focusHtml, "Second-hop smoke relation"), "graph: focus draws an older second-hop relation returned by the operational API"],
+    [/[?&]depth=5(?:&|$)/.test(focusRoute), `graph: focused route persists the default five-hop bound (${focusRoute})`],
+    [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
+    [has(focusHtml, "2/5 hops") && has(focusHtml, "complete"), "graph: focus reports reached/requested hops and completeness"],
     [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],

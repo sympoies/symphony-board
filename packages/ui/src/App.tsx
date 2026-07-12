@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
+import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, fetchGraphNeighborhood, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
 import { useOnlineStatus } from "./online-status.ts";
@@ -30,6 +30,7 @@ import {
   repoMetricMatches,
   sortRepoMetrics,
   resolveEdges,
+  resolveEdgeList,
   edgeMatches,
   deriveStatuses,
   deriveRepoOptions,
@@ -41,6 +42,8 @@ import {
   buildHashRoute,
   applyRouteSearch,
   relationCounts,
+  repoKey,
+  GRAPH_FOCUS_DEFAULT_DEPTH,
   freshnessLabel,
   routeTimeRange,
   sameTimeRange,
@@ -54,6 +57,7 @@ import {
   type Filters,
   type ItemSort,
   type ReviewSort,
+  type GraphNeighborhoodResponse,
 } from "./model.ts";
 import {
   activityFacets,
@@ -172,6 +176,7 @@ const reviewFacetLabel = (v: string): string => (v === "threads" ? "has threads"
 const kindFacetLabel = (v: string): string => itemKindLabel(v);
 type MobileControlPanel = "search" | "filters" | "range" | null;
 type EnvAuthority = "server" | "file";
+type GraphNeighborhoodStatus = "idle" | "loading" | "ready" | "fallback";
 
 const normalizeContractTimezone = (value: unknown): string | null => (isValidTimezone(value) ? value : null);
 
@@ -236,6 +241,9 @@ export function App() {
   // covers only the window); null otherwise, so the overview reads env.activity_daily
   // directly. See the fetch effect below and ./contract.ts fetchActivityDaily.
   const [fullActivityDaily, setFullActivityDaily] = useState<ActivityDailyDTO | null>(null);
+  const [graphNeighborhood, setGraphNeighborhood] = useState<GraphNeighborhoodResponse | null>(null);
+  const [graphNeighborhoodStatus, setGraphNeighborhoodStatus] = useState<GraphNeighborhoodStatus>("idle");
+  const [graphNeighborhoodMessage, setGraphNeighborhoodMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshingData, setRefreshingData] = useState(false);
@@ -320,6 +328,7 @@ export function App() {
   }, []);
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
+  const graphFocusDepthValue = route.depth ?? GRAPH_FOCUS_DEFAULT_DEPTH;
   const page =
     route.page === "live"
       ? "live"
@@ -990,6 +999,44 @@ export function App() {
     };
   }, [contractDisabled, shouldFetchFullActivityDaily, serverBaseUrl, reloadKey, dataReloadEpoch]);
 
+  // Focused Graph history is deliberately loaded from its own canonical-store
+  // projection, not from the date-bounded primary env. Abort on every route/depth
+  // change so an older response can never replace the current focus. Static/file
+  // deployments retain the existing loaded one-hop graph with an explicit cue.
+  useEffect(() => {
+    if (page !== "graph" || !route.focus || contractDisabled) {
+      setGraphNeighborhood(null);
+      setGraphNeighborhoodStatus("idle");
+      setGraphNeighborhoodMessage(null);
+      return;
+    }
+    if (staticDeployment || envAuthority === "file") {
+      setGraphNeighborhood(null);
+      setGraphNeighborhoodStatus("fallback");
+      setGraphNeighborhoodMessage("Full relationship history is unavailable in this static contract; showing loaded direct relations.");
+      return;
+    }
+    const controller = new AbortController();
+    setGraphNeighborhood(null);
+    setGraphNeighborhoodStatus("loading");
+    setGraphNeighborhoodMessage(null);
+    void fetchGraphNeighborhood(route.focus, graphFocusDepthValue, serverBaseUrl, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setGraphNeighborhood(result);
+        setGraphNeighborhoodStatus("ready");
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        setGraphNeighborhood(null);
+        setGraphNeighborhoodStatus("fallback");
+        setGraphNeighborhoodMessage(
+          `Could not load full relationship history (${cause instanceof Error ? cause.message : String(cause)}); showing loaded direct relations.`,
+        );
+      });
+    return () => controller.abort();
+  }, [page, route.focus, graphFocusDepthValue, contractDisabled, staticDeployment, envAuthority, serverBaseUrl, dataReloadEpoch]);
+
   // The visibility pre-filter is applied FIRST: visibleEnv is the contract
   // narrowed to the repos + sources the Settings page leaves visible (items +
   // their edges). Everything below — facets, filters, stats, statuses — works
@@ -1199,10 +1246,31 @@ export function App() {
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
-  // Graph focus uses the loaded projection's edge set. There is no full-contract
-  // overlay under range-as-download; the focused view expands within whatever the
-  // current primary env loaded.
-  const graphFocusEdges = filteredEdges;
+  const activeGraphNeighborhood =
+    graphNeighborhood?.focus_ref === route.focus && graphNeighborhood.requested_depth === graphFocusDepthValue
+      ? graphNeighborhood
+      : null;
+  const graphNeighborhoodEdges = useMemo(() => {
+    if (!activeGraphNeighborhood) return [];
+    const trackedIds = new Set(activeGraphNeighborhood.nodes.filter((node) => node.item !== null).map((node) => node.ref));
+    const visibleItems = activeGraphNeighborhood.nodes
+      .map((node) => node.item)
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .filter((item) => !hiddenSources.has(item.source_id) && !hidden.has(repoKey(item.source_id, item.project_path)));
+    const visibleIds = new Set(visibleItems.map((item) => item.id));
+    const byId = new Map(visibleItems.map((item) => [item.id, item]));
+    return resolveEdgeList(activeGraphNeighborhood.edges, byId).filter((re) => {
+      if (trackedIds.has(re.edge.from) && !visibleIds.has(re.edge.from)) return false;
+      if (trackedIds.has(re.edge.to) && !visibleIds.has(re.edge.to)) return false;
+      return edgeMatches(re, itemFilters);
+    });
+  }, [activeGraphNeighborhood, hidden, hiddenSources, itemFilters]);
+
+  // A ready server projection owns focused rendering; loading/error/static cases
+  // intentionally preserve the pre-feature one-hop derivation over loaded edges.
+  const graphFocusExpanded = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood !== null;
+  const graphFocusLoadStatus = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood === null ? "loading" : graphNeighborhoodStatus;
+  const graphFocusEdges = graphFocusExpanded ? graphNeighborhoodEdges : filteredEdges;
   const canUseContractAggregates =
     hidden.size === 0 &&
     hiddenSources.size === 0 &&
@@ -1240,6 +1308,7 @@ export function App() {
     const next = buildHashRoute({
       page,
       focus: page === "graph" ? current.focus : null,
+      depth: page === "graph" && current.focus ? graphFocusDepthValue : null,
       ...itemFacetFields(nextFacets),
       // Preserve the Reviews sort toggle across a facet change (page-local view
       // state, like focus for Graph); null off Reviews so it never leaks.
@@ -1595,6 +1664,7 @@ export function App() {
       // so changing the search box does not reset it on a narrow screen.
       tab: route.tab,
       focus: page === "graph" ? route.focus : null,
+      depth: page === "graph" && route.focus ? graphFocusDepthValue : null,
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,
       branch: page === "commits" ? route.branch : null,
@@ -1626,6 +1696,7 @@ export function App() {
     const next = buildHashRoute({
       page: "graph",
       focus,
+      depth: focus ? graphFocusDepthValue : null,
       isource: route.isource,
       istate: route.istate,
       ikind: route.ikind,
@@ -1636,6 +1707,18 @@ export function App() {
       from: explicitRange?.from,
       to: explicitRange?.to,
       preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  function setRouteFocusDepth(depth: number) {
+    if (typeof window === "undefined" || !route.focus) return;
+    const next = buildHashRoute({
+      ...route,
+      page: "graph",
+      focus: route.focus,
+      depth,
+      q: filters.search,
     });
     if (readHash() !== next) window.location.hash = next;
   }
@@ -1692,6 +1775,7 @@ export function App() {
       // List/Graph) across a date-range change on a narrow screen.
       tab: route.tab,
       focus: page === "graph" ? route.focus : null,
+      depth: page === "graph" && route.focus ? graphFocusDepthValue : null,
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,
       branch: page === "commits" ? route.branch : null,
@@ -2209,6 +2293,12 @@ export function App() {
             colorOf={colorOf}
             focusRef={route.focus}
             onFocusChange={setRouteFocus}
+            focusDepth={graphFocusDepthValue}
+            onFocusDepthChange={setRouteFocusDepth}
+            focusExpanded={graphFocusExpanded}
+            focusLoadStatus={graphFocusLoadStatus}
+            focusLoadMessage={graphNeighborhoodMessage}
+            focusNeighborhood={activeGraphNeighborhood}
             aggregates={compatibleAggregates}
             itemWindow={env.item_window}
             range={activeRange}

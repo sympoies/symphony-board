@@ -19,6 +19,7 @@ export interface ServerCapabilities {
     activity_daily: boolean;
     review_candidates: boolean;
     actionable: boolean;
+    graph_neighborhood: boolean;
   };
   live: {
     reads: boolean;
@@ -203,6 +204,7 @@ export async function buildCapabilities(opts: CapabilitiesOptions): Promise<Serv
       activity_daily: true,
       review_candidates: true,
       actionable: true,
+      graph_neighborhood: true,
     },
     live: {
       ...liveBase,

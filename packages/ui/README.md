@@ -52,10 +52,13 @@ The Graph page renders edge-connected items with React Flow:
   list cards are marked `not drawn`.
 - side-list search and kind filters keep the relationship inventory navigable.
 - the shared date range windows the overview.
-- focusing an item narrows the canvas to that item's relationship
-  neighborhood.
-- Board card deep-links use `#/graph?focus=<ref>&q=<repo #iid>` so the graph is
-  narrowed before it renders.
+- focusing an item loads its canonical-history relationship neighborhood from
+  `/api/graph-neighborhood`, defaulting to five hops; depth buttons 1–5 update
+  the shareable `#/graph?focus=<ref>&depth=<n>` route.
+- every returned edge type is drawn in focus mode, and the status line reports
+  reached/requested hops plus depth/node/edge limits.
+- Board card deep-links use `#/graph?focus=<ref>`; focus state is independent of
+  the global cross-tab search.
 
 Graph summary pills are scoped to the graph currently being inspected. In the
 overview they count rendered nodes and links after the date range,
@@ -67,9 +70,11 @@ row; custom range responses and local graph controls fall back to
 client-computed stats.
 
 With contract v2, the default overview stays inside the loaded item window.
-Board deep-link focus views can still inspect relationships present in the
-emitted endpoint-closed edge set, but the static payload does not contain
-relationships wholly outside the loaded window.
+Dynamic server deployments use the operational graph-neighborhood route to
+inspect older relations wholly outside that window, bounded to five hops, 200
+nodes, and 500 edges. Static/local-file deployments cannot read the canonical
+store, so focus falls back to the loaded one-hop neighborhood and labels that
+limitation.
 
 Untracked cross-repo endpoints render as unresolved refs.
 
@@ -181,7 +186,8 @@ provider-read sync owned by the daemon; it never writes back to a provider.
 ## Live Capabilities
 
 Settings uses the configured Server URL for board reads and Live diagnostics:
-`./api/capabilities` advertises safe read-side capabilities, and older
+`./api/capabilities` advertises safe read-side capabilities (including the
+graph-neighborhood route), and older
 deployments fall back to a small `./api/live-snapshot` probe. The UI shows
 whether Live reads are unsupported, unreachable, reachable with no retained
 events, or reachable with the latest sequence/time. When a deployment provides a
@@ -249,8 +255,8 @@ pnpm --filter @symphony-board/ui dev
 
 For deployment, use the repo's Docker Compose stack. The `web` service serves
 the built UI, aliases the daemon-emitted `data/contract.json` to
-`/contract.json`, proxies `/api/range` and `/api/capabilities` to the read-only
-range API sidecar, proxies `/api/live*` to the Live reads listener, and proxies
+`/contract.json`, proxies `/api/range`, `/api/graph-neighborhood`, and
+`/api/capabilities` to the read-only API sidecar, proxies `/api/live*` to the Live reads listener, and proxies
 the sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the `board`
 daemon. The UI therefore reads the latest static contract, can request explicit
 date ranges, can explain Live read/webhook setup state, and can trigger a

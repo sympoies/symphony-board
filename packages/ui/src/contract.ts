@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot, GraphNeighborhoodResponse } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
 
@@ -573,6 +573,50 @@ export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string
 export async function fetchRangeContractWithMetadata(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<LoadedContract> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
   return fetchContractWithMetadata(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
+}
+
+function isGraphNeighborhood(body: unknown): body is GraphNeighborhoodResponse {
+  if (!body || typeof body !== "object") return false;
+  const value = body as Partial<GraphNeighborhoodResponse>;
+  const limitReasons = new Set(["depth", "nodes", "edges"]);
+  const limits = value.limits as Partial<GraphNeighborhoodResponse["limits"]> | undefined;
+  const counts = value.counts as Partial<GraphNeighborhoodResponse["counts"]> | undefined;
+  return (
+    value.schema === "symphony-board-graph-neighborhood/1" &&
+    typeof value.generated_at === "string" &&
+    typeof value.focus_ref === "string" &&
+    Number.isInteger(value.requested_depth) &&
+    Number.isInteger(value.reached_depth) &&
+    typeof value.complete === "boolean" &&
+    Array.isArray(value.limit_reasons) && value.limit_reasons.every((reason) => limitReasons.has(reason)) &&
+    !!limits && Number.isInteger(limits.max_depth) && Number.isInteger(limits.max_nodes) && Number.isInteger(limits.max_edges) &&
+    !!counts && Number.isInteger(counts.nodes) && Number.isInteger(counts.edges) &&
+    Array.isArray(value.nodes) && value.nodes.every((node) =>
+      !!node && typeof node === "object" && typeof node.ref === "string" && Number.isInteger(node.hop) &&
+      (node.item === null || (!!node.item && typeof node.item.id === "string" && typeof node.item.source_id === "string" && typeof node.item.project_path === "string")),
+    ) &&
+    Array.isArray(value.edges) && value.edges.every((edge) =>
+      !!edge && typeof edge === "object" && typeof edge.type === "string" && typeof edge.from === "string" && typeof edge.to === "string",
+    ) &&
+    counts.nodes === value.nodes.length && counts.edges === value.edges.length
+  );
+}
+
+export async function fetchGraphNeighborhood(
+  focusRef: string,
+  depth: number,
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
+  const params = new URLSearchParams({ ref: focusRef, depth: String(depth) });
+  const target = resolveEndpoint(`./api/graph-neighborhood?${params.toString()}`, serverBaseUrl);
+  const res = await appFetch(target, { cache: "no-store", signal });
+  if (!res.ok) throw new Error(`graph neighborhood: HTTP ${res.status}`);
+  const body = await readJson(res);
+  if (!isGraphNeighborhood(body) || body.focus_ref !== focusRef || body.requested_depth !== depth) {
+    throw new Error("graph neighborhood: invalid response");
+  }
+  return body;
 }
 
 // --- UI-triggered manual sync control plane client ---

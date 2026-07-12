@@ -2106,7 +2106,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, itemSort: null, reviewSort: null };
+  const emptyRoute = { focus: null, depth: null, q: null, source: null, repo: null, branch: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, itemSort: null, reviewSort: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -2185,6 +2185,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     page: "",
     source: null,
     focus: null,
+    depth: null,
     q: "owner/repo #13",
     repo: null,
     branch: null,
@@ -2210,6 +2211,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     page: "board",
     source: null,
     focus: null,
+    depth: null,
     q: "owner/repo #13",
     repo: null,
     branch: null,
@@ -2234,6 +2236,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", source: "github:github.com", repo: "owner/repo", branch: "main" })), {
     page: "commits",
     focus: null,
+    depth: null,
     q: null,
     source: "github:github.com",
     repo: "owner/repo",
