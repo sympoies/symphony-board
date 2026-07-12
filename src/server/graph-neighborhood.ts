@@ -266,14 +266,17 @@ async function readGraphNeighborhoodSnapshot(
         edgeReadCapped = true;
         break;
       }
-      const rows = await snapshot.listLiveEdgesForSourceRefs(
+      const page = await snapshot.listLiveEdgesForSourceRefs(
         sourceId,
         externalIds,
         remaining,
       );
       throwIfAborted(signal);
-      if (rows.length > GRAPH_NEIGHBORHOOD_MAX_EDGES) edgeReadCapped = true;
-      frontierEdges.push(...rows);
+      frontierEdges.push(...page.rows);
+      if (page.truncated) {
+        edgeReadCapped = true;
+        break;
+      }
     }
 
     const candidateRefs = new Set<string>();

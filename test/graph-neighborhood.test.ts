@@ -19,6 +19,7 @@ import {
 import { GRAPH_FOCUS_MAX_DEPTH } from "../packages/ui/src/model.ts";
 
 const SOURCE = "github:github.com";
+const SECOND_SOURCE = "github:git.example.com";
 const PROJECT = "example/repo";
 const source: SourceRow = {
   source_id: SOURCE,
@@ -117,6 +118,21 @@ function reconciledEdge(from: string, to: string): ReconciledEdge {
     toState: "open",
     lifecycle: null,
     discoveredFrom: "from",
+  };
+}
+
+function reconciledCrossSourceEdge(
+  fromSource: string,
+  from: string,
+  toSource: string,
+  to: string,
+  type: ReconciledEdge["type"] = "mentions",
+): ReconciledEdge {
+  return {
+    ...reconciledEdge(from, to),
+    type,
+    from: { sourceId: fromSource, externalId: from },
+    to: { sourceId: toSource, externalId: to },
   };
 }
 
@@ -298,6 +314,79 @@ test("range API serves older multi-hop canonical relations through the read-only
     assert.deepEqual(body.nodes.map((node) => [node.ref, node.hop]), [[ref("I0"), 0], [ref("I1"), 1], [ref("I2"), 2]]);
     assert.equal(body.edges.length, 2);
     assert.ok(body.nodes.every((node) => node.item === null || !("body" in node.item)), "Graph payload omits unused provider bodies");
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cross-source frontier truncation always reports the global edge limit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "graph-neighborhood-cross-source-cap-"));
+  const dbPath = join(dir, "data", "board.db");
+  const configPath = join(dir, "config", "sources.json");
+  const store = await openSqliteStore(dbPath);
+  try {
+    await store.transaction(async (tx) => {
+      await tx.ensureSource({ sourceId: SOURCE, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-07-12T00:00:00Z");
+      await tx.ensureSource({ sourceId: SECOND_SOURCE, kind: "github", host: "git.example.com", displayName: "Second" }, "2026-07-12T00:00:00Z");
+      await tx.upsertItem(canonicalItem("I0", 1), "test", "2026-07-12T00:00:00Z");
+      await tx.upsertEdge(reconciledCrossSourceEdge(SOURCE, "I0", SOURCE, "A1"), "2026-07-12T00:00:00Z");
+      await tx.upsertEdge(reconciledCrossSourceEdge(SOURCE, "I0", SECOND_SOURCE, "B1"), "2026-07-12T00:00:00Z");
+      await tx.upsertEdge(reconciledCrossSourceEdge(SOURCE, "A1", SECOND_SOURCE, "B1"), "2026-07-12T00:00:00Z");
+      const edgeTypes: ReconciledEdge["type"][] = ["closes", "relates", "mentions", "blocks", "blocked_by", "parent", "child"];
+      for (let index = 0; index < 400; index++) {
+        const endpoint = `A${2 + Math.floor(index / (edgeTypes.length * 2))}`;
+        const reverse = Math.floor(index / edgeTypes.length) % 2 === 1;
+        await tx.upsertEdge(
+          reconciledCrossSourceEdge(SOURCE, reverse ? endpoint : "A1", SOURCE, reverse ? "A1" : endpoint, edgeTypes[index % edgeTypes.length]!),
+          "2026-07-12T00:00:00Z",
+        );
+      }
+      for (let index = 0; index < 150; index++) {
+        const endpoint = `B${2 + Math.floor(index / (edgeTypes.length * 2))}`;
+        const reverse = Math.floor(index / edgeTypes.length) % 2 === 1;
+        await tx.upsertEdge(
+          reconciledCrossSourceEdge(SECOND_SOURCE, reverse ? endpoint : "B1", SECOND_SOURCE, reverse ? "B1" : endpoint, edgeTypes[index % edgeTypes.length]!),
+          "2026-07-12T00:00:00Z",
+        );
+      }
+    });
+  } finally {
+    await store.close();
+  }
+  mkdirSync(join(dir, "config"), { recursive: true });
+  writeFileSync(configPath, JSON.stringify({
+    db_path: dbPath,
+    timezone: "UTC",
+    sources: [
+      {
+        source_id: SOURCE,
+        kind: "github",
+        host: "github.com",
+        display_name: "GitHub",
+        token_env: "GRAPH_NEIGHBORHOOD_TEST_TOKEN_UNSET",
+        graphql_url: "https://api.github.com/graphql",
+        projects: [PROJECT],
+      },
+      {
+        source_id: SECOND_SOURCE,
+        kind: "github",
+        host: "git.example.com",
+        display_name: "Second",
+        token_env: "GRAPH_NEIGHBORHOOD_TEST_TOKEN_UNSET",
+        graphql_url: "https://git.example.com/api/graphql",
+        projects: [PROJECT],
+      },
+    ],
+  }));
+  const server = createRangeApiServer({ configPath, contractOut: join(dir, "data", "contract.json") });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=1`);
+    assert.equal(response.status, 200);
+    const body = await response.json() as { complete: boolean; limit_reasons: string[] };
+    assert.equal(body.complete, false);
+    assert.ok(body.limit_reasons.includes("edges"), "SQL truncation cannot be hidden by cross-source deduplication");
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

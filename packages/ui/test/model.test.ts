@@ -115,6 +115,7 @@ import {
   graphCanvasEmptyReason,
   graphTopologyKey,
   graphForceLayoutTicks,
+  focusNeighborhoodNodes,
   isSyncRunActive,
   syncProducedFreshData,
   liveSourceStatus,
@@ -1755,6 +1756,24 @@ test("buildGraph retains an isolated canonical focus node", () => {
   const graph = buildGraph([], [{ ref: focus.id, hop: 0, item: focus }]);
   assert.deepEqual(graph.nodes.map((node) => node.id), [focus.id]);
   assert.equal(graph.links.length, 0);
+});
+
+test("focusNeighborhoodNodes retains only focus and filtered-edge endpoints", () => {
+  const focus = item({ id: "focus", title: "Focus" });
+  const matching = item({ id: "matching", title: "Matching" });
+  const filteredOut = item({ id: "filtered-out", title: "Filtered out" });
+  const nodes = [focus, matching, filteredOut].map((entry, hop) => ({ ref: entry.id, hop, item: entry }));
+
+  assert.deepEqual(
+    focusNeighborhoodNodes(nodes, focus.id, []).map((node) => node.ref),
+    [focus.id],
+    "an item facet that removes every edge keeps only the focused item",
+  );
+  assert.deepEqual(
+    focusNeighborhoodNodes(nodes, focus.id, [redge(focus.id, matching.id, "mentions")]).map((node) => node.ref),
+    [focus.id, matching.id],
+    "surviving edge endpoints remain visible without reviving unrelated canonical nodes",
+  );
 });
 
 test("graphForceLayoutTicks caps synchronous work for a safety-cap graph", () => {

@@ -1836,6 +1836,19 @@ export interface GraphNeighborhoodResponse {
   edges: EdgeDTO[];
 }
 
+export function focusNeighborhoodNodes(
+  nodes: readonly GraphNeighborhoodNode[],
+  focusRef: string,
+  filteredEdges: readonly ResolvedEdge[],
+): GraphNeighborhoodNode[] {
+  const retained = new Set<string>([focusRef]);
+  for (const { edge } of filteredEdges) {
+    retained.add(edge.from);
+    retained.add(edge.to);
+  }
+  return nodes.filter((node) => retained.has(node.ref));
+}
+
 export function resolveEdgeList(edges: readonly EdgeDTO[], byId: ReadonlyMap<string, ItemDTO>): ResolvedEdge[] {
   return edges.map((edge) => ({
     edge,

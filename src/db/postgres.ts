@@ -47,6 +47,7 @@ import {
 } from "./repo-activity-bounds.ts";
 import type {
   ActivityRow,
+  BoundedEdgeRows,
   RepoActivityBoundsRow,
   CiRefreshCandidateRow,
   EdgeRow,
@@ -537,31 +538,35 @@ export class PgStore implements Store {
     return rows as unknown as LabelRow[];
   }
 
-  async listLiveEdgesForSourceRefs(sourceId: string, externalIds: string[], limit: number): Promise<EdgeRow[]> {
+  async listLiveEdgesForSourceRefs(sourceId: string, externalIds: string[], limit: number): Promise<BoundedEdgeRows> {
     const refs = [...new Set(externalIds.filter(Boolean))].sort();
     const safeLimit = Math.max(0, Math.trunc(Number.isFinite(limit) ? limit : 0));
-    if (refs.length === 0 || safeLimit === 0) return [];
+    if (refs.length === 0 || safeLimit === 0) return { rows: [], truncated: false };
+    const sentinelLimit = safeLimit + 1;
     const from = await this.#q`
       SELECT type, from_source_id, from_external_id, to_source_id, to_external_id,
              from_state, to_state, lifecycle
       FROM edge
       WHERE deleted_at IS NULL AND from_source_id = ${sourceId} AND from_external_id IN ${this.#q(refs)}
       ORDER BY from_external_id, to_source_id, to_external_id, type
-      LIMIT ${safeLimit}`;
+      LIMIT ${sentinelLimit}`;
     const to = await this.#q`
       SELECT type, from_source_id, from_external_id, to_source_id, to_external_id,
              from_state, to_state, lifecycle
       FROM edge
       WHERE deleted_at IS NULL AND to_source_id = ${sourceId} AND to_external_id IN ${this.#q(refs)}
       ORDER BY to_external_id, from_source_id, from_external_id, type
-      LIMIT ${safeLimit}`;
+      LIMIT ${sentinelLimit}`;
     const byKey = new Map<string, EdgeRow>();
     for (const edge of [...from, ...to] as unknown as EdgeRow[]) {
       byKey.set(JSON.stringify([edge.type, edge.from_source_id, edge.from_external_id, edge.to_source_id, edge.to_external_id]), edge);
     }
-    return [...byKey.values()]
-      .sort((a, b) => a.from_source_id.localeCompare(b.from_source_id) || a.from_external_id.localeCompare(b.from_external_id) || a.to_source_id.localeCompare(b.to_source_id) || a.to_external_id.localeCompare(b.to_external_id) || a.type.localeCompare(b.type))
-      .slice(0, safeLimit);
+    const sorted = [...byKey.values()]
+      .sort((a, b) => a.from_source_id.localeCompare(b.from_source_id) || a.from_external_id.localeCompare(b.from_external_id) || a.to_source_id.localeCompare(b.to_source_id) || a.to_external_id.localeCompare(b.to_external_id) || a.type.localeCompare(b.type));
+    return {
+      rows: sorted.slice(0, safeLimit),
+      truncated: from.length > safeLimit || to.length > safeLimit || sorted.length > safeLimit,
+    };
   }
 
   async listCiRefreshCandidates(sourceId: string, cutoffIso: string, limit: number): Promise<CiRefreshCandidateRow[]> {

@@ -66,6 +66,11 @@ export interface EdgeRow {
   lifecycle: string | null;
 }
 
+export interface BoundedEdgeRows {
+  rows: EdgeRow[];
+  truncated: boolean;
+}
+
 export interface SourceRow {
   source_id: string;
   kind: string;
@@ -263,7 +268,7 @@ export interface Store {
   // enforce the supplied edge limit in SQL.
   listLiveItemsBySourceRefs(sourceId: string, externalIds: string[]): Promise<ItemRow[]>;
   listLabelsByItemIds(itemIds: number[]): Promise<LabelRow[]>;
-  listLiveEdgesForSourceRefs(sourceId: string, externalIds: string[], limit: number): Promise<EdgeRow[]>;
+  listLiveEdgesForSourceRefs(sourceId: string, externalIds: string[], limit: number): Promise<BoundedEdgeRows>;
   // Run related reads against one database snapshot. SQLite holds one deferred
   // read transaction; Postgres uses REPEATABLE READ READ ONLY.
   readSnapshot<T>(fn: (snapshot: Store) => Promise<T>): Promise<T>;

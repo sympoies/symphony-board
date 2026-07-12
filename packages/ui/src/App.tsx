@@ -26,6 +26,7 @@ import {
   filterItemsByRange,
   indexItems,
   itemMatches,
+  focusNeighborhoodNodes,
   reviewActivityIsUnresolved,
   repoMetricMatches,
   sortRepoMetrics,
@@ -1250,7 +1251,7 @@ export function App() {
     graphNeighborhood?.focus_ref === route.focus && graphNeighborhood.requested_depth === graphFocusDepthValue
       ? graphNeighborhood
       : null;
-  const graphNeighborhoodNodes = useMemo(() => {
+  const visibleGraphNeighborhoodNodes = useMemo(() => {
     if (!activeGraphNeighborhood) return [];
     return activeGraphNeighborhood.nodes.filter((node) => {
       if (node.ref === activeGraphNeighborhood.focus_ref || node.item === null) return true;
@@ -1260,7 +1261,7 @@ export function App() {
   const graphNeighborhoodEdges = useMemo(() => {
     if (!activeGraphNeighborhood) return [];
     const trackedIds = new Set(activeGraphNeighborhood.nodes.filter((node) => node.item !== null).map((node) => node.ref));
-    const visibleItems = graphNeighborhoodNodes
+    const visibleItems = visibleGraphNeighborhoodNodes
       .map((node) => node.item)
       .filter((item): item is NonNullable<typeof item> => item !== null);
     const visibleIds = new Set(visibleItems.map((item) => item.id));
@@ -1270,7 +1271,13 @@ export function App() {
       if (trackedIds.has(re.edge.to) && !visibleIds.has(re.edge.to)) return false;
       return edgeMatches(re, itemFilters);
     });
-  }, [activeGraphNeighborhood, graphNeighborhoodNodes, itemFilters]);
+  }, [activeGraphNeighborhood, visibleGraphNeighborhoodNodes, itemFilters]);
+  const graphFocusNodes = useMemo(
+    () => activeGraphNeighborhood
+      ? focusNeighborhoodNodes(visibleGraphNeighborhoodNodes, activeGraphNeighborhood.focus_ref, graphNeighborhoodEdges)
+      : [],
+    [activeGraphNeighborhood, graphNeighborhoodEdges, visibleGraphNeighborhoodNodes],
+  );
 
   // A ready server projection owns focused rendering; loading/error/static cases
   // intentionally preserve the pre-feature one-hop derivation over loaded edges.
@@ -2295,7 +2302,7 @@ export function App() {
           <GraphPage
             edges={filteredEdges}
             focusEdges={graphFocusEdges}
-            focusNodes={graphFocusExpanded ? graphNeighborhoodNodes : []}
+            focusNodes={graphFocusExpanded ? graphFocusNodes : []}
             sourceKind={sourceKind}
             colorOf={colorOf}
             focusRef={route.focus}

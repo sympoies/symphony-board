@@ -289,12 +289,13 @@ for (const driver of DRIVERS) {
       ["neighbour"],
     );
     const incident = await store.listLiveEdgesForSourceRefs(SOURCE, ["ISSUE_1"], 1);
-    assert.equal(incident.length, 1, "the SQL query enforces the requested edge ceiling");
+    assert.equal(incident.rows.length, 1, "the SQL query enforces the requested edge ceiling");
+    assert.equal(incident.truncated, true, "the bounded read reports that more rows were available");
     assert.ok(
-      incident[0]!.from_external_id === "ISSUE_1" || incident[0]!.to_external_id === "ISSUE_1",
+      incident.rows[0]!.from_external_id === "ISSUE_1" || incident.rows[0]!.to_external_id === "ISSUE_1",
       "both edge directions are queryable",
     );
-    assert.deepEqual(await store.listLiveEdgesForSourceRefs(SOURCE, ["ISSUE_1"], 0), []);
+    assert.deepEqual(await store.listLiveEdgesForSourceRefs(SOURCE, ["ISSUE_1"], 0), { rows: [], truncated: false });
     assert.deepEqual(
       await store.readSnapshot(async (snapshot) =>
         (await snapshot.listLiveItemsBySourceRefs(SOURCE, ["ISSUE_1", "ISSUE_2"])).map((row) => row.external_id),
