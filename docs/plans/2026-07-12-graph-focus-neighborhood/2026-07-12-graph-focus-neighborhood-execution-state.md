@@ -3,13 +3,13 @@
 <!-- plan-issue-record:v2 role=state profile=tracking -->
 ## Execution State
 
-- Status: independent specialist review passed — merge pending.
+- Status: complete; tracking issue closed
 - Target scope: bounded canonical-history multi-hop Graph focus API and UI.
 - Execution window: Sprint 1 -> Sprint 2, serial, one feature PR.
-- Current task: wait for the final provider checks, approve, and merge PR #566.
-- Next task: merge, close the tracker, archive the plan, and rebuild the macOS app.
+- Current task: complete.
+- Next task: none; local macOS app acceptance follows outside the closed tracker.
 - Last updated: 2026-07-12
-- Branch/commit/PR: `feat/graph-focus-neighborhood`; initial implementation `aedc85f`; PR <https://github.com/sympoies/symphony-board/pull/566>.
+- Branch/commit/PR: sympoies/symphony-board#566 merged (<https://github.com/sympoies/symphony-board/pull/566>).
 - Source document: docs/plans/2026-07-12-graph-focus-neighborhood/2026-07-12-graph-focus-neighborhood-plan.md
 - Direct source-doc execution waiver: not applicable
 - Tracking issue: <https://github.com/sympoies/symphony-board/issues/565>
