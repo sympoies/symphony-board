@@ -1819,7 +1819,7 @@ try {
   const focusStats = await statsTextOf();
   const graphNeighborhoodControl = async (query = "") => {
     return (await send("Runtime.evaluate", {
-      expression: `fetch('/__smoke/graph-neighborhood-control${query ? `?${query}` : ""}').then((response) => response.json())`,
+      expression: `fetch('/__smoke/graph-neighborhood-control${query ? `?${query}` : ""}').then(async (response) => ({ status: response.status, body: await response.json() }))`,
       awaitPromise: true,
       returnByValue: true,
     })).result.value || {};
@@ -1830,18 +1830,14 @@ try {
     });
   };
 
-  const graphDelayRejection = (await send("Runtime.evaluate", {
-    expression: "fetch('/__smoke/graph-neighborhood-control?delayMs=60001').then(async (response) => ({ status: response.status, body: await response.json() }))",
-    awaitPromise: true,
-    returnByValue: true,
-  })).result.value || {};
+  const graphDelayRejection = await graphNeighborhoodControl("delayMs=60001");
   await graphNeighborhoodControl();
 
   await clickGraphDepth(3);
   const graphDepthRefetchHtml = await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('2/3 hops') && document.body.innerText.includes('Second-hop smoke relation depth 3')");
   const graphDepthRefetchRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
 
-  await graphNeighborhoodControl("delayDepth=2&delayMs=700");
+  const graphStaleDelayControl = await graphNeighborhoodControl("delayDepth=2&delayMs=700");
   await clickGraphDepth(2);
   await sleep(50);
   await clickGraphDepth(4);
@@ -4604,7 +4600,7 @@ try {
     [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
     [has(focusHtml, "2/5 hops") && has(focusHtml, "complete"), "graph: focus reports reached/requested hops and completeness"],
     [/[?&]depth=3(?:&|$)/.test(graphDepthRefetchRoute) && has(graphDepthRefetchHtml, "Second-hop smoke relation depth 3"), `graph: changing depth refetches canonical history and persists the route (${graphDepthRefetchRoute})`],
-    [/[?&]depth=4(?:&|$)/.test(graphStaleRace.hash || "") && /2\/4 hops/.test(graphStaleRace.status || "") && graphStaleRace.hasDepth4 === true && graphStaleRace.hasDepth2 === false, `graph: a delayed stale depth response cannot replace the latest topology (${JSON.stringify(graphStaleRace)})`],
+    [graphStaleDelayControl.status === 200 && graphStaleDelayControl.body?.graphNeighborhoodDelayDepth === 2 && graphStaleDelayControl.body?.graphNeighborhoodDelayMs === 700 && /[?&]depth=4(?:&|$)/.test(graphStaleRace.hash || "") && /2\/4 hops/.test(graphStaleRace.status || "") && graphStaleRace.hasDepth4 === true && graphStaleRace.hasDepth2 === false, `graph: a confirmed delayed stale depth response cannot replace the latest topology (${JSON.stringify({ graphStaleDelayControl, graphStaleRace })})`],
     [graphLimitResults.length === 3 && graphLimitResults.every((result) => result.shown === true), `graph: all safety truncation reasons are explicit (${JSON.stringify(graphLimitResults)})`],
     [graphNetworkFallback.labelled === true && graphNetworkFallback.hasFocusedList === true && graphNetworkFallback.hasDirectRelation === true, `graph: operational API failure preserves the focused one-hop fallback (${JSON.stringify(graphNetworkFallback)})`],
     [focusMembershipChain.found === true && focusMembershipChain.iid !== graphFocusSearch && focusMembershipState.activeIid === focusMembershipChain.iid && focusMembershipState.activeOffWindow === false && focusMembershipState.hasOffWindowNote === false, `graph: chained focus membership ignores search without false off-window metadata (${JSON.stringify({ focusMembershipChain, focusMembershipState })})`],
