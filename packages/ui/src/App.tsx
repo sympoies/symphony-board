@@ -368,7 +368,20 @@ export function App() {
     () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds, reviews: itemFacetState.reviews, repos: itemFacetState.repos }),
     [filters.search, itemFacetState],
   );
-  const focusedItemFilters = useMemo(() => graphFocusFilters(itemFilters), [itemFilters]);
+  // Focus keeps the route-backed facets but suspends search. Build this from
+  // itemFacetState directly so typing in the global search does not invalidate
+  // the searchless edge projection on every keystroke.
+  const focusedItemFilters = useMemo(
+    () => graphFocusFilters({
+      search: "",
+      sources: itemFacetState.sources,
+      states: itemFacetState.states,
+      kinds: itemFacetState.kinds,
+      reviews: itemFacetState.reviews,
+      repos: itemFacetState.repos,
+    }),
+    [itemFacetState],
+  );
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
@@ -1252,11 +1265,14 @@ export function App() {
     [resolvedVisibleEdges, itemFilters],
   );
 
-  const focusedFallbackEdges = useMemo(() => {
-    if (page !== "graph") return filteredEdges;
-    if (itemFilters.search.trim() === "") return filteredEdges;
-    return resolvedVisibleEdges.filter((re) => edgeMatches(re, focusedItemFilters));
-  }, [page, itemFilters.search, filteredEdges, resolvedVisibleEdges, focusedItemFilters]);
+  const hasItemSearch = itemFilters.search.trim() !== "";
+  const searchlessGraphEdges = useMemo(
+    () => page === "graph" && hasItemSearch
+      ? resolvedVisibleEdges.filter((re) => edgeMatches(re, focusedItemFilters))
+      : null,
+    [page, hasItemSearch, resolvedVisibleEdges, focusedItemFilters],
+  );
+  const focusedFallbackEdges = searchlessGraphEdges ?? filteredEdges;
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
