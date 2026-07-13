@@ -20,6 +20,7 @@ export interface ControlGroup {
 
 interface Props {
   search: string;
+  searchSuspended?: boolean;
   groups: ControlGroup[];
   mobilePanel?: "search" | "filters" | "range" | null;
   onSearch: (q: string) => void;
@@ -63,7 +64,7 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
   );
 }
 
-export function Controls({ search, groups, mobilePanel = null, onSearch, onToggle, onClearFilters, onLoadFile, onMobilePanel }: Props) {
+export function Controls({ search, searchSuspended = false, groups, mobilePanel = null, onSearch, onToggle, onClearFilters, onLoadFile, onMobilePanel }: Props) {
   const mobileSearchRef = useRef<HTMLInputElement | null>(null);
   const filtersOpen = mobilePanel === "filters";
   const searchOpen = mobilePanel === "search";
@@ -73,7 +74,7 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
   // the view, else the active facet count. Mirrors the range / commits filter
   // disclosures so every page's filter chrome reads the same on a phone.
   const filtersSummary = activeFilterCount === 0 ? "all" : `${activeFilterCount} active`;
-  const searchSummary = search.trim() === "" ? "search" : "search active";
+  const searchSummary = searchSuspended ? "not applied in focus" : search.trim() === "" ? "search" : "search active";
   useEffect(() => {
     if (searchOpen) mobileSearchRef.current?.focus();
   }, [searchOpen]);
@@ -99,6 +100,7 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
         aria-expanded={searchOpen}
         aria-controls="mobile-search-panel"
         aria-label={`${searchOpen ? "Hide" : "Show"} search`}
+        disabled={searchSuspended}
         onClick={() => setMobilePanel(searchOpen ? null : "search")}
       >
         <span className="filter-summary-disclosure-summary">{searchSummary}</span>
@@ -109,8 +111,13 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
         type="search"
         placeholder="Search title / author / repo / label / #number…"
         value={search}
+        disabled={searchSuspended}
+        aria-describedby={searchSuspended ? "search-suspended-note" : undefined}
         onChange={(e) => onSearch(e.target.value)}
       />
+      {searchSuspended ? (
+        <span id="search-suspended-note" className="muted search-suspended-note">not applied in focus</span>
+      ) : null}
       <button
         type="button"
         className="filter-summary-disclosure filter-disclosure"
@@ -172,6 +179,7 @@ export function Controls({ search, groups, mobilePanel = null, onSearch, onToggl
                 type="search"
                 placeholder="Search title / author / repo / label / #number…"
                 value={search}
+                disabled={searchSuspended}
                 onChange={(e) => onSearch(e.target.value)}
               />
             ) : (

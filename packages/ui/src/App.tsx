@@ -7,6 +7,7 @@ import { useOnlineStatus } from "./online-status.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
   emptyFilters,
+  graphFocusFilters,
   activityRouteMatches,
   activityMatches,
   filterCommits,
@@ -366,6 +367,20 @@ export function App() {
   const itemFilters = useMemo<Filters>(
     () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds, reviews: itemFacetState.reviews, repos: itemFacetState.repos }),
     [filters.search, itemFacetState],
+  );
+  // Focus keeps the route-backed facets but suspends search. Build this from
+  // itemFacetState directly so typing in the global search does not invalidate
+  // the searchless edge projection on every keystroke.
+  const focusedItemFilters = useMemo(
+    () => graphFocusFilters({
+      search: "",
+      sources: itemFacetState.sources,
+      states: itemFacetState.states,
+      kinds: itemFacetState.kinds,
+      reviews: itemFacetState.reviews,
+      repos: itemFacetState.repos,
+    }),
+    [itemFacetState],
   );
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
@@ -1240,10 +1255,24 @@ export function App() {
     [env, fullActivityDaily],
   );
 
-  const filteredEdges = useMemo(() => {
-    if (!visibleEnv) return [];
-    return resolveEdges(visibleEnv, itemsById).filter((re) => edgeMatches(re, itemFilters));
-  }, [visibleEnv, itemsById, itemFilters]);
+  const resolvedVisibleEdges = useMemo(
+    () => visibleEnv ? resolveEdges(visibleEnv, itemsById) : [],
+    [visibleEnv, itemsById],
+  );
+
+  const filteredEdges = useMemo(
+    () => resolvedVisibleEdges.filter((re) => edgeMatches(re, itemFilters)),
+    [resolvedVisibleEdges, itemFilters],
+  );
+
+  const hasItemSearch = itemFilters.search.trim() !== "";
+  const searchlessGraphEdges = useMemo(
+    () => page === "graph" && hasItemSearch
+      ? resolvedVisibleEdges.filter((re) => edgeMatches(re, focusedItemFilters))
+      : null,
+    [page, hasItemSearch, resolvedVisibleEdges, focusedItemFilters],
+  );
+  const focusedFallbackEdges = searchlessGraphEdges ?? filteredEdges;
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
@@ -1269,9 +1298,9 @@ export function App() {
     return resolveEdgeList(activeGraphNeighborhood.edges, byId).filter((re) => {
       if (trackedIds.has(re.edge.from) && !visibleIds.has(re.edge.from)) return false;
       if (trackedIds.has(re.edge.to) && !visibleIds.has(re.edge.to)) return false;
-      return edgeMatches(re, itemFilters);
+      return edgeMatches(re, focusedItemFilters);
     });
-  }, [activeGraphNeighborhood, visibleGraphNeighborhoodNodes, itemFilters]);
+  }, [activeGraphNeighborhood, visibleGraphNeighborhoodNodes, focusedItemFilters]);
   const graphFocusNodes = useMemo(
     () => activeGraphNeighborhood
       ? focusNeighborhoodNodes(visibleGraphNeighborhoodNodes, activeGraphNeighborhood.focus_ref, graphNeighborhoodEdges)
@@ -1283,7 +1312,7 @@ export function App() {
   // intentionally preserve the pre-feature one-hop derivation over loaded edges.
   const graphFocusExpanded = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood !== null;
   const graphFocusLoadStatus = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood === null ? "loading" : graphNeighborhoodStatus;
-  const graphFocusEdges = graphFocusExpanded ? graphNeighborhoodEdges : filteredEdges;
+  const graphFocusEdges = graphFocusExpanded ? graphNeighborhoodEdges : focusedFallbackEdges;
   const canUseContractAggregates =
     hidden.size === 0 &&
     hiddenSources.size === 0 &&
@@ -2126,6 +2155,7 @@ export function App() {
           {page !== "commits" && (
             <Controls
               search={filters.search}
+              searchSuspended={page === "graph" && route.focus != null}
               groups={controlGroups}
               mobilePanel={mobileControlPanel}
               onSearch={setRouteSearch}
@@ -2301,6 +2331,7 @@ export function App() {
               cannot exist) and layout/mention toggles survive focus hops. */}
           <GraphPage
             edges={filteredEdges}
+            focusOverviewEdges={focusedFallbackEdges}
             focusEdges={graphFocusEdges}
             focusNodes={graphFocusExpanded ? graphFocusNodes : []}
             sourceKind={sourceKind}
