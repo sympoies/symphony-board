@@ -1242,15 +1242,21 @@ export function App() {
     [env, fullActivityDaily],
   );
 
-  const filteredEdges = useMemo(() => {
-    if (!visibleEnv) return [];
-    return resolveEdges(visibleEnv, itemsById).filter((re) => edgeMatches(re, itemFilters));
-  }, [visibleEnv, itemsById, itemFilters]);
+  const resolvedVisibleEdges = useMemo(
+    () => visibleEnv ? resolveEdges(visibleEnv, itemsById) : [],
+    [visibleEnv, itemsById],
+  );
+
+  const filteredEdges = useMemo(
+    () => resolvedVisibleEdges.filter((re) => edgeMatches(re, itemFilters)),
+    [resolvedVisibleEdges, itemFilters],
+  );
 
   const focusedFallbackEdges = useMemo(() => {
-    if (!visibleEnv) return [];
-    return resolveEdges(visibleEnv, itemsById).filter((re) => edgeMatches(re, focusedItemFilters));
-  }, [visibleEnv, itemsById, focusedItemFilters]);
+    if (page !== "graph") return filteredEdges;
+    if (itemFilters.search.trim() === "") return filteredEdges;
+    return resolvedVisibleEdges.filter((re) => edgeMatches(re, focusedItemFilters));
+  }, [page, itemFilters.search, filteredEdges, resolvedVisibleEdges, focusedItemFilters]);
 
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
@@ -2309,6 +2315,7 @@ export function App() {
               cannot exist) and layout/mention toggles survive focus hops. */}
           <GraphPage
             edges={filteredEdges}
+            focusOverviewEdges={focusedFallbackEdges}
             focusEdges={graphFocusEdges}
             focusNodes={graphFocusExpanded ? graphFocusNodes : []}
             sourceKind={sourceKind}

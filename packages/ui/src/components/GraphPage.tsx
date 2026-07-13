@@ -669,6 +669,7 @@ function GraphCanvasEmptyState({
 
 export function GraphPage({
   edges,
+  focusOverviewEdges,
   focusEdges,
   focusNodes,
   sourceKind,
@@ -692,6 +693,10 @@ export function GraphPage({
   onMobileView,
 }: {
   edges: ResolvedEdge[];
+  // Range-loaded membership for focus badges/ranking. Unlike `edges`, this
+  // preserves explicit facets but suspends global search, so chaining focus to
+  // a non-matching related item cannot falsely label it off-window.
+  focusOverviewEdges: ResolvedEdge[];
   // The FOCUS-path edge set: same visibility + facet filters as `edges`, expanded
   // without the overview's client-side time/mention filters. Under
   // range-as-download this is still bounded by the loaded primary env.
@@ -754,6 +759,10 @@ export function GraphPage({
     () => graphOverviewVisibility(edges, range, timezone, { showMentions, mentionTarget }),
     [edges, range, timezone, showMentions, mentionTarget],
   );
+  const focusOverview = useMemo(
+    () => graphOverviewVisibility(focusOverviewEdges, range, timezone, { showMentions, mentionTarget }),
+    [focusOverviewEdges, range, timezone, showMentions, mentionTarget],
+  );
   const listGraph = useMemo(() => buildGraph(overview.candidateEdges), [overview]);
   const graph = useMemo(() => buildGraph(overview.drawnEdges), [overview]);
 
@@ -770,8 +779,12 @@ export function GraphPage({
     return m;
   }, [focusEdges, focusNodes]);
   const adjacency = useMemo(() => buildAdjacency(focusEdges), [focusEdges]);
-  const candidateIds = overview.candidateIds;
-  const drawnIds = overview.drawnIds;
+  const candidateIds = focusId ? focusOverview.candidateIds : overview.candidateIds;
+  const drawnIds = focusId ? focusOverview.drawnIds : overview.drawnIds;
+  // Focus entry itself changes the side-list membership from the searched
+  // overview to the search-suspended overview. That transition must not look
+  // like a range/facet change and immediately clear the newly selected focus.
+  const focusResetCandidateIds = focusOverview.candidateIds;
 
   // Drop focus when the overview candidate MEMBERSHIP changes (the "active since"
   // range changed). Mention filters can remove a card from the canvas while it
@@ -781,14 +794,15 @@ export function GraphPage({
   // focus view on every sync tick. Content comparison is also idempotent under
   // React 18 StrictMode's double-invoked effects and never wipes the deep-link
   // seed on mount.
-  const prevCandidates = useRef(candidateIds);
+  const prevCandidates = useRef(focusResetCandidateIds);
   useEffect(() => {
-    if (prevCandidates.current === candidateIds) return;
+    if (prevCandidates.current === focusResetCandidateIds) return;
     const prev = prevCandidates.current;
-    prevCandidates.current = candidateIds;
-    const sameMembers = prev.size === candidateIds.size && [...candidateIds].every((id) => prev.has(id));
+    prevCandidates.current = focusResetCandidateIds;
+    const sameMembers = prev.size === focusResetCandidateIds.size
+      && [...focusResetCandidateIds].every((id) => prev.has(id));
     if (!sameMembers) onFocusChange(null);
-  }, [candidateIds, onFocusChange]);
+  }, [focusResetCandidateIds, onFocusChange]);
 
   // A ready canonical-history response already contains the selected multi-hop
   // induced graph, so render all focusEdges. Loading/fallback/static paths retain

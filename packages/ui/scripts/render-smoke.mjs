@@ -1737,11 +1737,11 @@ try {
   await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
   // Graph side list: capture the (enriched) list cards, then click one to enter
   // the focus view and confirm the back button + related-items header render.
-  await waitHtml("document.querySelector('.graph-list-card')");
+  await waitHtml("document.querySelector('.graph-list-card .card-iid')");
   await captureTitleLinkHitTarget("graph list card", ".graph-page .graph-list-card .card-title[href]", ".graph-list-card .card");
   const graphCardChrome = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const card = document.querySelector('.graph-page .graph-list-card .card');
+      const card = document.querySelector('.graph-page .graph-list-card:has(.card-iid) .card');
       const icon = card?.querySelector('.card-kind-icon');
       const badge = card?.querySelector('.badge');
       const title = card?.querySelector('.card-title');
@@ -1761,11 +1761,32 @@ try {
   })).result.value || {};
   const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
   const graphFocusSearch = ((await send("Runtime.evaluate", {
-    expression: "document.querySelector('.graph-list-card .card-iid')?.textContent?.replace(/^#/, '') || ''",
+    expression: "[...document.querySelectorAll('.graph-list-card .card-iid')].map((iid) => (iid.textContent || '').trim().replace(/^#/, '').trim()).find((iid) => /^\\d+$/.test(iid)) || ''",
     returnByValue: true,
   })).result.value || "").trim();
   await setControlledInput("#global-search", graphFocusSearch);
-  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
+  await waitHtml(`(() => {
+    const query = ${JSON.stringify(graphFocusSearch)};
+    return [...document.querySelectorAll('.graph-list-card')].some((card) => (card.querySelector('.card-iid')?.textContent || '').trim().replace(/^#/, '').trim() === query);
+  })()`);
+  // Let GraphPage's candidate-membership effect settle after the search narrows
+  // the overview before clicking the surviving card into focus.
+  await sleep(150);
+  let focusClickState = {};
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    focusClickState = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const query = ${JSON.stringify(graphFocusSearch)};
+        const card = [...document.querySelectorAll('.graph-list-card')].find((candidate) => (candidate.querySelector('.card-iid')?.textContent || '').trim().replace(/^#/, '').trim() === query);
+        card?.click();
+        return { found: !!card, attempt: ${attempt} };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    await sleep(200);
+    focusClickState.hash = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+    if (/[?&]focus=/.test(focusClickState.hash)) break;
+  }
   const focusHtml = await waitHtml("document.querySelector('.graph-focus-load-ready') && document.body.innerText.includes('Second-hop smoke relation')");
   const focusRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
   const focusSearchState = (await send("Runtime.evaluate", {
@@ -1779,6 +1800,7 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  const focusRouteQuery = new URLSearchParams(focusRoute.split("?")[1] || "").get("q");
   const focusDepthButtons = (await send("Runtime.evaluate", {
     expression: "[...document.querySelectorAll('.graph-depth-controls button')].map((button) => ({ text: button.textContent?.trim(), active: button.classList.contains('toggle-on') }))",
     returnByValue: true,
@@ -1841,18 +1863,71 @@ try {
   await graphNeighborhoodControl();
   await clickGraphDepth(5);
   await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('2/5 hops')");
+  const focusMembershipChain = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const query = ${JSON.stringify(graphFocusSearch)};
+      const card = [...document.querySelectorAll('.graph-list-card:not(.active)')].find((candidate) => {
+        const iid = (candidate.querySelector('.card-iid')?.textContent || '').replace(/^#/, '').trim();
+        return iid && iid !== query && !candidate.querySelector('.glc-offwindow');
+      });
+      const iid = (card?.querySelector('.card-iid')?.textContent || '').replace(/^#/, '').trim();
+      card?.click();
+      return { found: !!card, iid };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await waitHtml("document.querySelector('.graph-focus-load-ready')");
+  const focusMembershipState = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      activeIid: (document.querySelector('.graph-list-card.active .card-iid')?.textContent || '').replace(/^#/, '').trim(),
+      activeOffWindow: !!document.querySelector('.graph-list-card.active .glc-offwindow'),
+      hasOffWindowNote: [...document.querySelectorAll('.glc-note')].some((note) => note.textContent?.includes('outside the current')),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // Re-click the focused (active) card to toggle focus OFF — it returns to the
   // searchable list, the same exit as "← all items". Then re-enter focus so the
   // back-button assertion below still exercises that path.
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card.active')?.click()" });
   await sleep(300);
   const toggleOffHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  const toggleOffSearchState = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('#global-search');
+      const cards = [...document.querySelectorAll('.graph-list-card')];
+      const query = ${JSON.stringify(graphFocusSearch)};
+      return {
+        hash: location.hash,
+        query: input?.value || '',
+        disabled: input?.disabled === true,
+        cards: cards.length,
+        narrowed: cards.length > 0 && cards.every((card) => (card.querySelector('.card-iid')?.textContent || '').replace(/^#/, '').trim() === query),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   await waitHtml("document.querySelector('.graph-focus-load-ready')");
   // Click "← all items" and confirm the searchable list returns.
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
   await sleep(300);
   const backHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  const backSearchState = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('#global-search');
+      const cards = [...document.querySelectorAll('.graph-list-card')];
+      const query = ${JSON.stringify(graphFocusSearch)};
+      return {
+        hash: location.hash,
+        query: input?.value || '',
+        disabled: input?.disabled === true,
+        cards: cards.length,
+        narrowed: cards.length > 0 && cards.every((card) => (card.querySelector('.card-iid')?.textContent || '').replace(/^#/, '').trim() === query),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // Page 3 — the Activity feed: developer-significant events from item state
   // transitions plus provider REST activity surfaces.
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
@@ -4508,7 +4583,7 @@ try {
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [graphNeighborhoodRequestCount >= 2, `graph: focus loads canonical neighbourhood history (${graphNeighborhoodRequestCount} requests)`],
     [has(focusHtml, "Second-hop smoke relation"), "graph: focus draws an older second-hop relation returned by the operational API"],
-    [focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true, `graph: focus preserves but suspends the locating search (${JSON.stringify(focusSearchState)})`],
+    [/^\d+$/.test(graphFocusSearch) && focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true && focusRouteQuery === graphFocusSearch, `graph: focus preserves but suspends a non-empty locating search (${JSON.stringify({ graphFocusSearch, focusRouteQuery, focusSearchState })})`],
     [Number.isFinite(graphDelayClamp.graphNeighborhoodDelayMs) && graphDelayClamp.graphNeighborhoodDelayMs <= 1000, `graph: smoke delay control clamps untrusted timer duration (${JSON.stringify(graphDelayClamp)})`],
     [/[?&]depth=5(?:&|$)/.test(focusRoute), `graph: focused route persists the default five-hop bound (${focusRoute})`],
     [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
@@ -4517,11 +4592,12 @@ try {
     [/[?&]depth=4(?:&|$)/.test(graphStaleRace.hash || "") && /2\/4 hops/.test(graphStaleRace.status || "") && graphStaleRace.hasDepth4 === true && graphStaleRace.hasDepth2 === false, `graph: a delayed stale depth response cannot replace the latest topology (${JSON.stringify(graphStaleRace)})`],
     [graphLimitResults.length === 3 && graphLimitResults.every((result) => result.shown === true), `graph: all safety truncation reasons are explicit (${JSON.stringify(graphLimitResults)})`],
     [graphNetworkFallback.labelled === true && graphNetworkFallback.hasFocusedList === true && graphNetworkFallback.hasDirectRelation === true, `graph: operational API failure preserves the focused one-hop fallback (${JSON.stringify(graphNetworkFallback)})`],
+    [focusMembershipChain.found === true && focusMembershipChain.iid !== graphFocusSearch && focusMembershipState.activeIid === focusMembershipChain.iid && focusMembershipState.activeOffWindow === false && focusMembershipState.hasOffWindowNote === false, `graph: chained focus membership ignores search without false off-window metadata (${JSON.stringify({ focusMembershipChain, focusMembershipState })})`],
     [hasStatText(focusStats, "scope focus"), "graph: focus stats are labelled separately from overview"],
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
-    [has(toggleOffHtml, "graph-list-search") && !has(toggleOffHtml, "graph-list-back"), "graph: re-clicking the focused card toggles focus off (back to the searchable list)"],
-    [has(backHtml, "graph-list-search"), "graph: back returns to the searchable list"],
+    [has(toggleOffHtml, "graph-list-search") && !has(toggleOffHtml, "graph-list-back") && toggleOffSearchState.query === graphFocusSearch && toggleOffSearchState.disabled === false && toggleOffSearchState.narrowed === true && new URLSearchParams(toggleOffSearchState.hash.split("?")[1] || "").get("q") === graphFocusSearch, `graph: re-clicking focus resumes the locating search (${JSON.stringify(toggleOffSearchState)})`],
+    [has(backHtml, "graph-list-search") && backSearchState.query === graphFocusSearch && backSearchState.disabled === false && backSearchState.narrowed === true && new URLSearchParams(backSearchState.hash.split("?")[1] || "").get("q") === graphFocusSearch, `graph: back resumes the locating search (${JSON.stringify(backSearchState)})`],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
     // ...and the chain-link relation count, but NOT the focus-in-graph head link

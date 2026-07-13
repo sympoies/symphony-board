@@ -974,7 +974,7 @@ test("graphFocusFilters suspends search while preserving explicit facets", () =>
 
   const focused = graphFocusFilters(filters);
   assert.equal(focused.search, "");
-  assert.equal(focused.sources, sourceFilter, "focus keeps the viewer's source facet");
+  assert.deepEqual([...focused.sources], ["github"], "focus keeps the viewer's source facet");
   assert.deepEqual([...focused.states], ["open"], "focus keeps other explicit facets");
   assert.equal(filters.search, "#1141", "route-backed search remains unchanged for focus exit");
 });
