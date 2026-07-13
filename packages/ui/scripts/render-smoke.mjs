@@ -123,7 +123,6 @@ const graphNeighborhoodRequestUrls = [];
 let graphNeighborhoodFailOnce = false;
 let graphNeighborhoodDelayDepth = null;
 let graphNeighborhoodDelayMs = 0;
-const GRAPH_NEIGHBORHOOD_DELAY_MAX_MS = 1000;
 let graphNeighborhoodForcedLimitReason = null;
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
@@ -716,12 +715,24 @@ async function handleSmokeRequest(req, res) {
     }
     if (p === "/__smoke/graph-neighborhood-control") {
       const url = new URL(req.url || "/__smoke/graph-neighborhood-control", `http://127.0.0.1:${HTTP_PORT}`);
+      const requestedDelayMs = url.searchParams.get("delayMs");
+      let nextDelayMs;
+      switch (requestedDelayMs) {
+        case null:
+        case "":
+        case "0":
+          nextDelayMs = 0;
+          break;
+        case "700":
+          nextDelayMs = 700;
+          break;
+        default:
+          res.writeHead(400, JSON_HEADERS).end(JSON.stringify({ error: "invalid_delay_ms", graphNeighborhoodDelayMs }));
+          return;
+      }
       graphNeighborhoodFailOnce = url.searchParams.get("fail") === "1";
       graphNeighborhoodDelayDepth = url.searchParams.has("delayDepth") ? Number(url.searchParams.get("delayDepth")) : null;
-      const requestedDelayMs = Number(url.searchParams.get("delayMs") || 0);
-      graphNeighborhoodDelayMs = Number.isFinite(requestedDelayMs)
-        ? Math.min(GRAPH_NEIGHBORHOOD_DELAY_MAX_MS, Math.max(0, requestedDelayMs))
-        : 0;
+      graphNeighborhoodDelayMs = nextDelayMs;
       graphNeighborhoodForcedLimitReason = ["depth", "nodes", "edges"].includes(url.searchParams.get("limit")) ? url.searchParams.get("limit") : null;
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({
         graphNeighborhoodFailOnce,
@@ -1819,7 +1830,11 @@ try {
     });
   };
 
-  const graphDelayClamp = await graphNeighborhoodControl("delayMs=60001");
+  const graphDelayRejection = (await send("Runtime.evaluate", {
+    expression: "fetch('/__smoke/graph-neighborhood-control?delayMs=60001').then(async (response) => ({ status: response.status, body: await response.json() }))",
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
   await graphNeighborhoodControl();
 
   await clickGraphDepth(3);
@@ -4584,7 +4599,7 @@ try {
     [graphNeighborhoodRequestCount >= 2, `graph: focus loads canonical neighbourhood history (${graphNeighborhoodRequestCount} requests)`],
     [has(focusHtml, "Second-hop smoke relation"), "graph: focus draws an older second-hop relation returned by the operational API"],
     [/^\d+$/.test(graphFocusSearch) && focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true && focusRouteQuery === graphFocusSearch, `graph: focus preserves but suspends a non-empty locating search (${JSON.stringify({ graphFocusSearch, focusRouteQuery, focusSearchState })})`],
-    [Number.isFinite(graphDelayClamp.graphNeighborhoodDelayMs) && graphDelayClamp.graphNeighborhoodDelayMs <= 1000, `graph: smoke delay control clamps untrusted timer duration (${JSON.stringify(graphDelayClamp)})`],
+    [graphDelayRejection.status === 400 && graphDelayRejection.body?.error === "invalid_delay_ms" && graphDelayRejection.body?.graphNeighborhoodDelayMs === 0, `graph: smoke delay control rejects untrusted timer duration (${JSON.stringify(graphDelayRejection)})`],
     [/[?&]depth=5(?:&|$)/.test(focusRoute), `graph: focused route persists the default five-hop bound (${focusRoute})`],
     [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
     [has(focusHtml, "2/5 hops") && has(focusHtml, "complete"), "graph: focus reports reached/requested hops and completeness"],
