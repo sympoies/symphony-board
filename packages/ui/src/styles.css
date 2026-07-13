@@ -430,6 +430,8 @@ html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animat
   flex: 1 1 240px; background: var(--panel); border: 1px solid var(--line);
   color: var(--text); border-radius: 8px; padding: 7px 10px;
 }
+.search:disabled { opacity: 0.62; cursor: not-allowed; }
+.search-suspended-note { font-size: 12px; white-space: nowrap; }
 .toggle-group { display: inline-flex; gap: 4px; align-items: center; }
 .toggle-label { color: var(--muted); margin-right: 2px; }
 .toggle-separator { width: 1px; height: 16px; background: var(--line); margin: 0 3px; flex: none; }
@@ -2381,6 +2383,10 @@ a.rf-node-title:hover { color: var(--accent); }
     width: 100%;
     box-sizing: border-box;
     display: none;
+  }
+  .controls > .search-suspended-note {
+    grid-column: 1 / -1;
+    text-align: center;
   }
   .controls[data-search-open="true"] > .search { display: none; }
   /* The local-file contract loader is a desktop dev affordance, never used on a

@@ -123,6 +123,7 @@ const graphNeighborhoodRequestUrls = [];
 let graphNeighborhoodFailOnce = false;
 let graphNeighborhoodDelayDepth = null;
 let graphNeighborhoodDelayMs = 0;
+const GRAPH_NEIGHBORHOOD_DELAY_MAX_MS = 1000;
 let graphNeighborhoodForcedLimitReason = null;
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
@@ -717,7 +718,10 @@ async function handleSmokeRequest(req, res) {
       const url = new URL(req.url || "/__smoke/graph-neighborhood-control", `http://127.0.0.1:${HTTP_PORT}`);
       graphNeighborhoodFailOnce = url.searchParams.get("fail") === "1";
       graphNeighborhoodDelayDepth = url.searchParams.has("delayDepth") ? Number(url.searchParams.get("delayDepth")) : null;
-      graphNeighborhoodDelayMs = Number(url.searchParams.get("delayMs") || 0);
+      const requestedDelayMs = Number(url.searchParams.get("delayMs") || 0);
+      graphNeighborhoodDelayMs = Number.isFinite(requestedDelayMs)
+        ? Math.min(GRAPH_NEIGHBORHOOD_DELAY_MAX_MS, Math.max(0, requestedDelayMs))
+        : 0;
       graphNeighborhoodForcedLimitReason = ["depth", "nodes", "edges"].includes(url.searchParams.get("limit")) ? url.searchParams.get("limit") : null;
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({
         graphNeighborhoodFailOnce,
@@ -1756,26 +1760,45 @@ try {
     returnByValue: true,
   })).result.value || {};
   const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  const graphFocusSearch = ((await send("Runtime.evaluate", {
+    expression: "document.querySelector('.graph-list-card .card-iid')?.textContent?.replace(/^#/, '') || ''",
+    returnByValue: true,
+  })).result.value || "").trim();
+  await setControlledInput("#global-search", graphFocusSearch);
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   const focusHtml = await waitHtml("document.querySelector('.graph-focus-load-ready') && document.body.innerText.includes('Second-hop smoke relation')");
   const focusRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  const focusSearchState = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('#global-search');
+      return {
+        query: input?.value || '',
+        disabled: input?.disabled === true,
+        labelled: document.querySelector('.search-suspended-note')?.textContent?.includes('not applied in focus') === true,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const focusDepthButtons = (await send("Runtime.evaluate", {
     expression: "[...document.querySelectorAll('.graph-depth-controls button')].map((button) => ({ text: button.textContent?.trim(), active: button.classList.contains('toggle-on') }))",
     returnByValue: true,
   })).result.value || [];
   const focusStats = await statsTextOf();
   const graphNeighborhoodControl = async (query = "") => {
-    await send("Runtime.evaluate", {
+    return (await send("Runtime.evaluate", {
       expression: `fetch('/__smoke/graph-neighborhood-control${query ? `?${query}` : ""}').then((response) => response.json())`,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })).result.value || {};
   };
   const clickGraphDepth = async (depth) => {
     await send("Runtime.evaluate", {
       expression: `([...document.querySelectorAll('.graph-depth-controls button')].find((button) => button.textContent?.trim() === '${depth}'))?.click()`,
     });
   };
+
+  const graphDelayClamp = await graphNeighborhoodControl("delayMs=60001");
+  await graphNeighborhoodControl();
 
   await clickGraphDepth(3);
   const graphDepthRefetchHtml = await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('2/3 hops') && document.body.innerText.includes('Second-hop smoke relation depth 3')");
@@ -4485,6 +4508,8 @@ try {
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [graphNeighborhoodRequestCount >= 2, `graph: focus loads canonical neighbourhood history (${graphNeighborhoodRequestCount} requests)`],
     [has(focusHtml, "Second-hop smoke relation"), "graph: focus draws an older second-hop relation returned by the operational API"],
+    [focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true, `graph: focus preserves but suspends the locating search (${JSON.stringify(focusSearchState)})`],
+    [Number.isFinite(graphDelayClamp.graphNeighborhoodDelayMs) && graphDelayClamp.graphNeighborhoodDelayMs <= 1000, `graph: smoke delay control clamps untrusted timer duration (${JSON.stringify(graphDelayClamp)})`],
     [/[?&]depth=5(?:&|$)/.test(focusRoute), `graph: focused route persists the default five-hop bound (${focusRoute})`],
     [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
     [has(focusHtml, "2/5 hops") && has(focusHtml, "complete"), "graph: focus reports reached/requested hops and completeness"],

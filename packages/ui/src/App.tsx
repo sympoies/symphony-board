@@ -7,6 +7,7 @@ import { useOnlineStatus } from "./online-status.ts";
 import { loadCachedContract, saveCachedContract, pickColdStartEnv } from "./contract-cache.ts";
 import {
   emptyFilters,
+  graphFocusFilters,
   activityRouteMatches,
   activityMatches,
   filterCommits,
@@ -367,6 +368,7 @@ export function App() {
     () => ({ search: filters.search, sources: itemFacetState.sources, states: itemFacetState.states, kinds: itemFacetState.kinds, reviews: itemFacetState.reviews, repos: itemFacetState.repos }),
     [filters.search, itemFacetState],
   );
+  const focusedItemFilters = useMemo(() => graphFocusFilters(itemFilters), [itemFilters]);
   // The zone the contract buckets calendar days in (default UTC). Threaded into
   // every preset / range-filter / day-bucketing call so the UI's calendar days
   // match the configured timezone.
@@ -1245,6 +1247,11 @@ export function App() {
     return resolveEdges(visibleEnv, itemsById).filter((re) => edgeMatches(re, itemFilters));
   }, [visibleEnv, itemsById, itemFilters]);
 
+  const focusedFallbackEdges = useMemo(() => {
+    if (!visibleEnv) return [];
+    return resolveEdges(visibleEnv, itemsById).filter((re) => edgeMatches(re, focusedItemFilters));
+  }, [visibleEnv, itemsById, focusedItemFilters]);
+
   const filteredEdgeDTOs = useMemo(() => filteredEdges.map((re) => re.edge), [filteredEdges]);
 
   const activeGraphNeighborhood =
@@ -1269,9 +1276,9 @@ export function App() {
     return resolveEdgeList(activeGraphNeighborhood.edges, byId).filter((re) => {
       if (trackedIds.has(re.edge.from) && !visibleIds.has(re.edge.from)) return false;
       if (trackedIds.has(re.edge.to) && !visibleIds.has(re.edge.to)) return false;
-      return edgeMatches(re, itemFilters);
+      return edgeMatches(re, focusedItemFilters);
     });
-  }, [activeGraphNeighborhood, visibleGraphNeighborhoodNodes, itemFilters]);
+  }, [activeGraphNeighborhood, visibleGraphNeighborhoodNodes, focusedItemFilters]);
   const graphFocusNodes = useMemo(
     () => activeGraphNeighborhood
       ? focusNeighborhoodNodes(visibleGraphNeighborhoodNodes, activeGraphNeighborhood.focus_ref, graphNeighborhoodEdges)
@@ -1283,7 +1290,7 @@ export function App() {
   // intentionally preserve the pre-feature one-hop derivation over loaded edges.
   const graphFocusExpanded = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood !== null;
   const graphFocusLoadStatus = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood === null ? "loading" : graphNeighborhoodStatus;
-  const graphFocusEdges = graphFocusExpanded ? graphNeighborhoodEdges : filteredEdges;
+  const graphFocusEdges = graphFocusExpanded ? graphNeighborhoodEdges : focusedFallbackEdges;
   const canUseContractAggregates =
     hidden.size === 0 &&
     hiddenSources.size === 0 &&
@@ -2126,6 +2133,7 @@ export function App() {
           {page !== "commits" && (
             <Controls
               search={filters.search}
+              searchSuspended={page === "graph" && route.focus != null}
               groups={controlGroups}
               mobilePanel={mobileControlPanel}
               onSearch={setRouteSearch}

@@ -420,7 +420,11 @@ Pages:
   ways: side-list clicks, canvas node-body clicks (which focus the node — the
   node title is the anchor to the provider page), and focus exits all write
   `?focus=` back to the hash, so a focused view is shareable and the browser
-  back button steps through focus changes. In overview, the side list is the
+  back button steps through focus changes. Search helps locate an item in the
+  overview, but is visibly suspended in focus so a narrow lookup cannot erase
+  the item's multi-hop neighborhood; the query stays URL-backed and resumes on
+  focus exit. Explicit facets and persistent visibility choices remain active.
+  In overview, the side list is the
   relationship inventory for the selected range before the mention canvas
   declutter is applied, so mention-only items remain discoverable; cards hidden
   from the current canvas carry a `not drawn` cue. Graph overview summary stats

@@ -22,6 +22,7 @@ import {
   normalizeTimeRange,
   routeTimeRange,
   emptyFilters,
+  graphFocusFilters,
   activityRouteMatches,
   activityMatches,
   activityDisplay,
@@ -960,6 +961,22 @@ test("resolveEdges + edgeMatches handle tracked and cross-repo endpoints", () =>
   // both endpoints untracked -> always shown; otherwise must match a resolved end
   assert.equal(edgeMatches(resolved[1]!, { ...emptyFilters(), states: new Set(["open"]) }), false, "merged PR end fails an open-only filter");
   assert.equal(edgeMatches(resolved[0]!, { ...emptyFilters(), states: new Set(["closed"]) }), true, "closed issue end passes");
+});
+
+test("graphFocusFilters suspends search while preserving explicit facets", () => {
+  const sourceFilter = new Set(["github"]);
+  const filters = {
+    ...emptyFilters(),
+    search: "#1141",
+    sources: sourceFilter,
+    states: new Set(["open"]),
+  };
+
+  const focused = graphFocusFilters(filters);
+  assert.equal(focused.search, "");
+  assert.equal(focused.sources, sourceFilter, "focus keeps the viewer's source facet");
+  assert.deepEqual([...focused.states], ["open"], "focus keeps other explicit facets");
+  assert.equal(filters.search, "#1141", "route-backed search remains unchanged for focus exit");
 });
 
 test("v2 window helpers separate primary board items from endpoint extras", () => {

@@ -139,6 +139,14 @@ export const emptyFilters = (): Filters => ({
   repos: new Set(),
 });
 
+// Search is a locator in Graph overview, not a relationship filter once an
+// item is focused. Keep every explicit facet intact so focus still respects
+// the viewer's source/state/kind/review/repo lens.
+export const graphFocusFilters = (filters: Filters): Filters => ({
+  ...filters,
+  search: "",
+});
+
 export function indexItems(env: ContractEnvelope): Map<string, ItemDTO> {
   return new Map(env.items.map((it) => [it.id, it]));
 }
