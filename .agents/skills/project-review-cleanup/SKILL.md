@@ -80,13 +80,22 @@ forge-cli --provider github --repo <repo> --format json pr review-threads list <
 ```
 
 Use only entries where `resolved == false`. If `data.unresolved == 0`, record
-the candidate as already converged and move on. The board may continue showing
-it until the next sync.
+the candidate as already converged only after checking the completeness boundary
+below. The board may continue showing it until the next sync.
 
-Before triage, inspect enough current evidence to understand the finding: the
-thread body and URL, the current PR diff/head, the referenced source, tests, and
-any replies that materially affect the claim. Use read-only provider tooling
-when the normalized thread envelope does not carry enough context.
+The currently released `forge-cli` list surface returns one unpaginated page of
+at most 100 review threads and does not expose a provider completeness signal.
+Treat `data.total >= 100` as incomplete evidence and stop for that PR; a hidden
+101st thread may still be unresolved. Only `data.total < 100` together with
+`data.unresolved == 0` proves that an initial candidate is already converged.
+Keep this fail-closed boundary until the released list envelope proves complete
+pagination with an explicit field that this skill can require.
+
+Before triage, inspect the full thread/reply context needed to understand the
+finding: the thread body and URL, every current reply, the current PR diff/head,
+the referenced source, and tests. The normalized list envelope does not carry
+reply history, so supplement it with read-only provider tooling. Stop when the
+complete current reply set cannot be established.
 
 ### 3. Triage every unresolved thread
 
@@ -120,24 +129,44 @@ Return to the original `{repo, pr, thread}` after the fix or follow-up exists.
 
 ### 5. Reply and resolve through forge-cli
 
-Prepare concise note/body files outside the repository when practical. Include
+Prepare concise body files outside the repository when practical. Include
 the disposition and its evidence: merged/follow-up link for `fix` or
 `follow_up`, current-code evidence for `stale`, or the verified rationale for
 `accepted`.
 
-Reply without resolving only when another participant must answer first:
+Immediately before writing, refresh the full thread/reply context again. Compare
+it with the evidence used for triage. If the thread is resolved, stop mutating
+it; if a new or changed reply materially affects the finding, return to triage.
+Do not write from a stale or partial context snapshot.
+
+Post exactly one disposition reply as a separate mutation:
 
 ```bash
 forge-cli --provider github --repo <repo> --format json \
   pr review-threads reply <pr> --thread <thread-id> --body-file <reply-file>
 ```
 
-Resolve with the final disposition note when the thread is ready:
+Keep the JSON result and retain the returned reply comment id or URL with the
+disposition evidence. Then re-read the full thread/reply context and confirm the
+reply exists exactly once. If the reply command failed or returned an ambiguous
+result, do not replay it blindly: re-read the full context before any retry,
+skip the reply when the disposition reply already exists, and retry the reply
+only when complete evidence proves it absent and the triaged context is still
+current. Stop rather than guess when the read is incomplete.
+
+After the reply is confirmed and the refreshed context still supports the same
+disposition, resolve without a note so resolution cannot duplicate the reply:
 
 ```bash
 forge-cli --provider github --repo <repo> --format json \
-  pr review-threads resolve <pr> --thread <thread-id> --note-file <note-file>
+  pr review-threads resolve <pr> --thread <thread-id>
 ```
+
+If resolution fails or has an ambiguous result, re-read full context before any
+retry. A refreshed resolved thread is complete; an unresolved thread with the
+same context may receive a resolve-only retry. Never resend the disposition
+reply during resolve recovery, and return to triage if participant context
+changed.
 
 Do not resolve an unread finding, an undelivered repair, an uncreated follow-up,
 or a high-risk finding awaiting user direction.
@@ -151,7 +180,9 @@ JSON and do not use board rediscovery as the final gate:
 forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>
 ```
 
-The PR is complete only when the fresh envelope proves
+Fail closed when the fresh envelope reports `data.total >= 100`; that page is
+incomplete evidence even when its visible `data.unresolved` value is zero. The
+PR is complete only when the same fresh envelope proves `data.total < 100` and
 `data.unresolved == 0`. Repeat this final live check for every swept PR. Run
 `pnpm review-candidates --json` again only after a board sync when starting a
 new discovery pass; its cached count is not proof of provider convergence.
@@ -165,8 +196,9 @@ Report:
 - every thread id, disposition, and evidence/reference;
 - any optional `code-review-specialists` result;
 - source-fix or follow-up PR/issue links;
-- reply/resolve results; and
-- the fresh final `data.unresolved` count for every PR.
+- reply/resolve results, including retained reply identity and any recovery
+  reads; and
+- the fresh final `data.total` and `data.unresolved` counts for every PR.
 
 Stop with an explicit blocker when discovery is unavailable, live provider
 evidence is incomplete, provider writes are unsupported, a high-risk finding
