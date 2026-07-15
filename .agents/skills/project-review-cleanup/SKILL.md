@@ -1,170 +1,216 @@
 ---
 name: project-review-cleanup
 description: >
-  Board-discovery adapter for review-thread cleanup: find this board's PRs that still need review attention, then sweep each through the shared review-thread-cleanup skill.
+  Discover this board's PRs that still need review attention, then carry every
+  GitHub review thread through fresh forge-cli evidence, convergence triage,
+  repair or disposition, reply/resolve, and final zero-unresolved verification.
 argument-hint: "[--pr <iid>] [--repo <owner/name>] [--days <n>] [--all-actors] [--limit <n>]"
 allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Project Review Cleanup
 
-Find change requests on this board that still need review attention, then carry
-each unresolved provider review thread to an explicit disposition through the
-shared, provider-agnostic `review-thread-cleanup` skill. Invoke this when the
-Activity page shows a bot review after a PR has already merged, or before
-closing out delivery work where provider review threads may have arrived after
-checks and local review passed.
-
-This skill is a thin **board-discovery adapter**. It owns one board-specific
-job: deciding *which* PRs to sweep, computed from the active board's canonical
-store/contract. The actual per-PR thread sweep — list, triage, resolve/reply —
-is owned by the shared `review-thread-cleanup` skill (the `pr` plugin) over the
-released `forge-cli pr review-threads` surfaces. Discovery lives in the board's
-`/api/review-candidates` endpoint or the local `review-candidates` CLI; the
-provider mechanics live in `forge-cli`; the judgment lives in
-`core/policies/review-thread-convergence.md`. This skill no longer carries its
-own discovery, live-read, or resolve/reply GraphQL.
+Use the board's canonical discovery surface to find change requests that still
+need review attention, then own the complete per-PR cleanup loop. This project
+skill coordinates board discovery, live provider reads, evidence-backed triage,
+normal source delivery, provider reply/resolve mutations, and the final fresh
+live convergence check.
 
 ## Contract
 
-Prereqs:
+Prerequisites:
 
-- Run inside the `symphony-board` git work tree with dependencies installed
-  (`pnpm install`); Node 24 on PATH (the repo `.node-version` via `fnm`).
-- `forge-cli >= 1.9.1` is installed from the released nils-cli package and on
-  `PATH` (the `pr review-threads list/resolve/reply` group). `gh` is
-  authenticated for the GitHub repositories the board tracks.
-- The shared `review-thread-cleanup` skill is installed in the active runtime
-  (it ships from `agent-runtime-kit`). Read
-  `core/policies/review-thread-convergence.md` (resolve with
-  `agent-docs preflight --intent project-dev`) — it is the judgment contract.
-- Discovery must target the active board endpoint, not an incidental local
-  store. The default base is a loopback board endpoint:
-  `http://127.0.0.1:18080`. Override with
-  `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` (exact endpoint) or
-  `SYMPHONY_BOARD_BASE_URL` (base URL; `/api/review-candidates` is appended).
-  Do not run local-store discovery for cleanup; stale local SQLite is not an
-  acceptable source for deciding whether provider review threads still need
-  attention.
+- Run inside the `symphony-board` git work tree with Node 24 and installed pnpm
+  dependencies.
+- Use the released `forge-cli pr review-threads list/resolve/reply` surfaces.
+  Do not replace them with raw provider mutations.
+- Read the active runtime's
+  `core/policies/review-thread-convergence.md` before dispositioning threads.
+  This policy owns `fix` / `stale` / `follow_up` / `accepted` judgment and its
+  stopping rule; do not reconstruct a competing policy here.
+- Target the active board endpoint. The default base URL is
+  `http://127.0.0.1:18080`; override it with
+  `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` or `SYMPHONY_BOARD_BASE_URL`.
+  Never substitute an incidental local SQLite store for cleanup discovery.
 
-Inputs (all optional, forwarded to `review-candidates`):
+Optional discovery arguments are forwarded to `review-candidates`:
 
-- `--repo <owner/name>` — restrict discovery to one `project_path`.
-- `--pr <iid>` — focus a single change request (relaxes the late/closed gate).
-- `--days <n>` — `late_review` activity window (Pass 2 only); default `7`.
-  Open-thread discovery (Pass 1) is not windowed.
-- `--actor <login>` (repeatable) / `--all-actors` — widen the Pass 2 bot
-  allowlist. Pass 1 open-thread discovery is already actor-agnostic.
-- `--limit <n>` — maximum candidates; default `20`.
+- `--repo <owner/name>` restricts discovery to one project.
+- `--pr <iid>` focuses one change request and relaxes the late/closed gate.
+- `--days <n>` changes only the late-review activity window; default `7`.
+- `--actor <login>` (repeatable) or `--all-actors` widens the late-review bot
+  allowlist. Open-thread discovery is already actor-agnostic.
+- `--limit <n>` caps the candidate set; default `20`.
 
-Outputs:
-
-- A candidate set from `review-candidates`: GitHub change requests with open
-  review threads (`open_review_threads`, the primary signal, leading the list),
-  plus allowlisted-bot `late_review` / `review_on_closed_pr` candidates, each
-  with `source_id`, `repo`, `pr`, `reasons`, and open/total thread counts.
-- For each swept PR, the shared skill's outcome: every unresolved thread
-  dispositioned (`fix` / `stale` / `follow_up` / `accepted`) and resolved or
-  replied through `forge-cli`, or an explicit recorded stop.
-
-Exit codes:
-
-- `0`: success
-- `1`: a command failed or a prerequisite is missing
-- `2`: usage error or invalid inputs
-
-Failure modes:
-
-- The board store is unreachable or the repo config is missing, so
-  `review-candidates` cannot build the contract envelope.
-- A candidate's repository is not GitHub; `forge-cli pr review-threads`
-  resolve/reply is GitHub-only in v1 and returns `provider_unsupported` on
-  GitLab/Local. The contract also carries open-thread counts for GitLab MRs,
-  but those are not auto-resolvable here; converge them through the provider
-  surface.
-- A major / high-risk finding (security, data loss, contract/schema break,
-  destructive migration, cross-repo architecture) — stop and ask the user
-  rather than self-dispositioning (per the convergence policy).
+Discovery may report GitLab MRs because the board tracks their open-thread
+counts. Released reply/resolve mutations are GitHub-only in this workflow. When
+`forge-cli` returns `provider_unsupported`, stop and report the provider route
+that must be completed instead of claiming convergence.
 
 ## Workflow
 
-1. **Discover candidates** from the active board endpoint (read-only):
+### 1. Discover from the active board
 
-   ```bash
-   export SYMPHONY_BOARD_BASE_URL="${SYMPHONY_BOARD_BASE_URL:-http://127.0.0.1:18080}"
-   pnpm review-candidates --json
-   # focus one PR / repo, or widen the late-review window/actors:
-   pnpm review-candidates --json --repo sympoies/symphony-board --pr 181
-   pnpm review-candidates --json --all-actors --days 14
-   ```
+Run the read-only owner command:
 
-   `pnpm review-candidates` reads
-   `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` / `SYMPHONY_BOARD_BASE_URL` (including
-   `.env`) and otherwise uses the hard-coded default endpoint. Each candidate carries
-   `repo` (`owner/name`) and `pr`. Lead with the
-   `open_review_threads` candidates (most open threads first) — that is the
-   complete "unresolved" set the board lens shows. `late_review` /
-   `review_on_closed_pr` add review-timing context the point-in-time count
-   cannot.
+```bash
+export SYMPHONY_BOARD_BASE_URL="${SYMPHONY_BOARD_BASE_URL:-http://127.0.0.1:18080}"
+pnpm review-candidates --json
+```
 
-2. **Sweep each candidate PR through the shared `review-thread-cleanup`
-   skill.** For each `{repo, pr}`, run that skill, which:
-   - lists unresolved threads via
-     `forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>`
-     (`data.unresolved == 0` is the convergence target). NOTE: the v1.9.1 `list`
-     payload carries only each thread's first comment (author/body/url) — not
-     later replies or the diff hunk. Before dispositioning a thread whose
-     finding depends on a reply, the author's answer, or the diff, fetch the
-     full context (open the thread `url`, or `gh api` the review-thread comments
-     / PR diff) so triage is not decided on partial evidence;
-   - triages each thread against `core/policies/review-thread-convergence.md`
-     (`fix` / `stale` / `follow_up` / `accepted`; escalate major/high-risk);
-   - resolves or replies through
-     `forge-cli ... pr review-threads resolve <pr> --thread <PRRT_…> [--note …]`
-     and `... reply <pr> --thread <PRRT_…> --body …`.
+Forward requested filters, for example:
 
-3. **Make any small repairs in this repo** the way the board normally does:
-   edit, validate (`pnpm run typecheck`, `pnpm test`), and deliver via
-   `semantic-commit` / `deliver-pr`. For other repos, use that repo's active
-   delivery workflow, or open and link a follow-up issue. Then return to the
-   shared skill to resolve the original thread with the fix/follow-up note.
+```bash
+pnpm review-candidates --json --repo sympoies/symphony-board --pr 181
+pnpm review-candidates --json --all-actors --days 14 --limit 40
+```
 
-4. **Confirm convergence from the live provider, not the board endpoint.** The
-   board endpoint / `review-candidates` reads only changes on the next board
-   sync, so it lags the `forge-cli` resolutions you just applied. Confirm with
-   the focused live check
-   `forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>`
-   (`data.unresolved == 0`), NOT a fresh `pnpm review-candidates` run — the
-   latter can still report a just-resolved PR as open and cause repeated work.
-   Use `review-candidates` for re-discovery only after the board has re-synced.
-   The sweep is done when each PR carries no unresolved threads, or its residual
-   threads are recorded `follow_up` / `accepted` per the policy's stopping rule.
+Read each candidate's `source_id`, `repo`, `pr`, `reasons`, and thread counts.
+Process `open_review_threads` first, ordered by open count. Treat
+`late_review` and `review_on_closed_pr` as timing context, not proof that a live
+thread is still unresolved.
 
-## Convergence
+### 2. Refresh live provider evidence
 
-Fixing a thread opens a fix PR, and the async bot reviews that fix PR too, so a
-mechanical "fix every new thread" sweep can recurse across generations on
-principled-but-imperfect code (or stop early and leave a real bug). The shared
-`review-thread-cleanup` skill applies the provider-agnostic convergence
-discipline — canonical source: `agent-runtime-kit`
-`core/policies/review-thread-convergence.md`. In short: fix genuine defects;
-escalate major/high-risk; prefer one terminal/uniform rule when threads cluster
-on a mechanism; pick the conservative branch once for inherently-ambiguous
-keys; and once only preference or genuine-ambiguity threads on principled code
-remain, resolve them as `accepted` with a recorded rationale and stop — never
-`accepted` to silence an unread or unverified finding.
+For every GitHub `{repo, pr}`, ignore the board's point-in-time thread count and
+fetch the current provider state:
+
+```bash
+forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>
+```
+
+Use only entries where `resolved == false`. If `data.unresolved == 0`, record
+the candidate as already converged only after checking the completeness boundary
+below. The board may continue showing it until the next sync.
+
+The currently released `forge-cli` list surface returns one unpaginated page of
+at most 100 review threads and does not expose a provider completeness signal.
+Treat `data.total >= 100` as incomplete evidence and stop for that PR; a hidden
+101st thread may still be unresolved. Only `data.total < 100` together with
+`data.unresolved == 0` proves that an initial candidate is already converged.
+Keep this fail-closed boundary until the released list envelope proves complete
+pagination with an explicit field that this skill can require.
+
+Before triage, inspect the full thread/reply context needed to understand the
+finding: the thread body and URL, every current reply, the current PR diff/head,
+the referenced source, and tests. The normalized list envelope does not carry
+reply history, so supplement it with read-only provider tooling. Stop when the
+complete current reply set cannot be established.
+
+### 3. Triage every unresolved thread
+
+Apply `core/policies/review-thread-convergence.md` and record one disposition:
+
+- `fix`: a genuine in-scope defect.
+- `stale`: the finding no longer applies to current code.
+- `follow_up`: a real issue outside this pass, with a durable issue link.
+- `accepted`: a verified preference or genuine ambiguity, with rationale.
+
+Use `code-review-specialists` only when an independent read-only review would
+materially improve uncertain correctness or risk judgment. Give it the actual
+diff/evidence and use focused or follow-up mode. It must not edit source, post
+provider comments, resolve threads, or make the final disposition.
+
+Escalate security, data-loss, contract/schema, destructive-migration, and
+cross-repository architecture findings before changing source or resolving the
+thread. Never use `accepted` merely to end the sweep.
+
+### 4. Deliver source fixes through the owner workflow
+
+For `fix`, work in the repository that owns the defect and follow its preflight,
+test-first, validation, review, and delivery requirements. Deliver the repair
+through `pr:deliver-pr`; do not commit to `main`, bypass validation, or resolve
+the original thread before the fix has a durable PR/MR result.
+
+For `follow_up`, create or reuse the repository-owned issue through its active
+issue workflow. Preserve the issue URL or reference for the provider note.
+
+Return to the original `{repo, pr, thread}` after the fix or follow-up exists.
+
+### 5. Reply and resolve through forge-cli
+
+Prepare concise body files outside the repository when practical. Include
+the disposition and its evidence: merged/follow-up link for `fix` or
+`follow_up`, current-code evidence for `stale`, or the verified rationale for
+`accepted`.
+
+Immediately before writing, refresh the full thread/reply context again. Compare
+it with the evidence used for triage. If the thread is resolved, stop mutating
+it; if a new or changed reply materially affects the finding, return to triage.
+Do not write from a stale or partial context snapshot.
+
+Post exactly one disposition reply as a separate mutation:
+
+```bash
+forge-cli --provider github --repo <repo> --format json \
+  pr review-threads reply <pr> --thread <thread-id> --body-file <reply-file>
+```
+
+Keep the JSON result and retain the returned reply comment id or URL with the
+disposition evidence. Then re-read the full thread/reply context and confirm the
+reply exists exactly once. If the reply command failed or returned an ambiguous
+result, do not replay it blindly: re-read the full context before any retry,
+skip the reply when the disposition reply already exists, and retry the reply
+only when complete evidence proves it absent and the triaged context is still
+current. Stop rather than guess when the read is incomplete.
+
+After the reply is confirmed and the refreshed context still supports the same
+disposition, resolve without a note so resolution cannot duplicate the reply:
+
+```bash
+forge-cli --provider github --repo <repo> --format json \
+  pr review-threads resolve <pr> --thread <thread-id>
+```
+
+If resolution fails or has an ambiguous result, re-read full context before any
+retry. A refreshed resolved thread is complete; an unresolved thread with the
+same context may receive a resolve-only retry. Never resend the disposition
+reply during resolve recovery, and return to triage if participant context
+changed.
+
+Do not resolve an unread finding, an undelivered repair, an uncreated follow-up,
+or a high-risk finding awaiting user direction.
+
+### 6. Prove live convergence
+
+After all mutations for a PR, run a new provider read; do not reuse the earlier
+JSON and do not use board rediscovery as the final gate:
+
+```bash
+forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>
+```
+
+Fail closed when the fresh envelope reports `data.total >= 100`; that page is
+incomplete evidence even when its visible `data.unresolved` value is zero. The
+PR is complete only when the same fresh envelope proves `data.total < 100` and
+`data.unresolved == 0`. Repeat this final live check for every swept PR. Run
+`pnpm review-candidates --json` again only after a board sync when starting a
+new discovery pass; its cached count is not proof of provider convergence.
+
+## Output
+
+Report:
+
+- discovery command and filters;
+- each candidate `{repo, pr}`;
+- every thread id, disposition, and evidence/reference;
+- any optional `code-review-specialists` result;
+- source-fix or follow-up PR/issue links;
+- reply/resolve results, including retained reply identity and any recovery
+  reads; and
+- the fresh final `data.total` and `data.unresolved` counts for every PR.
+
+Stop with an explicit blocker when discovery is unavailable, live provider
+evidence is incomplete, provider writes are unsupported, a high-risk finding
+needs user direction, a repair cannot pass its owner gates, or the final fresh
+count is nonzero.
 
 ## Boundary
 
-This is a project-local **adapter**. It owns only board discovery: invoking
-`review-candidates` (read-only over the board's canonical store/contract) to
-decide which PRs to sweep. It does not read or mutate provider review threads
-itself — the shared `review-thread-cleanup` skill and `forge-cli` own the live
-read and the resolve/reply mutations, and `core/policies/review-thread-convergence.md`
-owns the triage/stopping judgment. `forge-cli` never learns about the board;
-the board never learns about provider GraphQL.
-
-The agent workflow may leave this adapter to make small source fixes, deliver
-follow-up PRs, or open follow-up issues when a thread is actionable, using the
-active repo delivery/issue skills and their normal validation gates, then
-return to the shared skill to resolve the original thread.
+This project skill owns orchestration from board discovery through final live
+verification. `review-candidates` owns candidate computation from the board's
+canonical store, `forge-cli` owns provider thread reads and reply/resolve
+mutations, `core/policies/review-thread-convergence.md` owns triage and stopping
+judgment, `code-review-specialists` optionally supplies independent read-only
+analysis, and `pr:deliver-pr` owns source-fix delivery. Keep those boundaries
+separate and do not add bespoke GraphQL or provider mutation scripts here.
