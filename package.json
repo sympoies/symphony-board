@@ -40,9 +40,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
-    "@types/node": "^24.13.2",
+    "@types/node": "^24.13.3",
     "c8": "^11.0.0",
-    "lefthook": "^2.1.9",
+    "lefthook": "^2.1.10",
     "typescript": "^6.0.0"
   }
 }
