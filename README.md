@@ -6,7 +6,8 @@
 
 [![activity](docs/assets/readme-activity.png)](https://sympoies.github.io/symphony-board/demo/)
 
-Read-only cross-provider workflow board for GitHub and GitLab. `symphony-board`
+Read-only cross-provider workflow board for GitHub, GitLab, and Forgejo
+(Codeberg-first). `symphony-board`
 coordinates issues, pull requests, merge requests, activity, and typed
 relationships from configured projects into a canonical store (SQLite by
 default, Postgres by opt-in compose), emits a versioned JSON contract, and serves
@@ -29,7 +30,10 @@ store, not the consumer API.
 The full product path is implemented end to end:
 
 - GitHub and GitLab sources fetch issues, change requests, review state,
-  commits, comments, and repository/project activity.
+  commits, comments, and repository/project activity. The Forgejo REST source,
+  initially certified against Codeberg's v16 API, fetches issues, pull requests,
+  labels, comments, review activities, default-branch commits, combined status,
+  and structured block dependencies.
 - Raw provider payloads, canonical rows, labels, sync state, relationship
   edges, and activity rows are stored in the configured canonical store.
 - `sync` supports full and incremental modes; only a full and complete sweep may
@@ -101,6 +105,7 @@ $EDITOR config/sources.json
 
 export GITHUB_TOKEN="$(gh auth token)"
 # export GITLAB_TOKEN="glpat_xxx"   # only when a GitLab source is configured
+# export CODEBERG_TOKEN="..."       # only when a Codeberg source is configured
 
 pnpm run init-db
 node src/cli/sync.ts --dry-run

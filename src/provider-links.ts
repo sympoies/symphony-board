@@ -1,6 +1,9 @@
 export interface ProviderLinkSource {
   kind: string;
   host: string;
+  // Config-derived instance web root. Needed for Forgejo behind a reverse-proxy
+  // path; omitted preserves the historical https://<host> behavior.
+  baseUrl?: string;
 }
 
 function safeHost(host: string | null | undefined): string | null {
@@ -9,9 +12,23 @@ function safeHost(host: string | null | undefined): string | null {
   return /^[a-z0-9.-]+(?::\d+)?$/i.test(value) ? value : null;
 }
 
-function providerKind(source: ProviderLinkSource): "github" | "gitlab" | null {
-  if (source.kind === "github" || source.kind === "gitlab") return source.kind;
+function providerKind(source: ProviderLinkSource): "github" | "gitlab" | "forgejo" | null {
+  if (source.kind === "github" || source.kind === "gitlab" || source.kind === "forgejo") return source.kind;
   return null;
+}
+
+function providerBase(source: ProviderLinkSource): string | null {
+  const host = safeHost(source.host);
+  if (!host) return null;
+  if (!source.baseUrl) return `https://${host}`;
+  try {
+    const url = new URL(source.baseUrl);
+    if (url.protocol !== "https:" || url.host.toLowerCase() !== host.toLowerCase()) return null;
+    if (url.username || url.password || url.search || url.hash) return null;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
 }
 
 function projectPathSegments(kind: string, projectPath: string | null | undefined): string[] | null {
@@ -19,17 +36,17 @@ function projectPathSegments(kind: string, projectPath: string | null | undefine
   if (!path) return null;
   const segments = path.split("/");
   if (segments.some((segment) => segment.trim() === "")) return null;
-  if (kind === "github" && segments.length !== 2) return null;
+  if ((kind === "github" || kind === "forgejo") && segments.length !== 2) return null;
   if (kind === "gitlab" && segments.length < 2) return null;
   return segments;
 }
 
 function repoBase(source: ProviderLinkSource, projectPath: string | null | undefined): string | null {
   const kind = providerKind(source);
-  const host = safeHost(source.host);
+  const base = providerBase(source);
   const segments = kind ? projectPathSegments(kind, projectPath) : null;
-  if (!kind || !host || !segments) return null;
-  return `https://${host}/${segments.map(encodeURIComponent).join("/")}`;
+  if (!kind || !base || !segments) return null;
+  return `${base}/${segments.map(encodeURIComponent).join("/")}`;
 }
 
 function safeIid(iid: number | null | undefined): number | null {
@@ -79,10 +96,10 @@ export function providerRepoUrl(source: ProviderLinkSource, projectPath: string 
 // the source kind/host is unsupported or the username is missing/unsafe.
 export function providerProfileUrl(source: ProviderLinkSource, username: string | null | undefined): string | null {
   const kind = providerKind(source);
-  const host = safeHost(source.host);
+  const base = providerBase(source);
   const name = safeUsername(username);
-  if (!kind || !host || !name) return null;
-  return `https://${host}/${encodeURIComponent(name)}`;
+  if (!kind || !base || !name) return null;
+  return `${base}/${encodeURIComponent(name)}`;
 }
 
 // Provider-reported actor profile URL, constrained to the configured host and
@@ -91,8 +108,9 @@ export function providerProfileUrl(source: ProviderLinkSource, username: string 
 export function providerObservedProfileUrl(source: ProviderLinkSource, value: unknown): string | null {
   const kind = providerKind(source);
   const host = safeHost(source.host);
+  const base = providerBase(source);
   const text = typeof value === "string" ? value.trim() : "";
-  if (!kind || !host || !text) return null;
+  if (!kind || !host || !base || !text) return null;
   let url: URL;
   try {
     url = new URL(text);
@@ -100,15 +118,18 @@ export function providerObservedProfileUrl(source: ProviderLinkSource, value: un
     return null;
   }
   if (url.protocol !== "https:" || url.host.toLowerCase() !== host.toLowerCase()) return null;
-  const segments = safePathSegments(url.pathname);
+  const basePath = new URL(`${base}/`).pathname.split("/").filter(Boolean);
+  const allSegments = safePathSegments(url.pathname);
+  const segments = allSegments?.slice(basePath.length);
+  if (allSegments && !basePath.every((segment, index) => allSegments[index] === segment)) return null;
   if (!segments) return null;
   if (kind === "github" && segments.length === 2 && segments[0] === "apps") {
     const app = safeUsername(segments[1]);
-    return app ? `https://${host}/apps/${encodeURIComponent(app)}` : null;
+    return app ? `${base}/apps/${encodeURIComponent(app)}` : null;
   }
   if (segments.length === 1) {
     const name = safeUsername(segments[0]);
-    return name ? `https://${host}/${encodeURIComponent(name)}` : null;
+    return name ? `${base}/${encodeURIComponent(name)}` : null;
   }
   return null;
 }
@@ -117,21 +138,23 @@ export function providerIssueUrl(source: ProviderLinkSource, projectPath: string
   const base = repoBase(source, projectPath);
   const n = safeIid(iid);
   if (!base || n === null) return null;
-  return source.kind === "github" ? `${base}/issues/${n}` : `${base}/-/issues/${n}`;
+  return source.kind === "gitlab" ? `${base}/-/issues/${n}` : `${base}/issues/${n}`;
 }
 
 export function providerChangeRequestUrl(source: ProviderLinkSource, projectPath: string | null | undefined, iid: number | null | undefined): string | null {
   const base = repoBase(source, projectPath);
   const n = safeIid(iid);
   if (!base || n === null) return null;
-  return source.kind === "github" ? `${base}/pull/${n}` : `${base}/-/merge_requests/${n}`;
+  if (source.kind === "github") return `${base}/pull/${n}`;
+  if (source.kind === "forgejo") return `${base}/pulls/${n}`;
+  return `${base}/-/merge_requests/${n}`;
 }
 
 export function providerCommitUrl(source: ProviderLinkSource, projectPath: string | null | undefined, shaValue: unknown): string | null {
   const base = repoBase(source, projectPath);
   const sha = safeSha(shaValue);
   if (!base || !sha) return null;
-  return source.kind === "github" ? `${base}/commit/${sha}` : `${base}/-/commit/${sha}`;
+  return source.kind === "gitlab" ? `${base}/-/commit/${sha}` : `${base}/commit/${sha}`;
 }
 
 export function providerCompareUrl(
@@ -145,14 +168,16 @@ export function providerCompareUrl(
   const after = safeSha(afterValue);
   if (!base || !before || !after || before === after) return null;
   const range = `${before}...${after}`;
-  return source.kind === "github" ? `${base}/compare/${range}` : `${base}/-/compare/${range}`;
+  return source.kind === "gitlab" ? `${base}/-/compare/${range}` : `${base}/compare/${range}`;
 }
 
 export function providerRefUrl(source: ProviderLinkSource, projectPath: string | null | undefined, refValue: unknown): string | null {
   const base = repoBase(source, projectPath);
   const ref = shortRef(refValue);
   if (!base || !ref) return null;
-  return source.kind === "github" ? `${base}/tree/${encodeURIComponent(ref)}` : `${base}/-/tree/${encodeURIComponent(ref)}`;
+  if (source.kind === "github") return `${base}/tree/${encodeURIComponent(ref)}`;
+  if (source.kind === "forgejo") return `${base}/src/branch/${encodeURIComponent(ref)}`;
+  return `${base}/-/tree/${encodeURIComponent(ref)}`;
 }
 
 export function providerPushUrl(

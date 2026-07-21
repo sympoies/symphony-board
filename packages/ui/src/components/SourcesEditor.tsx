@@ -214,6 +214,15 @@ export function SourcesEditor({ config, sync, variant = "default" }: Props) {
                     value={s.display_name ?? ""}
                     onChange={(e) => update(configWithSourcePatch(draft, s.source_id, { display_name: e.target.value || undefined }))}
                   />
+                  {s.kind === "forgejo" ? (
+                    <input
+                      type="url"
+                      className="config-input config-display-name"
+                      placeholder="https://codeberg.org"
+                      value={s.base_url ?? ""}
+                      onChange={(e) => update(configWithSourcePatch(draft, s.source_id, { base_url: e.target.value || undefined }))}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className="link-btn config-remove"
@@ -302,11 +311,16 @@ export function SourcesEditor({ config, sync, variant = "default" }: Props) {
           })}
 
           <div className="config-add-source">
-            <select className="settings-select" value={addKind} onChange={(e) => setAddKind(e.target.value === "gitlab" ? "gitlab" : "github")}>
+            <select
+              className="settings-select"
+              value={addKind}
+              onChange={(e) => setAddKind(e.target.value === "gitlab" ? "gitlab" : e.target.value === "forgejo" ? "forgejo" : "github")}
+            >
               <option value="github">GitHub</option>
               <option value="gitlab">GitLab</option>
+              <option value="forgejo">Forgejo / Codeberg</option>
             </select>
-            <input type="text" className="config-input" placeholder="host (e.g. github.com)" value={addHost} onChange={(e) => setAddHost(e.target.value)} />
+            <input type="text" className="config-input" placeholder="host or Forgejo base URL" value={addHost} onChange={(e) => setAddHost(e.target.value)} />
             <input type="text" className="config-input" placeholder="display name (optional)" value={addName} onChange={(e) => setAddName(e.target.value)} />
             <button type="button" className="toggle" disabled={!addHost.trim()} onClick={addSource}>
               Add source

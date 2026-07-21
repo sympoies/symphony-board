@@ -1,0 +1,12 @@
+[
+  {
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "html_url": "https://codeberg.org/acme/widgets/commit/cccccccccccccccccccccccccccccccccccccccc",
+    "created": "2026-07-03T14:00:00Z",
+    "commit": {
+      "message": "Implement widget validation",
+      "author": { "name": "Fixture Author", "email": "fixture@example.invalid", "date": "2026-07-03T14:00:00Z" }
+    },
+    "author": { "id": 43, "login": "carol", "html_url": "https://codeberg.org/carol" }
+  }
+]

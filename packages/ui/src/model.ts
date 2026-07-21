@@ -2568,6 +2568,7 @@ export interface SyncSourceResult {
   items: number;
   edges: number;
   activities: number;
+  rest_requests?: number | null;
   soft_deleted: number;
   soft_deleted_edges: number;
   error: string | null;
@@ -2767,7 +2768,8 @@ export interface ConfigSourceDoc {
   token_pools?: Record<string, ConfigTokenPoolDoc>;
   auth_pools?: Record<string, ConfigAuthPoolDoc>;
   auth_policy?: ConfigAuthPolicyDoc;
-  graphql_url: string;
+  graphql_url?: string;
+  base_url?: string;
   rest_url?: string;
   projects: ConfigProjectEntry[];
   [extra: string]: unknown;
@@ -3196,7 +3198,11 @@ export const STANDALONE_DEFAULT_PROJECT = "sympoies/symphony-board";
 export const STANDALONE_DEFAULT_SYNC_INTERVAL_SECONDS = 600;
 export const STANDALONE_DEFAULT_FULL_SYNC_INTERVAL_SECONDS = 86400;
 
-export type ConfigSourceKind = "github" | "gitlab";
+export type ConfigSourceKind = "github" | "gitlab" | "forgejo";
+
+type SuggestedSourceDefaults =
+  Pick<ConfigSourceDoc, "source_id" | "kind" | "host" | "token_env">
+  & Partial<Pick<ConfigSourceDoc, "graphql_url" | "rest_url" | "base_url">>;
 
 // Field defaults when adding a source in the editor: canonical hosts get the
 // conventional token env names and API endpoints; self-hosted instances get
@@ -3204,7 +3210,24 @@ export type ConfigSourceKind = "github" | "gitlab";
 export function suggestSourceDefaults(
   kind: ConfigSourceKind,
   hostRaw: string,
-): Pick<ConfigSourceDoc, "source_id" | "kind" | "host" | "token_env" | "graphql_url" | "rest_url"> {
+): SuggestedSourceDefaults {
+  if (kind === "forgejo") {
+    const input = hostRaw.trim();
+    const parsed = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+    const host = parsed.host.toLowerCase();
+    const path = parsed.pathname.replace(/\/+$/, "").replace(/^\/+/, "");
+    const instance = path ? `${host}/${path}` : host;
+    const baseUrl = `https://${instance}`;
+    const hostSlug = instance.replace(/[^a-z0-9]+/gi, "_").toUpperCase();
+    const codeberg = host === "codeberg.org" && !path;
+    return {
+      source_id: `forgejo:${instance}`,
+      kind,
+      host,
+      token_env: codeberg ? "CODEBERG_TOKEN" : `FORGEJO_TOKEN_${hostSlug}`,
+      base_url: baseUrl,
+    };
+  }
   const host = hostRaw
     .trim()
     .toLowerCase()

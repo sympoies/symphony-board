@@ -5,9 +5,10 @@ import type { Source, SourceDescriptor, SourceRunTelemetry } from "./types.ts";
 import type { AuthToken } from "./http.ts";
 import { type SourceConfig, projectPaths } from "../config.ts";
 import { makeGqlClient } from "./graphql.ts";
-import { defaultRestUrl, makeRestClient } from "./rest.ts";
+import { defaultRestUrl, forgejoApiUrl, makeRestClient } from "./rest.ts";
 import { GitHubSource } from "./github.ts";
 import { GitLabSource } from "./gitlab.ts";
+import { ForgejoSource } from "./forgejo.ts";
 
 export type ProjectTokenMap = ReadonlyMap<string, AuthToken[]>;
 
@@ -45,10 +46,11 @@ export function buildSource(
     host: cfg.host,
     displayName: cfg.display_name ?? null,
   };
-  const gql = makeGqlClient(cfg.graphql_url, tokens, gqlOptions(cfg.kind, telemetry));
   const paths = projectPaths(cfg);
   switch (cfg.kind) {
     case "github": {
+      if (!cfg.graphql_url) throw new Error(`source ${cfg.source_id} is missing graphql_url`);
+      const gql = makeGqlClient(cfg.graphql_url, tokens, gqlOptions(cfg.kind, telemetry));
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), tokens, "github");
       const defaultTokens = Array.isArray(tokens) ? tokens : [{ env: "token", value: tokens }];
       const defaultKey = tokenKey(defaultTokens);
@@ -79,8 +81,17 @@ export function buildSource(
       return new GitHubSource(descriptor, gql, activePaths, rest, { commitBranches: cfg.commit_branches, projectClients, partialReason });
     }
     case "gitlab": {
+      if (!cfg.graphql_url) throw new Error(`source ${cfg.source_id} is missing graphql_url`);
+      const gql = makeGqlClient(cfg.graphql_url, tokens, gqlOptions(cfg.kind, telemetry));
       const rest = makeRestClient(cfg.rest_url ?? defaultRestUrl(cfg.kind, cfg.host), tokens, "gitlab");
       return new GitLabSource(descriptor, gql, paths, rest, { commitBranches: cfg.commit_branches });
+    }
+    case "forgejo": {
+      if (!cfg.base_url) throw new Error(`source ${cfg.source_id} is missing base_url`);
+      const rest = makeRestClient(forgejoApiUrl(cfg.base_url), tokens, "forgejo", {
+        onRequest: telemetry ? () => { telemetry.restRequests = (telemetry.restRequests ?? 0) + 1; } : undefined,
+      });
+      return new ForgejoSource(descriptor, rest, paths);
     }
     default:
       throw new Error(`unknown source kind "${cfg.kind}" for ${cfg.source_id}`);

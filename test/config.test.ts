@@ -82,6 +82,27 @@ test("rejects a non-string rest_url", () => {
   assert.throws(() => loadConfig(path), /rest_url must be a string/);
 });
 
+test("accepts a Forgejo base URL without GraphQL and validates the Codeberg-first source contract", () => {
+  const forgejo = baseSource({
+    source_id: "forgejo:codeberg.org",
+    kind: "forgejo",
+    host: "codeberg.org",
+    token_env: "CODEBERG_TOKEN",
+    graphql_url: undefined,
+    base_url: "https://codeberg.org",
+    projects: ["acme/widgets"],
+  });
+  assert.deepEqual(configErrors({ db_path: "x", sources: [forgejo] }, "config"), []);
+  const loaded = loadConfig(writeConfig(forgejo)).cfg.sources[0]!;
+  assert.equal(loaded.base_url, "https://codeberg.org");
+  assert.equal(loaded.graphql_url, undefined);
+
+  assert.match(configErrors({ db_path: "x", sources: [{ ...forgejo, base_url: "https://user:pass@codeberg.org" }] }, "config")[0]!, /base_url/);
+  assert.match(configErrors({ db_path: "x", sources: [{ ...forgejo, base_url: "https://codeberg.org?token=x" }] }, "config")[0]!, /base_url/);
+  assert.match(configErrors({ db_path: "x", sources: [{ ...forgejo, projects: ["group/nested/repo"] }] }, "config")[0]!, /owner\/repo/);
+  assert.match(configErrors({ db_path: "x", sources: [{ ...forgejo, projects: ["../repo"] }] }, "config")[0]!, /owner\/repo/);
+});
+
 test("accepts commit_branches all/default and rejects any other value", () => {
   assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "all" })] }, "config"), []);
   assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "default" })] }, "config"), []);

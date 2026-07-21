@@ -10,6 +10,7 @@ import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { buildRangeContract } from "../contract/build.ts";
+import { providerLinkSources } from "../contract/emit.ts";
 import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
 import { sendJsonMaybeGzip } from "./http.ts";
 
@@ -74,6 +75,7 @@ export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractE
       generatedAt: new Date().toISOString(),
       sourceColors,
       repoColors,
+      sourceLinks: providerLinkSources(cfg),
       identities: cfg.identities,
       excludeActors: cfg.exclude_actors,
       timezone: cfg.timezone,

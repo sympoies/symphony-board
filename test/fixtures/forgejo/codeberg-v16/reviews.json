@@ -1,0 +1,14 @@
+[
+  {
+    "id": 3001,
+    "state": "APPROVED",
+    "body": "Looks good.",
+    "html_url": "https://codeberg.org/acme/widgets/pulls/8#pullreview-3001",
+    "submitted_at": "2026-07-03T13:00:00Z",
+    "updated_at": "2026-07-03T13:00:00Z",
+    "comments_count": 1,
+    "dismissed": false,
+    "stale": false,
+    "user": { "id": 45, "login": "erin", "html_url": "https://codeberg.org/erin" }
+  }
+]

@@ -38,6 +38,10 @@ export interface SourceOptions {
 
 export interface SourceRunTelemetry {
   graphqlRequests: number;
+  // REST requests issued by providers whose primary surface is REST. Kept in
+  // live structured run status/logs; the DB's legacy GraphQL columns are not
+  // repurposed and no schema migration is required.
+  restRequests?: number;
   // GitHub GraphQL rate-limit points consumed by this source run. Non-GitHub
   // providers report null because their GraphQL APIs do not expose this shape.
   graphqlCost: number | null;

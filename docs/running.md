@@ -22,6 +22,7 @@ export EXAMPLE_BOT_B_APP_ID="12346"
 export EXAMPLE_BOT_B_INSTALLATION_ID="67891"
 export EXAMPLE_BOT_B_PRIVATE_KEY_PATH="/run/secrets/example-bot-b.pem"
 export GITLAB_TOKEN="glpat_xxx"   # only when a GitLab source is configured
+export CODEBERG_TOKEN="..."       # only when a Codeberg source is configured
 ```
 
 Credentials are referenced by env-var name in config and read from the
@@ -55,6 +56,27 @@ The Diagnostics `Rate limit` tab probes one lightweight GraphQL request per
 configured GitHub credential and shows PAT vs bot, PAT account login or bot
 name, strategy, remaining budget, and used budget. Token values and private-key
 values never appear in the response or UI.
+
+Forgejo sources use a PAT referenced by environment-variable name and REST
+`/api/v1` only. A minimal Codeberg source is:
+
+```json
+{
+  "source_id": "forgejo:codeberg.org",
+  "kind": "forgejo",
+  "host": "codeberg.org",
+  "display_name": "Codeberg",
+  "base_url": "https://codeberg.org",
+  "token_env": "CODEBERG_TOKEN",
+  "projects": ["owner/repository"]
+}
+```
+
+The first certified slice targets Forgejo major 16. It supports issues, pull
+requests, labels, discussion/review activities, default-branch commits,
+combined status, and structured block dependencies. Aggregate review state,
+review-thread counts, closing/mention inference, side branches, repository
+feeds, Actions runs, and webhooks remain unsupported and are not guessed.
 
 Set `SYNC_AUTH_TRACE=1` temporarily to log each provider request's selected
 credential label, auth kind, strategy, API kind, operation, and repo when it can

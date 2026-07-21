@@ -170,3 +170,38 @@ test("validateProviderToken reports provider failures as invalid_token without l
   assert.match(result.message ?? "", /Bad credentials/);
   assert.ok(!JSON.stringify(result).includes("ghp_bad_value"), "failure response never includes the token value");
 });
+
+test("validateProviderToken probes every Forgejo repository over REST without exposing the token", async () => {
+  const calls: Array<{ baseUrl: string; token: string; path: string }> = [];
+  const forgejoCfg: AppConfig = {
+    db_path: "data/board.db",
+    sources: [{
+      source_id: "forgejo:codeberg.org",
+      kind: "forgejo",
+      host: "codeberg.org",
+      base_url: "https://codeberg.org",
+      token_env: "CODEBERG_TOKEN",
+      projects: ["acme/widgets"],
+    }],
+  };
+  const result = await validateProviderToken(
+    forgejoCfg,
+    { source_id: "forgejo:codeberg.org", env: "CODEBERG_TOKEN", value: "forgejo-secret" },
+    {
+      restClientFactory: (baseUrl, token) => async <T = any>(path: string): Promise<T> => {
+        calls.push({ baseUrl, token: token.value, path });
+        return { id: 501, full_name: "acme/widgets" } as T;
+      },
+    },
+  );
+
+  assert.deepEqual(result, {
+    ok: true,
+    source_id: "forgejo:codeberg.org",
+    env: "CODEBERG_TOKEN",
+    provider: "forgejo",
+    project_path: "acme/widgets",
+  });
+  assert.deepEqual(calls, [{ baseUrl: "https://codeberg.org/api/v1", token: "forgejo-secret", path: "repos/acme/widgets" }]);
+  assert.ok(!JSON.stringify(result).includes("forgejo-secret"));
+});

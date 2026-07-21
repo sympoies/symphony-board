@@ -651,6 +651,36 @@ test("repo metrics emit provider repo URLs for nested GitLab paths and null for 
   assert.equal(env.repo_metrics?.find((m) => m.project_path === "too/deep/for/github")?.repo_url, null);
 });
 
+test("Forgejo repo metrics preserve the configured instance base path without changing the public contract", () => {
+  const source: SourceRow = {
+    source_id: "forgejo:forge.example/services/code",
+    kind: "forgejo",
+    host: "forge.example",
+    display_name: "Forgejo",
+    last_success_at: null,
+    last_status: "ok",
+  };
+  const env = buildContract({
+    sources: [source],
+    items: [itemRow({
+      source_id: source.source_id,
+      external_id: "item:1001",
+      project_path: "acme/widgets",
+      url: "https://forge.example/services/code/acme/widgets/issues/7",
+    })],
+    labels: [],
+    edges: [],
+    generatedAt: "2026-07-21T00:00:00.000Z",
+    sourceLinks: {
+      [source.source_id]: { kind: "forgejo", host: "forge.example", baseUrl: "https://forge.example/services/code" },
+    },
+  });
+
+  assert.equal(env.contract_version, CONTRACT_VERSION);
+  assert.deepEqual(validateContract(env), []);
+  assert.equal(env.repo_metrics?.[0]?.repo_url, "https://forge.example/services/code/acme/widgets");
+});
+
 test("repo metric data_quality timestamps are null when a repo has no activity rows", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },

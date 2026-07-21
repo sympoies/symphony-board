@@ -36,6 +36,7 @@ export interface SourceRunResult {
   items: number;
   edges: number;
   activities: number;
+  rest_requests?: number | null;
   graphql_requests?: number | null;
   graphql_cost?: number | null;
   graphql_cost_unknown?: number | null;
@@ -128,6 +129,7 @@ export async function executeSyncRun(
         items: 0,
         edges: 0,
         activities: 0,
+        rest_requests: null,
         graphql_requests: null,
         graphql_cost: null,
         graphql_cost_unknown: null,
@@ -155,6 +157,7 @@ export async function executeSyncRun(
       log.info(
         `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
           `graphqlReq=${rep.graphqlRequests ?? "-"} graphqlCost=${rep.graphqlCost ?? "-"} graphqlCostUnknown=${rep.graphqlCostUnknown ?? "-"} ` +
+          `restReq=${telemetry?.restRequests ?? "-"} ` +
           `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
       );
       results.push({
@@ -163,6 +166,7 @@ export async function executeSyncRun(
         items: rep.itemsSeen,
         edges: rep.edgesSeen,
         activities: rep.activitiesSeen,
+        rest_requests: telemetry?.restRequests ?? null,
         graphql_requests: rep.graphqlRequests,
         graphql_cost: rep.graphqlCost,
         graphql_cost_unknown: rep.graphqlCostUnknown,
@@ -260,6 +264,7 @@ export async function runConfiguredSync(
         items: 0,
         edges: 0,
         activities: 0,
+        rest_requests: null,
         graphql_requests: null,
         graphql_cost: null,
         graphql_cost_unknown: null,
@@ -278,6 +283,7 @@ export async function runConfiguredSync(
     }
     const telemetry: SourceRunTelemetry = {
       graphqlRequests: 0,
+      restRequests: 0,
       graphqlCost: sc.kind === "github" ? 0 : null,
       graphqlCostUnknown: sc.kind === "github" ? 0 : null,
     };

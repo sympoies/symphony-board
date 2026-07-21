@@ -1,0 +1,13 @@
+{
+  "state": "success",
+  "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "total_count": 1,
+  "statuses": [
+    {
+      "id": 4001,
+      "status": "success",
+      "context": "checks/unit",
+      "target_url": "https://codeberg.org/acme/widgets/actions/runs/4001"
+    }
+  ]
+}

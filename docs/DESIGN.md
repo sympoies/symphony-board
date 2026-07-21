@@ -230,6 +230,29 @@ for the board. GitLab `mentions` and `relates` are parsed from system-note text,
 which is inherently more brittle than structured GraphQL fields; unresolved
 references to untracked projects are dropped rather than guessed.
 
+### Forgejo / Codeberg first slice
+
+Forgejo is a REST-only source under `kind: "forgejo"`, initially certified
+against Codeberg's Forgejo 16 `/api/v1` surface. The instance `base_url` is
+config-derived display/network metadata; it may include a reverse-proxy path
+and is never stored in the canonical DB. The adapter probes `/version` and
+`/settings/api`, rejects unverified majors, bounds every response and page walk,
+and refuses redirects outside the configured origin/API root.
+
+Forgejo pull requests are issue-backed. Canonical item identity therefore uses
+`item:<Issue.id>` for both issues and pull requests; repository number and
+`PullRequest.id` remain local payload fields, never identity. Comment, review,
+review-comment, commit, and other subrecord IDs use separate namespaces.
+
+The certified slice maps structured block/dependency relationships only. Review
+submissions and inline review comments are activities, while aggregate approval
+state and review-thread counts remain null because the API evidence does not
+provide equivalent semantics. Text/timeline closing references, mentions,
+side-branch commits, repository feeds, Actions runs, webhooks, and provider
+mutations are intentionally unsupported. Any required endpoint failure,
+truncation, or page cap makes the sweep incomplete and prevents watermark
+advance and disappearance deletion.
+
 ## Contract
 
 The contract is the product API. It is defined by:

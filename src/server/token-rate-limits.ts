@@ -136,6 +136,7 @@ export async function probeTokenRateLimits(
       jobs.push(
         (async (): Promise<TokenRateLimit> => {
           try {
+            if (!s.graphql_url) return { ...base, ...tokenMeta, ok: false, error: "GitHub source is missing graphql_url" };
             const gql = clientFactory(s.graphql_url, token);
             const data = await gql<RateLimitProbeResult>(kind === "pat" ? PAT_RATE_LIMIT_QUERY : RATE_LIMIT_QUERY);
             const rl = data?.rateLimit;

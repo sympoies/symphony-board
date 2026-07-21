@@ -70,6 +70,33 @@ test("makeRestClient sends GitLab token headers", async () => {
   assert.equal(seenHeaders.Authorization, undefined);
 });
 
+test("makeRestClient contains Forgejo credentials and bounds response bodies", async () => {
+  const calls: Array<{ url: string; auth: string | undefined; redirect: RequestInit["redirect"] }> = [];
+  mockFetch((url, init) => {
+    calls.push({ url: url.href, auth: (init.headers as Record<string, string>).Authorization, redirect: init.redirect });
+    if (url.pathname.endsWith("/redirect")) {
+      return new Response(null, { status: 302, headers: { location: "https://elsewhere.invalid/api/v1/user" } });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  });
+  let requests = 0;
+  const client = makeRestClient("https://forge.example/services/code/api/v1", "fj-secret", "forgejo", {
+    maxResponseBytes: 32,
+    onRequest: () => { requests++; },
+  });
+
+  assert.deepEqual(await client("repos/acme/widgets"), { ok: true });
+  assert.equal(calls[0]!.url, "https://forge.example/services/code/api/v1/repos/acme/widgets");
+  assert.equal(calls[0]!.auth, "token fj-secret");
+  assert.equal(calls[0]!.redirect, "manual");
+  assert.equal(requests, 1);
+  await assert.rejects(() => client("redirect"), /cross-origin redirect/);
+  assert.equal(requests, 2);
+
+  mockFetch(() => new Response(JSON.stringify({ payload: "too-large-for-the-configured-bound" }), { status: 200 }));
+  await assert.rejects(() => client("repos/acme/widgets"), /response exceeded 32 bytes/);
+});
+
 test("makeRestClient reports non-JSON and HTTP failures", async () => {
   mockFetch(() => new Response("not-json", { status: 200 }));
   const client = makeRestClient("https://api.github.com", "tok", "github");

@@ -830,8 +830,9 @@ different:
 Each row contains:
 
 - `repo_url`: optional nullable provider repo URL, added in `3.2.0`. It is
-  emitted only for supported GitHub/GitLab source descriptors and valid provider
-  project paths. Use it as a display/navigation convenience, not as identity.
+  emitted only for supported GitHub/GitLab/Forgejo source descriptors and valid
+  provider project paths. Forgejo links preserve the configured instance base
+  path. Use it as a display/navigation convenience, not as identity.
 - `window`: `active_since` for static emits or `time_range` for `/api/range`,
   always with `basis: "repo_activity"`, inclusive UTC `from` / `to`, and an
   explicit bucket width (`2h`, `4h`, `6h`, `day`, `week`, or `month`; the sub-day

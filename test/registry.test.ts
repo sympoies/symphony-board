@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildSource } from "../src/sources/registry.ts";
 import { GitHubSource } from "../src/sources/github.ts";
 import { GitLabSource } from "../src/sources/gitlab.ts";
+import { ForgejoSource } from "../src/sources/forgejo.ts";
 import type { SourceConfig } from "../src/config.ts";
 
 // buildSource is the only place a SourceConfig becomes a live Source — a wiring
@@ -49,6 +50,22 @@ test("a gitlab config builds a GitLabSource", () => {
   assert.ok(src instanceof GitLabSource);
   assert.equal(src.descriptor.sourceId, "gitlab:gitlab.com");
   assert.equal(src.descriptor.kind, "gitlab");
+});
+
+test("a Forgejo config builds a REST-only ForgejoSource", () => {
+  const src = buildSource(
+    cfg({
+      source_id: "forgejo:codeberg.org",
+      kind: "forgejo",
+      host: "codeberg.org",
+      graphql_url: undefined,
+      base_url: "https://codeberg.org",
+      token_env: "CODEBERG_TOKEN",
+    }),
+    "tok",
+  );
+  assert.ok(src instanceof ForgejoSource);
+  assert.equal(src.descriptor.kind, "forgejo");
 });
 
 test("a github config with tokenless projects marks the source partial", async () => {

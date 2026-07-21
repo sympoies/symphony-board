@@ -1,6 +1,7 @@
 import type { AppConfig, AuthPolicyConfig, ProjectConfig, SourceConfig } from "../config.ts";
 import { makeGqlClient, type GqlClient } from "../sources/graphql.ts";
 import type { AuthToken } from "../sources/http.ts";
+import { forgejoApiUrl, makeRestClient, type RestClient } from "../sources/rest.ts";
 
 const VALIDATION_TIMEOUT_MS = 10_000;
 
@@ -36,10 +37,13 @@ export interface TokenValidationResult {
 }
 
 export type TokenValidationClientFactory = (url: string, token: AuthToken, provider: "github" | "gitlab") => GqlClient;
+export type ForgejoValidationClientFactory = (url: string, token: AuthToken) => RestClient;
 export type TokenValidator = (cfg: AppConfig, request: TokenValidationRequest) => Promise<TokenValidationResult>;
 
 const defaultClientFactory: TokenValidationClientFactory = (url, token, provider) =>
   makeGqlClient(url, [token], { provider, timeoutMs: VALIDATION_TIMEOUT_MS });
+const defaultRestClientFactory: ForgejoValidationClientFactory = (url, token) =>
+  makeRestClient(url, [token], "forgejo", { timeoutMs: VALIDATION_TIMEOUT_MS });
 
 function tokenEnvNamesFromPool(pool: { token_env?: string; fallback_token_envs?: string[] } | undefined): string[] {
   if (!pool) return [];
@@ -136,7 +140,7 @@ interface GitLabValidationData {
 export async function validateProviderToken(
   cfg: AppConfig,
   request: TokenValidationRequest,
-  opts: { clientFactory?: TokenValidationClientFactory } = {},
+  opts: { clientFactory?: TokenValidationClientFactory; restClientFactory?: ForgejoValidationClientFactory } = {},
 ): Promise<TokenValidationResult> {
   const sourceId = request.source_id.trim();
   const env = request.env.trim();
@@ -148,7 +152,7 @@ export async function validateProviderToken(
   if (!patEnvNames(source).includes(env)) {
     return bad(sourceId, env, source.kind, `env ${env} is not configured as a PAT env on ${sourceId}`);
   }
-  if (source.kind !== "github" && source.kind !== "gitlab") {
+  if (source.kind !== "github" && source.kind !== "gitlab" && source.kind !== "forgejo") {
     return { ok: false, source_id: sourceId, env, provider: source.kind, error: "unsupported_provider", message: `unsupported provider: ${source.kind}` };
   }
   const projects = validationProjectsForEnv(source, env);
@@ -156,7 +160,12 @@ export async function validateProviderToken(
 
   const clientFactory = opts.clientFactory ?? defaultClientFactory;
   const token: AuthToken = { env, value, kind: "pat" };
-  const gql = clientFactory(source.graphql_url, token, source.kind);
+  const gql = source.kind === "github" || source.kind === "gitlab"
+    ? clientFactory(source.graphql_url!, token, source.kind)
+    : null;
+  const forgejo = source.kind === "forgejo" && source.base_url
+    ? (opts.restClientFactory ?? defaultRestClientFactory)(forgejoApiUrl(source.base_url), token)
+    : null;
 
   let account: string | undefined;
   let projectPathResult: string | undefined;
@@ -165,19 +174,29 @@ export async function validateProviderToken(
       if (source.kind === "github") {
         const ownerRepo = githubOwnerRepo(project);
         if (!ownerRepo) return bad(sourceId, env, source.kind, `GitHub project path must be owner/repo: ${project}`);
-        const data = await gql<GitHubValidationData>(GITHUB_TOKEN_VALIDATION_QUERY, ownerRepo);
+        const data = await gql!<GitHubValidationData>(GITHUB_TOKEN_VALIDATION_QUERY, ownerRepo);
         if (!data.repository?.id) return invalid(source, env, project, `token could not read ${project}`);
         account ??= data.viewer?.login?.trim() || undefined;
         projectPathResult ??= data.repository.nameWithOwner?.trim() || project;
         continue;
       }
 
-      const data = await gql<GitLabValidationData>(GITLAB_TOKEN_VALIDATION_QUERY, { fullPath: project });
-      if (!data.project?.id) return invalid(source, env, project, `token could not read ${project}`);
-      account ??= data.currentUser?.username?.trim() || undefined;
-      projectPathResult ??= data.project.fullPath?.trim() || project;
+      if (source.kind === "gitlab") {
+        const data = await gql!<GitLabValidationData>(GITLAB_TOKEN_VALIDATION_QUERY, { fullPath: project });
+        if (!data.project?.id) return invalid(source, env, project, `token could not read ${project}`);
+        account ??= data.currentUser?.username?.trim() || undefined;
+        projectPathResult ??= data.project.fullPath?.trim() || project;
+        continue;
+      }
+
+      const ownerRepo = githubOwnerRepo(project);
+      if (!ownerRepo) return bad(sourceId, env, source.kind, `Forgejo project path must be owner/repo: ${project}`);
+      if (!forgejo) return bad(sourceId, env, source.kind, `Forgejo source ${sourceId} is missing base_url`);
+      const data = await forgejo<any>(`repos/${encodeURIComponent(ownerRepo.owner)}/${encodeURIComponent(ownerRepo.name)}`);
+      if (!data?.id) return invalid(source, env, project, `token could not read ${project}`);
+      projectPathResult ??= cleanProjectPath(data?.full_name) ?? project;
     } catch (err) {
-      return invalid(source, env, project, (err as Error).message);
+      return invalid(source, env, project, (err as Error).message.split(value).join("[REDACTED]"));
     }
   }
 
@@ -189,4 +208,8 @@ export async function validateProviderToken(
     ...(account ? { account } : {}),
     ...(projectPathResult ? { project_path: projectPathResult } : {}),
   };
+}
+
+function cleanProjectPath(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }

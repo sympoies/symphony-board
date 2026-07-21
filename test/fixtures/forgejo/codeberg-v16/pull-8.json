@@ -1,0 +1,13 @@
+{
+  "id": 9002,
+  "number": 8,
+  "state": "open",
+  "draft": false,
+  "merged": false,
+  "merged_at": null,
+  "mergeable": true,
+  "merge_commit_sha": null,
+  "html_url": "https://codeberg.org/acme/widgets/pulls/8",
+  "head": { "ref": "feature/widgets", "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+  "base": { "ref": "main", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+}

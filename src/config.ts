@@ -87,7 +87,13 @@ export interface SourceConfig {
   // rate-limit budget. Legacy token_env/github_app/token_pools remain supported.
   auth_pools?: Record<string, AuthPoolConfig>;
   auth_policy?: AuthPolicyConfig;
-  graphql_url: string;
+  // GraphQL endpoint for providers that use it. Forgejo is REST-only and uses
+  // base_url instead, so this field is intentionally optional at the shared
+  // config layer and required conditionally by configErrors.
+  graphql_url?: string;
+  // Forgejo instance web root, including an optional reverse-proxy path. The
+  // REST endpoint is derived by appending /api/v1; credentials remain env refs.
+  base_url?: string;
   // Optional REST base URL. Defaults by provider/host when omitted; used for
   // activity surfaces such as commits and project/repository events.
   rest_url?: string;
@@ -425,8 +431,34 @@ export function configErrors(raw: unknown, label: string): string[] {
         errors.push(`${label}: every source must be an object`);
         continue;
       }
-      for (const field of ["source_id", "kind", "host", "graphql_url"] as const) {
+      for (const field of ["source_id", "kind", "host"] as const) {
         if (!s[field]) errors.push(`${label}: source missing "${field}"`);
+      }
+      if (s.kind === "forgejo") {
+        if (!s.base_url) {
+          errors.push(`${label}: source "${s.source_id}" is missing base_url`);
+        } else if (typeof s.base_url !== "string") {
+          errors.push(`${label}: source "${s.source_id}" base_url must be a string`);
+        } else {
+          try {
+            const base = new URL(s.base_url);
+            const expectedHost = typeof s.host === "string" ? s.host.toLowerCase() : "";
+            if (
+              base.protocol !== "https:" ||
+              base.username ||
+              base.password ||
+              base.search ||
+              base.hash ||
+              base.host.toLowerCase() !== expectedHost
+            ) {
+              errors.push(`${label}: source "${s.source_id}" base_url must be an HTTPS root on host ${s.host} without credentials, query, or fragment`);
+            }
+          } catch {
+            errors.push(`${label}: source "${s.source_id}" base_url must be an absolute HTTPS URL`);
+          }
+        }
+      } else if (!s.graphql_url) {
+        errors.push(`${label}: source missing "graphql_url"`);
       }
       if (typeof s.source_id === "string" && s.source_id.includes("|")) {
         errors.push(`${label}: source_id "${s.source_id}" must not contain '|'`);
@@ -487,6 +519,9 @@ export function configErrors(raw: unknown, label: string): string[] {
         if (typeof projPath !== "string" || projPath.length === 0) {
           errors.push(`${label}: source "${s.source_id}" has a project entry with no "path"`);
           continue;
+        }
+        if (s.kind === "forgejo" && !/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projPath)) {
+          errors.push(`${label}: Forgejo project "${projPath}" must be owner/repo`);
         }
         if (typeof entry !== "string" && entry.color !== undefined && !HEX_COLOR.test(entry.color)) {
           errors.push(`${label}: project "${projPath}" color "${entry.color}" is not a hex color (#rgb or #rrggbb)`);

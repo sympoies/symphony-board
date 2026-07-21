@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1002,
+    "number": 8,
+    "title": "Implement the widget protocol",
+    "body": "Implements the documented behavior.",
+    "state": "open",
+    "html_url": "https://codeberg.org/acme/widgets/pulls/8",
+    "created_at": "2026-07-01T11:00:00Z",
+    "updated_at": "2026-07-03T11:00:00Z",
+    "closed_at": null,
+    "comments": 2,
+    "user": { "id": 43, "login": "carol", "html_url": "https://codeberg.org/carol" },
+    "labels": [{ "id": 72, "name": "implementation", "color": "2563eb" }],
+    "milestone": null,
+    "pull_request": { "merged": null, "html_url": "https://codeberg.org/acme/widgets/pulls/8" }
+  }
+]

@@ -14,6 +14,7 @@ import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import type { Store } from "../db/store.ts";
 import { buildContract } from "./build.ts";
+import type { ProviderLinkSource } from "../provider-links.ts";
 import { validateContract, type ValidationError } from "./validate.ts";
 
 // Config-derived display colors: source-level on each source, repo-level on the
@@ -31,6 +32,13 @@ export function displayColors(cfg: AppConfig): { sourceColors: Record<string, st
     }
   }
   return { sourceColors, repoColors };
+}
+
+export function providerLinkSources(cfg: AppConfig): Record<string, ProviderLinkSource> {
+  return Object.fromEntries(cfg.sources.map((source) => [
+    source.source_id,
+    { kind: source.kind, host: source.host, ...(source.base_url ? { baseUrl: source.base_url } : {}) },
+  ]));
 }
 
 // Build the contract envelope from the current store state: a pure mapping over
@@ -52,6 +60,7 @@ export async function buildContractEnvelope(
     generatedAt,
     sourceColors,
     repoColors,
+    sourceLinks: providerLinkSources(cfg),
     identities: cfg.identities,
     excludeActors: cfg.exclude_actors,
     timezone: cfg.timezone,

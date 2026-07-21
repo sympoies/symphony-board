@@ -1,0 +1,12 @@
+[
+  {
+    "id": 3101,
+    "body": "Please keep this branch explicit.",
+    "path": "src/widget.ts",
+    "position": 12,
+    "html_url": "https://codeberg.org/acme/widgets/pulls/8#issuecomment-3101",
+    "created_at": "2026-07-03T13:01:00Z",
+    "updated_at": "2026-07-03T13:01:00Z",
+    "user": { "id": 45, "login": "erin", "html_url": "https://codeberg.org/erin" }
+  }
+]

@@ -2887,6 +2887,20 @@ test("suggestSourceDefaults: canonical hosts get conventional names, self-hosted
   });
   assert.equal(suggestSourceDefaults("github", "GHE.Corp.example").token_env, "GITHUB_TOKEN_GHE_CORP_EXAMPLE");
   assert.equal(suggestSourceDefaults("gitlab", "gitlab.com").token_env, "GITLAB_TOKEN");
+  assert.deepEqual(suggestSourceDefaults("forgejo", "codeberg.org"), {
+    source_id: "forgejo:codeberg.org",
+    kind: "forgejo",
+    host: "codeberg.org",
+    token_env: "CODEBERG_TOKEN",
+    base_url: "https://codeberg.org",
+  });
+  assert.deepEqual(suggestSourceDefaults("forgejo", "https://forge.example/services/code/"), {
+    source_id: "forgejo:forge.example/services/code",
+    kind: "forgejo",
+    host: "forge.example",
+    token_env: "FORGEJO_TOKEN_FORGE_EXAMPLE_SERVICES_CODE",
+    base_url: "https://forge.example/services/code",
+  });
 });
 
 test("standaloneDefaultConfig seeds GitHub-only symphony-board config with an empty PAT slot", () => {

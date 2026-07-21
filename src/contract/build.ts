@@ -216,8 +216,14 @@ function toSourceDTO(row: SourceRow, sourceColors: Record<string, string>): Sour
   };
 }
 
-function sourceLinkMap(sources: SourceRow[]): Map<string, ProviderLinkSource> {
-  return new Map(sources.map((source) => [source.source_id, { kind: source.kind, host: source.host }]));
+function sourceLinkMap(
+  sources: SourceRow[],
+  configured: Record<string, ProviderLinkSource> = {},
+): Map<string, ProviderLinkSource> {
+  return new Map(sources.map((source) => [
+    source.source_id,
+    { kind: source.kind, host: source.host, ...configured[source.source_id] },
+  ]));
 }
 
 function inc(counts: Record<string, number>, key: string): void {
@@ -1221,6 +1227,9 @@ export interface BuildInput {
   // inputs. Both default to empty, so existing callers/tests are unaffected.
   sourceColors?: Record<string, string>; // source_id -> hex
   repoColors?: RepoDTO[]; // sparse: only repos with a configured color
+  // Config-derived provider web roots. Forgejo may be mounted below the host
+  // root; this remains emit-time metadata and does not require a DB column.
+  sourceLinks?: Record<string, ProviderLinkSource>;
   // Config-declared identity aliases (NOT stored in the DB). Collapse a person's
   // separate actor identities (e.g. a GitLab username vs their commit email) into
   // one top_actors row. An identity may be scoped to specific source_ids; empty
@@ -1292,7 +1301,7 @@ function buildActivityDaily(activities: ActivityDTO[], generatedAt: string, time
 
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
-  const sourcesById = sourceLinkMap(input.sources);
+  const sourcesById = sourceLinkMap(input.sources, input.sourceLinks);
   const windowed =
     input.itemWindow === "full"
       ? fullItemProjection(mapped.items, mapped.edges)
@@ -1424,7 +1433,7 @@ export interface BuildRangeInput extends BuildInput {
 
 export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const mapped = mapRows(input);
-  const sourcesById = sourceLinkMap(input.sources);
+  const sourcesById = sourceLinkMap(input.sources, input.sourceLinks);
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
