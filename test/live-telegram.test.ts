@@ -191,6 +191,25 @@ test("formatLiveEvent escapes hostile body/title text", () => {
   assert.ok(!msg.includes("<script>"), "raw <script> tag must be escaped");
 });
 
+test("formatLiveEvent omits forge-cli machine markers from comment previews", () => {
+  const marker = `<!-- forge-cli:review-state:v1 ${"ab".repeat(2_000)} -->`;
+  const msg = formatLiveEvent(
+    makeEvent({
+      category: "comment",
+      body:
+        `forge-cli review ledger · generation 0 · review-loop · head abc123\n${marker}\n\n---\n\n` +
+        "## Review outcome\n\nNo findings.",
+    }),
+    5,
+  );
+
+  assert.ok(!msg.includes("forge-cli:review-state"), "machine marker is not forwarded");
+  assert.ok(!msg.includes("abababab"), "encoded state is not forwarded");
+  assert.ok(!msg.includes("generation 0"), "legacy implementation metadata is not forwarded");
+  assert.match(msg, /Review checkpoint/);
+  assert.match(msg, /Review outcome/);
+});
+
 test("formatLiveEvent truncates an over-long body to the message ceiling", () => {
   const msg = formatLiveEvent(makeEvent({ body: "x".repeat(8000) }));
   assert.ok(msg.length <= TELEGRAM_MESSAGE_LIMIT);

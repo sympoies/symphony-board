@@ -40,6 +40,39 @@ export function clampHtml(text: string, limit: number): string {
   return text.slice(0, limit).replace(/&[a-z]{0,5}$/i, "");
 }
 
+const FORGE_CLI_MARKER_OPEN = "<!-- forge-cli:";
+const HTML_COMMENT_CLOSE = "-->";
+const FORGE_CLI_LEGACY_LEDGER_LINE =
+  /^forge-cli review ledger · generation \d+ · [0-9A-Za-z._-]+ · head [0-9A-Za-z._-]+$/gm;
+const REVIEW_CHECKPOINT_NOTICE = "Review checkpoint — review progress recorded.";
+
+// Provider bodies may carry forge-cli's durable state in hidden HTML comments.
+// Those machine markers are useful to forge-cli but become thousands of noisy
+// hexadecimal characters when mirrored as escaped Telegram text. Remove only
+// forge-cli-owned comments, translate its legacy implementation-facing ledger
+// line to the current tool-neutral notice, and leave ordinary provider prose
+// unchanged. An unterminated owned marker hides the remainder on GitHub too, so
+// dropping the remainder is the closest safe preview behavior.
+export function sanitizeLiveBody(body: string): string {
+  const neutral = body.replace(FORGE_CLI_LEGACY_LEDGER_LINE, REVIEW_CHECKPOINT_NOTICE);
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < neutral.length) {
+    const start = neutral.indexOf(FORGE_CLI_MARKER_OPEN, cursor);
+    if (start === -1) {
+      result += neutral.slice(cursor);
+      break;
+    }
+    result += neutral.slice(cursor, start);
+    const end = neutral.indexOf(HTML_COMMENT_CLOSE, start + FORGE_CLI_MARKER_OPEN.length);
+    if (end === -1) break;
+    cursor = end + HTML_COMMENT_CLOSE.length;
+  }
+
+  return result.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // A glyph per neutral category (open vocabulary: an unknown category still
 // renders with the default rather than dropping the event).
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -134,7 +167,7 @@ export function formatLiveEvent(event: LiveEvent, bodyLines = MAX_BODY_LINES): s
   // Append a SHORT body preview — at most MAX_BODY_LINES lines, still under the
   // message ceiling. The header already links the item, so a truncated body
   // ends with "…" and the reader clicks through for the full content.
-  const rawBody = event.body?.trim();
+  const rawBody = event.body ? sanitizeLiveBody(event.body) : "";
   if (!rawBody) return head;
 
   const ELLIPSIS = "\n…";
