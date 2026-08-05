@@ -13,6 +13,7 @@ import {
   eventEmoji,
   formatLiveEvent,
   MAX_BODY_LINES,
+  sanitizeLiveBody,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../src/live/telegram.ts";
 import {
@@ -189,6 +190,74 @@ test("formatLiveEvent escapes hostile body/title text", () => {
   assert.match(msg, /look &lt;b&gt;bold&lt;\/b&gt; &amp; &lt;i&gt;x&lt;\/i&gt;/);
   // Plain substring check (not a tag-shaped regex) — the raw tag must be gone.
   assert.ok(!msg.includes("<script>"), "raw <script> tag must be escaped");
+});
+
+test("formatLiveEvent omits forge-cli machine markers from comment previews", () => {
+  const marker = `<!-- forge-cli:review-state:v1 ${"ab".repeat(2_000)} -->`;
+  const msg = formatLiveEvent(
+    makeEvent({
+      category: "comment",
+      body:
+        `forge-cli review ledger · generation 0 · review-loop · head abc123\n${marker}\n\n---\n\n` +
+        "## Review outcome\n\nNo findings.",
+    }),
+    5,
+  );
+
+  assert.ok(!msg.includes("forge-cli:review-state"), "machine marker is not forwarded");
+  assert.ok(!msg.includes("abababab"), "encoded state is not forwarded");
+  assert.ok(!msg.includes("generation 0"), "legacy implementation metadata is not forwarded");
+  assert.match(msg, /Review checkpoint/);
+  assert.match(msg, /Review outcome/);
+});
+
+test("sanitizeLiveBody preserves prose while removing owned marker boundary cases", () => {
+  const cases = [
+    {
+      name: "ordinary HTML comment",
+      input: "before <!-- ordinary --> after",
+      expected: "before <!-- ordinary --> after",
+    },
+    {
+      name: "multiple owned markers",
+      input: "before <!-- forge-cli:first --> middle <!-- forge-cli:second --> after",
+      expected: "before  middle  after",
+    },
+    {
+      name: "owned marker only",
+      input: "<!-- forge-cli:review-state:v1 abc123 -->",
+      expected: "",
+    },
+    {
+      name: "unterminated owned marker",
+      input: "before <!-- forge-cli:review-state:v1 abc123",
+      expected: "before",
+    },
+    {
+      name: "newline compaction after marker removal",
+      input: "before\n\n\n<!-- forge-cli:review-state:v1 abc123 -->\n\n\nafter",
+      expected: "before\n\nafter",
+    },
+    {
+      name: "legacy review-loop ledger",
+      input: "forge-cli review ledger · generation 0 · review-loop · head abc123",
+      expected: "Review checkpoint — review progress recorded.",
+    },
+    {
+      name: "legacy review receipt ledger",
+      input: "forge-cli review ledger · generation 12 · review-run-receipt · head deadbeef",
+      expected: "Review checkpoint — review progress recorded.",
+    },
+  ];
+
+  for (const { name, input, expected } of cases) {
+    assert.equal(sanitizeLiveBody(input), expected, name);
+  }
+});
+
+test("formatLiveEvent omits the body gap when sanitization removes the whole body", () => {
+  const event = makeEvent({ body: "<!-- forge-cli:review-state:v1 abc123 -->" });
+  assert.equal(formatLiveEvent(event), formatLiveEvent({ ...event, body: null }));
 });
 
 test("formatLiveEvent truncates an over-long body to the message ceiling", () => {

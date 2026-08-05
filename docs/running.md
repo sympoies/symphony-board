@@ -325,7 +325,10 @@ to a 30-second timeout (`LIVE_TELEGRAM_CONNECTION_TIMEOUT_MS`, capped at five
 minutes). A rapid-failure loop exits after 10 minutes
 (`LIVE_TELEGRAM_RESTART_AFTER_MS`) so the container restart policy can recreate
 the process. The connection timeout is released after SSE headers arrive, so a
-healthy idle stream remains open indefinitely.
+healthy idle stream remains open indefinitely. Body previews omit hidden
+`forge-cli` machine markers and translate its legacy ledger metadata line to a
+tool-neutral review-checkpoint notice before applying the configured line and
+message-size limits.
 
 ## Optional Release Dispatch
 
