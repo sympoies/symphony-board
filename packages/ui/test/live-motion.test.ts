@@ -196,14 +196,20 @@ test("Live auto-follow refreshes the detail in place when the followed event is 
   );
 });
 
-test("clampLivePaneHeight fills the available viewport and never forces the minimum past it", () => {
-  // Tall window: plenty of room below the split, the minimum is comfortably met.
+test("the Live pane clamp is the shared content-pane clamp, floor and all", () => {
+  // Tall window: plenty of room below the split, the floor is comfortably met.
   assert.equal(clampLivePaneHeight(1000, 200, 16, 320), 784);
-  // Short window: less than the minimum remains. Forcing 320 here reintroduces
-  // document-level scrolling, so clamp to what is actually available instead.
-  assert.equal(clampLivePaneHeight(480, 300, 16, 320), 164);
-  // Degenerate: the split already sits past the viewport — never go negative.
-  assert.equal(clampLivePaneHeight(300, 320, 16, 320), 0);
+  // Short window: less than the floor remains. This used to clamp to whatever
+  // was left, on the reasoning that taking the floor "reintroduces document-level
+  // scrolling" — it does, and that is the point. A pane always ends at the
+  // viewport bottom, so the document is exactly viewport-height and has nothing
+  // to scroll; a foldable's inner screen (933x704 CSS px) was left with a ~93px
+  // feed and no way to reach anything below it. See pane-height.test.ts.
+  assert.equal(clampLivePaneHeight(480, 300, 16, 320), 320);
+  assert.equal(clampLivePaneHeight(704, 595, 16, 320), 320);
+  // Degenerate: the split sits past the viewport bottom — capped by the viewport,
+  // never negative.
+  assert.equal(clampLivePaneHeight(300, 320, 16, 320), 284);
 });
 
 test("Live pulse strip collapses to two columns before the ranked charts would overflow a four-column row", () => {
@@ -217,27 +223,29 @@ test("Live pulse strip collapses to two columns before the ranked charts would o
   );
 });
 
-test("Live pulse strip is collapsible on a phone and stays open on desktop", () => {
-  // The four metric cards push the feed far down a phone screen. On mobile they
-  // hide behind a tap-to-collapse disclosure (default open); the collapsed state
-  // is carried by data-open="false" and only takes effect inside the phone
-  // breakpoint, so desktop always shows the strip regardless of the toggle.
+test("Live pulse strip is collapsible whenever the viewport is narrow OR short", () => {
+  // The four metric cards cost ~300px of height. That pushes the feed off a phone
+  // screen AND off any short viewport — a foldable's inner screen is wide enough
+  // for the two-pane split but only ~704px tall — so the collapse lives in the
+  // compact-chrome tier, not the phone-only one. The collapsed state is carried by
+  // data-open="false" and takes effect only inside that tier, so a roomy desktop
+  // always shows the strip regardless of the remembered toggle.
   assert.match(
     stylesSource,
-    /@media \(max-width: 760px\)\s*{[\s\S]*?\.live-pulse\[data-open="false"\]\s*{[^}]*display:\s*none;/,
-    "a collapsed pulse strip should be hidden only within the phone breakpoint",
+    /@media \(max-width: 760px\), \(max-height: 760px\)\s*{[\s\S]*?\.live-pulse\[data-open="false"\]\s*{[^}]*display:\s*none;/,
+    "a collapsed pulse strip should be hidden within the compact-chrome tier",
   );
-  // The toggle reuses the shared collapsed-filter chrome, which is display:none
-  // on desktop — so the disclosure never appears on a wide screen.
+  // The toggle reuses the shared collapsed-filter chrome, which is defined once
+  // and stays display:none — so no disclosure appears on a roomy viewport.
   assert.match(
     stylesSource,
-    /\.filter-summary-disclosure\s*{\s*display:\s*none;\s*}/,
-    "the shared disclosure chrome should be hidden by default (desktop)",
+    /\.filter-summary-disclosure\s*{\s*display:\s*none;/,
+    "the shared disclosure chrome should be hidden by default (roomy viewport)",
   );
   assert.match(
     stylesSource,
-    /@media \(max-width: 760px\)\s*{[\s\S]*?\.live-pulse-disclosure\s*{[^}]*width:\s*100%;/,
-    "the pulse disclosure should be a full-width header bar on a phone",
+    /@media \(max-width: 760px\), \(max-height: 760px\)\s*{[\s\S]*?\.live-pulse-disclosure\s*{[^}]*width:\s*100%;/,
+    "the pulse disclosure should be a full-width header bar in the compact tier",
   );
 });
 

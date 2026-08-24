@@ -285,16 +285,19 @@ export function saveLiveTabEnabled(enabled: boolean): void {
 }
 
 // The Live mobile "metrics" disclosure remembers its open/closed state across
-// reopens (device-local). Open by default — a MISSING value reads as open, so a
-// fresh install shows the metric cards; only an explicit "false" collapses them.
+// reopens (device-local). Open by default on a roomy viewport — a MISSING value
+// reads as open, so a fresh install shows the metric cards; only an explicit
+// "false" collapses them. Callers on a short viewport pass a collapsed fallback:
+// the strip costs ~300px there, which is the difference between a usable content
+// pane and a sliver (see layout-tier.ts). An explicit choice always wins.
 export const DEFAULT_LIVE_PULSE_OPEN = true;
 
-export function loadLivePulseOpen(): boolean {
+export function loadLivePulseOpen(fallback: boolean = DEFAULT_LIVE_PULSE_OPEN): boolean {
   try {
     const raw = localStorage.getItem(LIVE_PULSE_OPEN_KEY);
-    return raw === null ? DEFAULT_LIVE_PULSE_OPEN : raw === "true";
+    return raw === null ? fallback : raw === "true";
   } catch {
-    return DEFAULT_LIVE_PULSE_OPEN;
+    return fallback;
   }
 }
 

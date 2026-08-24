@@ -1,11 +1,12 @@
 import { useCallback, useLayoutEffect, useState, type CSSProperties, type RefCallback } from "react";
-import { clampContentPaneHeight } from "./pane-height.ts";
+import { clampContentPaneHeight, contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx } from "./pane-height.ts";
+import { CONTENT_PANE_MIN_HEIGHT_PX } from "./layout-tier.ts";
 
 type PaneHeightStyle = CSSProperties & { "--content-pane-height"?: string };
 
 export function useContentPaneHeight<T extends HTMLElement>(
   deps: readonly unknown[] = [],
-  { bottomGutter = 16, min = 320 }: { bottomGutter?: number; min?: number } = {},
+  { bottomGutter = 16, min = CONTENT_PANE_MIN_HEIGHT_PX }: { bottomGutter?: number; min?: number } = {},
 ): { paneRef: RefCallback<T>; paneHeightStyle: PaneHeightStyle | undefined } {
   const [node, setNode] = useState<T | null>(null);
   const [height, setHeight] = useState<number | null>(null);
@@ -19,7 +20,15 @@ export function useContentPaneHeight<T extends HTMLElement>(
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         const rect = node.getBoundingClientRect();
-        const next = clampContentPaneHeight(window.innerHeight, rect.top, bottomGutter, min);
+        // Document-relative top + an inset-aware gutter: the pane keeps one
+        // height whether or not the page is scrolled, and stays clear of the
+        // Android navigation bar. See pane-height.ts.
+        const next = clampContentPaneHeight(
+          window.innerHeight,
+          paneDocumentTop(rect.top, window.scrollY),
+          contentPaneBottomGutter(bottomGutter, readSafeAreaBottomPx(window)),
+          min,
+        );
         setHeight((current) => (current === next ? current : next));
       });
     };

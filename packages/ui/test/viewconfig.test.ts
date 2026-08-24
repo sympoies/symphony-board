@@ -220,6 +220,18 @@ test("live metrics disclosure is a device-local setting that is OPEN by default"
   assert.equal(loadLivePulseOpen(), false, "non-boolean stored value -> collapsed");
 });
 
+test("the metrics default follows the viewport, but an explicit choice always wins", () => {
+  // LivePage passes `!isShortViewport()`: a short viewport cannot afford the
+  // ~300px strip, so a fresh install there starts collapsed while a roomy one
+  // starts expanded. Only the MISSING value consults the fallback.
+  assert.equal(loadLivePulseOpen(false), false, "short viewport, nothing stored -> collapsed");
+  assert.equal(loadLivePulseOpen(true), true, "roomy viewport, nothing stored -> expanded");
+  saveLivePulseOpen(true);
+  assert.equal(loadLivePulseOpen(false), true, "a stored open beats the short-viewport default");
+  saveLivePulseOpen(false);
+  assert.equal(loadLivePulseOpen(true), false, "a stored collapse beats the roomy default");
+});
+
 test("board scope is a device-local on/off setting; legacy window values normalize to on", () => {
   // The selected range now controls download size; Board data only toggles on/off.
   assert.equal(defaultBoardScope("android"), "full");

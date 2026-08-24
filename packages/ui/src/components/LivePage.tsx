@@ -15,7 +15,7 @@ import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
-import { useMediaQuery } from "../useMediaQuery.ts";
+import { isShortViewport, useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
 import {
   actorActivityRanks,
@@ -48,6 +48,8 @@ import { Badge } from "./Badge.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { activityVirtualRange, liveDetailNavigation, liveEventKey, type LiveEvent, type LiveEventActor } from "../model.ts";
+import { CONTENT_PANE_MIN_HEIGHT_PX, DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
+import { contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx } from "../pane-height.ts";
 
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
@@ -57,16 +59,16 @@ const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
 // and ignored the rest of the visible window.
 const SPARK_WINDOW_MS = SPARK_BUCKET_MS * SPARK_BUCKETS; // 5 hours
 const SPARK_WINDOW_HOURS = SPARK_WINDOW_MS / 3_600_000; // 5 — drives the "/5h" unit
-// Keep this in sync with the CSS breakpoint where .live-detail becomes a fixed
-// overlay.
-const LIVE_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
+// The CSS breakpoint where .live-detail becomes a fixed overlay, shared with the
+// stylesheet through layout-tier.ts.
+const LIVE_DETAIL_OVERLAY_QUERY = DETAIL_OVERLAY_QUERY;
 const LIVE_DEFAULT_VIEWPORT_PX = 640;
 const LIVE_ROW_BASE_HEIGHT_PX = 74;
 const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
 const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
-const LIVE_PANE_MIN_HEIGHT_PX = 320;
+const LIVE_PANE_MIN_HEIGHT_PX = CONTENT_PANE_MIN_HEIGHT_PX;
 const LIVE_RANK_LIMIT = 6;
 // New events prepend at the top, bumping every row's index (and translateY) by
 // one. Only animate that "push the list down" shift while the viewer is at the
@@ -584,13 +586,16 @@ export function LivePage({
   // Mobile-only: the category pills are collapsed behind a disclosure by default
   // (they're shown inline on desktop). Tap the summary to reveal them.
   const [catsOpen, setCatsOpen] = useState(false);
-  // Mobile-only: the four metric cards (Activity / Last event / Buffer / Active
-  // now) push the feed far down a phone screen, so they collapse behind a
-  // disclosure — OPEN by default, tap to hide and bring the feed list up. Desktop
-  // shows the strip inline (the disclosure is display:none there). The choice is
-  // device-local and remembered across reopens (loadLivePulseOpen), so a phone
-  // user who collapsed it does not have to re-collapse it every launch.
-  const [pulseOpen, setPulseOpen] = useState(loadLivePulseOpen);
+  // Compact tier only: the four metric cards (Activity / Last event / Buffer /
+  // Active now) cost ~300px of vertical space, which pushes the feed off a phone
+  // screen and off any SHORT viewport (a foldable inner screen, a landscape
+  // phone) — so they collapse behind a disclosure, tap to bring the feed back up.
+  // A roomy viewport shows the strip inline (the disclosure is display:none
+  // there) and defaults to open; a short one defaults to collapsed, because there
+  // the strip is the difference between a usable feed and a sliver. The choice is
+  // device-local and remembered across reopens (loadLivePulseOpen), and an
+  // explicit one always beats the viewport default.
+  const [pulseOpen, setPulseOpen] = useState(() => loadLivePulseOpen(!isShortViewport()));
   useEffect(() => {
     saveLivePulseOpen(pulseOpen);
   }, [pulseOpen]);
@@ -687,8 +692,11 @@ export function LivePage({
       if (raf) window.cancelAnimationFrame(raf);
       raf = window.requestAnimationFrame(() => {
         raf = 0;
-        const top = split.getBoundingClientRect().top;
-        const next = clampLivePaneHeight(window.innerHeight, top, LIVE_PANE_BOTTOM_GUTTER_PX, LIVE_PANE_MIN_HEIGHT_PX);
+        // Document-relative top + an inset-aware gutter, so the pane keeps one
+        // height across page scrolls and clears the Android navigation bar.
+        const top = paneDocumentTop(split.getBoundingClientRect().top, window.scrollY);
+        const gutter = contentPaneBottomGutter(LIVE_PANE_BOTTOM_GUTTER_PX, readSafeAreaBottomPx(window));
+        const next = clampLivePaneHeight(window.innerHeight, top, gutter, LIVE_PANE_MIN_HEIGHT_PX);
         setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
       });
     };

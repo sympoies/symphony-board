@@ -3356,6 +3356,67 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // A foldable's inner screen: 933x704 CSS px clears every WIDTH breakpoint (the
+  // two-pane split included) but is far too short for the full desktop chrome.
+  // Before the compact-chrome tier the metric strip left the feed ~93px — less
+  // than one row — and because a pane ends at the viewport bottom the document
+  // had nothing to scroll either, so the feed was simply unreachable.
+  // Drop the remembered metrics choice first: this asserts FIRST-RUN behavior on
+  // such a device, and earlier desktop sections have already persisted "open".
+  await send("Runtime.evaluate", {
+    expression: "try { localStorage.removeItem('symphony-board:live-pulse-open'); } catch (e) {} location.hash = '#/activity'",
+  });
+  await sleep(150);
+  await send("Emulation.setDeviceMetricsOverride", { width: 933, height: 704, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  const liveFoldable = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const feed = document.querySelector('.live-feed');
+      const feedRect = feed?.getBoundingClientRect();
+      const rows = Array.from(document.querySelectorAll('.live-feed .live-event'));
+      const firstRow = rows[0]?.getBoundingClientRect();
+      const pulse = document.querySelector('.live-pulse');
+      const disclosure = document.querySelector('.live-pulse-disclosure');
+      const split = document.querySelector('.live-split');
+      const doc = document.documentElement;
+      const collapsed = {
+        feedHeight: Math.round(feedRect?.height ?? 0),
+        rows: rows.length,
+        firstRowFits: !!firstRow && !!feedRect && firstRow.top >= feedRect.top - 1 && firstRow.bottom <= feedRect.bottom + 1,
+        pulseOpen: pulse?.dataset.open || '',
+        pulseDisplay: pulse ? getComputedStyle(pulse).display : '',
+        disclosureDisplay: disclosure ? getComputedStyle(disclosure).display : '',
+        splitColumns: split ? (getComputedStyle(split).gridTemplateColumns || '').split(' ').length : 0,
+        scrollHeight: doc.scrollHeight,
+        clientHeight: doc.clientHeight,
+      };
+      // Now expand the strip the way a viewer would; the follow-up probe checks
+      // the feed stays reachable (pane floor + a document that can scroll to it).
+      disclosure?.click();
+      return collapsed;
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(250);
+  const liveFoldableExpanded = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
+      const pulse = document.querySelector('.live-pulse');
+      const doc = document.documentElement;
+      return {
+        pulseOpen: pulse?.dataset.open || '',
+        pulseVisible: pulse ? getComputedStyle(pulse).display !== 'none' : false,
+        feedHeight: Math.round(feedRect?.height ?? 0),
+        scrollHeight: doc.scrollHeight,
+        clientHeight: doc.clientHeight,
+        canScroll: doc.scrollHeight > doc.clientHeight + 2,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
   await sleep(150);
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
@@ -4697,6 +4758,9 @@ try {
     [live.rendered === true && live.rows === 3, `live: snapshot seeds every retained feed row (${live.rows || 0} === 3)`],
     [(live.firstRowTop || 0) >= (live.feedTop || 0) - 1 && (live.firstRowBottom || 0) <= (live.feedBottom || 0) + 1, `live: first virtualized feed row is visible inside the feed viewport (${JSON.stringify({ firstRowTop: live.firstRowTop, firstRowBottom: live.firstRowBottom, feedTop: live.feedTop, feedBottom: live.feedBottom })})`],
     [(live.documentScrollHeight || 0) <= (live.documentClientHeight || 0) + 2, `live: desktop Live page does not grow taller than the viewport (${JSON.stringify({ scrollHeight: live.documentScrollHeight, clientHeight: live.documentClientHeight })})`],
+    [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
+    [(liveFoldable.feedHeight || 0) >= 240 && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
+    [liveFoldableExpanded.pulseOpen === "true" && liveFoldableExpanded.pulseVisible === true && (liveFoldableExpanded.feedHeight || 0) >= 240 && liveFoldableExpanded.canScroll === true, `live: re-expanding the metrics on a foldable keeps the feed usable and lets the page scroll to it (${JSON.stringify(liveFoldableExpanded)})`],
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
     [(live.rowText || []).some((text) => text.includes("Old widget note")), `live: row outside the 5h pulse remains retained in the 1000-event buffer (${JSON.stringify(live.rowText || [])})`],
     [live.avatarDotContent === "none", `live: feed avatars render without a lower-right category dot (${live.avatarDotContent || "empty"})`],

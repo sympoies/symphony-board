@@ -12,8 +12,11 @@ import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
+import { DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
 
-const ITEMS_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
+// The CSS breakpoint where .items-detail becomes a fixed overlay, owned by
+// layout-tier.ts.
+const ITEMS_DETAIL_OVERLAY_QUERY = DETAIL_OVERLAY_QUERY;
 const ITEMS_DETAIL_SWIPE_MIN_PX = 54;
 const ITEMS_DETAIL_SWIPE_MAX_MS = 1100;
 
