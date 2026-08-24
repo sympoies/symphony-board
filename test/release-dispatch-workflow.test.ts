@@ -1,7 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const publishWorkflow = readFileSync(
   new URL("../.github/workflows/publish-image.yml", import.meta.url),
@@ -73,8 +85,68 @@ test("stable releases can dispatch to a neutral downstream repo", () => {
   );
   assert.match(publishWorkflow, /DEPLOY_DISPATCH_REPOSITORY: \$\{\{ vars\.DEPLOY_DISPATCH_REPOSITORY \}\}/);
   assert.match(publishWorkflow, /DEPLOY_DISPATCH_TOKEN: \$\{\{ secrets\.DEPLOY_DISPATCH_TOKEN \}\}/);
-  assert.match(publishWorkflow, /https:\/\/api\.github\.com\/repos\/\$\{DEPLOY_DISPATCH_REPOSITORY\}\/dispatches/);
+  // The POST itself lives in scripts/ci/dispatch-release.sh, which asserts the
+  // response status. Both dispatch paths must go through it: an inline curl
+  // gets neither shellcheck nor the status gate below.
+  assert.match(
+    publishWorkflow,
+    /DISPATCH_TOKEN="\$DEPLOY_DISPATCH_TOKEN" \\\n\s*scripts\/ci\/dispatch-release\.sh "\$DEPLOY_DISPATCH_REPOSITORY"/,
+  );
+  assert.match(
+    publishWorkflow,
+    /DISPATCH_TOKEN="\$HOMEBREW_TAP_DISPATCH_TOKEN" \\\n\s*scripts\/ci\/dispatch-release\.sh "\$HOMEBREW_TAP_DISPATCH_REPOSITORY"/,
+  );
+  assert.doesNotMatch(publishWorkflow, /api\.github\.com\/repos\/[^\n]*\/dispatches/);
   assert.doesNotMatch(publishWorkflow, /DEPLOY_DISPATCH_REPOSITORY:\s*[-A-Za-z0-9_.]+\/[-A-Za-z0-9_.]+/);
+});
+
+// `curl -f` fails only on 4xx and 5xx, so the 307 GitHub returns for a renamed
+// or transferred repository used to exit 0 and drop the dispatch silently.
+// These run the real script against a stubbed curl, so the status gate is
+// enforced offline rather than trusted.
+function runDispatch(curlStdout: string, curlExit: number) {
+  const dir = mkdtempSync(join(tmpdir(), "dispatch-release-test-"));
+  try {
+    const stub = join(dir, "curl");
+    writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s' '${curlStdout}'\nexit ${curlExit}\n`);
+    chmodSync(stub, 0o755);
+    return spawnSync(
+      fileURLToPath(new URL("../scripts/ci/dispatch-release.sh", import.meta.url)),
+      ["owner/repo"],
+      {
+        input: '{"event_type":"probe"}',
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DISPATCH_TOKEN: "stub" },
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a dispatch is only reported delivered when GitHub answers 204", () => {
+  const accepted = runDispatch("204", 0);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.match(accepted.stdout, /HTTP 204/);
+});
+
+test("a redirect from a transferred repository fails instead of passing silently", () => {
+  const moved = runDispatch("307", 0);
+  assert.equal(moved.status, 1, "a 3xx must fail: the dispatch was never delivered");
+  assert.match(moved.stderr, /returned HTTP 307, expected 204/);
+  assert.match(moved.stderr, /renamed or transferred/);
+});
+
+test("a rejected token and an unreachable API each fail with their own cause", () => {
+  const forbidden = runDispatch("403", 0);
+  assert.equal(forbidden.status, 1);
+  assert.match(forbidden.stderr, /write access/);
+
+  // curl prints 000 and exits non-zero when it never connects; the script must
+  // not concatenate a second fallback onto that.
+  const unreachable = runDispatch("000", 7);
+  assert.equal(unreachable.status, 1);
+  assert.match(unreachable.stderr, /returned HTTP 000, expected 204/);
 });
 
 test("public docs, examples, and deploy templates avoid private deployment details", () => {
