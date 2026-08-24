@@ -8,6 +8,7 @@
 #   PG_COMPOSE_SMOKE_PROJECT     compose project name (default unique)
 #   SYMPHONY_PG_WEB_PORT         host web port (default 18081)
 #   SYMPHONY_PG_PORT             host Postgres port (default 15433)
+#   PG_COMPOSE_SMOKE_SUBNET      compose network subnet (default 10.171.29.0/24)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -44,14 +45,28 @@ cat >"$CONFIG_DIR/sources.pg.json" <<'JSON'
 }
 JSON
 
-cat >"$WORKDIR/config-control.override.yaml" <<'YAML'
+# The upstream-move step below parks a sentinel on a specific address, and
+# `docker run --ip` is rejected on a network whose subnet Docker picked itself
+# ("user specified IP address is supported only when connecting to networks with
+# user configured subnets"). Pinning the subnet here is what makes that step
+# work on any daemon rather than only where the default happened to be
+# configured. Override PG_COMPOSE_SMOKE_SUBNET if this range collides.
+SUBNET="${PG_COMPOSE_SMOKE_SUBNET:-10.171.29.0/24}"
+
+cat >"$WORKDIR/config-control.override.yaml" <<YAML
 services:
   board:
     environment:
       CONFIG_CONTROL_ENABLED: "1"
       SYMPHONY_SECRETS_FILE: config/secrets.env
     volumes:
-      - ${SYMPHONY_CONFIG_DIR:-../config}:/app/config
+      - \${SYMPHONY_CONFIG_DIR:-../config}:/app/config
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: $SUBNET
 YAML
 
 PROJECT="${PG_COMPOSE_SMOKE_PROJECT:-symphony-board-pg-smoke-$(date +%s)-$$}"
@@ -314,8 +329,13 @@ test -n "$network"
 
 SENTINEL="$PROJECT-ip-sentinel"
 "${COMPOSE[@]}" rm -sf api >/dev/null
-docker run -d --name "$SENTINEL" --network "$network" --ip "$old_api_ip" \
-  --entrypoint sleep postgres:16-alpine 600 >/dev/null
+if ! docker run -d --name "$SENTINEL" --network "$network" --ip "$old_api_ip" \
+  --entrypoint sleep postgres:16-alpine 600 >/dev/null; then
+  SENTINEL=""
+  echo "could not park a sentinel on $old_api_ip in $network; without it the" >&2
+  echo "upstream would likely reuse the same address and prove nothing" >&2
+  exit 1
+fi
 "${COMPOSE[@]}" up -d --wait api >/dev/null
 
 new_api_ip="$(ip_of "$("${COMPOSE[@]}" ps -q api)")"
