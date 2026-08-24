@@ -225,6 +225,21 @@ if (daily.total !== expected) {
 
 curl -fsS "$base/api/sync-control" >/dev/null
 
+# The `live` upstream, proxied by the same sidecar. Without this the smoke never
+# resolves that upstream at all, so a route that stopped proxying would pass.
+live_snapshot="$WORKDIR/live-snapshot.json"
+curl -fsS "$base/api/live-snapshot" >"$live_snapshot"
+# Node reads process.argv; shell expansion is not wanted in the inline JS.
+# shellcheck disable=SC2016
+node -e '
+const fs = require("fs");
+const body = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (typeof body.schema !== "string" || !body.schema.startsWith("live-snapshot/1")) {
+  console.error(`expected a live-snapshot/1 payload, got ${body.schema ?? "(missing)"}`);
+  process.exit(1);
+}
+' "$live_snapshot"
+
 curl -fsS "$base/api/config" >"$config_probe"
 # Node reads process.argv; shell expansion is not wanted in the inline JS.
 # shellcheck disable=SC2016
@@ -359,5 +374,10 @@ until curl -fsS --max-time 10 "$base/api/stats" >/dev/null 2>&1; do
   sleep 2
 done
 echo "web re-resolved api after the upstream moved"
+
+# The other two upstreams must still be reachable through the same worker: a
+# resolver that only healed the route under test would be worse than no fix.
+curl -fsS --max-time 10 "$base/api/sync-control" >/dev/null
+curl -fsS --max-time 10 "$base/api/live-snapshot" >/dev/null
 
 echo "pg compose smoke passed: $PROJECT at $base"
