@@ -10,7 +10,7 @@ import {
   loadDefaultTab, saveDefaultTab,
   CONTENT_TAB_OPTIONS, loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
   loadLiveTabEnabled, saveLiveTabEnabled,
-  loadLivePulseOpen, saveLivePulseOpen,
+  loadLivePulseOpenChoice, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
   isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, STANDALONE_CLIENT_KIND, isStandaloneClient,
   standaloneBrandClass, loadStandaloneSetupRedirectPending, saveStandaloneSetupRedirectPending,
@@ -208,28 +208,32 @@ test("live tab enabled is a device-local setting that is OFF by default", () => 
   assert.equal(loadLiveTabEnabled(), false, "non-boolean value -> default off");
 });
 
-test("live metrics disclosure is a device-local setting that is OPEN by default", () => {
-  assert.equal(loadLivePulseOpen(), true, "default: metrics cards expanded (no stored value)");
+test("live metrics disclosure stores a CHOICE, and absent means never chosen", () => {
+  // Three states, not two. This is what lets LivePage derive the default from the
+  // live viewport instead of freezing one at mount: an absent value is a question
+  // the viewer has not answered, not an answer of "open".
+  assert.equal(loadLivePulseOpenChoice(), null, "nothing stored -> no choice made");
   saveLivePulseOpen(false);
-  assert.equal(loadLivePulseOpen(), false, "an explicit collapse is remembered across reopens");
+  assert.equal(loadLivePulseOpenChoice(), false, "an explicit collapse is remembered across reopens");
   saveLivePulseOpen(true);
-  assert.equal(loadLivePulseOpen(), true);
+  assert.equal(loadLivePulseOpenChoice(), true, "an explicit expand is remembered too");
   // Only the exact strings round-trip; any other stored value reads as collapsed
   // (the strict !== "true" rule), never throws.
   store._raw("symphony-board:live-pulse-open", "yes");
-  assert.equal(loadLivePulseOpen(), false, "non-boolean stored value -> collapsed");
+  assert.equal(loadLivePulseOpenChoice(), false, "non-boolean stored value -> collapsed");
 });
 
-test("the metrics default follows the viewport, but an explicit choice always wins", () => {
-  // LivePage passes `!isShortViewport()`: a short viewport cannot afford the
-  // ~300px strip, so a fresh install there starts collapsed while a roomy one
-  // starts expanded. Only the MISSING value consults the fallback.
-  assert.equal(loadLivePulseOpen(false), false, "short viewport, nothing stored -> collapsed");
-  assert.equal(loadLivePulseOpen(true), true, "roomy viewport, nothing stored -> expanded");
-  saveLivePulseOpen(true);
-  assert.equal(loadLivePulseOpen(false), true, "a stored open beats the short-viewport default");
+test("nothing is persisted until the viewer actually chooses", () => {
+  // The regression this replaced: LivePage seeded state from the viewport and a
+  // mount effect wrote it straight back, so an INFERRED default became
+  // indistinguishable from an explicit one. A foldable owner who opened Live on
+  // the cover screen (narrow, but taller than the short breakpoint) persisted
+  // "open", and unfolding to the inner screen then kept the ~300px strip expanded
+  // forever — on the one device the collapse was written for.
+  assert.equal(loadLivePulseOpenChoice(), null);
+  assert.equal(store.getItem("symphony-board:live-pulse-open"), null, "reading a default must not write one");
   saveLivePulseOpen(false);
-  assert.equal(loadLivePulseOpen(true), false, "a stored collapse beats the roomy default");
+  assert.equal(store.getItem("symphony-board:live-pulse-open"), "false", "only an explicit toggle writes");
 });
 
 test("board scope is a device-local on/off setting; legacy window values normalize to on", () => {
@@ -360,7 +364,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.equal(loadColorMode(), "system", "color mode load degrades to default");
   assert.equal(loadServerBaseUrl(), null, "load degrades to same-origin");
   assert.equal(loadLiveTabEnabled(), false, "live-tab-enabled load degrades to off");
-  assert.equal(loadLivePulseOpen(), true, "live-pulse-open load degrades to the open default");
+  assert.equal(loadLivePulseOpenChoice(), null, "live-pulse-open load degrades to no stored choice");
   assert.equal(loadBoardScope(), "full", "board scope load degrades to the full default");
   assert.deepEqual(loadContentTabOrder(), ["activity", "repo-analytics", "board", "graph", "items", "reviews", "commits"], "content tab order load degrades to the default order");
   assert.equal(loadLastContractTimezone(null), null, "last contract timezone load degrades to unknown");

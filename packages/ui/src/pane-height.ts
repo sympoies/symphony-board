@@ -15,8 +15,9 @@ import { CONTENT_PANE_MIN_HEIGHT_PX } from "./layout-tier.ts";
 // tall chrome above the pane (a foldable's inner screen at 933x704 CSS px left
 // ~93px) was left with a sliver AND no way to scroll to the rest. Taking the
 // floor pushes the document past the viewport, which is what restores scrolling.
-// The floor is still capped by the viewport itself, so a pane is never taller
-// than the screen that has to show it.
+// The floor is capped at one viewport height, so a pane never exceeds the height
+// of the screen showing it — though it may still START below the fold and need
+// the document scroll this branch just created.
 export function clampContentPaneHeight(
   innerHeight: number,
   paneTop: number,

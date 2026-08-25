@@ -43,7 +43,13 @@ export const SHORT_VIEWPORT_QUERY = `(max-height: ${SHORT_MAX_HEIGHT_PX}px)`;
 export const COMPACT_CHROME_QUERY = `${NARROW_VIEWPORT_QUERY}, ${SHORT_VIEWPORT_QUERY}`;
 export const DETAIL_OVERLAY_QUERY = `(max-width: ${SPLIT_MAX_WIDTH_PX}px)`;
 
-// Deliberately DOM-free: model.ts re-exports the narrow query, and model.ts is
-// compiled by the backend type-check program (no DOM lib), so a `Window` in this
-// module would break `pnpm run typecheck` at the repo root. The runtime probes
-// that answer "is this viewport short right now" live in useMediaQuery.ts.
+// Deliberately DOM-free, and not by preference: model.ts re-exports the narrow
+// query, and test/graph-neighborhood.test.ts imports model.ts, which pulls this
+// module into the repo-root type-check program — whose tsconfig sets
+// `lib: ["ES2023"]` with no DOM. A single `Window` here breaks
+// `pnpm run typecheck` with an error that names neither file's real reason.
+//
+// So the rule is about THIS module, not about probes in general: a probe lives
+// wherever its consumer lives. The viewport probes sit in useMediaQuery.ts next to
+// the hook they mirror; readSafeAreaBottomPx sits in pane-height.ts next to the
+// gutter arithmetic that consumes it.

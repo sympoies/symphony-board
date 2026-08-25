@@ -3393,14 +3393,16 @@ try {
         scrollHeight: doc.scrollHeight,
         clientHeight: doc.clientHeight,
       };
-      // Now expand the strip the way a viewer would; the follow-up probe checks
-      // the feed stays reachable (pane floor + a document that can scroll to it).
-      disclosure?.click();
       return collapsed;
     })()`,
     returnByValue: true,
   })).result.value || {};
-  await sleep(250);
+  // Now expand the strip the way a viewer would, as its own step; the follow-up
+  // probe checks the feed stays reachable (pane floor + a document that can scroll
+  // to it).
+  await send("Runtime.evaluate", { expression: "document.querySelector('.live-pulse-disclosure')?.click()" });
+  await waitHtml("document.querySelector('.live-pulse')?.dataset.open === 'true'");
+  await sleep(150);
   const liveFoldableExpanded = (await send("Runtime.evaluate", {
     expression: `(() => {
       const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
@@ -3417,7 +3419,83 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // The document-relative invariant, witnessed end to end: with the metrics
+  // expanded the page scrolls, and a pane measured from the DOCUMENT top must keep
+  // exactly one height wherever the viewer has scrolled to. A viewport-relative
+  // measurement would grow the pane on every re-measure, and LivePage re-measures
+  // on every arriving event.
+  await send("Runtime.evaluate", { expression: "window.scrollTo(0, Math.floor(document.documentElement.scrollHeight / 2))" });
+  await sleep(250);
+  const liveFoldableScrolled = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const doc = document.documentElement;
+      return {
+        scrollY: Math.round(window.scrollY),
+        feedHeight: Math.round(document.querySelector('.live-feed')?.getBoundingClientRect().height ?? 0),
+        scrollHeight: doc.scrollHeight,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "window.scrollTo(0, 0)" });
+  await sleep(120);
+  // The compact tier is keyed on height, so it also catches a maximized browser on
+  // a 1366x768 laptop (~640px of viewport). Live is the tab that gains most there,
+  // but the tier also folds the read-only stats strips on Board and Repo analytics
+  // — deliberate, and asserted here because every other short-viewport probe in
+  // this script visits Live only.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 640, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.board-7')");
+  const shortDesktopStats = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const onScreen = (node) => !!node && !!node.offsetParent && node.getBoundingClientRect().height > 0;
+      const disclosure = document.querySelector('.stats-disclosure');
+      // Measure .stats, not .stats-body: on a roomy viewport the wrapper is
+      // display:contents, which generates no box at all, so it would read as
+      // off-screen while the strip it wraps is plainly visible.
+      const body = document.querySelector('.stats');
+      const before = { disclosureOnScreen: onScreen(disclosure), bodyOnScreen: onScreen(body) };
+      disclosure?.click();
+      return before;
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(200);
+  const shortDesktopStatsExpanded = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const onScreen = (node) => !!node && !!node.offsetParent && node.getBoundingClientRect().height > 0;
+      return { bodyOnScreen: onScreen(document.querySelector('.stats')) };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // ...and the converse: a roomy desktop still shows the same strip inline, with no
+  // disclosure at all.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.board-7')");
+  const roomyDesktopStats = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const onScreen = (node) => !!node && !!node.offsetParent && node.getBoundingClientRect().height > 0;
+      return {
+        disclosureOnScreen: onScreen(document.querySelector('.stats-disclosure')),
+        bodyOnScreen: onScreen(document.querySelector('.stats')),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(150);
+  // Bounce through another route first: re-assigning the hash to the value it
+  // already holds fires no hashchange, so LivePage would NOT remount and this
+  // section would silently inherit the previous one's disclosure state.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(150);
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
   await sleep(300);
@@ -3428,7 +3506,7 @@ try {
         .find((node) => node.querySelector('.live-card-label')?.textContent?.trim() === label);
       const buffer = card('Buffer');
       const active = card('Active now');
-      const visible = (node) => !!node && getComputedStyle(node).display !== 'none';
+      const visible = (node) => !!node && !!node.offsetParent && node.getBoundingClientRect().height > 0;
       return {
         bufferChartHidden: !visible(buffer?.querySelector('.live-rank-chart')),
         activeChartHidden: !visible(active?.querySelector('.live-rank-chart')),
@@ -4759,8 +4837,12 @@ try {
     [(live.firstRowTop || 0) >= (live.feedTop || 0) - 1 && (live.firstRowBottom || 0) <= (live.feedBottom || 0) + 1, `live: first virtualized feed row is visible inside the feed viewport (${JSON.stringify({ firstRowTop: live.firstRowTop, firstRowBottom: live.firstRowBottom, feedTop: live.feedTop, feedBottom: live.feedBottom })})`],
     [(live.documentScrollHeight || 0) <= (live.documentClientHeight || 0) + 2, `live: desktop Live page does not grow taller than the viewport (${JSON.stringify({ scrollHeight: live.documentScrollHeight, clientHeight: live.documentClientHeight })})`],
     [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
-    [(liveFoldable.feedHeight || 0) >= 240 && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
-    [liveFoldableExpanded.pulseOpen === "true" && liveFoldableExpanded.pulseVisible === true && (liveFoldableExpanded.feedHeight || 0) >= 240 && liveFoldableExpanded.canScroll === true, `live: re-expanding the metrics on a foldable keeps the feed usable and lets the page scroll to it (${JSON.stringify(liveFoldableExpanded)})`],
+    [(liveFoldable.feedHeight || 0) >= 240 && (liveFoldable.feedHeight || 0) <= (liveFoldable.clientHeight || 0) && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
+    [liveFoldableExpanded.pulseOpen === "true" && liveFoldableExpanded.pulseVisible === true && (liveFoldableExpanded.feedHeight || 0) >= 240 && (liveFoldableExpanded.feedHeight || 0) <= (liveFoldableExpanded.clientHeight || 0) && liveFoldableExpanded.canScroll === true, `live: re-expanding the metrics on a foldable keeps the feed usable and lets the page scroll to it (${JSON.stringify(liveFoldableExpanded)})`],
+    [(liveFoldable.scrollHeight || 0) <= (liveFoldable.clientHeight || 0) + 2, `live: with the metrics folded, a foldable Live page needs no page scrolling at all (${JSON.stringify(liveFoldable)})`],
+    [liveFoldableScrolled.scrollY > 0 && liveFoldableScrolled.feedHeight === liveFoldableExpanded.feedHeight, `live: the foldable feed keeps one height wherever the page is scrolled (${JSON.stringify({ atRest: liveFoldableExpanded.feedHeight, scrolled: liveFoldableScrolled })})`],
+    [shortDesktopStats.disclosureOnScreen === true && shortDesktopStats.bodyOnScreen === false && shortDesktopStatsExpanded.bodyOnScreen === true, `board: a short desktop folds the stats strip behind a working disclosure (${JSON.stringify({ collapsed: shortDesktopStats, expanded: shortDesktopStatsExpanded })})`],
+    [roomyDesktopStats.disclosureOnScreen === false && roomyDesktopStats.bodyOnScreen === true, `board: a roomy desktop still shows the stats strip inline with no disclosure (${JSON.stringify(roomyDesktopStats)})`],
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],
     [(live.rowText || []).some((text) => text.includes("Old widget note")), `live: row outside the 5h pulse remains retained in the 1000-event buffer (${JSON.stringify(live.rowText || [])})`],
     [live.avatarDotContent === "none", `live: feed avatars render without a lower-right category dot (${live.avatarDotContent || "empty"})`],

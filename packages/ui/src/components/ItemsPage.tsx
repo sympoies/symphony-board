@@ -14,9 +14,7 @@ import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
 
-// The CSS breakpoint where .items-detail becomes a fixed overlay, owned by
-// layout-tier.ts.
-const ITEMS_DETAIL_OVERLAY_QUERY = DETAIL_OVERLAY_QUERY;
+
 const ITEMS_DETAIL_SWIPE_MIN_PX = 54;
 const ITEMS_DETAIL_SWIPE_MAX_MS = 1100;
 
@@ -304,7 +302,7 @@ export function ItemsPage({
   const summaryLabel = `${windowTotal} window / ${totalItems} total · ${range.from} to ${range.to}`;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailMotion, setDetailMotion] = useState<ItemDetailMotion>("neutral");
-  const isDetailOverlay = useMediaQuery(ITEMS_DETAIL_OVERLAY_QUERY);
+  const isDetailOverlay = useMediaQuery(DETAIL_OVERLAY_QUERY);
   const detailOpen = isDetailOverlay && detailRouteOpen;
   const selectedItem = useMemo(() => {
     if (items.length === 0) return null;

@@ -32,7 +32,7 @@ import { safeHref } from "../url.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
-import { CONTENT_PANE_MIN_HEIGHT_PX, DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
+import { DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
 import { clampContentPaneHeight, contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx } from "../pane-height.ts";
 import { Badge } from "./Badge.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
@@ -49,10 +49,6 @@ const REVIEW_ROW_STRIDE_PX = REVIEW_ROW_HEIGHT_PX + REVIEW_ROW_GAP_PX;
 const REVIEW_OVERSCAN_ROWS = 8;
 const REVIEW_DEFAULT_VIEWPORT_PX = 640;
 const REVIEW_PANE_BOTTOM_GUTTER_PX = 16;
-const REVIEW_PANE_MIN_HEIGHT_PX = CONTENT_PANE_MIN_HEIGHT_PX;
-// The CSS breakpoint where .live-detail becomes a fixed overlay (shared with the
-// Live tab), owned by layout-tier.ts.
-const REVIEW_DETAIL_OVERLAY_QUERY = DETAIL_OVERLAY_QUERY;
 const REVIEW_DETAIL_SWIPE_MIN_PX = 54;
 const REVIEW_DETAIL_SWIPE_MAX_MS = 1100;
 
@@ -517,7 +513,7 @@ export function ReviewsPage({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailMotion, setDetailMotion] = useState<ReviewDetailMotion>("neutral");
-  const isDetailOverlay = useMediaQuery(REVIEW_DETAIL_OVERLAY_QUERY);
+  const isDetailOverlay = useMediaQuery(DETAIL_OVERLAY_QUERY);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   // The detail follows the selected thread; with nothing selected it shows the
   // first thread so the right pane is never empty (the inbox always lands on the
@@ -581,13 +577,14 @@ export function ReviewsPage({
       raf = window.requestAnimationFrame(() => {
         raf = 0;
         // Document-relative top + an inset-aware gutter, through the shared clamp
-        // every tab now uses (pane-height.ts): one floor, one Android inset rule.
+        // every tab uses (pane-height.ts): one floor, one Android inset rule. The
+        // rect read MUST precede readSafeAreaBottomPx — it flushes style + layout,
+        // so the custom-property read resolves from clean style.
         const top = paneDocumentTop(split.getBoundingClientRect().top, window.scrollY);
         const next = clampContentPaneHeight(
           window.innerHeight,
           top,
           contentPaneBottomGutter(REVIEW_PANE_BOTTOM_GUTTER_PX, readSafeAreaBottomPx(window)),
-          REVIEW_PANE_MIN_HEIGHT_PX,
         );
         setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
       });

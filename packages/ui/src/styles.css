@@ -571,9 +571,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
 /* stats */
 .stats { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 0; }
-/* The stats summary is read-only context. On desktop these wrappers are
-   transparent (display:contents) so the bar renders inline exactly as before;
-   on narrow they become a collapsible block behind the shared disclosure. */
+/* The stats summary is read-only context. On a roomy viewport these wrappers are
+   transparent (display:contents) so the bar renders inline exactly as before; in
+   the compact tier (narrow OR short) they become a collapsible block behind the
+   shared disclosure. */
 .stats-block, .stats-body { display: contents; }
 .stat { display: inline-flex; align-items: center; gap: 6px; }
 .stat-label { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
@@ -2119,7 +2120,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 .activity-list {
   position: relative;
-  max-height: 74vh; overflow-y: auto; scrollbar-gutter: auto;
+  max-height: 74dvh; overflow-y: auto; scrollbar-gutter: auto;
   padding-right: 0;
 }
 .activity-virtual-space {
@@ -2164,7 +2165,7 @@ a.rf-node-title:hover { color: var(--accent); }
 
 .commit-list {
   position: relative;
-  max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
+  max-height: 74dvh; overflow-y: auto; scrollbar-gutter: stable;
   padding-right: 4px;
 }
 .commit-virtual-space {
@@ -2629,6 +2630,12 @@ a.rf-node-title:hover { color: var(--accent); }
   .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-option-list {
     flex: 1 1 auto;
   }
+  /* Repo + branch collapse behind the shared summary disclosure; it sits outside
+     a gap-flex parent, so it owns its spacing below. Narrow-only on purpose: the
+     surface it opens is the fixed phone sheet above, and the inline toolbar it
+     replaces is hidden only here — revealing the button in the compact tier would
+     add chrome on a short-but-wide viewport rather than reclaim height. */
+  .commits-filter-disclosure { margin: 0 0 8px; }
   .commit-row-body {
     align-items: stretch;
     flex-direction: column;
@@ -2657,14 +2664,18 @@ a.rf-node-title:hover { color: var(--accent); }
    what they summarize. Keep the query in sync with COMPACT_CHROME_QUERY in
    layout-tier.ts (layout-tier.test.ts asserts it).
 
-   Only the vertical strips join this tier. The facet filters, the date range and
-   the search box stay narrow-only: collapsing them is about horizontal room, and
-   their expanded state is a phone sheet that a wide viewport should never see. */
+   Only the read-only vertical strips join this tier, and a tier may reveal a
+   disclosure ONLY if it also reveals what that disclosure opens. The facet
+   filters, the date range, the search box and the Commits repo/branch filters
+   stay narrow-only for that reason: their expanded state is the fixed phone sheet
+   below, which a wide viewport should never see, and the inline controls they
+   replace are hidden only there — so revealing their button here would add chrome
+   to a short viewport instead of giving height back. layout-tier.test.ts asserts
+   the pairing. */
 @media (max-width: 760px), (max-height: 760px) {
   .live-pulse-disclosure,
   .stats-disclosure,
-  .repo-stats-disclosure,
-  .commits-filter-disclosure {
+  .repo-stats-disclosure {
     display: inline-flex;
   }
   /* Live: the four metric cards cost ~300px — the difference between a usable
@@ -2681,10 +2692,6 @@ a.rf-node-title:hover { color: var(--accent); }
   /* Repo analytics: the stat grid folds the same way. */
   .repo-stats-disclosure { width: 100%; margin: 0 0 8px; }
   .repo-stat-grid[data-stats-collapsed="true"] { display: none; }
-  /* Commits: repo + branch collapse behind the shared summary disclosure; it
-     sits outside a gap-flex parent, so it owns its spacing below. */
-  .commits-filter-disclosure { margin: 0 0 8px; }
-  .commits-toolbar[data-filters-collapsed="true"] { display: none; }
 }
 
 /* repo analytics page */
@@ -3380,7 +3387,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .col {
     min-width: 0;
     max-width: none;
-    height: min(68vh, 760px);
+    height: var(--content-pane-height, min(68dvh, 760px));
   }
   .col-collapsed {
     width: auto;
@@ -3401,10 +3408,10 @@ a.rf-node-title:hover { color: var(--accent); }
   .graph-body { grid-template-columns: minmax(0, 1fr); }
   .graph-list {
     width: 100%;
-    height: min(42vh, 420px);
+    height: var(--content-pane-height, min(42dvh, 420px));
   }
   .graph-canvas {
-    height: min(54vh, 620px);
+    height: var(--content-pane-height, min(54dvh, 620px));
   }
   .graph-legend > span:last-child { flex-basis: 100%; }
 

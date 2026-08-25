@@ -5,7 +5,6 @@ import {
   LIVE_FEED_ENTER_MS,
   LIVE_FEED_SELECTED_SETTLE_MS,
   LIVE_FOLLOW_DETAIL_HOLD_MS,
-  clampLivePaneHeight,
   liveFeedSelectedKey,
   resolveLiveFollowDecision,
 } from "../src/live-follow.ts";
@@ -196,22 +195,6 @@ test("Live auto-follow refreshes the detail in place when the followed event is 
   );
 });
 
-test("the Live pane clamp is the shared content-pane clamp, floor and all", () => {
-  // Tall window: plenty of room below the split, the floor is comfortably met.
-  assert.equal(clampLivePaneHeight(1000, 200, 16, 320), 784);
-  // Short window: less than the floor remains. This used to clamp to whatever
-  // was left, on the reasoning that taking the floor "reintroduces document-level
-  // scrolling" — it does, and that is the point. A pane always ends at the
-  // viewport bottom, so the document is exactly viewport-height and has nothing
-  // to scroll; a foldable's inner screen (933x704 CSS px) was left with a ~93px
-  // feed and no way to reach anything below it. See pane-height.test.ts.
-  assert.equal(clampLivePaneHeight(480, 300, 16, 320), 320);
-  assert.equal(clampLivePaneHeight(704, 595, 16, 320), 320);
-  // Degenerate: the split sits past the viewport bottom — capped by the viewport,
-  // never negative.
-  assert.equal(clampLivePaneHeight(300, 320, 16, 320), 284);
-});
-
 test("Live pulse strip collapses to two columns before the ranked charts would overflow a four-column row", () => {
   // The four-column pulse grid starves the ranked-chart cards on ~1280px desktops
   // (the charts need more width than a 1fr/1.2fr card gives), so the strip drops
@@ -220,32 +203,6 @@ test("Live pulse strip collapses to two columns before the ranked charts would o
     stylesSource,
     /@media \(max-width: 1439px\)\s*{\s*\.live-pulse\s*{\s*grid-template-columns:\s*1fr 1fr;\s*}\s*}/,
     "the pulse strip should collapse to two columns at the 1439px breakpoint",
-  );
-});
-
-test("Live pulse strip is collapsible whenever the viewport is narrow OR short", () => {
-  // The four metric cards cost ~300px of height. That pushes the feed off a phone
-  // screen AND off any short viewport — a foldable's inner screen is wide enough
-  // for the two-pane split but only ~704px tall — so the collapse lives in the
-  // compact-chrome tier, not the phone-only one. The collapsed state is carried by
-  // data-open="false" and takes effect only inside that tier, so a roomy desktop
-  // always shows the strip regardless of the remembered toggle.
-  assert.match(
-    stylesSource,
-    /@media \(max-width: 760px\), \(max-height: 760px\)\s*{[\s\S]*?\.live-pulse\[data-open="false"\]\s*{[^}]*display:\s*none;/,
-    "a collapsed pulse strip should be hidden within the compact-chrome tier",
-  );
-  // The toggle reuses the shared collapsed-filter chrome, which is defined once
-  // and stays display:none — so no disclosure appears on a roomy viewport.
-  assert.match(
-    stylesSource,
-    /\.filter-summary-disclosure\s*{\s*display:\s*none;/,
-    "the shared disclosure chrome should be hidden by default (roomy viewport)",
-  );
-  assert.match(
-    stylesSource,
-    /@media \(max-width: 760px\), \(max-height: 760px\)\s*{[\s\S]*?\.live-pulse-disclosure\s*{[^}]*width:\s*100%;/,
-    "the pulse disclosure should be a full-width header bar in the compact tier",
   );
 });
 

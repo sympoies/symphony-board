@@ -23,6 +23,10 @@ export function useContentPaneHeight<T extends HTMLElement>(
         // Document-relative top + an inset-aware gutter: the pane keeps one
         // height whether or not the page is scrolled, and stays clear of the
         // Android navigation bar. See pane-height.ts.
+        //
+        // The rect read MUST come first: it flushes style + layout, so the
+        // custom-property read inside readSafeAreaBottomPx resolves from clean
+        // style rather than forcing a recalculation inside this frame.
         const next = clampContentPaneHeight(
           window.innerHeight,
           paneDocumentTop(rect.top, window.scrollY),
