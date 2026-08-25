@@ -36,11 +36,10 @@ import {
   visibleByCategory,
 } from "../live-stats.ts";
 import { ACTION_KIND } from "../activity-action-style.ts";
-import { loadLivePulseOpen, saveLivePulseOpen } from "../viewconfig.ts";
+import { loadLivePulseOpenChoice, saveLivePulseOpen } from "../viewconfig.ts";
 import { liveAvatarModel } from "../live-avatar.ts";
 import {
   LIVE_FOLLOW_DETAIL_HOLD_MS,
-  clampLivePaneHeight,
   liveFeedSelectedKey,
   resolveLiveFollowDecision,
 } from "../live-follow.ts";
@@ -48,6 +47,8 @@ import { Badge } from "./Badge.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { activityVirtualRange, liveDetailNavigation, liveEventKey, type LiveEvent, type LiveEventActor } from "../model.ts";
+import { CONTENT_PANE_MIN_HEIGHT_PX, DETAIL_OVERLAY_QUERY, SHORT_VIEWPORT_QUERY } from "../layout-tier.ts";
+import { clampContentPaneHeight, contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx } from "../pane-height.ts";
 
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
@@ -57,16 +58,12 @@ const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
 // and ignored the rest of the visible window.
 const SPARK_WINDOW_MS = SPARK_BUCKET_MS * SPARK_BUCKETS; // 5 hours
 const SPARK_WINDOW_HOURS = SPARK_WINDOW_MS / 3_600_000; // 5 — drives the "/5h" unit
-// Keep this in sync with the CSS breakpoint where .live-detail becomes a fixed
-// overlay.
-const LIVE_DETAIL_OVERLAY_QUERY = "(max-width: 900px)";
 const LIVE_DEFAULT_VIEWPORT_PX = 640;
 const LIVE_ROW_BASE_HEIGHT_PX = 74;
 const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
 const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
-const LIVE_PANE_MIN_HEIGHT_PX = 320;
 const LIVE_RANK_LIMIT = 6;
 // New events prepend at the top, bumping every row's index (and translateY) by
 // one. Only animate that "push the list down" shift while the viewer is at the
@@ -576,7 +573,7 @@ export function LivePage({
   // the "follow latest" control in the detail — releases back to auto-follow.
   const [pinned, setPinned] = useState<LiveEvent | null>(null);
   const [detailMotion, setDetailMotion] = useState<LiveDetailMotion>("neutral");
-  const isDetailOverlay = useMediaQuery(LIVE_DETAIL_OVERLAY_QUERY);
+  const isDetailOverlay = useMediaQuery(DETAIL_OVERLAY_QUERY);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   // Drives the NARROW-screen detail overlay; route-backed so Android/browser
   // Back closes detail before leaving the Live tab.
@@ -584,15 +581,24 @@ export function LivePage({
   // Mobile-only: the category pills are collapsed behind a disclosure by default
   // (they're shown inline on desktop). Tap the summary to reveal them.
   const [catsOpen, setCatsOpen] = useState(false);
-  // Mobile-only: the four metric cards (Activity / Last event / Buffer / Active
-  // now) push the feed far down a phone screen, so they collapse behind a
-  // disclosure — OPEN by default, tap to hide and bring the feed list up. Desktop
-  // shows the strip inline (the disclosure is display:none there). The choice is
-  // device-local and remembered across reopens (loadLivePulseOpen), so a phone
-  // user who collapsed it does not have to re-collapse it every launch.
-  const [pulseOpen, setPulseOpen] = useState(loadLivePulseOpen);
-  useEffect(() => {
-    saveLivePulseOpen(pulseOpen);
+  // Compact tier only: the four metric cards (Activity / Last event / Buffer /
+  // Active now) cost ~300px of vertical space, which pushes the feed off a phone
+  // screen and off any SHORT viewport (a foldable inner screen, a landscape
+  // phone) — so they collapse behind a disclosure, tap to bring the feed back up.
+  // A roomy viewport shows the strip inline (the disclosure is display:none there).
+  //
+  // The default is LIVE, not seeded once: `useMediaQuery` re-renders when the
+  // height breakpoint flips, so unfolding a foldable mid-session re-evaluates it.
+  // Only an explicit tap is stored, and a stored choice always wins — seeding from
+  // the viewport and persisting that on mount (the earlier shape) made the two
+  // indistinguishable and meant this device never saw its own default.
+  const shortViewport = useMediaQuery(SHORT_VIEWPORT_QUERY);
+  const [pulseChoice, setPulseChoice] = useState<boolean | null>(loadLivePulseOpenChoice);
+  const pulseOpen = pulseChoice ?? !shortViewport;
+  const togglePulse = useCallback(() => {
+    const next = !pulseOpen;
+    setPulseChoice(next);
+    saveLivePulseOpen(next);
   }, [pulseOpen]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -687,8 +693,14 @@ export function LivePage({
       if (raf) window.cancelAnimationFrame(raf);
       raf = window.requestAnimationFrame(() => {
         raf = 0;
-        const top = split.getBoundingClientRect().top;
-        const next = clampLivePaneHeight(window.innerHeight, top, LIVE_PANE_BOTTOM_GUTTER_PX, LIVE_PANE_MIN_HEIGHT_PX);
+        // Document-relative top + an inset-aware gutter, so the pane keeps one
+        // height across page scrolls and clears the Android navigation bar. The
+        // rect read MUST precede readSafeAreaBottomPx: it flushes style + layout,
+        // so the custom-property read that follows resolves from clean style
+        // instead of forcing a recalculation inside the frame.
+        const top = paneDocumentTop(split.getBoundingClientRect().top, window.scrollY);
+        const gutter = contentPaneBottomGutter(LIVE_PANE_BOTTOM_GUTTER_PX, readSafeAreaBottomPx(window));
+        const next = clampContentPaneHeight(window.innerHeight, top, gutter);
         setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
       });
     };
@@ -882,15 +894,17 @@ export function LivePage({
         </div>
       </header>
 
-      {/* Mobile-only: tap to collapse the metric strip and bring the feed list up.
-          Open by default; on desktop the disclosure is hidden and the strip is
-          always shown. Mirrors the category-pills disclosure chrome below. */}
+      {/* Compact tier (narrow OR short): tap to collapse the metric strip and
+          bring the feed list up. Open by default on a roomy viewport, collapsed on
+          a short one, and a stored tap beats both. A roomy viewport keeps this
+          button display:none and always shows the strip. Mirrors the category-pills
+          disclosure chrome below. */}
       <button
         type="button"
         className="filter-summary-disclosure live-pulse-disclosure"
         aria-expanded={pulseOpen}
         aria-controls="live-pulse-cards"
-        onClick={() => setPulseOpen((o) => !o)}
+        onClick={togglePulse}
       >
         <span className="filter-summary-disclosure-label">metrics</span>
         <span className="filter-summary-disclosure-summary">

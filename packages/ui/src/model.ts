@@ -1135,8 +1135,14 @@ export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
 // The narrow-viewport breakpoint shared by the pages that swap a side-by-side
 // layout for a segmented single-pane toggle on mobile: the Activity page (feed
 // vs overview, and its taller feed rows) and the Graph page (list vs canvas).
-// Exported once so every consumer agrees on where "mobile" begins.
-export const MOBILE_VIEWPORT_QUERY = "(max-width: 760px)";
+// This one is genuinely about WIDTH — whether two panes fit beside each other —
+// so it re-exports the narrow tier rather than the width-or-height compact tier.
+// layout-tier.ts owns the number; re-exported here so existing consumers keep
+// importing "where mobile begins" from one place. NOTE: this re-export is what
+// pulls layout-tier.ts into the repo-root type-check program (via
+// test/graph-neighborhood.test.ts), which has no DOM lib — which is why that
+// module must stay DOM-free. Both ends of that coupling are labelled.
+export { NARROW_VIEWPORT_QUERY as MOBILE_VIEWPORT_QUERY } from "./layout-tier.ts";
 
 export interface ActivityVirtualRange {
   start: number;

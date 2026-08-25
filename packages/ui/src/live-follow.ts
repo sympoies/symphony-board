@@ -54,8 +54,6 @@ export function resolveLiveFollowDecision({
   return { action: "schedule-hold", holdKey: newestKey };
 }
 
-export const clampLivePaneHeight = clampContentPaneHeight;
-
 export function liveFeedSelectedKey(
   following: boolean,
   newestKey: string | null,

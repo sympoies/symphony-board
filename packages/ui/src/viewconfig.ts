@@ -284,17 +284,22 @@ export function saveLiveTabEnabled(enabled: boolean): void {
   }
 }
 
-// The Live mobile "metrics" disclosure remembers its open/closed state across
-// reopens (device-local). Open by default — a MISSING value reads as open, so a
-// fresh install shows the metric cards; only an explicit "false" collapses them.
-export const DEFAULT_LIVE_PULSE_OPEN = true;
-
-export function loadLivePulseOpen(): boolean {
+// The Live "metrics" disclosure remembers the viewer's CHOICE (device-local), and
+// only that: absent means "never chosen", not "open". The default is derived live
+// from the viewport instead — the strip costs ~300px, which a short viewport cannot
+// afford — so LivePage can re-evaluate it when a foldable is unfolded mid-session.
+//
+// This is deliberately a three-state read. Storing a viewport-derived default on
+// mount (the earlier shape) made an inferred value indistinguishable from an
+// explicit one: a foldable owner who opened Live on the cover screen (narrow, but
+// taller than the short breakpoint) persisted "open", and unfolding to the inner
+// screen then kept the strip expanded forever — the one device this was written for.
+export function loadLivePulseOpenChoice(): boolean | null {
   try {
     const raw = localStorage.getItem(LIVE_PULSE_OPEN_KEY);
-    return raw === null ? DEFAULT_LIVE_PULSE_OPEN : raw === "true";
+    return raw === null ? null : raw === "true";
   } catch {
-    return DEFAULT_LIVE_PULSE_OPEN;
+    return null;
   }
 }
 

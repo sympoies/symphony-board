@@ -458,11 +458,49 @@ html[data-theme="paper"] .toggle-on {
 .mobile-control-backdrop,
 .mobile-control-sheet { display: none; }
 .time-range-inline { display: contents; }
-/* The facet filters, the date range, and the Commits repo/branch filters each
-   collapse behind this same full-width summary disclosure on narrow/portrait —
-   one shared chrome so every page's filters read identically. Desktop shows the
-   real controls inline and keeps the disclosure hidden. */
-.filter-summary-disclosure { display: none; }
+/* The facet filters, the date range, the Commits repo/branch filters and the
+   read-only metric strips each collapse behind this same full-width summary
+   disclosure — one shared chrome so every page reads identically. The chrome is
+   defined once here and stays `display: none`, so a layout tier only has to flip
+   `display` for the disclosures it wants (see the tier blocks below); a roomy
+   viewport shows the real controls inline and never reveals a disclosure. */
+.filter-summary-disclosure {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.filter-summary-disclosure-label { color: var(--muted); flex: none; }
+.filter-summary-disclosure-summary {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-summary-disclosure-caret {
+  margin-left: auto;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  /* collapsed: points up (chevron ▴); expanded flips it down. */
+  transform: translateY(1px) rotate(-135deg);
+}
+.filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
+  transform: translateY(-2px) rotate(45deg);
+}
 .search-disclosure { display: none; }
 .file-load {
   color: var(--muted);
@@ -533,9 +571,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
 /* stats */
 .stats { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 0; }
-/* The stats summary is read-only context. On desktop these wrappers are
-   transparent (display:contents) so the bar renders inline exactly as before;
-   on narrow they become a collapsible block behind the shared disclosure. */
+/* The stats summary is read-only context. On a roomy viewport these wrappers are
+   transparent (display:contents) so the bar renders inline exactly as before; in
+   the compact tier (narrow OR short) they become a collapsible block behind the
+   shared disclosure. */
 .stats-block, .stats-body { display: contents; }
 .stat { display: inline-flex; align-items: center; gap: 6px; }
 .stat-label { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
@@ -764,7 +803,7 @@ a.item-metric:hover {
      cards it holds — a sparse lane would otherwise collapse to a short stub
      while a full one stood tall. .col-cards scrolls internally past this, and
      collapsed rails inherit the same height. */
-  height: var(--content-pane-height, 78vh);
+  height: var(--content-pane-height, 78dvh);
 }
 /* a collapsed column drops to a slim, fixed-width rail: it keeps the board's
    structure (and the "this lane is empty" signal) on screen while handing its
@@ -965,7 +1004,7 @@ a.item-metric:hover {
   align-items: stretch;
 }
 .graph-canvas {
-  min-width: 0; height: var(--content-pane-height, 74vh); overflow: hidden;
+  min-width: 0; height: var(--content-pane-height, 74dvh); overflow: hidden;
   /* The box background is the canvas fill for the empty-state branch (where
      GraphCanvasEmptyState renders in place of <Flow>, so no .react-flow paints)
      and the brief pre-mount paint — keep it even though a mounted pane covers it. */
@@ -995,7 +1034,7 @@ a.item-metric:hover {
    the canvas gets the remaining space. */
 .graph-list {
   min-width: 0;
-  height: var(--content-pane-height, 74vh); display: flex; flex-direction: column; overflow: hidden;
+  height: var(--content-pane-height, 74dvh); display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
 /* kind toggle (all / issue / pr) above the side-list search */
@@ -1100,8 +1139,8 @@ a.rf-node-title:hover { color: var(--accent); }
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  height: var(--content-pane-height, calc(100vh - 280px));
-  max-height: var(--content-pane-height, calc(100vh - 280px));
+  height: var(--content-pane-height, calc(100dvh - 280px));
+  max-height: var(--content-pane-height, calc(100dvh - 280px));
   overflow: auto;
   padding-right: 2px;
 }
@@ -1238,8 +1277,8 @@ a.rf-node-title:hover { color: var(--accent); }
   position: sticky;
   top: 12px;
   min-width: 0;
-  height: var(--content-pane-height, calc(100vh - 280px));
-  max-height: var(--content-pane-height, calc(100vh - 280px));
+  height: var(--content-pane-height, calc(100dvh - 280px));
+  max-height: var(--content-pane-height, calc(100dvh - 280px));
   overflow: auto;
 }
 .items-detail-card {
@@ -2081,7 +2120,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 .activity-list {
   position: relative;
-  max-height: 74vh; overflow-y: auto; scrollbar-gutter: auto;
+  max-height: 74dvh; overflow-y: auto; scrollbar-gutter: auto;
   padding-right: 0;
 }
 .activity-virtual-space {
@@ -2126,7 +2165,7 @@ a.rf-node-title:hover { color: var(--accent); }
 
 .commit-list {
   position: relative;
-  max-height: 74vh; overflow-y: auto; scrollbar-gutter: stable;
+  max-height: 74dvh; overflow-y: auto; scrollbar-gutter: stable;
   padding-right: 4px;
 }
 .commit-virtual-space {
@@ -2392,46 +2431,11 @@ a.rf-node-title:hover { color: var(--accent); }
   /* The local-file contract loader is a desktop dev affordance, never used on a
      phone — hide it so it doesn't spend a row of the filter bar. */
   .file-load { display: none; }
-  /* Shared collapsed-filter chrome: a full-width "label · summary · caret" bar
-     used by the facet filters, the date range, and the Commits repo/branch
-     filters so every page's filters look and behave the same on a phone. */
-  .filter-summary-disclosure {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    width: auto;
-    box-sizing: border-box;
-    min-height: 34px;
-    padding: 6px 9px;
-    color: var(--text);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .filter-summary-disclosure-label { color: var(--muted); flex: none; }
-  .filter-summary-disclosure-summary {
-    font-weight: 600;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .filter-summary-disclosure-caret {
-    margin-left: auto;
-    flex: none;
-    width: 7px;
-    height: 7px;
-    border-right: 1.5px solid var(--muted);
-    border-bottom: 1.5px solid var(--muted);
-    /* collapsed: points up (chevron ▴); expanded flips it down. */
-    transform: translateY(1px) rotate(-135deg);
-  }
-  .filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
-    transform: translateY(-2px) rotate(45deg);
-  }
+  /* A phone has room for NO control inline, so narrow reveals every disclosure
+     — the facet filters and the date range included. (A short-but-wide viewport
+     reveals only the vertical strips; see the compact-chrome tier below.) The
+     chrome itself lives at the top of this file; tiers only flip `display`. */
+  .filter-summary-disclosure { display: inline-flex; }
   .controls > .filter-groups {
     display: none;
     grid-column: 1 / -1;
@@ -2626,17 +2630,12 @@ a.rf-node-title:hover { color: var(--accent); }
   .mobile-control-sheet[data-panel="commits-filters"] .commit-filter-option-list {
     flex: 1 1 auto;
   }
-  /* Repo + branch collapse behind the shared summary disclosure on narrow; it
-     sits outside a gap-flex parent, so it owns its spacing below. */
+  /* Repo + branch collapse behind the shared summary disclosure; it sits outside
+     a gap-flex parent, so it owns its spacing below. Narrow-only on purpose: the
+     surface it opens is the fixed phone sheet above, and the inline toolbar it
+     replaces is hidden only here — revealing the button in the compact tier would
+     add chrome on a short-but-wide viewport rather than reclaim height. */
   .commits-filter-disclosure { margin: 0 0 8px; }
-  .commits-toolbar[data-filters-collapsed="true"] { display: none; }
-  /* Read-only stat summary (Board + Graph): collapse behind the shared
-     'stats · …' disclosure so the data shows first. The graph legend rides in
-     the body's footer, so it tucks away with the stats. */
-  .stats-block { display: flex; flex-direction: column; gap: 4px; margin: 0 0 4px; }
-  .stats-body { display: block; }
-  .stats-body[data-stats-collapsed="true"] { display: none; }
-  .stats { padding: 0; }
   .commit-row-body {
     align-items: stretch;
     flex-direction: column;
@@ -2649,6 +2648,50 @@ a.rf-node-title:hover { color: var(--accent); }
   .commit-row-meta { flex-wrap: wrap; white-space: normal; }
   .commit-title-line { align-items: flex-start; }
   .commit-message-link { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+}
+
+/* ---- compact chrome: narrow OR short ---------------------------------------
+   Vertical chrome is a HEIGHT problem, not a width one. A viewport can clear
+   every width breakpoint and still have no room for the metric / stats strips:
+   a foldable's inner screen is ~933x704 CSS px, a phone in landscape and a
+   half-height desktop window are shorter still. There the strips ate the space
+   the content pane needed, and the pane — which ends at the viewport bottom, so
+   the document has nothing to scroll — was left a sliver.
+
+   So the read-only strips fold behind their existing disclosure whenever the
+   viewport is narrow OR short. The disclosures are ordinary buttons whose chrome
+   is defined at the top of this file; this block only reveals them and hides
+   what they summarize. Keep the query in sync with COMPACT_CHROME_QUERY in
+   layout-tier.ts (layout-tier.test.ts asserts it).
+
+   Only the read-only vertical strips join this tier, and a tier may reveal a
+   disclosure ONLY if it also reveals what that disclosure opens. The facet
+   filters, the date range, the search box and the Commits repo/branch filters
+   stay narrow-only for that reason: their expanded state is the fixed phone sheet
+   below, which a wide viewport should never see, and the inline controls they
+   replace are hidden only there — so revealing their button here would add chrome
+   to a short viewport instead of giving height back. layout-tier.test.ts asserts
+   the pairing. */
+@media (max-width: 760px), (max-height: 760px) {
+  .live-pulse-disclosure,
+  .stats-disclosure,
+  .repo-stats-disclosure {
+    display: inline-flex;
+  }
+  /* Live: the four metric cards cost ~300px — the difference between a usable
+     feed and a sliver. LivePage defaults this collapsed on a short viewport. */
+  .live-pulse-disclosure { width: 100%; justify-content: flex-start; margin-bottom: 10px; }
+  .live-pulse[data-open="false"] { display: none; }
+  /* Read-only stat summary (Board + Graph): collapse behind the shared
+     'stats · …' disclosure so the data shows first. The graph legend rides in
+     the body's footer, so it tucks away with the stats. */
+  .stats-block { display: flex; flex-direction: column; gap: 4px; margin: 0 0 4px; }
+  .stats-body { display: block; }
+  .stats-body[data-stats-collapsed="true"] { display: none; }
+  .stats { padding: 0; }
+  /* Repo analytics: the stat grid folds the same way. */
+  .repo-stats-disclosure { width: 100%; margin: 0 0 8px; }
+  .repo-stat-grid[data-stats-collapsed="true"] { display: none; }
 }
 
 /* repo analytics page */
@@ -3344,7 +3387,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .col {
     min-width: 0;
     max-width: none;
-    height: min(68vh, 760px);
+    height: var(--content-pane-height, min(68dvh, 760px));
   }
   .col-collapsed {
     width: auto;
@@ -3365,10 +3408,10 @@ a.rf-node-title:hover { color: var(--accent); }
   .graph-body { grid-template-columns: minmax(0, 1fr); }
   .graph-list {
     width: 100%;
-    height: min(42vh, 420px);
+    height: var(--content-pane-height, min(42dvh, 420px));
   }
   .graph-canvas {
-    height: min(54vh, 620px);
+    height: var(--content-pane-height, min(54dvh, 620px));
   }
   .graph-legend > span:last-child { flex-basis: 100%; }
 
@@ -3605,10 +3648,10 @@ a.rf-node-title:hover { color: var(--accent); }
      toggle), so each reclaims most of the viewport instead of the ~48/50vh split
      it took when both were stacked. */
   .graph-list {
-    height: var(--content-pane-height, min(74vh, 560px));
+    height: var(--content-pane-height, min(74dvh, 560px));
   }
   .graph-canvas {
-    height: var(--content-pane-height, min(74vh, 620px));
+    height: var(--content-pane-height, min(74dvh, 620px));
   }
   .repo-table tr {
     position: relative;
@@ -3708,13 +3751,6 @@ a.rf-node-title:hover { color: var(--accent); }
   .repo-actors {
     max-height: 22px;
     overflow: hidden;
-  }
-  .repo-stats-disclosure {
-    width: 100%;
-    margin: 0 0 8px;
-  }
-  .repo-stat-grid[data-stats-collapsed="true"] {
-    display: none;
   }
   .repo-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3998,7 +4034,7 @@ a.rf-node-title:hover { color: var(--accent); }
   list-style: none; margin: 0; padding: 0;
   display: block;
   position: sticky; top: 12px;
-  max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-gutter: auto;
+  max-height: calc(100dvh - 90px); overflow-y: auto; scrollbar-gutter: auto;
 }
 .live-virtual-space { pointer-events: none; }
 /* Each row is a bordered panel card (matching .activity-row), so the feed reads
@@ -4111,12 +4147,6 @@ a.rf-node-title:hover { color: var(--accent); }
      tap-to-open disclosure and keep the Repo / People dropdowns on the same row
      as it, so the filter bar is one line until the categories are expanded. */
   .live-pulse { gap: 8px; margin-bottom: 14px; }
-  /* The metric strip is collapsible (default open) so the feed list can sit
-     higher; the disclosure is a full-width header bar above it. Collapsing only
-     hides the strip on a phone — desktop keeps the disclosure display:none and
-     the strip always visible. */
-  .live-pulse-disclosure { display: inline-flex; width: 100%; justify-content: flex-start; margin-bottom: 10px; }
-  .live-pulse[data-open="false"] { display: none; }
   .live-figure { font-size: 21px; }
   .live-figure-compact { font-size: 21px; }
   .live-card { padding: 10px 11px; }
@@ -4178,7 +4208,7 @@ a.rf-node-title:hover { color: var(--accent); }
    line-length capped (~100ch) for readability, so a small right gutter can remain
    at very wide widths. */
 .live-split {
-  --live-pane-height: calc(100vh - 90px);
+  --live-pane-height: calc(100dvh - 90px);
   display: grid; grid-template-columns: var(--master-detail-columns); gap: 4px; align-items: start;
 }
 .live-feed-empty { margin: 24px 4px; }
@@ -4301,7 +4331,7 @@ a.rf-node-title:hover { color: var(--accent); }
      edges — scrolling up past the feed's top continues to the header (matches the
      other list tabs). The full-screen detail overlay below keeps its own scroll
      containment so a short body never drags the feed behind it. */
-  .live-feed { position: relative; height: auto; max-height: 72vh; overflow-y: auto; }
+  .live-feed { position: relative; height: auto; max-height: 72dvh; overflow-y: auto; }
   .live-detail { position: static; height: auto; max-height: none; }
   .live-detail-card { min-height: 0; }
   .live-detail-back { display: inline-block; background: none; border: none; color: var(--link); font: inherit; font-size: 13px; padding: 0 0 10px; cursor: pointer; }

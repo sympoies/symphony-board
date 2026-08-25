@@ -5,7 +5,6 @@ import {
   LIVE_FEED_ENTER_MS,
   LIVE_FEED_SELECTED_SETTLE_MS,
   LIVE_FOLLOW_DETAIL_HOLD_MS,
-  clampLivePaneHeight,
   liveFeedSelectedKey,
   resolveLiveFollowDecision,
 } from "../src/live-follow.ts";
@@ -196,16 +195,6 @@ test("Live auto-follow refreshes the detail in place when the followed event is 
   );
 });
 
-test("clampLivePaneHeight fills the available viewport and never forces the minimum past it", () => {
-  // Tall window: plenty of room below the split, the minimum is comfortably met.
-  assert.equal(clampLivePaneHeight(1000, 200, 16, 320), 784);
-  // Short window: less than the minimum remains. Forcing 320 here reintroduces
-  // document-level scrolling, so clamp to what is actually available instead.
-  assert.equal(clampLivePaneHeight(480, 300, 16, 320), 164);
-  // Degenerate: the split already sits past the viewport — never go negative.
-  assert.equal(clampLivePaneHeight(300, 320, 16, 320), 0);
-});
-
 test("Live pulse strip collapses to two columns before the ranked charts would overflow a four-column row", () => {
   // The four-column pulse grid starves the ranked-chart cards on ~1280px desktops
   // (the charts need more width than a 1fr/1.2fr card gives), so the strip drops
@@ -214,30 +203,6 @@ test("Live pulse strip collapses to two columns before the ranked charts would o
     stylesSource,
     /@media \(max-width: 1439px\)\s*{\s*\.live-pulse\s*{\s*grid-template-columns:\s*1fr 1fr;\s*}\s*}/,
     "the pulse strip should collapse to two columns at the 1439px breakpoint",
-  );
-});
-
-test("Live pulse strip is collapsible on a phone and stays open on desktop", () => {
-  // The four metric cards push the feed far down a phone screen. On mobile they
-  // hide behind a tap-to-collapse disclosure (default open); the collapsed state
-  // is carried by data-open="false" and only takes effect inside the phone
-  // breakpoint, so desktop always shows the strip regardless of the toggle.
-  assert.match(
-    stylesSource,
-    /@media \(max-width: 760px\)\s*{[\s\S]*?\.live-pulse\[data-open="false"\]\s*{[^}]*display:\s*none;/,
-    "a collapsed pulse strip should be hidden only within the phone breakpoint",
-  );
-  // The toggle reuses the shared collapsed-filter chrome, which is display:none
-  // on desktop — so the disclosure never appears on a wide screen.
-  assert.match(
-    stylesSource,
-    /\.filter-summary-disclosure\s*{\s*display:\s*none;\s*}/,
-    "the shared disclosure chrome should be hidden by default (desktop)",
-  );
-  assert.match(
-    stylesSource,
-    /@media \(max-width: 760px\)\s*{[\s\S]*?\.live-pulse-disclosure\s*{[^}]*width:\s*100%;/,
-    "the pulse disclosure should be a full-width header bar on a phone",
   );
 });
 

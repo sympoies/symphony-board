@@ -1,4 +1,23 @@
 import { useEffect, useState } from "react";
+import { SHORT_VIEWPORT_QUERY } from "./layout-tier.ts";
+
+// SSR-safe one-shot probe (no subscription): a missing `window` or matchMedia
+// reads as "no match", so the caller falls back to its roomy-viewport default.
+// Mirrors this file's hook seeding rule; use the hook when the answer must stay
+// live across a resize, and this when a one-time default is all that is needed
+// (a lazy useState initializer, say).
+export function matchesViewportQuery(query: string, target: Window | undefined = typeof window === "undefined" ? undefined : window): boolean {
+  if (typeof target?.matchMedia !== "function") return false;
+  try {
+    return target.matchMedia(query).matches;
+  } catch {
+    return false;
+  }
+}
+
+export function isShortViewport(target?: Window): boolean {
+  return matchesViewportQuery(SHORT_VIEWPORT_QUERY, target);
+}
 
 // Subscribe to a CSS media query, re-rendering when it flips. The state seeds
 // synchronously from the current match so the first paint already reflects the
