@@ -32,6 +32,7 @@ import {
   activityVirtualRange,
   liveDetailNavigation,
   liveEventKey,
+  liveWorkItemTitle,
   buildCommitRows,
   commitVirtualRange,
   filterActivitiesByRange,
@@ -834,6 +835,29 @@ function liveEvent(over: Partial<LiveEvent> = {}): LiveEvent {
     ...over,
   };
 }
+
+test("liveWorkItemTitle exposes trimmed issue and change-request titles", () => {
+  assert.equal(
+    liveWorkItemTitle(liveEvent({ target: { kind: "issue", source_id: "github:github.com", title: "  Restore the board  " } })),
+    "Restore the board",
+  );
+  assert.equal(
+    liveWorkItemTitle(liveEvent({ target: { kind: "change_request", source_id: "github:github.com", title: "Show Live titles" } })),
+    "Show Live titles",
+  );
+});
+
+test("liveWorkItemTitle ignores non-work-item and empty target titles", () => {
+  assert.equal(
+    liveWorkItemTitle(liveEvent({ target: { kind: "commit", source_id: "github:github.com", title: "Avoid duplicate commit subject" } })),
+    null,
+  );
+  assert.equal(
+    liveWorkItemTitle(liveEvent({ target: { kind: "issue", source_id: "github:github.com", title: "   " } })),
+    null,
+  );
+  assert.equal(liveWorkItemTitle(liveEvent({ target: null })), null);
+});
 
 test("liveDetailNavigation finds adjacent events in the filtered feed order", () => {
   const newest = liveEvent({ seq: 3, event_id: "evt-3", title: "newest" });

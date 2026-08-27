@@ -46,7 +46,7 @@ import {
 import { Badge } from "./Badge.tsx";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
-import { activityVirtualRange, liveDetailNavigation, liveEventKey, type LiveEvent, type LiveEventActor } from "../model.ts";
+import { activityVirtualRange, liveDetailNavigation, liveEventKey, liveWorkItemTitle, type LiveEvent, type LiveEventActor } from "../model.ts";
 import { CONTENT_PANE_MIN_HEIGHT_PX, DETAIL_OVERLAY_QUERY, SHORT_VIEWPORT_QUERY } from "../layout-tier.ts";
 import { clampContentPaneHeight, contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx } from "../pane-height.ts";
 
@@ -312,6 +312,7 @@ function LiveRow({
   const actor = ev.actor?.login ?? "someone";
   const { repo, num } = targetText(ev);
   const action = liveAction(ev);
+  const targetTitle = liveWorkItemTitle(ev);
   const previewRef = useRef<HTMLDivElement>(null);
   const [clamped, setClamped] = useState(false);
   // Fade the preview's bottom edge ONLY when the body actually overflows the
@@ -325,7 +326,7 @@ function LiveRow({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [ev.body, previewLines]);
+  }, [ev.body, previewLines, targetTitle]);
   return (
     <li
       className={`live-event${selected ? " live-event-selected" : ""}`}
@@ -360,13 +361,14 @@ function LiveRow({
           {repo}
           {num ? <span className="live-event-num"> {num}</span> : null}
         </div>
-        {ev.body ? (
+        {targetTitle || ev.body ? (
           <div
             ref={previewRef}
             className={`live-event-preview${clamped ? " is-clamped" : ""}`}
             style={{ "--preview-lines": previewLines } as CSSProperties}
           >
-            <MarkdownBody text={ev.body} className="live-md live-md-preview" />
+            {targetTitle ? <div className="live-event-target-title">{targetTitle}</div> : null}
+            {ev.body ? <MarkdownBody text={ev.body} className="live-md live-md-preview" /> : null}
           </div>
         ) : null}
       </div>
@@ -477,7 +479,9 @@ function LiveDetail({
   const actor = ev.actor?.login ?? "someone";
   const { repo, num } = targetText(ev);
   const link = eventLink(ev);
+  const targetLink = safeHref(ev.target?.url);
   const action = liveAction(ev);
+  const targetTitle = liveWorkItemTitle(ev);
   return (
     <article className="live-detail-card" data-detail-scroll>
       <button type="button" className="live-detail-back" onClick={onClose}>
@@ -525,6 +529,17 @@ function LiveDetail({
             {repo}
             {num ? <span className="live-event-num"> {num}</span> : null}
           </div>
+          {targetTitle ? (
+            <h3 className="live-detail-target-title">
+              {targetLink ? (
+                <a href={targetLink} target="_blank" rel="noopener noreferrer">
+                  {targetTitle}
+                </a>
+              ) : (
+                targetTitle
+              )}
+            </h3>
+          ) : null}
           {ev.body ? (
             <MarkdownBody text={ev.body} className="live-md live-detail-body" />
           ) : (
