@@ -3078,6 +3078,13 @@ export function liveEventKey(ev: Pick<LiveEvent, "source_id" | "event_id" | "seq
   return `${ev.source_id}:${ev.event_id}:${ev.seq}`;
 }
 
+export function liveWorkItemTitle(ev: Pick<LiveEvent, "target">): string | null {
+  const target = ev.target;
+  if (target?.kind !== "issue" && target?.kind !== "change_request") return null;
+  const title = target.title?.trim();
+  return title || null;
+}
+
 export function liveDetailNavigation(events: readonly LiveEvent[], current: LiveEvent | null): LiveDetailNavigation {
   const total = events.length;
   const currentKey = current ? liveEventKey(current) : null;

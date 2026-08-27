@@ -4083,6 +4083,10 @@ a.rf-node-title:hover { color: var(--accent); }
   overflow: hidden; margin-top: 6px;
   max-height: calc(var(--preview-lines, 5) * 1.5em + 0.2em);
 }
+.live-event-target-title {
+  color: var(--text); font-weight: 650; line-height: 1.4; overflow-wrap: anywhere;
+}
+.live-event-target-title + .live-md-preview { margin-top: 3px; }
 /* When the body overflows the clamp, fade its bottom edge to transparent with a
    mask (set by JS on overflow) — no colored overlay, so it reads cleanly over a
    normal, hovered, or selected row; a body that fits shows no fade. */
@@ -4257,6 +4261,12 @@ a.rf-node-title:hover { color: var(--accent); }
 .live-detail-title-arrow { color: var(--link); font-size: 0.78em; white-space: nowrap; }
 /* The repo + number now reads as a plain reference line (no longer the link). */
 .live-detail-ref { display: block; margin-bottom: 12px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.live-detail-target-title {
+  margin: 0 0 10px; border: none; padding: 0; color: var(--text);
+  font-size: 16px; line-height: 1.4; overflow-wrap: anywhere;
+}
+.live-detail-target-title a { color: inherit; }
+.live-detail-target-title a:hover { text-decoration: underline; }
 /* Follow-vs-pin mode cue in the detail header: muted "Following latest" with a
    live dot when auto-following the newest event, or a pill button to release the
    pin back to auto-follow. */
