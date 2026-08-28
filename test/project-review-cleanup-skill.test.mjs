@@ -15,22 +15,14 @@ const rawProviderWriteFixtures = [
   "glab api projects/1/merge_requests/2/notes --method POST",
 ];
 
-const hundredAndOneThreadFixture = {
-  providerThreads: [
-    ...Array.from({ length: 100 }, (_, index) => ({
-      id: `thread-${index + 1}`,
-      resolved: true,
-    })),
-    { id: "thread-101", resolved: false },
-  ],
-  releasedForgeCliPage: {
-    total: 100,
-    unresolved: 0,
-    threads: Array.from({ length: 100 }, (_, index) => ({
-      id: `thread-${index + 1}`,
-      resolved: true,
-    })),
-  },
+const arbitraryThreadFixture = {
+  total: 250,
+  unresolved: 0,
+  completeness: { threads: true, comments: true },
+  threads: Array.from({ length: 250 }, (_, index) => ({
+    id: `thread-${index + 1}`,
+    resolved: true,
+  })),
 };
 
 const replySucceededResolveFailedFixture = {
@@ -152,19 +144,33 @@ test("project-review-cleanup separates reply and resolve with re-read-before-ret
   );
 });
 
-test("project-review-cleanup fails closed at the released 100-thread evidence boundary", () => {
-  assert.equal(hundredAndOneThreadFixture.providerThreads.length, 101);
-  assert.equal(
-    hundredAndOneThreadFixture.providerThreads.at(-1).resolved,
-    false,
-  );
-  assert.equal(hundredAndOneThreadFixture.releasedForgeCliPage.total, 100);
-  assert.equal(hundredAndOneThreadFixture.releasedForgeCliPage.unresolved, 0);
+test("project-review-cleanup accepts arbitrary thread counts only with explicit completeness", () => {
+  assert.equal(arbitraryThreadFixture.total, 250);
+  assert.equal(arbitraryThreadFixture.threads.length, 250);
+  assert.equal(arbitraryThreadFixture.unresolved, 0);
+  assert.deepEqual(arbitraryThreadFixture.completeness, {
+    threads: true,
+    comments: true,
+  });
 
-  assert.match(skill, /data\.total\s*>=\s*100/);
-  assert.match(skill, /(?:incomplete|partial)[^\n]*evidence/i);
-  assert.match(
-    skill,
-    /data\.total\s*<\s*100`?[\s\S]{0,80}`?data\.unresolved\s*==\s*0/,
+  const refreshEvidence = workflowSection(
+    "### 2. Refresh live provider evidence",
+    "### 3. Triage every unresolved thread",
   );
+  const finalConvergence = workflowSection(
+    "### 6. Prove live convergence",
+    "## Output",
+  );
+
+  assert.doesNotMatch(skill, /data\.total\s*(?:>=|<)\s*100/);
+  for (const section of [refreshEvidence, finalConvergence]) {
+    assert.match(section, /data\.completeness\.threads\s*==\s*true/);
+    assert.match(section, /data\.completeness\.comments\s*==\s*true/);
+    assert.match(section, /missing, false, or non-boolean/);
+    assert.match(section, /(?:incomplete|partial)[^\n]*evidence/i);
+    assert.match(section, /data\.unresolved\s*==\s*0/);
+  }
+  assert.match(refreshEvidence, /arbitrary[^\n]*review threads/);
+  assert.match(refreshEvidence, /threads\[\*\]\.comments/);
+  assert.match(finalConvergence, /no fixed[^\n]*limit/i);
 });

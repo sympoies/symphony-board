@@ -83,19 +83,20 @@ Use only entries where `resolved == false`. If `data.unresolved == 0`, record
 the candidate as already converged only after checking the completeness boundary
 below. The board may continue showing it until the next sync.
 
-The currently released `forge-cli` list surface returns one unpaginated page of
-at most 100 review threads and does not expose a provider completeness signal.
-Treat `data.total >= 100` as incomplete evidence and stop for that PR; a hidden
-101st thread may still be unresolved. Only `data.total < 100` together with
-`data.unresolved == 0` proves that an initial candidate is already converged.
-Keep this fail-closed boundary until the released list envelope proves complete
-pagination with an explicit field that this skill can require.
+Require the released list envelope to prove both
+`data.completeness.threads == true` and
+`data.completeness.comments == true`. A missing, false, or non-boolean signal is
+incomplete evidence; stop for that PR instead of reasoning from the visible
+rows. These explicit signals allow an arbitrary number of review threads and
+replies with no fixed count limit. The initial candidate is already converged
+only when the same complete envelope also proves `data.unresolved == 0`.
 
 Before triage, inspect the full thread/reply context needed to understand the
-finding: the thread body and URL, every current reply, the current PR diff/head,
-the referenced source, and tests. The normalized list envelope does not carry
-reply history, so supplement it with read-only provider tooling. Stop when the
-complete current reply set cannot be established.
+finding: the thread body and URL, every current reply from the complete
+`threads[*].comments` lists, the current PR diff/head, the referenced source,
+and tests. Use read-only provider tooling for context outside the list envelope.
+Stop when the complete current reply set or any other material context cannot be
+established.
 
 ### 3. Triage every unresolved thread
 
@@ -180,12 +181,15 @@ JSON and do not use board rediscovery as the final gate:
 forge-cli --provider github --repo <repo> --format json pr review-threads list <pr>
 ```
 
-Fail closed when the fresh envelope reports `data.total >= 100`; that page is
-incomplete evidence even when its visible `data.unresolved` value is zero. The
-PR is complete only when the same fresh envelope proves `data.total < 100` and
-`data.unresolved == 0`. Repeat this final live check for every swept PR. Run
-`pnpm review-candidates --json` again only after a board sync when starting a
-new discovery pass; its cached count is not proof of provider convergence.
+Fail closed unless the fresh envelope proves
+`data.completeness.threads == true` and
+`data.completeness.comments == true`; visible rows are partial evidence without
+both signals. A missing, false, or non-boolean value is incomplete evidence.
+There is no fixed thread or reply limit. The PR is complete only when the same
+complete envelope proves `data.unresolved == 0`, regardless of `data.total`.
+Repeat this final live check for every swept PR. Run `pnpm
+review-candidates --json` again only after a board sync when starting a new
+discovery pass; its cached count is not proof of provider convergence.
 
 ## Output
 
@@ -198,7 +202,8 @@ Report:
 - source-fix or follow-up PR/issue links;
 - reply/resolve results, including retained reply identity and any recovery
   reads; and
-- the fresh final `data.total` and `data.unresolved` counts for every PR.
+- the fresh final `data.total`, `data.unresolved`, and `data.completeness`
+  values for every PR.
 
 Stop with an explicit blocker when discovery is unavailable, live provider
 evidence is incomplete, provider writes are unsupported, a high-risk finding
