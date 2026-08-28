@@ -84,13 +84,20 @@ test("stable releases can dispatch to a neutral downstream repo", () => {
     /if: \$\{\{ !github\.event\.release\.prerelease && vars\.DEPLOY_DISPATCH_REPOSITORY != '' \}\}/,
   );
   assert.match(publishWorkflow, /DEPLOY_DISPATCH_REPOSITORY: \$\{\{ vars\.DEPLOY_DISPATCH_REPOSITORY \}\}/);
+  assert.match(publishWorkflow, /DEPLOY_DISPATCH_WORKFLOW: \$\{\{ vars\.DEPLOY_DISPATCH_WORKFLOW \}\}/);
   assert.match(publishWorkflow, /DEPLOY_DISPATCH_TOKEN: \$\{\{ secrets\.DEPLOY_DISPATCH_TOKEN \}\}/);
+  assert.match(publishWorkflow, /--arg run_id "\$GITHUB_RUN_ID"/);
+  assert.match(publishWorkflow, /--arg run_attempt "\$GITHUB_RUN_ATTEMPT"/);
+  assert.match(
+    publishWorkflow,
+    /DISPATCH_EXPECT_WORKFLOW="\$DEPLOY_DISPATCH_WORKFLOW" \\\n\s*DISPATCH_EXPECT_RUN_NAME="\$DEPLOY_DISPATCH_EVENT_TYPE \$version from \$GITHUB_RUN_ID\.\$GITHUB_RUN_ATTEMPT"/,
+  );
   // The POST itself lives in scripts/ci/dispatch-release.sh, which asserts the
   // response status. Both dispatch paths must go through it: an inline curl
   // gets neither shellcheck nor the status gate below.
   assert.match(
     publishWorkflow,
-    /DISPATCH_TOKEN="\$DEPLOY_DISPATCH_TOKEN" \\\n\s*scripts\/ci\/dispatch-release\.sh "\$DEPLOY_DISPATCH_REPOSITORY"/,
+    /DISPATCH_TOKEN="\$DEPLOY_DISPATCH_TOKEN" \\\n\s*DISPATCH_EXPECT_WORKFLOW="\$DEPLOY_DISPATCH_WORKFLOW" \\\n\s*DISPATCH_EXPECT_RUN_NAME="\$DEPLOY_DISPATCH_EVENT_TYPE \$version from \$GITHUB_RUN_ID\.\$GITHUB_RUN_ATTEMPT" \\\n\s*scripts\/ci\/dispatch-release\.sh "\$DEPLOY_DISPATCH_REPOSITORY"/,
   );
   assert.match(
     publishWorkflow,
@@ -124,10 +131,100 @@ function runDispatch(curlStdout: string, curlExit: number) {
   }
 }
 
+function runObservedDispatch(workflowRuns: unknown) {
+  const dir = mkdtempSync(join(tmpdir(), "dispatch-release-observation-test-"));
+  try {
+    const stub = join(dir, "curl");
+    writeFileSync(
+      stub,
+      `#!/usr/bin/env bash
+set -euo pipefail
+output=""
+url=""
+while (( $# > 0 )); do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+if [[ "$url" == */dispatches ]]; then
+  printf '204'
+  exit 0
+fi
+test -n "$output"
+printf '%s' "$CURL_WORKFLOW_RUNS" >"$output"
+printf '200'
+`,
+    );
+    chmodSync(stub, 0o755);
+    return spawnSync(
+      fileURLToPath(new URL("../scripts/ci/dispatch-release.sh", import.meta.url)),
+      ["owner/repo"],
+      {
+        input: '{"event_type":"probe"}',
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH}`,
+          CURL_WORKFLOW_RUNS: JSON.stringify(workflowRuns),
+          DISPATCH_TOKEN: "stub",
+          DISPATCH_EXPECT_WORKFLOW: "symphony-board-bump.yml",
+          DISPATCH_EXPECT_RUN_NAME: "probe 1.13.3 from 42.1",
+          DISPATCH_EXPECT_TIMEOUT_SECONDS: "0",
+          DISPATCH_EXPECT_POLL_SECONDS: "0",
+        },
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 test("a dispatch is only reported delivered when GitHub answers 204", () => {
   const accepted = runDispatch("204", 0);
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.match(accepted.stdout, /HTTP 204/);
+});
+
+test("a configured downstream workflow must be observed through successful completion", () => {
+  const result = runObservedDispatch({
+    workflow_runs: [
+      {
+        id: 123,
+        event: "repository_dispatch",
+        display_title: "probe 1.13.3 from 42.1",
+        status: "completed",
+        conclusion: "success",
+        html_url: "https://example.invalid/runs/123",
+      },
+    ],
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /downstream workflow completed successfully/);
+});
+
+test("an accepted dispatch fails when its correlated downstream run never appears", () => {
+  const result = runObservedDispatch({ workflow_runs: [] });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /matching downstream workflow run was not observed/);
+});
+
+test("a correlated downstream workflow failure fails the dispatch", () => {
+  const result = runObservedDispatch({
+    workflow_runs: [
+      {
+        id: 124,
+        event: "repository_dispatch",
+        display_title: "probe 1.13.3 from 42.1",
+        status: "completed",
+        conclusion: "failure",
+        html_url: "https://example.invalid/runs/124",
+      },
+    ],
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /downstream workflow concluded failure/);
 });
 
 test("a redirect from a transferred repository fails instead of passing silently", () => {

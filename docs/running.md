@@ -335,9 +335,12 @@ message-size limits.
 Stable GitHub Releases can notify an external deployment repository after the
 public GHCR manifests are pushed and verified. Set the repository Actions
 variable `DEPLOY_DISPATCH_REPOSITORY=owner/repo` and the secret
-`DEPLOY_DISPATCH_TOKEN` with permission to call `repository_dispatch` on that
-repository. `DEPLOY_DISPATCH_EVENT_TYPE` is optional and defaults to
-`symphony-board-release`. Prereleases do not dispatch.
+`DEPLOY_DISPATCH_TOKEN` with permission to call `repository_dispatch` and read
+Actions runs on that repository. Set `DEPLOY_DISPATCH_WORKFLOW` to the downstream
+workflow file name. The release waits for the correlated downstream run to
+finish successfully, so an accepted dispatch that never starts is a release
+failure instead of a silent handoff loss. `DEPLOY_DISPATCH_EVENT_TYPE` is
+optional and defaults to `symphony-board-release`. Prereleases do not dispatch.
 
 Stable releases can also notify a Homebrew tap after both GHCR publishing and
 desktop asset upload complete. Set `HOMEBREW_TAP_DISPATCH_REPOSITORY=owner/repo`

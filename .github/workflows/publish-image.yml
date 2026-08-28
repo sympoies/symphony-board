@@ -265,11 +265,16 @@ jobs:
         env:
           DEPLOY_DISPATCH_REPOSITORY: ${{ vars.DEPLOY_DISPATCH_REPOSITORY }}
           DEPLOY_DISPATCH_EVENT_TYPE: ${{ vars.DEPLOY_DISPATCH_EVENT_TYPE || 'symphony-board-release' }}
+          DEPLOY_DISPATCH_WORKFLOW: ${{ vars.DEPLOY_DISPATCH_WORKFLOW }}
           DEPLOY_DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_DISPATCH_TOKEN" || {
             echo "DEPLOY_DISPATCH_TOKEN is required when DEPLOY_DISPATCH_REPOSITORY is set" >&2
+            exit 1
+          }
+          test -n "$DEPLOY_DISPATCH_WORKFLOW" || {
+            echo "DEPLOY_DISPATCH_WORKFLOW is required when DEPLOY_DISPATCH_REPOSITORY is set" >&2
             exit 1
           }
           case "$DEPLOY_DISPATCH_REPOSITORY" in
@@ -284,10 +289,14 @@ jobs:
               --arg tag "$GITHUB_REF_NAME" \
               --arg source_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
               --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-              '{event_type: $event_type, client_payload: {version: $version, tag: $tag, source_url: $source_url, run_url: $run_url}}'
+              --arg run_id "$GITHUB_RUN_ID" \
+              --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+              '{event_type: $event_type, client_payload: {version: $version, tag: $tag, source_url: $source_url, run_url: $run_url, run_id: $run_id, run_attempt: $run_attempt}}'
           )"
           printf '%s' "$payload" |
             DISPATCH_TOKEN="$DEPLOY_DISPATCH_TOKEN" \
+            DISPATCH_EXPECT_WORKFLOW="$DEPLOY_DISPATCH_WORKFLOW" \
+            DISPATCH_EXPECT_RUN_NAME="$DEPLOY_DISPATCH_EVENT_TYPE $version from $GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" \
             scripts/ci/dispatch-release.sh "$DEPLOY_DISPATCH_REPOSITORY"
 
   desktop:
