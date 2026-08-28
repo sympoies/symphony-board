@@ -29,6 +29,7 @@ import { log } from "../log.ts";
 const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40; // safety cap (~2000 items/connection)
+const MAX_REVIEW_THREAD_PAGES = 40; // safety cap (~4000 threads/PR)
 // Safety cap for paginated REST activity surfaces (per_page=100 -> 2000 records
 // per surface per project). Sized so a fresh-DB full sweep can cover a year of
 // an active repo: nils-cli runs ~1006 commits / ~1600 push events per 365d,
@@ -51,15 +52,14 @@ const REF_NODE = `id number url state repository { nameWithOwner }`;
 const REVIEWS = `reviews(first:50){ nodes { id author { login url __typename } state submittedAt url } }`;
 // Review threads with their resolution state — the "is this review resolved?"
 // signal (a PR-level, point-in-time count, NOT per review event). GitHub has no
-// unresolved-count aggregate, so `open` is counted from the nodes. `first:100`
-// covers every real PR; if one somehow has more (`pageInfo.hasNextPage`), the
-// node-derived `open` would be a misleading floor, so the count is reported as
-// unknown (null) for that PR rather than wrong (see reviewThreadCounts).
-const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage } nodes {
+// unresolved-count aggregate, so `open` is counted from the nodes. The nested
+// first page is completed through REVIEW_THREADS_PAGE_Q when needed.
+const REVIEW_THREAD_FIELDS = `
   id isResolved isOutdated path line startLine resolvedBy { login }
   comments(first:10){ totalCount nodes { id author { login avatarUrl } body url createdAt updatedAt } }
   latestComment: comments(last:1){ nodes { createdAt updatedAt } }
-} }`;
+`;
+const REVIEW_THREADS = `reviewThreads(first:100){ totalCount pageInfo { hasNextPage endCursor } nodes { ${REVIEW_THREAD_FIELDS} } }`;
 // Incoming cross-references — "X mentioned this item". `source` is always an
 // Issue or PR (never a commit), and `willCloseTarget` flags the ones that are
 // really a `closes` link, which we skip (closingIssuesReferences covers those).
@@ -110,6 +110,19 @@ const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
       ${REVIEWS}
       ${REVIEW_THREADS}
       closingIssuesReferences(first:20){ nodes { ${REF_NODE} } }
+    }
+  }
+}`;
+
+const REVIEW_THREADS_PAGE_Q = `query ReviewThreadsPage($owner:String!, $name:String!, $number:Int!, $cursor:String!) {
+  rateLimit { cost remaining used resetAt }
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100, after:$cursor) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { ${REVIEW_THREAD_FIELDS} }
+      }
     }
   }
 }`;
@@ -176,16 +189,7 @@ export class GitHubSource implements Source {
                 break;
               }
               if (!latest || node.updatedAt > latest) latest = node.updatedAt;
-              // A PR with more than the first 100 review threads only returns its
-              // first page, so normalize emits no thread detail for it. If this
-              // were treated as a complete sweep, the source-wide
-              // softDeleteUnseenReviewThreads would tombstone that PR's stored
-              // threads (none re-seen). Mark the sweep partial so the disappearance
-              // rule keeps them — better stale than wrongly deleted.
-              if (kind === "change_request" && node.reviewThreads?.pageInfo?.hasNextPage) {
-                complete = false;
-                log.warn(`[${this.descriptor.sourceId}] ${project} PR #${node.number}: >100 review threads; marking sweep partial so unseen threads are not tombstoned`);
-              }
+              if (kind === "change_request") await this.completeReviewThreads(gql, owner, name, node);
               const payload = JSON.stringify(node);
               records.push({
                 entityKind: kind,
@@ -231,9 +235,9 @@ export class GitHubSource implements Source {
     // would make the next incremental start past the omitted repo's older,
     // still-unread events — silently skipping them once its token is added.
     // Return null so updateSyncState's COALESCE/GREATEST keeps the prior
-    // watermark and the next incremental re-reads from where it was. A non-
-    // partial run (including a partial-for-other-reasons sweep, e.g. a PR with
-    // >100 review threads, which still covers every project) advances normally.
+    // watermark and the next incremental re-reads from where it was. Other
+    // partial runs, such as a provider request failure after some projects were
+    // covered, advance normally because no configured project was omitted.
     const watermark = this.partialReason ? null : latest;
     return { records, watermark, complete, error: firstError };
   }
@@ -262,6 +266,7 @@ export class GitHubSource implements Source {
         const data: any = await gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.iid });
         const node = data?.repository?.pullRequest;
         if (!node) return { record: null, error: null };
+        await this.completeReviewThreads(gql, owner, name, node);
         const payload = JSON.stringify(node);
         const record: RawRecord = {
           entityKind: "change_request",
@@ -288,6 +293,36 @@ export class GitHubSource implements Source {
       if (r.record) records.push(r.record);
     }
     return { records, watermark: null, complete, error: firstError };
+  }
+
+  private async completeReviewThreads(gql: GqlClient, owner: string | undefined, name: string | undefined, node: any): Promise<void> {
+    const connection = node?.reviewThreads;
+    if (!connection?.pageInfo?.hasNextPage) return;
+    if (!owner || !name || typeof node?.number !== "number") {
+      throw new Error("cannot paginate review threads without a repository and PR number");
+    }
+
+    const nodes = [...(connection.nodes ?? [])];
+    let pageInfo = connection.pageInfo;
+    for (let page = 1; page < MAX_REVIEW_THREAD_PAGES; page++) {
+      const cursor = pageInfo?.endCursor;
+      if (!cursor) throw new Error(`${owner}/${name} PR #${node.number}: review thread page is missing an end cursor`);
+      const data: any = await gql(REVIEW_THREADS_PAGE_Q, { owner, name, number: node.number, cursor });
+      const next = data?.repository?.pullRequest?.reviewThreads;
+      if (!next?.pageInfo || !Array.isArray(next.nodes)) {
+        throw new Error(`${owner}/${name} PR #${node.number}: review thread page is missing from the response`);
+      }
+      nodes.push(...next.nodes);
+      pageInfo = next.pageInfo;
+      if (!pageInfo.hasNextPage) {
+        connection.nodes = nodes;
+        connection.totalCount = next.totalCount ?? connection.totalCount;
+        connection.pageInfo = pageInfo;
+        log.info(`[${this.descriptor.sourceId}] ${owner}/${name} PR #${node.number}: review threads fetched ${nodes.length} across ${page + 1} pages`);
+        return;
+      }
+    }
+    throw new Error(`${owner}/${name} PR #${node.number}: review threads exceeded ${MAX_REVIEW_THREAD_PAGES} pages`);
   }
 
   normalize(raw: RawRecord): NormalizedBundle | null {
