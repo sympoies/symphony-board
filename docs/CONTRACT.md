@@ -436,10 +436,11 @@ Review threads (`item.review_threads`, `change_request` only) are the
 "is this review resolved?" signal — a per-item, point-in-time count refreshed
 each sync, distinct from the per-event `review` activity above:
 
-- GitHub: `PullRequest.reviewThreads.isResolved`. `total` is the connection's
-  `totalCount`; `open` counts unresolved threads in the fetched page (`first:50`,
-  which covers every real PR — `open` is a lower bound only for the unseen
-  >50-thread case).
+- GitHub: `PullRequest.reviewThreads.isResolved`. The source paginates the
+  connection to completion; `total` is its `totalCount` and `open` counts all
+  unresolved thread nodes. A failed or safety-capped continuation keeps the
+  source sweep partial instead of emitting a misleading count or tombstoning
+  unseen threads.
 - GitLab: `MergeRequest.resolvableDiscussionsCount` (=`total`) minus
   `resolvedDiscussionsCount` (=`open`), exact scalar aggregates with no
   node-walk. GitLab's `review` activity is approval-based, so this is the only

@@ -778,15 +778,37 @@ test("GitHub: review threads normalize to open/total, and a truncated page repor
   assert.equal(detail.lastCommentAt, "2026-06-02T09:00:00Z");
 });
 
-test("GitHub: a PR whose reviewThreads page is truncated marks the sweep incomplete (so the disappearance sweep cannot tombstone its threads)", async () => {
-  const truncatedGql: GqlClient = (async (query: string) => {
+test("GitHub: a PR whose reviewThreads exceed 100 is paginated to a complete sweep", async () => {
+  const cursors: unknown[] = [];
+  const paginatedGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
+    if (query.includes("query ReviewThreadsPage")) {
+      cursors.push(vars?.cursor);
+      return {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              totalCount: 150,
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: Array.from({ length: 50 }, (_, i) => ({ id: `RT_${100 + i}`, isResolved: i % 2 === 0 })),
+            },
+          },
+        },
+      };
+    }
     if (query.includes("pullRequests(")) {
       return {
         repository: {
           pullRequests: {
             pageInfo: { hasNextPage: false, endCursor: null },
             nodes: [
-              { ...prNode("PR_big", "OPEN", "MERGEABLE"), reviewThreads: { totalCount: 150, pageInfo: { hasNextPage: true }, nodes: [] } },
+              {
+                ...prNode("PR_big", "OPEN", "MERGEABLE"),
+                reviewThreads: {
+                  totalCount: 150,
+                  pageInfo: { hasNextPage: true, endCursor: "RT_CURSOR_100" },
+                  nodes: Array.from({ length: 100 }, (_, i) => ({ id: `RT_${i}`, isResolved: false })),
+                },
+              },
             ],
           },
         },
@@ -794,13 +816,48 @@ test("GitHub: a PR whose reviewThreads page is truncated marks the sweep incompl
     }
     return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
   }) as GqlClient;
-  const src = new GitHubSource(DESC, truncatedGql, ["o/r"]);
+  const src = new GitHubSource(DESC, paginatedGql, ["o/r"]);
   const res = await src.fetch({ since: null, full: true });
-  assert.equal(
-    res.complete,
-    false,
-    "a PR with >100 review threads only returns its first page; the sweep must report partial so softDeleteUnseenReviewThreads cannot tombstone the unseen threads",
-  );
+  assert.equal(res.complete, true);
+  assert.deepEqual(cursors, ["RT_CURSOR_100"]);
+  const payload = res.records.find((record) => record.externalId === "PR_big")?.payload as any;
+  assert.equal(payload.reviewThreads.nodes.length, 150);
+  assert.deepEqual(payload.reviewThreads.pageInfo, { hasNextPage: false, endCursor: null });
+});
+
+test("GitHub: a failed later reviewThreads page keeps the sweep partial", async () => {
+  let pageCalls = 0;
+  const failingGql: GqlClient = (async (query: string) => {
+    if (query.includes("query ReviewThreadsPage")) {
+      pageCalls++;
+      throw new Error("review thread page unavailable");
+    }
+    if (query.includes("pullRequests(")) {
+      return {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                ...prNode("PR_big", "OPEN", "MERGEABLE"),
+                reviewThreads: {
+                  totalCount: 150,
+                  pageInfo: { hasNextPage: true, endCursor: "RT_CURSOR_100" },
+                  nodes: Array.from({ length: 100 }, (_, i) => ({ id: `RT_${i}`, isResolved: false })),
+                },
+              },
+            ],
+          },
+        },
+      };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+  const src = new GitHubSource(DESC, failingGql, ["o/r"]);
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(pageCalls, 1);
+  assert.equal(res.complete, false);
+  assert.match(res.error ?? "", /review thread page unavailable/);
 });
 
 test("GitHub: a fully-fetched reviewThreads page keeps the sweep complete", async () => {
