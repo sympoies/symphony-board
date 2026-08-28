@@ -5,7 +5,7 @@ import {
   createAuthSelectionState,
   describeRestOperation,
   fallbackRepoAccessMessage,
-  fetchWithTimeout,
+  fetchWithTransientResponseRetry,
   githubRateBudgetFromHeaders,
   githubRateLimitInfo,
   isGithubPrimaryRateLimit,
@@ -72,7 +72,13 @@ export function makeRestClient(baseUrl: string, tokenInput: AuthTokenInput, prov
         } else {
           headers["PRIVATE-TOKEN"] = token.value;
         }
-        const res = await fetchWithTimeout(url, { headers }, timeoutMs);
+        const res = await fetchWithTransientResponseRetry(
+          url,
+          { headers },
+          timeoutMs,
+          provider,
+          "REST request",
+        );
         const text = await res.text();
         let json: any;
         try {
