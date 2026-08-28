@@ -101,10 +101,14 @@ timeout_seconds="${DISPATCH_EXPECT_TIMEOUT_SECONDS:-1200}"
 poll_seconds="${DISPATCH_EXPECT_POLL_SECONDS:-5}"
 case "$timeout_seconds:$poll_seconds" in
   *[!0-9:]* | :* | *:)
-    echo "dispatch observation timeout and poll values must be non-negative integers" >&2
+    echo "dispatch observation timeout and poll values must be positive integers" >&2
     exit 2
     ;;
 esac
+if (( timeout_seconds == 0 || poll_seconds == 0 )); then
+  echo "dispatch observation timeout and poll values must be positive integers" >&2
+  exit 2
+fi
 
 response="$(mktemp)"
 trap 'rm -f "$response"' EXIT
@@ -112,8 +116,19 @@ deadline=$((SECONDS + timeout_seconds))
 observed_run_id=""
 
 while :; do
+  remaining=$((deadline - SECONDS))
+  if (( remaining <= 0 )); then
+    echo "matching downstream workflow run was not observed successfully before timeout: $expect_run_name" >&2
+    exit 1
+  fi
+  request_timeout=30
+  if (( remaining < request_timeout )); then
+    request_timeout="$remaining"
+  fi
   runs_status="$(
     curl -sS -o "$response" -w '%{http_code}' \
+      --connect-timeout "$request_timeout" \
+      --max-time "$request_timeout" \
       -H "Accept: application/vnd.github+json" \
       -H "Authorization: Bearer $DISPATCH_TOKEN" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -153,9 +168,14 @@ while :; do
     fi
   fi
 
-  if (( SECONDS >= deadline )); then
+  remaining=$((deadline - SECONDS))
+  if (( remaining <= 0 )); then
     echo "matching downstream workflow run was not observed successfully before timeout: $expect_run_name" >&2
     exit 1
   fi
-  sleep "$poll_seconds"
+  sleep_seconds="$poll_seconds"
+  if (( remaining < sleep_seconds )); then
+    sleep_seconds="$remaining"
+  fi
+  sleep "$sleep_seconds"
 done

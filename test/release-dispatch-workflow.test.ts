@@ -131,7 +131,11 @@ function runDispatch(curlStdout: string, curlExit: number) {
   }
 }
 
-function runObservedDispatch(workflowRuns: unknown) {
+function runObservedDispatch(
+  workflowRuns: unknown,
+  envOverrides: Record<string, string> = {},
+  lookupDelaySeconds = 0,
+) {
   const dir = mkdtempSync(join(tmpdir(), "dispatch-release-observation-test-"));
   try {
     const stub = join(dir, "curl");
@@ -141,9 +145,12 @@ function runObservedDispatch(workflowRuns: unknown) {
 set -euo pipefail
 output=""
 url=""
+max_time=""
 while (( $# > 0 )); do
   case "$1" in
     -o) output="$2"; shift 2 ;;
+    --max-time) max_time="$2"; shift 2 ;;
+    --connect-timeout) shift 2 ;;
     http*) url="$1"; shift ;;
     *) shift ;;
   esac
@@ -153,6 +160,10 @@ if [[ "$url" == */dispatches ]]; then
   exit 0
 fi
 test -n "$output"
+if (( ${lookupDelaySeconds} > 0 )); then
+  test -n "$max_time"
+  sleep "$max_time"
+fi
 printf '%s' "$CURL_WORKFLOW_RUNS" >"$output"
 printf '200'
 `,
@@ -171,8 +182,9 @@ printf '200'
           DISPATCH_TOKEN: "stub",
           DISPATCH_EXPECT_WORKFLOW: "symphony-board-bump.yml",
           DISPATCH_EXPECT_RUN_NAME: "probe 1.13.3 from 42.1",
-          DISPATCH_EXPECT_TIMEOUT_SECONDS: "0",
-          DISPATCH_EXPECT_POLL_SECONDS: "0",
+          DISPATCH_EXPECT_TIMEOUT_SECONDS: "1",
+          DISPATCH_EXPECT_POLL_SECONDS: "1",
+          ...envOverrides,
         },
       },
     );
@@ -225,6 +237,23 @@ test("a correlated downstream workflow failure fails the dispatch", () => {
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /downstream workflow concluded failure/);
+});
+
+test("downstream observation remains bounded when lookup and poll exceed the deadline", () => {
+  const startedAt = Date.now();
+  const result = runObservedDispatch(
+    { workflow_runs: [] },
+    {
+      DISPATCH_EXPECT_TIMEOUT_SECONDS: "1",
+      DISPATCH_EXPECT_POLL_SECONDS: "30",
+    },
+    30,
+  );
+  const elapsedMs = Date.now() - startedAt;
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /matching downstream workflow run was not observed/);
+  assert.ok(elapsedMs < 3000, `observation exceeded its deadline: ${elapsedMs}ms`);
 });
 
 test("a redirect from a transferred repository fails instead of passing silently", () => {
