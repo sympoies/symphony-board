@@ -104,6 +104,45 @@ test("an HTTP error prefers the JSON message field, falling back to the raw body
   await assert.rejects(() => gql("query { x }"), /GraphQL HTTP 500: \{"oops":1\}/);
 });
 
+test("GitHub GraphQL retries transient gateway responses and succeeds", async () => {
+  const responses = [
+    new Response("<html>bad gateway</html>", { status: 502 }),
+    new Response(JSON.stringify({ message: "temporarily unavailable" }), { status: 503 }),
+    new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }),
+  ];
+  let calls = 0;
+  let requests = 0;
+  mockFetch(() => responses[calls++]!);
+
+  const gql = makeGqlClient("https://api.github.com/graphql", "tok", {
+    provider: "github",
+    onRequest: () => { requests++; },
+  });
+
+  assert.deepEqual(await gql("query { x }"), { ok: true });
+  assert.equal(calls, 3);
+  assert.equal(requests, 3, "telemetry counts every retry against the App request budget");
+});
+
+test("GitHub GraphQL stops after the bounded transient retry budget", async () => {
+  const responses = [
+    new Response(JSON.stringify({ message: "bad gateway" }), { status: 502 }),
+    new Response(JSON.stringify({ message: "temporarily unavailable" }), { status: 503 }),
+    new Response("<html>gateway timeout</html>", { status: 504 }),
+    new Response(JSON.stringify({ data: { shouldNotBeReached: true } }), { status: 200 }),
+  ];
+  let calls = 0;
+  mockFetch(() => responses[calls++]!);
+
+  const gql = makeGqlClient("https://api.github.com/graphql", "tok");
+
+  await assert.rejects(
+    () => gql("query { x }"),
+    /GraphQL HTTP 504: non-JSON response from https:\/\/api\.github\.com\/graphql/,
+  );
+  assert.equal(calls, 3);
+});
+
 test("GraphQL-level errors fail the call even when partial data is present", async () => {
   // The GraphQL spec allows { data, errors } simultaneously. We deliberately
   // DISCARD the partial data and throw: a half-seen sweep must read as a failed

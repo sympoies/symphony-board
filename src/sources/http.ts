@@ -11,6 +11,9 @@ import { log } from "../log.ts";
 // Override the default with SYNC_FETCH_TIMEOUT_MS (milliseconds).
 export const DEFAULT_FETCH_TIMEOUT_MS = Math.max(1000, Number(process.env.SYNC_FETCH_TIMEOUT_MS) || 30000);
 
+const GITHUB_TRANSIENT_RESPONSE_STATUSES = new Set([502, 503, 504]);
+const GITHUB_TRANSIENT_RETRY_DELAYS_MS = [250, 500] as const;
+
 export interface AuthToken {
   env: string;
   value: string;
@@ -548,5 +551,39 @@ export async function fetchWithTimeout(
     throw err;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+export async function fetchWithTransientResponseRetry(
+  input: string | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  provider: string,
+  requestLabel: string,
+  onRequest?: () => void,
+): Promise<Response> {
+  for (let retry = 0; ; retry++) {
+    onRequest?.();
+    const response = await fetchWithTimeout(input, init, timeoutMs);
+    const delayMs = GITHUB_TRANSIENT_RETRY_DELAYS_MS[retry];
+    if (
+      provider !== "github" ||
+      !GITHUB_TRANSIENT_RESPONSE_STATUSES.has(response.status) ||
+      delayMs === undefined
+    ) {
+      return response;
+    }
+
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Response cleanup is best-effort; a broken error body must not suppress
+      // the bounded retry that protects the source sweep.
+    }
+    log.warn(
+      `[source] ${requestLabel} HTTP ${response.status}; retrying in ${delayMs}ms ` +
+      `(${retry + 2}/${GITHUB_TRANSIENT_RETRY_DELAYS_MS.length + 1})`,
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   }
 }

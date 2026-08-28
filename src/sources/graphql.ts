@@ -9,7 +9,7 @@ import {
   createAuthSelectionState,
   describeGraphqlQuery,
   fallbackRepoAccessMessage,
-  fetchWithTimeout,
+  fetchWithTransientResponseRetry,
   githubGraphqlRateBudget,
   githubRateBudgetFromHeaders,
   githubRateLimitInfo,
@@ -86,8 +86,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
       recordAuthAttemptStart(tokens, idx, selection);
       let attemptRecorded = false;
       try {
-        onRequest?.();
-        const res = await fetchWithTimeout(
+        const res = await fetchWithTransientResponseRetry(
           url,
           {
             method: "POST",
@@ -99,6 +98,9 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
             body: JSON.stringify({ query, variables }),
           },
           timeoutMs,
+          provider,
+          "GraphQL request",
+          onRequest,
         );
         const text = await res.text();
         let json: any;

@@ -79,6 +79,37 @@ test("makeRestClient reports non-JSON and HTTP failures", async () => {
   await assert.rejects(() => client("repos/o/r/commits"), /REST HTTP 403: rate limited/);
 });
 
+test("GitHub REST retries transient gateway responses and succeeds", async () => {
+  const responses = [
+    new Response(JSON.stringify({ message: "bad gateway" }), { status: 502 }),
+    new Response("<html>temporarily unavailable</html>", { status: 503 }),
+    new Response(JSON.stringify([{ ok: true }]), { status: 200 }),
+  ];
+  let calls = 0;
+  mockFetch(() => responses[calls++]!);
+
+  const client = makeRestClient("https://api.github.com", "tok", "github");
+
+  assert.deepEqual(await client("repos/o/r/activity"), [{ ok: true }]);
+  assert.equal(calls, 3);
+});
+
+test("GitHub REST stops after the bounded transient retry budget", async () => {
+  const responses = [
+    new Response(JSON.stringify({ message: "bad gateway" }), { status: 502 }),
+    new Response(JSON.stringify({ message: "temporarily unavailable" }), { status: 503 }),
+    new Response(JSON.stringify({ message: "gateway timeout" }), { status: 504 }),
+    new Response(JSON.stringify([{ shouldNotBeReached: true }]), { status: 200 }),
+  ];
+  let calls = 0;
+  mockFetch(() => responses[calls++]!);
+
+  const client = makeRestClient("https://api.github.com", "tok", "github");
+
+  await assert.rejects(() => client("repos/o/r/activity"), /REST HTTP 504: gateway timeout/);
+  assert.equal(calls, 3);
+});
+
 test("makeRestClient aborts a stalled request after the timeout", { timeout: 2000 }, async () => {
   // A socket that hangs (e.g. half-up network/VPN right after the Mac wakes):
   // the mock respects the abort signal but otherwise never settles.
