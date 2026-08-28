@@ -75,8 +75,26 @@ test("makeRestClient reports non-JSON and HTTP failures", async () => {
   const client = makeRestClient("https://api.github.com", "tok", "github");
   await assert.rejects(() => client("repos/o/r/commits"), /non-JSON response/);
 
-  mockFetch(() => new Response(JSON.stringify({ message: "rate limited" }), { status: 403 }));
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ message: "rate limited" }), { status: 403 });
+  });
   await assert.rejects(() => client("repos/o/r/commits"), /REST HTTP 403: rate limited/);
+  assert.equal(calls, 1, "GitHub authentication and authorization failures are not retried");
+});
+
+test("GitLab REST does not retry transient gateway responses", async () => {
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ message: "bad gateway" }), { status: 502 });
+  });
+
+  const client = makeRestClient("https://gitlab.example.com/api/v4", "tok", "gitlab");
+
+  await assert.rejects(() => client("projects/1/events"), /REST HTTP 502: bad gateway/);
+  assert.equal(calls, 1);
 });
 
 test("GitHub REST retries transient gateway responses and succeeds", async () => {

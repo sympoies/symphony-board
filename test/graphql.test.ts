@@ -87,12 +87,17 @@ test("variables default to an empty object on the wire", async () => {
 });
 
 test("a non-JSON body is reported with the HTTP status and endpoint", async () => {
-  mockFetch(() => new Response("<html>bad gateway</html>", { status: 502 }));
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response("<html>bad gateway</html>", { status: 502 });
+  });
   const gql = makeGqlClient("https://gitlab.example.com/api/graphql", "tok");
   await assert.rejects(
     () => gql("query { x }"),
     /GraphQL HTTP 502: non-JSON response from https:\/\/gitlab\.example\.com\/api\/graphql/,
   );
+  assert.equal(calls, 1, "GitLab gateway responses are not retried");
 });
 
 test("an HTTP error prefers the JSON message field, falling back to the raw body", async () => {
@@ -100,8 +105,13 @@ test("an HTTP error prefers the JSON message field, falling back to the raw body
   const gql = makeGqlClient("https://api.github.com/graphql", "tok");
   await assert.rejects(() => gql("query { x }"), /GraphQL HTTP 403: rate limited/);
 
-  mockFetch(() => new Response(JSON.stringify({ oops: 1 }), { status: 500 }));
+  let calls = 0;
+  mockFetch(() => {
+    calls++;
+    return new Response(JSON.stringify({ oops: 1 }), { status: 500 });
+  });
   await assert.rejects(() => gql("query { x }"), /GraphQL HTTP 500: \{"oops":1\}/);
+  assert.equal(calls, 1, "GitHub HTTP 500 is outside the transient gateway retry set");
 });
 
 test("GitHub GraphQL retries transient gateway responses and succeeds", async () => {
