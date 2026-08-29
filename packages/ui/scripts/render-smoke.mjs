@@ -3192,13 +3192,15 @@ try {
       };
       const selectedAccent = accent(selectedRow);
       const unselectedAccent = accent(unselectedRow);
+      const detailTargetTitle = document.querySelector('.live-detail-target-title');
       return {
         rendered: !!page,
         rows: rows.length,
         rowText: rows.map((row) => row.textContent || ''),
         rowTargetTitles: rows.map((row) => row.querySelector('.live-event-target-title')?.textContent?.trim() || ''),
-        detailTargetTitle: document.querySelector('.live-detail-target-title')?.textContent?.trim() || '',
-        detailTargetLink: document.querySelector('.live-detail-target-title a')?.getAttribute('href') || '',
+        detailTargetTitle: detailTargetTitle?.textContent?.trim() || '',
+        detailTargetTitleFontSize: detailTargetTitle ? getComputedStyle(detailTargetTitle).fontSize : '',
+        detailTargetLink: detailTargetTitle?.querySelector('a')?.getAttribute('href') || '',
         detailLink,
         avatarHref: avatar?.getAttribute('href') || '',
         avatarImgSrc: avatarImg?.getAttribute('src') || '',
@@ -4839,6 +4841,7 @@ try {
     [live.rendered === true && live.rows === 3, `live: snapshot seeds every retained feed row (${live.rows || 0} === 3)`],
     [JSON.stringify(live.rowTargetTitles || []) === JSON.stringify(["Widget overflow", "Add live feed", "Old widget note"]), `live: issue and change-request rows show their target title before body content (${JSON.stringify(live.rowTargetTitles || [])})`],
     [live.detailTargetTitle === "Widget overflow" && /\/issues\/42$/.test(live.detailTargetLink || ""), `live: detail shows and links the selected work-item title (${JSON.stringify({ title: live.detailTargetTitle, link: live.detailTargetLink })})`],
+    [live.detailTargetTitleFontSize === "18px", `live: detail work-item title is one visual step above body copy (${live.detailTargetTitleFontSize || "missing"})`],
     [(live.firstRowTop || 0) >= (live.feedTop || 0) - 1 && (live.firstRowBottom || 0) <= (live.feedBottom || 0) + 1, `live: first virtualized feed row is visible inside the feed viewport (${JSON.stringify({ firstRowTop: live.firstRowTop, firstRowBottom: live.firstRowBottom, feedTop: live.feedTop, feedBottom: live.feedBottom })})`],
     [(live.documentScrollHeight || 0) <= (live.documentClientHeight || 0) + 2, `live: desktop Live page does not grow taller than the viewport (${JSON.stringify({ scrollHeight: live.documentScrollHeight, clientHeight: live.documentClientHeight })})`],
     [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
