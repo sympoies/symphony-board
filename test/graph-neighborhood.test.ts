@@ -162,23 +162,40 @@ function build(ids: string[], edges: EdgeRow[], over: Partial<Parameters<typeof 
   });
 }
 
-test("graph neighborhood defaults to five hops and reports a deeper frontier", () => {
+test("graph neighborhood defaults to one hop", () => {
   const ids = ["I0", "I1", "I2", "I3", "I4", "I5", "I6"];
-  const result = build(ids, ids.slice(0, -1).map((id, index) => edge(id, ids[index + 1]!)));
-  assert.equal(result.requested_depth, 5);
-  assert.equal(result.reached_depth, 5);
-  assert.deepEqual(result.nodes.map((node) => [node.ref, node.hop]), ids.slice(0, 6).map((id, hop) => [ref(id), hop]));
-  assert.equal(result.edges.length, 5);
+  const result = build(ids, ids.slice(0, -1).map((id, index) => edge(id, ids[index + 1]!, "closes")));
+  assert.equal(result.requested_depth, 1);
+  assert.equal(result.reached_depth, 1);
+  assert.deepEqual(result.nodes.map((node) => [node.ref, node.hop]), ids.slice(0, 2).map((id, hop) => [ref(id), hop]));
+  assert.equal(result.edges.length, 1);
   assert.equal(result.complete, false);
   assert.deepEqual(result.limit_reasons, ["depth"]);
   assert.equal(GRAPH_NEIGHBORHOOD_MAX_DEPTH, GRAPH_FOCUS_MAX_DEPTH);
+});
+
+test("direct mention mode shows focus mentions as leaves without expanding through them", () => {
+  const result = build(
+    ["I0", "I1", "I2", "I3"],
+    [edge("I0", "I1", "mentions"), edge("I1", "I2", "closes"), edge("I0", "I3", "closes")],
+    { depth: 2, mentionMode: "direct" },
+  );
+  assert.deepEqual(result.nodes.map((node) => [node.ref, node.hop]), [
+    [ref("I0"), 0],
+    [ref("I1"), 1],
+    [ref("I3"), 1],
+  ]);
+  assert.deepEqual(result.edges.map((entry) => [entry.type, entry.from, entry.to]), [
+    ["mentions", ref("I0"), ref("I1")],
+    ["closes", ref("I0"), ref("I3")],
+  ]);
 });
 
 test("graph neighborhood handles cycles and keeps induced multi-type edges deterministically", () => {
   const result = build(
     ["I0", "I1", "I2", "I3"],
     [edge("I2", "I0", "relates"), edge("I0", "I1"), edge("I1", "I2"), edge("I1", "I0", "mentions"), edge("I2", "I3", "closes")],
-    { depth: 2 },
+    { depth: 2, mentionMode: "all" },
   );
   assert.deepEqual(result.nodes.map((node) => [node.ref, node.hop]), [
     [ref("I0"), 0],
@@ -232,14 +249,17 @@ test("graph neighborhood drops items and edges from removed config repos", () =>
 test("graph neighborhood options validate ref and depth", () => {
   assert.deepEqual(parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=a%7Cb")), {
     focusRef: "a|b",
-    depth: 5,
+    depth: 1,
+    mentionMode: "all",
   });
-  assert.deepEqual(parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=a%7Cb&depth=2")), {
+  assert.deepEqual(parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=a%7Cb&depth=2&mentions=direct")), {
     focusRef: "a|b",
     depth: 2,
+    mentionMode: "direct",
   });
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?depth=2")), /ref is required/);
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&depth=6")), /1 to 5/);
+  assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&mentions=recursive")), /mentions must be/);
 });
 
 test("identical projections coalesce and the final consumer abort stops the loader", async () => {
@@ -304,7 +324,7 @@ test("range API serves older multi-hop canonical relations through the read-only
   const server = createRangeApiServer({ configPath, contractOut: join(dir, "data", "contract.json") });
   const base = await listen(server);
   try {
-    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=2`, {
+    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=2&mentions=all`, {
       headers: { "Accept-Encoding": "gzip" },
     });
     assert.equal(response.status, 200);
@@ -314,6 +334,12 @@ test("range API serves older multi-hop canonical relations through the read-only
     assert.deepEqual(body.nodes.map((node) => [node.ref, node.hop]), [[ref("I0"), 0], [ref("I1"), 1], [ref("I2"), 2]]);
     assert.equal(body.edges.length, 2);
     assert.ok(body.nodes.every((node) => node.item === null || !("body" in node.item)), "Graph payload omits unused provider bodies");
+
+    const directResponse = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=2&mentions=direct`);
+    assert.equal(directResponse.status, 200);
+    const directBody = await directResponse.json() as { nodes: Array<{ ref: string; hop: number }>; edges: Array<{ type: string }> };
+    assert.deepEqual(directBody.nodes.map((node) => [node.ref, node.hop]), [[ref("I0"), 0], [ref("I1"), 1]]);
+    assert.deepEqual(directBody.edges.map((edge) => edge.type), ["mentions"]);
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });
@@ -382,7 +408,7 @@ test("cross-source frontier truncation always reports the global edge limit", as
   const server = createRangeApiServer({ configPath, contractOut: join(dir, "data", "contract.json") });
   const base = await listen(server);
   try {
-    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=1`);
+    const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref("I0"))}&depth=1&mentions=all`);
     assert.equal(response.status, 200);
     const body = await response.json() as { complete: boolean; limit_reasons: string[] };
     assert.equal(body.complete, false);

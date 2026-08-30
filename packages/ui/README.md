@@ -53,10 +53,12 @@ The Graph page renders edge-connected items with React Flow:
 - side-list search and kind filters keep the relationship inventory navigable.
 - the shared date range windows the overview.
 - focusing an item loads its canonical-history relationship neighborhood from
-  `/api/graph-neighborhood`, defaulting to five hops; depth buttons 1–5 update
-  the shareable `#/graph?focus=<ref>&depth=<n>` route.
-- every returned edge type is drawn in focus mode, and the status line reports
-  reached/requested hops plus depth/node/edge limits.
+  `/api/graph-neighborhood`, defaulting to one hop; depth buttons 1–5 update the
+  shareable `#/graph?focus=<ref>&depth=<n>` route, and the last selected depth is
+  remembered when focus is exited and re-entered during the app session.
+- structural relationships expand to the requested depth. Mentions are optional
+  direct context around the focused item and never become traversal branches;
+  the status line reports reached/requested hops plus depth/node/edge limits.
 - Board card deep-links use `#/graph?focus=<ref>`; focus state is independent of
   the global cross-tab search.
 

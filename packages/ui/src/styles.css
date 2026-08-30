@@ -1083,6 +1083,10 @@ a.item-metric:hover {
   border-radius: 8px; padding: 6px 8px; font-size: 11px; color: var(--text); cursor: pointer;
 }
 .rf-node:hover { border-color: var(--accent); }
+.rf-node-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 20px color-mix(in srgb, var(--accent) 30%, transparent);
+}
 .rf-node-untracked { border-style: dashed; opacity: .8; font-family: ui-monospace, monospace; }
 .rf-node-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
 .rf-node-kind-icon { width: 1.15em; height: 1.15em; }

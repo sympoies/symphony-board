@@ -30,7 +30,7 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
@@ -94,7 +94,7 @@ const NODE_LEGEND = [
 ];
 
 type GraphListVisibility = "off-window" | "not-drawn";
-type ItemNodeData = GraphNode & { item?: ItemDTO | null };
+type ItemNodeData = GraphNode & { item?: ItemDTO | null; focused?: boolean };
 
 // Tooltip for a node's relation count: the per-type breakdown, plus an explicit
 // callout when the CURRENT view draws fewer neighbours than the item has (the
@@ -113,7 +113,7 @@ function ItemNode({ data }: NodeProps) {
   const metricCount = d.item ? itemMetricEntries(d.item, d.related).length : 0;
   return (
     <div
-      className={`rf-node${d.untracked ? " rf-node-untracked" : ""}`}
+      className={`rf-node${d.untracked ? " rf-node-untracked" : ""}${d.focused ? " rf-node-focused" : ""}`}
       // The left border already encodes STATE (d.color), so a highlighted repo
       // shows as an outer ring (outline) instead — a literal "frame" that does
       // not collide with the state edge. The board card uses a left bar; here the
@@ -749,7 +749,7 @@ export function GraphPage({
   const showListPane = !isMobile || mobileView === "list";
   const showGraphPane = !isMobile || mobileView === "graph";
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
-  const [showMentions, setShowMentions] = useState(() => !!focusRef);
+  const [showMentions, setShowMentions] = useState(false);
   const [mentionTarget, setMentionTarget] = useState<GraphMentionTarget>("all");
   // Drives BOTH the side list's focus view and the canvas subgraph below;
   // null = the flat list + full graph.
@@ -769,16 +769,24 @@ export function GraphPage({
   // Side-list derivations over the FOCUS edge set: every resolvable item in the
   // loaded projection, the adjacency map, and the set of refs currently available
   // to the overview list/canvas.
+  const focusViewEdges = useMemo(
+    () => focusId && !showMentions ? focusEdges.filter((edge) => edge.edge.type !== "mentions") : focusEdges,
+    [focusEdges, focusId, showMentions],
+  );
+  const focusViewNodes = useMemo(
+    () => focusExpanded && focusId ? focusNeighborhoodNodes(focusNodes, focusId, focusViewEdges) : focusNodes,
+    [focusExpanded, focusId, focusNodes, focusViewEdges],
+  );
   const itemsByRef = useMemo(() => {
     const m = new Map<string, ItemDTO>();
-    for (const node of focusNodes) if (node.item) m.set(node.ref, node.item);
-    for (const re of focusEdges) {
+    for (const node of focusViewNodes) if (node.item) m.set(node.ref, node.item);
+    for (const re of focusViewEdges) {
       if (re.from) m.set(re.edge.from, re.from);
       if (re.to) m.set(re.edge.to, re.to);
     }
     return m;
-  }, [focusEdges, focusNodes]);
-  const adjacency = useMemo(() => buildAdjacency(focusEdges), [focusEdges]);
+  }, [focusViewEdges, focusViewNodes]);
+  const adjacency = useMemo(() => buildAdjacency(focusViewEdges), [focusViewEdges]);
   const candidateIds = focusId ? focusOverview.candidateIds : overview.candidateIds;
   const drawnIds = focusId ? focusOverview.drawnIds : overview.drawnIds;
   // Focus entry itself changes the side-list membership from the searched
@@ -810,9 +818,9 @@ export function GraphPage({
   // Falls back to the full graph if the focus has no edges (nothing to render).
   const view = useMemo<GraphData>(() => {
     if (!focusId) return graph;
-    const sub = focusExpanded ? buildGraph(focusEdges, focusNodes) : focusSubgraph(focusEdges, focusId);
+    const sub = focusExpanded ? buildGraph(focusViewEdges, focusViewNodes) : focusSubgraph(focusViewEdges, focusId);
     return sub.nodes.length ? sub : graph;
-  }, [focusEdges, focusNodes, focusId, focusExpanded, graph]);
+  }, [focusViewEdges, focusViewNodes, focusId, focusExpanded, graph]);
   // True when the canvas is showing a focus subgraph (not the full overview). In
   // focus there is no clutter to fight, so edges — mentions especially — are
   // drawn at full strength rather than the overview's de-emphasised styling.
@@ -871,10 +879,10 @@ export function GraphPage({
           type: "item",
           position: positions.get(n.id) ?? { x: 0, y: 0 },
           style: { width: w, height: h },
-          data: { ...n, item: it ?? null, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0 } as unknown as Record<string, unknown>,
+          data: { ...n, item: it ?? null, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0, focused: n.id === focusId } as unknown as Record<string, unknown>,
         };
       }),
-    [view, positions, dimOf, itemsByRef, colorOf, adjacency, drawnNeighbours],
+    [view, positions, dimOf, itemsByRef, colorOf, adjacency, drawnNeighbours, focusId],
   );
 
   const rfEdges: Edge[] = useMemo(
@@ -983,7 +991,7 @@ export function GraphPage({
           {focusLoadStatus === "loading"
             ? `Loading relationship history up to ${focusDepth} ${focusDepth === 1 ? "hop" : "hops"}…`
             : focusLoadStatus === "ready" && focusNeighborhood
-              ? `${focusNeighborhood.reached_depth}/${focusNeighborhood.requested_depth} hops · ${focusNeighborhood.counts.nodes} nodes · ${focusNeighborhood.counts.edges} links${focusNeighborhood.complete ? " · complete" : ` · limited by ${focusNeighborhood.limit_reasons.join(", ")}`}`
+              ? `${focusNeighborhood.reached_depth}/${focusNeighborhood.requested_depth} hops · ${view.nodes.length} nodes · ${view.links.length} links${focusNeighborhood.complete ? " · complete" : ` · limited by ${focusNeighborhood.limit_reasons.join(", ")}`}`
               : focusLoadMessage}
         </p>
       ) : null}

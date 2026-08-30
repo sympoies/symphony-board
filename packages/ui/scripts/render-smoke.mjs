@@ -586,21 +586,22 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
   const env = parseInflatedContract(rawBody);
   const url = new URL(reqUrl, `http://127.0.0.1:${HTTP_PORT}`);
   const focusRef = url.searchParams.get("ref") || "";
-  const requestedDepth = Number(url.searchParams.get("depth") || 5);
+  const requestedDepth = Number(url.searchParams.get("depth") || 1);
   const byId = new Map(env.items.map((item) => [item.id, item]));
   const focus = byId.get(focusRef);
   if (!focus) return { status: 404, body: JSON.stringify({ error: "focus ref not found" }) };
 
-  const directEdge = env.edges.find((edge) =>
-    (edge.from === focusRef && byId.has(edge.to)) || (edge.to === focusRef && byId.has(edge.from)),
-  );
+  const incidentEdge = (edge) =>
+    (edge.from === focusRef && byId.has(edge.to)) || (edge.to === focusRef && byId.has(edge.from));
+  const directEdge = env.edges.find((edge) => edge.type !== "mentions" && incidentEdge(edge))
+    ?? env.edges.find(incidentEdge);
   const direct = directEdge
     ? byId.get(directEdge.from === focusRef ? directEdge.to : directEdge.from)
     : env.items.find((item) => item.id !== focusRef);
   if (!direct) return { status: 404, body: JSON.stringify({ error: "smoke neighbour not found" }) };
 
   const firstEdge = directEdge ?? {
-    type: "mentions",
+    type: "closes",
     from: focusRef,
     to: direct.id,
     from_state: focus.state,
@@ -625,7 +626,7 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
     window_reasons: ["edge_endpoint"],
   };
   const secondEdge = {
-    type: "mentions",
+    type: "closes",
     from: direct.id,
     to: secondHopId,
     from_state: direct.state,
@@ -689,7 +690,7 @@ async function handleSmokeRequest(req, res) {
       graphNeighborhoodRequestCount += 1;
       graphNeighborhoodRequestUrls.push(req.url || "/api/graph-neighborhood");
       const requestUrl = new URL(req.url || "/api/graph-neighborhood", `http://127.0.0.1:${HTTP_PORT}`);
-      const requestDepth = Number(requestUrl.searchParams.get("depth") || 5);
+      const requestDepth = Number(requestUrl.searchParams.get("depth") || 1);
       if (graphNeighborhoodDelayDepth === requestDepth && graphNeighborhoodDelayMs > 0) await sleep(graphNeighborhoodDelayMs);
       if (graphNeighborhoodFailOnce) {
         graphNeighborhoodFailOnce = false;
@@ -1798,7 +1799,7 @@ try {
     focusClickState.hash = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
     if (/[?&]focus=/.test(focusClickState.hash)) break;
   }
-  const focusHtml = await waitHtml("document.querySelector('.graph-focus-load-ready') && document.body.innerText.includes('Second-hop smoke relation')");
+  const focusHtml = await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('1/1 hops')");
   const focusRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
   const focusSearchState = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -1897,6 +1898,8 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+  await clickGraphDepth(1);
+  await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('1/1 hops')");
   // Re-click the focused (active) card to toggle focus OFF — it returns to the
   // searchable list, the same exit as "← all items". Then re-enter focus so the
   // back-button assertion below still exercises that path.
@@ -1920,6 +1923,14 @@ try {
   })).result.value || {};
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card')?.click()" });
   await waitHtml("document.querySelector('.graph-focus-load-ready')");
+  const rememberedDepthState = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      status: document.querySelector('.graph-focus-load-ready')?.textContent || '',
+      activeDepth: [...document.querySelectorAll('.graph-depth-controls button')].find((button) => button.classList.contains('toggle-on'))?.textContent?.trim() || '',
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
   // Click "← all items" and confirm the searchable list returns.
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
   await sleep(300);
@@ -4737,12 +4748,14 @@ try {
     [graphCardChrome.found === true && graphCardChrome.badgeStartsAfterIcon === true && graphCardChrome.titleStartsAfterIcon === true, `graph: side-list card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(graphCardChrome)})`],
     [has(focusHtml, "graph-list-back"), "graph: focus view back button present"],
     [graphNeighborhoodRequestCount >= 2, `graph: focus loads canonical neighbourhood history (${graphNeighborhoodRequestCount} requests)`],
-    [has(focusHtml, "Second-hop smoke relation"), "graph: focus draws an older second-hop relation returned by the operational API"],
+    [!has(focusHtml, "Second-hop smoke relation"), "graph: the default one-hop focus does not draw second-hop history"],
+    [has(focusHtml, "rf-node-focused"), "graph: the selected focus node has distinct canvas styling"],
     [/^\d+$/.test(graphFocusSearch) && focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true && focusRouteQuery === graphFocusSearch, `graph: focus preserves but suspends a non-empty locating search (${JSON.stringify({ graphFocusSearch, focusRouteQuery, focusSearchState })})`],
     [graphDelayRejection.status === 400 && graphDelayRejection.body?.error === "invalid_delay_ms" && graphDelayRejection.body?.graphNeighborhoodDelayMs === 0, `graph: smoke delay control rejects untrusted timer duration (${JSON.stringify(graphDelayRejection)})`],
-    [/[?&]depth=5(?:&|$)/.test(focusRoute), `graph: focused route persists the default five-hop bound (${focusRoute})`],
-    [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons.at(-1)?.active === true, `graph: focus exposes 1-5 hop controls with 5 active (${JSON.stringify(focusDepthButtons)})`],
-    [has(focusHtml, "2/5 hops") && has(focusHtml, "complete"), "graph: focus reports reached/requested hops and completeness"],
+    [/[?&]depth=1(?:&|$)/.test(focusRoute), `graph: focused route persists the default one-hop bound (${focusRoute})`],
+    [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons[0]?.active === true, `graph: focus exposes 1-5 hop controls with 1 active (${JSON.stringify(focusDepthButtons)})`],
+    [has(focusHtml, "1/1 hops") && has(focusHtml, "limited by depth"), "graph: focus reports the default one-hop boundary"],
+    [graphNeighborhoodRequestUrls.some((url) => url.includes("mentions=direct")), `graph: focused history requests direct, non-expanding mention context (${JSON.stringify(graphNeighborhoodRequestUrls)})`],
     [/[?&]depth=3(?:&|$)/.test(graphDepthRefetchRoute) && has(graphDepthRefetchHtml, "Second-hop smoke relation depth 3"), `graph: changing depth refetches canonical history and persists the route (${graphDepthRefetchRoute})`],
     [graphStaleDelayControl.status === 200 && graphStaleDelayControl.body?.graphNeighborhoodDelayDepth === 2 && graphStaleDelayControl.body?.graphNeighborhoodDelayMs === 700 && /[?&]depth=4(?:&|$)/.test(graphStaleRace.hash || "") && /2\/4 hops/.test(graphStaleRace.status || "") && graphStaleRace.hasDepth4 === true && graphStaleRace.hasDepth2 === false, `graph: a confirmed delayed stale depth response cannot replace the latest topology (${JSON.stringify({ graphStaleDelayControl, graphStaleRace })})`],
     [graphLimitResults.length === 3 && graphLimitResults.every((result) => result.shown === true), `graph: all safety truncation reasons are explicit (${JSON.stringify(graphLimitResults)})`],
@@ -4752,6 +4765,7 @@ try {
     [/\d+ related item/.test(focusHtml), "graph: focus view related-items header shown"],
     [/glc-rel-type/.test(focusHtml), "graph: focus view lists related items (relation tag)"],
     [has(toggleOffHtml, "graph-list-search") && !has(toggleOffHtml, "graph-list-back") && toggleOffSearchState.query === graphFocusSearch && toggleOffSearchState.disabled === false && toggleOffSearchState.narrowed === true && new URLSearchParams(toggleOffSearchState.hash.split("?")[1] || "").get("q") === graphFocusSearch, `graph: re-clicking focus resumes the locating search (${JSON.stringify(toggleOffSearchState)})`],
+    [/[?&]depth=1(?:&|$)/.test(rememberedDepthState.hash || "") && /1\/1 hops/.test(rememberedDepthState.status || "") && rememberedDepthState.activeDepth === "1", `graph: focus depth remains 1 after toggling focus off and back on (${JSON.stringify(rememberedDepthState)})`],
     [has(backHtml, "graph-list-search") && backSearchState.query === graphFocusSearch && backSearchState.disabled === false && backSearchState.narrowed === true && new URLSearchParams(backSearchState.hash.split("?")[1] || "").get("q") === graphFocusSearch, `graph: back resumes the locating search (${JSON.stringify(backSearchState)})`],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],

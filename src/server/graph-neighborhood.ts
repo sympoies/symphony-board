@@ -11,7 +11,7 @@ import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import type { EdgeRow, ItemRow, LabelRow, SourceRow, Store } from "../db/store.ts";
 import { sendJsonMaybeGzip } from "./http.ts";
 
-export const GRAPH_NEIGHBORHOOD_DEFAULT_DEPTH = 5;
+export const GRAPH_NEIGHBORHOOD_DEFAULT_DEPTH = 1;
 export const GRAPH_NEIGHBORHOOD_MAX_DEPTH = 5;
 export const GRAPH_NEIGHBORHOOD_MAX_NODES = 200;
 export const GRAPH_NEIGHBORHOOD_MAX_EDGES = 500;
@@ -19,7 +19,10 @@ export const GRAPH_NEIGHBORHOOD_MAX_EDGES = 500;
 export interface GraphNeighborhoodOptions {
   focusRef: string;
   depth: number;
+  mentionMode: GraphNeighborhoodMentionMode;
 }
+
+export type GraphNeighborhoodMentionMode = "all" | "direct";
 
 export type GraphNeighborhoodLimitReason = "depth" | "nodes" | "edges";
 
@@ -59,6 +62,7 @@ export interface BuildGraphNeighborhoodInput {
   configuredRepos?: ReadonlyArray<{ source_id: string; project_path: string }>;
   focusRef: string;
   depth?: number;
+  mentionMode?: GraphNeighborhoodMentionMode;
   maxNodes?: number;
   maxEdges?: number;
 }
@@ -106,7 +110,11 @@ export function parseGraphNeighborhoodOptions(url: URL): GraphNeighborhoodOption
   if (!Number.isInteger(depth) || depth < 1 || depth > GRAPH_NEIGHBORHOOD_MAX_DEPTH) {
     throw new Error(`depth must be an integer from 1 to ${GRAPH_NEIGHBORHOOD_MAX_DEPTH}`);
   }
-  return { focusRef, depth };
+  const rawMentionMode = url.searchParams.get("mentions")?.trim() || "all";
+  if (rawMentionMode !== "all" && rawMentionMode !== "direct") {
+    throw new Error('mentions must be "all" or "direct"');
+  }
+  return { focusRef, depth, mentionMode: rawMentionMode };
 }
 
 // Traverse as undirected for neighbourhood membership, but return the original
@@ -115,6 +123,7 @@ export function parseGraphNeighborhoodOptions(url: URL): GraphNeighborhoodOption
 // edge cap cannot disconnect nearer nodes in normal production limits.
 export function buildGraphNeighborhood(input: BuildGraphNeighborhoodInput): GraphNeighborhoodResponse {
   const depth = input.depth ?? GRAPH_NEIGHBORHOOD_DEFAULT_DEPTH;
+  const mentionMode = input.mentionMode ?? "all";
   if (!Number.isInteger(depth) || depth < 1 || depth > GRAPH_NEIGHBORHOOD_MAX_DEPTH) {
     throw new Error(`depth must be an integer from 1 to ${GRAPH_NEIGHBORHOOD_MAX_DEPTH}`);
   }
@@ -129,9 +138,10 @@ export function buildGraphNeighborhood(input: BuildGraphNeighborhoodInput): Grap
     configuredRepos: input.configuredRepos,
   });
   const edges = [...mapped.edges].sort(compareEdges);
+  const traversalEdges = mentionMode === "all" ? edges : edges.filter((edge) => edge.type !== "mentions");
   const byRef = new Map(mapped.items.map((item) => [item.id, item]));
   const incident = new Map<string, EdgeDTO[]>();
-  for (const edge of edges) {
+  for (const edge of traversalEdges) {
     for (const ref of edge.from === edge.to ? [edge.from] : [edge.from, edge.to]) {
       const list = incident.get(ref) ?? [];
       list.push(edge);
@@ -171,7 +181,30 @@ export function buildGraphNeighborhood(input: BuildGraphNeighborhoodInput): Grap
     }
   }
 
-  const induced = edges.filter((edge) => hops.has(edge.from) && hops.has(edge.to));
+  // Mentions are useful immediate context but poor multi-hop topology: a single
+  // highly referenced issue can connect most of the store in two hops. The UI's
+  // direct mode therefore adds mentions incident to the focus as hop-1 leaves
+  // after structural traversal; those leaves never enter the BFS frontier.
+  if (mentionMode === "direct") {
+    for (const edge of edges) {
+      if (edge.type !== "mentions") continue;
+      const other = otherRef(edge, input.focusRef);
+      if (other === null) continue;
+      if (!hops.has(other)) {
+        if (hops.size >= maxNodes) {
+          reasons.add("nodes");
+          continue;
+        }
+        hops.set(other, 1);
+      }
+      treeEdgeKeys.add(edgeKey(edge));
+    }
+  }
+
+  const eligibleEdges = mentionMode === "all"
+    ? edges
+    : edges.filter((edge) => edge.type !== "mentions" || edge.from === input.focusRef || edge.to === input.focusRef);
+  const induced = eligibleEdges.filter((edge) => hops.has(edge.from) && hops.has(edge.to));
   const edgeDistance = (edge: EdgeDTO): number => Math.max(hops.get(edge.from) ?? 0, hops.get(edge.to) ?? 0);
   const treeEdges = induced
     .filter((edge) => treeEdgeKeys.has(edgeKey(edge)))
@@ -279,10 +312,18 @@ async function readGraphNeighborhoodSnapshot(
       }
     }
 
+    const eligibleFrontierEdges = options.mentionMode === "all"
+      ? frontierEdges
+      : frontierEdges.filter((edge) => edge.type !== "mentions" || hop === 0);
     const candidateRefs = new Set<string>();
-    for (const edge of frontierEdges) {
+    const traversalCandidateRefs = new Set<string>();
+    for (const edge of eligibleFrontierEdges) {
       candidateRefs.add(rowRef(edge.from_source_id, edge.from_external_id));
       candidateRefs.add(rowRef(edge.to_source_id, edge.to_external_id));
+      if (options.mentionMode === "all" || edge.type !== "mentions") {
+        traversalCandidateRefs.add(rowRef(edge.from_source_id, edge.from_external_id));
+        traversalCandidateRefs.add(rowRef(edge.to_source_id, edge.to_external_id));
+      }
     }
     const candidatesBySource = new Map<string, string[]>();
     for (const ref of [...candidateRefs].sort()) {
@@ -315,7 +356,7 @@ async function readGraphNeighborhoodSnapshot(
       if (parsed && configuredSourceIds.has(parsed.sourceId) && !foundCandidateRefs.has(ref)) allowedRefs.add(ref);
     }
 
-    for (const edge of frontierEdges) {
+    for (const edge of eligibleFrontierEdges) {
       const from = rowRef(edge.from_source_id, edge.from_external_id);
       const to = rowRef(edge.to_source_id, edge.to_external_id);
       if (rejectedCandidateRefs.has(from) || rejectedCandidateRefs.has(to)) continue;
@@ -324,7 +365,7 @@ async function readGraphNeighborhoodSnapshot(
     }
     if (edgesByKey.size > GRAPH_NEIGHBORHOOD_MAX_EDGES) edgeReadCapped = true;
 
-    frontier = [...candidateRefs]
+    frontier = [...traversalCandidateRefs]
       .filter((ref) => allowedRefs.has(ref) && !visitedRefs.has(ref))
       .sort()
       .slice(0, GRAPH_NEIGHBORHOOD_MAX_NODES + 1);
@@ -342,6 +383,7 @@ async function readGraphNeighborhoodSnapshot(
     configuredRepos,
     focusRef: options.focusRef,
     depth: options.depth,
+    mentionMode: options.mentionMode,
   });
   const reasons = new Set(response.limit_reasons);
   if (edgeReadCapped) reasons.add("edges");
@@ -384,7 +426,7 @@ function projectionKey(cfg: AppConfig, options: GraphNeighborhoodOptions): strin
   const repos = configuredRepoRefs(cfg)
     .map((repo) => configuredRepoKey(repo.source_id, repo.project_path))
     .sort();
-  return JSON.stringify([store, repos, options.focusRef, options.depth]);
+  return JSON.stringify([store, repos, options.focusRef, options.depth, options.mentionMode]);
 }
 
 export async function graphNeighborhoodProjection(

@@ -46,6 +46,7 @@ import {
   relationCounts,
   repoKey,
   GRAPH_FOCUS_DEFAULT_DEPTH,
+  graphFocusDepthPreference,
   freshnessLabel,
   routeTimeRange,
   sameTimeRange,
@@ -330,7 +331,14 @@ export function App() {
   }, []);
 
   const route = useMemo(() => parseHashRoute(hash), [hash]);
-  const graphFocusDepthValue = route.depth ?? GRAPH_FOCUS_DEFAULT_DEPTH;
+  const [rememberedGraphFocusDepth, setRememberedGraphFocusDepth] = useState(() =>
+    graphFocusDepthPreference(parseHashRoute(initialStartupHash), GRAPH_FOCUS_DEFAULT_DEPTH),
+  );
+  const graphFocusDepthValue = graphFocusDepthPreference(route, rememberedGraphFocusDepth);
+  useEffect(() => {
+    if (!route.focus) return;
+    setRememberedGraphFocusDepth((previous) => graphFocusDepthPreference(route, previous));
+  }, [route.focus, route.depth]);
   const page =
     route.page === "live"
       ? "live"
@@ -1755,6 +1763,7 @@ export function App() {
 
   function setRouteFocusDepth(depth: number) {
     if (typeof window === "undefined" || !route.focus) return;
+    setRememberedGraphFocusDepth(depth);
     const next = buildHashRoute({
       ...route,
       page: "graph",
