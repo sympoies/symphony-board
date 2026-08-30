@@ -180,6 +180,7 @@ export class GitHubSource implements Source {
     let latest: string | null = null;
     let complete = this.partialReason === null;
     let firstError: string | null = this.partialReason;
+    let incrementalPrIncomplete = false;
     if (this.partialReason) {
       log.warn(`[${this.descriptor.sourceId}] ${this.partialReason}; marking sweep partial so unseen projects are not tombstoned`);
     }
@@ -197,6 +198,7 @@ export class GitHubSource implements Source {
             records.push(...incremental.records);
             if (incremental.watermark && (!latest || incremental.watermark > latest)) latest = incremental.watermark;
             if (!incremental.complete) {
+              incrementalPrIncomplete = true;
               complete = false;
               firstError ??= incremental.error;
             }
@@ -230,6 +232,7 @@ export class GitHubSource implements Source {
           }
         } catch (err) {
           failed = true;
+          if (kind === "change_request" && since) incrementalPrIncomplete = true;
           log.warn(`[${this.descriptor.sourceId}] project ${project}: ${kind} fetch failed: ${(err as Error).message}`);
           complete = false;
           firstError ??= `${project} ${kind}: ${(err as Error).message}`;
@@ -261,9 +264,10 @@ export class GitHubSource implements Source {
     // still-unread events — silently skipping them once its token is added.
     // Return null so updateSyncState's COALESCE/GREATEST keeps the prior
     // watermark and the next incremental re-reads from where it was. Other
-    // partial runs, such as a provider request failure after some projects were
-    // covered, advance normally because no configured project was omitted.
-    const watermark = this.partialReason ? null : latest;
+    // partial runs normally advance when no configured project was omitted.
+    // Incremental PR discovery is the exception: a failed older candidate can
+    // sit behind a successful newer one, so advancing would skip its retry.
+    const watermark = this.partialReason || incrementalPrIncomplete ? null : latest;
     return { records, watermark, complete, error: firstError };
   }
 

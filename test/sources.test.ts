@@ -122,16 +122,20 @@ test("GitHub incremental PR fetch probes update metadata and resolves only fresh
   assert.equal(res.complete, true);
 });
 
-test("GitHub incremental PR detail failure keeps successful records and marks the sweep partial", async () => {
+test("GitHub incremental PR detail failure keeps successful records and retries from the prior watermark", async () => {
+  let failOlderDetail = true;
+  const detailNumbers: number[] = [];
   const incrementalGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
     if (/\bpullRequest\s*\(/.test(query)) {
-      if (vars?.number === 11) throw new Error("temporary detail failure");
+      const number = Number(vars?.number);
+      detailNumbers.push(number);
+      if (number === 11 && failOlderDetail) throw new Error("temporary detail failure");
       return {
         repository: {
           pullRequest: {
-            ...prNode("PR_fresh", "OPEN", "MERGEABLE"),
-            number: 10,
-            updatedAt: "2026-06-10T00:00:00Z",
+            ...prNode(number === 11 ? "PR_failed" : "PR_fresh", "OPEN", "MERGEABLE"),
+            number,
+            updatedAt: number === 11 ? "2026-06-09T00:00:00Z" : "2026-06-10T00:00:00Z",
           },
         },
       };
@@ -156,9 +160,16 @@ test("GitHub incremental PR detail failure keeps successful records and marks th
   const res = await src.fetch({ since: "2026-03-01T00:00:00Z", full: false });
 
   assert.deepEqual(res.records.map((record) => record.externalId), ["PR_fresh"]);
-  assert.equal(res.watermark, "2026-06-10T00:00:00Z");
+  assert.equal(res.watermark, null, "a partial PR resolve retains the stored source watermark");
   assert.equal(res.complete, false);
   assert.match(res.error ?? "", /o\/r #11 incremental detail: temporary detail failure/);
+
+  failOlderDetail = false;
+  const retry = await src.fetch({ since: "2026-03-01T00:00:00Z", full: false });
+  assert.deepEqual(retry.records.map((record) => record.externalId), ["PR_fresh", "PR_failed"]);
+  assert.equal(retry.watermark, "2026-06-10T00:00:00Z");
+  assert.equal(retry.complete, true);
+  assert.equal(detailNumbers.filter((number) => number === 11).length, 2, "the failed PR is retried on the next incremental");
 });
 
 test("GitHub item queries request provider body text", async () => {
