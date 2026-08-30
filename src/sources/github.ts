@@ -102,6 +102,21 @@ const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
   }
 }`;
 
+// Incremental discovery must stay cheap even when a repository has many PRs.
+// Expanding the rich PR payload for the first 50 rows costs roughly 100 GitHub
+// GraphQL points per configured repository, even when the first row is older
+// than the watermark and no PR changed. Probe only immutable identity + update
+// metadata here, then resolve the few fresh rows through PR_BY_NUMBER_Q below.
+const PR_INCREMENTAL_Q = `query IncrementalPullRequests($owner:String!, $name:String!, $cursor:String) {
+  rateLimit { cost remaining used resetAt }
+  repository(owner:$owner, name:$name) {
+    pullRequests(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id number updatedAt }
+    }
+  }
+}`;
+
 const PR_BY_NUMBER_Q = `query($owner:String!, $name:String!, $number:Int!) {
   rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
@@ -177,6 +192,16 @@ export class GitHubSource implements Source {
         const before = records.length;
         let failed = false;
         try {
+          if (kind === "change_request" && since) {
+            const incremental = await this.fetchIncrementalPullRequests(gql, owner, name, project, since, now);
+            records.push(...incremental.records);
+            if (incremental.watermark && (!latest || incremental.watermark > latest)) latest = incremental.watermark;
+            if (!incremental.complete) {
+              complete = false;
+              firstError ??= incremental.error;
+            }
+            continue;
+          }
           let cursor: string | null = null;
           for (let page = 0; page < MAX_PAGES; page++) {
             const data: any = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor });
@@ -240,6 +265,89 @@ export class GitHubSource implements Source {
     // covered, advance normally because no configured project was omitted.
     const watermark = this.partialReason ? null : latest;
     return { records, watermark, complete, error: firstError };
+  }
+
+  private async fetchIncrementalPullRequests(
+    gql: GqlClient,
+    owner: string | undefined,
+    name: string | undefined,
+    project: string,
+    since: string,
+    now: string,
+  ): Promise<FetchResult> {
+    if (!owner || !name) return { records: [], watermark: null, complete: false, error: `${project}: invalid repository path` };
+
+    const candidates: Array<{ number: number; updatedAt: string }> = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const data: any = await gql(PR_INCREMENTAL_Q, { owner, name, cursor });
+      const conn = data?.repository?.pullRequests;
+      if (!conn) break;
+      let stop = false;
+      for (const node of conn.nodes ?? []) {
+        if (typeof node?.updatedAt !== "string") {
+          throw new Error(`${project}: incremental PR probe returned a row without updatedAt`);
+        }
+        if (node.updatedAt < since) {
+          stop = true;
+          break;
+        }
+        if (typeof node?.number !== "number") {
+          return {
+            records: [],
+            watermark: null,
+            complete: false,
+            error: `${project}: incremental PR probe returned a row without a number`,
+          };
+        }
+        candidates.push({ number: node.number, updatedAt: node.updatedAt });
+      }
+      if (stop || !conn.pageInfo?.hasNextPage) break;
+      cursor = conn.pageInfo.endCursor;
+      if (!cursor) throw new Error(`${project}: incremental PR page is missing an end cursor`);
+    }
+
+    const results = await mapWithConcurrency(candidates, resolveConcurrency(), async (candidate): Promise<ResolveOutcome> => {
+      try {
+        const data: any = await gql(PR_BY_NUMBER_Q, { owner, name, number: candidate.number });
+        const node = data?.repository?.pullRequest;
+        if (!node) {
+          return { record: null, error: `${project} #${candidate.number}: detail missing after incremental probe` };
+        }
+        await this.completeReviewThreads(gql, owner, name, node);
+        const payload = JSON.stringify(node);
+        return {
+          record: {
+            entityKind: "change_request",
+            externalId: node.id,
+            apiVersion: API_VERSION,
+            fetchedAt: now,
+            payload: node,
+            contentHash: hash(payload),
+          },
+          error: null,
+        };
+      } catch (err) {
+        return { record: null, error: `${project} #${candidate.number} incremental detail: ${(err as Error).message}` };
+      }
+    });
+
+    const records: RawRecord[] = [];
+    let complete = true;
+    let firstError: string | null = null;
+    let latest: string | null = null;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!;
+      if (result.error) {
+        complete = false;
+        firstError ??= result.error;
+      }
+      if (!result.record) continue;
+      records.push(result.record);
+      const updatedAt = String((result.record.payload as any)?.updatedAt ?? candidates[i]?.updatedAt ?? "");
+      if (updatedAt && (!latest || updatedAt > latest)) latest = updatedAt;
+    }
+    return { records, watermark: latest, complete, error: firstError };
   }
 
   async fetchRefresh(candidates: RefreshCandidate[], _opts: FetchOptions): Promise<FetchResult> {

@@ -219,6 +219,14 @@ that pass on large repos but risks a provider's secondary / abuse rate limit.
 Page fetches stay sequential regardless, and `SYNC_RESOLVE_CONCURRENCY=1`
 restores the fully sequential behavior.
 
+For GitHub pull requests, an incremental sweep uses a lightweight ordered
+`updatedAt` probe per repository and applies that same concurrency bound only
+to the fresh PRs whose full payloads need resolving. Full sweeps keep the rich
+paginated connection because only a full and complete result may prove
+disappearance. The per-run `graphql_requests` and `graphql_cost` values in sync
+status are the operational signal to use before shortening a deployment's
+polling interval.
+
 Only full, complete sweeps can tombstone disappeared items and intra-source
 edges. Partial, failed, and incremental runs never delete.
 
