@@ -205,6 +205,17 @@ Rules:
 The loop daemon runs mostly incremental syncs for cost, with periodic full
 sweeps so disappearance handling still occurs.
 
+GitHub pull-request discovery deliberately uses different query shapes for the
+two sweep modes. A full sweep reads the rich paginated PR connection so it can
+reconcile every item and relationship. An incremental sweep first pages only
+PR identity, number, and `updatedAt`, stops at the stored watermark, and then
+resolves the rich payload only for those fresh PRs. This keeps the fixed
+per-repository reconciliation cost small without weakening the complete-sweep
+proof required for disappearance handling. A failed rich resolve makes the
+incremental source partial while preserving any sibling records that completed;
+the source watermark stays unchanged so the next incremental retries the failed
+row instead of deferring it until a full sweep.
+
 ## Provider Mapping
 
 The canonical model uses a lowest-common core plus nullable extension fields.

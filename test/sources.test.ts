@@ -75,6 +75,103 @@ test("a full sweep ignores the watermark and fetches everything", async () => {
   assert.equal(res.watermark, "2026-06-10T00:00:00Z", "watermark is the max updatedAt seen");
 });
 
+test("GitHub incremental PR fetch probes update metadata and resolves only fresh details", async () => {
+  const calls: Array<{ query: string; vars: Record<string, unknown> }> = [];
+  const richFresh = {
+    ...prNode("PR_fresh", "OPEN", "MERGEABLE"),
+    number: 10,
+    updatedAt: "2026-06-10T00:00:00Z",
+  };
+  const incrementalGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
+    calls.push({ query, vars: vars ?? {} });
+    if (/\bpullRequest\s*\(/.test(query)) {
+      assert.equal(vars?.number, 10, "only the fresh PR is resolved through the rich detail query");
+      return { repository: { pullRequest: richFresh } };
+    }
+    if (query.includes("pullRequests(")) {
+      return {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { id: "PR_fresh", number: 10, updatedAt: "2026-06-10T00:00:00Z" },
+              { id: "PR_stale", number: 11, updatedAt: "2026-01-01T00:00:00Z" },
+            ],
+          },
+        },
+      };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+
+  const src = new GitHubSource(DESC, incrementalGql, ["o/r"]);
+  const res = await src.fetch({ since: "2026-03-01T00:00:00Z", full: false });
+
+  const probe = calls.find((call) => call.query.includes("pullRequests("));
+  assert.ok(probe, "incremental fetch performs a PR update probe");
+  assert.doesNotMatch(
+    probe.query,
+    /reviewThreads|timelineItems|statusCheckRollup|closingIssuesReferences/,
+    "the per-repo incremental probe does not expand expensive nested PR connections",
+  );
+  assert.ok(hasGraphqlCostSelection(probe.query), "the incremental probe keeps GraphQL cost telemetry observable");
+  assert.equal(calls.filter((call) => /\bpullRequest\s*\(/.test(call.query)).length, 1);
+  assert.deepEqual(res.records.map((record) => record.externalId), ["PR_fresh"]);
+  assert.equal(src.normalize(res.records[0]!)?.item?.body, "PR_fresh body", "the resolved record keeps the full canonical payload");
+  assert.equal(res.watermark, "2026-06-10T00:00:00Z");
+  assert.equal(res.complete, true);
+});
+
+test("GitHub incremental PR detail failure keeps successful records and retries from the prior watermark", async () => {
+  let failOlderDetail = true;
+  const detailNumbers: number[] = [];
+  const incrementalGql: GqlClient = (async (query: string, vars?: Record<string, unknown>) => {
+    if (/\bpullRequest\s*\(/.test(query)) {
+      const number = Number(vars?.number);
+      detailNumbers.push(number);
+      if (number === 11 && failOlderDetail) throw new Error("temporary detail failure");
+      return {
+        repository: {
+          pullRequest: {
+            ...prNode(number === 11 ? "PR_failed" : "PR_fresh", "OPEN", "MERGEABLE"),
+            number,
+            updatedAt: number === 11 ? "2026-06-09T00:00:00Z" : "2026-06-10T00:00:00Z",
+          },
+        },
+      };
+    }
+    if (query.includes("pullRequests(")) {
+      return {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { id: "PR_fresh", number: 10, updatedAt: "2026-06-10T00:00:00Z" },
+              { id: "PR_failed", number: 11, updatedAt: "2026-06-09T00:00:00Z" },
+            ],
+          },
+        },
+      };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+  }) as GqlClient;
+
+  const src = new GitHubSource(DESC, incrementalGql, ["o/r"]);
+  const res = await src.fetch({ since: "2026-03-01T00:00:00Z", full: false });
+
+  assert.deepEqual(res.records.map((record) => record.externalId), ["PR_fresh"]);
+  assert.equal(res.watermark, null, "a partial PR resolve retains the stored source watermark");
+  assert.equal(res.complete, false);
+  assert.match(res.error ?? "", /o\/r #11 incremental detail: temporary detail failure/);
+
+  failOlderDetail = false;
+  const retry = await src.fetch({ since: "2026-03-01T00:00:00Z", full: false });
+  assert.deepEqual(retry.records.map((record) => record.externalId), ["PR_fresh", "PR_failed"]);
+  assert.equal(retry.watermark, "2026-06-10T00:00:00Z");
+  assert.equal(retry.complete, true);
+  assert.equal(detailNumbers.filter((number) => number === 11).length, 2, "the failed PR is retried on the next incremental");
+});
+
 test("GitHub item queries request provider body text", async () => {
   const queries: string[] = [];
   const gql: GqlClient = (async (query: string) => {
