@@ -3408,11 +3408,63 @@ try {
         splitColumns: split ? (getComputedStyle(split).gridTemplateColumns || '').split(' ').length : 0,
         scrollHeight: doc.scrollHeight,
         clientHeight: doc.clientHeight,
+        canScroll: doc.scrollHeight > doc.clientHeight + 2,
       };
       return collapsed;
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Short-wide Live is a two-stage scroller: the document first dismisses the
+  // brand/header/filter chrome while the panes grow to the sticky tabs, then the
+  // feed and detail retain their own bounded scrolling. This is the touch-first
+  // landscape behavior Settings already gets from natural document flow.
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const feed = document.querySelector('.live-feed');
+      if (!feed || typeof TouchEvent !== 'function') return false;
+      const point = (y) => {
+        const init = {
+          identifier: 1, target: feed,
+          clientX: 200, clientY: y, pageX: 200, pageY: y, screenX: 200, screenY: y,
+          radiusX: 1, radiusY: 1, rotationAngle: 0, force: 1,
+        };
+        return typeof Touch === 'function' ? new Touch(init) : init;
+      };
+      const start = point(650);
+      const move = point(50);
+      feed.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true, cancelable: true,
+        touches: [start], targetTouches: [start], changedTouches: [start],
+      }));
+      feed.dispatchEvent(new TouchEvent('touchmove', {
+        bubbles: true, cancelable: true,
+        touches: [move], targetTouches: [move], changedTouches: [move],
+      }));
+      feed.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true, cancelable: true,
+        touches: [], targetTouches: [], changedTouches: [move],
+      }));
+      return true;
+    })()`,
+  });
+  await sleep(250);
+  const liveFoldableCollapsedScrolled = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const feed = document.querySelector('.live-feed');
+      const split = document.querySelector('.live-split');
+      const tabs = document.querySelector('.page-tabs');
+      return {
+        scrollY: Math.round(window.scrollY),
+        feedHeight: Math.round(feed?.getBoundingClientRect().height ?? 0),
+        feedScrollHeight: Math.round(feed?.scrollHeight ?? 0),
+        splitTop: Math.round(split?.getBoundingClientRect().top ?? 0),
+        tabsBottom: Math.round(tabs?.getBoundingClientRect().bottom ?? 0),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "window.scrollTo(0, 0)" });
+  await sleep(120);
   // Now expand the strip the way a viewer would, as its own step; the follow-up
   // probe checks the feed stays reachable (pane floor + a document that can scroll
   // to it).
@@ -3435,11 +3487,9 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  // The document-relative invariant, witnessed end to end: with the metrics
-  // expanded the page scrolls, and a pane measured from the DOCUMENT top must keep
-  // exactly one height wherever the viewer has scrolled to. A viewport-relative
-  // measurement would grow the pane on every re-measure, and LivePage re-measures
-  // on every arriving event.
+  // Expanded metrics use the same two-stage model: page scroll reclaims chrome,
+  // and the pane grows into the newly available viewport instead of keeping the
+  // cramped at-rest height.
   await send("Runtime.evaluate", { expression: "window.scrollTo(0, Math.floor(document.documentElement.scrollHeight / 2))" });
   await sleep(250);
   const liveFoldableScrolled = (await send("Runtime.evaluate", {
@@ -4861,8 +4911,8 @@ try {
     [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
     [(liveFoldable.feedHeight || 0) >= 240 && (liveFoldable.feedHeight || 0) <= (liveFoldable.clientHeight || 0) && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
     [liveFoldableExpanded.pulseOpen === "true" && liveFoldableExpanded.pulseVisible === true && (liveFoldableExpanded.feedHeight || 0) >= 240 && (liveFoldableExpanded.feedHeight || 0) <= (liveFoldableExpanded.clientHeight || 0) && liveFoldableExpanded.canScroll === true, `live: re-expanding the metrics on a foldable keeps the feed usable and lets the page scroll to it (${JSON.stringify(liveFoldableExpanded)})`],
-    [(liveFoldable.scrollHeight || 0) <= (liveFoldable.clientHeight || 0) + 2, `live: with the metrics folded, a foldable Live page needs no page scrolling at all (${JSON.stringify(liveFoldable)})`],
-    [liveFoldableScrolled.scrollY > 0 && liveFoldableScrolled.feedHeight === liveFoldableExpanded.feedHeight, `live: the foldable feed keeps one height wherever the page is scrolled (${JSON.stringify({ atRest: liveFoldableExpanded.feedHeight, scrolled: liveFoldableScrolled })})`],
+    [liveFoldable.canScroll === true && liveFoldableCollapsedScrolled.scrollY > 0 && liveFoldableCollapsedScrolled.feedHeight > liveFoldable.feedHeight && liveFoldableCollapsedScrolled.feedScrollHeight > liveFoldableCollapsedScrolled.feedHeight && liveFoldableCollapsedScrolled.splitTop >= liveFoldableCollapsedScrolled.tabsBottom + 8 && liveFoldableCollapsedScrolled.splitTop <= liveFoldableCollapsedScrolled.tabsBottom + 16, `live: a folded short-wide page scrolls its chrome away and grows a still-bounded feed below the sticky tabs (${JSON.stringify({ atRest: liveFoldable, scrolled: liveFoldableCollapsedScrolled })})`],
+    [liveFoldableScrolled.scrollY > 0 && liveFoldableScrolled.feedHeight > liveFoldableExpanded.feedHeight, `live: an expanded short-wide page also grows the feed as its chrome scrolls away (${JSON.stringify({ atRest: liveFoldableExpanded.feedHeight, scrolled: liveFoldableScrolled })})`],
     [shortDesktopStats.disclosureOnScreen === true && shortDesktopStats.bodyOnScreen === false && shortDesktopStatsExpanded.bodyOnScreen === true, `board: a short desktop folds the stats strip behind a working disclosure (${JSON.stringify({ collapsed: shortDesktopStats, expanded: shortDesktopStatsExpanded })})`],
     [roomyDesktopStats.disclosureOnScreen === false && roomyDesktopStats.bodyOnScreen === true, `board: a roomy desktop still shows the stats strip inline with no disclosure (${JSON.stringify(roomyDesktopStats)})`],
     [live.avatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.avatarImgSrc || "") && /Octocat/.test(live.avatarLabel || ""), `live: newest row renders a linked profile avatar (${JSON.stringify({ href: live.avatarHref, src: live.avatarImgSrc, label: live.avatarLabel })})`],

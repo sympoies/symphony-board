@@ -64,3 +64,44 @@ export function readSafeAreaBottomPx(target: Window | undefined = typeof window 
 export function paneDocumentTop(viewportTop: number, scrollY: number): number {
   return viewportTop + (Number.isFinite(scrollY) ? scrollY : 0);
 }
+
+export type ScrollAwayPaneLayout = {
+  paneHeight: number;
+  pageMinHeight: number;
+  scrollTarget: number;
+};
+
+// A short-wide master/detail page has two vertical stages. First the document
+// scrolls its brand/header/filter chrome away until the pane reaches the sticky
+// tab bar; while that happens the pane grows into the reclaimed viewport. Then
+// the pane keeps its own bounded scrolling for the virtualized list/detail.
+//
+// `pageMinHeight` publishes the fully-expanded end state up front. Without it a
+// pane that initially ends at the viewport bottom gives the document no scroll
+// range, so it can never reach the state that would make the pane taller.
+export function scrollAwayPaneLayout({
+  innerHeight,
+  paneViewportTop,
+  paneDocumentTop: paneTop,
+  pageDocumentTop,
+  stickyTop,
+  bottomGutter,
+  min = CONTENT_PANE_MIN_HEIGHT_PX,
+}: {
+  innerHeight: number;
+  paneViewportTop: number;
+  paneDocumentTop: number;
+  pageDocumentTop: number;
+  stickyTop: number;
+  bottomGutter: number;
+  min?: number;
+}): ScrollAwayPaneLayout {
+  const targetTop = Math.max(0, Math.floor(stickyTop));
+  const currentTop = Math.max(targetTop, Math.floor(paneViewportTop));
+  const targetHeight = clampContentPaneHeight(innerHeight, targetTop, bottomGutter, min);
+  return {
+    paneHeight: clampContentPaneHeight(innerHeight, currentTop, bottomGutter, min),
+    pageMinHeight: Math.max(0, Math.floor(paneTop - pageDocumentTop)) + targetHeight,
+    scrollTarget: Math.max(0, Math.floor(paneTop - targetTop)),
+  };
+}
