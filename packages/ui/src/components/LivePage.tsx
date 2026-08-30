@@ -48,7 +48,7 @@ import { MarkdownBody } from "./MarkdownBody.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { activityVirtualRange, liveDetailNavigation, liveEventKey, liveWorkItemTitle, type LiveEvent, type LiveEventActor } from "../model.ts";
 import { CONTENT_PANE_MIN_HEIGHT_PX, DETAIL_OVERLAY_QUERY, SHORT_VIEWPORT_QUERY } from "../layout-tier.ts";
-import { clampContentPaneHeight, contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx } from "../pane-height.ts";
+import { clampContentPaneHeight, contentPaneBottomGutter, paneDocumentTop, readSafeAreaBottomPx, scrollAwayPaneLayout } from "../pane-height.ts";
 
 const SPARK_BUCKET_MS = 600_000; // one histogram bar per 10 minutes
 const SPARK_BUCKETS = 30; // 30 bars → last 5 hours
@@ -64,6 +64,8 @@ const LIVE_ROW_PREVIEW_LINE_HEIGHT_PX = 20;
 const LIVE_ROW_GAP_PX = 6;
 const LIVE_OVERSCAN_ROWS = 8;
 const LIVE_PANE_BOTTOM_GUTTER_PX = 16;
+const LIVE_PANE_STICKY_GAP_PX = 12;
+const LIVE_SHELL_SCROLL_EPSILON_PX = 1;
 const LIVE_RANK_LIMIT = 6;
 // New events prepend at the top, bumping every row's index (and translateY) by
 // one. Only animate that "push the list down" shift while the viewer is at the
@@ -696,8 +698,12 @@ export function LivePage({
   );
   // Arm the feed's slide-down only at the top (see LIVE_FEED_SHIFT_TOP_EPSILON_PX).
   const feedAtTop = scrollTop <= LIVE_FEED_SHIFT_TOP_EPSILON_PX;
+  const pageRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
   const [paneHeight, setPaneHeight] = useState<number | null>(null);
+  const [pageMinHeight, setPageMinHeight] = useState<number | null>(null);
+  const shellScrollTargetRef = useRef(0);
+  const scrollAwayChrome = shortViewport && !isDetailOverlay;
 
   useLayoutEffect(() => {
     const split = splitRef.current;
@@ -708,20 +714,49 @@ export function LivePage({
       if (raf) window.cancelAnimationFrame(raf);
       raf = window.requestAnimationFrame(() => {
         raf = 0;
-        // Document-relative top + an inset-aware gutter, so the pane keeps one
-        // height across page scrolls and clears the Android navigation bar. The
-        // rect read MUST precede readSafeAreaBottomPx: it flushes style + layout,
-        // so the custom-property read that follows resolves from clean style
-        // instead of forcing a recalculation inside the frame.
-        const top = paneDocumentTop(split.getBoundingClientRect().top, window.scrollY);
+        // Roomy layouts keep the established document-relative height. A
+        // short-wide layout deliberately reads the viewport-relative top so the
+        // pane grows while its chrome scrolls away to the sticky tabs. Both paths
+        // fold the Android navigation inset into the bottom gutter. The rect read
+        // MUST precede readSafeAreaBottomPx: it flushes style + layout, so the
+        // custom-property read that follows resolves from clean style instead of
+        // forcing a recalculation inside the frame.
+        const splitRect = split.getBoundingClientRect();
         const gutter = contentPaneBottomGutter(LIVE_PANE_BOTTOM_GUTTER_PX, readSafeAreaBottomPx(window));
-        const next = clampContentPaneHeight(window.innerHeight, top, gutter);
+        let next: number;
+        if (scrollAwayChrome && pageRef.current) {
+          const pageRect = pageRef.current.getBoundingClientRect();
+          const tabs = pageRef.current.closest(".app")?.querySelector<HTMLElement>(".page-tabs") ?? null;
+          const tabsRect = tabs?.getBoundingClientRect();
+          const tabsTop = tabs ? Number.parseFloat(window.getComputedStyle(tabs).top) : 0;
+          const stickyTop = Math.max(0, Number.isFinite(tabsTop) ? tabsTop : 0) + (tabsRect?.height ?? 0) + LIVE_PANE_STICKY_GAP_PX;
+          const layout = scrollAwayPaneLayout({
+            innerHeight: window.innerHeight,
+            paneViewportTop: splitRect.top,
+            paneDocumentTop: paneDocumentTop(splitRect.top, window.scrollY),
+            pageDocumentTop: paneDocumentTop(pageRect.top, window.scrollY),
+            stickyTop,
+            bottomGutter: gutter,
+          });
+          next = layout.paneHeight;
+          shellScrollTargetRef.current = layout.scrollTarget;
+          setPageMinHeight((cur) => (cur == null || Math.abs(cur - layout.pageMinHeight) > 1 ? layout.pageMinHeight : cur));
+        } else {
+          next = clampContentPaneHeight(
+            window.innerHeight,
+            paneDocumentTop(splitRect.top, window.scrollY),
+            gutter,
+          );
+          shellScrollTargetRef.current = 0;
+          setPageMinHeight(null);
+        }
         setPaneHeight((cur) => (cur == null || Math.abs(cur - next) > 1 ? next : cur));
       });
     };
 
     measure();
     window.addEventListener("resize", measure);
+    if (scrollAwayChrome) window.addEventListener("scroll", measure, { passive: true });
 
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(split);
@@ -730,9 +765,72 @@ export function LivePage({
     return () => {
       if (raf) window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", measure);
+      if (scrollAwayChrome) window.removeEventListener("scroll", measure);
       ro?.disconnect();
     };
-  }, [events.length, shown.length, previewLines, category, repos, people, hiddenEventTypes]);
+  }, [events.length, shown.length, previewLines, category, repos, people, hiddenEventTypes, scrollAwayChrome]);
+
+  const handOffShellScroll = useCallback((deltaY: number, target: EventTarget | null): boolean => {
+    if (!scrollAwayChrome || typeof window === "undefined" || Math.abs(deltaY) <= LIVE_SHELL_SCROLL_EPSILON_PX) return false;
+    const current = window.scrollY;
+    const limit = shellScrollTargetRef.current;
+    if (deltaY > 0 && current < limit - LIVE_SHELL_SCROLL_EPSILON_PX) {
+      window.scrollBy(0, Math.min(deltaY, limit - current));
+      return true;
+    }
+    if (deltaY < 0 && current > LIVE_SHELL_SCROLL_EPSILON_PX) {
+      const element = target instanceof Element ? target : null;
+      const nested = element?.closest<HTMLElement>(".live-feed, .live-detail");
+      if (nested && nested.scrollTop > LIVE_SHELL_SCROLL_EPSILON_PX) return false;
+      window.scrollBy(0, Math.max(deltaY, -current));
+      return true;
+    }
+    return false;
+  }, [scrollAwayChrome]);
+
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page || !scrollAwayChrome) return undefined;
+
+    let touchStart: { x: number; y: number; lastY: number } | null = null;
+    const onWheel = (event: WheelEvent) => {
+      if (handOffShellScroll(event.deltaY, event.target)) event.preventDefault();
+    };
+    const onTouchStart = (event: globalThis.TouchEvent) => {
+      if (event.touches.length !== 1) {
+        touchStart = null;
+        return;
+      }
+      const touch = event.touches[0]!;
+      touchStart = { x: touch.clientX, y: touch.clientY, lastY: touch.clientY };
+    };
+    const onTouchMove = (event: globalThis.TouchEvent) => {
+      if (!touchStart || event.touches.length !== 1) return;
+      const touch = event.touches[0]!;
+      const totalX = touch.clientX - touchStart.x;
+      const totalY = touch.clientY - touchStart.y;
+      const deltaY = touchStart.lastY - touch.clientY;
+      touchStart.lastY = touch.clientY;
+      if (Math.abs(totalY) <= Math.abs(totalX)) return;
+      if (handOffShellScroll(deltaY, event.target)) event.preventDefault();
+    };
+    const clearTouch = () => {
+      touchStart = null;
+    };
+
+    page.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    page.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    page.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    page.addEventListener("touchend", clearTouch, { capture: true });
+    page.addEventListener("touchcancel", clearTouch, { capture: true });
+    return () => {
+      page.removeEventListener("wheel", onWheel, { capture: true });
+      page.removeEventListener("touchstart", onTouchStart, { capture: true });
+      page.removeEventListener("touchmove", onTouchMove, { capture: true });
+      page.removeEventListener("touchend", clearTouch, { capture: true });
+      page.removeEventListener("touchcancel", clearTouch, { capture: true });
+    };
+  }, [handOffShellScroll, scrollAwayChrome]);
 
   // The detail shows the pinned event; with nothing pinned it auto-follows the
   // newest matching event, so the right pane updates as new data streams in (and
@@ -899,7 +997,11 @@ export function LivePage({
   }, [clearHold, prefersReducedMotion]);
 
   return (
-    <div className="live-page">
+    <div
+      ref={pageRef}
+      className="live-page"
+      style={pageMinHeight == null ? undefined : { minHeight: `${pageMinHeight}px` }}
+    >
       <header className="live-header">
         <div className="live-header-main">
           <h1>Live</h1>

@@ -6,6 +6,7 @@ import {
   paneDocumentTop,
   parseSafeAreaInsetPx,
   readSafeAreaBottomPx,
+  scrollAwayPaneLayout,
 } from "../src/pane-height.ts";
 import { CONTENT_PANE_MIN_HEIGHT_PX } from "../src/layout-tier.ts";
 
@@ -71,6 +72,34 @@ test("a pane keeps one height no matter where the viewer has scrolled", () => {
   // rather than poisoning the arithmetic with NaN.
   assert.equal(paneDocumentTop(100, Number.NaN), 100);
   assert.equal(paneDocumentTop(100, Number.POSITIVE_INFINITY), 100);
+});
+
+test("a short-wide pane grows as document chrome scrolls to the sticky tabs", () => {
+  const atRest = scrollAwayPaneLayout({
+    innerHeight: 704,
+    paneViewportTop: 348,
+    paneDocumentTop: 348,
+    pageDocumentTop: 215,
+    stickyTop: 84,
+    bottomGutter: 16,
+  });
+  assert.deepEqual(atRest, {
+    paneHeight: 340,
+    pageMinHeight: 737,
+    scrollTarget: 264,
+  });
+
+  const scrolled = scrollAwayPaneLayout({
+    innerHeight: 704,
+    paneViewportTop: 84,
+    paneDocumentTop: 348,
+    pageDocumentTop: 215,
+    stickyTop: 84,
+    bottomGutter: 16,
+  });
+  assert.equal(scrolled.paneHeight, 604, "the pane should consume the chrome height reclaimed by page scroll");
+  assert.equal(scrolled.pageMinHeight, atRest.pageMinHeight, "the published end-state height must not grow recursively");
+  assert.equal(scrolled.scrollTarget, atRest.scrollTarget, "the shell handoff target is document-stable");
 });
 
 test("the bottom gutter absorbs the Android navigation-bar inset", () => {
