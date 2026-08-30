@@ -610,7 +610,7 @@ emit), so it adds no query, driver, or schema surface.
 
 ## Graph Neighborhood Query (operational, not contract)
 
-`GET /api/graph-neighborhood?ref=<item-ref>&depth=<1..5>` is the focused Graph
+`GET /api/graph-neighborhood?ref=<item-ref>&depth=<1..5>&mentions=<direct|all>` is the focused Graph
 view's canonical-history read. It is intentionally separate from
 `ContractEnvelope`: range and static envelopes stay bounded for normal pages,
 while a user can follow older relations wholly outside the loaded item window.
@@ -618,11 +618,15 @@ It therefore has its own operational schema,
 `symphony-board-graph-neighborhood/1`, and does not carry or bump
 `contract_version`.
 
-The endpoint defaults to five hops and returns current live configured-repo data:
+The endpoint defaults to one hop and `mentions=all` for existing callers. The UI
+requests `mentions=direct`. It returns current live configured-repo data:
 
 - `focus_ref`, `requested_depth`, and `reached_depth`;
 - `nodes[]` with `ref`, shortest `hop`, and the resolved `ItemDTO` when tracked;
-- original directed `edges[]` for the induced neighborhood, across all edge types;
+- original directed `edges[]` for the induced neighborhood. Structural edges
+  expand through the requested depth; in `direct` mode, mentions incident to the
+  focus are hop-one leaves and do not expand. `mentions=all` opts into recursive
+  mention traversal for callers that explicitly need it;
 - `complete`, ordered `limit_reasons` (`depth`, `nodes`, `edges`), fixed limits,
   and returned node/edge counts.
 

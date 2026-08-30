@@ -634,7 +634,7 @@ export async function fetchGraphNeighborhood(
   serverBaseUrl: string | null = loadServerBaseUrl(),
   signal?: AbortSignal,
 ): Promise<GraphNeighborhoodResponse> {
-  const params = new URLSearchParams({ ref: focusRef, depth: String(depth) });
+  const params = new URLSearchParams({ ref: focusRef, depth: String(depth), mentions: "direct" });
   const target = resolveEndpoint(`./api/graph-neighborhood?${params.toString()}`, serverBaseUrl);
   const res = await appFetch(target, { cache: "no-store", signal });
   if (!res.ok) throw new Error(`graph neighborhood: HTTP ${res.status}`);

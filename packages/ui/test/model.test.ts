@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { ActivityDTO, ActivityDailyDTO, AggregateDTO, ContractEnvelope, EdgeDTO, ItemDTO, RepoMetricDTO, RepoMetricSeriesPointDTO, ReviewThreadCommentDTO, ReviewThreadDTO, SourceDTO } from "@symphony-board/contract";
 import {
+  GRAPH_FOCUS_DEFAULT_DEPTH,
+  graphFocusDepthPreference,
   DEFAULT_TIME_RANGE_DAYS,
   DEFAULT_TIME_RANGE_PRESET_ID,
   TIME_RANGE_PRESETS,
@@ -145,6 +147,15 @@ import {
   type ConfigSourceDoc,
   type LiveEvent,
 } from "../src/model.ts";
+
+test("graph focus defaults to one hop and remembers the chosen depth across focus exit", () => {
+  assert.equal(GRAPH_FOCUS_DEFAULT_DEPTH, 1);
+  const focused = graphFocusDepthPreference({ focus: "source|item", depth: 2 }, GRAPH_FOCUS_DEFAULT_DEPTH);
+  assert.equal(focused, 2);
+  const overview = graphFocusDepthPreference({ focus: null, depth: null }, focused);
+  assert.equal(overview, 2);
+  assert.equal(graphFocusDepthPreference({ focus: "source|next", depth: null }, overview), 1, "a depth-less deep link uses the safe default");
+});
 
 function item(over: Partial<ItemDTO> = {}): ItemDTO {
   return {

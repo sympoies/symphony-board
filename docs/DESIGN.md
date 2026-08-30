@@ -434,11 +434,14 @@ Pages:
   for the default no-mentions overview when the static window exactly matches an
   emitted aggregate row; custom range responses compute from the returned edges.
   Overview remains range-windowed, but focus is a canonical-history inspection:
-  the UI calls `GET /api/graph-neighborhood?ref=<ref>&depth=<1..5>`, defaults to
-  five hops, and draws every returned edge type. The read-only projection walks
-  edges as undirected for membership while retaining their original direction,
-  is deterministic across cycles, and caps a response at 200 nodes / 500 edges.
-  It reports whether depth or a safety cap limited the result. A static/local
+  the UI calls `GET /api/graph-neighborhood?ref=<ref>&depth=<1..5>&mentions=direct`,
+  defaults to one hop, and remembers an explicit depth across focus exit and
+  re-entry during the app session. Structural edges are walked as undirected for
+  membership while retaining their original direction. Mentions directly
+  incident to the focus may be shown as context but never enter the traversal
+  frontier. The projection is deterministic across cycles and caps a response
+  at 200 nodes / 500 edges. It reports whether depth or a safety cap limited the
+  result. A static/local
   file deployment cannot query the store, so it keeps the previous loaded
   one-hop fallback and labels that limitation in the focus view.
 - **Activity**: newest-first feed of commit, repository/project event, and
@@ -775,7 +778,7 @@ fails to load — exactly when it is needed.
 | Route | Method | Served by | Purpose |
 | --- | --- | --- | --- |
 | `/api/capabilities` | GET | read-only `api` sidecar / app server | safe server capability/status document: board read routes, Live read availability, Live snapshot status, optional non-secret webhook setup hint, and allowlist enabled/count |
-| `/api/graph-neighborhood` | GET | read-only `api` sidecar / app server | bounded canonical-history relationship neighborhood for one `ref`; accepts `depth=1..5` (default 5), returns deterministic nodes with hop distance and original directed edges, and reports depth/node/edge limit reasons |
+| `/api/graph-neighborhood` | GET | read-only `api` sidecar / app server | bounded canonical-history relationship neighborhood for one `ref`; accepts `depth=1..5` (default 1) and `mentions=direct\|all` (default `all`; the UI requests `direct`), returns deterministic nodes with hop distance and original directed edges, and reports depth/node/edge limit reasons |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
 | `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
 | `/api/actionable` | GET | read-only `api` sidecar / app server | open-work discovery over the full canonical store; accepts `repo`, `source`, `limit`, `stale_days`, and `include_unconfigured`, and returns items grouped into actionable buckets |

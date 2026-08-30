@@ -185,7 +185,7 @@ test("fetchGraphNeighborhood encodes focus/depth, forwards cancellation, and val
       return { ok: true, status: 200, json: async () => body };
     }) as unknown as typeof fetch;
     assert.deepEqual(await fetchGraphNeighborhood("github:github.com|I1", 5, "https://board.example/app/", controller.signal), body);
-    assert.equal(seenUrl, "https://board.example/app/api/graph-neighborhood?ref=github%3Agithub.com%7CI1&depth=5");
+    assert.equal(seenUrl, "https://board.example/app/api/graph-neighborhood?ref=github%3Agithub.com%7CI1&depth=5&mentions=direct");
     assert.equal(seenSignal, controller.signal);
 
     globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ schema: "wrong" }) })) as unknown as typeof fetch;

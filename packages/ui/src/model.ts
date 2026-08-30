@@ -169,7 +169,7 @@ export const anchorId = (ref: string): string => `item-${encodeURIComponent(ref)
 export interface HashRoute {
   page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" | "debug" (hidden; Cmd+/)
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
-  depth: number | null; // focused Graph neighbourhood hops (1..5); null = default 5
+  depth: number | null; // focused Graph neighbourhood hops (1..5); null = default 1
   q: string | null; // a search token to seed the search bar (narrows the graph)
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
   repo: string | null; // a project_path the Commits page filters to
@@ -208,12 +208,23 @@ const routeParam = (value: string | null | undefined): string | null => {
   return v ? v : null;
 };
 
-export const GRAPH_FOCUS_DEFAULT_DEPTH = 5;
+export const GRAPH_FOCUS_DEFAULT_DEPTH = 1;
 export const GRAPH_FOCUS_MAX_DEPTH = 5;
 
 export function graphFocusDepth(value: unknown): number | null {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
   return Number.isInteger(n) && n >= 1 && n <= GRAPH_FOCUS_MAX_DEPTH ? n : null;
+}
+
+// A focused deep link owns its explicit depth. Outside focus, retain the last
+// depth used in this App session so leaving via "all items" and selecting a new
+// item cannot silently jump back to the default.
+export function graphFocusDepthPreference(
+  route: Pick<HashRoute, "focus" | "depth">,
+  rememberedDepth: number,
+): number {
+  if (route.focus) return route.depth ?? GRAPH_FOCUS_DEFAULT_DEPTH;
+  return graphFocusDepth(rememberedDepth) ?? GRAPH_FOCUS_DEFAULT_DEPTH;
 }
 
 export function parseHashRoute(hash: string): HashRoute {
