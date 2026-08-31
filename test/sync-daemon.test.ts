@@ -9,6 +9,7 @@ import {
   SyncController,
   createControlServer,
   parseSyncRequest,
+  runLoop,
   sourceOptions,
   SYNC_CONTROL_HEADER,
   type ConfigControl,
@@ -147,6 +148,38 @@ test("a scheduled tick skips (does not queue) while a manual run is active", asy
 
   gate.resolve(okResult());
   await manual.done;
+});
+
+async function scheduledLoopDelay(runFinishedAtMs: number): Promise<number[]> {
+  const aborter = new AbortController();
+  const observedDelays: number[] = [];
+  const clock = [0, runFinishedAtMs];
+  let clockIndex = 0;
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const guard = setTimeout(() => aborter.abort(), 50);
+  try {
+    await runLoop(controller, {
+      intervalMs: 1_000,
+      fullEvery: 30,
+      signal: aborter.signal,
+      nowMs: () => clock[Math.min(clockIndex++, clock.length - 1)]!,
+      wait: async (delayMs) => {
+        observedDelays.push(delayMs);
+        aborter.abort();
+      },
+    });
+  } finally {
+    clearTimeout(guard);
+  }
+  return observedDelays;
+}
+
+test("runLoop keeps start-to-start cadence fixed by subtracting run duration", async () => {
+  assert.deepEqual(await scheduledLoopDelay(80), [920]);
+});
+
+test("runLoop skips missed deadlines without overlapping catch-up runs", async () => {
+  assert.deepEqual(await scheduledLoopDelay(1_250), [750]);
 });
 
 // --- request parsing ---
