@@ -552,10 +552,13 @@ Default compose loop cadence:
 - both stacks: `FULL_EVERY=30`
 
 That gives a full sweep on the first iteration and every `FULL_EVERY`
-iterations, with incremental syncs between. With defaults, the SQLite stack
-runs incrementals about every 2 minutes and full sweeps roughly hourly; the
-Postgres stack runs incrementals about every 5 minutes and full sweeps roughly
-every 2.5 hours. Set `FULL_EVERY=1` for every iteration to be full.
+iterations, with incremental syncs between. Scheduled starts use a fixed-rate
+cadence: time spent syncing is deducted from the interval, and a run that
+crosses one or more deadlines skips those missed ticks without overlapping.
+With defaults, the SQLite stack runs incrementals about every 2 minutes and full
+sweeps roughly hourly; the Postgres stack runs incrementals about every 5
+minutes and full sweeps roughly every 2.5 hours. Set `FULL_EVERY=1` for every
+iteration to be full.
 
 The standalone app uses a more conservative local default for personal PATs:
 incremental sync every 600 seconds and a requested full sweep interval of one
@@ -587,8 +590,8 @@ per-source results for the UI.
 **Run serialization.** The daemon holds one lock. A manual `POST` while a run is
 active returns the active run (HTTP 409) instead of starting a second writer. A
 scheduled tick that lands while a manual run is active *skips* that tick (it does
-not queue) and the next interval tries again. The cadence is unchanged from the
-shell loop: the first iteration and every `FULL_EVERY`-th iteration are full
+not queue) and the next interval tries again. Scheduled starts use the fixed-rate
+cadence above; the first iteration and every `FULL_EVERY`-th iteration are full
 sweeps, the rest incremental.
 
 **Control API** (served by `board`, proxied by `web`, never the read-only `api`):

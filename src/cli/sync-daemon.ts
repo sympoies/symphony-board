@@ -639,6 +639,8 @@ export interface LoopOptions {
   intervalMs: number;
   fullEvery: number;
   signal: AbortSignal;
+  nowMs?: () => number;
+  wait?: (ms: number, signal: AbortSignal) => Promise<void>;
   schedule?: () => Pick<SyncSchedule, "intervalSeconds" | "fullEvery" | "fullIntervalSeconds">;
   shouldRunFull?: (
     iteration: number,
@@ -646,12 +648,26 @@ export interface LoopOptions {
   ) => boolean | Promise<boolean>;
 }
 
-// The background cadence. Mirrors the prior shell loop: iteration 0 (and every
-// FULL_EVERY-th) is a full sweep, the rest incremental, sleeping `intervalMs`
-// between. A manual run in progress makes a scheduled tick skip rather than wait.
+// Wait only for the remainder of the current fixed-rate interval. A run that
+// crosses one or more deadlines skips those missed ticks and resumes at the
+// next boundary instead of overlapping or immediately queueing catch-up work.
+export function cadenceDelayMs(intervalMs: number, elapsedMs: number): number {
+  const interval = Math.max(1, Math.trunc(intervalMs));
+  const elapsed = Math.max(0, elapsedMs);
+  if (elapsed < interval) return interval - elapsed;
+  const remainder = elapsed % interval;
+  return remainder === 0 ? 0 : interval - remainder;
+}
+
+// The background cadence. Iteration 0 (and every FULL_EVERY-th) is a full
+// sweep, the rest incremental. Starts follow fixed interval boundaries measured
+// from the prior iteration's start; work duration does not get added to the
+// interval. A manual run in progress makes a scheduled tick skip rather than wait.
 export async function runLoop(controller: SyncController, opts: LoopOptions): Promise<void> {
   let scheduleKey = "";
   let i = 0;
+  const nowMs = opts.nowMs ?? (() => performance.now());
+  const wait = opts.wait ?? sleep;
   while (!opts.signal.aborted) {
     const schedule = opts.schedule?.() ?? {
       intervalSeconds: Math.max(1, Math.round(opts.intervalMs / 1000)),
@@ -665,6 +681,7 @@ export async function runLoop(controller: SyncController, opts: LoopOptions): Pr
       log.info(`[loop] sync + emit every ${Math.round(intervalMs / 1000)}s (full sweep every ${fullEvery} iterations)`);
       scheduleKey = nextScheduleKey;
     }
+    const iterationStartedAtMs = nowMs();
     const full = opts.shouldRunFull ? await opts.shouldRunFull(i, schedule) : i % fullEvery === 0;
     log.info(`[loop] iteration ${i} (${full ? "full" : "incremental"})`);
     try {
@@ -674,7 +691,7 @@ export async function runLoop(controller: SyncController, opts: LoopOptions): Pr
       log.error(`[loop] iteration ${i} error: ${(err as Error).message}; continuing`);
     }
     i++;
-    await sleep(intervalMs, opts.signal);
+    await wait(cadenceDelayMs(intervalMs, nowMs() - iterationStartedAtMs), opts.signal);
   }
 }
 
