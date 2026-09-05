@@ -3283,6 +3283,8 @@ try {
         text: tip?.textContent?.trim() || '',
         visible: !!style && style.visibility !== 'hidden' && Number(style.opacity) > 0,
         cursor: avatar ? getComputedStyle(avatar).cursor : '',
+        tag: avatar?.tagName || '',
+        href: avatar?.getAttribute('href') || '',
       };
     })()`,
     returnByValue: true,
@@ -4957,7 +4959,7 @@ try {
     [/^3\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows retained rows over the memory cap (${live.bufferText || "empty"})`],
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
-    [liveRankHover.visible === true && liveRankHover.text === "2" && liveRankHover.cursor === "default", `live: hovering a Buffer rank avatar reveals its exact count with the default cursor (${JSON.stringify(liveRankHover)})`],
+    [liveRankHover.visible === true && liveRankHover.text === "2" && liveRankHover.cursor === "default" && liveRankHover.tag === "SPAN" && liveRankHover.href === "", `live: hovering a non-linked Buffer rank avatar reveals its exact count with the default cursor (${JSON.stringify(liveRankHover)})`],
     [Math.abs((live.detailPaneHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailPaneHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailPaneHeight || 0}px vs ${live.feedHeight || 0}px)`],
     [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailCardHeight })})`],
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
