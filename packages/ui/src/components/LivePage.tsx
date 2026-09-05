@@ -267,19 +267,22 @@ function LiveRankChart({
         <span className="live-rank-baseline" aria-hidden="true" />
         {items.map((item) => {
           const label = `${item.label} · ${eventCountLabel(item.count)}`;
+          const rankHeight = `${Math.max(3, Math.round((item.count / axisMax) * 100))}%`;
           return (
             <div
               key={item.key}
               className="live-rank-item"
               role="listitem"
-              title={label}
+              tabIndex={0}
               aria-label={label}
             >
-              <span className="live-rank-bar-cell" aria-hidden="true">
-                <span
-                  className="live-rank-bar"
-                  style={{ "--rank-h": `${Math.max(3, Math.round((item.count / axisMax) * 100))}%` } as CSSProperties}
-                />
+              <span
+                className="live-rank-bar-cell"
+                style={{ "--rank-h": rankHeight } as CSSProperties}
+                aria-hidden="true"
+              >
+                <span className="live-rank-tooltip">{item.count.toLocaleString("en-US")}</span>
+                <span className="live-rank-bar" />
               </span>
               <span className="live-rank-footer">{item.footer}</span>
             </div>

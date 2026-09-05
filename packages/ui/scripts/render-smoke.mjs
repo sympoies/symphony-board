@@ -3256,6 +3256,35 @@ try {
   })).result.value || {};
   await sleep(3300);
   const liveSnapshotAfterPoll = await liveSnapshotState();
+  // Exact rank values must appear immediately on pointer hover instead of
+  // relying on the browser's delayed native title bubble.
+  const liveRankHoverTarget = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = Array.from(document.querySelectorAll('.live-card'))
+        .find((node) => node.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer');
+      const item = card?.querySelector('.live-rank-item');
+      const rect = item?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 3 } : null;
+    })()`,
+    returnByValue: true,
+  })).result.value || null;
+  if (liveRankHoverTarget) {
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...liveRankHoverTarget });
+    await sleep(120);
+  }
+  const liveRankHover = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = Array.from(document.querySelectorAll('.live-card'))
+        .find((node) => node.querySelector('.live-card-label')?.textContent?.trim() === 'Buffer');
+      const tip = card?.querySelector('.live-rank-item:hover .live-rank-tooltip');
+      const style = tip ? getComputedStyle(tip) : null;
+      return {
+        text: tip?.textContent?.trim() || '',
+        visible: !!style && style.visibility !== 'hidden' && Number(style.opacity) > 0,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // #356 review regression: tapping a sparkline bar must SELECT it on the FIRST
   // activation. The button focuses before the click fires, so a toggle-on-click
   // would clear it (first tap a no-op). Drive focus()+click() — the touch/keyboard
@@ -4926,6 +4955,7 @@ try {
     [/^3\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows retained rows over the memory cap (${live.bufferText || "empty"})`],
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
+    [liveRankHover.visible === true && liveRankHover.text === "2", `live: hovering a Buffer rank bar reveals its exact count (${JSON.stringify(liveRankHover)})`],
     [Math.abs((live.detailPaneHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailPaneHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailPaneHeight || 0}px vs ${live.feedHeight || 0}px)`],
     [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailCardHeight })})`],
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
