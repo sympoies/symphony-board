@@ -178,7 +178,13 @@ function targetText(ev: LiveEvent): { repo: string; num: string } {
   return { repo, num };
 }
 
-function LiveAvatar({ actor }: { actor: LiveEventActor | null | undefined }) {
+function LiveAvatar({
+  actor,
+  linked = true,
+}: {
+  actor: LiveEventActor | null | undefined;
+  linked?: boolean;
+}) {
   const model = liveAvatarModel(actor);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [model.imageUrl]);
@@ -194,7 +200,7 @@ function LiveAvatar({ actor }: { actor: LiveEventActor | null | undefined }) {
     <span className="live-avatar-fallback" aria-hidden="true">{model.initials}</span>
   );
   const className = `live-avatar${model.imageUrl && !failed ? " live-avatar-image" : " live-avatar-text"}`;
-  if (!model.profileUrl) {
+  if (!linked || !model.profileUrl) {
     return <span className={className} title={model.label} aria-label={model.label}>{body}</span>;
   }
   return (
@@ -1069,7 +1075,7 @@ export function LivePage({
               key: rank.key,
               label: rank.label,
               count: rank.count,
-              footer: <LiveAvatar actor={rank.actor} />,
+              footer: <LiveAvatar actor={rank.actor} linked={false} />,
             }))}
           />
         </div>

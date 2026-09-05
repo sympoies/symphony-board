@@ -4029,6 +4029,7 @@ a.rf-node-title:hover { color: var(--accent); }
   width: 24px;
   height: 24px;
   margin: 0;
+  cursor: default;
 }
 .live-rank-footer .live-avatar-fallback {
   max-width: 19px;
