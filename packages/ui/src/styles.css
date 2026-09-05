@@ -3964,6 +3964,7 @@ a.rf-node-title:hover { color: var(--accent); }
   align-items: stretch;
 }
 .live-rank-bar-cell {
+  position: relative;
   width: 100%;
   min-height: 0;
   display: flex;
@@ -3976,6 +3977,45 @@ a.rf-node-title:hover { color: var(--accent); }
   height: var(--rank-h);
   border-radius: 3px 3px 0 0;
   background: color-mix(in srgb, var(--live) 54%, var(--panel-2));
+  transition: background 120ms ease;
+}
+.live-rank-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: min(calc(var(--rank-h) + 4px), calc(100% - 19px));
+  z-index: 2;
+  min-width: 20px;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--live) 48%, var(--line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 2px);
+  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms ease;
+}
+.live-rank-item:hover .live-rank-tooltip,
+.live-rank-item:focus-within .live-rank-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+.live-rank-item:hover .live-rank-bar,
+.live-rank-item:focus-within .live-rank-bar {
+  background: var(--live);
+}
+.live-rank-item:focus-visible { outline: none; }
+.live-rank-item:focus-visible .live-rank-bar {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
 }
 .live-rank-chart-repos .live-rank-bar { width: 14px; }
 .live-rank-footer {
