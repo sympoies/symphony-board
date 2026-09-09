@@ -2,8 +2,9 @@
 
 This runbook owns operational setup and local run paths. The root
 [README.md](../README.md) stays focused on what the project is and the shortest
-useful way to try it; [DEVELOPMENT.md](../DEVELOPMENT.md) owns contributor
-validation.
+useful way to try it; [DEVELOPMENT.md](../DEVELOPMENT.md) owns maintenance
+principles, while [development-reference.md](development-reference.md) owns
+contributor validation details.
 
 ## Configure Sources
 

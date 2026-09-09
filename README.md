@@ -20,7 +20,9 @@ store, not the consumer API.
 - Runbook: [docs/running.md](docs/running.md)
 - Design rationale: [docs/DESIGN.md](docs/DESIGN.md)
 - Contract rules: [docs/CONTRACT.md](docs/CONTRACT.md)
-- Developer guide: [DEVELOPMENT.md](DEVELOPMENT.md)
+- Maintenance principles: [DEVELOPMENT.md](DEVELOPMENT.md)
+- Detailed development reference:
+  [docs/development-reference.md](docs/development-reference.md)
 - UI package: [packages/ui](packages/ui)
 - Contract package: [packages/contract](packages/contract)
 
@@ -176,7 +178,10 @@ browser repo override -> repos[] color -> sources[].color -> no highlight
 ## Development
 
 Before editing behavior or the data model, read [DEVELOPMENT.md](DEVELOPMENT.md)
-plus the relevant design or contract document. The normal backend gate is:
+plus the relevant design or contract document. Detailed change-path and
+validation guidance lives in
+[docs/development-reference.md](docs/development-reference.md). The normal
+backend gate is:
 
 ```sh
 pnpm run typecheck
@@ -184,6 +189,6 @@ pnpm test
 ```
 
 Run the UI, Postgres, coverage, desktop, Android, or provider dry-run gates
-when the change touches those paths. `DEVELOPMENT.md` owns contributor workflow
-and validation details; [docs/running.md](docs/running.md) owns operational
-runbooks.
+when the change touches those paths. `DEVELOPMENT.md` owns maintenance
+principles and routine workflow, the development reference owns detailed
+validation, and [docs/running.md](docs/running.md) owns operational runbooks.
