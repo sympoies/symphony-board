@@ -35,13 +35,16 @@ producer config/tokens (see `docs/DESIGN.md`).
 
 ## Development workflow
 
-- Read `README.md`, `docs/DESIGN.md`, and `docs/CONTRACT.md` before changing
+- Read `DEVELOPMENT.md` for maintenance principles and
+  `docs/development-reference.md` for detailed change-path and validation
+  guidance. Read `docs/DESIGN.md` and `docs/CONTRACT.md` before changing
   behavior or the data model.
 - Toolchain: Node via **fnm** (`.node-version`), package manager **pnpm**
   (`packageManager` in `package.json`). Backend TypeScript runs under Node 24
   stripping with no backend build step; the UI package (`packages/ui`) is the
   Vite + React build step.
-- Validate before committing: `pnpm run typecheck && pnpm test`. Also run
+- Validate before committing: `pnpm run typecheck && pnpm test`. The detailed
+  validation routing lives in `docs/development-reference.md`; also run
   `pnpm --filter @symphony-board/ui run build`, UI tests, and UI smoke when the
   change touches UI, contract, shared view-model behavior, or docs that describe
   those paths. Run a `--dry-run` sync when touching a source or the engine, and

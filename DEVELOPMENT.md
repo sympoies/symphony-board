@@ -1,313 +1,64 @@
-# DEVELOPMENT.md
-
-Developer guide for `symphony-board`. Read [README.md](README.md) for the
-product overview, [docs/running.md](docs/running.md) for operational run paths,
-[docs/DESIGN.md](docs/DESIGN.md) for the design record, and
-[docs/CONTRACT.md](docs/CONTRACT.md) before changing the emitted contract.
-
-## Runtime And Toolchain
-
-The backend runs TypeScript directly under Node 24's built-in type stripping:
-there is no backend build step and no `dist/`. Node strips types but does not
-check them, so `pnpm run typecheck` is the type gate.
-
-The backend uses `node:sqlite` (`DatabaseSync`) as the default SQLite driver.
-It is built into Node 24 and currently emits an experimental warning; project
-commands run with `--disable-warning=ExperimentalWarning`. The optional
-Postgres driver is selected by `db_url_env` and uses postgres.js.
-
-The repo is a pnpm workspace:
-
-- root package: backend CLI, sync engine, DB, sources, tests, CI helpers
-- `packages/contract`: versioned contract schema and DTOs
-- `packages/ui`: Vite + React web UI
-- `packages/desktop`: Tauri macOS desktop shell for the same UI (thin client)
-- `packages/desktop-standalone`: Tauri macOS app bundling the UI plus the whole
-  backend (Node sidecar running `src/cli/app-server.ts`)
-
-Backend runtime imports from `@symphony-board/contract` are type-only. The
-Docker backend image still runs TypeScript source directly, but it installs root
-production dependencies so the lazy-loaded Postgres driver resolves in
-`docker/compose.pg.yaml`. The UI is the package that owns browser dependencies
-and the Vite build.
-
-Toolchain:
-
-- Node via `fnm` and `.node-version`
-- pnpm via `packageManager` in `package.json`
-- TypeScript as the type gate
-- `c8` for the combined logic-tier coverage gate
-- `lefthook` for the local pre-push gate
-
-## Layout
-
-```text
-schema/sqlite/                SQLite canonical DB DDL
-schema/postgres/              Postgres canonical DB DDL
-src/config.ts                 config loading and token env-var resolution
-src/model/                    pure canonical helpers: refs, labels, edges, types
-src/sources/                  provider fetchers and pure normalizers
-src/db/                       Store interface + SQLite/Postgres drivers
-src/sync-engine.ts            fetch -> raw -> normalize -> reconcile -> upsert
-src/contract/                 contract builder, validator, version constants
-src/server/                   shared HTTP handling (range queries)
-src/cli/                      init-db, sync, emit-contract, validate-contract,
-                              sync-daemon, range-api, app-server
-test/                         backend node --test suite
-
-packages/contract/            LAYER 3 package: schema + mirrored DTO types
-packages/ui/                  Vite + React UI, UI tests, render-smoke
-packages/desktop/             Tauri macOS app shell; no DB, daemon, or tokens
-packages/desktop-standalone/  Tauri macOS app bundling Node + the full backend
-
-docker/                       backend daemon image, UI sidecar image, compose
-scripts/                      read-only helpers and CI support scripts
-scripts/fixtures/             provider fixture seeders and UI probe
-docs/devlog/                  append-only development log
-docs/running.md               operational setup, Docker, desktop, Android,
-                              Live, release, and inspection runbooks
-```
-
-## Boundaries
-
-- Keep the three layers separate: raw store, canonical DB, versioned contract.
-- `normalize` must stay pure. Network belongs in `src/sources/*`; DB IO belongs
-  in `src/db/*`; orchestration belongs in `src/sync-engine.ts`.
-- Identity is `(source_id, external_id)`, where `external_id` is the provider's
-  immutable global id. Do not key on mutable `project_path` or `iid`.
-- Only a full and complete sweep may soft-delete unseen items or intra-source
-  edges. Partial, failed, and incremental runs must never tombstone.
-- Runtime contracts under `data/` are generated output and stay gitignored. The
-  tracked `packages/ui/public/contract.json` is a small UI sample only.
-- Tokens are referenced by env-var name in config and read from the environment.
-  Never commit tokens, `.env`, `config/sources.json`, `config/sources.pg.json`,
-  SQLite DB files, Postgres volume dumps, or runtime emitted contracts.
-- `packages/desktop` remains a thin client. Do not place SQLite, provider
-  tokens, or sync sidecars inside it; connect it to the Docker/server HTTP
-  surface instead. `packages/desktop-standalone` is the deliberate exception:
-  it bundles the backend as a Node sidecar, but all state (config, tokens, DB,
-  contract) lives in the per-user app data directory — never inside the app
-  bundle or the repo.
-- The sole-writer rule is per configured store: in Docker the `board` loop
-  daemon is the only writer; in the standalone app its `app-server` process is.
-  The standalone app refuses to spawn a second writer when its port is already
-  served, and `/api/range` opens the store read-only per request.
-
-## Validation Commands
-
-Core backend gate:
-
-```sh
-pnpm run typecheck
-pnpm test
-```
-
-Postgres driver gate (needs Docker; composes up a throwaway Postgres, runs the
-store conformance suite with the pg driver registered plus the live e2e, tears
-down — `pnpm test` itself stays Docker-free):
-
-```sh
-pnpm run test:pg-e2e
-```
-
-Postgres compose deployment gate (needs Docker; builds the backend and UI
-images, starts an isolated postgres/board/api/web stack, validates the served
-contract, and checks `/api/stats` reports `driver: "postgres"`):
-
-```sh
-pnpm run test:pg-compose
-```
-
-UI gate:
-
-```sh
-pnpm --filter @symphony-board/ui run build
-pnpm --filter @symphony-board/ui run test
-pnpm --filter @symphony-board/ui run smoke
-```
-
-Desktop app gates (thin client, then standalone — the latter also copies the
-active Node 24 binary in as the bundled sidecar):
-
-```sh
-pnpm desktop:build
-pnpm desktop-standalone:build
-```
-
-Desktop release packaging (host architecture unless `--target` is provided):
-
-```sh
-scripts/package-desktop-release.sh --out-dir dist/release
-```
-
-The GitHub Release workflow runs the same packager on a native Apple Silicon
-macOS runner so the standalone app bundles the matching arm64 Node sidecar. The
-generated zips are unsigned app bundles, not notarized installers.
-
-Coverage gate:
-
-```sh
-pnpm coverage
-```
-
-Contract validation:
-
-```sh
-pnpm run emit -- --out data/contract.json
-pnpm run validate -- --in data/contract.json
-```
-
-Provider/source smoke, when credentials and network are available:
-
-```sh
-GITHUB_TOKEN="$(gh auth token)" node src/cli/sync.ts --config config/sources.json --dry-run
-GITLAB_TOKEN="glpat_xxx" node src/cli/sync.ts --source gitlab:gitlab.com --dry-run
-```
-
-`--dry-run` fetches and normalizes but writes nothing. It reports per-source
-status, item count, edge count, and soft-delete counts.
-
-## Testing Strategy
-
-The backend test suite covers deterministic logic and default SQLite behavior:
-
-- ref and label helpers
-- edge lifecycle and reconciliation
-- contract build and schema validation
-- config validation
-- source normalizer behavior
-- in-memory DB round trips
-- sync-engine soft-delete and failed-fetch invariants
-
-The UI test suite covers view-model and localStorage behavior. The UI
-render-smoke builds the app, opens it in headless Chrome, and asserts that the
-Board, Graph, Activity, Commits, Repo Analytics, Settings, deep-link search,
-configured colors, graph focus, range controls, and manual-sync affordances
-render without console errors.
-
-`pnpm coverage` measures backend `.ts` files plus UI `.ts` logic. It
-intentionally excludes React `.tsx` from the percentage because bundled browser
-coverage is not a useful source-level measurement for the component layer. The
-component layer is gated by render-smoke instead.
-
-Provider API tests should prefer fixtures or dedicated throwaway projects over
-production repos. Live provider calls are useful for smoke validation but should
-not be required for CI because credentials, rate limits, and network boundaries
-vary.
-
-Time in fixtures must be relative, never a hardcoded near-future date. Some
-production paths compare a stored timestamp against the real clock — for example
-`src/live/store.ts` filters the actor-profile cache with `expires_at >= now` — so
-a fixture like `expires_at: "2026-06-28"` passes until that day, then silently
-expires and reddens CI with no code change (the #527 regression). For a fixture
-that must stay unexpired, use `relativeExpiry()` from `test/helpers/clock.ts`;
-when a test asserts exact expiry math, inject a fixed clock into the code under
-test instead (see the prune tests in `test/live-store.test.ts`). The
-`no-time-bomb-fixtures` test enforces this mechanically — it fails when a
-near-term/future ISO date is assigned to a TTL key (`expires_at`, `fetched_at`,
-…) in a test or fixture file; annotate a legitimate fixed-clock fixture with a
-`// fixed-clock: <reason>` comment on the same line as the literal to exempt it.
-
-## Common Change Paths
-
-### Adding A Source
-
-1. Implement `Source` in `src/sources/types.ts`.
-2. Keep `fetch` impure and `normalize` pure.
-3. Register the source in `src/sources/registry.ts`.
-4. Use provider immutable global ids for `external_id`.
-5. Add source tests for fetch pagination/watermark behavior and normalization.
-6. Run the backend gate and, when possible, a `--dry-run` sync.
-
-The DB and contract usually do not change for a new source because `kind`,
-edge `type`, labels, and project paths are open vocabularies.
-
-### Changing The DB Schema
-
-1. Add a new migration under EVERY driver's DDL tree — `schema/sqlite/NNNN_*.sql`
-   AND `schema/postgres/NNNN_*.sql`; never edit an applied migration.
-2. Append the migration to `MIGRATIONS` in `src/db/sqlite.ts` AND
-   `src/db/postgres.ts` (same version numbers).
-3. Keep changes additive when possible. SQLite column rewrites require the
-   create-new/copy/drop-old/rename pattern.
-4. Add store-conformance tests for new behavior; run the backend gate and
-   `pnpm run test:pg-e2e`.
-
-Schema version is tracked per driver (SQLite: `PRAGMA user_version`; Postgres:
-the `meta` table's `schema_version` key). DDL, dialect SQL, and the migration
-mechanism are driver-owned; the `Store` interface in `src/db/store.ts` is the
-seam call sites depend on, and `test/store-conformance.test.ts` — run against
-every registered driver — is the behavior contract.
-
-The store a deployment uses is config-selected (`src/db/factory.ts`): SQLite at
-`db_path` by default; a config carrying `db_url_env` (the NAME of an env var
-holding a `postgres://` URL) selects the Postgres driver. `docker/compose.yaml`
-is the default SQLite stack; `docker/compose.pg.yaml` is the independent
-Postgres stack. The API sidecars use `openConfiguredStoreReadOnly`, so
-`/api/range` and `/api/stats` read whichever store the config selects. The agent
-deploy entrypoint (`.agents/scripts/deploy.sh`) picks between the two stacks from
-the `SYMPHONY_BOARD_ENV` switch in `.env` (`postgres` → `docker/compose.pg.yaml`,
-`sqlite`/unset → `docker/compose.yaml`), resolved by `scripts/lib/repo-env.mjs` —
-the same switch `project-review-cleanup` reads.
-
-### Changing The Contract
-
-Follow [docs/CONTRACT.md](docs/CONTRACT.md):
-
-1. Edit `packages/contract/contract.schema.json`.
-2. Edit `packages/contract/types.ts` in the same commit.
-3. Bump `CONTRACT_VERSION` in `src/contract/version.ts`.
-4. Update producer validation tests and UI consumer behavior if needed.
-5. Run backend, UI, and contract validation gates.
-
-Additive optional fields are minor version changes. Removing, renaming,
-repurposing, or changing required fields is a major version change.
-
-### Changing The UI
-
-1. Keep contract loading in `packages/ui/src/contract.ts`.
-2. Keep pure view-model logic in `packages/ui/src/model.ts`.
-3. Keep persistent browser preferences in `packages/ui/src/viewconfig.ts`.
-4. Keep Settings changes view-only. The UI must not write back to the backend,
-   provider APIs, SQLite, or generated contracts.
-5. Run the UI gate and root typecheck. Run render-smoke after a build.
-
-### Changing The Desktop App
-
-1. Keep `packages/desktop` as a Tauri shell around `packages/ui`.
-2. Keep server selection in the UI endpoint resolver; web defaults stay
-   same-origin, while Tauri defaults to `http://localhost:8080/`.
-3. Use Tauri HTTP only as a client-side transport bridge. It must not become a
-   second sync writer or a database layer.
-4. Run `pnpm desktop:build` and the UI gate when desktop changes touch shared
-   UI code.
-
-### Changing Docker Operation
-
-The `board` service remains the only writer. The `web` service must read the
-daemon-emitted `data/contract.json` read-only and serve it as `/contract.json`.
-Do not introduce an external cron or a second writer.
-
-Operational Docker commands, stack selection, manual sync, config editing, and
-Live webhook setup live in [docs/running.md](docs/running.md). Keep mandatory
-writer/reader boundaries here and place expanded runbook detail there.
-
-## Git Hooks
-
-`pnpm install` runs `lefthook install` through the root `prepare` script. The
-configured pre-push hook runs:
-
-```sh
-pnpm run typecheck
-pnpm test
-```
-
-The UI build/smoke and coverage gates run in CI and should be run locally when
-the change touches UI, contract, or shared view-model behavior. Live provider
-dry-runs are not hooked because they require credentials and sometimes specific
-network access.
-
-`pnpm-workspace.yaml` disables dependency postinstall builds except the explicit
-tooling path used by the UI image. The Docker UI image installs with
-`--ignore-scripts` and rebuilds only `esbuild`, because root `prepare` needs a
-Git checkout and hooks are irrelevant inside the image.
+# Development guide
+
+Maintenance principles and the routine contribution workflow for
+`symphony-board`. Detailed toolchain, validation, coverage, and change-path
+procedures live in the
+[`development reference`](docs/development-reference.md); operational setup and
+runtime commands live in [`docs/running.md`](docs/running.md).
+
+## Maintenance principles
+
+- Preserve the raw store, canonical database, and versioned contract as
+  separate layers. Database schema is an implementation detail, not the
+  consumer contract.
+- Keep provider network access in `src/sources/*`, database IO in `src/db/*`,
+  orchestration in `src/sync-engine.ts`, and normalization pure and replayable.
+- Use the provider's immutable `(source_id, external_id)` identity. Mutable
+  project paths and local item numbers are display or grouping data only.
+- Only a full, complete sweep may soft-delete unseen items or intra-source
+  edges. Partial, failed, and incremental runs never prove disappearance.
+- Maintain one writer per configured store. Read-only API, UI, desktop, and
+  webhook surfaces must not become alternate database writers.
+- Keep tokens and runtime state outside git. Config stores credential env-var
+  names, never secret values; tracked contract data is sample data only.
+- Apply schema changes additively to both SQLite and Postgres, and evolve the
+  emitted contract through its schema, mirrored types, version, producer tests,
+  and consumers together.
+
+## Change workflow
+
+1. Classify the affected boundary: source/normalizer, store/schema, contract,
+   UI, desktop shell, Docker/runtime, or repository documentation.
+2. Read the owning design, contract, or runbook and inspect affected callers,
+   fixtures, migrations, consumers, and tests before editing.
+3. Capture a meaningful regression failure when practical, then make the
+   smallest change that preserves the boundaries above.
+4. Run focused tests while iterating, then the normal backend gate:
+
+   ```sh
+   pnpm run typecheck
+   pnpm test
+   ```
+
+5. Add the UI, Postgres, contract, coverage, desktop, Docker, or provider
+   dry-run gates when the changed boundary requires them. The exact routing and
+   commands are in the detailed development reference.
+6. Keep current docs synchronized with changed behavior. Add a devlog entry
+   only for a durable outcome worth future lookup.
+
+## Documentation routing
+
+| Need | Canonical document |
+| --- | --- |
+| Toolchain, repository layout, detailed validation, tests, and change paths | [`Development reference`](docs/development-reference.md) |
+| Runtime setup, Docker stacks, desktop/Android, Live, releases, and inspection | [`Running Symphony Board`](docs/running.md) |
+| Architecture and ownership decisions | [`Design`](docs/DESIGN.md) |
+| Emitted contract schema and versioning | [`Contract`](docs/CONTRACT.md) |
+| Product overview and quick start | [`README.md`](README.md) |
+| Agent-specific repository policy | [`AGENTS.md`](AGENTS.md) |
+| Durable implementation history | [`Development log`](docs/devlog/README.md) |
+
+Operational details belong in `docs/running.md`; implementation detail belongs
+in the development reference; stable architectural or contract rules belong in
+their owning documents. Root `DEVELOPMENT.md` remains the concise maintenance
+entrypoint and should not duplicate those references.
