@@ -6,6 +6,9 @@ procedures live in the
 [`development reference`](docs/development-reference.md); operational setup and
 runtime commands live in [`docs/running.md`](docs/running.md).
 
+Read [`AGENTS.md`](AGENTS.md) before editing. [`CLAUDE.md`](CLAUDE.md) imports
+the same repository policy for Claude Code.
+
 ## Maintenance principles
 
 - Preserve the raw store, canonical database, and versioned contract as

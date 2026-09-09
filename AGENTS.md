@@ -59,63 +59,18 @@ producer config/tokens (see `docs/DESIGN.md`).
   APIs in automated tests (rate limits; a self-hosted provider may be
   network-bound).
 
-## Development log
+## Documentation and delivery
 
-- `docs/devlog/` is a time-ordered narrative of notable work: what shipped, why,
-  the evidence, and external links worth keeping. It complements — never
-  duplicates — commit messages (what changed) and `docs/DESIGN.md` (the
-  normative decision record).
-- **Write an entry when a session produces a durable outcome worth future
-  lookup**: a shipped feature, a validated milestone, a decision, or an external
-  ref you'll want again. Skip trivial / transient / same-turn fixes — the log is
-  signal, not a changelog. Not every session earns one.
-- One file per month (`docs/devlog/YYYY-MM.md`), newest entry on top, English.
-  Use the template and commit convention in `docs/devlog/README.md`; commit the
-  entry on its own (`docs(devlog): …`). Search with
-  `scripts/devlog-search.sh <term> [YYYY-MM]`.
-- The `project-devlog` skill walks this flow.
-
-## Project skills
-
-- Project-local agent skills live under `.agents/skills/<name>/` (the canonical
-  source); Claude discovers them through a gitignored `.claude/skills` bridge.
-- Create them only with the create-project-skill tooling — never hand-write
-  `.claude/skills/<name>/SKILL.md`:
-
-  ```sh
-  ~/.claude/plugins/meta/skills/create-project-skill/scripts/create-project-skill.sh \
-    <name> --description "One-line description."
-  ```
-
-  Names must start with `project-` (e.g. `project-devlog`). The tooling wires the
-  `.claude/` bridge and the `.gitignore` entry for you. Add `--with-script` /
-  `--with-tests` only when the skill owns code.
-- Existing skills: `project-devlog` (append a development-log entry);
-  `project-actor-identities` (scan canonical actors and update
-  `config/sources.json` `identities` / `exclude_actors`);
-  `project-rebuild-open-app` (rebuild/install/open the thin macOS app);
-  `project-rebuild-open-standalone-app` (rebuild/install/open the standalone
-  macOS app with the bundled sync daemon);
-  `project-review-cleanup` (find and disposition late or unresolved provider
-  review threads for this board).
-
-## Agent helper scripts
-
-Quick, read-only lookups in `scripts/` (no build — just run); see
-`scripts/README.md`:
-
-- `scripts/devlog-search.sh <term> [YYYY-MM]` — search past devlog entries.
-- `scripts/contract-summary.sh [contract.json]` — counts, per-source, edges by
-  lifecycle from an emitted contract.
-- `scripts/db-summary.sh [db_path]` — items / edges / sync-run summary from the
-  canonical SQLite store (SQLite only, opened with `PRAGMA query_only`; the loop
-  daemon stays the sole writer). For a Postgres deployment, read the same shape
-  from the `/api/stats` read-only HTTP surface instead.
-
-## Target
-
-- Contract + UI (read-only toward providers) are the product surface.
-- One writer per store (no external cron, no second writer), enforced by the
-  `Store` writer lease, not just convention: the Docker loop daemon for the
-  compose deployment, or the standalone app's bundled `app-server` sidecar for
-  its own per-user store (`packages/desktop-standalone`).
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) owns contributor principles and the
+  routine finish-line; [`CLAUDE.md`](CLAUDE.md) imports this policy for Claude
+  Code. [`docs/development-reference.md`](docs/development-reference.md) owns
+  detailed change-path and validation routing.
+- [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/CONTRACT.md`](docs/CONTRACT.md)
+  own normative architecture and public-contract decisions. Helper commands
+  remain indexed in [`scripts/README.md`](scripts/README.md).
+- Project-local skills live under `.agents/skills/`; use their lifecycle
+  tooling instead of hand-maintaining generated Claude discovery bridges.
+- Record durable outcomes through the `project-devlog` skill after current
+  documentation is updated. Keep entries English, newest-first, and free of
+  credentials, private payloads, or runtime data.
+- Deliver tracked changes through the governed managed-worktree and PR flow.
