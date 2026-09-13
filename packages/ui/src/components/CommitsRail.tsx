@@ -1,7 +1,7 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
-import { countsByDay, rankActors, rankRepos } from "../rail-stats.ts";
+import { countsByDay, rankActors, rankRepos, shortRepoLabel } from "../rail-stats.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { CommitRepoOption, TimeRange } from "../model.ts";
 
@@ -140,7 +140,10 @@ export function CommitsRail({
             label: rank.label,
             count: rank.count,
             selected: rank.label === selectedAuthor,
-            onSelect: () => onAuthor(rank.label),
+            // The rail owns the toggle for BOTH lists, matching the repo row
+            // above. Leaving it to the route setter would make `onAuthor` a
+            // setter that secretly toggles, unlike `onRepo`.
+            onSelect: () => onAuthor(rank.label === selectedAuthor ? null : rank.label),
             footer: (
               <span className="live-rank-name" aria-hidden="true">
                 {rank.label}
@@ -151,11 +154,4 @@ export function CommitsRail({
       </div>
     </aside>
   );
-}
-
-// A rank footer is a few characters wide, so `owner/name` never fits. The name
-// is the half that identifies the repo to a reader who already knows the org.
-function shortRepoLabel(path: string): string {
-  const slash = path.lastIndexOf("/");
-  return slash === -1 ? path : path.slice(slash + 1);
 }

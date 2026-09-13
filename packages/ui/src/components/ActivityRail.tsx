@@ -1,7 +1,7 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
-import { countsByHour, rankActors, rankRepos } from "../rail-stats.ts";
+import { countsByHour, rankActors, rankRepos, shortRepoLabel } from "../rail-stats.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 
 // The Activity "who / where / when" rail.
@@ -129,9 +129,4 @@ export function ActivityRail({ activities, timezone }: { activities: ActivityDTO
       <HourProfile activities={activities} timezone={timezone} />
     </aside>
   );
-}
-
-function shortRepoLabel(path: string): string {
-  const slash = path.lastIndexOf("/");
-  return slash === -1 ? path : path.slice(slash + 1);
 }

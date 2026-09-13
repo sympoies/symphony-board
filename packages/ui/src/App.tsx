@@ -1251,19 +1251,19 @@ export function App() {
   // shared range (the window total + repo option source); repoCommits narrows to
   // the selected repo for branch options; commits applies the optional branch
   // filter when commit rows carry branch/ref details.
-  const windowCommits = useMemo(() => filterCommits(windowedActivities, null), [windowedActivities]);
-  const repoCommits = useMemo(() => filterCommits(windowedActivities, route.repo, null, route.source), [windowedActivities, route.repo, route.source]);
-  const commits = useMemo(() => filterCommits(windowedActivities, route.repo, route.branch, route.source, route.author), [windowedActivities, route.repo, route.branch, route.source, route.author]);
+  const windowCommits = useMemo(() => filterCommits(windowedActivities), [windowedActivities]);
+  const repoCommits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, source: route.source }), [windowedActivities, route.repo, route.source]);
+  const commits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, author: route.author }), [windowedActivities, route.repo, route.branch, route.source, route.author]);
   // The digest rail's two ranked lists are FACETS: each is counted with every
   // filter applied EXCEPT its own. Counting them off `commits` instead would
   // collapse the list you are standing in to a single row and leave nowhere to
   // click next — selecting a repo would hide every other repo.
   const commitRailRepoSource = useMemo(
-    () => filterCommits(windowedActivities, null, route.branch, null, route.author),
+    () => filterCommits(windowedActivities, { branch: route.branch, author: route.author }),
     [windowedActivities, route.branch, route.author],
   );
   const commitRailAuthorSource = useMemo(
-    () => filterCommits(windowedActivities, route.repo, route.branch, route.source, null),
+    () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
     [windowedActivities, route.repo, route.branch, route.source],
   );
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
@@ -1833,9 +1833,9 @@ export function App() {
     if (readHash() !== next) window.location.hash = next;
   }
 
-  // Author is a Commits-only drill-down, set from the digest rail. Selecting the
-  // already-active author clears it, so a rail row toggles instead of trapping
-  // the view on one person.
+  // Author is a Commits-only drill-down, set from the digest rail. A plain
+  // setter, like setRouteRepo: the rail decides when a row means "clear", so
+  // this cannot surprise a future caller by toggling behind its back.
   function setRouteAuthor(author: string | null) {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
@@ -1843,7 +1843,7 @@ export function App() {
       source: route.source,
       repo: route.repo,
       branch: route.branch,
-      author: author === route.author ? null : author,
+      author,
       isource: route.isource,
       istate: route.istate,
       ikind: route.ikind,

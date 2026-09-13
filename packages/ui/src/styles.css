@@ -4600,6 +4600,17 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--muted);
 }
 
+/* A selectable rank row is a <button> inside its own listitem wrapper (the role
+   and the button cannot share an element without discarding aria-pressed), so
+   the wrapper has to take the flex sizing the bare .live-rank-item used to get
+   from .live-rank-plot. */
+.live-rank-item-slot {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.live-rank-item-slot > .live-rank-item-action { flex: 1 1 0; min-width: 0; }
+
 /* A rank row that drives a filter. The base .live-rank-item styling carries the
    bar; this only adds the button reset and the pressed state. */
 .live-rank-item-action {

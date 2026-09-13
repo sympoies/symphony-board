@@ -1787,24 +1787,32 @@ export function commitBranches(activity: ActivityDTO): string[] {
 // `author` joined them when the digest rail made the author list clickable, and
 // follows the same exact-match rule for the same reason: the rail only ever
 // offers authors it counted from the loaded rows.
-export function filterCommits(
-  activities: ActivityDTO[],
-  repoPath: string | null,
-  branchName: string | null = null,
-  sourceId: string | null = null,
-  authorName: string | null = null,
-): ActivityDTO[] {
-  const repo = repoPath?.trim() || null;
-  const branch = branchName?.trim() || null;
-  const source = sourceId?.trim() || null;
-  const author = authorName?.trim() || null;
+//
+// Facets are named rather than positional. They were positional while there were
+// two; at four, every call site that skips one reads as a run of bare `null`s and
+// the reader has to count argument positions to see which facet each blanks.
+export type CommitFilter = {
+  repo?: string | null;
+  branch?: string | null;
+  source?: string | null;
+  author?: string | null;
+};
+
+export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = {}): ActivityDTO[] {
+  const repo = filter.repo?.trim() || null;
+  const branch = filter.branch?.trim() || null;
+  const source = filter.source?.trim() || null;
+  const author = filter.author?.trim() || null;
   return activities.filter(
     (a) =>
       isCommitActivity(a) &&
       (source === null || a.source_id === source) &&
       (repo === null || a.project_path === repo) &&
       (branch === null || commitBranches(a).includes(branch)) &&
-      (author === null || a.actor === author),
+      // Trimmed on BOTH sides. The rail ranks and labels authors on the trimmed
+      // actor, so comparing against the raw field here made a padded actor rank
+      // in Top authors and then filter to nothing when clicked.
+      (author === null || (a.actor?.trim() ?? null) === author),
   );
 }
 

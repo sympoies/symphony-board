@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { countsByDay, countsByHour, rankActors, rankRepos } from "../src/rail-stats.ts";
+import { countsByDay, countsByHour, rankActors, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -129,4 +129,28 @@ test("countsByDay counts a day boundary in the viewer's zone", () => {
     { date: "2026-09-09", count: 0 },
     { date: "2026-09-10", count: 1 },
   ]);
+});
+
+test("limit 0 returns the full ranking, which is what the rail 'N total' headers count", () => {
+  // Both rails render their header as rankX(source, 0).length. If this ever
+  // became an unconditional slice(0, limit) every header would silently read
+  // "0 total" with the rest of the suite green.
+  const rows = [
+    activity({ actor: "ada", project_path: "acme/api" }),
+    activity({ actor: "grace", project_path: "acme/web" }),
+    activity({ actor: "linus", project_path: "acme/cli" }),
+    activity({ actor: "ada", project_path: "acme/api" }),
+  ];
+  assert.equal(rankActors(rows, 0).length, 3);
+  assert.equal(rankRepos(rows, 0).length, 3);
+  // And a limit still truncates, so 0 is the special case rather than the rule.
+  assert.equal(rankActors(rows, 2).length, 2);
+  assert.equal(rankRepos(rows, 2).length, 2);
+});
+
+test("shortRepoLabel keeps the identifying half of a path", () => {
+  assert.equal(shortRepoLabel("sympoies/symphony-board"), "symphony-board");
+  assert.equal(shortRepoLabel("group/sub/project"), "project");
+  assert.equal(shortRepoLabel("standalone"), "standalone");
+  assert.equal(shortRepoLabel(""), "");
 });

@@ -133,7 +133,7 @@ test("tabHref carries search, range, and the shared item lens but drops drill-do
   assert.deepEqual([...itemFacets(route).repos], ["o/r"], "the exact-repo pin rides the tab hop");
   assert.equal(route.irepo, "o/r");
   // ...but page-local drill-down state does not.
-  for (const dropped of ["source", "repo", "kind", "action", "focus", "branch"] as const) {
+  for (const dropped of ["source", "repo", "kind", "action", "focus", "branch", "author"] as const) {
     assert.equal(route[dropped], null, `${dropped} does not carry across a tab hop`);
   }
 
@@ -414,6 +414,7 @@ test("startupRouteHash preserves parameterized shared links and intentional dest
   assert.equal(startupRouteHash("#/commits?source=gh&repo=o%2Fr", "live"), "#/commits?source=gh&repo=o%2Fr");
   assert.equal(startupRouteHash("#/activity?source=github.com&kind=review", "live"), "#/activity?source=github.com&kind=review");
   assert.equal(startupRouteHash("#/commits?branch=main", "live"), "#/commits?branch=main");
+  assert.equal(startupRouteHash("#/commits?author=ada", "live"), "#/commits?author=ada", "a shared author drill-down is an intentional destination");
   assert.equal(startupRouteHash("#/activity?action=merged", "live"), "#/activity?action=merged");
   assert.equal(startupRouteHash("#/activity?unresolved=1", "live"), "#/activity?unresolved=1");
   assert.equal(startupRouteHash("#/graph?focus=gh%3A1", "live"), "#/graph?focus=gh%3A1");

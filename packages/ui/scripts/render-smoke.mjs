@@ -4683,6 +4683,27 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+  // The facet rule, which nothing else pins: each ranked list is counted with
+  // every filter applied EXCEPT its own. Without this, wiring both rail sources
+  // to the visible `commits` would keep every other assertion here green while
+  // leaving the rail with nowhere to click next.
+  const commitsRailFacet = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const repoRows = [...document.querySelectorAll('.commits-rail .live-rank-chart-repos .live-rank-item')];
+      const rowsInList = document.querySelectorAll('.commit-list .commit-row').length;
+      const pressed = document.querySelector('.commits-rail .live-rank-item-on');
+      return {
+        // Still offers repos other than the one now selected.
+        repoRows: repoRows.length,
+        pressedRows: document.querySelectorAll('.commits-rail .live-rank-item-on').length,
+        // Sanity: the LIST really did narrow, so the rail keeping its breadth is
+        // a deliberate difference and not just "nothing was filtered".
+        rowsInList,
+        pressedLabel: pressed ? (pressed.getAttribute('aria-label') || '') : '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // Leave the page unfiltered for the checks below.
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(350);
@@ -4720,6 +4741,57 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+
+  // Keyboard reachability. Opening the detail is the only way to read a full
+  // commit message, so a mouse-only path would put that behind a pointer.
+  const commitRowKeyboard = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = document.querySelector('.commit-list .commit-row');
+      if (!row) return { found: false };
+      const focusable = row.tabIndex >= 0;
+      row.focus();
+      const focused = document.activeElement === row;
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      return { found: true, focusable, focused };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await sleep(300);
+  const commitRowKeyboardOpened = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.commit-detail-card')",
+    returnByValue: true,
+  })).result.value === true;
+  // Selection is component state, not route state, so re-setting the same hash
+  // would leave the detail open and hide the digest from the next probe. Close
+  // it through the control a viewer would use.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail-back')?.click()" });
+  await sleep(300);
+
+  // Rail rows must be real buttons with a real pressed state. An explicit
+  // role="listitem" on the button would silently discard aria-pressed.
+  const railRowSemantics = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.commits-rail .live-rank-chart-repos .live-rank-item-action');
+      if (!btn) return { found: false };
+      const before = btn.getAttribute('aria-pressed');
+      btn.click();
+      return {
+        found: true,
+        tag: btn.tagName,
+        explicitRole: btn.getAttribute('role'),
+        inListitem: !!btn.closest('[role="listitem"]'),
+        pressedBefore: before,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await sleep(350);
+  const railRowPressedAfter = (await send("Runtime.evaluate", {
+    expression: "document.querySelector('.commits-rail .live-rank-item-on')?.getAttribute('aria-pressed') ?? null",
+    returnByValue: true,
+  })).result.value;
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(300);
 
   // Narrow: the rail stacks under the list instead of squeezing it.
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -4953,6 +5025,17 @@ try {
         commitsRailFilterApplied.pressed === true,
       `commits: a rail repo row applies the route repo filter (${JSON.stringify(commitsRailFilter)} -> ${JSON.stringify(commitsRailFilterApplied)})`,
     ],
+    // Facet rule: with one repo selected the LIST narrows, but Top repos must
+    // still offer the others. Counting the rail off the visible rows instead
+    // would leave exactly one row here.
+    [
+      commitsRailFacet.repoRows > 1 &&
+        commitsRailFacet.pressedRows === 1 &&
+        commitsRailFacet.rowsInList > 0 &&
+        commitsRailWide.repoRows > 0 &&
+        commitsRailFacet.repoRows >= commitsRailWide.repoRows,
+      `commits: the rail keeps offering other repos after one is selected — the facet rule (before ${commitsRailWide.repoRows} rows, after ${JSON.stringify(commitsRailFacet)})`,
+    ],
     // Master-detail: selecting a row swaps the digest for the detail, and
     // selecting it again swaps back.
     [
@@ -4964,6 +5047,22 @@ try {
         commitDetailToggledOff.hasDetail === false &&
         commitDetailToggledOff.hasDigest === true,
       `commits: selecting a row opens the detail and toggles back to the digest (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+    ],
+    [
+      commitRowKeyboard.found === true &&
+        commitRowKeyboard.focusable === true &&
+        commitRowKeyboard.focused === true &&
+        commitRowKeyboardOpened === true,
+      `commits: a commit row is focusable and Enter opens its detail (${JSON.stringify(commitRowKeyboard)}, opened=${commitRowKeyboardOpened})`,
+    ],
+    [
+      railRowSemantics.found === true &&
+        railRowSemantics.tag === "BUTTON" &&
+        railRowSemantics.explicitRole === null &&
+        railRowSemantics.inListitem === true &&
+        railRowSemantics.pressedBefore === "false" &&
+        railRowPressedAfter === "true",
+      `commits: a rail row is a button inside a listitem and exposes aria-pressed (${JSON.stringify(railRowSemantics)}, after=${railRowPressedAfter})`,
     ],
     [
       commitsRailNarrow.found === true && commitsRailNarrow.sideBySide === false,

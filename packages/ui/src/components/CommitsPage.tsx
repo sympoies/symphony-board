@@ -262,7 +262,20 @@ function CommitTimeline({
               // Selecting from the row background. The controls inside the row
               // (sha copy, provider link, body expander) each stop propagation,
               // so one click still does exactly one thing.
+              //
+              // The row carries tabIndex + Enter/Space itself rather than being
+              // wrapped in a button: the detail pane is the only way to read a
+              // full commit message, so a mouse-only path would put that behind
+              // a pointer, and a <button> wrapper here would nest the row's own
+              // interactive controls inside a button.
+              tabIndex={0}
               onClick={() => onSelect(commit)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                onSelect(commit);
+              }}
               style={
                 {
                   "--commit-row-height": `${row.height}px`,

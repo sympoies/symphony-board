@@ -7,9 +7,20 @@ import { zonedDateOnly, zonedHour } from "./tz.ts";
 // model.ts, so it stays unit-testable and cannot drag the DOM lib into a
 // type-check program that has none.
 //
-// Repo ranking is absent on purpose: model.ts already ranks repos by commit count
-// (`commitRepoOptions`) and CommitsPage receives the result as a prop, so a second
-// implementation here could only drift from it.
+// `rankRepos` below and `model.ts::commitRepoOptions` both group by
+// `(source_id, project_path)` and both count, but they are not interchangeable:
+//
+//   commitRepoOptions  builds the combobox OPTION SET over the whole window and
+//                      keeps `project_path` / `source_id` as separate fields
+//                      because the picker needs them. Ties break on
+//                      `project_path`, then `source_id`.
+//   rankRepos          ranks an ARBITRARY slice — the facet source, which already
+//                      has the other filters applied — into the generic RailRank
+//                      shape the chart consumes. Ties break on the composite
+//                      `source_id|project_path` key.
+//
+// So the tie-break differs, and only between repos with equal counts. Folding
+// either into the other would mean giving one consumer the other's sort.
 
 export type RailRank = {
   key: string;
@@ -116,4 +127,12 @@ function enumerateDays(fromDate: string, toDate: string): string[] {
     out.push(new Date(ms).toISOString().slice(0, 10));
   }
   return out;
+}
+
+// A rank footer is only a few characters wide, so `owner/name` never fits. The
+// name is the half that identifies the repo to a reader who already knows the
+// org. Shared by both rails so the labelling rule has one home.
+export function shortRepoLabel(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash === -1 ? path : path.slice(slash + 1);
 }

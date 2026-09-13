@@ -14,8 +14,9 @@ export type RankChartItem = {
   label: string;
   count: number;
   footer: ReactNode;
-  // Set when the row drives a filter. A selectable row becomes a button so it is
-  // reachable by keyboard and announced as an action, not as a list item.
+  // Set when the row drives a filter. A selectable row gains a real <button>
+  // inside its listitem, so it is reachable by keyboard and announced as a
+  // pressable action rather than as plain list content.
   onSelect?: () => void;
   selected?: boolean;
 };
@@ -79,18 +80,23 @@ export function RankChart({
               </div>
             );
           }
+          // The listitem and the button must be SEPARATE elements. An explicit
+          // role="listitem" on the <button> would replace its implicit button
+          // role, and `aria-pressed` is not a supported attribute of listitem —
+          // so the active filter would announce as a plain list entry with no
+          // selected state at all.
           return (
-            <button
-              key={item.key}
-              type="button"
-              className={`live-rank-item live-rank-item-action${item.selected ? " live-rank-item-on" : ""}`}
-              role="listitem"
-              aria-label={label}
-              aria-pressed={item.selected === true}
-              onClick={item.onSelect}
-            >
-              {bar}
-            </button>
+            <div key={item.key} className="live-rank-item-slot" role="listitem">
+              <button
+                type="button"
+                className={`live-rank-item live-rank-item-action${item.selected ? " live-rank-item-on" : ""}`}
+                aria-label={label}
+                aria-pressed={item.selected === true}
+                onClick={item.onSelect}
+              >
+                {bar}
+              </button>
+            </div>
           );
         })}
       </div>

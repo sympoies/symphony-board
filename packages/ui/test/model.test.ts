@@ -499,17 +499,35 @@ test("filterCommits keeps only commit records, optionally pinned to one repo", (
   assert.equal(commitBody(commitB), null);
   assert.deepEqual(commitBranches(commitA), ["feature/x", "main"]);
   // no repo -> every commit, no non-commit
-  assert.deepEqual(filterCommits(all, null).map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2", "gitlab:gitlab.com|c3"]);
+  assert.deepEqual(filterCommits(all).map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2", "gitlab:gitlab.com|c3"]);
   // whitespace-only repo is treated as no filter
-  assert.deepEqual(filterCommits(all, "   ").map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2", "gitlab:gitlab.com|c3"]);
+  assert.deepEqual(filterCommits(all, { repo: "   " }).map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2", "gitlab:gitlab.com|c3"]);
   // exact repo match (the picker offers a closed set), so a partial path matches nothing
-  assert.deepEqual(filterCommits(all, "grp/proj").map((a) => a.id), ["gitlab:gitlab.com|c2"]);
-  assert.deepEqual(filterCommits(all, "owner/repo", null, "github:github.com").map((a) => a.id), ["github:github.com|c1"]);
-  assert.deepEqual(filterCommits(all, "owner/repo", null, "gitlab:gitlab.com").map((a) => a.id), ["gitlab:gitlab.com|c3"]);
-  assert.deepEqual(filterCommits(all, "grp").map((a) => a.id), [], "partial repo path is not a fuzzy match");
-  assert.deepEqual(filterCommits(all, null, "main").map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2", "gitlab:gitlab.com|c3"]);
-  assert.deepEqual(filterCommits(all, "owner/repo", "feature/x").map((a) => a.id), ["github:github.com|c1"]);
-  assert.deepEqual(filterCommits(all, "grp/proj", "feature/x").map((a) => a.id), []);
+  assert.deepEqual(filterCommits(all, { repo: "grp/proj" }).map((a) => a.id), ["gitlab:gitlab.com|c2"]);
+  assert.deepEqual(filterCommits(all, { repo: "owner/repo", source: "github:github.com" }).map((a) => a.id), ["github:github.com|c1"]);
+  assert.deepEqual(filterCommits(all, { repo: "owner/repo", source: "gitlab:gitlab.com" }).map((a) => a.id), ["gitlab:gitlab.com|c3"]);
+  assert.deepEqual(filterCommits(all, { repo: "grp" }).map((a) => a.id), [], "partial repo path is not a fuzzy match");
+  assert.deepEqual(filterCommits(all, { branch: "main" }).map((a) => a.id), ["github:github.com|c1", "gitlab:gitlab.com|c2", "gitlab:gitlab.com|c3"]);
+  assert.deepEqual(filterCommits(all, { repo: "owner/repo", branch: "feature/x" }).map((a) => a.id), ["github:github.com|c1"]);
+  assert.deepEqual(filterCommits(all, { repo: "grp/proj", branch: "feature/x" }).map((a) => a.id), []);
+
+  // --- author, the facet the digest rail drives -----------------------------
+  const byAda = activity({ id: "github:github.com|c4", external_id: "c4", kind: "commit", action: "committed", project_path: "owner/repo", actor: "ada", details: { sha: "dddddddddddddddd", branch: "main" } });
+  // A padded actor is the case that made the rail and the filter disagree: it
+  // ranks under the trimmed label, so it must also FILTER under that label.
+  const byPaddedAda = activity({ id: "github:github.com|c5", external_id: "c5", kind: "commit", action: "committed", project_path: "owner/repo", actor: "  ada  ", details: { sha: "eeeeeeeeeeeeeeee", branch: "main" } });
+  const byGrace = activity({ id: "github:github.com|c6", external_id: "c6", kind: "commit", action: "committed", project_path: "grp/proj", actor: "grace", details: { sha: "ffffffffffffffff", branch: "main" } });
+  const authored = [byAda, byPaddedAda, byGrace];
+
+  assert.deepEqual(filterCommits(authored, { author: "ada" }).map((a) => a.id), ["github:github.com|c4", "github:github.com|c5"], "a padded actor must match the trimmed label the rail offers");
+  assert.deepEqual(filterCommits(authored, { author: "grace" }).map((a) => a.id), ["github:github.com|c6"]);
+  assert.deepEqual(filterCommits(authored, { author: "   " }).map((a) => a.id), authored.map((a) => a.id), "a blank author is no filter");
+  assert.deepEqual(filterCommits(authored, { author: null }).map((a) => a.id), authored.map((a) => a.id));
+  assert.deepEqual(filterCommits(authored, { author: "ad" }).map((a) => a.id), [], "author is exact, not a prefix");
+  // Author composes with the other facets rather than replacing them.
+  assert.deepEqual(filterCommits(authored, { author: "ada", repo: "owner/repo" }).map((a) => a.id), ["github:github.com|c4", "github:github.com|c5"]);
+  assert.deepEqual(filterCommits(authored, { author: "ada", repo: "grp/proj" }).map((a) => a.id), []);
+  assert.deepEqual(filterCommits(authored, { author: "ada", branch: "main" }).map((a) => a.id), ["github:github.com|c4", "github:github.com|c5"]);
 });
 
 test("commit repo and branch options count only commits, busiest first", () => {
@@ -2331,6 +2349,16 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     itemSort: null,
     reviewSort: null,
   });
+  // The author facet round-trips through the hash like the rest of the commit
+  // drill-down; asserting it only as `null` elsewhere would let a wrong param
+  // name pass.
+  const authored = parseHashRoute(buildHashRoute({ page: "commits", repo: "owner/repo", author: "ada lovelace" }));
+  assert.equal(authored.author, "ada lovelace", "author survives encode + parse, spaces included");
+  assert.equal(authored.repo, "owner/repo");
+  assert.match(buildHashRoute({ page: "commits", author: "ada lovelace" }), /author=ada%20lovelace/);
+  assert.equal(parseHashRoute(buildHashRoute({ page: "commits", author: null })).author, null);
+  assert.equal(parseHashRoute("#/commits?author=").author, null, "a blank author param is no filter");
+
   assert.deepEqual(parseHashRoute(buildHashRoute({ page: "commits", source: "github:github.com", repo: "owner/repo", branch: "main" })), {
     page: "commits",
     focus: null,
