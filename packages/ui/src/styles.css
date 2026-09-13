@@ -1132,12 +1132,16 @@ a.rf-node-title:hover { color: var(--accent); }
    list rather than squeezing it. */
 .commits-split {
   display: grid;
-  grid-template-columns: minmax(0, 1180px) minmax(300px, 460px);
+  /* The rail takes ALL the remaining width rather than stopping at a ceiling.
+     It used to cap at 460px, which meant the two tracks summed to at most
+     1180 + 16 + 460 = 1656; on anything wider the leftover became side gutters
+     (87px each at 1880) and the split sat visibly inset from the full-bleed
+     toolbar and header above it. A grid's justify-content moves the TRACKS
+     inside a container that is already full width, so the container's own box
+     looked correct while the content was misaligned. */
+  grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr);
   gap: 16px;
   align-items: start;
-  /* Above roughly 2200px both columns are at their ceiling, so centring the pair
-     leaves symmetric gutters instead of one lopsided strip of dead space. */
-  justify-content: center;
 }
 @media (max-width: 1500px) {
   .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
@@ -4506,14 +4510,24 @@ a.rf-node-title:hover { color: var(--accent); }
    reading attention, so they read as reference, not as the subject. */
 .commits-rail,
 .activity-rail {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   min-width: 0;
+  align-content: start;
   /* Follows the list rather than scrolling with it: a rail taller than the
      viewport would otherwise strand its last block off-screen. */
   position: sticky;
   top: 12px;
+}
+/* Once the rail is genuinely wide — an ultrawide or 4K panel, where it now takes
+   all the slack the list does not need — a single column of five blocks becomes a
+   tall thin ribbon with empty space beside it. Flow them two-up instead. */
+@media (min-width: 2200px) {
+  .commits-rail,
+  .activity-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .rail-block {
   background: var(--panel);

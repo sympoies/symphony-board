@@ -379,6 +379,7 @@ export function CommitsPage({
   selectedAuthor,
   railRepoSource,
   railAuthorSource,
+  railBranchSource,
   onRepo,
   onBranch,
   onAuthor,
@@ -401,6 +402,7 @@ export function CommitsPage({
   // except the one its own list drives.
   railRepoSource: ActivityDTO[];
   railAuthorSource: ActivityDTO[];
+  railBranchSource: ActivityDTO[];
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   onAuthor: (author: string | null) => void;
@@ -655,13 +657,16 @@ export function CommitsPage({
             commits={commits}
             repoSource={railRepoSource}
             authorSource={railAuthorSource}
+            branchSource={railBranchSource}
             timezone={timezone}
             range={range}
             selectedRepo={selectedRepo}
             selectedSource={selectedSource}
             selectedAuthor={selectedAuthor}
+            selectedBranch={selectedBranch}
             onRepo={onRepo}
             onAuthor={onAuthor}
+            onBranch={onBranch}
           />
         )}
       </div>

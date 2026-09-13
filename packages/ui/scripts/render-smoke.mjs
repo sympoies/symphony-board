@@ -4654,6 +4654,13 @@ try {
         blocks,
         // The rail must sit BESIDE the list, not under it.
         sideBySide: railRect.left >= listRect.right - 2,
+        // ...and the two TRACKS must span their container. justify-content
+        // aligns tracks inside a grid that is already full width, so the
+        // container's own box cannot show this: when the column ceilings cannot
+        // reach the content box, the leftover becomes side gutters and the list
+        // and rail sit visibly inset from the full-bleed chrome above them.
+        gutterLeft: Math.round(listRect.left - split.getBoundingClientRect().left),
+        gutterRight: Math.round(split.getBoundingClientRect().right - railRect.right),
         dayBars: rail.querySelectorAll('.rail-daybar').length,
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
@@ -5023,8 +5030,14 @@ try {
         commitsRailWide.railWidth >= 300 &&
         commitsRailWide.dayBars > 0 &&
         commitsRailWide.repoRows > 0 &&
-        ["Commits per day", "Top repos", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
+        ["Commits per day", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: digest rail sits beside a measure-capped list (${JSON.stringify(commitsRailWide)})`,
+    ],
+    [
+      commitsRailWide.found === true &&
+        commitsRailWide.gutterLeft <= 2 &&
+        commitsRailWide.gutterRight <= 2,
+      `commits: the list and rail span their container, so the split lines up with the full-bleed chrome above it (gutters left=${commitsRailWide.gutterLeft} right=${commitsRailWide.gutterRight})`,
     ],
     // The rail is navigation: a Top repos click writes the same route filter the
     // dropdown writes, and the clicked row shows as pressed.
@@ -5088,7 +5101,7 @@ try {
         const wide = at("wide");
         const edge = at("at-breakpoint");
         const below = at("below");
-        const hasAll = (r) => ["Who", "Where", "When"].every((t) => (r.titles || []).includes(t));
+        const hasAll = (r) => ["Who", "Where", "When", "What", "How"].every((t) => (r.titles || []).includes(t));
         return (
           wide.hasRail === true && wide.columns === 3 && hasAll(wide) && wide.hours === 24 &&
           edge.hasRail === true && edge.columns === 3 &&

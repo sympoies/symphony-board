@@ -1266,6 +1266,10 @@ export function App() {
     () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
     [windowedActivities, route.repo, route.branch, route.source],
   );
+  const commitRailBranchSource = useMemo(
+    () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author }),
+    [windowedActivities, route.repo, route.source, route.author],
+  );
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
   // Board-wide commit total from the full-history aggregate (4.0.0 windows
@@ -2326,6 +2330,7 @@ export function App() {
           selectedAuthor={route.author}
           railRepoSource={commitRailRepoSource}
           railAuthorSource={commitRailAuthorSource}
+          railBranchSource={commitRailBranchSource}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           onAuthor={setRouteAuthor}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { countsByDay, countsByHour, rankActors, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
+import { commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -153,4 +153,66 @@ test("shortRepoLabel keeps the identifying half of a path", () => {
   assert.equal(shortRepoLabel("group/sub/project"), "project");
   assert.equal(shortRepoLabel("standalone"), "standalone");
   assert.equal(shortRepoLabel(""), "");
+});
+
+test("rankBranches counts a commit once per branch it belongs to", () => {
+  const rows = rankBranches(
+    [
+      activity({ details: { branches: ["main", "release"] } }),
+      activity({ details: { branch: "main" } }),
+      activity({ details: { ref: "refs/heads/feature/x" } }),
+    ],
+    5,
+  );
+  // The first commit is on two branches, so it contributes to both — the number
+  // beside a branch is "commits on this branch", not a partition of the range.
+  assert.deepEqual(rows.map((r) => [r.label, r.count]), [["main", 2], ["feature/x", 1], ["release", 1]]);
+});
+
+test("rankBranches ignores commits with no branch refs", () => {
+  assert.deepEqual(rankBranches([activity({ details: null }), activity({ details: {} })], 5), []);
+});
+
+test("commitTypeOf reads the conventional-commit prefix", () => {
+  assert.equal(commitTypeOf("feat: add a rail"), "feat");
+  assert.equal(commitTypeOf("fix(ui): repair the split"), "fix");
+  assert.equal(commitTypeOf("feat(api)!: breaking change"), "feat");
+  assert.equal(commitTypeOf("CHORE: shouty but still conventional"), "chore");
+});
+
+test("commitTypeOf buckets anything unconventional as other rather than dropping it", () => {
+  // A provider-neutral board cannot assume the convention. A repo that does not
+  // use it must show one honest "other" bar, not an empty panel implying there
+  // was nothing to measure.
+  assert.equal(commitTypeOf("Merge pull request #12 from x"), "other");
+  assert.equal(commitTypeOf("update readme"), "other");
+  assert.equal(commitTypeOf(""), "other");
+  // A colon alone is not enough — the prefix has to look like a type token.
+  assert.equal(commitTypeOf("WIP stuff: more"), "other");
+  assert.equal(commitTypeOf("feat:no-space"), "other");
+});
+
+test("rankCommitTypes ranks by type over the visible rows", () => {
+  const rows = rankCommitTypes(
+    [
+      activity({ title: "feat: one" }),
+      activity({ title: "feat: two" }),
+      activity({ title: "fix: three" }),
+      activity({ title: "random message" }),
+    ],
+    5,
+  );
+  assert.deepEqual(rows.map((r) => [r.label, r.count]), [["feat", 2], ["fix", 1], ["other", 1]]);
+});
+
+test("rankKinds and rankActions count the vocabulary the filter chips use", () => {
+  const rows = [
+    activity({ kind: "commit", action: "committed" }),
+    activity({ kind: "commit", action: "committed" }),
+    activity({ kind: "change_request", action: "merged" }),
+    activity({ kind: "review", action: "approved" }),
+  ];
+  assert.deepEqual(rankKinds(rows, 5).map((r) => [r.label, r.count]), [["commit", 2], ["change_request", 1], ["review", 1]]);
+  assert.deepEqual(rankActions(rows, 5).map((r) => [r.label, r.count]), [["committed", 2], ["approved", 1], ["merged", 1]]);
+  assert.equal(rankKinds(rows, 0).length, 3, "limit 0 backs the 'N kinds' header");
 });
