@@ -4929,6 +4929,46 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
+
+  // --- Activity feed row budget + column ratio ----------------------------
+  // The rows are virtualized at a fixed height and clip their overflow, so a
+  // title that now wraps to two lines must still fit inside the box or the meta
+  // and ref chips are silently cut off the bottom. Measure the rendered content
+  // against the row rather than trusting the constant.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(420);
+  await waitHtml("document.querySelector('.activity-page')");
+  const activityRowFit = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const layout = document.querySelector('.activity-layout');
+      const cols = layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\\s+/).map((v) => Math.round(parseFloat(v))) : [];
+      const total = cols.reduce((a, b) => a + b, 0);
+      const rows = [...document.querySelectorAll('.activity-row')].slice(0, 12);
+      const overflowing = [];
+      let wrapped = 0;
+      for (const r of rows) {
+        const main = r.querySelector('.activity-main');
+        if (!main) continue;
+        const style = getComputedStyle(r);
+        const inner = r.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 2;
+        if (main.scrollHeight > inner + 1) {
+          overflowing.push({ content: Math.round(main.scrollHeight), box: Math.round(inner) });
+        }
+        const title = r.querySelector('.activity-title');
+        if (title && title.getBoundingClientRect().height > 24) wrapped += 1;
+      }
+      return {
+        rows: rows.length,
+        overflowing,
+        // At least one row must actually use the second line, or the budget was
+        // raised for a wrap that never happens.
+        wrappedTitles: wrapped,
+        ratio: total > 0 ? cols.map((c) => Math.round((c / total) * 100)) : [],
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const paneGapPages = [
     { page: "live", hash: "#/live", ready: ".live-page", panes: [".live-pulse", ".live-split"] },
     { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
@@ -5285,6 +5325,13 @@ try {
     [
       paneGapOdd.length === 0 && paneGaps.length === 10 && paneGapToken === "12px",
       `app: every pane gap resolves to the shared token (${paneGapToken}, ${paneGaps.length} panes, odd ${JSON.stringify(paneGapOdd)})`,
+    ],
+    [
+      activityRowFit.rows > 0 &&
+        activityRowFit.overflowing.length === 0 &&
+        activityRowFit.wrappedTitles > 0 &&
+        JSON.stringify(activityRowFit.ratio) === JSON.stringify([30, 35, 35]),
+      `activity: columns split 30/35/35 and a two-line title still fits its fixed row (${JSON.stringify(activityRowFit)})`,
     ],
     [
       rankAvatarAffordance.found === true &&

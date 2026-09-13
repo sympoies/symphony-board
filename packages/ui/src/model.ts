@@ -1142,8 +1142,15 @@ export function buildActivityTrend(
   };
 }
 
-export const ACTIVITY_ROW_HEIGHT_PX = 96;
-export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 124;
+// The feed rows are virtualized at a FIXED height and clip their overflow, so
+// these numbers are the budget the row's content has to fit inside — they are not
+// cosmetic. They grew by one line of title when the title stopped truncating to a
+// single line: a row holds a two-line title, the meta line, and on many rows a row
+// of ref chips, and the tallest case is what every row must accommodate.
+// render-smoke measures the rendered content against the box so an under-budget
+// value fails rather than silently clipping the chips off the bottom.
+export const ACTIVITY_ROW_HEIGHT_PX = 118;
+export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 146;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
