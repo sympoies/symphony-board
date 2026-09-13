@@ -4861,6 +4861,48 @@ try {
   // rhythm and the 4px master-detail splits read as a seam. This asserts the
   // RESOLVED value on each page, so a layout that hard-codes its own gap again
   // is caught rather than merely looking slightly off.
+
+  // --- rank avatar link + instant name tip --------------------------------
+  // The buffer card's avatars used to be deliberately unlinked with an arrow
+  // cursor (#616). They now open the provider profile when the contract carries
+  // one, and the name appears through a CSS tip rather than the browser's native
+  // `title`, which waits about a second and will not re-arm until the pointer
+  // leaves and returns.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.live-page')");
+  const rankAvatarAffordance = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      // An actor the contract carries no profile URL for stays a plain span, so
+      // pick a row that HAS one — and check an unlinked one separately, since
+      // "everything became a link" would be just as wrong.
+      const withAvatar = [...document.querySelectorAll('.live-rank-item')]
+        .find((i) => i.querySelector('.live-rank-footer a.live-avatar'));
+      if (!withAvatar) return { found: false };
+      const avatar = withAvatar.querySelector('.live-rank-footer a.live-avatar');
+      const unlinked = document.querySelector('.live-rank-footer span.live-avatar');
+      const tip = withAvatar.querySelector('.rank-name-tip');
+      const tipStyle = tip ? getComputedStyle(tip) : null;
+      return {
+        found: true,
+        tag: avatar.tagName,
+        href: avatar.getAttribute('href') || '',
+        cursor: getComputedStyle(avatar).cursor,
+        // The browser's own tooltip must be gone, or it would still fire on top
+        // of the CSS one with its own delay.
+        nativeTitle: avatar.getAttribute('title'),
+        hasTip: !!tip,
+        tipText: tip ? (tip.textContent || '').trim() : '',
+        tipHiddenAtRest: tipStyle ? tipStyle.visibility === 'hidden' : null,
+        // No entry delay: the whole point of replacing the native tooltip.
+        tipDelay: tipStyle ? tipStyle.transitionDelay : '',
+        unlinkedTag: unlinked ? unlinked.tagName : null,
+        unlinkedCursor: unlinked ? getComputedStyle(unlinked).cursor : null,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
   const paneGapPages = [
     { page: "live", hash: "#/live", ready: ".live-page", panes: [".live-pulse", ".live-split"] },
     { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
@@ -5218,6 +5260,22 @@ try {
       paneGapOdd.length === 0 && paneGaps.length === 10 && paneGapToken === "12px",
       `app: every pane gap resolves to the shared token (${paneGapToken}, ${paneGaps.length} panes, odd ${JSON.stringify(paneGapOdd)})`,
     ],
+    [
+      rankAvatarAffordance.found === true &&
+        rankAvatarAffordance.tag === "A" &&
+        rankAvatarAffordance.href.length > 0 &&
+        rankAvatarAffordance.cursor === "pointer" &&
+        rankAvatarAffordance.nativeTitle === null &&
+        rankAvatarAffordance.hasTip === true &&
+        rankAvatarAffordance.tipText.length > 0 &&
+        rankAvatarAffordance.tipHiddenAtRest === true &&
+        /^0s(,\s*0s)*$/.test(rankAvatarAffordance.tipDelay || "") &&
+        // An actor with no profile URL must stay a span with an arrow, so the
+        // cursor still tells the truth about what is clickable.
+        rankAvatarAffordance.unlinkedTag === "SPAN" &&
+        rankAvatarAffordance.unlinkedCursor === "default",
+      `live: a rank avatar links to its profile and names itself through an instant tip (${JSON.stringify(rankAvatarAffordance)})`,
+    ],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],
@@ -5443,7 +5501,7 @@ try {
     [/^3\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows retained rows over the memory cap (${live.bufferText || "empty"})`],
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
-    [liveRankHover.visible === true && liveRankHover.text === "2" && liveRankHover.cursor === "default" && liveRankHover.tag === "SPAN" && liveRankHover.href === "", `live: hovering a non-linked Buffer rank avatar reveals its exact count with the default cursor (${JSON.stringify(liveRankHover)})`],
+    [liveRankHover.visible === true && liveRankHover.text === "2" && liveRankHover.cursor === "pointer" && liveRankHover.tag === "A" && liveRankHover.href === "https://github.com/octocat", `live: hovering a Buffer rank avatar reveals its exact count, and the avatar links to the profile (${JSON.stringify(liveRankHover)})`],
     [Math.abs((live.detailPaneHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailPaneHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailPaneHeight || 0}px vs ${live.feedHeight || 0}px)`],
     [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailCardHeight })})`],
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not

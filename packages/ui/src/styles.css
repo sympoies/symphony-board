@@ -4084,8 +4084,13 @@ a.rf-node-title:hover { color: var(--accent); }
   width: 24px;
   height: 24px;
   margin: 0;
-  cursor: default;
 }
+/* The cursor follows what the element actually IS, rather than being pinned per
+   placement. A rank avatar used to be unlinked everywhere, so it was given an
+   arrow; now it links to the provider profile when the contract carries one, and
+   an avatar with no profile URL still renders as a plain span. */
+a.live-avatar { cursor: pointer; }
+span.live-avatar { cursor: default; }
 .live-rank-footer .live-avatar-fallback {
   max-width: 19px;
   font-size: 9px;
@@ -4721,3 +4726,64 @@ a.rf-node-title:hover { color: var(--accent); }
   font-size: 11px;
 }
 .commit-detail-link { display: inline-block; margin-top: 12px; font-size: 12px; }
+
+/* Full rank-row name on hover.
+   Replaces the native `title` on these footers. The browser's own tooltip waits
+   roughly a second before appearing, hides again on the smallest pointer move,
+   and will not re-arm until the pointer leaves the element and returns — which on
+   a 24px avatar in a chart is most of the time. This appears immediately, stays
+   while the pointer is anywhere on the row, and is driven by the ROW rather than
+   the footer so the whole bar is the target rather than the few characters of
+   text under it. */
+.live-rank-footer { position: relative; }
+.rank-name-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: 220px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* No delay in, a short fade out: the point of the change is that it answers
+     immediately. */
+  transition: opacity 80ms ease-out, visibility 80ms ease-out;
+}
+/* A centred tip on the FIRST or LAST column hangs past the chart, and an
+   absolutely positioned box still counts toward its scroll container's width — so
+   a centred edge tip widens the card and can raise a horizontal scrollbar at
+   narrow widths. Anchor the outer columns to their own edge instead; the interior
+   ones have room on both sides and stay centred. */
+.live-rank-item:first-child .rank-name-tip,
+.live-rank-item-slot:first-child .rank-name-tip {
+  left: 0;
+  transform: none;
+}
+.live-rank-item:last-child .rank-name-tip,
+.live-rank-item-slot:last-child .rank-name-tip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.live-rank-item:hover .rank-name-tip,
+.live-rank-item:focus-within .rank-name-tip,
+.live-rank-item-slot:hover .rank-name-tip,
+.live-rank-item-slot:focus-within .rank-name-tip {
+  opacity: 1;
+  visibility: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rank-name-tip { transition: none; }
+}

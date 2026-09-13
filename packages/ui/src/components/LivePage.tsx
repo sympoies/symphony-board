@@ -182,9 +182,16 @@ function targetText(ev: LiveEvent): { repo: string; num: string } {
 function LiveAvatar({
   actor,
   linked = true,
+  // The native `title` is the browser's own tooltip: it waits about a second,
+  // dismisses on the smallest pointer move, and will not re-arm until the pointer
+  // leaves and returns. Inside a rank chart the surrounding footer draws an
+  // instant CSS tip instead, so the avatar must not add a second, slower one on
+  // top of it.
+  titled = true,
 }: {
   actor: LiveEventActor | null | undefined;
   linked?: boolean;
+  titled?: boolean;
 }) {
   const model = liveAvatarModel(actor);
   const [failed, setFailed] = useState(false);
@@ -202,13 +209,13 @@ function LiveAvatar({
   );
   const className = `live-avatar${model.imageUrl && !failed ? " live-avatar-image" : " live-avatar-text"}`;
   if (!linked || !model.profileUrl) {
-    return <span className={className} title={model.label} aria-label={model.label}>{body}</span>;
+    return <span className={className} title={titled ? model.label : undefined} aria-label={model.label}>{body}</span>;
   }
   return (
     <a
       className={className}
       href={model.profileUrl}
-      title={model.label}
+      title={titled ? model.label : undefined}
       aria-label={`Open ${model.label} profile on provider`}
       target="_blank"
       rel="noopener noreferrer"
@@ -1001,7 +1008,7 @@ export function LivePage({
               key: rank.key,
               label: rank.label,
               count: rank.count,
-              footer: <LiveAvatar actor={rank.actor} linked={false} />,
+              footer: <LiveAvatar actor={rank.actor} titled={false} />,
             }))}
           />
         </div>

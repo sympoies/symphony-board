@@ -69,9 +69,13 @@ export function RankChart({
                 <span className="live-rank-bar" />
               </span>
               {/* The footer is clipped to one line, so the full value lives on
-                  hover. An avatar footer carries its own title and wins when the
-                  pointer is over the face itself. */}
-              <span className="live-rank-footer" title={item.label}>{item.footer}</span>
+                  hover — as a CSS tip rather than a native `title`, which waits
+                  about a second, dismisses on the smallest pointer move, and will
+                  not re-arm until the pointer leaves and comes back. */}
+              <span className="live-rank-footer">
+                {item.footer}
+                <span className="rank-name-tip" aria-hidden="true">{item.label}</span>
+              </span>
             </>
           );
           // Read-only rows keep the original listitem markup verbatim so the Live
