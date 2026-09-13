@@ -91,6 +91,37 @@ To verify already-published images without creating a release:
 scripts/release.sh --verify-only --version v0.1.0
 ```
 
+### Resuming An Interrupted Release
+
+`--execute` creates the GitHub Release and then waits for `publish-image.yml`,
+which takes tens of minutes because of the emulated `linux/arm64` build. If that
+wait dies — the terminal is closed, the session ends, Ctrl+C — the Release is
+already published but nothing verified it, and neither other mode recovers:
+`--execute` refuses to run again because the Release exists, and `--verify-only`
+reads GHCR immediately, so it fails while the workflow is still in flight.
+
+`--resume` is that recovery path. It mutates nothing: it reads the released
+commit from the Release, re-attaches to the `publish-image` run for that commit,
+waits for it, and then runs the same verification the interrupted run never
+reached. It takes the prerelease flag from the Release too, rather than asking
+you to retype `--prerelease`: resume exists precisely because the original
+invocation's flags are gone, and getting that one wrong would check a `latest`
+belonging to some earlier release and still report this one complete.
+
+Resume needs a Release this script cut. `--execute` records the commit, while a
+Release created any other way records a branch name instead, which can never
+match a workflow run. Resume says so immediately rather than waiting out the
+discovery timeout.
+
+```sh
+scripts/release.sh --resume --version v0.1.0
+```
+
+Use `--verify-only` when the workflow has already finished and you only want to
+re-check the published artifacts; use `--resume` when it may still be running.
+A release that was never verified is incomplete, so always close out with one of
+the two.
+
 ## Release Workflow
 
 Creating a GitHub Release runs `.github/workflows/publish-image.yml`, which
