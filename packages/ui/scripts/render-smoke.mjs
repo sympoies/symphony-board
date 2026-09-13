@@ -2108,14 +2108,22 @@ try {
         // Unused width to the right of the row. A stacked layout whose single
         // column is still capped reads as 'fits' by every other measure while
         // stranding half the viewport, which is exactly what the foldable hit.
-        const host = layout?.getBoundingClientRect();
+        // Measured against the SHELL content box, not .activity-layout's own
+        // rect. The layout is a child of .activity-page, so a cap on any ancestor
+        // shrinks the host too and the stranded width outside it becomes
+        // invisible -- and a page-level cap is exactly what this guards against.
+        const shell = document.querySelector('.app-wide');
+        const shellStyle = shell ? getComputedStyle(shell) : null;
+        const avail = shell
+          ? shell.getBoundingClientRect().right - parseFloat(shellStyle.paddingRight || '0')
+          : null;
         const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0);
         return {
           columns: layoutStyle?.gridTemplateColumns || '',
           gap: layoutStyle?.columnGap || '',
           stacked: !!listRect && !!panelRect && panelRect.top > listRect.bottom - 2,
           sideBySide: !!listRect && !!panelRect && Math.abs(panelRect.top - listRect.top) <= 2 && panelRect.left > listRect.right,
-          deadRight: host ? Math.round(host.right - right) : -1,
+          deadRight: avail != null ? Math.round(avail - right) : -1,
         };
       })()`,
       returnByValue: true,
@@ -3433,6 +3441,55 @@ try {
         columns: pulseStyle?.gridTemplateColumns || '',
         chartFits,
         allFit: chartFits.length >= 2 && chartFits.every((chart) => chart.display !== 'none' && chart.scrollWidth <= chart.clientWidth + 1),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // The foldable in landscape with the Android wide-layout setting ON: the
+  // viewport is pinned to WIDE_VIEWPORT_WIDTH (1280) and comes out 1280x891.
+  // That is too WIDE for the narrow tier and too TALL for the short one, so the
+  // compact chrome never engages -- and the metric strip's disclosure used to be
+  // revealed only by that tier, leaving ~300px of cards that could not be
+  // dismissed and a feed sliver under them. The CSS assertion in
+  // layout-tier.test.ts proves the button is displayed; this proves it WORKS:
+  // that a viewer can press it and the strip actually goes away.
+  await send("Runtime.evaluate", {
+    expression: "try { localStorage.removeItem('symphony-board:live-pulse-open'); } catch (e) {} location.hash = '#/activity'",
+  });
+  await sleep(150);
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 891, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.live-page .live-feed .live-event')");
+  const liveForcedWideAtRest = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const pulse = document.querySelector('.live-pulse');
+      const disclosure = document.querySelector('.live-pulse-disclosure');
+      const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
+      return {
+        // Open by default here: 891px clears the short tier, so this viewport is
+        // not one the app should be folding away on its own.
+        pulseOpen: pulse?.dataset.open || '',
+        pulseDisplay: pulse ? getComputedStyle(pulse).display : '',
+        disclosureDisplay: disclosure ? getComputedStyle(disclosure).display : '',
+        pulseHeight: Math.round(pulse?.getBoundingClientRect().height ?? 0),
+        feedHeight: Math.round(feedRect?.height ?? 0),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.live-pulse-disclosure')?.click()" });
+  await waitHtml("document.querySelector('.live-pulse')?.dataset.open === 'false'");
+  await sleep(150);
+  const liveForcedWideCollapsed = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const pulse = document.querySelector('.live-pulse');
+      const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
+      return {
+        pulseOpen: pulse?.dataset.open || '',
+        pulseDisplay: pulse ? getComputedStyle(pulse).display : '',
+        feedHeight: Math.round(feedRect?.height ?? 0),
       };
     })()`,
     returnByValue: true,
@@ -4866,19 +4923,24 @@ try {
   await sleep(250);
   const commitsRailForcedWide = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const split = document.querySelector(".commits-split");
       const list = document.querySelector(".commit-list");
       const rail = document.querySelector(".commits-rail");
-      if (!split || !list || !rail) return { found: false };
-      const hostRect = split.getBoundingClientRect();
+      if (!list || !rail) return { found: false };
       const listRect = list.getBoundingClientRect();
       const railRect = rail.getBoundingClientRect();
+      // Same reason as the Activity probe: against the shell content box, so a
+      // cap on .commits-page or any other ancestor cannot hide the slack.
+      const shell = document.querySelector(".app-wide");
+      const shellStyle = shell ? getComputedStyle(shell) : null;
+      const avail = shell
+        ? shell.getBoundingClientRect().right - parseFloat(shellStyle.paddingRight || "0")
+        : null;
       return {
         found: true,
         sideBySide: railRect.left >= listRect.right - 2,
         listWidth: Math.round(listRect.width),
         railWidth: Math.round(railRect.width),
-        deadRight: Math.round(hostRect.right - Math.max(listRect.right, railRect.right)),
+        deadRight: avail != null ? Math.round(avail - Math.max(listRect.right, railRect.right)) : -1,
       };
     })()`,
     returnByValue: true,
@@ -5333,7 +5395,10 @@ try {
       `commits: the rail stacks under the list below the split floor (${JSON.stringify(commitsRailNarrow)})`,
     ],
     [
-      commitsRailForcedWide.found === true && commitsRailForcedWide.sideBySide === true && commitsRailForcedWide.deadRight <= 1,
+      commitsRailForcedWide.found === true &&
+        commitsRailForcedWide.sideBySide === true &&
+        commitsRailForcedWide.deadRight >= 0 &&
+        commitsRailForcedWide.deadRight <= 1,
       `commits: the forced wide viewport puts the rail beside the list with no stranded width (${JSON.stringify(commitsRailForcedWide)})`,
     ],
     // Activity's third column appears at the breakpoint and not below it.
@@ -5561,7 +5626,12 @@ try {
     // 1280 is what the Android wide-layout setting pins the viewport to. It has
     // to land on the side-by-side rule with no stranded width, or a foldable gets
     // desktop chrome with mobile stacking -- the defect this probe exists for.
-    [activityBreakpoint["1280"]?.sideBySide === true && (activityBreakpoint["1280"]?.deadRight ?? -1) <= 1, `activity: the forced wide viewport is side by side and uses its full width (${JSON.stringify(activityBreakpoint["1280"])})`],
+    [
+      activityBreakpoint["1280"]?.sideBySide === true &&
+        (activityBreakpoint["1280"]?.deadRight ?? -1) >= 0 &&
+        (activityBreakpoint["1280"]?.deadRight ?? -1) <= 1,
+      `activity: the forced wide viewport is side by side and uses its full width (${JSON.stringify(activityBreakpoint["1280"])})`,
+    ],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: Items renders issues and change requests in one chronological lookup surface
     [has(itemsHtml, "items-page"), "items: page rendered"],
@@ -5600,6 +5670,16 @@ try {
     [(live.documentScrollHeight || 0) <= (live.documentClientHeight || 0) + 2, `live: desktop Live page does not grow taller than the viewport (${JSON.stringify({ scrollHeight: live.documentScrollHeight, clientHeight: live.documentClientHeight })})`],
     [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
     [(liveFoldable.feedHeight || 0) >= 240 && (liveFoldable.feedHeight || 0) <= (liveFoldable.clientHeight || 0) && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
+    [
+      liveForcedWideAtRest.disclosureDisplay === "inline-flex" && liveForcedWideAtRest.pulseOpen === "true",
+      `live: the forced wide viewport offers the metrics control and still defaults the strip open (${JSON.stringify(liveForcedWideAtRest)})`,
+    ],
+    [
+      liveForcedWideCollapsed.pulseOpen === "false" &&
+        liveForcedWideCollapsed.pulseDisplay === "none" &&
+        liveForcedWideCollapsed.feedHeight > liveForcedWideAtRest.feedHeight,
+      `live: pressing it on the forced wide viewport actually removes the strip and gives the height to the feed (${JSON.stringify({ atRest: liveForcedWideAtRest, collapsed: liveForcedWideCollapsed })})`,
+    ],
     [liveFoldableExpanded.pulseOpen === "true" && liveFoldableExpanded.pulseVisible === true && (liveFoldableExpanded.feedHeight || 0) >= 240 && (liveFoldableExpanded.feedHeight || 0) <= (liveFoldableExpanded.clientHeight || 0) && liveFoldableExpanded.canScroll === true, `live: re-expanding the metrics on a foldable keeps the feed usable and lets the page scroll to it (${JSON.stringify(liveFoldableExpanded)})`],
     [liveFoldable.canScroll === true && liveFoldableCollapsedScrolled.scrollY > 0 && liveFoldableCollapsedScrolled.feedHeight > liveFoldable.feedHeight && liveFoldableCollapsedScrolled.feedScrollHeight > liveFoldableCollapsedScrolled.feedHeight && liveFoldableCollapsedScrolled.splitTop >= liveFoldableCollapsedScrolled.tabsBottom + 8 && liveFoldableCollapsedScrolled.splitTop <= liveFoldableCollapsedScrolled.tabsBottom + 16, `live: a folded short-wide page scrolls its chrome away and grows a still-bounded feed below the sticky tabs (${JSON.stringify({ atRest: liveFoldable, scrolled: liveFoldableCollapsedScrolled })})`],
     [liveFoldableScrolled.scrollY > 0 && liveFoldableScrolled.feedHeight > liveFoldableExpanded.feedHeight, `live: an expanded short-wide page also grows the feed as its chrome scrolls away (${JSON.stringify({ atRest: liveFoldableExpanded.feedHeight, scrolled: liveFoldableScrolled })})`],

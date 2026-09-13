@@ -276,6 +276,18 @@ test("the Live metric strip can always be collapsed", () => {
     /\.live-pulse\[data-open="false"\]\s*\{\s*display:\s*none/,
     "collapsing must actually hide the strip at every size",
   );
+  // ...and the rule has to be UNGATED, which a whole-stylesheet match cannot
+  // see. Leaving the reveal at top level while the collapse stayed tier-gated
+  // passed every assertion above with the button visibly doing nothing at
+  // 1280x891: it flipped aria-expanded and data-open, and the strip stayed.
+  assert.ok(
+    !mediaBlock(COMPACT_CHROME_QUERY).includes('.live-pulse[data-open="false"]'),
+    "the collapse rule must not be tier-gated, or the button is inert outside that tier",
+  );
+  assert.ok(
+    !mediaBlock(WIDE_RAIL_QUERY).includes('.live-pulse[data-open="false"]'),
+    "nor may it be gated the other way",
+  );
   const page = readFileSync(new URL("../src/components/LivePage.tsx", import.meta.url), "utf8");
   assert.match(page, /pulseChoice\s*\?\?\s*!shortViewport/, "the DEFAULT state still follows the short tier");
 });

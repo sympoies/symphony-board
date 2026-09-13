@@ -509,7 +509,7 @@ html[data-theme="paper"] .toggle-on {
 .filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
   transform: translateY(-2px) rotate(45deg);
 }
-.live-pulse-disclosure { display: inline-flex; }
+.live-pulse-disclosure { display: inline-flex; margin-bottom: 10px; }
 .live-pulse[data-open="false"] { display: none; }
 .search-disclosure { display: none; }
 .file-load {
