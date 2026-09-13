@@ -4854,6 +4854,47 @@ try {
   // plus five 8px gaps — and .rail-block sets no overflow, so a rail that did NOT
   // gain width before splitting spills its bars across the neighbouring column.
   // Measured at 2560 rather than 2200 so it is a clear case, not a boundary one.
+
+  // --- pane gap consistency ------------------------------------------------
+  // Every pane-to-pane gap reads one token. The pages had drifted to four
+  // different values (4 / 12 / 14 / 16px), so moving between tabs changed the
+  // rhythm and the 4px master-detail splits read as a seam. This asserts the
+  // RESOLVED value on each page, so a layout that hard-codes its own gap again
+  // is caught rather than merely looking slightly off.
+  const paneGapPages = [
+    { page: "live", hash: "#/live", ready: ".live-page", panes: [".live-pulse", ".live-split"] },
+    { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
+    { page: "activity", hash: "#/activity", ready: ".activity-page", panes: [".activity-layout"] },
+    { page: "commits", hash: "#/commits", ready: ".commits-page", panes: [".commits-split", ".commits-rail"] },
+    { page: "board", hash: "#/board", ready: ".board-7", panes: [".board-7"] },
+    { page: "graph", hash: "#/graph", ready: ".graph-body", panes: [".graph-body"] },
+    { page: "reviews", hash: "#/reviews", ready: ".reviews-page", panes: [".live-split"] },
+    { page: "repo-analytics", hash: "#/repo-analytics", ready: ".repo-analytics-page", panes: [".repo-stat-grid"] },
+  ];
+  const paneGaps = [];
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  for (const p of paneGapPages) {
+    await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(p.hash)}` });
+    await sleep(350);
+    await waitHtml(`document.querySelector(${JSON.stringify(p.ready)})`);
+    for (const sel of p.panes) {
+      const g = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const el = document.querySelector(${JSON.stringify(sel)});
+          if (!el) return null;
+          const s = getComputedStyle(el);
+          return { column: s.columnGap, row: s.rowGap };
+        })()`,
+        returnByValue: true,
+      })).result.value;
+      paneGaps.push({ page: p.page, sel, ...(g ?? { missing: true }) });
+    }
+  }
+  const paneGapToken = (await send("Runtime.evaluate", {
+    expression: "getComputedStyle(document.documentElement).getPropertyValue('--pane-gap').trim()",
+    returnByValue: true,
+  })).result.value;
+  const paneGapOdd = paneGaps.filter((g) => g.missing || g.column !== paneGapToken || g.row !== paneGapToken);
   const railTwoUp = [];
   for (const page of [{ name: "commits", hash: "#/commits", rail: ".commits-rail" }, { name: "activity", hash: "#/activity", rail: ".activity-rail" }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
@@ -5173,6 +5214,10 @@ try {
         railTwoUp.every((r) => r.found === true && r.columns === 2 && r.overflowing.length === 0),
       `rails: blocks flow two-up at 2560px without overflowing their card (${JSON.stringify(railTwoUp)})`,
     ],
+    [
+      paneGapOdd.length === 0 && paneGaps.length === 10 && paneGapToken === "12px",
+      `app: every pane gap resolves to the shared token (${paneGapToken}, ${paneGaps.length} panes, odd ${JSON.stringify(paneGapOdd)})`,
+    ],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],
@@ -5343,7 +5388,7 @@ try {
     [!activityHeatmap.present || trendHover.tip === true, "activity: hovering a trend point shows the per-line counts tooltip"],
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
-    [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "4px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
+    [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "12px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: Items renders issues and change requests in one chronological lookup surface
     [has(itemsHtml, "items-page"), "items: page rendered"],
