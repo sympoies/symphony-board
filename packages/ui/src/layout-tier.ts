@@ -36,6 +36,27 @@ export const SPLIT_MAX_WIDTH_PX = 900;
 export const WIDE_RAIL_MIN_WIDTH_PX = 1700;
 export const WIDE_RAIL_QUERY = `(min-width: ${WIDE_RAIL_MIN_WIDTH_PX}px)`;
 
+// The viewport width at which a two-pane split (Activity feed + overview,
+// Commits list + rail) starts sitting side by side. Sized from the Activity
+// tracks, the tighter of the two: the feed clamp floor (640px), the overview
+// floor (560px) and one --pane-gap (12px).
+//
+// It is a VIEWPORT width and those are content-box widths, so the page padding
+// is not in the number: measured at exactly 1212 the feed sits at 590px rather
+// than its preferred 640px, which minmax(0, ...) allows on purpose. Nothing is
+// stranded there and nothing overflows; the feed reaches its full 640px from
+// about 1262px, and at the 1280px that matters below it already has it.
+//
+// This has to stay at or below runtime.WIDE_VIEWPORT_WIDTH. Android's
+// wide-layout setting pins the WebView viewport to exactly that width, so a
+// split that stacks above it hands a foldable desktop chrome WITH mobile
+// stacking -- the Z Fold put the Commits rail under the list and capped the
+// Activity feed at 720px with ~560px of dead gutter beside it.
+// layout-tier.test.ts compares the two numbers, because nothing else in the
+// build reads both.
+export const SPLIT_RAIL_MIN_WIDTH_PX = 1212;
+export const SPLIT_STACK_QUERY = `(max-width: ${SPLIT_RAIL_MIN_WIDTH_PX - 1}px)`;
+
 // Not every breakpoint belongs here, and one nearby deliberately does not: the
 // Commits list/rail split collapses at 1500px purely in CSS. Nothing in JS gates
 // it — the rail renders at every width and the grid decides whether it sits

@@ -539,11 +539,11 @@ export function LivePage({
   // Mobile-only: the category pills are collapsed behind a disclosure by default
   // (they're shown inline on desktop). Tap the summary to reveal them.
   const [catsOpen, setCatsOpen] = useState(false);
-  // Compact tier only: the four metric cards (Activity / Last event / Buffer /
+  // The four metric cards (Activity / Last event / Buffer /
   // Active now) cost ~300px of vertical space, which pushes the feed off a phone
   // screen and off any SHORT viewport (a foldable inner screen, a landscape
   // phone) — so they collapse behind a disclosure, tap to bring the feed back up.
-  // A roomy viewport shows the strip inline (the disclosure is display:none there).
+  // The disclosure is available at every size; only this DEFAULT follows the tier.
   //
   // The default is LIVE, not seeded once: `useMediaQuery` re-renders when the
   // height breakpoint flips, so unfolding a foldable mid-session re-evaluates it.
@@ -952,11 +952,14 @@ export function LivePage({
         </div>
       </header>
 
-      {/* Compact tier (narrow OR short): tap to collapse the metric strip and
-          bring the feed list up. Open by default on a roomy viewport, collapsed on
-          a short one, and a stored tap beats both. A roomy viewport keeps this
-          button display:none and always shows the strip. Mirrors the category-pills
-          disclosure chrome below. */}
+      {/* Available at EVERY size: this button is the only control for the strip,
+          so hiding it on a roomy viewport means the ~300px it costs cannot be
+          dismissed at all. A foldable in landscape with the Android wide-layout
+          setting on lands at 1280x891 — too wide for the narrow tier, too tall for
+          the short one — and was stuck with a feed sliver. Only the DEFAULT state
+          follows the tier: open on a roomy viewport, collapsed on a short one, and
+          a stored tap beats both. The category-pills disclosure below IS still
+          tier-gated, because a roomy viewport shows those pills inline instead. */}
       <button
         type="button"
         className="filter-summary-disclosure live-pulse-disclosure"

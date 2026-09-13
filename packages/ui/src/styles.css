@@ -509,6 +509,8 @@ html[data-theme="paper"] .toggle-on {
 .filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
   transform: translateY(-2px) rotate(45deg);
 }
+.live-pulse-disclosure { display: inline-flex; margin-bottom: 10px; }
+.live-pulse[data-open="false"] { display: none; }
 .search-disclosure { display: none; }
 .file-load {
   color: var(--muted);
@@ -1136,8 +1138,9 @@ a.rf-node-title:hover { color: var(--accent); }
 /* Commits: list + digest rail. The list keeps the 1180px reading measure the
    page cap used to give it — stretching a commit log to 3000px turns every row
    into a thin ribbon — and the rail takes what is left, which is 560px at 1756
-   and comfortably more at 1920. Below the breakpoint the rail drops under the
-   list rather than squeezing it. */
+   and comfortably more at 1920. Below the split floor the rail drops under the
+   list rather than squeezing it -- that floor is shared with Activity and lives
+   in layout-tier.ts, so the forced wide viewport can be checked against it. */
 .commits-split {
   display: grid;
   /* The rail takes ALL the remaining width rather than stopping at a ceiling.
@@ -1150,9 +1153,6 @@ a.rf-node-title:hover { color: var(--accent); }
   grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr);
   gap: var(--pane-gap);
   align-items: start;
-}
-@media (max-width: 1500px) {
-  .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
 }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 720px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
@@ -1525,25 +1525,37 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 /* The feed keeps a compact reading column while the rhythm panel uses the spare
-   right rail for a full-width heatmap plus range trend. Below ~1450px the panel
-   wraps so the feed remains readable instead of crushing the chart; above it the
-   feed column flexes first, so the panel keeps its full chart width. */
+   right rail for a full-width heatmap plus range trend. Below the split floor
+   (SPLIT_RAIL_MIN_WIDTH_PX) the panel wraps so the feed stays readable instead of
+   crushing the chart; above it the feed column flexes first, so the panel keeps
+   its full chart width. */
 .activity-layout {
   display: grid;
-  grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 680px);
+  /* The overview takes the remainder rather than stopping at 680px. Two capped
+     tracks stranded width at every size from ~1412px up to the 1700px rail tier:
+     the same dead gutter the page caps were removed to fix, one level further
+     in. Commits' rail and Activity's own rail already follow this rule. */
+  grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 1fr);
   justify-content: start;
   align-items: start;
   gap: var(--pane-gap);
 }
 .activity-layout > .activity-list { min-width: 0; }
-@media (min-width: 1451px) {
+@media (min-width: 1212px) {
   .activity-layout { align-items: stretch; }
   .activity-layout > .activity-list {
     min-height: var(--activity-rhythm-height, 0px);
   }
 }
-@media (max-width: 1450px) {
+/* Below the split floor both two-pane pages stack. The floor is
+   SPLIT_RAIL_MIN_WIDTH_PX in layout-tier.ts, which layout-tier.test.ts also
+   checks against runtime.WIDE_VIEWPORT_WIDTH: stacking ABOVE the width the
+   Android wide-layout setting pins the viewport to is what gave the Z Fold
+   desktop chrome with mobile stacking -- the Commits rail under the list, and
+   the Activity feed capped at 720px with ~560px of dead gutter beside it. */
+@media (max-width: 1211px) {
   .activity-layout { grid-template-columns: minmax(0, 720px); }
+  .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
 }
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
@@ -2744,15 +2756,13 @@ a.rf-node-title:hover { color: var(--accent); }
    to a short viewport instead of giving height back. layout-tier.test.ts asserts
    the pairing. */
 @media (max-width: 760px), (max-height: 760px) {
-  .live-pulse-disclosure,
   .stats-disclosure,
   .repo-stats-disclosure {
     display: inline-flex;
   }
-  /* Live: the four metric cards cost ~300px — the difference between a usable
-     feed and a sliver. LivePage defaults this collapsed on a short viewport. */
-  .live-pulse-disclosure { width: 100%; justify-content: flex-start; margin-bottom: 10px; }
-  .live-pulse[data-open="false"] { display: none; }
+  /* The strip's disclosure is available at every size (see .live-pulse-disclosure
+     near the chrome above); the compact tier only widens it to a full row. */
+  .live-pulse-disclosure { width: 100%; justify-content: flex-start; }
   /* Read-only stat summary (Board + Graph): collapse behind the shared
      'stats · …' disclosure so the data shows first. The graph legend rides in
      the body's footer, so it tucks away with the stats. */
