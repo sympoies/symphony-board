@@ -14,6 +14,9 @@ Options:
                          This is the default.
   --verify-only          Only verify published GHCR image tags and desktop
                          release assets.
+  --resume               Re-attach to an already-created GitHub Release:
+                         wait for its publish-image run, then verify. Use
+                         after an --execute whose wait was interrupted.
   VERSION                SemVer, with or without leading v.
                          Defaults to package.json version.
   --version VERSION      Same as VERSION. For release/dry-run, this must match
@@ -33,6 +36,7 @@ Examples:
   scripts/release.sh --dry-run
   scripts/release.sh --execute v0.1.0
   scripts/release.sh --verify-only --version v0.1.0
+  scripts/release.sh --resume --version v0.1.0
 USAGE
 }
 
@@ -253,6 +257,10 @@ while [ "$#" -gt 0 ]; do
       mode="verify-only"
       shift
       ;;
+    --resume)
+      mode="resume"
+      shift
+      ;;
     --version)
       [ "$#" -ge 2 ] || die "--version requires a value"
       version="$(normalize_version "$2")"
@@ -327,7 +335,7 @@ repo="$(repo_slug)" || die "could not resolve GitHub repository slug"
 app_version="$(normalize_version "$(package_version)")"
 if [ -z "$version" ]; then
   version="$app_version"
-elif [ "$mode" != "verify-only" ] && [ "$version" != "$app_version" ]; then
+elif [ "$mode" != "verify-only" ] && [ "$mode" != "resume" ] && [ "$version" != "$app_version" ]; then
   die "requested release version v$version does not match package.json version v$app_version; update package.json first or omit --version"
 fi
 tag="v$version"
@@ -354,8 +362,9 @@ fi
 # commit whose ci has not passed (raced against a fresh push, ignored failure,
 # or --skip-main-check), and publish-image.yml fires on `release: published`
 # independently of ci. Catch drift here, before the GitHub Release exists.
-# verify-only only inspects already-published artifacts, so it stays exempt.
-if [ "$mode" != "verify-only" ]; then
+# verify-only and resume only inspect already-published artifacts, so they stay
+# exempt.
+if [ "$mode" = "execute" ] || [ "$mode" = "dry-run" ]; then
   need_command jq
   bash "$repo_root/scripts/check-app-versions.sh"
 fi
@@ -377,9 +386,31 @@ if [ "$mode" = "dry-run" ]; then
   exit 0
 fi
 
+# Recovery path for an --execute whose post-create wait died: the GitHub
+# Release is published but nothing verified it. --execute cannot be rerun
+# (the release exists) and --verify-only reads GHCR immediately, so it fails
+# while publish-image is still in flight. Resume mutates nothing; it
+# re-attaches to the publish run for the released commit and waits.
+if [ "$mode" = "resume" ]; then
+  gh release view "$tag" --repo "$repo" >/dev/null 2>&1 ||
+    die "no GitHub Release to resume: $tag; cut it first with scripts/release.sh --execute"
+
+  # The released commit, not HEAD: the local checkout may have moved on
+  # since the interrupted run, and publish-image runs are matched by SHA.
+  target_sha="$(gh release view "$tag" --repo "$repo" --json targetCommitish --jq .targetCommitish)"
+  [ -n "$target_sha" ] || die "could not resolve the released commit for $tag"
+  info "resuming GitHub Release $tag at $target_sha"
+
+  if [ "$wait_for_workflow" -eq 1 ]; then
+    wait_for_publish_run "$repo" "$tag" "$timeout" "$target_sha"
+  else
+    info "skipped workflow wait"
+  fi
+fi
+
 if [ "$mode" = "execute" ]; then
   if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-    die "GitHub Release already exists: $tag"
+    die "GitHub Release already exists: $tag; if its wait was interrupted, resume with scripts/release.sh --resume --version $tag"
   fi
   if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
     die "remote tag already exists: $tag"

@@ -144,3 +144,114 @@ exit 1
     /release: verified release asset: Symphony-Board-Standalone-v9\.9\.9-macos-arm64-unsigned\.zip/,
   );
 });
+
+// A release whose post-create wait is interrupted — the session dies, the
+// terminal is closed, the operator hits Ctrl+C — leaves the GitHub Release
+// published but unverified. `--execute` then refuses to run again (the release
+// exists) and `--verify-only` reads GHCR immediately, so it fails while
+// publish-image is still in flight. `--resume` is the recovery path: it never
+// mutates, it re-attaches to the publish run for the released commit, waits for
+// it, and then runs the same verification the interrupted run never reached.
+function resumeGhStub(sha: string, version: string): string {
+  return `#!/usr/bin/env sh
+sub="$1 $2"
+all="$*"
+case "$sub" in
+  "run list")
+    printf '%s\\n' '[{"databaseId":42,"headSha":"${sha}","url":"https://example.test/run/42"}]'
+    exit 0
+    ;;
+  "run view")
+    printf '%s\\n' 'https://example.test/run/42'
+    exit 0
+    ;;
+  "run watch")
+    printf '%s\\n' 'run 42 completed'
+    exit 0
+    ;;
+  "release view")
+    case "$all" in
+      *targetCommitish*)
+        printf '%s\\n' '${sha}'
+        exit 0
+        ;;
+      *assets*)
+        cat <<'ASSETS'
+Symphony-Board-v${version}-macos-arm64-unsigned.zip
+Symphony-Board-Standalone-v${version}-macos-arm64-unsigned.zip
+SHA256SUMS-v${version}-macos-arm64.txt
+ASSETS
+        exit 0
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
+    ;;
+esac
+exit 1
+`;
+}
+
+function writeGhStub(cwd: string, body: string): void {
+  writeFileSync(join(cwd, "bin/gh"), body);
+  chmodSync(join(cwd, "bin/gh"), 0o755);
+}
+
+test("resume waits for the publish run of an already-created release and verifies it", () => {
+  const cwd = fixtureRepo();
+  writeGhStub(cwd, resumeGhStub("c0ffee1234567890c0ffee1234567890c0ffee12", "9.9.9"));
+
+  const result = runRelease(cwd, ["--resume", "--version", "v9.9.9", "--skip-public-verify"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /release: resuming GitHub Release v9\.9\.9/);
+  assert.match(result.stdout, /release: publish workflow: https:\/\/example\.test\/run\/42/);
+  assert.match(result.stdout, /release: verified release asset: Symphony-Board-v9\.9\.9-macos-arm64-unsigned\.zip/);
+  assert.match(result.stdout, /release: complete/);
+});
+
+test("resume refuses when the release was never created", () => {
+  const cwd = fixtureRepo();
+  // The default fixture stub fails every gh call, so `release view` reports the
+  // release as absent. Resume must not silently fall through to verification of
+  // artifacts that cannot exist.
+  const result = runRelease(cwd, ["--resume", "--version", "v9.9.9"]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /no GitHub Release to resume: v9\.9\.9/);
+  assert.match(result.stderr, /--execute/);
+});
+
+test("resume does not re-run the publish workflow discovery against the wrong commit", () => {
+  const cwd = fixtureRepo();
+  // The release was cut from one commit; the local checkout has since moved on.
+  // Resume must target the released commit, not HEAD, or it would wait forever
+  // for a publish run that will never exist.
+  writeGhStub(cwd, resumeGhStub("1111111111111111111111111111111111111111", "9.9.9"));
+
+  const result = runRelease(cwd, [
+    "--resume",
+    "--version",
+    "v9.9.9",
+    "--skip-public-verify",
+    "--skip-desktop-verify",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /release: resuming GitHub Release v9\.9\.9 at 1111111111111111111111111111111111111111/);
+});
+
+test("execute points at resume when the release already exists", () => {
+  const cwd = fixtureRepo();
+  // Exactly the interrupted-wait state: the release is published, so a rerun of
+  // --execute is refused. The refusal has to name the recovery command, or the
+  // operator is left reconstructing it by hand.
+  writeGhStub(cwd, "#!/usr/bin/env sh\nif [ \"$1\" = \"release\" ] && [ \"$2\" = \"view\" ]; then exit 0; fi\nexit 1\n");
+
+  const result = runRelease(cwd, ["--execute", "--skip-main-check", "--skip-clean-check"]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /GitHub Release already exists: v1\.2\.3/);
+  assert.match(result.stderr, /scripts\/release\.sh --resume --version v1\.2\.3/);
+});

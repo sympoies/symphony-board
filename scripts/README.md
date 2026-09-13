@@ -37,11 +37,12 @@ scripts/install-release-app.sh ~/Downloads/Symphony-Board-v1.1.0-macos-arm64-uns
 
 | Script | What it does |
 | --- | --- |
-| `release.sh [--dry-run\|--execute\|--verify-only] [--version X.Y.Z]` | Cuts a GitHub Release that publishes the GHCR images and the unsigned macOS desktop assets. Refuses a dirty tree, a non-`main` branch, or a local `main` that differs from `origin/main`. See [../RELEASING.md](../RELEASING.md). |
+| `release.sh [--dry-run\|--execute\|--resume\|--verify-only] [--version X.Y.Z]` | Cuts a GitHub Release that publishes the GHCR images and the unsigned macOS desktop assets. Refuses a dirty tree, a non-`main` branch, or a local `main` that differs from `origin/main`. `--resume` recovers a release whose post-create workflow wait was interrupted: it mutates nothing and re-attaches to the `publish-image` run for the released commit before verifying. See [../RELEASING.md](../RELEASING.md). |
 
 ```sh
 scripts/release.sh --dry-run
 scripts/release.sh --execute
+scripts/release.sh --resume --version v0.1.0
 ```
 
 ## Demo Helper
