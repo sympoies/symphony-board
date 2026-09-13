@@ -2094,8 +2094,8 @@ try {
     returnByValue: true,
   })).result.value || { hits: 0, legend: 0, lines: 0, tip: false, focus: false };
   const activityBreakpoint = {};
-  for (const width of [1450, 1451]) {
-    await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+  for (const width of [1211, 1212, 1280]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 891, deviceScaleFactor: 1, mobile: false });
     await sleep(80);
     activityBreakpoint[String(width)] = (await send("Runtime.evaluate", {
       expression: `(() => {
@@ -2105,11 +2105,17 @@ try {
         const layoutStyle = layout ? getComputedStyle(layout) : null;
         const listRect = list?.getBoundingClientRect();
         const panelRect = panel?.getBoundingClientRect();
+        // Unused width to the right of the row. A stacked layout whose single
+        // column is still capped reads as 'fits' by every other measure while
+        // stranding half the viewport, which is exactly what the foldable hit.
+        const host = layout?.getBoundingClientRect();
+        const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0);
         return {
           columns: layoutStyle?.gridTemplateColumns || '',
           gap: layoutStyle?.columnGap || '',
           stacked: !!listRect && !!panelRect && panelRect.top > listRect.bottom - 2,
           sideBySide: !!listRect && !!panelRect && Math.abs(panelRect.top - listRect.top) <= 2 && panelRect.left > listRect.right,
+          deadRight: host ? Math.round(host.right - right) : -1,
         };
       })()`,
       returnByValue: true,
@@ -4835,8 +4841,11 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
 
-  // Narrow: the rail stacks under the list instead of squeezing it.
-  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  // Below the split floor: the rail stacks under the list instead of squeezing it.
+  // 1024 rather than 1280 — 1280 is what the Android wide-layout setting pins the
+  // viewport to, so it now sits ABOVE the floor on purpose and the pair is probed
+  // there instead (see commitsRailWide below).
+  await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(250);
   const commitsRailNarrow = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -4846,6 +4855,31 @@ try {
       const listRect = list.getBoundingClientRect();
       const railRect = rail.getBoundingClientRect();
       return { found: true, stacked: railRect.top >= listRect.top, sideBySide: railRect.left >= listRect.right - 2 };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+
+  // The forced wide viewport: side by side, and using the whole row. A foldable
+  // with wide layout on lands here, and used to get the rail stacked under a
+  // full-width list.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 891, deviceScaleFactor: 1, mobile: false });
+  await sleep(250);
+  const commitsRailForcedWide = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector(".commits-split");
+      const list = document.querySelector(".commit-list");
+      const rail = document.querySelector(".commits-rail");
+      if (!split || !list || !rail) return { found: false };
+      const hostRect = split.getBoundingClientRect();
+      const listRect = list.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
+      return {
+        found: true,
+        sideBySide: railRect.left >= listRect.right - 2,
+        listWidth: Math.round(listRect.width),
+        railWidth: Math.round(railRect.width),
+        deadRight: Math.round(hostRect.right - Math.max(listRect.right, railRect.right)),
+      };
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
@@ -5296,7 +5330,11 @@ try {
     ],
     [
       commitsRailNarrow.found === true && commitsRailNarrow.sideBySide === false,
-      `commits: the rail stacks under the list below the split breakpoint (${JSON.stringify(commitsRailNarrow)})`,
+      `commits: the rail stacks under the list below the split floor (${JSON.stringify(commitsRailNarrow)})`,
+    ],
+    [
+      commitsRailForcedWide.found === true && commitsRailForcedWide.sideBySide === true && commitsRailForcedWide.deadRight <= 1,
+      `commits: the forced wide viewport puts the rail beside the list with no stranded width (${JSON.stringify(commitsRailForcedWide)})`,
     ],
     // Activity's third column appears at the breakpoint and not below it.
     [
@@ -5519,7 +5557,11 @@ try {
     [!activityHeatmap.present || trendHover.tip === true, "activity: hovering a trend point shows the per-line counts tooltip"],
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
-    [activityBreakpoint["1450"]?.stacked === true && activityBreakpoint["1451"]?.sideBySide === true && activityBreakpoint["1451"]?.gap === "12px", `activity: desktop rhythm split changes at the 1451px breakpoint (${JSON.stringify(activityBreakpoint)})`],
+    [activityBreakpoint["1211"]?.stacked === true && activityBreakpoint["1212"]?.sideBySide === true && activityBreakpoint["1212"]?.gap === "12px", `activity: the rhythm split flips at the 1212px floor (${JSON.stringify(activityBreakpoint)})`],
+    // 1280 is what the Android wide-layout setting pins the viewport to. It has
+    // to land on the side-by-side rule with no stranded width, or a foldable gets
+    // desktop chrome with mobile stacking -- the defect this probe exists for.
+    [activityBreakpoint["1280"]?.sideBySide === true && (activityBreakpoint["1280"]?.deadRight ?? -1) <= 1, `activity: the forced wide viewport is side by side and uses its full width (${JSON.stringify(activityBreakpoint["1280"])})`],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: Items renders issues and change requests in one chronological lookup surface
     [has(itemsHtml, "items-page"), "items: page rendered"],

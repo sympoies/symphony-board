@@ -12,7 +12,10 @@ import {
   SPLIT_MAX_WIDTH_PX,
   WIDE_RAIL_MIN_WIDTH_PX,
   WIDE_RAIL_QUERY,
+  SPLIT_RAIL_MIN_WIDTH_PX,
+  SPLIT_STACK_QUERY,
 } from "../src/layout-tier.ts";
+import { WIDE_VIEWPORT_WIDTH } from "../src/runtime.ts";
 import { isShortViewport, matchesViewportQuery } from "../src/useMediaQuery.ts";
 
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
@@ -83,13 +86,18 @@ test("every disclosure the compact tier reveals has its collapse target in the s
     .sort();
   assert.deepEqual(
     revealed,
-    [".live-pulse-disclosure", ".repo-stats-disclosure", ".stats-disclosure"],
+    [".repo-stats-disclosure", ".stats-disclosure"],
     "the reveal group is the exact set of strips this tier can also collapse — adding one without its surface is the defect this asserts",
   );
+  // .live-pulse-disclosure is deliberately NOT here: it is revealed at every
+  // size instead (see "the Live metric strip can always be collapsed"), because
+  // it is the only control for a ~300px strip rather than a stand-in for one
+  // shown inline. The pairing rule still binds it — its collapse rule sits at
+  // the same top level as its reveal, which that test asserts.
+  assert.ok(!revealed.includes(".live-pulse-disclosure"), "the metric strip is revealed globally, not by this tier");
 
   // Each revealed disclosure, paired with the rule that hides what it summarizes.
   const pairs: ReadonlyArray<readonly [string, RegExp]> = [
-    [".live-pulse-disclosure", /\.live-pulse\[data-open="false"\]\s*{\s*display:\s*none;\s*}/],
     [".stats-disclosure", /\.stats-body\[data-stats-collapsed="true"\]\s*{\s*display:\s*none;\s*}/],
     [".repo-stats-disclosure", /\.repo-stat-grid\[data-stats-collapsed="true"\]\s*{\s*display:\s*none;\s*}/],
   ];
@@ -194,7 +202,7 @@ test("the Activity rail breakpoint is published once and mirrored in the stylesh
 
   // The rail must be additive: below its breakpoint the page keeps the existing
   // two-column grid, so the narrow tiers cannot have been rewritten under it.
-  assert.match(mediaBlock("(max-width: 1450px)"), /\.activity-layout\s*\{[^}]*minmax\(0, 720px\)/);
+  assert.match(mediaBlock(SPLIT_STACK_QUERY), /\.activity-layout\s*\{[^}]*minmax\(0, 720px\)/);
 });
 
 test("Commits keeps a reading measure on its list, not on the page", () => {
@@ -203,4 +211,71 @@ test("Commits keeps a reading measure on its list, not on the page", () => {
   // while still rendering, so pin both halves of that swap.
   assert.doesNotMatch(styles, /\.commits-page\s*\{[^}]*max-width/, ".commits-page must no longer cap the whole page");
   assert.match(styles, /\.commits-split\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1180px\)/, "the commit list keeps its 1180px measure as a grid column");
+});
+
+test("the forced wide viewport clears every two-pane split breakpoint", () => {
+  // Android's "wide layout" setting pins the WebView viewport to exactly
+  // WIDE_VIEWPORT_WIDTH CSS px, whatever the panel is. A split that stacks above
+  // that width therefore hands the foldable desktop chrome WITH mobile stacking,
+  // which is the worst of both: on the Z Fold, Commits put its rail under the
+  // list, and Activity capped its feed at 720px and left ~560px of dead gutter
+  // beside it. Nothing else in the build compares the two numbers, so they drift
+  // silently — this is the assertion that notices.
+  assert.equal(WIDE_VIEWPORT_WIDTH, 1280);
+  assert.ok(
+    SPLIT_RAIL_MIN_WIDTH_PX <= WIDE_VIEWPORT_WIDTH,
+    `a two-pane split must fit the forced wide viewport (needs ${SPLIT_RAIL_MIN_WIDTH_PX}px, gets ${WIDE_VIEWPORT_WIDTH}px)`,
+  );
+
+  // Sized from the Activity tracks rather than picked round: the feed's 640px
+  // clamp floor, the overview's 560px floor, and one pane gap. Page padding is
+  // not in it, so the feed dips under its preference for the first ~50px above
+  // the floor -- measured 590px at 1212, and its full 640px by 1280.
+  assert.equal(SPLIT_RAIL_MIN_WIDTH_PX, 1212);
+
+  // Both pages must stack strictly BELOW the floor, so the forced width lands on
+  // the side-by-side rule rather than one pixel into the stacked one.
+  const stacked = mediaBlock(SPLIT_STACK_QUERY);
+  assert.match(stacked, /\.activity-layout\s*\{[^}]*minmax\(0, 720px\)/, "Activity stacks below the split floor");
+  assert.match(stacked, /\.commits-split\s*\{[^}]*minmax\(0, 1fr\)/, "Commits stacks below the split floor");
+  assert.equal(SPLIT_STACK_QUERY, `(max-width: ${SPLIT_RAIL_MIN_WIDTH_PX - 1}px)`);
+
+  // And no page may re-fork the number behind a local literal.
+  for (const source of ["../src/components/ActivityPage.tsx", "../src/components/CommitsPage.tsx"]) {
+    const text = readFileSync(new URL(source, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /max-width:\s*\d+px/, `${source} must not inline a split breakpoint`);
+  }
+});
+
+test("the Activity overview absorbs slack below the rail tier", () => {
+  // Between the split floor and the rail tier both Activity columns used to cap
+  // (feed 720 + overview 680), so every width from ~1412px to the 1700px rail
+  // breakpoint left a dead gutter — the same defect the page caps were removed
+  // to fix, one level further in. The overview takes the remainder instead, which
+  // is the rule Commits' rail and Activity's own rail already follow.
+  const split = /\.activity-layout\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
+  assert.match(split, /minmax\(560px, 1fr\)/, "the overview column must absorb the leftover, not stop at a ceiling");
+  assert.doesNotMatch(split, /minmax\(560px, 680px\)/, "a fixed overview ceiling strands width below the rail tier");
+});
+
+test("the Live metric strip can always be collapsed", () => {
+  // The strip costs ~300px. Its disclosure used to be revealed only by the
+  // compact tier, so a forced-wide foldable in landscape (1280x891 CSS px: wide
+  // enough to miss the narrow tier, tall enough to miss the short one) had no
+  // way to collapse it and kept a feed sliver. The control is cheap and it is
+  // the ONLY control for this strip — unlike the filter disclosures, which stand
+  // in for real controls shown inline on a roomy viewport — so it is always
+  // available, while WHICH state it defaults to still follows the tier.
+  assert.match(
+    styles,
+    /\.live-pulse-disclosure\s*\{[^}]*display:\s*inline-flex/,
+    "the metrics disclosure must be available at every size",
+  );
+  assert.match(
+    styles,
+    /\.live-pulse\[data-open="false"\]\s*\{\s*display:\s*none/,
+    "collapsing must actually hide the strip at every size",
+  );
+  const page = readFileSync(new URL("../src/components/LivePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /pulseChoice\s*\?\?\s*!shortViewport/, "the DEFAULT state still follows the short tier");
 });
