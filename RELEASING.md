@@ -103,7 +103,15 @@ reads GHCR immediately, so it fails while the workflow is still in flight.
 `--resume` is that recovery path. It mutates nothing: it reads the released
 commit from the Release, re-attaches to the `publish-image` run for that commit,
 waits for it, and then runs the same verification the interrupted run never
-reached.
+reached. It takes the prerelease flag from the Release too, rather than asking
+you to retype `--prerelease`: resume exists precisely because the original
+invocation's flags are gone, and getting that one wrong would check a `latest`
+belonging to some earlier release and still report this one complete.
+
+Resume needs a Release this script cut. `--execute` records the commit, while a
+Release created any other way records a branch name instead, which can never
+match a workflow run. Resume says so immediately rather than waiting out the
+discovery timeout.
 
 ```sh
 scripts/release.sh --resume --version v0.1.0

@@ -331,11 +331,20 @@ need_command curl
 need_command node
 need_command python3
 
+# The two cut-time gates below guard a release being brought into existence:
+# dry-run plans one, execute makes one. verify-only and resume only inspect a
+# release that already exists, so neither runs them. Stated once, because the
+# version gate fails OPEN if a future mode gets its condition backwards.
+case "$mode" in
+  execute | dry-run) cutting=1 ;;
+  *) cutting=0 ;;
+esac
+
 repo="$(repo_slug)" || die "could not resolve GitHub repository slug"
 app_version="$(normalize_version "$(package_version)")"
 if [ -z "$version" ]; then
   version="$app_version"
-elif [ "$mode" != "verify-only" ] && [ "$mode" != "resume" ] && [ "$version" != "$app_version" ]; then
+elif [ "$cutting" -eq 1 ] && [ "$version" != "$app_version" ]; then
   die "requested release version v$version does not match package.json version v$app_version; update package.json first or omit --version"
 fi
 tag="v$version"
@@ -364,9 +373,42 @@ fi
 # independently of ci. Catch drift here, before the GitHub Release exists.
 # verify-only and resume only inspect already-published artifacts, so they stay
 # exempt.
-if [ "$mode" = "execute" ] || [ "$mode" = "dry-run" ]; then
+if [ "$cutting" -eq 1 ]; then
   need_command jq
   bash "$repo_root/scripts/check-app-versions.sh"
+fi
+
+# Resume reads the release it is resuming BEFORE the plan banner below, so
+# the banner describes that release rather than this invocation's defaults.
+# --execute cannot be rerun once the release exists, and --verify-only reads
+# GHCR immediately, so resume is the only path that can finish a release whose
+# post-create wait died. It mutates nothing.
+if [ "$mode" = "resume" ]; then
+  gh release view "$tag" --repo "$repo" >/dev/null 2>&1 ||
+    die "no GitHub Release to resume: $tag; cut it first with scripts/release.sh --execute"
+
+  # The released commit, not HEAD: the local checkout has usually moved on by
+  # the time anyone resumes, and publish-image runs are matched by head SHA.
+  # isPrerelease comes from the same read because resume's whole premise is
+  # that the original invocation's flags are gone. Re-deriving --prerelease
+  # from operator memory would make the latest check verify some earlier
+  # non-prerelease and still report this release complete.
+  release_meta="$(gh release view "$tag" --repo "$repo" \
+    --json targetCommitish,isPrerelease \
+    --jq '.targetCommitish + " " + (.isPrerelease | tostring)')"
+  target_sha="${release_meta%% *}"
+  [ -n "$target_sha" ] || die "could not resolve the released commit for $tag"
+  # A release this script cut always names a commit, because --execute passes
+  # --target explicitly. One cut any other way names a branch, which can never
+  # match a run head SHA, so say so now instead of idling out the discovery
+  # timeout on a run that cannot exist.
+  [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] ||
+    die "GitHub Release $tag names ${target_sha}, not a commit; resume needs a release cut by --execute"
+
+  if [ "$prerelease" -eq 0 ] && [ "${release_meta##* }" = "true" ]; then
+    prerelease=1
+    info "$tag is a prerelease; not verifying the latest tag"
+  fi
 fi
 
 info "repo=$repo"
@@ -386,24 +428,15 @@ if [ "$mode" = "dry-run" ]; then
   exit 0
 fi
 
-# Recovery path for an --execute whose post-create wait died: the GitHub
-# Release is published but nothing verified it. --execute cannot be rerun
-# (the release exists) and --verify-only reads GHCR immediately, so it fails
-# while publish-image is still in flight. Resume mutates nothing; it
-# re-attaches to the publish run for the released commit and waits.
 if [ "$mode" = "resume" ]; then
-  gh release view "$tag" --repo "$repo" >/dev/null 2>&1 ||
-    die "no GitHub Release to resume: $tag; cut it first with scripts/release.sh --execute"
-
-  # The released commit, not HEAD: the local checkout may have moved on
-  # since the interrupted run, and publish-image runs are matched by SHA.
-  target_sha="$(gh release view "$tag" --repo "$repo" --json targetCommitish --jq .targetCommitish)"
-  [ -n "$target_sha" ] || die "could not resolve the released commit for $tag"
   info "resuming GitHub Release $tag at $target_sha"
 
   if [ "$wait_for_workflow" -eq 1 ]; then
     wait_for_publish_run "$repo" "$tag" "$timeout" "$target_sha"
   else
+    # Unlike --execute --no-wait, this keeps the verification below. Nothing
+    # can be published yet when execute skips its wait, but on resume the
+    # artifacts may already be there, so checking them is the useful thing.
     info "skipped workflow wait"
   fi
 fi
