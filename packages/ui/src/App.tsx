@@ -154,6 +154,7 @@ import { FullBoard } from "./components/FullBoard.tsx";
 import { ItemsPage } from "./components/ItemsPage.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
+import { actorAvatarIndex } from "./rail-stats.ts";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { ReviewsPage } from "./components/ReviewsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
@@ -1266,6 +1267,9 @@ export function App() {
     () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
     [windowedActivities, route.repo, route.branch, route.source],
   );
+  // Actor photos for the Activity rail's Who column. Review-thread comments are
+  // the only place the contract carries an avatar URL.
+  const actorAvatars = useMemo(() => actorAvatarIndex(visibleEnv?.review_threads ?? []), [visibleEnv?.review_threads]);
   const commitRailBranchSource = useMemo(
     () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author }),
     [windowedActivities, route.repo, route.source, route.author],
@@ -2280,6 +2284,7 @@ export function App() {
         settingsPageEl
       ) : page === "activity" ? (
         <ActivityPage
+          actorAvatars={actorAvatars}
           activities={filteredActivities}
           allActivities={env.activities ?? []}
           activityDaily={fullActivityDaily ?? env.activity_daily ?? null}

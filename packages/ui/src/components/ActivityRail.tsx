@@ -1,6 +1,7 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
+import { ActorAvatar } from "./ActorAvatar.tsx";
 import { countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel } from "../rail-stats.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 
@@ -74,7 +75,17 @@ function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
-export function ActivityRail({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
+export function ActivityRail({
+  activities,
+  timezone,
+  avatarOf,
+}: {
+  activities: ActivityDTO[];
+  timezone: string;
+  // Login -> avatar URL, from review-thread comments. Absent logins fall back to
+  // initials, so the Who column keeps one shape whoever is in it.
+  avatarOf?: ReadonlyMap<string, string>;
+}) {
   const actorRanks = useMemo(() => rankActors(activities, RAIL_RANK_LIMIT), [activities]);
   const repoRanks = useMemo(() => rankRepos(activities, RAIL_RANK_LIMIT), [activities]);
   const actorTotal = useMemo(() => rankActors(activities, 0).length, [activities]);
@@ -100,11 +111,9 @@ export function ActivityRail({ activities, timezone }: { activities: ActivityDTO
             key: rank.key,
             label: rank.label,
             count: rank.count,
-            footer: (
-              <span className="live-rank-name" aria-hidden="true">
-                {rank.label}
-              </span>
-            ),
+            // A face rather than a clipped login, matching the Live tab's buffer
+            // card. The account name is on hover, which is the only way it fits.
+            footer: <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} />,
           }))}
         />
       </div>

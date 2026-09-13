@@ -1,4 +1,4 @@
-import type { ActivityDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
 import { commitBranches, commitMessage } from "./model.ts";
 
@@ -191,4 +191,28 @@ export function rankKinds(activities: readonly ActivityDTO[], limit: number): Ra
 
 export function rankActions(activities: readonly ActivityDTO[], limit: number): RailRank[] {
   return rankByField(activities, "action", limit);
+}
+
+// Login -> avatar URL, built from review-thread comments.
+//
+// This is the ONLY place the contract carries an actor photo: `ActivityDTO` has
+// just an `actor` string, and `RepoMetricActorDTO` carries a profile link but no
+// image. So the Activity rail can show a real face for anyone who has commented
+// on a review thread, and falls back to initials for everyone else — the same
+// circle either way, so the row never changes shape depending on who it is.
+//
+// Deliberately NOT derived from the provider (e.g. github.com/<login>.png): that
+// would be provider-specific in a provider-neutral surface and would fetch from a
+// third party the board never otherwise contacts.
+export function actorAvatarIndex(threads: readonly ReviewThreadDTO[]): ReadonlyMap<string, string> {
+  const index = new Map<string, string>();
+  for (const thread of threads) {
+    for (const comment of thread.comments ?? []) {
+      const author = comment.author?.trim();
+      const url = comment.avatar_url?.trim();
+      if (!author || !url || index.has(author)) continue;
+      index.set(author, url);
+    }
+  }
+  return index;
 }

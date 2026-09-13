@@ -4848,6 +4848,61 @@ try {
     })).result.value || {};
     activityRailByViewport.push({ viewport: vp.name, width: vp.width, ...r });
   }
+
+  // Ultrawide: both rails flow their blocks two-up above 2200px, which halves the
+  // width each block gets. A ranked chart has a hard minimum — six bars at 26px
+  // plus five 8px gaps — and .rail-block sets no overflow, so a rail that did NOT
+  // gain width before splitting spills its bars across the neighbouring column.
+  // Measured at 2560 rather than 2200 so it is a clear case, not a boundary one.
+  const railTwoUp = [];
+  for (const page of [{ name: "commits", hash: "#/commits", rail: ".commits-rail" }, { name: "activity", hash: "#/activity", rail: ".activity-rail" }]) {
+    await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(page.hash)}` });
+    await sleep(400);
+    await waitHtml(`document.querySelector(${JSON.stringify(page.rail)})`);
+    const r = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const rail = document.querySelector(${JSON.stringify(page.rail)});
+        if (!rail) return { found: false };
+        const blocks = [...rail.querySelectorAll('.rail-block')];
+        const overflowing = [];
+        for (const b of blocks) {
+          for (const plot of b.querySelectorAll('.live-rank-plot, .rail-hours, .rail-daybars')) {
+            // Measure the IN-FLOW children's right edge against the container's.
+            //
+            // Two wrong ways to do this, both tried: the container's bounding rect
+            // never grows when its tracks overflow, and scrollWidth counts the
+            // absolutely-positioned hover tooltips, which are opacity:0 rather
+            // than removed and deliberately hang past the last bar. Only the bars
+            // themselves say whether the chart fits its card.
+            const bars = [...plot.children].filter((c) => getComputedStyle(c).position !== 'absolute');
+            if (bars.length === 0) continue;
+            const right = Math.max(...bars.map((c) => c.getBoundingClientRect().right));
+            const style = getComputedStyle(plot);
+            const box = plot.getBoundingClientRect().right - parseFloat(style.paddingRight || '0');
+            // One pixel per child of slack: these are flex/grid rows whose
+            // fractional widths each round up, so N children accumulate up to N px
+            // with nothing actually spilling. A real overflow is tens of pixels.
+            if (right > box + Math.max(2, bars.length)) {
+              overflowing.push({
+                title: (b.querySelector('.rail-block-title')?.textContent || '').trim(),
+                barsRight: Math.round(right),
+                boxRight: Math.round(box),
+              });
+            }
+          }
+        }
+        return {
+          found: true,
+          railWidth: Math.round(rail.getBoundingClientRect().width),
+          columns: getComputedStyle(rail).gridTemplateColumns.trim().split(/\\s+/).length,
+          overflowing,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || { found: false };
+    railTwoUp.push({ page: page.name, ...r });
+  }
   // --- Diagnostics fill-height tabs (Sync runs, Daemon log) ----------------
   // These two #/debug tabs size to the viewport and scroll INTERNALLY (the log
   // no longer caps at 420px; a short runs table no longer leaves dead space).
@@ -5112,6 +5167,11 @@ try {
         );
       })(),
       `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
+    ],
+    [
+      railTwoUp.length === 2 &&
+        railTwoUp.every((r) => r.found === true && r.columns === 2 && r.overflowing.length === 0),
+      `rails: blocks flow two-up at 2560px without overflowing their card (${JSON.stringify(railTwoUp)})`,
     ],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.

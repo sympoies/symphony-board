@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ActivityDTO } from "@symphony-board/contract";
-import { commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
+import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
+import { actorAvatarIndex, commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -215,4 +215,71 @@ test("rankKinds and rankActions count the vocabulary the filter chips use", () =
   assert.deepEqual(rankKinds(rows, 5).map((r) => [r.label, r.count]), [["commit", 2], ["change_request", 1], ["review", 1]]);
   assert.deepEqual(rankActions(rows, 5).map((r) => [r.label, r.count]), [["committed", 2], ["approved", 1], ["merged", 1]]);
   assert.equal(rankKinds(rows, 0).length, 3, "limit 0 backs the 'N kinds' header");
+});
+
+function thread(comments: Array<{ author: string | null; avatar_url?: string | null }>): ReviewThreadDTO {
+  return {
+    id: "gh|t1",
+    source_id: "gh",
+    external_id: "t1",
+    project_path: "acme/api",
+    target_ref: "gh|1",
+    target_iid: 1,
+    title: null,
+    url: null,
+    is_resolved: false,
+    is_outdated: null,
+    resolved_by: null,
+    path: null,
+    line: null,
+    start_line: null,
+    comments_total: comments.length,
+    comments: comments.map((c, i) => ({
+      id: `c${i}`,
+      author: c.author,
+      avatar_url: c.avatar_url,
+      body: null,
+      url: null,
+      created_at: null,
+      updated_at: null,
+    })),
+  } as ReviewThreadDTO;
+}
+
+test("actorAvatarIndex maps a login to the first avatar the contract carries", () => {
+  const index = actorAvatarIndex([
+    thread([{ author: "ada", avatar_url: "https://img/ada.png" }, { author: "grace", avatar_url: "https://img/grace.png" }]),
+  ]);
+  assert.equal(index.get("ada"), "https://img/ada.png");
+  assert.equal(index.get("grace"), "https://img/grace.png");
+  assert.equal(index.size, 2);
+});
+
+test("actorAvatarIndex keeps the first URL for a login rather than the last", () => {
+  // Stable across re-renders: a later comment must not swap the face mid-session.
+  const index = actorAvatarIndex([
+    thread([{ author: "ada", avatar_url: "https://img/first.png" }, { author: "ada", avatar_url: "https://img/second.png" }]),
+  ]);
+  assert.equal(index.get("ada"), "https://img/first.png");
+});
+
+test("actorAvatarIndex skips comments with no author or no avatar", () => {
+  // avatar_url is optional-and-nullable in the contract (4.2.0 additive field),
+  // so a pre-4.2.0 comment simply contributes nothing and the actor falls back
+  // to initials.
+  const index = actorAvatarIndex([
+    thread([
+      { author: null, avatar_url: "https://img/x.png" },
+      { author: "ada" },
+      { author: "grace", avatar_url: null },
+      { author: "  ", avatar_url: "https://img/y.png" },
+      { author: "linus", avatar_url: "  " },
+    ]),
+  ]);
+  assert.equal(index.size, 0);
+});
+
+test("actorAvatarIndex tolerates a thread with no comments array", () => {
+  const bare = { ...thread([]), comments: undefined } as unknown as ReviewThreadDTO;
+  assert.equal(actorAvatarIndex([bare]).size, 0);
 });

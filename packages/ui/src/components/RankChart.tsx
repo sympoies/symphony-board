@@ -68,7 +68,10 @@ export function RankChart({
                 <span className="live-rank-tooltip">{item.count.toLocaleString("en-US")}</span>
                 <span className="live-rank-bar" />
               </span>
-              <span className="live-rank-footer">{item.footer}</span>
+              {/* The footer is clipped to one line, so the full value lives on
+                  hover. An avatar footer carries its own title and wins when the
+                  pointer is over the face itself. */}
+              <span className="live-rank-footer" title={item.label}>{item.footer}</span>
             </>
           );
           // Read-only rows keep the original listitem markup verbatim so the Live
