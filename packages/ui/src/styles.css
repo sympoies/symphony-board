@@ -1556,8 +1556,13 @@ a.rf-node-title:hover { color: var(--accent); }
      on a 4K panel (feed 720 + overview 680 + rail 420 uses barely half of it),
      and it also meant the rail never grew before the two-up rule below split it,
      which overflowed its charts. */
+  /* 30 / 35 / 35 by ratio rather than three pixel ceilings. The feed no longer
+     takes the lion's share: its rows wrap instead of truncating, so it reads
+     fine narrower, while the overview's charts and the rail's six-bar charts
+     both needed the width they were not getting — the rail sat at 420px and
+     clipped almost every label to three characters. */
   .activity-layout {
-    grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 680px) minmax(300px, 1fr);
+    grid-template-columns: minmax(0, 30fr) minmax(0, 35fr) minmax(0, 35fr);
   }
 }
 
@@ -2192,10 +2197,21 @@ a.rf-node-title:hover { color: var(--accent); }
   overflow: hidden;
 }
 .activity-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.activity-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* `align-items: start` because the title may now be two lines: centring would
+   push the badge to the middle of a tall title instead of aligning with its
+   first line. */
+.activity-title-row { display: flex; align-items: start; gap: 8px; min-width: 0; }
 .activity-title {
   color: var(--text); font-weight: 600; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Two lines rather than one clipped line. A commit subject is the row's whole
+     point, and at this column width one line ended mid-sentence on most rows.
+     The row height below is sized for exactly two, so the clamp is what keeps a
+     very long subject from pushing the meta out of a fixed-height row. */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 .activity-title:hover { color: var(--accent); }
 .activity-meta {
@@ -4111,11 +4127,20 @@ span.live-avatar { cursor: default; }
   max-width: 100%;
   color: color-mix(in srgb, var(--text) 84%, var(--muted));
   font-size: 10px;
-  line-height: 1.4;
+  line-height: 1.25;
   text-align: center;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  /* `break-word`, NOT `anywhere`. Anywhere splits at whatever character lands on
+     the boundary, which is what turned `xsin4880` into "xsin / 48…" and made two
+     different serenvia repos both read "sere / nv…". break-word keeps a token
+     whole when it fits on a line of its own and still breaks at the hyphens in
+     names like `livekit-agents`, so two lines carry a real name instead of two
+     fragments. The clamp keeps the ellipsis as the last resort rather than the
+     first. */
+  overflow-wrap: break-word;
 }
 .live-rank-empty {
   min-height: 72px;
