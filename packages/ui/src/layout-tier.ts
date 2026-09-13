@@ -27,6 +27,22 @@ export const NARROW_MAX_WIDTH_PX = 760;
 export const SHORT_MAX_HEIGHT_PX = 760;
 export const SPLIT_MAX_WIDTH_PX = 900;
 
+// The width at which Activity gains its third column (the who / where / when
+// rail). Derived from what the three columns actually need rather than picked
+// round: the feed's 40vw, the overview's 560px floor and a 340px rail plus gaps
+// fit from about 1660px of content box, which a 1700px viewport provides.
+// Deliberately BELOW the 1728px of a 16" MacBook Pro at default scaling, so the
+// laptop this board is read on gets the rail rather than just missing it.
+export const WIDE_RAIL_MIN_WIDTH_PX = 1700;
+export const WIDE_RAIL_QUERY = `(min-width: ${WIDE_RAIL_MIN_WIDTH_PX}px)`;
+
+// Not every breakpoint belongs here, and one nearby deliberately does not: the
+// Commits list/rail split collapses at 1500px purely in CSS. Nothing in JS gates
+// it — the rail renders at every width and the grid decides whether it sits
+// beside the list or under it — so there is no pair that could drift, and
+// publishing a constant only this file would read is noise. Recorded so an audit
+// starting here does not conclude 1500 went missing.
+
 // Floor for a content pane, in the units that matter: rows. A Live/Reviews row
 // is 114px at the default two-line preview plus a 6px gap, so 240px is two whole
 // rows — the point below which a pane stops reading as a list at all (the

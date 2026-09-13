@@ -4627,6 +4627,220 @@ try {
   // page, so a renamed selector cannot turn this probe into a vacuous pass.
   const wideFillExpected = wideFillViewports.length * wideFillPages.length;
   const wideFillCovered = new Set(wideFillResults.map((r) => `${r.viewport}:${r.page}`)).size;
+
+  // --- Commits / Activity side rails --------------------------------------
+  // The two pages that idle width used to strand. Commits now pairs a
+  // measure-capped list with a digest rail; Activity gains a third column above
+  // WIDE_RAIL_MIN_WIDTH_PX. Both are asserted at a viewport where they must
+  // appear AND at one where they must not, so "the rail renders" cannot pass by
+  // rendering everywhere and breaking the narrow tiers.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.commits-page')");
+  const commitsRailWide = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const list = document.querySelector('.commit-list');
+      const rail = document.querySelector('.commits-rail');
+      if (!split || !list || !rail) return { found: false, hasSplit: !!split, hasList: !!list, hasRail: !!rail };
+      const listRect = list.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
+      const blocks = [...rail.querySelectorAll('.rail-block-title')].map((el) => (el.textContent || '').trim());
+      return {
+        found: true,
+        listWidth: Math.round(listRect.width),
+        railWidth: Math.round(railRect.width),
+        blocks,
+        // The rail must sit BESIDE the list, not under it.
+        sideBySide: railRect.left >= listRect.right - 2,
+        dayBars: rail.querySelectorAll('.rail-daybar').length,
+        repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+
+  // A rail row is navigation: clicking a Top repos bar must apply the repo filter
+  // the row describes. Asserting the hash proves the click reached the SAME
+  // route-backed state the dropdown writes, not a private highlight.
+  const commitsRailFilter = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const before = location.hash;
+      const row = document.querySelector('.commits-rail .live-rank-chart-repos .live-rank-item-action');
+      if (!row) return { clicked: false };
+      row.click();
+      return { clicked: true, before, after: location.hash };
+    })()`,
+    returnByValue: true,
+  })).result.value || { clicked: false };
+  await sleep(350);
+  const commitsRailFilterApplied = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      hasRepoParam: /[?&]repo=/.test(location.hash),
+      pressed: !!document.querySelector('.commits-rail .live-rank-item-on'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  // The facet rule, which nothing else pins: each ranked list is counted with
+  // every filter applied EXCEPT its own. Without this, wiring both rail sources
+  // to the visible `commits` would keep every other assertion here green while
+  // leaving the rail with nowhere to click next.
+  const commitsRailFacet = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const repoRows = [...document.querySelectorAll('.commits-rail .live-rank-chart-repos .live-rank-item')];
+      const rowsInList = document.querySelectorAll('.commit-list .commit-row').length;
+      const pressed = document.querySelector('.commits-rail .live-rank-item-on');
+      return {
+        // Still offers repos other than the one now selected.
+        repoRows: repoRows.length,
+        pressedRows: document.querySelectorAll('.commits-rail .live-rank-item-on').length,
+        // Sanity: the LIST really did narrow, so the rail keeping its breadth is
+        // a deliberate difference and not just "nothing was filtered".
+        rowsInList,
+        pressedLabel: pressed ? (pressed.getAttribute('aria-label') || '') : '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Leave the page unfiltered for the checks below.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(350);
+
+  // Selecting a commit row swaps the digest for the detail pane, which is what
+  // makes the full commit message readable at all.
+  const commitDetailSelect = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = document.querySelector('.commit-list .commit-row');
+      if (!row) return { clicked: false };
+      row.click();
+      return { clicked: true };
+    })()`,
+    returnByValue: true,
+  })).result.value || { clicked: false };
+  await sleep(300);
+  const commitDetailShown = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const shaText = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
+      const rowSha = (document.querySelector('.commit-row-selected .commit-sha-text, .commit-row-selected .commit-sha')?.textContent || '').trim();
+      return {
+        hasDetail: !!document.querySelector('.commit-detail-card'),
+        hasDigest: !!document.querySelector('.commits-rail .rail-daybars'),
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        hasTitle: !!document.querySelector('.commit-detail-title'),
+        // The detail is where the COMPLETE identifier has to be legible; the row
+        // beside it already carries the abbreviation.
+        shaLength: shaText.length,
+        shaIsHex: /^[0-9a-f]{40}$/.test(shaText),
+        rowShaShorter: rowSha.length > 0 && rowSha.length < shaText.length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Clicking the same row again returns to the digest.
+  await send("Runtime.evaluate", {
+    expression: "document.querySelector('.commit-row-selected')?.click()",
+  });
+  await sleep(300);
+  const commitDetailToggledOff = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hasDetail: !!document.querySelector('.commit-detail-card'),
+      hasDigest: !!document.querySelector('.commits-rail .rail-daybars'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+
+  // Keyboard reachability. Opening the detail is the only way to read a full
+  // commit message, so a mouse-only path would put that behind a pointer.
+  const commitRowKeyboard = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const row = document.querySelector('.commit-list .commit-row');
+      if (!row) return { found: false };
+      const focusable = row.tabIndex >= 0;
+      row.focus();
+      const focused = document.activeElement === row;
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      return { found: true, focusable, focused };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await sleep(300);
+  const commitRowKeyboardOpened = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.commit-detail-card')",
+    returnByValue: true,
+  })).result.value === true;
+  // Selection is component state, not route state, so re-setting the same hash
+  // would leave the detail open and hide the digest from the next probe. Close
+  // it through the control a viewer would use.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail-back')?.click()" });
+  await sleep(300);
+
+  // Rail rows must be real buttons with a real pressed state. An explicit
+  // role="listitem" on the button would silently discard aria-pressed.
+  const railRowSemantics = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const btn = document.querySelector('.commits-rail .live-rank-chart-repos .live-rank-item-action');
+      if (!btn) return { found: false };
+      const before = btn.getAttribute('aria-pressed');
+      btn.click();
+      return {
+        found: true,
+        tag: btn.tagName,
+        explicitRole: btn.getAttribute('role'),
+        inListitem: !!btn.closest('[role="listitem"]'),
+        pressedBefore: before,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await sleep(350);
+  const railRowPressedAfter = (await send("Runtime.evaluate", {
+    expression: "document.querySelector('.commits-rail .live-rank-item-on')?.getAttribute('aria-pressed') ?? null",
+    returnByValue: true,
+  })).result.value;
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(300);
+
+  // Narrow: the rail stacks under the list instead of squeezing it.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(250);
+  const commitsRailNarrow = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const list = document.querySelector('.commit-list');
+      const rail = document.querySelector('.commits-rail');
+      if (!list || !rail) return { found: false };
+      const listRect = list.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
+      return { found: true, stacked: railRect.top >= listRect.top, sideBySide: railRect.left >= listRect.right - 2 };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+
+  // Activity's third column: present above the breakpoint, absent below it.
+  const activityRailByViewport = [];
+  for (const vp of [{ name: "wide", width: 1880 }, { name: "at-breakpoint", width: 1700 }, { name: "below", width: 1500 }]) {
+    await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: 1080, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+    await sleep(400);
+    await waitHtml("document.querySelector('.activity-page')");
+    const r = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const layout = document.querySelector('.activity-layout');
+        const rail = document.querySelector('.activity-rail');
+        const columns = layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\\s+/).length : 0;
+        const titles = rail ? [...rail.querySelectorAll('.rail-block-title')].map((el) => (el.textContent || '').trim()) : [];
+        return {
+          hasRail: !!rail,
+          columns,
+          titles,
+          hours: rail ? rail.querySelectorAll('.rail-hourbar').length : 0,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    activityRailByViewport.push({ viewport: vp.name, width: vp.width, ...r });
+  }
   // --- Diagnostics fill-height tabs (Sync runs, Daemon log) ----------------
   // These two #/debug tabs size to the viewport and scroll INTERNALLY (the log
   // no longer caps at 420px; a short runs table no longer leaves dead space).
@@ -4801,6 +5015,91 @@ try {
     debugStickyCheck,
     debugSyncGqlCheck,
     [wideFillShort.length === 0 && wideFillCovered === wideFillExpected, `app: primary pages fill the full-bleed shell on wide viewports (covered ${wideFillCovered}/${wideFillExpected}, short ${JSON.stringify(wideFillShort)})`],
+    // Commits: list keeps its reading measure, rail takes the remainder beside it.
+    [
+      commitsRailWide.found === true &&
+        commitsRailWide.sideBySide === true &&
+        commitsRailWide.listWidth > 0 && commitsRailWide.listWidth <= 1182 &&
+        commitsRailWide.railWidth >= 300 &&
+        commitsRailWide.dayBars > 0 &&
+        commitsRailWide.repoRows > 0 &&
+        ["Commits per day", "Top repos", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
+      `commits: digest rail sits beside a measure-capped list (${JSON.stringify(commitsRailWide)})`,
+    ],
+    // The rail is navigation: a Top repos click writes the same route filter the
+    // dropdown writes, and the clicked row shows as pressed.
+    [
+      commitsRailFilter.clicked === true &&
+        commitsRailFilterApplied.hasRepoParam === true &&
+        commitsRailFilterApplied.pressed === true,
+      `commits: a rail repo row applies the route repo filter (${JSON.stringify(commitsRailFilter)} -> ${JSON.stringify(commitsRailFilterApplied)})`,
+    ],
+    // Facet rule: with one repo selected the LIST narrows, but Top repos must
+    // still offer the others. Counting the rail off the visible rows instead
+    // would leave exactly one row here.
+    [
+      commitsRailFacet.repoRows > 1 &&
+        commitsRailFacet.pressedRows === 1 &&
+        commitsRailFacet.rowsInList > 0 &&
+        commitsRailWide.repoRows > 0 &&
+        commitsRailFacet.repoRows >= commitsRailWide.repoRows,
+      `commits: the rail keeps offering other repos after one is selected — the facet rule (before ${commitsRailWide.repoRows} rows, after ${JSON.stringify(commitsRailFacet)})`,
+    ],
+    // Master-detail: selecting a row swaps the digest for the detail, and
+    // selecting it again swaps back.
+    [
+      commitDetailSelect.clicked === true &&
+        commitDetailShown.hasDetail === true &&
+        commitDetailShown.hasTitle === true &&
+        commitDetailShown.hasDigest === false &&
+        commitDetailShown.selectedRows === 1 &&
+        commitDetailToggledOff.hasDetail === false &&
+        commitDetailToggledOff.hasDigest === true,
+      `commits: selecting a row opens the detail and toggles back to the digest (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+    ],
+    [
+      commitDetailShown.shaIsHex === true && commitDetailShown.shaLength === 40,
+      `commits: the detail shows the FULL commit sha, not the abbreviation (length=${commitDetailShown.shaLength}, hex40=${commitDetailShown.shaIsHex})`,
+    ],
+    [
+      commitRowKeyboard.found === true &&
+        commitRowKeyboard.focusable === true &&
+        commitRowKeyboard.focused === true &&
+        commitRowKeyboardOpened === true,
+      `commits: a commit row is focusable and Enter opens its detail (${JSON.stringify(commitRowKeyboard)}, opened=${commitRowKeyboardOpened})`,
+    ],
+    [
+      railRowSemantics.found === true &&
+        railRowSemantics.tag === "BUTTON" &&
+        railRowSemantics.explicitRole === null &&
+        railRowSemantics.inListitem === true &&
+        railRowSemantics.pressedBefore === "false" &&
+        railRowPressedAfter === "true",
+      `commits: a rail row is a button inside a listitem and exposes aria-pressed (${JSON.stringify(railRowSemantics)}, after=${railRowPressedAfter})`,
+    ],
+    [
+      commitsRailNarrow.found === true && commitsRailNarrow.sideBySide === false,
+      `commits: the rail stacks under the list below the split breakpoint (${JSON.stringify(commitsRailNarrow)})`,
+    ],
+    // Activity's third column appears at the breakpoint and not below it.
+    [
+      (() => {
+        const at = (name) => activityRailByViewport.find((r) => r.viewport === name) || {};
+        const wide = at("wide");
+        const edge = at("at-breakpoint");
+        const below = at("below");
+        const hasAll = (r) => ["Who", "Where", "When"].every((t) => (r.titles || []).includes(t));
+        return (
+          wide.hasRail === true && wide.columns === 3 && hasAll(wide) && wide.hours === 24 &&
+          edge.hasRail === true && edge.columns === 3 &&
+          // Below the breakpoint the page must be EXACTLY the layout it had
+          // before the rail existed: no third column, and still the two-column
+          // feed + overview grid (the single-column tier starts lower, at 1450).
+          below.hasRail === false && below.columns === 2
+        );
+      })(),
+      `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
+    ],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],

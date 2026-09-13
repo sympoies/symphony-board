@@ -1118,12 +1118,30 @@ a.rf-node-title:hover { color: var(--accent); }
 
 /* activity / item / commit pages */
 /* Items is full-bleed (its master-detail splits by ratio and the detail markdown
-   keeps its own 92ch measure). Commits deliberately KEEPS a cap: it is a
-   single-column list with no second pane to absorb the width, so a measure limit
-   is the right design there, not a leftover. */
+   keeps its own 92ch measure). Commits used to keep a page cap because a lone
+   list has nothing to absorb the extra width; it now HAS a second pane, so the
+   cap moved down to the list column and the rail takes the remainder. */
 .activity-page { margin: 12px 0; }
 .items-page { margin: 12px 0; }
-.commits-page { margin: 12px 0; max-width: 1180px; }
+.commits-page { margin: 12px 0; }
+
+/* Commits: list + digest rail. The list keeps the 1180px reading measure the
+   page cap used to give it — stretching a commit log to 3000px turns every row
+   into a thin ribbon — and the rail takes what is left, which is 560px at 1756
+   and comfortably more at 1920. Below the breakpoint the rail drops under the
+   list rather than squeezing it. */
+.commits-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1180px) minmax(300px, 460px);
+  gap: 16px;
+  align-items: start;
+  /* Above roughly 2200px both columns are at their ceiling, so centring the pair
+     leaves symmetric gutters instead of one lopsided strip of dead space. */
+  justify-content: center;
+}
+@media (max-width: 1500px) {
+  .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
+}
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 720px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
 .items-head {
@@ -1514,6 +1532,16 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 @media (max-width: 1450px) {
   .activity-layout { grid-template-columns: minmax(0, 720px); }
+}
+/* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
+   layout-tier.ts, which is what gates the component actually rendering —
+   layout-tier.test.ts keeps the two in step. The overview column may give up its
+   slack (680 -> 560) to make room, since its charts still read at that width
+   while the rail below 300px does not. */
+@media (min-width: 1700px) {
+  .activity-layout {
+    grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 680px) minmax(300px, 420px);
+  }
 }
 
 /* Mobile-only segmented control choosing the single visible pane: the Activity
@@ -4471,3 +4499,187 @@ a.rf-node-title:hover { color: var(--accent); }
   .live-split[data-detail-open="true"] .live-detail { animation: none; }
   .items-split[data-detail-open="true"] .items-detail { animation: none; }
 }
+
+/* ==================== side rails (Commits digest, Activity who/where/when) ====
+   Both rails are stacks of small titled blocks on the page surface, deliberately
+   quieter than the Live pulse cards: they sit beside a list that owns the
+   reading attention, so they read as reference, not as the subject. */
+.commits-rail,
+.activity-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  /* Follows the list rather than scrolling with it: a rail taller than the
+     viewport would otherwise strand its last block off-screen. */
+  position: sticky;
+  top: 12px;
+}
+.rail-block {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.rail-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.rail-block-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rail-block-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.rail-rank-chart { height: 104px; }
+
+/* Per-day / per-hour strips. Bars share the rank chart's --rank-h contract so the
+   height maths lives in one place (rank-scale.ts). */
+.rail-daybars,
+.rail-hours {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+}
+.rail-daybar,
+.rail-hourbar {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.rail-daybar-fill {
+  width: 100%;
+  height: var(--rank-h, 3%);
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+/* An empty bucket still occupies its slot — that is how a gap stays legible —
+   but reads as track rather than as a count. */
+.rail-daybar[data-empty="true"] .rail-daybar-fill,
+.rail-hourbar[data-empty="true"] .rail-daybar-fill {
+  background: var(--panel-2);
+}
+.rail-daybar-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+  z-index: 5;
+}
+.rail-daybar:hover .rail-daybar-tip,
+.rail-hourbar:hover .rail-daybar-tip { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .rail-daybar-tip { transition: none; }
+}
+.rail-hours-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* A selectable rank row is a <button> inside its own listitem wrapper (the role
+   and the button cannot share an element without discarding aria-pressed), so
+   the wrapper has to take the flex sizing the bare .live-rank-item used to get
+   from .live-rank-plot. */
+.live-rank-item-slot {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.live-rank-item-slot > .live-rank-item-action { flex: 1 1 0; min-width: 0; }
+
+/* A rank row that drives a filter. The base .live-rank-item styling carries the
+   bar; this only adds the button reset and the pressed state. */
+.live-rank-item-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.live-rank-item-action:hover .live-rank-bar { background: var(--link); }
+.live-rank-item-on .live-rank-bar { background: var(--link); }
+.live-rank-item-on .live-rank-footer { color: var(--text); font-weight: 600; }
+
+/* ---- Commits: selected row + detail pane ---- */
+.commit-row-selected { background: var(--hover-strong); }
+.commit-detail-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.commit-detail-back {
+  display: inline-block;
+  background: none;
+  border: none;
+  color: var(--link);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 0 10px;
+  cursor: pointer;
+}
+.commit-detail-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* Commit bodies are plain text that authors wrapped by hand; preserve it rather
+   than reflowing, but let a long URL wrap instead of forcing a scrollbar. */
+.commit-detail-body {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}
+.commit-detail-meta { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.commit-detail-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.commit-detail-row dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.commit-detail-row dd { margin: 0; font-size: 12px; color: var(--text); min-width: 0; overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.commit-detail-sha { font-family: var(--mono); font-size: 12px; }
+.commit-detail-actor { color: var(--text); }
+.commit-detail-branches { display: flex; flex-wrap: wrap; gap: 6px; }
+.commit-branch-chip {
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.commit-detail-link { display: inline-block; margin-top: 12px; font-size: 12px; }

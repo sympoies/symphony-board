@@ -1251,9 +1251,21 @@ export function App() {
   // shared range (the window total + repo option source); repoCommits narrows to
   // the selected repo for branch options; commits applies the optional branch
   // filter when commit rows carry branch/ref details.
-  const windowCommits = useMemo(() => filterCommits(windowedActivities, null), [windowedActivities]);
-  const repoCommits = useMemo(() => filterCommits(windowedActivities, route.repo, null, route.source), [windowedActivities, route.repo, route.source]);
-  const commits = useMemo(() => filterCommits(windowedActivities, route.repo, route.branch, route.source), [windowedActivities, route.repo, route.branch, route.source]);
+  const windowCommits = useMemo(() => filterCommits(windowedActivities), [windowedActivities]);
+  const repoCommits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, source: route.source }), [windowedActivities, route.repo, route.source]);
+  const commits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, author: route.author }), [windowedActivities, route.repo, route.branch, route.source, route.author]);
+  // The digest rail's two ranked lists are FACETS: each is counted with every
+  // filter applied EXCEPT its own. Counting them off `commits` instead would
+  // collapse the list you are standing in to a single row and leave nowhere to
+  // click next — selecting a repo would hide every other repo.
+  const commitRailRepoSource = useMemo(
+    () => filterCommits(windowedActivities, { branch: route.branch, author: route.author }),
+    [windowedActivities, route.branch, route.author],
+  );
+  const commitRailAuthorSource = useMemo(
+    () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
+    [windowedActivities, route.repo, route.branch, route.source],
+  );
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
   // Board-wide commit total from the full-history aggregate (4.0.0 windows
@@ -1718,6 +1730,7 @@ export function App() {
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,
       branch: page === "commits" ? route.branch : null,
+      author: page === "commits" ? route.author : null,
       kind: page === "activity" ? route.kind : null,
       action: page === "activity" ? route.action : null,
       isource: route.isource,
@@ -1783,6 +1796,7 @@ export function App() {
       source: repo?.source_id ?? null,
       repo: repo?.project_path ?? null,
       branch: route.branch,
+      author: route.author,
       isource: route.isource,
       istate: route.istate,
       ikind: route.ikind,
@@ -1804,6 +1818,32 @@ export function App() {
       source: route.source,
       repo: route.repo,
       branch,
+      author: route.author,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
+      ireview: route.ireview,
+      irepo: route.irepo,
+      unresolved: route.unresolved,
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
+  // Author is a Commits-only drill-down, set from the digest rail. A plain
+  // setter, like setRouteRepo: the rail decides when a row means "clear", so
+  // this cannot surprise a future caller by toggling behind its back.
+  function setRouteAuthor(author: string | null) {
+    if (typeof window === "undefined") return;
+    const next = buildHashRoute({
+      page: "commits",
+      source: route.source,
+      repo: route.repo,
+      branch: route.branch,
+      author,
       isource: route.isource,
       istate: route.istate,
       ikind: route.ikind,
@@ -1830,6 +1870,7 @@ export function App() {
       source: page === "activity" || page === "commits" ? route.source : null,
       repo: page === "activity" || page === "commits" ? route.repo : null,
       branch: page === "commits" ? route.branch : null,
+      author: page === "commits" ? route.author : null,
       kind: page === "activity" ? route.kind : null,
       action: page === "activity" ? route.action : null,
       isource: route.isource,
@@ -2282,8 +2323,12 @@ export function App() {
           selectedSource={route.source}
           selectedRepo={route.repo}
           selectedBranch={route.branch}
+          selectedAuthor={route.author}
+          railRepoSource={commitRailRepoSource}
+          railAuthorSource={commitRailAuthorSource}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
+          onAuthor={setRouteAuthor}
           range={activeRange}
           timezone={tz}
           sourceKind={sourceKind}

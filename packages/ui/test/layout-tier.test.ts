@@ -10,6 +10,8 @@ import {
   SHORT_MAX_HEIGHT_PX,
   SHORT_VIEWPORT_QUERY,
   SPLIT_MAX_WIDTH_PX,
+  WIDE_RAIL_MIN_WIDTH_PX,
+  WIDE_RAIL_QUERY,
 } from "../src/layout-tier.ts";
 import { isShortViewport, matchesViewportQuery } from "../src/useMediaQuery.ts";
 
@@ -172,4 +174,33 @@ test("the pane floor is published once and consumed everywhere", () => {
     assert.doesNotMatch(text, /_PANE_MIN_HEIGHT_PX\s*=/, `${source} must use the shared floor, not a local copy`);
     assert.doesNotMatch(text, /_DETAIL_OVERLAY_QUERY\s*=/, `${source} must use the shared breakpoint, not a local copy`);
   }
+});
+
+test("the Activity rail breakpoint is published once and mirrored in the stylesheet", () => {
+  assert.equal(WIDE_RAIL_MIN_WIDTH_PX, 1700);
+  assert.equal(WIDE_RAIL_QUERY, "(min-width: 1700px)");
+  // The component gates on the constant and the grid gains its third column in
+  // the stylesheet; if those two drift the rail renders into a two-column grid
+  // (or a third column sits empty), which is exactly the class of bug the rest
+  // of this file exists to prevent.
+  const railTier = mediaBlock(WIDE_RAIL_QUERY);
+  assert.match(railTier, /\.activity-layout\s*\{[^}]*grid-template-columns:[^}]*\}/, "the rail tier must widen .activity-layout to three columns");
+  const columns = railTier.match(/grid-template-columns:([^;]+);/)?.[1] ?? "";
+  assert.equal(columns.split("minmax").length - 1, 3, `the rail tier must declare three columns (got "${columns.trim()}")`);
+
+  const page = readFileSync(new URL("../src/components/ActivityPage.tsx", import.meta.url), "utf8");
+  assert.match(page, /WIDE_RAIL_QUERY/, "ActivityPage must gate the rail on the shared query, not a local copy");
+  assert.doesNotMatch(page, /min-width:\s*\d+px/, "ActivityPage must not inline a breakpoint of its own");
+
+  // The rail must be additive: below its breakpoint the page keeps the existing
+  // two-column grid, so the narrow tiers cannot have been rewritten under it.
+  assert.match(mediaBlock("(max-width: 1450px)"), /\.activity-layout\s*\{[^}]*minmax\(0, 720px\)/);
+});
+
+test("Commits keeps a reading measure on its list, not on the page", () => {
+  // The page cap moved to the list column when the digest rail arrived. If the
+  // cap came back to .commits-page the rail would be squeezed out of the layout
+  // while still rendering, so pin both halves of that swap.
+  assert.doesNotMatch(styles, /\.commits-page\s*\{[^}]*max-width/, ".commits-page must no longer cap the whole page");
+  assert.match(styles, /\.commits-split\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1180px\)/, "the commit list keeps its 1180px measure as a grid column");
 });

@@ -648,7 +648,7 @@
       "actor": "reviewer",
       "occurred_at": "2026-06-10T08:50:00Z",
       "details": {
-        "sha": "abc1234",
+        "sha": "abc12348acbdf1f13246868a9bdfdf1024646879",
         "message": "Ship activity feed"
       },
       "first_seen_at": "2026-06-10T08:58:00Z",
@@ -797,7 +797,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/b8c270d",
       "details": {
-        "sha": "b8c270d",
+        "sha": "b8c270d90cc2c107339387eaa0afe5117165c88e",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -816,7 +816,7 @@
       "actor": "gitlab-user",
       "occurred_at": "2026-06-08T11:20:00Z",
       "details": {
-        "sha": "def5678",
+        "sha": "def5678bdff13524668ac9bddf13024468a79bbd",
         "message": "Wire scoped-label parsing"
       },
       "first_seen_at": "2026-06-10T07:40:00Z",
@@ -876,7 +876,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/c8a6ad2",
       "details": {
-        "sha": "c8a6ad2",
+        "sha": "c8a6ad2a0a0c0f17173768e8eaedf5f51546c6c8",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -915,7 +915,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://github.com/sympoies/symphony-board/commit/7f5591a",
       "details": {
-        "sha": "7f5591a",
+        "sha": "7f5591aeeef4de5556b45cccd2bc3334923aaab0",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -935,7 +935,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/8533c37",
       "details": {
-        "sha": "8533c37",
+        "sha": "8533c37fdcdef4643456bdbabcd24212349b989a",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -972,7 +972,7 @@
       "title": "Cache the compiled range query",
       "url": "https://github.com/sympoies/symphony-board/commit/659f56b",
       "details": {
-        "sha": "659f56b",
+        "sha": "659f56bdd2002f4497796bb0ee0d227557499ecc",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -1011,7 +1011,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/6b6b375",
       "details": {
-        "sha": "6b6b375",
+        "sha": "6b6b375dafce3241635a9b8dac102f4138796b8a",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -1069,7 +1069,7 @@
       "title": "Harden the live snapshot probe",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/ebe8761",
       "details": {
-        "sha": "ebe8761",
+        "sha": "ebe8761cae222e3159995a8c000c1f3777386aee",
         "message": "Harden the live snapshot probe"
       },
       "action": "committed"
@@ -1142,7 +1142,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://github.com/sympoies/symphony-board/commit/9b9d1a9",
       "details": {
-        "sha": "9b9d1a9",
+        "sha": "9b9d1a90a2ecd6719534de80cab45f7312bc6ea8",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -1184,7 +1184,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://github.com/sympoies/symphony-board/commit/b0b0258",
       "details": {
-        "sha": "b0b0258",
+        "sha": "b0b025898bad150f2148c7698bf3ed0f26a54769",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -1221,7 +1221,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://github.com/sympoies/symphony-board/commit/3b64728",
       "details": {
-        "sha": "3b64728",
+        "sha": "3b64728aafe2e5116595c88dc0c3ff4373a66bae",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -1241,7 +1241,7 @@
       "title": "Tidy contract projection",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/0674a3f",
       "details": {
-        "sha": "0674a3f",
+        "sha": "0674a3f7e0ecf3e57536a5cecad1c3531483aca8",
         "message": "Tidy contract projection"
       },
       "action": "committed"
@@ -1283,7 +1283,7 @@
       "title": "Refine board column layout",
       "url": "https://github.com/sympoies/symphony-board/commit/54d145c",
       "details": {
-        "sha": "54d145c",
+        "sha": "54d145cccdbf103342687aab9dfe11204658897b",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -1354,7 +1354,7 @@
       "title": "Cache the compiled range query",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/54c03e2",
       "details": {
-        "sha": "54c03e2",
+        "sha": "54c03e2cccae1f3331586aaa8cfd111f3648886a",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -1391,7 +1391,7 @@
       "title": "Refine board column layout",
       "url": "https://github.com/sympoies/symphony-board/commit/c52c6e7",
       "details": {
-        "sha": "c52c6e7",
+        "sha": "c52c6e7adbd114142488b8b9bff2f2026696979d",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -1411,7 +1411,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://github.com/sympoies/symphony-board/commit/9ab1ab9",
       "details": {
-        "sha": "9ab1ab9",
+        "sha": "9ab1ab909bbce6702235de799ac45e0013bc5778",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -1465,7 +1465,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://github.com/sympoies/symphony-board/commit/992c75c",
       "details": {
-        "sha": "992c75c",
+        "sha": "992c75c01bd2107824987ef9b0fe5602765cd79e",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -1485,7 +1485,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://github.com/sympoies/symphony-board/commit/63d5dcb",
       "details": {
-        "sha": "63d5dcb",
+        "sha": "63d5dcbdbdffff4246666b9bdddd2024444979bb",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -1527,7 +1527,7 @@
       "title": "Cache the compiled range query",
       "url": "https://github.com/sympoies/symphony-board/commit/83e2769",
       "details": {
-        "sha": "83e2769",
+        "sha": "83e2769fbec226625399dd9ca004403177bb7a8e",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -1547,7 +1547,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/470137b",
       "details": {
-        "sha": "470137b",
+        "sha": "470137bbf9be3f26025a69d79c1d04e03847b57a",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -1642,7 +1642,7 @@
       "title": "Tidy contract projection",
       "url": "https://github.com/sympoies/symphony-board/commit/f440f7c",
       "details": {
-        "sha": "f440f7c",
+        "sha": "f440f7cdcda13043418a7bab8f1e212f6859896d",
         "message": "Tidy contract projection"
       },
       "action": "committed"
@@ -1662,7 +1662,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://github.com/sympoies/symphony-board/commit/6955ef2",
       "details": {
-        "sha": "6955ef2",
+        "sha": "6955ef2d1ef02f4856796bfcde0d26345749dabc",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -1682,7 +1682,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/77b1772",
       "details": {
-        "sha": "77b1772",
+        "sha": "77b1772efbb23f56229a6cd9901d3400784ab77e",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -1702,7 +1702,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/980a906",
       "details": {
-        "sha": "980a906",
+        "sha": "980a906009b4c37702b3aee792a155e0918cc570",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -1722,7 +1722,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://github.com/sympoies/symphony-board/commit/6daaed2",
       "details": {
-        "sha": "6daaed2",
+        "sha": "6daaed2dcab00f4312776ba89eed21f05549867c",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -1761,7 +1761,7 @@
       "title": "Wire repo metrics window",
       "url": "https://github.com/sympoies/symphony-board/commit/9551bb3",
       "details": {
-        "sha": "9551bb3",
+        "sha": "9551bb30debde07452457ebc9bce5230235c9a79",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -1781,7 +1781,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://github.com/sympoies/symphony-board/commit/089c1c0",
       "details": {
-        "sha": "089c1c0",
+        "sha": "089c1c0702dcfde7943645e0badbc5721423ce98",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -1818,7 +1818,7 @@
       "title": "Document the removal semantics",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/d8739d2",
       "details": {
-        "sha": "d8739d2",
+        "sha": "d8739d2b00d40f2774b769eeb2ed05529547cc90",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -1857,7 +1857,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/588c2de",
       "details": {
-        "sha": "588c2de",
+        "sha": "588c2dec01dd023784479aefbbe015622578cd99",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -1894,7 +1894,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/a36b169",
       "details": {
-        "sha": "a36b169",
+        "sha": "a36b1698bfcc26f26339d69daa04d04117b47b88",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -1931,7 +1931,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://github.com/sympoies/symphony-board/commit/6ce8233",
       "details": {
-        "sha": "6ce8233",
+        "sha": "6ce8233dbe2df04259467b9c0bde203724597ae9",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -1951,7 +1951,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://github.com/sympoies/symphony-board/commit/645f439",
       "details": {
-        "sha": "645f439",
+        "sha": "645f439dce0ff6435766dbacedd4213544b98acb",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -1988,7 +1988,7 @@
       "title": "Harden the live snapshot probe",
       "url": "https://github.com/sympoies/symphony-board/commit/8c95525",
       "details": {
-        "sha": "8c95525",
+        "sha": "8c95525fb2f0e26296759d90dec04074537b7ebc",
         "message": "Harden the live snapshot probe"
       },
       "action": "committed"
@@ -2030,7 +2030,7 @@
       "title": "Harden the live snapshot probe",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/0462719",
       "details": {
-        "sha": "0462719",
+        "sha": "04627197cfc2d6e36394d5ada0b4c14172b38b8e",
         "message": "Harden the live snapshot probe"
       },
       "action": "committed"
@@ -2067,7 +2067,7 @@
       "title": "Wire repo metrics window",
       "url": "https://github.com/sympoies/symphony-board/commit/7a46c9b",
       "details": {
-        "sha": "7a46c9b",
+        "sha": "7a46c9be9d0e5f50475c6c7bec3d3e253a4a59ca",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -2087,7 +2087,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/27f99a1",
       "details": {
-        "sha": "27f99a1",
+        "sha": "27f99a19ff34de066ab457dd12bce4489235bbf0",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -2124,7 +2124,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/78c3206",
       "details": {
-        "sha": "78c3206",
+        "sha": "78c3206e0cddc3573443aceabba13512218ac899",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -2144,7 +2144,7 @@
       "title": "Smooth the feed arrival",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/74014e1",
       "details": {
-        "sha": "74014e1",
+        "sha": "74014e1ec9bf1e5302685ca79dfc31e0463a857b",
         "message": "Smooth the feed arrival"
       },
       "action": "committed"
@@ -2164,7 +2164,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/9897f6a",
       "details": {
-        "sha": "9897f6a",
+        "sha": "9897f6a002112e7798895ee0ff0c5576673ccedd",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -2184,7 +2184,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://github.com/sympoies/symphony-board/commit/8b83776",
       "details": {
-        "sha": "8b83776",
+        "sha": "8b83776fa1d23361849aad8fb0114f62788b6d9e",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -2226,7 +2226,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/d9ee285",
       "details": {
-        "sha": "d9ee285",
+        "sha": "d9ee285b1efd4228564b99fcdb2006342977dab9",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -2246,7 +2246,7 @@
       "title": "Smooth the feed arrival",
       "url": "https://github.com/sympoies/symphony-board/commit/43614c1",
       "details": {
-        "sha": "43614c1",
+        "sha": "43614c1bbfbffe226266599d9ddc004044377b7b",
         "message": "Smooth the feed arrival"
       },
       "action": "committed"
@@ -2266,7 +2266,7 @@
       "title": "Guard the empty-range view",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/e5ee5a0",
       "details": {
-        "sha": "e5ee5a0",
+        "sha": "e5ee5a0cdef0dd3456744abcdebb123452289abc",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -2286,7 +2286,7 @@
       "title": "Refine board column layout",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/141b53b",
       "details": {
-        "sha": "141b53b",
+        "sha": "141b53b8cac0fff3137666a8aeddd1f15444868c",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -2325,7 +2325,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/b425b16",
       "details": {
-        "sha": "b425b16",
+        "sha": "b425b169cbfdd3032644a7a9dbb1e104228587b9",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -2362,7 +2362,7 @@
       "title": "Guard the empty-range view",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/7487ee2",
       "details": {
-        "sha": "7487ee2",
+        "sha": "7487ee2ec1101f5388786caffefd3166564a8ddc",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -2435,7 +2435,7 @@
       "title": "Tidy contract projection",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/4538ae7",
       "details": {
-        "sha": "4538ae7",
+        "sha": "4538ae7bdc2c14243938b9ba0af20217169798e8",
         "message": "Tidy contract projection"
       },
       "action": "committed"
@@ -2455,7 +2455,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/cf206c4",
       "details": {
-        "sha": "cf206c4",
+        "sha": "cf206c4aeba1f115218688c98fdff30f6466a76d",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -2528,7 +2528,7 @@
       "title": "Tidy contract projection",
       "url": "https://github.com/sympoies/symphony-board/commit/2d49919",
       "details": {
-        "sha": "2d49919",
+        "sha": "2d499199cd34d6034ab4d7ab12b4e12892b589f0",
         "message": "Tidy contract projection"
       },
       "action": "committed"
@@ -2582,7 +2582,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://github.com/sympoies/symphony-board/commit/69b26da",
       "details": {
-        "sha": "69b26da",
+        "sha": "69b26dad1bc10e4823875bf9afec26016539d78d",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -2602,7 +2602,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/417c29a",
       "details": {
-        "sha": "417c29a",
+        "sha": "417c29ab90dd5e20744c597ebb3c0e522a375c99",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -2622,7 +2622,7 @@
       "title": "Fix label color fallback",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/f338fcc",
       "details": {
-        "sha": "f338fcc",
+        "sha": "f338fccdbc21f04239867b9a0fde2017645978ed",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -2642,7 +2642,7 @@
       "title": "Fix label color fallback",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/4f43b65",
       "details": {
-        "sha": "4f43b65",
+        "sha": "4f43b65beddd2225444999cbbb0003222777a999",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -2681,7 +2681,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://github.com/sympoies/symphony-board/commit/99c99e8",
       "details": {
-        "sha": "99c99e8",
+        "sha": "99c99e801c3415783ab8cefa12f3561896acd8f0",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -2737,7 +2737,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/787e54b",
       "details": {
-        "sha": "787e54b",
+        "sha": "787e54be00f00f5776776ceedeed3554554accbc",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -2757,7 +2757,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/85ed8d9",
       "details": {
-        "sha": "85ed8d9",
+        "sha": "85ed8d9fdee3066455a7ddbcc1e4423385bb9aaf",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -2777,7 +2777,7 @@
       "title": "Wire repo metrics window",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/cf26ee6",
       "details": {
-        "sha": "cf26ee6",
+        "sha": "cf26ee6aeb0013152778a8c9eef1f3055686a7cc",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -2797,7 +2797,7 @@
       "title": "Refine board column layout",
       "url": "https://github.com/sympoies/symphony-board/commit/02837dd",
       "details": {
-        "sha": "02837dd",
+        "sha": "02837dd7a1d201e18497858fb0efcf6275636d9e",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -2834,7 +2834,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/7c9cc30",
       "details": {
-        "sha": "7c9cc30",
+        "sha": "7c9cc30eb2defd5294564c90bcdb3072342a7e9a",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -2890,7 +2890,7 @@
       "title": "Fix label color fallback",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/a2839ba",
       "details": {
-        "sha": "a2839ba",
+        "sha": "a2839ba8a1d4eef184b5568fb2ccdf6293346d90",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -2910,7 +2910,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/75da292",
       "details": {
-        "sha": "75da292",
+        "sha": "75da292eddbd5f54424c6cbb9b3d32202a4a9979",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -2949,7 +2949,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/6fe68f3",
       "details": {
-        "sha": "6fe68f3",
+        "sha": "6fe68f3dee03204557a97bcce10e23358759aacf",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -2969,7 +2969,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/878750d",
       "details": {
-        "sha": "878750d",
+        "sha": "878750dff110c16688738ddffeaf4466516bbddc",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -3042,7 +3042,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://github.com/sympoies/symphony-board/commit/72f3e1a",
       "details": {
-        "sha": "72f3e1a",
+        "sha": "72f3e1aeafd0de5164745c8dbebc3f42523a6b9c",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -3062,7 +3062,7 @@
       "title": "Fix label color fallback",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/614e750",
       "details": {
-        "sha": "614e750",
+        "sha": "614e750d9df21d4046984b7bd0fb2e24762959be",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -3101,7 +3101,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/8ae8952",
       "details": {
-        "sha": "8ae8952",
+        "sha": "8ae8952f9e241f6059b86d7c02fd4e37964b5ae0",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -3121,7 +3121,7 @@
       "title": "Tidy contract projection",
       "url": "https://github.com/sympoies/symphony-board/commit/6b026e8",
       "details": {
-        "sha": "6b026e8",
+        "sha": "6b026e8da9c115410388cb87aff32fe166a9658d",
         "message": "Tidy contract projection"
       },
       "action": "committed"
@@ -3141,7 +3141,7 @@
       "title": "Guard the empty-range view",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/bedf4c7",
       "details": {
-        "sha": "bedf4c7",
+        "sha": "bedf4c79dd0ff4044766b7bbedd2e225449599cb",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -3161,7 +3161,7 @@
       "title": "Refine board column layout",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/bfd1612",
       "details": {
-        "sha": "bfd1612",
+        "sha": "bfd16129edb1df05428467cb9fbde3206245a97d",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -3181,7 +3181,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/112bcc6",
       "details": {
-        "sha": "112bcc6",
+        "sha": "112bcc689bcef3f02356a679acd1de013484578a",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -3201,7 +3201,7 @@
       "title": "Cache the compiled range query",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/096faba",
       "details": {
-        "sha": "096faba",
+        "sha": "096faba71f0ceee8673555fdeaccc6451333dbc8",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -3221,7 +3221,7 @@
       "title": "Harden the live snapshot probe",
       "url": "https://github.com/sympoies/symphony-board/commit/369fb2f",
       "details": {
-        "sha": "369fb2f",
+        "sha": "369fb2fae20de3159745a8c0ebc1f3752386aec9",
         "message": "Harden the live snapshot probe"
       },
       "action": "committed"
@@ -3241,7 +3241,7 @@
       "title": "Fix label color fallback",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/ddd4ab7",
       "details": {
-        "sha": "ddd4ab7",
+        "sha": "ddd4ab7bcdece4234535b9abcac20123139789a8",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -3261,7 +3261,7 @@
       "title": "Fix label color fallback",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/771f88c",
       "details": {
-        "sha": "771f88c",
+        "sha": "771f88cefa03405617ab7cd8e12e34f5895ab6cf",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -3281,7 +3281,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/fcb398f",
       "details": {
-        "sha": "fcb398f",
+        "sha": "fcb398fdbbd4434224bbab99b221200299897790",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -3318,7 +3318,7 @@
       "title": "Guard the empty-range view",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/4cd2e01",
       "details": {
-        "sha": "4cd2e01",
+        "sha": "4cd2e01bbdc0ce224373599baeac00215137798c",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -3338,7 +3338,7 @@
       "title": "Wire repo metrics window",
       "url": "https://github.com/sympoies/symphony-board/commit/0f31051",
       "details": {
-        "sha": "0f31051",
+        "sha": "0f310517ecbb1ee5322855ca99fcc3100633a877",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -3358,7 +3358,7 @@
       "title": "Harden the live snapshot probe",
       "url": "https://github.com/sympoies/symphony-board/commit/3c38a0f",
       "details": {
-        "sha": "3c38a0f",
+        "sha": "3c38a0fabc2cc3123933a89a0aa1f017118678e8",
         "message": "Harden the live snapshot probe"
       },
       "action": "committed"
@@ -3378,7 +3378,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/ad1a4d6",
       "details": {
-        "sha": "ad1a4d6",
+        "sha": "ad1a4d68cabf03f31267a6a89de1d1f04584867b",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -3398,7 +3398,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/14e91a7",
       "details": {
-        "sha": "14e91a7",
+        "sha": "14e91a78ce3cd4f35a34b6ac1ab2d13812948af8",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -3435,7 +3435,7 @@
       "title": "Document the removal semantics",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/cc01e3e",
       "details": {
-        "sha": "cc01e3e",
+        "sha": "cc01e3eab9b0f212027698979ed0f0e05476757c",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -3472,7 +3472,7 @@
       "title": "Cache the compiled range query",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/84f6721",
       "details": {
-        "sha": "84f6721",
+        "sha": "84f6721fcf02ee6367955dade0cc4145733b8bce",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -3492,7 +3492,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/28f7522",
       "details": {
-        "sha": "28f7522",
+        "sha": "28f752290f10ef07687567edfecde5465345cbdc",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -3512,7 +3512,7 @@
       "title": "Refine board column layout",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/4535a89",
       "details": {
-        "sha": "4535a89",
+        "sha": "4535a89bdcfc4624363bd9bada24021419b798b8",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -3532,7 +3532,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/f148dd4",
       "details": {
-        "sha": "f148dd4",
+        "sha": "f148dd4d9d2f014049678b7b0def2e27456959eb",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -3569,7 +3569,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/2fe4674",
       "details": {
-        "sha": "2fe4674",
+        "sha": "2fe46749eee13105558a87cccf1fe3336865aaad",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -3606,7 +3606,7 @@
       "title": "Refine board column layout",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/b8f7149",
       "details": {
-        "sha": "b8f7149",
+        "sha": "b8f714990f1c06076837d7edfae4e54615b5cbd8",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -3679,7 +3679,7 @@
       "title": "Tidy contract projection",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/28967e2",
       "details": {
-        "sha": "28967e2",
+        "sha": "28967e2902021f07979867e0e0fde5757645cece",
         "message": "Tidy contract projection"
       },
       "action": "committed"
@@ -3777,7 +3777,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/7bfedaa",
       "details": {
-        "sha": "7bfedaa",
+        "sha": "7bfedaaeafffde5166645c8dddbc3f44423a6bbb",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -3797,7 +3797,7 @@
       "title": "Refine board column layout",
       "url": "https://github.com/sympoies/symphony-board/commit/c982ea8",
       "details": {
-        "sha": "c982ea8",
+        "sha": "c982ea8a11c0d5188374c8ffaeb3f66152a6dd8c",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -3817,7 +3817,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/f2a3c86",
       "details": {
-        "sha": "f2a3c86",
+        "sha": "f2a3c86daade4341145bab88bc212ff23989669a",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -3912,7 +3912,7 @@
       "title": "Cache the compiled range query",
       "url": "https://github.com/sympoies/symphony-board/commit/8a68a2c",
       "details": {
-        "sha": "8a68a2c",
+        "sha": "8a68a2cf9f2ce06069357d7d0ace4e47135b5be8",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -3932,7 +3932,7 @@
       "title": "Guard the empty-range view",
       "url": "https://github.com/sympoies/symphony-board/commit/1c0e3d8",
       "details": {
-        "sha": "1c0e3d8",
+        "sha": "1c0e3d88b9fe05f20657c697dce3d0e435a475ba",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -3993,7 +3993,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/9188ff6",
       "details": {
-        "sha": "9188ff6",
+        "sha": "9188ff60912123708989ae7f0f015e67678c5ded",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -4013,7 +4013,7 @@
       "title": "Cache the compiled range query",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/41bad56",
       "details": {
-        "sha": "41bad56",
+        "sha": "41bad56b9bbf13202268a9799df10e004687577b",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -4052,7 +4052,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://github.com/sympoies/symphony-board/commit/f1053ee",
       "details": {
-        "sha": "f1053ee",
+        "sha": "f1053eed99fe124006589b77dcf02ee4367955ba",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -4072,7 +4072,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/5a57d22",
       "details": {
-        "sha": "5a57d22",
+        "sha": "5a57d22c9e1fef3058656a7cfdcd1e3643485adb",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -4092,7 +4092,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/47a6cb4",
       "details": {
-        "sha": "47a6cb4",
+        "sha": "47a6cb4bfa0ee126175589d8eccf04f53367b6ca",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -4112,7 +4112,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/9db2226",
       "details": {
-        "sha": "9db2226",
+        "sha": "9db22260cbcde3732345aea9abc15101238c8789",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -4132,7 +4132,7 @@
       "title": "Refine board column layout",
       "url": "https://github.com/sympoies/symphony-board/commit/889cd92",
       "details": {
-        "sha": "889cd92",
+        "sha": "889cd92f02df5f67946c6de0bd3d45724a4bce9b",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -4152,7 +4152,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://github.com/sympoies/symphony-board/commit/69233e0",
       "details": {
-        "sha": "69233e0",
+        "sha": "69233e0d1bde1d4824584bf9bcfb26023629d79a",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -4172,7 +4172,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/9d90750",
       "details": {
-        "sha": "9d90750",
+        "sha": "9d907500c2a21d7391984ea080fb517f762c8e6e",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -4192,7 +4192,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://github.com/sympoies/symphony-board/commit/4c288cd",
       "details": {
-        "sha": "4c288cd",
+        "sha": "4c288cdbbb23f12229a6899901df0007846777ef",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -4229,7 +4229,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/b2795ec",
       "details": {
-        "sha": "b2795ec",
+        "sha": "b2795ec9a03010017a78778e1efeef5856556cfc",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -4249,7 +4249,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/a0dd7fc",
       "details": {
-        "sha": "a0dd7fc",
+        "sha": "a0dd7fc88de220ff4599766bc00edd23775449ae",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -4308,7 +4308,7 @@
       "title": "Refine board column layout",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/4359ca4",
       "details": {
-        "sha": "4359ca4",
+        "sha": "4359ca4bbe3ed1225a54899c1cbf003832677afa",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -4328,7 +4328,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/89e2763",
       "details": {
-        "sha": "89e2763",
+        "sha": "89e2763f1ec2206853997dfca00e4631775bda8e",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -4399,7 +4399,7 @@
       "title": "Refine board column layout",
       "url": "https://github.com/sympoies/symphony-board/commit/ab9a955",
       "details": {
-        "sha": "ab9a955",
+        "sha": "ab9a9558a2b412f192b8968092f0df7096746e70",
         "message": "Refine board column layout"
       },
       "action": "committed"
@@ -4419,7 +4419,7 @@
       "title": "Document the removal semantics",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/d5f4b15",
       "details": {
-        "sha": "d5f4b15",
+        "sha": "d5f4b15bdfedd224654499bdcbb0024322779ba9",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -4456,7 +4456,7 @@
       "title": "Harden the live snapshot probe",
       "url": "https://github.com/sympoies/symphony-board/commit/f9ced41",
       "details": {
-        "sha": "f9ced41",
+        "sha": "f9ced41d1cff0e4836675bfaddec26144539d8bb",
         "message": "Harden the live snapshot probe"
       },
       "action": "committed"
@@ -4476,7 +4476,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/786468c",
       "details": {
-        "sha": "786468c",
+        "sha": "786468ce0fe14057658b7cedcf2e3543695acbad",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -4496,7 +4496,7 @@
       "title": "Cache the compiled range query",
       "url": "https://github.com/sympoies/symphony-board/commit/622248f",
       "details": {
-        "sha": "622248f",
+        "sha": "622248fdabcf4341236bab89ad212f014989678b",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -4567,7 +4567,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/a8ef38f",
       "details": {
-        "sha": "a8ef38f",
+        "sha": "a8ef38f80e0e43f7575ba6ecec21d5353984caca",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -4587,7 +4587,7 @@
       "title": "Guard the empty-range view",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/c937153",
       "details": {
-        "sha": "c937153",
+        "sha": "c937153a1c1c1018383878fafafef6161656d8d8",
         "message": "Guard the empty-range view"
       },
       "action": "committed"
@@ -4626,7 +4626,7 @@
       "title": "Smooth the feed arrival",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/55d7345",
       "details": {
-        "sha": "55d7345",
+        "sha": "55d7345cdd1e023448579abbfce01226357899da",
         "message": "Smooth the feed arrival"
       },
       "action": "committed"
@@ -4682,7 +4682,7 @@
       "title": "Normalize gitlab mention refs",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/f7fb5ce",
       "details": {
-        "sha": "f7fb5ce",
+        "sha": "f7fb5cedffc0f24663769bddaed024415479bb8c",
         "message": "Normalize gitlab mention refs"
       },
       "action": "committed"
@@ -4719,7 +4719,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://github.com/sympoies/symphony-board/commit/e6ecd9f",
       "details": {
-        "sha": "e6ecd9f",
+        "sha": "e6ecd9fceedf5335546caaccbd3113324a88aa9b",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -4739,7 +4739,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://github.com/sympoies/symphony-board/commit/f50b12b",
       "details": {
-        "sha": "f50b12b",
+        "sha": "f50b12bdd9ccef4403356bb7aacd22e113499588",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -4812,7 +4812,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://github.com/sympoies/symphony-board/commit/daa1828",
       "details": {
-        "sha": "daa1828",
+        "sha": "daa1828b9ab3e52012a5c97891c30ef083a7567f",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -4832,7 +4832,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://github.com/sympoies/symphony-board/commit/21b6005",
       "details": {
-        "sha": "21b6005",
+        "sha": "21b600599b0bc20027239779e9a0ee05017557c7",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -4852,7 +4852,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://github.com/sympoies/symphony-board/commit/b1ceb1c",
       "details": {
-        "sha": "b1ceb1c",
+        "sha": "b1ceb1c99cfdd0003644777adbbeee14225558b9",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -4925,7 +4925,7 @@
       "title": "Wire repo metrics window",
       "url": "https://github.com/sympoies/symphony-board/commit/2898d1d",
       "details": {
-        "sha": "2898d1d",
+        "sha": "2898d1d9022fd107996487e00dbfe5774265ceeb",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -4962,7 +4962,7 @@
       "title": "Trim sync-engine retries",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/4031f8a",
       "details": {
-        "sha": "4031f8a",
+        "sha": "4031f8ab8cb14e2f328b596a9f2c0d106937487d",
         "message": "Trim sync-engine retries"
       },
       "action": "committed"
@@ -4982,7 +4982,7 @@
       "title": "Wire repo metrics window",
       "url": "https://github.com/sympoies/symphony-board/commit/249fbc9",
       "details": {
-        "sha": "249fbc9",
+        "sha": "249fbc99c20df6039746d7a0ebd4e17524b58ec9",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -5021,7 +5021,7 @@
       "title": "Wire repo metrics window",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/ecd146f",
       "details": {
-        "sha": "ecd146f",
+        "sha": "ecd146fcbdbf23324269aa9b9d0110204788797b",
         "message": "Wire repo metrics window"
       },
       "action": "committed"
@@ -5063,7 +5063,7 @@
       "title": "Speed up the reconcile pass",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/1310d02",
       "details": {
-        "sha": "1310d02",
+        "sha": "1310d028baafcff2116366988dadd0ff4144766b",
         "message": "Speed up the reconcile pass"
       },
       "action": "committed"
@@ -5083,7 +5083,7 @@
       "title": "Cache the compiled range query",
       "url": "https://github.com/sympoies/symphony-board/commit/870ce60",
       "details": {
-        "sha": "870ce60",
+        "sha": "870ce60ff9d02d6604794dd7be0b44e2572bb59c",
         "message": "Cache the compiled range query"
       },
       "action": "committed"
@@ -5120,7 +5120,7 @@
       "title": "Bound the cold-start cache",
       "url": "https://github.com/sympoies/symphony-board/commit/d3b61a6",
       "details": {
-        "sha": "d3b61a6",
+        "sha": "d3b61a6bbb0cd3222734a999eab10005128777c8",
         "message": "Bound the cold-start cache"
       },
       "action": "committed"
@@ -5159,7 +5159,7 @@
       "title": "Polish the activity heatmap",
       "url": "https://github.com/sympoies/symphony-board/commit/ac4214c",
       "details": {
-        "sha": "ac4214c",
+        "sha": "ac4214c8bdcc00f24337769baaeed02115547988",
         "message": "Polish the activity heatmap"
       },
       "action": "committed"
@@ -5198,7 +5198,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/2be5eed",
       "details": {
-        "sha": "2be5eed",
+        "sha": "2be5eed9aef011015678878cdeffef3456656abc",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -5218,7 +5218,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/1ebbb74",
       "details": {
-        "sha": "1ebbb74",
+        "sha": "1ebbb748dbcd31f4234a86b9ab1fd20128649789",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -5255,7 +5255,7 @@
       "title": "Document the removal semantics",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/b586b9c",
       "details": {
-        "sha": "b586b9c",
+        "sha": "b586b9c9d10d5004874c77bfeb3ee2652a559dc9",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -5309,7 +5309,7 @@
       "title": "Document the removal semantics",
       "url": "https://github.com/sympoies/symphony-board/commit/2b06429",
       "details": {
-        "sha": "2b06429",
+        "sha": "2b064299a90fe6010765d787edc4efe543b565cb",
         "message": "Document the removal semantics"
       },
       "action": "committed"
@@ -5329,7 +5329,7 @@
       "title": "Add graph focus shortcut",
       "url": "https://gitlab.com/example-group/symphony-board-fixture/-/commit/3cea476",
       "details": {
-        "sha": "3cea476",
+        "sha": "3cea476abebf3312526aa89c9d11f03048867a7b",
         "message": "Add graph focus shortcut"
       },
       "action": "committed"
@@ -5349,7 +5349,7 @@
       "title": "Fix label color fallback",
       "url": "https://github.com/sympoies/symphony-board/commit/0ba45ca",
       "details": {
-        "sha": "0ba45ca",
+        "sha": "0ba45ca7aae0fee115765588cedccff3543366ac",
         "message": "Fix label color fallback"
       },
       "action": "committed"
@@ -5369,7 +5369,7 @@
       "title": "Wire repo metrics window",
       "url": "https://github.com/sympoies/symphony-board/commit/345b75d",
       "details": {
-        "sha": "345b75d",
+        "sha": "345b75dacec21113539888aca0fff13176668a8e",
         "message": "Wire repo metrics window"
       },
       "action": "committed"

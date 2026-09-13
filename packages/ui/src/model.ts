@@ -174,6 +174,7 @@ export interface HashRoute {
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
   repo: string | null; // a project_path the Commits page filters to
   branch: string | null; // a branch/ref name the Commits page filters to when commit refs are present
+  author: string | null; // a commit author the Commits page filters to, set by its rail
   kind: string | null; // Activity kind filter from internal drill-down links
   action: string | null; // Activity action filter from internal drill-down links
   // The shared item-facet lens for board / graph / repo-analytics: source, state,
@@ -241,6 +242,7 @@ export function parseHashRoute(hash: string): HashRoute {
     source: routeParam(params?.get("source")),
     repo: routeParam(params?.get("repo")),
     branch: routeParam(params?.get("branch")),
+    author: routeParam(params?.get("author")),
     kind: routeParam(params?.get("kind")),
     action: routeParam(params?.get("action")),
     isource: routeParam(params?.get("isource")),
@@ -261,7 +263,7 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; author?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const depth = graphFocusDepth(route.depth);
@@ -269,6 +271,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; dep
   const source = routeParam(route.source);
   const repo = routeParam(route.repo);
   const branch = routeParam(route.branch);
+  const author = routeParam(route.author);
   const kind = routeParam(route.kind);
   const action = routeParam(route.action);
   const isource = routeParam(route.isource);
@@ -292,6 +295,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; dep
   if (source) params.push(`source=${encodeURIComponent(source)}`);
   if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
   if (branch) params.push(`branch=${encodeURIComponent(branch)}`);
+  if (author) params.push(`author=${encodeURIComponent(author)}`);
   if (kind) params.push(`kind=${encodeURIComponent(kind)}`);
   if (action) params.push(`action=${encodeURIComponent(action)}`);
   if (isource) params.push(`isource=${encodeURIComponent(isource)}`);
@@ -1780,16 +1784,35 @@ export function commitBranches(activity: ActivityDTO): string[] {
 // The Commits page filters by repo and, when the contract carries branch refs,
 // by exact branch. Repo and branch are exact matches because both controls offer
 // closed option sets; a stale URL value intentionally narrows to zero rows.
-export function filterCommits(activities: ActivityDTO[], repoPath: string | null, branchName: string | null = null, sourceId: string | null = null): ActivityDTO[] {
-  const repo = repoPath?.trim() || null;
-  const branch = branchName?.trim() || null;
-  const source = sourceId?.trim() || null;
+// `author` joined them when the digest rail made the author list clickable, and
+// follows the same exact-match rule for the same reason: the rail only ever
+// offers authors it counted from the loaded rows.
+//
+// Facets are named rather than positional. They were positional while there were
+// two; at four, every call site that skips one reads as a run of bare `null`s and
+// the reader has to count argument positions to see which facet each blanks.
+export type CommitFilter = {
+  repo?: string | null;
+  branch?: string | null;
+  source?: string | null;
+  author?: string | null;
+};
+
+export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = {}): ActivityDTO[] {
+  const repo = filter.repo?.trim() || null;
+  const branch = filter.branch?.trim() || null;
+  const source = filter.source?.trim() || null;
+  const author = filter.author?.trim() || null;
   return activities.filter(
     (a) =>
       isCommitActivity(a) &&
       (source === null || a.source_id === source) &&
       (repo === null || a.project_path === repo) &&
-      (branch === null || commitBranches(a).includes(branch)),
+      (branch === null || commitBranches(a).includes(branch)) &&
+      // Trimmed on BOTH sides. The rail ranks and labels authors on the trimmed
+      // actor, so comparing against the raw field here made a padded actor rank
+      // in Top authors and then filter to nothing when clicked.
+      (author === null || (a.actor?.trim() ?? null) === author),
   );
 }
 

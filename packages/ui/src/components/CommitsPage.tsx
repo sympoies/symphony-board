@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
+import { CommitsRail } from "./CommitsRail.tsx";
+import { CommitDetail } from "./CommitDetail.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import {
   buildCommitRows,
@@ -108,6 +110,8 @@ function CommitTimeline({
   colorOf,
   empty,
   timezone,
+  selectedKey,
+  onSelect,
 }: {
   commits: ActivityDTO[];
   sourceKind: ReadonlyMap<string, string>;
@@ -115,6 +119,10 @@ function CommitTimeline({
   // Empty-state node rendered when there are no rows; falls back to a plain line.
   empty?: ReactNode;
   timezone: string;
+  // Selection drives the detail pane in the rail slot. Kept as the activity key
+  // rather than an index so it survives a re-filter that moves the row.
+  selectedKey: string | null;
+  onSelect: (commit: ActivityDTO) => void;
 }) {
   const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
   const [measuredBodyHeights, setMeasuredBodyHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
@@ -246,10 +254,28 @@ function CommitTimeline({
           return (
             <article
               key={rowKey}
-              className={`commit-row${showDate ? " commit-row-has-date" : ""}${expanded ? " commit-row-expanded" : ""}${accentColor ? " commit-row-accent" : ""}`}
+              className={`commit-row${showDate ? " commit-row-has-date" : ""}${expanded ? " commit-row-expanded" : ""}${accentColor ? " commit-row-accent" : ""}${rowKey === selectedKey ? " commit-row-selected" : ""}`}
               role="listitem"
               aria-posinset={index + 1}
               aria-setsize={commits.length}
+              aria-current={rowKey === selectedKey ? "true" : undefined}
+              // Selecting from the row background. The controls inside the row
+              // (sha copy, provider link, body expander) each stop propagation,
+              // so one click still does exactly one thing.
+              //
+              // The row carries tabIndex + Enter/Space itself rather than being
+              // wrapped in a button: the detail pane is the only way to read a
+              // full commit message, so a mouse-only path would put that behind
+              // a pointer, and a <button> wrapper here would nest the row's own
+              // interactive controls inside a button.
+              tabIndex={0}
+              onClick={() => onSelect(commit)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                onSelect(commit);
+              }}
               style={
                 {
                   "--commit-row-height": `${row.height}px`,
@@ -279,7 +305,10 @@ function CommitTimeline({
                         className="commit-body-toggle"
                         aria-label={`${expanded ? "Hide" : "Show"} commit body ${short ?? index + 1}`}
                         aria-expanded={expanded}
-                        onClick={() => setExpandedBodyId(expanded ? null : rowKey)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedBodyId(expanded ? null : rowKey);
+                        }}
                       >
                         <EllipsisIcon />
                       </button>
@@ -306,7 +335,8 @@ function CommitTimeline({
                     aria-label={sha ? `Copy commit hash ${short ?? sha}` : "Commit hash unavailable"}
                     title={sha ? "Copy commit hash" : "Commit hash unavailable"}
                     disabled={!sha}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (!sha) return;
                       void copyToClipboard(sha).then(() => setCopiedId(rowKey));
                     }}
@@ -315,7 +345,15 @@ function CommitTimeline({
                     {copied ? <span className="commit-copy-tooltip" role="status">Copied!</span> : null}
                   </button>
                   {commit.url ? (
-                    <a className="commit-icon-button" href={commit.url} target="_blank" rel="noopener noreferrer" aria-label="Open commit" title="Open commit">
+                    <a
+                      className="commit-icon-button"
+                      href={commit.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open commit"
+                      title="Open commit"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <CodeIcon />
                     </a>
                   ) : null}
@@ -338,8 +376,12 @@ export function CommitsPage({
   selectedSource,
   selectedRepo,
   selectedBranch,
+  selectedAuthor,
+  railRepoSource,
+  railAuthorSource,
   onRepo,
   onBranch,
+  onAuthor,
   range,
   timezone,
   sourceKind,
@@ -354,8 +396,14 @@ export function CommitsPage({
   selectedSource: string | null;
   selectedRepo: string | null;
   selectedBranch: string | null;
+  selectedAuthor: string | null;
+  // Facet sources for the digest rail: each already has every filter applied
+  // except the one its own list drives.
+  railRepoSource: ActivityDTO[];
+  railAuthorSource: ActivityDTO[];
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
+  onAuthor: (author: string | null) => void;
   range: TimeRange;
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
@@ -363,6 +411,15 @@ export function CommitsPage({
   // Shared empty-state node, rendered in place of the timeline when empty.
   emptyState?: ReactNode;
 }) {
+  // Selection lives in the page, not the route: a commit is a transient thing to
+  // read, unlike the repo/branch/author filters, which are shareable state.
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Resolved against the CURRENT rows, so a selection that a re-filter or a range
+  // change removed falls back to the digest instead of pinning a stale commit.
+  const selectedCommit = useMemo(
+    () => commits.find((c) => activityKey(c) === selectedKey) ?? null,
+    [commits, selectedKey],
+  );
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
 
@@ -573,7 +630,41 @@ export function CommitsPage({
           </div>
         </>
       ) : null}
-      <CommitTimeline commits={commits} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} timezone={timezone} />
+      <div className="commits-split">
+        <CommitTimeline
+          commits={commits}
+          sourceKind={sourceKind}
+          colorOf={colorOf}
+          empty={emptyState}
+          timezone={timezone}
+          selectedKey={selectedCommit ? activityKey(selectedCommit) : null}
+          onSelect={(commit) =>
+            setSelectedKey((current) => (current === activityKey(commit) ? null : activityKey(commit)))
+          }
+        />
+        {selectedCommit ? (
+          <CommitDetail
+            commit={selectedCommit}
+            timezone={timezone}
+            sourceKind={sourceKind}
+            colorOf={colorOf}
+            onClose={() => setSelectedKey(null)}
+          />
+        ) : (
+          <CommitsRail
+            commits={commits}
+            repoSource={railRepoSource}
+            authorSource={railAuthorSource}
+            timezone={timezone}
+            range={range}
+            selectedRepo={selectedRepo}
+            selectedSource={selectedSource}
+            selectedAuthor={selectedAuthor}
+            onRepo={onRepo}
+            onAuthor={onAuthor}
+          />
+        )}
+      </div>
     </main>
   );
 }
