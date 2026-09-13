@@ -2,7 +2,7 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import type { CSSProperties } from "react";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { safeHref } from "../url.ts";
-import { commitBody, commitBranches, commitMessage, commitShortSha, commitSha, relativeTime, type ColorOf } from "../model.ts";
+import { commitBody, commitBranches, commitMessage, commitSha, relativeTime, type ColorOf } from "../model.ts";
 
 // The selected commit, shown where the digest rail sits. This is what lets the
 // full commit message be read at all: the list row clamps to its title and the
@@ -25,7 +25,6 @@ export function CommitDetail({
   onClose: () => void;
 }) {
   const sha = commitSha(commit);
-  const shortSha = commitShortSha(commit);
   const branches = commitBranches(commit);
   const body = commitBody(commit);
   const href = safeHref(commit.url);
@@ -76,7 +75,11 @@ export function CommitDetail({
             <div className="commit-detail-row">
               <dt>SHA</dt>
               <dd>
-                <code className="commit-detail-sha">{shortSha ?? sha}</code>
+                {/* The FULL hash, not the abbreviation. The list row already
+                    shows the short form; this pane is where the complete
+                    identifier has to be readable and selectable, so rendering
+                    `shortSha ?? sha` here would leave it nowhere on screen. */}
+                <code className="commit-detail-sha">{sha}</code>
               </dd>
             </div>
           ) : null}

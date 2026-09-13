@@ -4721,12 +4721,21 @@ try {
   })).result.value || { clicked: false };
   await sleep(300);
   const commitDetailShown = (await send("Runtime.evaluate", {
-    expression: `(() => ({
-      hasDetail: !!document.querySelector('.commit-detail-card'),
-      hasDigest: !!document.querySelector('.commits-rail .rail-daybars'),
-      selectedRows: document.querySelectorAll('.commit-row-selected').length,
-      hasTitle: !!document.querySelector('.commit-detail-title'),
-    }))()`,
+    expression: `(() => {
+      const shaText = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
+      const rowSha = (document.querySelector('.commit-row-selected .commit-sha-text, .commit-row-selected .commit-sha')?.textContent || '').trim();
+      return {
+        hasDetail: !!document.querySelector('.commit-detail-card'),
+        hasDigest: !!document.querySelector('.commits-rail .rail-daybars'),
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        hasTitle: !!document.querySelector('.commit-detail-title'),
+        // The detail is where the COMPLETE identifier has to be legible; the row
+        // beside it already carries the abbreviation.
+        shaLength: shaText.length,
+        shaIsHex: /^[0-9a-f]{40}$/.test(shaText),
+        rowShaShorter: rowSha.length > 0 && rowSha.length < shaText.length,
+      };
+    })()`,
     returnByValue: true,
   })).result.value || {};
   // Clicking the same row again returns to the digest.
@@ -5047,6 +5056,10 @@ try {
         commitDetailToggledOff.hasDetail === false &&
         commitDetailToggledOff.hasDigest === true,
       `commits: selecting a row opens the detail and toggles back to the digest (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+    ],
+    [
+      commitDetailShown.shaIsHex === true && commitDetailShown.shaLength === 40,
+      `commits: the detail shows the FULL commit sha, not the abbreviation (length=${commitDetailShown.shaLength}, hex40=${commitDetailShown.shaIsHex})`,
     ],
     [
       commitRowKeyboard.found === true &&
