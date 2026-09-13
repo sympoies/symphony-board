@@ -4561,6 +4561,72 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // --- Wide-viewport fill --------------------------------------------------
+  // The shell is full-bleed (.app-wide sets `max-width: none`), so any page that
+  // keeps a width cap of its own visibly tears away from the header and the tab
+  // strip above it and strands a dead gutter down the right edge. Each primary
+  // surface must therefore track the shell's content box.
+  //
+  // Two boxes are measured per page because they are SIBLINGS, not nested: the
+  // shared facet row (.view-chrome[data-page=...]) and the page <main> each used
+  // to carry their own cap, and capping only one of them still tears the layout.
+  // The facet row is `optional` on Live alone, which takes its own early return
+  // in App and renders no shared chrome; every other box must be present, so a
+  // selector that stops matching fails rather than quietly measuring nothing.
+  //
+  // The viewports are the displays this board is actually driven on — a 16"
+  // MacBook Pro at default scaling, a 1080p panel (also 4K at 200%), 4K at 150%,
+  // and 4K at 100%. A 14" MacBook Pro (1512px) is deliberately absent: it sits
+  // below every cap this probe exists to catch, so it could never fail.
+  const wideFillViewports = [
+    { name: "mbp16", width: 1728, height: 1010 },
+    { name: "fhd", width: 1920, height: 1080 },
+    { name: "qhd", width: 2560, height: 1440 },
+    { name: "uhd", width: 3840, height: 2160 },
+  ];
+  const wideFillPages = [
+    { page: "live", hash: "#/live", ready: ".live-page", selectors: ['.view-chrome[data-page="live"]', ".live-page"], optional: ['.view-chrome[data-page="live"]'] },
+    { page: "items", hash: "#/items", ready: ".items-page", selectors: ['.view-chrome[data-page="items"]', ".items-page"] },
+    { page: "graph", hash: "#/graph", ready: ".graph-page", selectors: ['.view-chrome[data-page="graph"]', ".graph-page"] },
+    { page: "reviews", hash: "#/reviews", ready: ".reviews-page", selectors: ['.view-chrome[data-page="reviews"]', ".reviews-page"] },
+  ];
+  const wideFillResults = [];
+  for (const vp of wideFillViewports) {
+    await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
+    await sleep(150);
+    for (const page of wideFillPages) {
+      await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(page.hash)}` });
+      await sleep(300);
+      await waitHtml(`document.querySelector(${JSON.stringify(page.ready)})`);
+      for (const selector of page.selectors) {
+        const r = (await send("Runtime.evaluate", {
+          expression: `(() => {
+            const el = document.querySelector(${JSON.stringify(selector)});
+            const shell = document.querySelector('.app-wide');
+            if (!el || !shell) return { found: false };
+            const style = getComputedStyle(shell);
+            // The shell's own horizontal padding is legitimate gutter (it folds in
+            // the Android safe-area insets); anything beyond it is a stray cap.
+            const available = Math.round(
+              shell.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+            );
+            const used = Math.round(el.getBoundingClientRect().width);
+            return { found: true, available, used, shortfall: available - used };
+          })()`,
+          returnByValue: true,
+        })).result.value || { found: false };
+        if (!r.found && page.optional?.includes(selector)) continue;
+        wideFillResults.push({ viewport: vp.name, vw: vp.width, page: page.page, selector, ...r });
+      }
+    }
+  }
+  // 2px of slack covers sub-pixel rounding only. A surviving cap is never that
+  // subtle: on a 1080p panel it reads as 1880 - 40 - 1580 = 300px of shortfall.
+  const wideFillShort = wideFillResults.filter((r) => !r.found || r.shortfall > 2);
+  // Guard the guard: every viewport must have contributed a measurement for every
+  // page, so a renamed selector cannot turn this probe into a vacuous pass.
+  const wideFillExpected = wideFillViewports.length * wideFillPages.length;
+  const wideFillCovered = new Set(wideFillResults.map((r) => `${r.viewport}:${r.page}`)).size;
   // --- Diagnostics fill-height tabs (Sync runs, Daemon log) ----------------
   // These two #/debug tabs size to the viewport and scroll INTERNALLY (the log
   // no longer caps at 420px; a short runs table no longer leaves dead space).
@@ -4734,6 +4800,7 @@ try {
     ...debugFillChecks,
     debugStickyCheck,
     debugSyncGqlCheck,
+    [wideFillShort.length === 0 && wideFillCovered === wideFillExpected, `app: primary pages fill the full-bleed shell on wide viewports (covered ${wideFillCovered}/${wideFillExpected}, short ${JSON.stringify(wideFillShort)})`],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.
     [(() => { try { const o = JSON.parse(liveOffLanding || "null"); return !!o && o.hasLiveTab === false && (o.hash || "").startsWith("#/activity") && liveSnapshotRequestsBeforeEnable === 0; } catch { return false; } })(), `app: Live tab is off by default — no Live tab, lands on Activity, no live snapshot probe (${liveOffLanding}, liveSnapshotRequests=${liveSnapshotRequestsBeforeEnable})`],

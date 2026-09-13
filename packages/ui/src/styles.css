@@ -880,7 +880,9 @@ a.item-metric:hover {
 .board-7 .card { width: 100%; }
 
 /* graph page (relationship graph, cytoscape) */
-.graph-page { margin: 12px 0; max-width: 1580px; }
+/* Full-bleed like Live: the canvas is the one surface with no reading measure at
+   all, so every pixel of width buys visible graph. */
+.graph-page { margin: 12px 0; }
 .graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
 .graph-focus-load { margin: -2px 0 8px; color: var(--muted); font-size: 12px; }
 .graph-focus-load-ready { color: var(--text); }
@@ -1115,8 +1117,12 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 
 /* activity / item / commit pages */
+/* Items is full-bleed (its master-detail splits by ratio and the detail markdown
+   keeps its own 92ch measure). Commits deliberately KEEPS a cap: it is a
+   single-column list with no second pane to absorb the width, so a measure limit
+   is the right design there, not a leftover. */
 .activity-page { margin: 12px 0; }
-.items-page { margin: 12px 0; max-width: 1580px; }
+.items-page { margin: 12px 0; }
 .commits-page { margin: 12px 0; max-width: 1180px; }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; max-width: 720px; }
 .activity-head h2 { margin: 0; border: none; padding: 0; }
@@ -2869,11 +2875,11 @@ a.rf-node-title:hover { color: var(--accent); }
    resolved status. */
 .reviews-live .live-split { margin-top: 4px; }
 
-/* Match the Live tab's width (.live-page caps at 1580 too): cap the whole reviews
-   column — the shared facet chrome AND the master-detail content — so it does not
-   stretch edge-to-edge on a wide monitor. Left-aligned, like .live-page. */
-.reviews-page.reviews-live { max-width: 1580px; }
-.view-chrome[data-page="reviews"] { max-width: 1580px; }
+/* Reviews tracks the Live tab's width, and both are now full-bleed. The pair of
+   caps that used to live here mattered because the facet chrome and the
+   master-detail content are SIBLINGS, not nested: capping one and not the other
+   left the two halves of the same column visibly misaligned. They share the
+   shell's width for the same reason — whatever governs one has to govern both. */
 
 /* Reviews keep avatars only inside the thread (the comment chain), so the list
    rows and the detail header drop the Live tab's leading avatar column. */
@@ -3834,10 +3840,14 @@ a.rf-node-title:hover { color: var(--accent); }
    histogram in the live-signal cyan); the feed rows below are coded by the
    per-category hues. Motion is confined to the pulse + status pill + the newest
    row's arrival, and is dropped under prefers-reduced-motion. */
-/* Keep the Live tool left-aligned inside .app-wide instead of running edge to
-   edge; the split below controls the working-column balance, while detail prose
-   still caps its own width for readability. */
-.live-page { max-width: 1580px; }
+/* Live tracks .app-wide edge to edge. It used to stop at a 1580px cap, which
+   tore it away from the full-bleed header and tab strip above it and stranded a
+   dead gutter down the right of every display wider than ~1620px (300px on a
+   1080p panel, 2220px on a 4K one at 100%).
+   Width is governed further in instead, where it can stay proportional: the
+   split below balances the working columns by ratio via --master-detail-columns,
+   and detail prose keeps its own reading measure (.live-detail-body caps at
+   100ch). render-smoke asserts the fill across the real target displays. */
 .live-header { margin: 16px 0 12px; }
 .live-header-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .live-header-main h1 { font-size: 22px; letter-spacing: -0.015em; }
