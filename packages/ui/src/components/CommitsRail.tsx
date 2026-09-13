@@ -1,7 +1,7 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
-import { countsByDay, rankActors, rankRepos, shortRepoLabel } from "../rail-stats.ts";
+import { countsByDay, rankActors, rankBranches, rankCommitTypes, rankRepos, shortRepoLabel } from "../rail-stats.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { CommitRepoOption, TimeRange } from "../model.ts";
 
@@ -9,8 +9,10 @@ import type { CommitRepoOption, TimeRange } from "../model.ts";
 //
 // It exists because the page header routinely reports something like "27 repos
 // with commits · 303 branches" over more than a thousand rows, and until now the
-// only way to narrow that was two dropdowns. The two ranked lists are therefore
-// navigation, not decoration — each row applies the filter it describes.
+// only way to narrow that was two dropdowns. The repo, branch and author lists
+// are therefore navigation, not decoration — each row applies the filter it
+// describes. Commit types is the one read-only panel: it says what KIND of work
+// the range contains, which no filter expresses.
 //
 // Everything here is derived from rows the page already holds, so the rail can
 // never disagree with the list beside it.
@@ -59,14 +61,17 @@ function DayBars({ commits, timezone, range }: { commits: ActivityDTO[]; timezon
 export function CommitsRail({
   commits,
   repoSource,
+  branchSource,
   authorSource,
   timezone,
   range,
   selectedRepo,
   selectedSource,
   selectedAuthor,
+  selectedBranch,
   onRepo,
   onAuthor,
+  onBranch,
 }: {
   // The rows currently on screen — what the per-day strip describes.
   commits: ActivityDTO[];
@@ -74,18 +79,28 @@ export function CommitsRail({
   // its own, so the list you are standing in still offers somewhere else to go.
   repoSource: ActivityDTO[];
   authorSource: ActivityDTO[];
+  branchSource: ActivityDTO[];
   timezone: string;
   range: TimeRange;
   selectedRepo: string | null;
   selectedSource: string | null;
   selectedAuthor: string | null;
+  selectedBranch: string | null;
   onRepo: (repo: CommitRepoOption | null) => void;
   onAuthor: (author: string | null) => void;
+  onBranch: (branch: string | null) => void;
 }) {
   const repoRanks = useMemo(() => rankRepos(repoSource, RAIL_RANK_LIMIT), [repoSource]);
   const authorRanks = useMemo(() => rankActors(authorSource, RAIL_RANK_LIMIT), [authorSource]);
+  const branchRanks = useMemo(() => rankBranches(branchSource, RAIL_RANK_LIMIT), [branchSource]);
+  // Commit types describe what is ON SCREEN rather than what could be selected —
+  // it drives no filter, so unlike the three ranked facets it reads from the
+  // visible rows.
+  const typeRanks = useMemo(() => rankCommitTypes(commits, RAIL_RANK_LIMIT), [commits]);
   const repoTotal = useMemo(() => rankRepos(repoSource, 0).length, [repoSource]);
   const authorTotal = useMemo(() => rankActors(authorSource, 0).length, [authorSource]);
+  const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);
+  const typeTotal = useMemo(() => rankCommitTypes(commits, 0).length, [commits]);
   const selectedRepoKey = selectedRepo && selectedSource ? `${selectedSource}|${selectedRepo}` : null;
 
   return (
@@ -122,6 +137,54 @@ export function CommitsRail({
               ),
             };
           })}
+        />
+      </div>
+
+      <div className="rail-block">
+        <div className="rail-block-head">
+          <span className="rail-block-title">Top branches</span>
+          <span className="rail-block-meta">{branchTotal} total</span>
+        </div>
+        <RankChart
+          className="rail-rank-chart"
+          ariaLabel="Branches with the most commits in the selected range"
+          empty="no branch refs in range"
+          countLabel={commitCountLabel}
+          items={branchRanks.map((rank) => ({
+            key: rank.key,
+            label: rank.label,
+            count: rank.count,
+            selected: rank.label === selectedBranch,
+            onSelect: () => onBranch(rank.label === selectedBranch ? null : rank.label),
+            footer: (
+              <span className="live-rank-name" aria-hidden="true">
+                {shortRepoLabel(rank.label)}
+              </span>
+            ),
+          }))}
+        />
+      </div>
+
+      <div className="rail-block">
+        <div className="rail-block-head">
+          <span className="rail-block-title">Commit types</span>
+          <span className="rail-block-meta">{typeTotal} kinds</span>
+        </div>
+        <RankChart
+          className="rail-rank-chart"
+          ariaLabel="Conventional-commit types in the selected range"
+          empty="no commits in range"
+          countLabel={commitCountLabel}
+          items={typeRanks.map((rank) => ({
+            key: rank.key,
+            label: rank.label,
+            count: rank.count,
+            footer: (
+              <span className="live-rank-name" aria-hidden="true">
+                {rank.label}
+              </span>
+            ),
+          }))}
         />
       </div>
 

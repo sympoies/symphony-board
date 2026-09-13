@@ -27,7 +27,7 @@ import {
   type ReviewSort,
   type TimeRange,
 } from "../model.ts";
-import { liveAvatarModel } from "../live-avatar.ts";
+import { ActorAvatar } from "./ActorAvatar.tsx";
 import { safeHref } from "../url.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
@@ -164,25 +164,11 @@ function threadTitle(row: ThreadRow): string {
 }
 
 // The face for a thread comment. Avatars appear only inside the thread (the
-// comment chain), not on the list rows or the detail header. Renders the real
-// provider photo when the contract carries one (avatar_url, 4.2.0+) and falls
-// back to the author's initials — the same circle + image handling as the Live
-// tab (reusing liveAvatarModel and the .live-avatar styles).
+// comment chain), not on the list rows or the detail header. The circle, the
+// image fallback and the hover title are shared with the Activity rail, so this
+// is a thin alias over ActorAvatar rather than a second copy.
 function ReviewAvatar({ author, avatarUrl, className }: { author: string | null; avatarUrl?: string | null; className?: string }) {
-  const model = liveAvatarModel(author ? { login: author, avatar_url: avatarUrl ?? null } : null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [model.imageUrl]);
-  const showImage = model.imageUrl != null && !failed;
-  const cls = `live-avatar ${showImage ? "live-avatar-image" : "live-avatar-text"}${className ? ` ${className}` : ""}`;
-  return (
-    <span className={cls} title={model.label} aria-label={model.label}>
-      {showImage ? (
-        <img src={model.imageUrl!} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
-      ) : (
-        <span className="live-avatar-fallback" aria-hidden="true">{model.initials}</span>
-      )}
-    </span>
-  );
+  return <ActorAvatar login={author} avatarUrl={avatarUrl} className={className} />;
 }
 
 function threadKey(row: ThreadRow): string {

@@ -1,22 +1,25 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
-import { countsByHour, rankActors, rankRepos, shortRepoLabel } from "../rail-stats.ts";
+import { ActorAvatar } from "./ActorAvatar.tsx";
+import { countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel } from "../rail-stats.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 
-// The Activity "who / where / when" rail.
+// The Activity "who / where / when / what / how" rail.
 //
 // The overview panel beside it already answers how much and on which DAY (the
 // trailing-12-month rhythm heatmap, the range summary, the per-day trend). These
-// three blocks are the dimensions it does not carry:
+// blocks are the dimensions it does not carry:
 //
 //   Who   — the feed shows an actor per row, but nothing totals them.
 //   Where — same, for repositories.
 //   When  — the heatmap's finest grain is a day of the week. Nothing anywhere
 //           shows time of day, which for a board about working rhythm is the
 //           gap worth filling.
+//   What  — the kind vocabulary the filter chips already use, with counts.
+//   How   — the same for actions.
 //
-// All three derive from the same range-filtered `activities` the feed renders,
+// All of them derive from the same range-filtered `activities` the feed renders,
 // so the rail needs no fetch and cannot disagree with the feed.
 
 const RAIL_RANK_LIMIT = 6;
@@ -72,14 +75,28 @@ function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
-export function ActivityRail({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
+export function ActivityRail({
+  activities,
+  timezone,
+  avatarOf,
+}: {
+  activities: ActivityDTO[];
+  timezone: string;
+  // Login -> avatar URL, from review-thread comments. Absent logins fall back to
+  // initials, so the Who column keeps one shape whoever is in it.
+  avatarOf?: ReadonlyMap<string, string>;
+}) {
   const actorRanks = useMemo(() => rankActors(activities, RAIL_RANK_LIMIT), [activities]);
   const repoRanks = useMemo(() => rankRepos(activities, RAIL_RANK_LIMIT), [activities]);
   const actorTotal = useMemo(() => rankActors(activities, 0).length, [activities]);
   const repoTotal = useMemo(() => rankRepos(activities, 0).length, [activities]);
+  const kindRanks = useMemo(() => rankKinds(activities, RAIL_RANK_LIMIT), [activities]);
+  const actionRanks = useMemo(() => rankActions(activities, RAIL_RANK_LIMIT), [activities]);
+  const kindTotal = useMemo(() => rankKinds(activities, 0).length, [activities]);
+  const actionTotal = useMemo(() => rankActions(activities, 0).length, [activities]);
 
   return (
-    <aside className="activity-rail" aria-label="Who, where and when">
+    <aside className="activity-rail" aria-label="Who, where, when, what and how">
       <div className="rail-block">
         <div className="rail-block-head">
           <span className="rail-block-title">Who</span>
@@ -94,11 +111,9 @@ export function ActivityRail({ activities, timezone }: { activities: ActivityDTO
             key: rank.key,
             label: rank.label,
             count: rank.count,
-            footer: (
-              <span className="live-rank-name" aria-hidden="true">
-                {rank.label}
-              </span>
-            ),
+            // A face rather than a clipped login, matching the Live tab's buffer
+            // card. The account name is on hover, which is the only way it fits.
+            footer: <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} />,
           }))}
         />
       </div>
@@ -127,6 +142,61 @@ export function ActivityRail({ activities, timezone }: { activities: ActivityDTO
       </div>
 
       <HourProfile activities={activities} timezone={timezone} />
+
+      {/* What / How put counts on the same vocabulary as the filter chips above
+          the feed. The chips have always been able to narrow by kind and action
+          without ever saying how much of the range each one covers. */}
+      <div className="rail-block">
+        <div className="rail-block-head">
+          <span className="rail-block-title">What</span>
+          <span className="rail-block-meta">{kindTotal} kinds</span>
+        </div>
+        <RankChart
+          className="rail-rank-chart"
+          ariaLabel="Activity kinds in the selected range"
+          empty="no activity in range"
+          countLabel={eventCountLabel}
+          items={kindRanks.map((rank) => ({
+            key: rank.key,
+            label: railKindLabel(rank.label),
+            count: rank.count,
+            footer: (
+              <span className="live-rank-name" aria-hidden="true">
+                {railKindLabel(rank.label)}
+              </span>
+            ),
+          }))}
+        />
+      </div>
+
+      <div className="rail-block">
+        <div className="rail-block-head">
+          <span className="rail-block-title">How</span>
+          <span className="rail-block-meta">{actionTotal} actions</span>
+        </div>
+        <RankChart
+          className="rail-rank-chart"
+          ariaLabel="Activity actions in the selected range"
+          empty="no activity in range"
+          countLabel={eventCountLabel}
+          items={actionRanks.map((rank) => ({
+            key: rank.key,
+            label: rank.label,
+            count: rank.count,
+            footer: (
+              <span className="live-rank-name" aria-hidden="true">
+                {rank.label}
+              </span>
+            ),
+          }))}
+        />
+      </div>
     </aside>
   );
+}
+
+// `change_request` is the contract's provider-neutral name and is far too long for
+// a rank footer; the feed's own chips already read it as two words.
+function railKindLabel(kind: string): string {
+  return kind.replace(/_/g, " ");
 }

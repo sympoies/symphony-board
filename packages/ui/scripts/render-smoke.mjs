@@ -4654,6 +4654,13 @@ try {
         blocks,
         // The rail must sit BESIDE the list, not under it.
         sideBySide: railRect.left >= listRect.right - 2,
+        // ...and the two TRACKS must span their container. justify-content
+        // aligns tracks inside a grid that is already full width, so the
+        // container's own box cannot show this: when the column ceilings cannot
+        // reach the content box, the leftover becomes side gutters and the list
+        // and rail sit visibly inset from the full-bleed chrome above them.
+        gutterLeft: Math.round(listRect.left - split.getBoundingClientRect().left),
+        gutterRight: Math.round(split.getBoundingClientRect().right - railRect.right),
         dayBars: rail.querySelectorAll('.rail-daybar').length,
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
@@ -4841,6 +4848,61 @@ try {
     })).result.value || {};
     activityRailByViewport.push({ viewport: vp.name, width: vp.width, ...r });
   }
+
+  // Ultrawide: both rails flow their blocks two-up above 2200px, which halves the
+  // width each block gets. A ranked chart has a hard minimum — six bars at 26px
+  // plus five 8px gaps — and .rail-block sets no overflow, so a rail that did NOT
+  // gain width before splitting spills its bars across the neighbouring column.
+  // Measured at 2560 rather than 2200 so it is a clear case, not a boundary one.
+  const railTwoUp = [];
+  for (const page of [{ name: "commits", hash: "#/commits", rail: ".commits-rail" }, { name: "activity", hash: "#/activity", rail: ".activity-rail" }]) {
+    await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(page.hash)}` });
+    await sleep(400);
+    await waitHtml(`document.querySelector(${JSON.stringify(page.rail)})`);
+    const r = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const rail = document.querySelector(${JSON.stringify(page.rail)});
+        if (!rail) return { found: false };
+        const blocks = [...rail.querySelectorAll('.rail-block')];
+        const overflowing = [];
+        for (const b of blocks) {
+          for (const plot of b.querySelectorAll('.live-rank-plot, .rail-hours, .rail-daybars')) {
+            // Measure the IN-FLOW children's right edge against the container's.
+            //
+            // Two wrong ways to do this, both tried: the container's bounding rect
+            // never grows when its tracks overflow, and scrollWidth counts the
+            // absolutely-positioned hover tooltips, which are opacity:0 rather
+            // than removed and deliberately hang past the last bar. Only the bars
+            // themselves say whether the chart fits its card.
+            const bars = [...plot.children].filter((c) => getComputedStyle(c).position !== 'absolute');
+            if (bars.length === 0) continue;
+            const right = Math.max(...bars.map((c) => c.getBoundingClientRect().right));
+            const style = getComputedStyle(plot);
+            const box = plot.getBoundingClientRect().right - parseFloat(style.paddingRight || '0');
+            // One pixel per child of slack: these are flex/grid rows whose
+            // fractional widths each round up, so N children accumulate up to N px
+            // with nothing actually spilling. A real overflow is tens of pixels.
+            if (right > box + Math.max(2, bars.length)) {
+              overflowing.push({
+                title: (b.querySelector('.rail-block-title')?.textContent || '').trim(),
+                barsRight: Math.round(right),
+                boxRight: Math.round(box),
+              });
+            }
+          }
+        }
+        return {
+          found: true,
+          railWidth: Math.round(rail.getBoundingClientRect().width),
+          columns: getComputedStyle(rail).gridTemplateColumns.trim().split(/\\s+/).length,
+          overflowing,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || { found: false };
+    railTwoUp.push({ page: page.name, ...r });
+  }
   // --- Diagnostics fill-height tabs (Sync runs, Daemon log) ----------------
   // These two #/debug tabs size to the viewport and scroll INTERNALLY (the log
   // no longer caps at 420px; a short runs table no longer leaves dead space).
@@ -5023,8 +5085,14 @@ try {
         commitsRailWide.railWidth >= 300 &&
         commitsRailWide.dayBars > 0 &&
         commitsRailWide.repoRows > 0 &&
-        ["Commits per day", "Top repos", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
+        ["Commits per day", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: digest rail sits beside a measure-capped list (${JSON.stringify(commitsRailWide)})`,
+    ],
+    [
+      commitsRailWide.found === true &&
+        commitsRailWide.gutterLeft <= 2 &&
+        commitsRailWide.gutterRight <= 2,
+      `commits: the list and rail span their container, so the split lines up with the full-bleed chrome above it (gutters left=${commitsRailWide.gutterLeft} right=${commitsRailWide.gutterRight})`,
     ],
     // The rail is navigation: a Top repos click writes the same route filter the
     // dropdown writes, and the clicked row shows as pressed.
@@ -5088,7 +5156,7 @@ try {
         const wide = at("wide");
         const edge = at("at-breakpoint");
         const below = at("below");
-        const hasAll = (r) => ["Who", "Where", "When"].every((t) => (r.titles || []).includes(t));
+        const hasAll = (r) => ["Who", "Where", "When", "What", "How"].every((t) => (r.titles || []).includes(t));
         return (
           wide.hasRail === true && wide.columns === 3 && hasAll(wide) && wide.hours === 24 &&
           edge.hasRail === true && edge.columns === 3 &&
@@ -5099,6 +5167,11 @@ try {
         );
       })(),
       `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
+    ],
+    [
+      railTwoUp.length === 2 &&
+        railTwoUp.every((r) => r.found === true && r.columns === 2 && r.overflowing.length === 0),
+      `rails: blocks flow two-up at 2560px without overflowing their card (${JSON.stringify(railTwoUp)})`,
     ],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
     // Live tab OFF by default: a hashless first open falls back to Activity with no Live tab in the bar.

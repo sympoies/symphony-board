@@ -22,6 +22,7 @@ export function ActivityPage({
   itemsById,
   emptyState,
   view,
+  actorAvatars,
   onView,
 }: {
   activities: ActivityDTO[];
@@ -48,6 +49,8 @@ export function ActivityPage({
   // ONE of the two panes, chosen here; on wide viewports both render and this is
   // ignored.
   view: ActivityView;
+  // Login -> avatar URL for the rail Who column; see rail-stats.actorAvatarIndex.
+  actorAvatars?: ReadonlyMap<string, string>;
   onView: (view: ActivityView) => void;
 }) {
   const [heatmapPanel, setHeatmapPanel] = useState<HTMLElement | null>(null);
@@ -135,7 +138,7 @@ export function ActivityPage({
         ) : null}
         {/* Third column. Gated on the viewport rather than only hidden in CSS so
             a phone never pays to rank actors and repos it will not show. */}
-        {showRail ? <ActivityRail activities={activities} timezone={timezone} /> : null}
+        {showRail ? <ActivityRail activities={activities} timezone={timezone} avatarOf={actorAvatars} /> : null}
       </div>
     </main>
   );

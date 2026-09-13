@@ -154,6 +154,7 @@ import { FullBoard } from "./components/FullBoard.tsx";
 import { ItemsPage } from "./components/ItemsPage.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
+import { actorAvatarIndex } from "./rail-stats.ts";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { ReviewsPage } from "./components/ReviewsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
@@ -1266,6 +1267,13 @@ export function App() {
     () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
     [windowedActivities, route.repo, route.branch, route.source],
   );
+  // Actor photos for the Activity rail's Who column. Review-thread comments are
+  // the only place the contract carries an avatar URL.
+  const actorAvatars = useMemo(() => actorAvatarIndex(visibleEnv?.review_threads ?? []), [visibleEnv?.review_threads]);
+  const commitRailBranchSource = useMemo(
+    () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author }),
+    [windowedActivities, route.repo, route.source, route.author],
+  );
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
   // Board-wide commit total from the full-history aggregate (4.0.0 windows
@@ -2276,6 +2284,7 @@ export function App() {
         settingsPageEl
       ) : page === "activity" ? (
         <ActivityPage
+          actorAvatars={actorAvatars}
           activities={filteredActivities}
           allActivities={env.activities ?? []}
           activityDaily={fullActivityDaily ?? env.activity_daily ?? null}
@@ -2326,6 +2335,7 @@ export function App() {
           selectedAuthor={route.author}
           railRepoSource={commitRailRepoSource}
           railAuthorSource={commitRailAuthorSource}
+          railBranchSource={commitRailBranchSource}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           onAuthor={setRouteAuthor}

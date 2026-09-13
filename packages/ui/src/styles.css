@@ -1132,12 +1132,16 @@ a.rf-node-title:hover { color: var(--accent); }
    list rather than squeezing it. */
 .commits-split {
   display: grid;
-  grid-template-columns: minmax(0, 1180px) minmax(300px, 460px);
+  /* The rail takes ALL the remaining width rather than stopping at a ceiling.
+     It used to cap at 460px, which meant the two tracks summed to at most
+     1180 + 16 + 460 = 1656; on anything wider the leftover became side gutters
+     (87px each at 1880) and the split sat visibly inset from the full-bleed
+     toolbar and header above it. A grid's justify-content moves the TRACKS
+     inside a container that is already full width, so the container's own box
+     looked correct while the content was misaligned. */
+  grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr);
   gap: 16px;
   align-items: start;
-  /* Above roughly 2200px both columns are at their ceiling, so centring the pair
-     leaves symmetric gutters instead of one lopsided strip of dead space. */
-  justify-content: center;
 }
 @media (max-width: 1500px) {
   .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
@@ -1539,8 +1543,13 @@ a.rf-node-title:hover { color: var(--accent); }
    slack (680 -> 560) to make room, since its charts still read at that width
    while the rail below 300px does not. */
 @media (min-width: 1700px) {
+  /* The rail takes the remainder rather than stopping at a ceiling, for the same
+     reason the Commits rail does: a fixed cap leaves the leftover as dead space
+     on a 4K panel (feed 720 + overview 680 + rail 420 uses barely half of it),
+     and it also meant the rail never grew before the two-up rule below split it,
+     which overflowed its charts. */
   .activity-layout {
-    grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 680px) minmax(300px, 420px);
+    grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 680px) minmax(300px, 1fr);
   }
 }
 
@@ -4078,17 +4087,22 @@ a.rf-node-title:hover { color: var(--accent); }
   height: 34px;
   align-items: start;
 }
+/* One line, clipped with an ellipsis — NOT a two-line clamp with
+   `overflow-wrap: anywhere`. That combination broke names mid-word and then
+   truncated the fragment, so `xsin4880` read as "xsin / 48…" and two different
+   `serenvia/*` repos both read as "sere / nv…": two lines of noise that named
+   nobody. One clean line plus the full value on hover (the footer carries a
+   title, and the row's aria-label always had it) is legible at a glance and
+   recoverable in full. */
 .live-rank-name {
-  max-width: 76px;
+  max-width: 100%;
   color: color-mix(in srgb, var(--text) 84%, var(--muted));
   font-size: 10px;
-  line-height: 1.08;
+  line-height: 1.4;
   text-align: center;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .live-rank-empty {
   min-height: 72px;
@@ -4506,14 +4520,30 @@ a.rf-node-title:hover { color: var(--accent); }
    reading attention, so they read as reference, not as the subject. */
 .commits-rail,
 .activity-rail {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   min-width: 0;
+  align-content: start;
   /* Follows the list rather than scrolling with it: a rail taller than the
      viewport would otherwise strand its last block off-screen. */
   position: sticky;
   top: 12px;
+}
+/* Once a rail is genuinely wide — an ultrawide or 4K panel, where BOTH rails now
+   take the slack their main column does not need — a single column of five blocks
+   becomes a tall thin ribbon with empty space beside it. Flow them two-up.
+   This only holds because each rail actually gains width first: splitting a rail
+   that is still at a fixed ceiling halves its blocks below the width a ranked
+   chart needs (six bars at 26px plus five 8px gaps) and the bars spill out of the
+   card, which .rail-block does not clip.
+   The commit detail is excluded: it is a single card, and half of a wide rail
+   would leave the other half empty. */
+@media (min-width: 2200px) {
+  .commits-rail:not(.commit-detail),
+  .activity-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .rail-block {
   background: var(--panel);
