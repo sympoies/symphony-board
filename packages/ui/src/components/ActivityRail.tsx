@@ -113,7 +113,7 @@ export function ActivityRail({
             count: rank.count,
             // A face rather than a clipped login, matching the Live tab's buffer
             // card. The account name is on hover, which is the only way it fits.
-            footer: <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} />,
+            footer: <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />,
           }))}
         />
       </div>

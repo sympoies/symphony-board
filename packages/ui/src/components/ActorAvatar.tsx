@@ -13,10 +13,14 @@ export function ActorAvatar({
   login,
   avatarUrl,
   className,
+  // See LiveAvatar: inside a rank chart the footer draws an instant CSS tip, so
+  // the avatar must not add the browser's slow one on top of it.
+  titled = true,
 }: {
   login: string | null;
   avatarUrl?: string | null;
   className?: string;
+  titled?: boolean;
 }) {
   const model = liveAvatarModel(login ? { login, avatar_url: avatarUrl ?? null } : null);
   const [failed, setFailed] = useState(false);
@@ -26,7 +30,7 @@ export function ActorAvatar({
   const showImage = model.imageUrl != null && !failed;
   const cls = `live-avatar ${showImage ? "live-avatar-image" : "live-avatar-text"}${className ? ` ${className}` : ""}`;
   return (
-    <span className={cls} title={model.label} aria-label={model.label}>
+    <span className={cls} title={titled ? model.label : undefined} aria-label={model.label}>
       {showImage ? (
         <img src={model.imageUrl!} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
       ) : (
