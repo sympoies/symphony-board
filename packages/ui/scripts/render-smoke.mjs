@@ -3279,12 +3279,38 @@ try {
       const tip = card?.querySelector('.live-rank-item:hover .live-rank-tooltip');
       const avatar = card?.querySelector('.live-rank-item:hover .live-avatar');
       const style = tip ? getComputedStyle(tip) : null;
+      // The name tip under a REAL hover: it must actually paint, not merely
+      // exist. It lives inside .live-rank-footer, so this is what proves the
+      // footer does not clip it away.
+      const nameTip = card?.querySelector('.live-rank-item:hover .rank-name-tip');
+      const nameStyle = nameTip ? getComputedStyle(nameTip) : null;
+      const nameRect = nameTip ? nameTip.getBoundingClientRect() : null;
+      const footer = card?.querySelector('.live-rank-item:hover .live-rank-footer');
+      const footerRect = footer ? footer.getBoundingClientRect() : null;
+      // Walk the ancestors for a real clipper, so a future overflow:hidden added
+      // anywhere above the tip fails here instead of silently hiding it.
+      let clipper = null;
+      for (let n = nameTip?.parentElement; n && n !== document.body; n = n.parentElement) {
+        const o = getComputedStyle(n);
+        if (o.overflow !== 'visible' || o.overflowX !== 'visible' || o.overflowY !== 'visible') {
+          clipper = n.className;
+          break;
+        }
+      }
       return {
         text: tip?.textContent?.trim() || '',
         visible: !!style && style.visibility !== 'hidden' && Number(style.opacity) > 0,
         cursor: avatar ? getComputedStyle(avatar).cursor : '',
         tag: avatar?.tagName || '',
         href: avatar?.getAttribute('href') || '',
+        nameText: nameTip?.textContent?.trim() || '',
+        nameVisible: !!nameStyle && nameStyle.visibility !== 'hidden' && Number(nameStyle.opacity) > 0,
+        nameWidth: nameRect ? Math.round(nameRect.width) : 0,
+        nameHeight: nameRect ? Math.round(nameRect.height) : 0,
+        // The tip sits BELOW the footer, so a clipped one would be pinned to the
+        // footer's own bottom edge instead of clearing it.
+        nameBelowFooter: !!nameRect && !!footerRect && nameRect.top >= footerRect.bottom - 1,
+        clipper,
       };
     })()`,
     returnByValue: true,
@@ -5502,6 +5528,19 @@ try {
     [(live.bufferRanks || [])[0] === "The Octocat · 2 events" && (live.bufferRanks || [])[1] === "hubot · 1 event", `live: Buffer ranks people by retained activity (${JSON.stringify(live.bufferRanks || [])})`],
     [(live.repoRanks || [])[0] === "acme/widgets · 3 events", `live: Active now ranks repos by retained activity (${JSON.stringify(live.repoRanks || [])})`],
     [liveRankHover.visible === true && liveRankHover.text === "2" && liveRankHover.cursor === "pointer" && liveRankHover.tag === "A" && liveRankHover.href === "https://github.com/octocat", `live: hovering a Buffer rank avatar reveals its exact count, and the avatar links to the profile (${JSON.stringify(liveRankHover)})`],
+    // The name tip must PAINT under a real hover, not merely exist in the DOM.
+    // Review raised that .live-rank-footer would clip it; the clipping is on
+    // .live-rank-name, a sibling child, and this pins that — `clipper` walks the
+    // ancestors, so an overflow added anywhere above the tip fails here.
+    [
+      liveRankHover.nameVisible === true &&
+        liveRankHover.nameText === "The Octocat" &&
+        liveRankHover.nameWidth > 0 &&
+        liveRankHover.nameHeight > 0 &&
+        liveRankHover.nameBelowFooter === true &&
+        liveRankHover.clipper === null,
+      `live: the rank name tip paints below its footer with no clipping ancestor (${JSON.stringify(liveRankHover)})`,
+    ],
     [Math.abs((live.detailPaneHeight || 0) - (live.feedHeight || 0)) <= 2 && (live.detailPaneHeight || 0) > 0, `live: detail pane height matches the feed height (${live.detailPaneHeight || 0}px vs ${live.feedHeight || 0}px)`],
     [live.detailCardFillsPane === true, `live: short detail card fills the pane (${JSON.stringify({ pane: live.detailPaneHeight, card: live.detailCardHeight })})`],
     // The cold-start seed requests the SMALL seed limit (LIVE_SEED_LIMIT=200), not
