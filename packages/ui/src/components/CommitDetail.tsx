@@ -1,0 +1,105 @@
+import type { ActivityDTO } from "@symphony-board/contract";
+import type { CSSProperties } from "react";
+import { SourceRepo } from "./SourceRepo.tsx";
+import { safeHref } from "../url.ts";
+import { commitBody, commitBranches, commitMessage, commitShortSha, commitSha, relativeTime, type ColorOf } from "../model.ts";
+
+// The selected commit, shown where the digest rail sits. This is what lets the
+// full commit message be read at all: the list row clamps to its title and the
+// `…` expander only ever revealed a preview.
+//
+// Provider-neutral by the same rule as the list (CommitsPage's header comment) —
+// message, sha, branches, repo, author, time and the provider link are the whole
+// surface. No verification badges or check counts.
+export function CommitDetail({
+  commit,
+  timezone,
+  sourceKind,
+  colorOf,
+  onClose,
+}: {
+  commit: ActivityDTO;
+  timezone: string;
+  sourceKind: ReadonlyMap<string, string>;
+  colorOf: ColorOf;
+  onClose: () => void;
+}) {
+  const sha = commitSha(commit);
+  const shortSha = commitShortSha(commit);
+  const branches = commitBranches(commit);
+  const body = commitBody(commit);
+  const href = safeHref(commit.url);
+  // Same per-repo accent the list row carries, so the detail reads as the
+  // selected row enlarged rather than as an unrelated panel.
+  const accentColor = colorOf(commit.source_id, commit.project_path);
+
+  return (
+    <aside className="commits-rail commit-detail" aria-label="Selected commit">
+      <div
+        className={`commit-detail-card${accentColor ? " commit-row-accent" : ""}`}
+        style={{ "--repo-color": accentColor ?? undefined } as CSSProperties}
+      >
+        <button type="button" className="commit-detail-back" onClick={onClose}>
+          ← back to digest
+        </button>
+
+        <h3 className="commit-detail-title">{commitMessage(commit)}</h3>
+
+        {/* The body is plain commit text, not markdown: rendering it as markdown
+            would reflow trailers and wrapped prose that authors aligned by hand. */}
+        {body ? <pre className="commit-detail-body">{body}</pre> : null}
+
+        <dl className="commit-detail-meta">
+          <div className="commit-detail-row">
+            <dt>Repo</dt>
+            <dd>
+              {commit.project_path ? (
+                <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
+              ) : (
+                <span className="muted">unknown</span>
+              )}
+            </dd>
+          </div>
+          <div className="commit-detail-row">
+            <dt>Author</dt>
+            <dd>{commit.actor ? <span className="commit-detail-actor">@{commit.actor}</span> : <span className="muted">unattributed</span>}</dd>
+          </div>
+          <div className="commit-detail-row">
+            <dt>Committed</dt>
+            <dd>
+              <span title={new Date(commit.occurred_at).toLocaleString("en-US", { timeZone: timezone })}>
+                {relativeTime(commit.occurred_at)}
+              </span>
+            </dd>
+          </div>
+          {sha ? (
+            <div className="commit-detail-row">
+              <dt>SHA</dt>
+              <dd>
+                <code className="commit-detail-sha">{shortSha ?? sha}</code>
+              </dd>
+            </div>
+          ) : null}
+          {branches.length > 0 ? (
+            <div className="commit-detail-row">
+              <dt>{branches.length === 1 ? "Branch" : "Branches"}</dt>
+              <dd className="commit-detail-branches">
+                {branches.map((branch) => (
+                  <span key={branch} className="chip commit-branch-chip">
+                    {branch}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+
+        {href ? (
+          <a className="commit-detail-link" href={href} target="_blank" rel="noreferrer noopener">
+            Open on provider ↗
+          </a>
+        ) : null}
+      </div>
+    </aside>
+  );
+}

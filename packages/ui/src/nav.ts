@@ -59,6 +59,7 @@ const IDENTITY_FIELDS = [
   "source",
   "repo",
   "branch",
+  "author",
   "kind",
   "action",
   "unresolved",

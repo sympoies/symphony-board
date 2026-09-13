@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { ActivityFeed } from "./ActivityFeed.tsx";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
 import { MOBILE_VIEWPORT_QUERY, type ColorOf, type TimeRange } from "../model.ts";
+import { WIDE_RAIL_QUERY } from "../layout-tier.ts";
+import { ActivityRail } from "./ActivityRail.tsx";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import type { ActivityView } from "../nav.ts";
 
@@ -58,6 +60,11 @@ export function ActivityPage({
   const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   const showFeed = !isMobile || view === "feed";
   const showOverview = !isMobile || view === "overview";
+  // The rail is an addition for viewports with room to spare, never a
+  // replacement: below its breakpoint the page keeps exactly today's two-column
+  // (then single-pane) behaviour, and the mobile Feed / Overview toggle is
+  // untouched — a third sub-view would make the phone layout worse, not better.
+  const showRail = useMediaQuery(WIDE_RAIL_QUERY);
   // On a phone showing ONLY the Overview pane, the feed (which renders emptyState
   // when nothing matches) is unmounted, and ActivityHeatmap returns null when its
   // trailing-window total is zero — so an activity-less board would show just the
@@ -126,6 +133,9 @@ export function ActivityPage({
             />
           )
         ) : null}
+        {/* Third column. Gated on the viewport rather than only hidden in CSS so
+            a phone never pays to rank actors and repos it will not show. */}
+        {showRail ? <ActivityRail activities={activities} timezone={timezone} /> : null}
       </div>
     </main>
   );

@@ -174,6 +174,7 @@ export interface HashRoute {
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
   repo: string | null; // a project_path the Commits page filters to
   branch: string | null; // a branch/ref name the Commits page filters to when commit refs are present
+  author: string | null; // a commit author the Commits page filters to, set by its rail
   kind: string | null; // Activity kind filter from internal drill-down links
   action: string | null; // Activity action filter from internal drill-down links
   // The shared item-facet lens for board / graph / repo-analytics: source, state,
@@ -241,6 +242,7 @@ export function parseHashRoute(hash: string): HashRoute {
     source: routeParam(params?.get("source")),
     repo: routeParam(params?.get("repo")),
     branch: routeParam(params?.get("branch")),
+    author: routeParam(params?.get("author")),
     kind: routeParam(params?.get("kind")),
     action: routeParam(params?.get("action")),
     isource: routeParam(params?.get("isource")),
@@ -261,7 +263,7 @@ export function parseHashRoute(hash: string): HashRoute {
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; author?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const depth = graphFocusDepth(route.depth);
@@ -269,6 +271,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; dep
   const source = routeParam(route.source);
   const repo = routeParam(route.repo);
   const branch = routeParam(route.branch);
+  const author = routeParam(route.author);
   const kind = routeParam(route.kind);
   const action = routeParam(route.action);
   const isource = routeParam(route.isource);
@@ -292,6 +295,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; dep
   if (source) params.push(`source=${encodeURIComponent(source)}`);
   if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
   if (branch) params.push(`branch=${encodeURIComponent(branch)}`);
+  if (author) params.push(`author=${encodeURIComponent(author)}`);
   if (kind) params.push(`kind=${encodeURIComponent(kind)}`);
   if (action) params.push(`action=${encodeURIComponent(action)}`);
   if (isource) params.push(`isource=${encodeURIComponent(isource)}`);
@@ -1780,16 +1784,27 @@ export function commitBranches(activity: ActivityDTO): string[] {
 // The Commits page filters by repo and, when the contract carries branch refs,
 // by exact branch. Repo and branch are exact matches because both controls offer
 // closed option sets; a stale URL value intentionally narrows to zero rows.
-export function filterCommits(activities: ActivityDTO[], repoPath: string | null, branchName: string | null = null, sourceId: string | null = null): ActivityDTO[] {
+// `author` joined them when the digest rail made the author list clickable, and
+// follows the same exact-match rule for the same reason: the rail only ever
+// offers authors it counted from the loaded rows.
+export function filterCommits(
+  activities: ActivityDTO[],
+  repoPath: string | null,
+  branchName: string | null = null,
+  sourceId: string | null = null,
+  authorName: string | null = null,
+): ActivityDTO[] {
   const repo = repoPath?.trim() || null;
   const branch = branchName?.trim() || null;
   const source = sourceId?.trim() || null;
+  const author = authorName?.trim() || null;
   return activities.filter(
     (a) =>
       isCommitActivity(a) &&
       (source === null || a.source_id === source) &&
       (repo === null || a.project_path === repo) &&
-      (branch === null || commitBranches(a).includes(branch)),
+      (branch === null || commitBranches(a).includes(branch)) &&
+      (author === null || a.actor === author),
   );
 }
 
