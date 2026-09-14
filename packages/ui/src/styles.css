@@ -1547,6 +1547,119 @@ a.rf-node-title:hover { color: var(--accent); }
     min-height: var(--activity-rhythm-height, 0px);
   }
 }
+/* Sidebar rails lay their rank charts out as ROWS: one item per line, label at
+   full width on the left, bar extending right, count at the end.
+
+   The default chart is vertical bars flowed across (grid-auto-flow: column,
+   16px bars). In a tall narrow sidebar that is backwards on both axes: it spends
+   horizontal room the column cannot spare, which is what truncated those labels
+   to three characters, and it leaves the vertical room empty -- 469px of it
+   under a five-pane Commits rail at 3008px.
+
+   The DOM is unchanged. This is a relayout of the same markup, so the roles,
+   aria-pressed state and every render-smoke assertion on .live-rank-* keep
+   working; only the axis and gridlines drop out, because a shared vertical axis
+   means nothing once the bars run horizontally. */
+@media (min-width: 2200px) {
+  .commits-rail .live-rank-chart,
+  .activity-rail .live-rank-chart {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    margin-top: 4px;
+  }
+  .commits-rail .live-rank-axis,
+  .activity-rail .live-rank-axis,
+  .commits-rail .live-rank-grid,
+  .activity-rail .live-rank-grid,
+  .commits-rail .live-rank-baseline,
+  .activity-rail .live-rank-baseline {
+    display: none;
+  }
+  .commits-rail .live-rank-plot,
+  .activity-rail .live-rank-plot {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-auto-rows: 26px;
+    row-gap: 4px;
+    column-gap: 0;
+    height: auto;
+  }
+  .commits-rail .live-rank-item,
+  .activity-rail .live-rank-item {
+    grid-template-rows: none;
+    grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+    align-items: center;
+    justify-items: stretch;
+    column-gap: 10px;
+    height: 26px;
+  }
+  /* The label is the footer slot, which the column layout puts UNDER the bar.
+     A row wants it first. */
+  .commits-rail .live-rank-footer,
+  .activity-rail .live-rank-footer {
+    order: -1;
+    width: auto;
+    height: auto;
+    place-items: center start;
+    grid-auto-flow: column;
+    justify-content: start;
+    gap: 6px;
+  }
+  .commits-rail .live-rank-name,
+  .activity-rail .live-rank-name {
+    max-width: none;
+    text-align: left;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    font-size: 11px;
+  }
+  /* The tip STAYS. The label column is 13rem, so a long repository or branch
+     name still clips here -- fewer of them than before, which is not the same as
+     none, and hiding the tip would leave those with no way to be read at all.
+     It only anchors left instead of under a bar, since the label is no longer
+     centred beneath one. */
+  .commits-rail .rank-name-tip,
+  .activity-rail .rank-name-tip {
+    left: 0;
+    transform: none;
+    top: calc(100% + 2px);
+  }
+  .commits-rail .live-rank-bar-cell,
+  .activity-rail .live-rank-bar-cell {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .commits-rail .live-rank-bar,
+  .activity-rail .live-rank-bar {
+    width: var(--rank-h);
+    height: 10px;
+    min-height: 0;
+    min-width: 3px;
+    border-radius: 0 3px 3px 0;
+    flex: none;
+  }
+  /* The count stops being a hover tip and becomes a permanent column at the row
+     end -- the axis it used to be read against is gone. */
+  .commits-rail .live-rank-tooltip,
+  .activity-rail .live-rank-tooltip {
+    position: static;
+    order: 1;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    min-width: 0;
+    color: var(--muted);
+    transition: none;
+  }
+}
+
 /* Very wide: the reading cap that protects a commit row from becoming a thin
    ribbon is not a reason to let the rail outgrow the list. At 3008px the list
    measured 1180x1252 against a rail of 1776x494 -- the supporting column wider

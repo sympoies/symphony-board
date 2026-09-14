@@ -1282,7 +1282,13 @@ export function buildCommitRows({
 
   commits.forEach((commit, index) => {
     const key = commitDateKey(commit.occurred_at, timezone);
-    const showDate = previousDateKey === null || previousDateKey !== key;
+    // A TRANSITION marker, not a group header: the first row has no previous day
+    // to differ from, so it carries none. Giving it one made the opening row 22px
+    // taller than every other and pushed the whole list down against the digest
+    // rail beside it -- the only thing misaligning the two columns. It was also
+    // the least informative of the separators, since the range control above the
+    // list already names the first day.
+    const showDate = previousDateKey !== null && previousDateKey !== key;
     const body = commitBody(commit);
     const expanded = body !== null && activityKey(commit) === expandedBodyId;
     // A measured height wins for any row (collapsed or expanded). Until a row is

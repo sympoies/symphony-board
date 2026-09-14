@@ -1,3 +1,5 @@
+import { useMediaQuery } from "../useMediaQuery.ts";
+import { RAIL_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, RAIL_ROWS_QUERY } from "../layout-tier.ts";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
@@ -22,7 +24,9 @@ import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 // All of them derive from the same range-filtered `activities` the feed renders,
 // so the rail needs no fetch and cannot disagree with the feed.
 
-const RAIL_RANK_LIMIT = 6;
+// The limit is a tier, not a constant: see layout-tier.ts. A sidebar rail
+// lays these charts out as rows, where an extra item costs 26px of height the
+// column already has rather than 34px of width it does not.
 
 function eventCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
@@ -86,12 +90,18 @@ export function ActivityRail({
   // initials, so the Who column keeps one shape whoever is in it.
   avatarOf?: ReadonlyMap<string, string>;
 }) {
-  const actorRanks = useMemo(() => rankActors(activities, RAIL_RANK_LIMIT), [activities]);
-  const repoRanks = useMemo(() => rankRepos(activities, RAIL_RANK_LIMIT), [activities]);
+  // Rows are cheap in a sidebar and expensive across a narrow column, so the
+  // count follows the layout rather than being fixed. useMediaQuery re-renders
+  // on the breakpoint, so resizing onto a second monitor re-evaluates it.
+  const railRows = useMediaQuery(RAIL_ROWS_QUERY);
+  const rankLimit = railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
+
+  const actorRanks = useMemo(() => rankActors(activities, rankLimit), [activities, rankLimit]);
+  const repoRanks = useMemo(() => rankRepos(activities, rankLimit), [activities, rankLimit]);
   const actorTotal = useMemo(() => rankActors(activities, 0).length, [activities]);
   const repoTotal = useMemo(() => rankRepos(activities, 0).length, [activities]);
-  const kindRanks = useMemo(() => rankKinds(activities, RAIL_RANK_LIMIT), [activities]);
-  const actionRanks = useMemo(() => rankActions(activities, RAIL_RANK_LIMIT), [activities]);
+  const kindRanks = useMemo(() => rankKinds(activities, rankLimit), [activities, rankLimit]);
+  const actionRanks = useMemo(() => rankActions(activities, rankLimit), [activities, rankLimit]);
   const kindTotal = useMemo(() => rankKinds(activities, 0).length, [activities]);
   const actionTotal = useMemo(() => rankActions(activities, 0).length, [activities]);
 

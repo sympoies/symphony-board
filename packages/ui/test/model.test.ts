@@ -932,8 +932,9 @@ test("liveDetailNavigation disables unavailable edges and ignores stale detail",
 });
 
 test("buildCommitRows stacks date separators and expanded-body height into each row offset", () => {
-  // Two commits on one UTC day then one on the previous day, so the first and
-  // third rows carry a "Commits on <date>" separator and the second does not.
+  // Two commits on one UTC day then one on the previous day. The separator marks
+  // a TRANSITION, so only the third row carries one -- the first row opens the
+  // list and has no previous day to differ from.
   const commits = [
     activity({ external_id: "c1", kind: "commit", occurred_at: "2026-06-10T10:00:00Z", details: { sha: "a".repeat(16) } }),
     activity({ external_id: "c2", kind: "commit", occurred_at: "2026-06-10T02:00:00Z", details: { sha: "b".repeat(16), body: "Explain it" } }),
@@ -955,12 +956,12 @@ test("buildCommitRows stacks date separators and expanded-body height into each 
   assert.deepEqual(
     rows.map((r) => ({ index: r.index, offset: r.offset, height: r.height, showDate: r.showDate, expanded: r.expanded })),
     [
-      { index: 0, offset: 0, height: 100, showDate: true, expanded: false }, // 70 (estimate) + 22 + 8
-      { index: 1, offset: 100, height: 208, showDate: false, expanded: true }, // 200 (measured) + 0 + 8
-      { index: 2, offset: 308, height: 120, showDate: true, expanded: false }, // 90 (measured) + 22 + 8
+      { index: 0, offset: 0, height: 78, showDate: false, expanded: false }, // 70 (estimate) + 0 + 8
+      { index: 1, offset: 78, height: 208, showDate: false, expanded: true }, // 200 (measured) + 0 + 8
+      { index: 2, offset: 286, height: 120, showDate: true, expanded: false }, // 90 (measured) + 22 + 8
     ],
   );
-  assert.equal(totalHeightPx, 428);
+  assert.equal(totalHeightPx, 406);
   assert.equal(rows[1]!.body, "Explain it");
   assert.equal(rows[0]!.body, null); // no details.body -> never expandable
 });
