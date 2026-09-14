@@ -4731,7 +4731,12 @@ span.live-avatar { cursor: default; }
   top: 12px;
 }
 /* .hm-overview-head / .hm-summary are global, so this column reuses the exact
-   chrome the Activity overview uses rather than a near-copy of it. */
+   chrome the Activity overview uses rather than a near-copy of it. The one rule
+   that does not carry over is the summary's bottom divider: it separates the
+   tiles from the heatmap that follows them inside Activity's single card, and
+   here the tiles are a card of their own with nothing after them, so it would
+   render as a hairline hanging under the last row. */
+.commits-overview .hm-summary { padding-bottom: 0; border-bottom: none; }
 
 /* The source chips sit on their own line above the repo / branch controls, so a
    two-source board does not push the repo combobox into a second row. */
