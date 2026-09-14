@@ -2492,6 +2492,11 @@ try {
         topAligned: stacked ? stackedGap >= 8 && stackedGap <= 14 : Math.abs(repoRect.top - branchRect.top) <= 2,
         topDelta: Math.round((stacked ? stackedGap : repoRect.top - branchRect.top) * 10) / 10,
         stacked,
+        // Distance from the repo filter's right edge to the branch picker's
+        // left edge, and from the branch picker to the toolbar's right edge.
+        // Spread-apart reads as a large gap and a near-zero trailing space.
+        branchGap: Math.round(branchRect.left - filterRect.right),
+        branchTrailing: Math.round(toolbar.getBoundingClientRect().right - branchRect.right),
         // The repo combobox and branch picker should share the same pill chrome.
         chromeHeightsMatch: !!repoFieldRect && Math.abs(Math.round(repoFieldRect.height) - Math.round(branchRect.height)) <= 1,
         repoFieldHeight: repoFieldRect ? Math.round(repoFieldRect.height) : 0,
@@ -5846,6 +5851,15 @@ try {
     [commitsCombo.styledList === true, "commits: opening the filter renders the self-styled suggestion list"],
     [commitsCombo.options >= 2, `commits: combobox offers each repo with commits (${commitsCombo.options || 0} >= 2)`],
     [commitsToolbarLayout.repoBeforeBranch === true, "commits: repo filter renders before the branch selector"],
+    [
+      // One filter group, kept together. It used to sit at the two ends of the
+      // toolbar, so choosing a repo and then a branch crossed the whole page.
+      commitsToolbarLayout.stacked === true ||
+        (commitsToolbarLayout.branchGap !== undefined &&
+          commitsToolbarLayout.branchGap >= 0 &&
+          commitsToolbarLayout.branchGap <= 24),
+      `commits: the branch picker sits beside the repo filter, not at the far edge (${JSON.stringify({ gap: commitsToolbarLayout.branchGap, trailing: commitsToolbarLayout.branchTrailing })})`,
+    ],
     [commitsToolbarLayout.chromeHeightsMatch === true, `commits: repo combobox and branch picker share the same pill height (${commitsToolbarLayout.repoFieldHeight ?? "n/a"}px vs ${commitsToolbarLayout.branchHeight ?? "n/a"}px)`],
     [commitsToolbarLayout.topAligned === true, `commits: repo and branch filters ${commitsToolbarLayout.stacked ? "stack compactly" : "align at the top"} (${commitsToolbarLayout.topDelta ?? "n/a"}px)`],
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
