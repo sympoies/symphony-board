@@ -42,7 +42,9 @@ export function CommitsRail({
   onAuthor,
   onBranch,
 }: {
-  // The rows currently on screen — what the per-day strip describes.
+  // The rows currently on screen. The one read-only panel here (commit types)
+  // describes what is visible rather than what could be selected, so it reads
+  // these instead of a facet source.
   commits: ActivityDTO[];
   // Facet sources: each ranked list is counted with every filter applied EXCEPT
   // its own, so the list you are standing in still offers somewhere else to go.

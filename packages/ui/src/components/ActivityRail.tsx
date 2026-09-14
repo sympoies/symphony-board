@@ -3,9 +3,9 @@ import { RAIL_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, RAIL_ROWS_QUERY } from "../layou
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
+import { HourProfile } from "./HourProfile.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
 import { EMPTY_ACTOR_INDEX, countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
-import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 
 // The Activity "who / where / when / what / how" rail.
 //
@@ -30,53 +30,6 @@ import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 
 function eventCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
-}
-
-// Hour-of-day profile. All 24 bars always render, including empty ones: the
-// silhouette of a working day — the overnight trough, the morning ramp — is the
-// information, and dropping quiet hours would flatten it into a ranking.
-function HourProfile({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
-  const hours = useMemo(() => countsByHour(activities, timezone), [activities, timezone]);
-  const total = hours.reduce((sum, h) => sum + h.count, 0);
-  if (total === 0) return null;
-  const axisMax = niceAxisMax(Math.max(1, ...hours.map((h) => h.count)));
-  const peak = hours.reduce((best, h) => (h.count > best.count ? h : best), hours[0]!);
-  return (
-    <div className="rail-block">
-      <div className="rail-block-head">
-        <span className="rail-block-title">When</span>
-        <span className="rail-block-meta">peak {formatHour(peak.hour)}</span>
-      </div>
-      <div
-        className="rail-hours"
-        role="img"
-        aria-label={`Activity by hour of day; busiest hour ${formatHour(peak.hour)} with ${eventCountLabel(peak.count)}`}
-      >
-        {hours.map((h) => (
-          <span
-            key={h.hour}
-            className="rail-hourbar"
-            style={{ "--rank-h": rankBarHeight(h.count, axisMax) } as CSSProperties}
-            data-empty={h.count === 0 ? "true" : undefined}
-          >
-            <span className="rail-daybar-tip">{`${formatHour(h.hour)} · ${eventCountLabel(h.count)}`}</span>
-            <span className="rail-daybar-fill" />
-          </span>
-        ))}
-      </div>
-      <div className="rail-hours-axis" aria-hidden="true">
-        <span>00</span>
-        <span>06</span>
-        <span>12</span>
-        <span>18</span>
-        <span>23</span>
-      </div>
-    </div>
-  );
-}
-
-function formatHour(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
 }
 
 export function ActivityRail({
@@ -156,7 +109,7 @@ export function ActivityRail({
         />
       </div>
 
-      <HourProfile activities={activities} timezone={timezone} />
+      <HourProfile rows={activities} timezone={timezone} countLabel={eventCountLabel} />
 
       {/* What / How put counts on the same vocabulary as the filter chips above
           the feed. The chips have always been able to narrow by kind and action

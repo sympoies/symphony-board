@@ -1,6 +1,7 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties, type Ref } from "react";
-import { EMPTY_ACTOR_INDEX, countsByDay, countsByHour, rankActors, rankBranches, rankRepos, type ActorIndex } from "../rail-stats.ts";
+import { EMPTY_ACTOR_INDEX, countsByDay, rankActors, rankBranches, rankRepos, type ActorIndex, type DayBucket } from "../rail-stats.ts";
+import { HourProfile } from "./HourProfile.tsx";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
 
@@ -24,19 +25,15 @@ function commitCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
 }
 
-function formatHour(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
-}
-
 // Chronological per-day bars. Deliberately NOT a RankChart: those sort by size,
 // and the whole point of this strip is the shape of the range in order, gaps
 // included. Moved here from the rail, where it was the one block that wanted
 // width rather than rows.
-function DayBars({ commits, timezone, range }: { commits: ActivityDTO[]; timezone: string; range: TimeRange }) {
-  const days = useMemo(
-    () => countsByDay(commits, timezone, range.from, range.to),
-    [commits, timezone, range.from, range.to],
-  );
+// Takes the buckets rather than deriving them: the parent needs the same array
+// for its summary tiles, and countsByDay costs an Intl-backed pass per row
+// (~5us each on a non-UTC contract timezone), which at 25k rows is tens of
+// milliseconds to pay twice on every filter change.
+function DayBars({ days, range }: { days: readonly DayBucket[]; range: TimeRange }) {
   if (days.length === 0) return null;
   const max = Math.max(1, ...days.map((d) => d.count));
   const axisMax = niceAxisMax(max);
@@ -59,50 +56,6 @@ function DayBars({ commits, timezone, range }: { commits: ActivityDTO[]; timezon
             <span className="rail-daybar-fill" />
           </span>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// Hour-of-day profile, mirroring the Activity rail's "When" block. All 24 bars
-// always render, including empty ones: the silhouette of a working day — the
-// overnight trough, the morning ramp — is the information, and dropping quiet
-// hours would flatten it into a ranking.
-function HourProfile({ commits, timezone }: { commits: ActivityDTO[]; timezone: string }) {
-  const hours = useMemo(() => countsByHour(commits, timezone), [commits, timezone]);
-  const total = hours.reduce((sum, h) => sum + h.count, 0);
-  if (total === 0) return null;
-  const axisMax = niceAxisMax(Math.max(1, ...hours.map((h) => h.count)));
-  const peak = hours.reduce((best, h) => (h.count > best.count ? h : best), hours[0]!);
-  return (
-    <div className="rail-block">
-      <div className="rail-block-head">
-        <span className="rail-block-title">When</span>
-        <span className="rail-block-meta">peak {formatHour(peak.hour)}</span>
-      </div>
-      <div
-        className="rail-hours"
-        role="img"
-        aria-label={`Commits by hour of day; busiest hour ${formatHour(peak.hour)} with ${commitCountLabel(peak.count)}`}
-      >
-        {hours.map((h) => (
-          <span
-            key={h.hour}
-            className="rail-hourbar"
-            style={{ "--rank-h": rankBarHeight(h.count, axisMax) } as CSSProperties}
-            data-empty={h.count === 0 ? "true" : undefined}
-          >
-            <span className="rail-daybar-tip">{`${formatHour(h.hour)} · ${commitCountLabel(h.count)}`}</span>
-            <span className="rail-daybar-fill" />
-          </span>
-        ))}
-      </div>
-      <div className="rail-hours-axis" aria-hidden="true">
-        <span>00</span>
-        <span>06</span>
-        <span>12</span>
-        <span>18</span>
-        <span>23</span>
       </div>
     </div>
   );
@@ -172,8 +125,8 @@ export function CommitsOverview({
         ))}
       </dl>
 
-      <DayBars commits={commits} timezone={timezone} range={range} />
-      <HourProfile commits={commits} timezone={timezone} />
+      <DayBars days={days} range={range} />
+      <HourProfile rows={commits} timezone={timezone} countLabel={commitCountLabel} />
     </aside>
   );
 }

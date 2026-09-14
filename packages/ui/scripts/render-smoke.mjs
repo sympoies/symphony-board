@@ -4848,6 +4848,24 @@ try {
     returnByValue: true,
   })).result.value || { found: false };
 
+  // The directory resolves a person's facets to one ranked row. The sample
+  // contract carries the same maintainer under two logins across its two hosts,
+  // which is the cross-key case the field exists for.
+  const commitsAuthorMerge = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rail = document.querySelector('.commits-rail');
+      if (!rail) return { found: false };
+      const block = [...rail.querySelectorAll('.rail-block')]
+        .find((el) => (el.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top authors');
+      if (!block) return { found: false, hasRail: true };
+      const rows = [...block.querySelectorAll('.live-rank-item')]
+        .map((el) => (el.querySelector('.live-rank-name')?.textContent || '').trim())
+        .filter(Boolean);
+      return { found: true, rows, hasMerged: rows.includes('maintainer'), hasFacet: rows.includes('gl-maintainer') };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+
   // A rail row is navigation: clicking a Top repos bar must apply the repo filter
   // the row describes. Asserting the hash proves the click reached the SAME
   // route-backed state the dropdown writes, not a private highlight.
@@ -4891,6 +4909,36 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Picking a source while a repo is pinned must drop the repo: the pair is
+  // unsatisfiable, and leaving it lights two chips over an empty list.
+  const commitsSourceChip = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const group = document.querySelector('.commits-page .commits-source-group');
+      if (!group) return { found: false };
+      const chips = [...group.querySelectorAll('.toggle')];
+      const repoBefore = new URLSearchParams(location.hash.replace(/^#\\/?[a-z-]*\\??/, '')).get('repo');
+      const target = chips.find((c) => !c.classList.contains('toggle-on'));
+      if (!target) return { found: true, clicked: false, chips: chips.length };
+      target.click();
+      return { found: true, clicked: true, chips: chips.length, repoBefore };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await sleep(300);
+  const commitsSourceChipApplied = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const params = new URLSearchParams(location.hash.replace(/^#\\/?[a-z-]*\\??/, ''));
+      const group = document.querySelector('.commits-page .commits-source-group');
+      return {
+        hasSource: !!params.get('source'),
+        hasRepo: !!params.get('repo'),
+        pressed: [...(group?.querySelectorAll('.toggle-on') || [])].length,
+        rows: document.querySelectorAll('.commit-row').length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+
   // Leave the page unfiltered for the checks below.
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(350);
@@ -5437,6 +5485,22 @@ try {
         commitsRailWide.gutterLeft <= 2 &&
         commitsRailWide.gutterRight <= 2,
       `commits: the three columns span their container, so the split lines up with the full-bleed chrome above it (gutters left=${commitsRailWide.gutterLeft} right=${commitsRailWide.gutterRight})`,
+    ],
+    [
+      commitsAuthorMerge.found === true &&
+        commitsAuthorMerge.hasMerged === true &&
+        commitsAuthorMerge.hasFacet === false,
+      `commits: the directory collapses a person's logins into one Top authors row (${JSON.stringify(commitsAuthorMerge)})`,
+    ],
+    [
+      commitsSourceChip.found === true &&
+        commitsSourceChip.clicked === true &&
+        commitsSourceChip.chips >= 2 &&
+        commitsSourceChipApplied.hasSource === true &&
+        commitsSourceChipApplied.hasRepo === false &&
+        commitsSourceChipApplied.pressed === 1 &&
+        commitsSourceChipApplied.rows > 0,
+      `commits: a source chip applies the source and drops a repo pin it cannot satisfy (${JSON.stringify(commitsSourceChip)} -> ${JSON.stringify(commitsSourceChipApplied)})`,
     ],
     // The rail is navigation: a Top repos click writes the same route filter the
     // dropdown writes, and the clicked row shows as pressed.

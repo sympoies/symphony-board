@@ -4743,7 +4743,7 @@ span.live-avatar { cursor: default; }
   top: 12px;
 }
 /* Once a rail is genuinely wide — an ultrawide or 4K panel, where BOTH rails now
-   take the slack their main column does not need — a single column of five blocks
+   take the slack their main column does not need — a single column of blocks
    becomes a tall thin ribbon with empty space beside it. Flow them two-up.
    This only holds because each rail actually gains width first: splitting a rail
    that is still at a fixed ceiling halves its blocks below the width a ranked
@@ -4752,10 +4752,12 @@ span.live-avatar { cursor: default; }
    The commit detail is excluded: it is a single card, and half of a wide rail
    would leave the other half empty. */
 @media (min-width: 2200px) {
-  /* Commits is deliberately absent: its rail is a 700px sidebar at this width
-     (see above), and two-up there would give ~344px panes -- narrower than the
-     six-bar charts read at, and short enough to strand the height beside a
-     1252px list. Stacked, the five panes fill that column instead. */
+  /* Commits is deliberately absent, though no longer because its rail is
+     narrow: since the split became three ratio columns its rail is 35fr, about
+     1050px at 3008px wide. It now carries four ranked charts rather than five
+     blocks (the per-day strip moved to the overview column), and those four
+     stacked already fill the height beside the list. Two-up would halve them to
+     ~510px for no gain and leave the column half empty at the bottom. */
   .activity-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -440,16 +440,25 @@ export function CommitsPage({
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
 
-  // The repo + branch SCM filters are rarely changed, so on narrow/portrait they
-  // collapse behind a summary disclosure (same pattern as the date range) and the
-  // commit feed gets the first screen. Desktop always shows them.
+  // The source, repo and branch SCM filters are rarely changed, so on
+  // narrow/portrait they collapse behind a summary disclosure (same pattern as
+  // the date range) and the commit feed gets the first screen. Desktop always
+  // shows them.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch">("repo");
   const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0);
+  // The summary has to name every filter the count counts, or a pinned source
+  // reads as "1 active" over the words "all repos · all branches".
   const filtersSummary =
     activeFilterCount === 0
       ? "all repos · all branches"
-      : `${selectedRepo ?? "all repos"} · ${selectedBranch ?? "all branches"}`;
+      : [
+          selectedSource ? sourceDisplayName(selectedSource) : null,
+          selectedRepo ?? "all repos",
+          selectedBranch ?? "all branches",
+        ]
+          .filter(Boolean)
+          .join(" · ");
   const closeFiltersOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") setFiltersOpen(false);
   };

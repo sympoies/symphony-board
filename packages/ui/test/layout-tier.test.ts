@@ -345,8 +345,10 @@ test("Commits shares its width across three ratio columns, left-aligned", () => 
   // No very-wide override survives: centring the split is what stranded it.
   const wide = mediaBlock("(min-width: 2200px)");
   assert.doesNotMatch(wide, /\.commits-split/, "the very-wide tier must not re-size or re-centre the split");
-  // The rail still does not go two-up there: split into a sidebar it would give
-  // panes narrower than its six-bar charts read at.
+  // The Commits rail still does not go two-up there. Not because it is narrow —
+  // at 35fr it is about 1050px — but because its four ranked charts already fill
+  // the height beside the list, so halving their width would only leave the
+  // column half empty.
   assert.doesNotMatch(wide, /\.commits-rail[^{]*\{[^}]*repeat\(2/, "a sidebar rail must not also go two-up");
   assert.match(wide, /\.activity-rail\s*\{[^}]*repeat\(2/, "Activity's rail keeps its two-up tier");
 });
