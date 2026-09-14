@@ -1148,7 +1148,13 @@ a.rf-node-title:hover { color: var(--accent); }
    checked against it. */
 .commits-split {
   display: grid;
-  grid-template-columns: minmax(0, 30fr) minmax(0, 35fr) minmax(0, 35fr);
+  /* 40/30/30 rather than Activity's 30/35/35. The Commits list is the column
+     with the long strings on it — a conventional-commit subject, an org/repo
+     path, an actor and a branch chip, all on two fixed-height lines — so an
+     even split made every one of them ellipsize while the two supporting
+     columns had room to spare. Activity's feed wraps instead of truncating, so
+     it keeps its own proportions. */
+  grid-template-columns: minmax(0, 40fr) minmax(0, 30fr) minmax(0, 30fr);
   justify-content: start;
   gap: var(--pane-gap);
   align-items: start;
@@ -2418,7 +2424,12 @@ a.rf-node-title:hover { color: var(--accent); }
   background: var(--line);
 }
 .commit-row-body {
-  display: flex; align-items: center; gap: 12px;
+  /* Top-aligned, not centred: the main block is two stacked lines, so centring
+     the sha and its action buttons against it put them in the gutter BETWEEN
+     the subject and the meta row, aligned with neither. Starting both at the
+     top puts the sha on the subject's line, which is what a commit log reads
+     like. */
+  display: flex; align-items: flex-start; gap: 12px;
   min-height: var(--commit-row-body-height);
   box-sizing: border-box;
   background: var(--panel);
