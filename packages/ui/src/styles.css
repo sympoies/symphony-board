@@ -4737,6 +4737,11 @@ span.live-avatar { cursor: default; }
    here the tiles are a card of their own with nothing after them, so it would
    render as a hairline hanging under the last row. */
 .commits-overview .hm-summary { padding-bottom: 0; border-bottom: none; }
+/* The head and the tiles were siblings of the COLUMN before they shared a card,
+   so the column's --pane-gap separated them. A .rail-block is a plain block box
+   with no gap, and neither child carries a margin, so inside one they sit
+   flush. 10px matches the margin every other rail-block head uses. */
+.commits-overview > .rail-block { display: flex; flex-direction: column; gap: 10px; }
 
 /* The source chips sit on their own line above the repo / branch controls, so a
    two-source board does not push the repo combobox into a second row. */
