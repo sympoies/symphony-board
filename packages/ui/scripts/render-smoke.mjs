@@ -2152,7 +2152,11 @@ try {
         const avail = shell
           ? shell.getBoundingClientRect().right - parseFloat(shellStyle.paddingRight || '0')
           : null;
-        const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0);
+        // Against the LAST rendered column, not the second: at three-column
+        // widths the rail sits to the right of the panel, and comparing the
+        // panel to the shell edge reported the rail width as dead space.
+        const lastRect = rects.length ? rects[rects.length - 1] : null;
+        const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0, lastRect?.right ?? 0);
         // Widest gap BETWEEN adjacent rendered columns. The declared grid gap
         // says nothing about a column whose content does not fill its track, and
         // that is the failure this exists to catch.
@@ -5466,9 +5470,15 @@ try {
       `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
     ],
     [
+      // Activity keeps its two-up tier: its rail track is wide at this size.
+      // Commits deliberately does NOT -- its rail is a 700px sidebar there, and
+      // two-up would give ~344px panes, narrower than the six-bar charts read
+      // at. Neither may overflow its card whichever shape it takes.
       railTwoUp.length === 2 &&
-        railTwoUp.every((r) => r.found === true && r.columns === 2 && r.overflowing.length === 0),
-      `rails: blocks flow two-up at 2560px without overflowing their card (${JSON.stringify(railTwoUp)})`,
+        railTwoUp.every((r) => r.found === true && r.overflowing.length === 0) &&
+        railTwoUp.find((r) => r.page === "activity")?.columns === 2 &&
+        railTwoUp.find((r) => r.page === "commits")?.columns === 1,
+      `rails: Activity flows two-up at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
     ],
     [
       paneGapOdd.length === 0 && paneGaps.length === 10 && paneGapToken === "12px",
