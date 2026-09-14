@@ -323,7 +323,8 @@ test("Commits leads with its list across three ratio columns, left-aligned", () 
   // SUPPORTING column was wider (1776px) than the primary one and a third its
   // height. Then the very-wide tier fixed that by centring, which left the split
   // visibly inset from the full-bleed toolbar above it. A third column takes the
-  // slack instead, in the same 30/35/35 proportions Activity uses.
+  // slack instead, and the list keeps the largest share of it because it
+  // carries the long strings on the page.
   const split = /\.commits-split\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
   assert.ok(split, "the Commits split must still be styled here");
 
