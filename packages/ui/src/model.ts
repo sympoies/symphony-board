@@ -894,7 +894,13 @@ export function buildActivityHeatmap(
 // matches what the producer counted. Output shape is identical to
 // buildActivityHeatmap. The per-day buckets carry the date directly (already
 // bucketed in the contract timezone), so no `tz` is needed here.
-export function buildActivityHeatmapFromDaily(daily: ActivityDailyDTO): ActivityHeatmap {
+// `kind` narrows the aggregate to one activity kind — the Commits overview
+// charts commits alone, where the Activity overview charts every kind together.
+// The producer already buckets per kind per day, so this reads `by_kind[kind]`
+// instead of the day's total and needs nothing new from the contract. A day
+// with no rows of that kind simply contributes nothing, which is what leaves a
+// gap in the calendar.
+export function buildActivityHeatmapFromDaily(daily: ActivityDailyDTO, kind?: string): ActivityHeatmap {
   const today = daily.to;
   // A fixed calendar date's weekday is zone-independent (the date is already
   // zoned by the producer), so read it from the date's UTC midnight.
@@ -907,11 +913,14 @@ export function buildActivityHeatmapFromDaily(daily: ActivityDailyDTO): Activity
   for (const bucket of daily.days) {
     // String compare is safe for fixed-width YYYY-MM-DD keys.
     if (bucket.date < startKey || bucket.date > today) continue;
-    countByDay.set(bucket.date, (countByDay.get(bucket.date) ?? 0) + bucket.count);
-    for (const [kind, count] of Object.entries(bucket.by_kind)) {
-      kindCounts.set(kind, (kindCounts.get(kind) ?? 0) + count);
+    const dayCount = kind === undefined ? bucket.count : (bucket.by_kind[kind] ?? 0);
+    if (dayCount === 0) continue;
+    countByDay.set(bucket.date, (countByDay.get(bucket.date) ?? 0) + dayCount);
+    for (const [bucketKind, count] of Object.entries(bucket.by_kind)) {
+      if (kind !== undefined && bucketKind !== kind) continue;
+      kindCounts.set(bucketKind, (kindCounts.get(bucketKind) ?? 0) + count);
     }
-    total += bucket.count;
+    total += dayCount;
   }
 
   return assembleHeatmap(countByDay, kindCounts, total, startKey, today);

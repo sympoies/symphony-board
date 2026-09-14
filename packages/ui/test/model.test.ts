@@ -2657,6 +2657,49 @@ test("buildActivityHeatmap buckets activities into a 53-week UTC calendar grid",
   assert.equal(byDate.get("2026-05-15")?.level, 0, "an empty day is level 0");
 });
 
+test("buildActivityHeatmapFromDaily narrowed to one kind counts only that kind", () => {
+  // The Commits overview charts commits alone. The producer already buckets per
+  // kind per day, so this reads by_kind[kind] rather than the day total, and a
+  // day whose only rows are another kind renders as a zero cell — the calendar
+  // covers every day in the window either way — and, more importantly, stops
+  // counting as an active day or as the busiest one.
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2026-06-01",
+    to: "2026-06-08",
+    total: 10,
+    by_kind: { commit: 6, issue: 4 },
+    days: [
+      { date: "2026-06-02", count: 4, by_kind: { commit: 4 } },
+      { date: "2026-06-05", count: 3, by_kind: { issue: 3 } },
+      { date: "2026-06-08", count: 3, by_kind: { commit: 2, issue: 1 } },
+    ],
+  };
+
+  const all = buildActivityHeatmapFromDaily(daily);
+  assert.equal(all.total, 10);
+  assert.equal(all.activeDays, 3);
+
+  const commitsOnly = buildActivityHeatmapFromDaily(daily, "commit");
+  assert.equal(commitsOnly.total, 6, "issue rows do not count");
+  assert.equal(commitsOnly.activeDays, 2, "the issue-only day is not an active commit day");
+  assert.equal(commitsOnly.maxCount, 4);
+  assert.equal(commitsOnly.busiest?.date, "2026-06-02", "busiest by commits, not by all activity");
+  assert.deepEqual(commitsOnly.byKind, [{ kind: "commit", count: 6 }], "only the charted kind is summarised");
+
+  const byDate = new Map(
+    commitsOnly.weeks.flat().filter((c): c is NonNullable<typeof c> => c !== null).map((c) => [c.date, c]),
+  );
+  assert.equal(byDate.get("2026-06-08")?.count, 2, "the mixed day counts its commits only");
+  assert.equal(byDate.get("2026-06-05")?.count, 0, "an issue-only day is a quiet cell, not a commit day");
+  assert.equal(byDate.get("2026-06-05")?.level, 0);
+
+  // A kind nothing was recorded under yields an empty figure rather than throwing,
+  // which is what lets the panel decide not to render.
+  const none = buildActivityHeatmapFromDaily(daily, "push");
+  assert.equal(none.total, 0);
+  assert.equal(none.activeDays, 0);
+});
 test("buildActivityHeatmapFromDaily mirrors the raw builder, anchored at the aggregate `to`", () => {
   // Same shape as the raw-activity heatmap test, but expressed as per-day buckets
   // and anchored at `to` (the contract generated_at day), not a UI clock.

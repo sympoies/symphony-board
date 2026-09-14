@@ -2393,6 +2393,7 @@ export function App() {
           railAuthorSource={commitRailAuthorSource}
           railBranchSource={commitRailBranchSource}
           sourceOptions={commitSources}
+          activityDaily={fullActivityDaily ?? env.activity_daily ?? null}
           actorIndex={railActorIndex}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
