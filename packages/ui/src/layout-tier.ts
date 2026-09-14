@@ -54,6 +54,22 @@ export const WIDE_RAIL_QUERY = `(min-width: ${WIDE_RAIL_MIN_WIDTH_PX}px)`;
 // Activity feed at 720px with ~560px of dead gutter beside it.
 // layout-tier.test.ts compares the two numbers, because nothing else in the
 // build reads both.
+// Where a rail stops being a wide panel and becomes a tall narrow sidebar. At
+// this width the stylesheet relays its rank charts from vertical bars flowed
+// across to one row per item, which changes what a row costs: a row is ~26px of
+// HEIGHT instead of ~34px of WIDTH. Rows are cheap in a column that has height
+// to spare and labels that were truncating to three characters, so the charts
+// also carry more of them here.
+//
+// styles.css mirrors this number; layout-tier.test.ts keeps the two in step.
+export const RAIL_ROWS_MIN_WIDTH_PX = 2200;
+export const RAIL_ROWS_QUERY = `(min-width: ${RAIL_ROWS_MIN_WIDTH_PX}px)`;
+// Six bars is what fits across a narrow column; eight rows is what fills a tall
+// one. Measured against a 1252px Commits list: four rank panes at eight rows,
+// plus the day-bar pane and the gaps, land at about 1240px.
+export const RAIL_RANK_LIMIT = 6;
+export const RAIL_RANK_LIMIT_ROWS = 8;
+
 export const SPLIT_RAIL_MIN_WIDTH_PX = 1212;
 export const SPLIT_STACK_QUERY = `(max-width: ${SPLIT_RAIL_MIN_WIDTH_PX - 1}px)`;
 
