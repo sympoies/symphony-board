@@ -178,52 +178,52 @@ body::after {
    clears it after a short idle) or while the pointer hovers the bar. The track is
    never given a visible color and the gutter (--scrollbar-size) is always reserved,
    so revealing the bar never shifts content. */
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll) {
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"] {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"] {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track,
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece,
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track,
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece,
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb {
   background: transparent;
   border: 2px solid transparent;
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"]::-webkit-scrollbar-thumb {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"]::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:hover {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:active {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .repo-table-wrap, .hm-calendar-scroll) {
+:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll) {
   --scrollbar-track: color-mix(in srgb, var(--panel) 80%, var(--bg));
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
@@ -1547,6 +1547,23 @@ a.rf-node-title:hover { color: var(--accent); }
     min-height: var(--activity-rhythm-height, 0px);
   }
 }
+/* Very wide: the reading cap that protects a commit row from becoming a thin
+   ribbon is not a reason to let the rail outgrow the list. At 3008px the list
+   measured 1180x1252 against a rail of 1776x494 -- the supporting column wider
+   than the primary one and a third its height. The list leads, the rail becomes
+   a sidebar, and what is left over is shared as symmetric margin rather than
+   dumped on one side.
+
+   The centring here is deliberate and is NOT the #631 defect: that was a split
+   sitting visibly inset from full-bleed chrome at ordinary widths. This only
+   engages where the page genuinely has more room than it needs. */
+@media (min-width: 2200px) {
+  .commits-split {
+    grid-template-columns: minmax(0, 1600px) minmax(300px, 700px);
+    justify-content: center;
+  }
+}
+
 /* Below the split floor both two-pane pages stack. The floor is
    SPLIT_RAIL_MIN_WIDTH_PX in layout-tier.ts, which layout-tier.test.ts also
    checks against runtime.WIDE_VIEWPORT_WIDTH: stacking ABOVE the width the
@@ -1619,7 +1636,11 @@ a.rf-node-title:hover { color: var(--accent); }
   --hm-gap: 2px;
   --hm-step: calc(var(--hm-cell) + var(--hm-gap));
   --hm-weekday-w: 28px;
-  inline-size: min(100%, 680px);
+  /* Fills its track. An element ceiling inside a track that no longer has one
+     just moves the dead space one level in -- it stranded 363px at 3008px wide.
+     The calendar below keeps its natural size and sits left; everything else in
+     this panel reads better wider. */
+  inline-size: 100%;
   box-sizing: border-box;
   display: flex; flex-direction: column; gap: 12px;
   padding: 14px 16px;
@@ -4588,7 +4609,10 @@ span.live-avatar { cursor: default; }
    The commit detail is excluded: it is a single card, and half of a wide rail
    would leave the other half empty. */
 @media (min-width: 2200px) {
-  .commits-rail:not(.commit-detail),
+  /* Commits is deliberately absent: its rail is a 700px sidebar at this width
+     (see above), and two-up there would give ~344px panes -- narrower than the
+     six-bar charts read at, and short enough to strand the height beside a
+     1252px list. Stacked, the five panes fill that column instead. */
   .activity-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
