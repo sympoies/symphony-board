@@ -1,13 +1,14 @@
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { RAIL_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, RAIL_ROWS_QUERY } from "../layout-tier.ts";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { useMemo, type CSSProperties } from "react";
+import { useMemo } from "react";
 import { RankChart } from "./RankChart.tsx";
-import { countsByDay, rankActors, rankBranches, rankCommitTypes, rankRepos, shortRepoLabel } from "../rail-stats.ts";
-import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
-import type { CommitRepoOption, TimeRange } from "../model.ts";
+import { EMPTY_ACTOR_INDEX, rankActors, rankBranches, rankCommitTypes, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
+import type { CommitRepoOption } from "../model.ts";
 
-// The Commits digest rail: what the selected range contains, and a way into it.
+// The Commits digest rail: the RANKED facets of the selected range, and a way
+// into each of them. The range’s shape over time (per-day strip, hour profile,
+// summary tiles) is the overview column beside it — see CommitsOverview.
 //
 // It exists because the page header routinely reports something like "27 repos
 // with commits · 303 branches" over more than a thousand rows, and until now the
@@ -27,48 +28,12 @@ function commitCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
 }
 
-// Chronological per-day bars. Deliberately NOT a RankChart: those sort by size,
-// and the whole point of this strip is the shape of the range in order, gaps
-// included.
-function DayBars({ commits, timezone, range }: { commits: ActivityDTO[]; timezone: string; range: TimeRange }) {
-  const days = useMemo(
-    () => countsByDay(commits, timezone, range.from, range.to),
-    [commits, timezone, range.from, range.to],
-  );
-  if (days.length === 0) return null;
-  const max = Math.max(1, ...days.map((d) => d.count));
-  const axisMax = niceAxisMax(max);
-  const total = days.reduce((sum, d) => sum + d.count, 0);
-  return (
-    <div className="rail-block">
-      <div className="rail-block-head">
-        <span className="rail-block-title">Commits per day</span>
-        <span className="rail-block-meta">{commitCountLabel(total)}</span>
-      </div>
-      <div className="rail-daybars" role="img" aria-label={`Commits per day, ${range.from} to ${range.to}: ${commitCountLabel(total)}`}>
-        {days.map((day) => (
-          <span
-            key={day.date}
-            className="rail-daybar"
-            style={{ "--rank-h": rankBarHeight(day.count, axisMax) } as CSSProperties}
-            data-empty={day.count === 0 ? "true" : undefined}
-          >
-            <span className="rail-daybar-tip">{`${day.date} · ${commitCountLabel(day.count)}`}</span>
-            <span className="rail-daybar-fill" />
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function CommitsRail({
   commits,
   repoSource,
   branchSource,
   authorSource,
-  timezone,
-  range,
+  actorIndex = EMPTY_ACTOR_INDEX,
   selectedRepo,
   selectedSource,
   selectedAuthor,
@@ -84,8 +49,9 @@ export function CommitsRail({
   repoSource: ActivityDTO[];
   authorSource: ActivityDTO[];
   branchSource: ActivityDTO[];
-  timezone: string;
-  range: TimeRange;
+  // Contract actor directory as lookups: merges a person's facets into one row
+  // and drops CI accounts, matching repo_metrics.top_actors. See rail-stats.
+  actorIndex?: ActorIndex;
   selectedRepo: string | null;
   selectedSource: string | null;
   selectedAuthor: string | null;
@@ -101,22 +67,20 @@ export function CommitsRail({
   const rankLimit = railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
 
   const repoRanks = useMemo(() => rankRepos(repoSource, rankLimit), [repoSource, rankLimit]);
-  const authorRanks = useMemo(() => rankActors(authorSource, rankLimit), [authorSource, rankLimit]);
+  const authorRanks = useMemo(() => rankActors(authorSource, rankLimit, actorIndex), [authorSource, rankLimit, actorIndex]);
   const branchRanks = useMemo(() => rankBranches(branchSource, rankLimit), [branchSource, rankLimit]);
   // Commit types describe what is ON SCREEN rather than what could be selected —
   // it drives no filter, so unlike the three ranked facets it reads from the
   // visible rows.
   const typeRanks = useMemo(() => rankCommitTypes(commits, rankLimit), [commits, rankLimit]);
   const repoTotal = useMemo(() => rankRepos(repoSource, 0).length, [repoSource]);
-  const authorTotal = useMemo(() => rankActors(authorSource, 0).length, [authorSource]);
+  const authorTotal = useMemo(() => rankActors(authorSource, 0, actorIndex).length, [authorSource, actorIndex]);
   const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);
   const typeTotal = useMemo(() => rankCommitTypes(commits, 0).length, [commits]);
   const selectedRepoKey = selectedRepo && selectedSource ? `${selectedSource}|${selectedRepo}` : null;
 
   return (
     <aside className="commits-rail" aria-label="Commit range digest">
-      <DayBars commits={commits} timezone={timezone} range={range} />
-
       <div className="rail-block">
         <div className="rail-block-head">
           <span className="rail-block-title">Top repos</span>

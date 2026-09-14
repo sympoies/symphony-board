@@ -317,23 +317,56 @@ test("no pane carries a width ceiling inside a track that has none", () => {
   // left; that is content sizing, not a pane ceiling, and is fine.
 });
 
-test("Commits gives the list the lead over its rail on a very wide display", () => {
-  // At 3008px the list was pinned at 1180 while the rail took 1776 — the
-  // supporting column wider than the primary one, and a third its height.
-  const wide = mediaBlock("(min-width: 2200px)");
-  const split = /\.commits-split\s*\{([^}]*)\}/.exec(wide)?.[1] ?? "";
-  assert.ok(split, "the very-wide tier must size the Commits split");
+test("Commits shares its width across three ratio columns, left-aligned", () => {
+  // Two defects in sequence produced this rule. First the list was pinned at a
+  // 1180px reading measure while the rail took everything else, so at 3008px the
+  // SUPPORTING column was wider (1776px) than the primary one and a third its
+  // height. Then the very-wide tier fixed that by centring, which left the split
+  // visibly inset from the full-bleed toolbar above it. A third column takes the
+  // slack instead, in the same 30/35/35 proportions Activity uses.
+  const split = /\.commits-split\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
+  assert.ok(split, "the Commits split must still be styled here");
 
   const cols = /grid-template-columns:([^;]+);/.exec(split)?.[1] ?? "";
-  const [listMax, railMax] = [...cols.matchAll(/minmax\([^,]+,\s*(\d+)px\)/g)].map((m) => Number(m[1]));
-  assert.ok(listMax > railMax, `the list must lead its rail (list ${listMax}px vs rail ${railMax}px)`);
+  const ratios = [...cols.matchAll(/minmax\(0,\s*(\d+)fr\)/g)].map((m) => Number(m[1]));
+  assert.deepEqual(ratios, [30, 35, 35], "list / overview / rail share the width by ratio");
+  assert.match(split, /justify-content:\s*start/, "the split stays flush with the chrome above it");
 
-  // And the rail stops being two-up here: split into a ~700px sidebar it would
-  // give ~344px panes, narrower than its six-bar charts read at.
+  // Activity states the same proportions for the same reason; if one moves
+  // without the other the two pages stop reading as the same layout.
+  const railTier = mediaBlock("(min-width: 1700px)");
+  const activity = /\.activity-layout\s*\{([^}]*)\}/.exec(railTier)?.[1] ?? "";
+  assert.deepEqual(
+    [...(/grid-template-columns:([^;]+);/.exec(activity)?.[1] ?? "").matchAll(/minmax\(0,\s*(\d+)fr\)/g)].map((m) => Number(m[1])),
+    ratios,
+    "Activity and Commits use the same three-column proportions",
+  );
+
+  // No very-wide override survives: centring the split is what stranded it.
+  const wide = mediaBlock("(min-width: 2200px)");
+  assert.doesNotMatch(wide, /\.commits-split/, "the very-wide tier must not re-size or re-centre the split");
+  // The rail still does not go two-up there: split into a sidebar it would give
+  // panes narrower than its six-bar charts read at.
   assert.doesNotMatch(wide, /\.commits-rail[^{]*\{[^}]*repeat\(2/, "a sidebar rail must not also go two-up");
   assert.match(wide, /\.activity-rail\s*\{[^}]*repeat\(2/, "Activity's rail keeps its two-up tier");
 });
 
+test("both list panes fill the measured content-pane height", () => {
+  // .activity-list and .commit-list were the last two panes on a hardcoded
+  // fraction of the viewport. Every other pane measures its own document top
+  // and ends at the viewport bottom (pane-height.ts), so on a 4K panel these two
+  // alone disagreed with the rest of the board: the feed stopped ~100px short,
+  // and the commit list ran its last row past the bottom edge.
+  for (const pane of [".activity-list", ".commit-list"]) {
+    const block = new RegExp(`^\\${pane}\\s*\\{([^}]*)\\}`, "m").exec(styles)?.[1] ?? "";
+    assert.ok(block, `${pane} must still be styled here`);
+    assert.match(
+      block,
+      /max-height:\s*var\(--content-pane-height,/,
+      `${pane} must take the measured pane height, with the fixed fraction only as a fallback`,
+    );
+  }
+});
 test("every inner scroller shares the auto-hiding scrollbar treatment", () => {
   // .live-feed was missing from this set, so it alone got the platform default
   // bar: full width, always painted, and sitting between the feed cards and the

@@ -4,7 +4,7 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
-import { countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel } from "../rail-stats.ts";
+import { EMPTY_ACTOR_INDEX, countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 
 // The Activity "who / where / when / what / how" rail.
@@ -83,12 +83,17 @@ export function ActivityRail({
   activities,
   timezone,
   avatarOf,
+  actorIndex = EMPTY_ACTOR_INDEX,
 }: {
   activities: ActivityDTO[];
   timezone: string;
   // Login -> avatar URL, from review-thread comments. Absent logins fall back to
   // initials, so the Who column keeps one shape whoever is in it.
   avatarOf?: ReadonlyMap<string, string>;
+  // Contract actor directory as lookups, so Who merges a person's facets into
+  // one row and drops CI accounts — the same resolution repo_metrics.top_actors
+  // applies. See rail-stats.
+  actorIndex?: ActorIndex;
 }) {
   // Rows are cheap in a sidebar and expensive across a narrow column, so the
   // count follows the layout rather than being fixed. useMediaQuery re-renders
@@ -96,9 +101,9 @@ export function ActivityRail({
   const railRows = useMediaQuery(RAIL_ROWS_QUERY);
   const rankLimit = railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
 
-  const actorRanks = useMemo(() => rankActors(activities, rankLimit), [activities, rankLimit]);
+  const actorRanks = useMemo(() => rankActors(activities, rankLimit, actorIndex), [activities, rankLimit, actorIndex]);
   const repoRanks = useMemo(() => rankRepos(activities, rankLimit), [activities, rankLimit]);
-  const actorTotal = useMemo(() => rankActors(activities, 0).length, [activities]);
+  const actorTotal = useMemo(() => rankActors(activities, 0, actorIndex).length, [activities, actorIndex]);
   const repoTotal = useMemo(() => rankRepos(activities, 0).length, [activities]);
   const kindRanks = useMemo(() => rankKinds(activities, rankLimit), [activities, rankLimit]);
   const actionRanks = useMemo(() => rankActions(activities, rankLimit), [activities, rankLimit]);
