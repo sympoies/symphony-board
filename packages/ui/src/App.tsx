@@ -1847,6 +1847,10 @@ export function App() {
   // writes both), so switching source clears a repo that cannot belong to the
   // new one — leaving it would apply a repo filter no row can satisfy and show
   // an empty list with two chips lit.
+  //
+  // The branch goes with it. Branches are per-repo, so a branch pinned under the
+  // old repo is just as unsatisfiable once that repo is gone, and keeping it
+  // reproduces the same empty list one filter further in.
   function setRouteSource(source: string | null) {
     if (typeof window === "undefined") return;
     const keepRepo = source === null || source === selectedCommitRepoSource;
@@ -1854,7 +1858,7 @@ export function App() {
       page: "commits",
       source,
       repo: keepRepo ? route.repo : null,
-      branch: route.branch,
+      branch: keepRepo ? route.branch : null,
       author: route.author,
       isource: route.isource,
       istate: route.istate,

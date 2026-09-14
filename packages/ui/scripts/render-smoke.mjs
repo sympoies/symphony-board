@@ -4911,16 +4911,38 @@ try {
   })).result.value || {};
   // Picking a source while a repo is pinned must drop the repo: the pair is
   // unsatisfiable, and leaving it lights two chips over an empty list.
+  // Pin a branch first, in its own step: writing the route re-renders the page,
+  // so a chip node captured before that would be detached by the time it is
+  // clicked.
+  const commitsBranchPin = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = document.querySelector('.commits-page .commit-branch-select select');
+      const option = select && [...select.options].find((o) => o.value);
+      if (!select || !option) return { pinned: false };
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { pinned: true, branch: option.value };
+    })()`,
+    returnByValue: true,
+  })).result.value || { pinned: false };
+  await sleep(300);
+
   const commitsSourceChip = (await send("Runtime.evaluate", {
     expression: `(() => {
       const group = document.querySelector('.commits-page .commits-source-group');
       if (!group) return { found: false };
       const chips = [...group.querySelectorAll('.toggle')];
-      const repoBefore = new URLSearchParams(location.hash.replace(/^#\\/?[a-z-]*\\??/, '')).get('repo');
+      const params0 = new URLSearchParams(location.hash.replace(/^#\\/?[a-z-]*\\??/, ''));
       const target = chips.find((c) => !c.classList.contains('toggle-on'));
       if (!target) return { found: true, clicked: false, chips: chips.length };
       target.click();
-      return { found: true, clicked: true, chips: chips.length, repoBefore };
+      return {
+        found: true,
+        clicked: true,
+        chips: chips.length,
+        repoBefore: params0.get('repo'),
+        branchBefore: params0.get('branch'),
+      };
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
@@ -4932,6 +4954,7 @@ try {
       return {
         hasSource: !!params.get('source'),
         hasRepo: !!params.get('repo'),
+        hasBranch: !!params.get('branch'),
         pressed: [...(group?.querySelectorAll('.toggle-on') || [])].length,
         rows: document.querySelectorAll('.commit-row').length,
       };
@@ -5496,11 +5519,14 @@ try {
       commitsSourceChip.found === true &&
         commitsSourceChip.clicked === true &&
         commitsSourceChip.chips >= 2 &&
+        commitsSourceChip.repoBefore != null &&
+        commitsSourceChip.branchBefore != null &&
         commitsSourceChipApplied.hasSource === true &&
         commitsSourceChipApplied.hasRepo === false &&
+        commitsSourceChipApplied.hasBranch === false &&
         commitsSourceChipApplied.pressed === 1 &&
         commitsSourceChipApplied.rows > 0,
-      `commits: a source chip applies the source and drops a repo pin it cannot satisfy (${JSON.stringify(commitsSourceChip)} -> ${JSON.stringify(commitsSourceChipApplied)})`,
+      `commits: a source chip applies the source and drops the repo and branch pins it cannot satisfy (${JSON.stringify(commitsBranchPin)} ${JSON.stringify(commitsSourceChip)} -> ${JSON.stringify(commitsSourceChipApplied)})`,
     ],
     // The rail is navigation: a Top repos click writes the same route filter the
     // dropdown writes, and the clicked row shows as pressed.
