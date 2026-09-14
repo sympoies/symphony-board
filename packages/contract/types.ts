@@ -433,8 +433,10 @@ export interface ActorIdentityDTO {
   // Canonical display name: the config identity's declared `name` when one
   // claims this person, otherwise the raw actor string itself.
   name: string;
-  // Every distinct raw `activities[].actor` value that resolves here, sorted.
-  // Always non-empty, and contains `name` itself for an unmerged identity.
+  // The addressable set for this identity, sorted: every distinct raw
+  // `activities[].actor` value that resolves here, plus `name` itself. When a
+  // config identity supplies the name, that string may never appear in the feed,
+  // so treat this as a membership set rather than a closed set over `activities`.
   actors: string[];
   // True for a CI/dependency account: the producer's zero-false-positive markers
   // (a GitHub `[bot]` login suffix, a GitLab `project_`/`group_<id>_bot_…`

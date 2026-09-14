@@ -385,7 +385,7 @@
         "actors": {
           "type": "array",
           "minItems": 1,
-          "description": "Distinct raw activities[].actor values resolving here, sorted. Contains the name value itself for an unmerged identity.",
+          "description": "The addressable set for this identity, sorted: every distinct raw activities[].actor value resolving here, plus the name itself. A config-supplied name may never appear in activities[], so this is a membership set, not a closed set over the feed.",
           "items": { "type": "string", "minLength": 1 }
         },
         "bot": { "type": "boolean", "description": "True for a CI/dependency account: an auto-detected marker ([bot] suffix, GitLab project_/group_<id>_bot_ service account) or a config exclude_actors match. Consumers that rank people drop these; totals still include them." }

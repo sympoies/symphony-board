@@ -534,13 +534,32 @@ human, so a merged identity is a bot only when EVERY facet in it is bot-marked.
 As in `top_actors`, a bot is hidden from rankings only; its rows still count in
 any total computed over the feed.
 
-An identity that never carried an observable display string (email- or
-name-keyed authorship with no name) is omitted rather than published under its
-opaque key, since a feed consumer could not address it anyway. Entries are
-sorted by name and each `actors[]` is sorted, so an unchanged data set emits an
-identical directory. Old payloads without the field remain valid; a consumer
-reads it as `env.actor_directory` and falls back to ranking raw `actor`
-strings.
+`actors[]` is the identity's addressable set, not a closed set over the feed: it
+is every raw `activities[].actor` value that resolves to the identity PLUS
+`name` itself, and a config-supplied name may never appear in `activities[]`.
+Every name published is a real display string — the producer only ever records
+non-empty actor values, so an opaque `email:<hash>` / `provider-user:` key is
+never emitted as a name.
+
+One raw actor string belongs to **exactly one** identity. The grouping is the
+stored `actor_key`, but the key a consumer holds is the display string, and the
+two do not agree one-to-one: two keys can surface the same string — one person
+whose commits carry two addresses with a config identity claiming only one, or a
+row written before the `actor_key` backfill landing under a derived `name:` key
+beside its migrated twin. The producer therefore unions any groups that share an
+actor string before emitting. Without that, a consumer indexing raw string ->
+identity keeps only one of the entries: the person a config merge had joined
+splits again, and a CI account whose unmigrated facet never matched the
+auto-detector ranks as a human.
+
+Where a union has a config-claimed member, that member's declared name is the
+label and the declared-human rule decides `bot`; otherwise the union is between
+facets of one display string, and a single recognisable bot marker settles it.
+
+Entries are sorted by name and each `actors[]` is sorted, so an unchanged data
+set emits an identical directory. Old payloads without the field remain valid; a
+consumer reads it as `env.actor_directory` and falls back to ranking raw
+`actor` strings.
 
 Version `4.6.0` is additive: `items[]` rows may carry optional, nullable
 `comments`, currently shaped as `{ total }`, for the provider's native
