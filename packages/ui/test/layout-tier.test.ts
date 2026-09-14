@@ -366,6 +366,17 @@ test("the rail row tier is published once and mirrored in the stylesheet", () =>
     `the rows tier must carry more items than the bar tier (${RAIL_RANK_LIMIT_ROWS} vs ${RAIL_RANK_LIMIT})`,
   );
 
+  // A truncating label must keep a way to be read. The first cut of this tier
+  // hid .rank-name-tip on the grounds that rows give labels room -- but the
+  // label column is 13rem with line-clamp: 1, so a long repository or branch
+  // name still clips, and hiding the tip left those with no recovery at all.
+  // Fewer clipped labels is not none.
+  assert.doesNotMatch(
+    rowsTier,
+    /\.rank-name-tip[^{]*\{[^}]*display:\s*none/,
+    "the rows tier must keep the name tooltip: its label column still clips long names",
+  );
+
   // Neither rail may re-fork the count behind a local constant, which is how it
   // was written before the tier existed.
   for (const source of ["../src/components/CommitsRail.tsx", "../src/components/ActivityRail.tsx"]) {

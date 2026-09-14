@@ -1613,11 +1613,16 @@ a.rf-node-title:hover { color: var(--accent); }
     line-clamp: 1;
     font-size: 11px;
   }
-  /* Full labels fit, so the hover tip that existed to recover a clipped one has
-     nothing left to recover. */
+  /* The tip STAYS. The label column is 13rem, so a long repository or branch
+     name still clips here -- fewer of them than before, which is not the same as
+     none, and hiding the tip would leave those with no way to be read at all.
+     It only anchors left instead of under a bar, since the label is no longer
+     centred beneath one. */
   .commits-rail .rank-name-tip,
   .activity-rail .rank-name-tip {
-    display: none;
+    left: 0;
+    transform: none;
+    top: calc(100% + 2px);
   }
   .commits-rail .live-rank-bar-cell,
   .activity-rail .live-rank-bar-cell {
