@@ -2129,7 +2129,7 @@ try {
     returnByValue: true,
   })).result.value || { hits: 0, legend: 0, lines: 0, tip: false, focus: false };
   const activityBreakpoint = {};
-  for (const width of [1211, 1212, 1280]) {
+  for (const width of [1211, 1212, 1280, 3008]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height: 891, deviceScaleFactor: 1, mobile: false });
     await sleep(80);
     activityBreakpoint[String(width)] = (await send("Runtime.evaluate", {
@@ -2153,9 +2153,19 @@ try {
           ? shell.getBoundingClientRect().right - parseFloat(shellStyle.paddingRight || '0')
           : null;
         const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0);
+        // Widest gap BETWEEN adjacent rendered columns. The declared grid gap
+        // says nothing about a column whose content does not fill its track, and
+        // that is the failure this exists to catch.
+        const kids = layout ? Array.from(layout.children) : [];
+        const rects = kids.map((c) => c.getBoundingClientRect());
+        let innerGap = 0;
+        for (let i = 1; i < rects.length; i++) {
+          innerGap = Math.max(innerGap, Math.round(rects[i].left - rects[i - 1].right));
+        }
         return {
           columns: layoutStyle?.gridTemplateColumns || '',
           gap: layoutStyle?.columnGap || '',
+          innerGap,
           stacked: !!listRect && !!panelRect && panelRect.top > listRect.bottom - 2,
           sideBySide: !!listRect && !!panelRect && Math.abs(panelRect.top - listRect.top) <= 2 && panelRect.left > listRect.right,
           deadRight: avail != null ? Math.round(avail - right) : -1,
@@ -5661,6 +5671,12 @@ try {
     // 1280 is what the Android wide-layout setting pins the viewport to. It has
     // to land on the side-by-side rule with no stranded width, or a foldable gets
     // desktop chrome with mobile stacking -- the defect this probe exists for.
+    [
+      // A column whose content stops short of its track leaves a hole the
+      // right-edge check cannot see. 363px of one shipped this way.
+      [1212, 1280, 3008].every((w) => (activityBreakpoint[String(w)]?.innerGap ?? 999) <= 13),
+      `activity: no column strands width between tracks (${JSON.stringify(Object.fromEntries(Object.entries(activityBreakpoint).map(([w, v]) => [w, v?.innerGap])))})`,
+    ],
     [
       activityBreakpoint["1280"]?.sideBySide === true &&
         (activityBreakpoint["1280"]?.deadRight ?? -1) >= 0 &&

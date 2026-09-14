@@ -291,3 +291,53 @@ test("the Live metric strip can always be collapsed", () => {
   const page = readFileSync(new URL("../src/components/LivePage.tsx", import.meta.url), "utf8");
   assert.match(page, /pulseChoice\s*\?\?\s*!shortViewport/, "the DEFAULT state still follows the short tier");
 });
+
+test("no pane carries a width ceiling inside a track that has none", () => {
+  // The defect this exists for: v1.19.0 removed the overview COLUMN's ceiling
+  // (minmax(560px, 680px) -> minmax(560px, 1fr)) and left the panel's own
+  // `inline-size: min(100%, 680px)` in place. The track grew to 1030px at
+  // 3008px wide and the panel stayed at 680, stranding 363px BETWEEN the
+  // overview and the rail — where the render-smoke right-edge check could not
+  // see it. Removing a ceiling one level out just moves the dead space one
+  // level in.
+  const panel = /\.activity-heatmap\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
+  assert.ok(panel, "the overview panel must still be styled here");
+  assert.doesNotMatch(
+    panel,
+    /inline-size:\s*min\(/,
+    "the overview panel must fill its track, not re-cap itself inside it",
+  );
+  assert.match(panel, /inline-size:\s*100%/, "the overview panel fills its track");
+
+  // The calendar inside is a fixed-cell grid with a natural width and may sit
+  // left; that is content sizing, not a pane ceiling, and is fine.
+});
+
+test("Commits gives the list the lead over its rail on a very wide display", () => {
+  // At 3008px the list was pinned at 1180 while the rail took 1776 — the
+  // supporting column wider than the primary one, and a third its height.
+  const wide = mediaBlock("(min-width: 2200px)");
+  const split = /\.commits-split\s*\{([^}]*)\}/.exec(wide)?.[1] ?? "";
+  assert.ok(split, "the very-wide tier must size the Commits split");
+
+  const cols = /grid-template-columns:([^;]+);/.exec(split)?.[1] ?? "";
+  const [listMax, railMax] = [...cols.matchAll(/minmax\([^,]+,\s*(\d+)px\)/g)].map((m) => Number(m[1]));
+  assert.ok(listMax > railMax, `the list must lead its rail (list ${listMax}px vs rail ${railMax}px)`);
+
+  // And the rail stops being two-up here: split into a ~700px sidebar it would
+  // give ~344px panes, narrower than its six-bar charts read at.
+  assert.doesNotMatch(wide, /\.commits-rail[^{]*\{[^}]*repeat\(2/, "a sidebar rail must not also go two-up");
+  assert.match(wide, /\.activity-rail\s*\{[^}]*repeat\(2/, "Activity's rail keeps its two-up tier");
+});
+
+test("every inner scroller shares the auto-hiding scrollbar treatment", () => {
+  // .live-feed was missing from this set, so it alone got the platform default
+  // bar: full width, always painted, and sitting between the feed cards and the
+  // detail pane where it read as extra gap against the flat 12px of the metric
+  // cards above it.
+  const group = /:where\(html, body,([^)]*)\)\s*\{\s*scrollbar-color/.exec(styles)?.[1] ?? "";
+  assert.ok(group, "the shared scroller set must still exist");
+  for (const scroller of [".activity-list", ".commit-list", ".live-feed"]) {
+    assert.ok(group.includes(scroller), `${scroller} must use the shared auto-hiding scrollbar`);
+  }
+});
