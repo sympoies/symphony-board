@@ -466,7 +466,6 @@ Read-only inspection helpers:
 ```sh
 scripts/db-summary.sh
 scripts/contract-summary.sh
-scripts/devlog-search.sh graph
 ```
 
 The helper catalog lives in [scripts/README.md](../scripts/README.md).

@@ -46,8 +46,7 @@ the same repository policy for Claude Code.
 5. Add the UI, Postgres, contract, coverage, desktop, Docker, or provider
    dry-run gates when the changed boundary requires them. The exact routing and
    commands are in the detailed development reference.
-6. Keep current docs synchronized with changed behavior. Add a devlog entry
-   only for a durable outcome worth future lookup.
+6. Keep current docs synchronized with changed behavior.
 
 ## Documentation routing
 
