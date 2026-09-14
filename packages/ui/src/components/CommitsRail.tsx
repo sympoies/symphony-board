@@ -1,3 +1,5 @@
+import { useMediaQuery } from "../useMediaQuery.ts";
+import { RAIL_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, RAIL_ROWS_QUERY } from "../layout-tier.ts";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
@@ -17,7 +19,9 @@ import type { CommitRepoOption, TimeRange } from "../model.ts";
 // Everything here is derived from rows the page already holds, so the rail can
 // never disagree with the list beside it.
 
-const RAIL_RANK_LIMIT = 6;
+// The limit is a tier, not a constant: see layout-tier.ts. A sidebar rail
+// lays these charts out as rows, where an extra item costs 26px of height the
+// column already has rather than 34px of width it does not.
 
 function commitCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
@@ -90,13 +94,19 @@ export function CommitsRail({
   onAuthor: (author: string | null) => void;
   onBranch: (branch: string | null) => void;
 }) {
-  const repoRanks = useMemo(() => rankRepos(repoSource, RAIL_RANK_LIMIT), [repoSource]);
-  const authorRanks = useMemo(() => rankActors(authorSource, RAIL_RANK_LIMIT), [authorSource]);
-  const branchRanks = useMemo(() => rankBranches(branchSource, RAIL_RANK_LIMIT), [branchSource]);
+  // Rows are cheap in a sidebar and expensive across a narrow column, so the
+  // count follows the layout rather than being fixed. useMediaQuery re-renders
+  // on the breakpoint, so resizing onto a second monitor re-evaluates it.
+  const railRows = useMediaQuery(RAIL_ROWS_QUERY);
+  const rankLimit = railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
+
+  const repoRanks = useMemo(() => rankRepos(repoSource, rankLimit), [repoSource, rankLimit]);
+  const authorRanks = useMemo(() => rankActors(authorSource, rankLimit), [authorSource, rankLimit]);
+  const branchRanks = useMemo(() => rankBranches(branchSource, rankLimit), [branchSource, rankLimit]);
   // Commit types describe what is ON SCREEN rather than what could be selected —
   // it drives no filter, so unlike the three ranked facets it reads from the
   // visible rows.
-  const typeRanks = useMemo(() => rankCommitTypes(commits, RAIL_RANK_LIMIT), [commits]);
+  const typeRanks = useMemo(() => rankCommitTypes(commits, rankLimit), [commits, rankLimit]);
   const repoTotal = useMemo(() => rankRepos(repoSource, 0).length, [repoSource]);
   const authorTotal = useMemo(() => rankActors(authorSource, 0).length, [authorSource]);
   const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);

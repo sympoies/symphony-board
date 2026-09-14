@@ -12,6 +12,10 @@ import {
   SPLIT_MAX_WIDTH_PX,
   WIDE_RAIL_MIN_WIDTH_PX,
   WIDE_RAIL_QUERY,
+  RAIL_ROWS_MIN_WIDTH_PX,
+  RAIL_ROWS_QUERY,
+  RAIL_RANK_LIMIT,
+  RAIL_RANK_LIMIT_ROWS,
   SPLIT_RAIL_MIN_WIDTH_PX,
   SPLIT_STACK_QUERY,
 } from "../src/layout-tier.ts";
@@ -339,5 +343,39 @@ test("every inner scroller shares the auto-hiding scrollbar treatment", () => {
   assert.ok(group, "the shared scroller set must still exist");
   for (const scroller of [".activity-list", ".commit-list", ".live-feed"]) {
     assert.ok(group.includes(scroller), `${scroller} must use the shared auto-hiding scrollbar`);
+  }
+});
+
+test("the rail row tier is published once and mirrored in the stylesheet", () => {
+  assert.equal(RAIL_ROWS_MIN_WIDTH_PX, 2200);
+  assert.equal(RAIL_ROWS_QUERY, "(min-width: 2200px)");
+
+  // Above this width the stylesheet relays the rank charts from vertical bars
+  // flowed across to one row per item. If the query and the constant drift, the
+  // components feed a row count for a layout the stylesheet is not applying:
+  // eight items crammed across a 700px column as vertical bars, which is the
+  // shape that truncated those labels to three characters in the first place.
+  const rowsTier = mediaBlock(RAIL_ROWS_QUERY);
+  assert.match(rowsTier, /\.commits-rail \.live-rank-plot[^{]*\{[^}]*grid-auto-flow:\s*row/);
+  assert.match(rowsTier, /\.commits-rail \.live-rank-bar[^{]*\{[^}]*width:\s*var\(--rank-h\)/);
+
+  // More rows than bars, because a row costs height the sidebar has and a bar
+  // costs width it does not.
+  assert.ok(
+    RAIL_RANK_LIMIT_ROWS > RAIL_RANK_LIMIT,
+    `the rows tier must carry more items than the bar tier (${RAIL_RANK_LIMIT_ROWS} vs ${RAIL_RANK_LIMIT})`,
+  );
+
+  // Neither rail may re-fork the count behind a local constant, which is how it
+  // was written before the tier existed.
+  for (const source of ["../src/components/CommitsRail.tsx", "../src/components/ActivityRail.tsx"]) {
+    const text = readFileSync(new URL(source, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /const RAIL_RANK_LIMIT\s*=/, `${source} must use the shared tier, not a local copy`);
+    assert.match(text, /RAIL_ROWS_QUERY/, `${source} must gate the count on the shared query`);
+    // A memo that reads the limit must depend on it, or crossing the breakpoint
+    // keeps the old row count until something unrelated invalidates the cache.
+    for (const [, deps] of text.matchAll(/useMemo\(\(\) => rank\w+\([^)]*rankLimit\), \[([^\]]*)\]\)/g)) {
+      assert.match(deps, /rankLimit/, "a memo reading rankLimit must list it as a dependency");
+    }
   }
 });
