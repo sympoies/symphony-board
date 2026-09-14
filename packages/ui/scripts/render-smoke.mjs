@@ -2133,7 +2133,7 @@ try {
     await send("Emulation.setDeviceMetricsOverride", { width, height: 891, deviceScaleFactor: 1, mobile: false });
     await sleep(80);
     activityBreakpoint[String(width)] = (await send("Runtime.evaluate", {
-      expression: `(() => {
+      expression: `(() => { try {
         const layout = document.querySelector('.activity-layout');
         const list = document.querySelector('.activity-list');
         const panel = document.querySelector('.activity-heatmap');
@@ -2152,11 +2152,6 @@ try {
         const avail = shell
           ? shell.getBoundingClientRect().right - parseFloat(shellStyle.paddingRight || '0')
           : null;
-        // Against the LAST rendered column, not the second: at three-column
-        // widths the rail sits to the right of the panel, and comparing the
-        // panel to the shell edge reported the rail width as dead space.
-        const lastRect = rects.length ? rects[rects.length - 1] : null;
-        const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0, lastRect?.right ?? 0);
         // Widest gap BETWEEN adjacent rendered columns. The declared grid gap
         // says nothing about a column whose content does not fill its track, and
         // that is the failure this exists to catch.
@@ -2166,6 +2161,11 @@ try {
         for (let i = 1; i < rects.length; i++) {
           innerGap = Math.max(innerGap, Math.round(rects[i].left - rects[i - 1].right));
         }
+        // Against the LAST rendered column, not the second: at three-column
+        // widths the rail sits to the right of the panel, and comparing the
+        // panel to the shell edge reported the rail width as dead space.
+        const lastRect = rects.length ? rects[rects.length - 1] : null;
+        const right = Math.max(listRect?.right ?? 0, panelRect?.right ?? 0, lastRect?.right ?? 0);
         return {
           columns: layoutStyle?.gridTemplateColumns || '',
           gap: layoutStyle?.columnGap || '',
@@ -2174,7 +2174,7 @@ try {
           sideBySide: !!listRect && !!panelRect && Math.abs(panelRect.top - listRect.top) <= 2 && panelRect.left > listRect.right,
           deadRight: avail != null ? Math.round(avail - right) : -1,
         };
-      })()`,
+      } catch (e) { return { probeError: String(e && e.message || e) }; } })()`,
       returnByValue: true,
     })).result.value || {};
   }
@@ -5684,7 +5684,8 @@ try {
     [
       // A column whose content stops short of its track leaves a hole the
       // right-edge check cannot see. 363px of one shipped this way.
-      [1212, 1280, 3008].every((w) => (activityBreakpoint[String(w)]?.innerGap ?? 999) <= 13),
+      Object.values(activityBreakpoint).every((v) => !v?.probeError) &&
+        [1212, 1280, 3008].every((w) => (activityBreakpoint[String(w)]?.innerGap ?? 999) <= 13),
       `activity: no column strands width between tracks (${JSON.stringify(Object.fromEntries(Object.entries(activityBreakpoint).map(([w, v]) => [w, v?.innerGap])))})`,
     ],
     [
