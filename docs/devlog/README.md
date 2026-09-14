@@ -33,15 +33,30 @@ signal, not a changelog. Not every session earns an entry.
 
 ### Entry template
 
-```
-## YYYY-MM-DD — <short title>
+```md
+## YYYY-MM-DD - <short title>
 
-**Result** — what shipped (1–3 bullets).
-**Why / context** — the non-obvious reasoning.
-**Evidence** — commands run + key numbers.
-**Links** — commits, issues/PRs, external refs, DESIGN.md sections.
-**Follow-ups** — optional.
+### Result
+
+- What shipped (1-3 bullets).
+
+### Why / context
+
+- The non-obvious reasoning.
+
+### Evidence
+
+- Commands run and key numbers.
+
+### Follow-ups
+
+- Anything left open.
 ```
+
+`Result`, `Why / context`, and `Evidence` are required. `Links` and `Follow-ups`
+are optional: omit the whole section rather than leaving a placeholder in it.
+`Links` carries commits, issues, pull requests, external references, and
+`DESIGN.md` sections when there are any.
 
 ## Months
 
