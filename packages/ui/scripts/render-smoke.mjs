@@ -41,6 +41,15 @@ function firstPaintScriptFromHtml(html) {
   return html.slice(openTagEnd + 1, closeTagStart);
 }
 
+// Durations, not ports. envPort caps at 65535, so reusing it here would reject
+// any run budget above about a minute with an "invalid port" error.
+function envMs(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`invalid ${name}: ${raw}`);
+  return n;
+}
 function envPort(name, fallback) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -51,6 +60,14 @@ function envPort(name, fallback) {
 const HTTP_PORT = envPort("SYMPHONY_BOARD_SMOKE_HTTP_PORT", 4399);
 const STANDALONE_API_PORT = envPort("SYMPHONY_BOARD_SMOKE_STANDALONE_API_PORT", 8787);
 const CDP_PORT = envPort("SYMPHONY_BOARD_SMOKE_CDP_PORT", 9333);
+import { DEFAULT_RUN_MS, DEFAULT_WAIT_MS, waitDeadline } from "./smoke-wait.mjs";
+
+// Budget for ONE wait, and the backstop for the whole run. These used to be a
+// single 60s value that every wait shared, which meant the later half of the
+// suite stopped waiting at all -- see smoke-wait.mjs for why that is silent.
+const WAIT_MS = envMs("SYMPHONY_BOARD_SMOKE_WAIT_MS", DEFAULT_WAIT_MS);
+const RUN_MS = envMs("SYMPHONY_BOARD_SMOKE_RUN_MS", DEFAULT_RUN_MS);
+// Startup only: how long to wait for Chrome's first page target to appear.
 const DEADLINE_MS = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -959,6 +976,9 @@ function cleanup() {
 }
 
 try {
+  const runDeadline = Date.now() + RUN_MS;
+  // Startup only: this one IS a single deadline on purpose, because it covers a
+  // single event -- Chrome publishing its first page target.
   // wait for a page target
   const deadline = Date.now() + DEADLINE_MS;
   let wsUrl = null;
@@ -1006,25 +1026,38 @@ try {
   await send("Runtime.enable");
   await send("Page.enable");
 
+  // A wait that gives up is recorded rather than swallowed. Silence is what
+  // made the shared-deadline bug expensive: the probe downstream just reads an
+  // unrendered page and reports `found: false`, which looks like a defect on
+  // that page instead of a harness that stopped waiting.
+  const waitTimeouts = [];
+  const noteTimeout = (kind, expr) => {
+    waitTimeouts.push(`${kind}: ${String(expr).replace(/\s+/g, " ").slice(0, 120)}`);
+  };
+
   // wait for some DOM matching `readyExpr` to render, then return body HTML
-  const waitHtml = async (readyExpr) => {
+  const waitHtml = async (readyExpr, waitMs = WAIT_MS) => {
+    const until = waitDeadline(Date.now(), waitMs, runDeadline);
     let h = "";
-    while (Date.now() < deadline) {
+    while (Date.now() < until) {
       const r = await send("Runtime.evaluate", { expression: `${readyExpr} ? document.body.innerHTML : ''`, returnByValue: true });
       h = r.result.value || "";
-      if (h.length > 200) break;
+      if (h.length > 200) return h;
       await sleep(250);
     }
+    noteTimeout("waitHtml", readyExpr);
     return h;
   };
-  const waitValue = async (expr) => {
+  const waitValue = async (expr, waitMs = WAIT_MS) => {
+    const until = waitDeadline(Date.now(), waitMs, runDeadline);
     let value = null;
-    while (Date.now() < deadline) {
+    while (Date.now() < until) {
       const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true });
       value = r.result.value ?? null;
-      if (value) break;
+      if (value) return value;
       await sleep(50);
     }
+    noteTimeout("waitValue", expr);
     return value;
   };
   if (STANDALONE_SMOKE) {
@@ -1146,7 +1179,7 @@ try {
       console.log(`  ${pass ? "✓" : "✗"} ${label}`);
       if (!pass) ok = false;
     }
-    consoleErrors.slice(0, 5).forEach((e) => console.error("    console.error:", e.slice(0, 200)));
+  consoleErrors.slice(0, 5).forEach((e) => console.error("    console.error:", e.slice(0, 200)));
     exceptions.slice(0, 5).forEach((e) => console.error("    exception:", e.slice(0, 200)));
     if (!ok) fail("one or more standalone render assertions failed");
     else console.log("render-smoke PASS: standalone setup rendered cleanly");
@@ -1256,12 +1289,14 @@ try {
       awaitPromise: true,
       returnByValue: true,
     })).result.value || 0;
-  const waitForCapabilitiesRequests = async (previous) => {
+  const waitForCapabilitiesRequests = async (previous, waitMs = WAIT_MS) => {
+    const until = waitDeadline(Date.now(), waitMs, runDeadline);
     let count = await capabilitiesRequests();
-    while (Date.now() < deadline && count <= previous) {
+    while (Date.now() < until && count <= previous) {
       await sleep(50);
       count = await capabilitiesRequests();
     }
+    if (count <= previous) noteTimeout("waitForCapabilitiesRequests", `> ${previous}`);
     return count;
   };
   const liveSnapshotState = async () =>
@@ -5892,11 +5927,27 @@ try {
     [has(settingsHtml, "color-input"), "settings: per-repo color override picker rendered"],
     [consoleErrors.length === 0, `no console errors (${consoleErrors.length})`],
     [exceptions.length === 0, `no uncaught exceptions (${exceptions.length})`],
+    // A timed-out wait means a probe read an unrendered page, so every failure
+    // downstream of it is suspect. Surfacing it as its own check is the
+    // difference between "this page regressed" and "the machine was too slow";
+    // guessing between those cost an afternoon before this was reported.
+    [waitTimeouts.length === 0, `no waits timed out (${waitTimeouts.length})`],
   ];
   let ok = true;
   for (const [pass, label] of checks) {
     console.log(`  ${pass ? "✓" : "✗"} ${label}`);
     if (!pass) ok = false;
+  }
+  // Printed in the BOARD summary, which is the one that actually runs. An
+  // earlier revision of this put it in the standalone branch by accident, so the
+  // count appeared and the detail never did -- the same shape of mistake the
+  // timeouts themselves cause: a diagnostic that reads as present but is inert.
+  waitTimeouts.slice(0, 10).forEach((t) => console.error("    wait timed out:", t));
+  if (waitTimeouts.length > 0) {
+    console.error(
+      `    ${waitTimeouts.length} wait(s) gave up after ${WAIT_MS}ms. A probe after a timeout reads an`,
+    );
+    console.error("    unrendered page, so treat its failure as unexplained until this line is gone.");
   }
   consoleErrors.slice(0, 5).forEach((e) => console.error("    console.error:", e.slice(0, 200)));
   exceptions.slice(0, 5).forEach((e) => console.error("    exception:", e.slice(0, 200)));
