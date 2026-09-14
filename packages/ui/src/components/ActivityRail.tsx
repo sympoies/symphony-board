@@ -5,7 +5,7 @@ import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
 import { HourProfile } from "./HourProfile.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
-import { EMPTY_ACTOR_INDEX, countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
+import { EMPTY_ACTOR_INDEX, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
 
 // The Activity "who / where / when / what / how" rail.
 //
@@ -109,7 +109,7 @@ export function ActivityRail({
         />
       </div>
 
-      <HourProfile rows={activities} timezone={timezone} countLabel={eventCountLabel} />
+      <HourProfile rows={activities} subject="Activity" timezone={timezone} countLabel={eventCountLabel} />
 
       {/* What / How put counts on the same vocabulary as the filter chips above
           the feed. The chips have always been able to narrow by kind and action

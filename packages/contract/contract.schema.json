@@ -370,7 +370,7 @@
       "properties": {
         "identities": {
           "type": "array",
-          "description": "One entry per resolved identity. Every distinct non-empty activities[].actor value appears in exactly one entry's actors[].",
+          "description": "One entry per resolved identity. A distinct non-empty activities[].actor value appears in AT MOST one entry's actors[]: a string several declared people share cannot be attributed, so it is published under none of them and a consumer ranks it on its own.",
           "items": { "$ref": "#/$defs/actorIdentity" }
         }
       }

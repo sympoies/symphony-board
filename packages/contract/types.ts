@@ -437,6 +437,9 @@ export interface ActorIdentityDTO {
   // `activities[].actor` value that resolves here, plus `name` itself. When a
   // config identity supplies the name, that string may never appear in the feed,
   // so treat this as a membership set rather than a closed set over `activities`.
+  // A given actor string appears in AT MOST one identity: one that several
+  // declared people share cannot be attributed and is published under none of
+  // them.
   actors: string[];
   // True for a CI/dependency account: the producer's zero-false-positive markers
   // (a GitHub `[bot]` login suffix, a GitLab `project_`/`group_<id>_bot_…`

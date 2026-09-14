@@ -1336,7 +1336,7 @@ function buildActorDirectory(
   }
 
   // Collapse the config identities, then decide each group’s label and verdict.
-  const merged = new Map<string, { acc: ActorAccumulator; bot: boolean; claimed: boolean }>();
+  const merged = new Map<string, { acc: ActorAccumulator; bot: boolean; claimKey: string | null }>();
   for (const [key, acc] of accs) {
     const observedSources = sourceIds.get(key) ?? new Set<string>();
     // resolveIdentity scopes per source, and one actor_key may appear on
@@ -1353,7 +1353,7 @@ function buildActorDirectory(
     if (!entry) {
       const next = actorAccumulator(target);
       if (claim) next.canonicalName = claim.name;
-      merged.set(target, (entry = { acc: next, bot, claimed: !!claim }));
+      merged.set(target, (entry = { acc: next, bot, claimKey: claim ? claim.key : null }));
     } else {
       // A config identity is a declared HUMAN, so one bot-looking facet does
       // not make the person a bot; a group is a bot only when all of it is.
@@ -1362,68 +1362,123 @@ function buildActorDirectory(
     for (const [name, count] of acc.names) entry.acc.names.set(name, (entry.acc.names.get(name) ?? 0) + count);
   }
 
-  const groups = [...merged.values()].map(({ acc, bot, claimed }) => {
+  const groups = [...merged.values()].map(({ acc, bot, claimKey }) => {
     const { displayName, aliases } = chooseDisplayName(acc);
     // `displayName` may be a config-declared name that no activity carries, so
     // it is deliberately part of the addressable set and not only the label.
-    return { name: displayName, actors: new Set([displayName, ...aliases]), bot, claimed };
+    return { name: displayName, actors: new Set([displayName, ...aliases]), bot, claimKey };
   });
 
-  // Enforce the published invariant: one raw actor string belongs to exactly
-  // one identity.
+  // A raw actor string must resolve to at most ONE identity, because that string
+  // is the only key a feed consumer holds. Grouping is the stored actor_key, and
+  // two keys can surface the same string, so the groups above do not give that
+  // for free. Two separate things have to happen, and conflating them is a trap:
   //
-  // Grouping is the stored actor_key, but the KEY a consumer holds is the
-  // display string, and the two do not agree one-to-one. Two keys can surface
-  // the same string — one person whose commits carry two addresses with a
-  // config identity claiming only one, or a row written before the actor_key
-  // backfill landing under a derived `name:` key beside its migrated twin. Left
-  // alone those emit as separate entries sharing an actor string, and a
-  // consumer indexing raw string -> identity keeps only one of them: the person
-  // splits again and a CI account whose unmigrated facet never matched
-  // isAutoBot ranks as a human. Union any groups that share a string, so the
-  // emitted directory answers each one once.
-  const unionOf = new Map<string, number>(); // actor string -> group index
-  const parent = groups.map((_, i) => i);
-  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
-  const union = (a: number, b: number) => {
-    const [ra, rb] = [find(a), find(b)];
-    if (ra !== rb) parent[rb] = ra;
-  };
+  //   join   two groups that are the SAME thing seen twice — a person whose
+  //          commits carry two addresses where config claims only one, or a row
+  //          written before the actor_key backfill sitting under a derived
+  //          `name:` key beside its migrated twin.
+  //   orphan a string that genuinely belongs to several people — a shared build
+  //          account, `root`, `Ubuntu`, a default git author name.
+  //
+  // Joining on ANY shared string does both at once, and the second is far worse
+  // than the split it fixes: four declared people who each landed one commit as
+  // `root` collapse transitively into whichever the iteration reached first, and
+  // the other three vanish from the directory while still appearing in
+  // top_actors. So a join needs evidence that the groups ARE one thing: nested
+  // name sets. One group seen only as "Terry Z" is a facet of the person whose
+  // set is {Terry, Terry Z, terry-gl}; {Release Bot, shared-host} and
+  // {Pat Human, shared-host} are two accounts that merely met on a build host.
+  const groupsByActor = new Map<string, number[]>();
   groups.forEach((group, i) => {
     for (const actor of group.actors) {
-      const seen = unionOf.get(actor);
-      if (seen === undefined) unionOf.set(actor, i);
-      else union(seen, i);
+      let seen = groupsByActor.get(actor);
+      if (!seen) groupsByActor.set(actor, (seen = []));
+      seen.push(i);
     }
   });
 
-  const collapsed = new Map<number, { names: string[]; actors: Set<string>; bots: boolean[]; claimed: boolean[] }>();
+  const parent = groups.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+  const nests = (a: Set<string>, b: Set<string>): boolean => {
+    const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+    for (const value of small) if (!large.has(value)) return false;
+    return true;
+  };
+  for (const indices of groupsByActor.values()) {
+    if (indices.length < 2) continue;
+    for (const i of indices) {
+      for (const j of indices) {
+        if (i >= j) continue;
+        const [a, b] = [groups[i]!, groups[j]!];
+        // Two DIFFERENT declared identities are never one thing, whatever they
+        // share: the config said so explicitly, and that outranks a coincidence.
+        if (a.claimKey && b.claimKey && a.claimKey !== b.claimKey) continue;
+        if (!nests(a.actors, b.actors)) continue;
+        const [ra, rb] = [find(i), find(j)];
+        if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+      }
+    }
+  }
+
+  const collapsed = new Map<number, { names: string[]; actors: Set<string>; bots: boolean[]; claimKeys: (string | null)[] }>();
   groups.forEach((group, i) => {
     const root = find(i);
     let target = collapsed.get(root);
-    if (!target) collapsed.set(root, (target = { names: [], actors: new Set(), bots: [], claimed: [] }));
+    if (!target) collapsed.set(root, (target = { names: [], actors: new Set(), bots: [], claimKeys: [] }));
     target.names.push(group.name);
     for (const actor of group.actors) target.actors.add(actor);
     target.bots.push(group.bot);
-    target.claimed.push(group.claimed);
+    target.claimKeys.push(group.claimKey);
   });
 
-  const identities = [...collapsed.values()]
-    .map((group) => {
-      // A config-declared name wins the label; otherwise the union is between
-      // facets of one display string, so any of them reads the same.
-      const claimedNames = group.names.filter((_, i) => group.claimed[i]);
-      const name = (claimedNames.length > 0 ? claimedNames : group.names).sort(compareName)[0]!;
-      // A declared human stays human even beside a bot-marked facet (the same
-      // rule the per-key merge above applies). An unclaimed union is facets of
-      // one account, so a single recognisable bot marker settles it — that is
-      // what catches a service account whose pre-backfill rows carry a `name:`
-      // key isAutoBot cannot read.
-      const bot = group.claimed.some(Boolean)
-        ? group.bots.filter((_, i) => group.claimed[i]).every(Boolean)
-        : group.bots.some(Boolean);
-      return { name, actors: [...group.actors].sort(compareName), bot };
-    })
+  const entries = [...collapsed.values()].map((group) => {
+    // A config-declared name labels the identity; otherwise the union is nested
+    // facets of one string, so the broadest of them reads the same.
+    const claimedNames = group.names.filter((_, i) => group.claimKeys[i] !== null);
+    const name = (claimedNames.length > 0 ? claimedNames : group.names).slice().sort(compareName)[0]!;
+    // A declared person stays a person: the operator said so, and one
+    // service-account facet must not delete them from every ranking. An
+    // unclaimed union is nested facets of one account, so a single recognisable
+    // marker settles it — that is what catches a service account whose
+    // pre-backfill rows carry a `name:` key isAutoBot cannot read.
+    const bot = claimedNames.length > 0
+      ? group.bots.filter((_, i) => group.claimKeys[i] !== null).every(Boolean)
+      : group.bots.some(Boolean);
+    return { name, actors: group.actors, bot, declared: claimedNames.length > 0 };
+  });
+
+  // Whatever is still shared after the joins above belongs to several people, so
+  // it cannot be attributed. A declared name wins it — the operator named that
+  // person, which outranks another account merely being observed under the same
+  // string — and otherwise it is dropped from every entry rather than published
+  // under an arbitrary one. A consumer then ranks that string on its own, which
+  // is visible and honest; misattributing one person’s commits to another is
+  // neither.
+  const owners = new Map<string, number[]>();
+  entries.forEach((entry, i) => {
+    for (const actor of entry.actors) {
+      let seen = owners.get(actor);
+      if (!seen) owners.set(actor, (seen = []));
+      seen.push(i);
+    }
+  });
+  for (const [actor, holders] of owners) {
+    if (holders.length < 2) continue;
+    const declaredBy = holders.filter((i) => entries[i]!.declared && entries[i]!.name === actor);
+    const keep = declaredBy.length === 1 ? declaredBy[0] : null;
+    for (const i of holders) if (i !== keep) entries[i]!.actors.delete(actor);
+  }
+
+  const identities = entries
+    // An entry whose every string was contested has nothing a consumer could
+    // address it by, so it is not published.
+    .filter((entry) => entry.actors.size > 0)
+    .map((entry) => ({
+      name: entry.actors.has(entry.name) ? entry.name : [...entry.actors].sort(compareName)[0]!,
+      actors: [...entry.actors].sort(compareName),
+      bot: entry.bot,
+    }))
     .sort((a, b) => compareName(a.name, b.name));
   return { identities };
 }

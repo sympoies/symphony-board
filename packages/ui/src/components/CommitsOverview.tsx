@@ -126,7 +126,7 @@ export function CommitsOverview({
       </dl>
 
       <DayBars days={days} range={range} />
-      <HourProfile rows={commits} timezone={timezone} countLabel={commitCountLabel} />
+      <HourProfile rows={commits} subject="Commits" timezone={timezone} countLabel={commitCountLabel} />
     </aside>
   );
 }

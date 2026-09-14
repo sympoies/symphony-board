@@ -541,20 +541,36 @@ Every name published is a real display string — the producer only ever records
 non-empty actor values, so an opaque `email:<hash>` / `provider-user:` key is
 never emitted as a name.
 
-One raw actor string belongs to **exactly one** identity. The grouping is the
-stored `actor_key`, but the key a consumer holds is the display string, and the
-two do not agree one-to-one: two keys can surface the same string — one person
-whose commits carry two addresses with a config identity claiming only one, or a
-row written before the `actor_key` backfill landing under a derived `name:` key
-beside its migrated twin. The producer therefore unions any groups that share an
-actor string before emitting. Without that, a consumer indexing raw string ->
-identity keeps only one of the entries: the person a config merge had joined
-splits again, and a CI account whose unmigrated facet never matched the
-auto-detector ranks as a human.
+One raw actor string resolves to **at most one** identity, because that string
+is the only key a feed consumer holds. Grouping is the stored `actor_key`, and
+two keys can surface the same string, so that does not come for free. Two
+different situations hide behind one shared string, and the producer separates
+them:
 
-Where a union has a config-claimed member, that member's declared name is the
-label and the declared-human rule decides `bot`; otherwise the union is between
-facets of one display string, and a single recognisable bot marker settles it.
+- **The same thing seen twice.** One person whose commits carry two addresses
+  with a config identity claiming only one, or a row written before the
+  `actor_key` backfill sitting under a derived `name:` key beside its migrated
+  twin. These are joined. The evidence required is nested name sets: a group
+  seen only as `Terry Z` is a facet of the person whose set is
+  `{Terry, Terry Z, terry-gl}`. Two identities the config declares separately
+  are never joined, whatever they share.
+- **A string several people share.** A build account, `root`, `Ubuntu`, a
+  default git author name. It cannot be attributed, so it is published under
+  **none** of them and a consumer ranks it on its own. The one exception is a
+  string that is exactly one declared identity's `name`: naming that person
+  outranks another account merely being observed under the same string.
+
+Joining on any shared string instead of on nested sets does both at once, and
+the second failure is worse than the split it fixes: several declared people who
+each landed one commit as `root` collapse transitively into one entry and the
+rest disappear from the directory while still appearing in `top_actors`.
+
+Where a join has a config-claimed member, that member's declared name is the
+label and the declared-human rule decides `bot`; otherwise the join is between
+nested facets of one account, and a single recognisable bot marker settles it. A
+declared person is never marked a bot by an account they were not joined with.
+An entry whose every string was contested is not published at all, since nothing
+would address it.
 
 Entries are sorted by name and each `actors[]` is sorted, so an unchanged data
 set emits an identical directory. Old payloads without the field remain valid; a

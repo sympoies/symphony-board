@@ -15,10 +15,14 @@ import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 // would be two things that must be changed together and only look independent.
 export function HourProfile({
   rows,
+  subject,
   timezone,
   countLabel,
 }: {
   rows: ActivityDTO[];
+  // What this strip is charting ("Activity", "Commits"). It leads the
+  // aria-label, which a screen reader reaches before any count.
+  subject: string;
   timezone: string;
   countLabel: (count: number) => string;
 }) {
@@ -36,7 +40,7 @@ export function HourProfile({
       <div
         className="rail-hours"
         role="img"
-        aria-label={`By hour of day; busiest hour ${formatHour(peak.hour)} with ${countLabel(peak.count)}`}
+        aria-label={`${subject} by hour of day; busiest hour ${formatHour(peak.hour)} with ${countLabel(peak.count)}`}
       >
         {hours.map((h) => (
           <span
