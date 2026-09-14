@@ -5,6 +5,30 @@
 #
 # Build context is the REPO ROOT (compose sets context: ..), so the COPY paths
 # below are relative to the repo root, not to this docker/ directory.
+# Dependencies resolve on the BUILD platform, never the target one.
+#
+# Both production dependencies are pure JavaScript -- postgres.js ships no native
+# binding and has no build step, and the contract package is JS plus JSON -- so
+# node_modules is architecture-independent and there is nothing for the target
+# architecture to contribute. Installing it under the target platform meant
+# running Node and pnpm through QEMU for no gain, and that is exactly where the
+# arm64 build died: `qemu: uncaught target signal 4 (Illegal instruction)` inside
+# pnpm, twice in a row, on a runner whose QEMU could not emulate what Node 24
+# emits. The same build succeeds under a local QEMU, so it is the emulator, not
+# this file -- which is the argument for not going through one at all.
+#
+# If a native dependency is ever added to the production tree, this stage has to
+# go back to the target platform (drop the --platform pin), because a prebuilt
+# binary resolved here would be the wrong architecture.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS deps
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY packages/contract/package.json ./packages/contract/package.json
+RUN corepack enable \
+  && corepack prepare pnpm@11.9.0 --activate \
+  && pnpm install --prod --frozen-lockfile --ignore-scripts \
+  && rm -rf /root/.cache/node/corepack
+
 FROM node:24-alpine
 
 LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-board" \
@@ -24,11 +48,12 @@ WORKDIR /app
 # image-scan findings for tooling the app never executes).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY packages/contract/package.json ./packages/contract/package.json
-RUN corepack enable \
-  && corepack prepare pnpm@11.9.0 --activate \
-  && pnpm install --prod --frozen-lockfile --ignore-scripts \
-  && rm -rf /root/.cache/node/corepack \
-     /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+# Only the root node_modules exists: the contract package declares no
+# dependencies of its own, so pnpm creates no tree for it.
+COPY --from=deps /app/node_modules ./node_modules
+# Drop build-only tooling from the runtime layer: the base image's bundled npm
+# carries its own vulnerable undici/tar and the entrypoint only ever runs `node`.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Source + the normative SQL schema (read at runtime by each migrator) + the
 # contract package (its JSON Schema is read by the emit-time validator) + the
