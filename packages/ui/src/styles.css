@@ -1135,22 +1135,21 @@ a.rf-node-title:hover { color: var(--accent); }
 .items-page { margin: 12px 0; }
 .commits-page { margin: 12px 0; }
 
-/* Commits: list + digest rail. The list keeps the 1180px reading measure the
-   page cap used to give it — stretching a commit log to 3000px turns every row
-   into a thin ribbon — and the rail takes what is left, which is 560px at 1756
-   and comfortably more at 1920. Below the split floor the rail drops under the
-   list rather than squeezing it -- that floor is shared with Activity and lives
-   in layout-tier.ts, so the forced wide viewport can be checked against it. */
+/* Commits: list + overview + digest rail, in Activity's proportions.
+   Two tracks stranded width at the top of the range: the list capped at a 1180px
+   reading measure and the rail took everything else, so at 3008px the SUPPORTING
+   column was wider (1776px) than the primary one and a third its height, and the
+   wide branch below fixed that by centring — which left the split visibly inset
+   from the full-bleed toolbar above it. A third column absorbs the slack
+   instead: the range's shape over time moves out of the rail into its own
+   overview pane, and the three tracks share the width by ratio the way
+   .activity-layout does. Below the split floor they stack; that floor is shared
+   with Activity and lives in layout-tier.ts, so the forced wide viewport can be
+   checked against it. */
 .commits-split {
   display: grid;
-  /* The rail takes ALL the remaining width rather than stopping at a ceiling.
-     It used to cap at 460px, which meant the two tracks summed to at most
-     1180 + 16 + 460 = 1656; on anything wider the leftover became side gutters
-     (87px each at 1880) and the split sat visibly inset from the full-bleed
-     toolbar and header above it. A grid's justify-content moves the TRACKS
-     inside a container that is already full width, so the container's own box
-     looked correct while the content was misaligned. */
-  grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr);
+  grid-template-columns: minmax(0, 30fr) minmax(0, 35fr) minmax(0, 35fr);
+  justify-content: start;
   gap: var(--pane-gap);
   align-items: start;
 }
@@ -1660,22 +1659,11 @@ a.rf-node-title:hover { color: var(--accent); }
   }
 }
 
-/* Very wide: the reading cap that protects a commit row from becoming a thin
-   ribbon is not a reason to let the rail outgrow the list. At 3008px the list
-   measured 1180x1252 against a rail of 1776x494 -- the supporting column wider
-   than the primary one and a third its height. The list leads, the rail becomes
-   a sidebar, and what is left over is shared as symmetric margin rather than
-   dumped on one side.
-
-   The centring here is deliberate and is NOT the #631 defect: that was a split
-   sitting visibly inset from full-bleed chrome at ordinary widths. This only
-   engages where the page genuinely has more room than it needs. */
-@media (min-width: 2200px) {
-  .commits-split {
-    grid-template-columns: minmax(0, 1600px) minmax(300px, 700px);
-    justify-content: center;
-  }
-}
+/* No very-wide override any more. The ratio tracks above already keep the list
+   from outgrowing its reading measure relative to its neighbours, and the third
+   column takes the slack that used to be dumped on the rail (or, after the first
+   fix, split into symmetric margin by justify-content: center). The split is
+   left-aligned at every width, flush with the full-bleed toolbar above it. */
 
 /* Below the split floor both two-pane pages stack. The floor is
    SPLIT_RAIL_MIN_WIDTH_PX in layout-tier.ts, which layout-tier.test.ts also
@@ -1686,6 +1674,21 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (max-width: 1211px) {
   .activity-layout { grid-template-columns: minmax(0, 720px); }
   .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
+}
+/* Between the split floor and the third-column tier, Commits keeps the two-pane
+   shape it has always had here: the list at its reading measure, and the
+   supporting column beside it — now holding the overview above the rail rather
+   than one rail of five blocks. Spanning the list across both rows is what puts
+   them there: with two tracks and three items, auto-placement would otherwise
+   wrap the rail under the LIST rather than under the overview.
+
+   Activity has no equivalent rule because its rail is JS-gated on
+   WIDE_RAIL_QUERY and simply does not render below 1700px. The Commits rail
+   predates its overview and always rendered, so hiding it here would take away
+   what the page already showed. */
+@media (min-width: 1212px) and (max-width: 1699px) {
+  .commits-split { grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr); }
+  .commits-split > :first-child { grid-row: span 2; }
 }
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
@@ -2128,7 +2131,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 /* Commits owns SCM-style filters instead of the shared facet Controls. */
 .commits-toolbar {
-  display: flex; align-items: flex-start; justify-content: flex-start; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 10px;
   margin: 10px 0 12px;
 }
 .commits-filter {
@@ -2326,9 +2329,12 @@ a.rf-node-title:hover { color: var(--accent); }
   color: color-mix(in srgb, var(--accent-fg) 78%, transparent);
 }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
+/* The feed fills the viewport below the split, like every other content pane
+   (pane-height.ts). The 74dvh fallback is what a pre-measure paint and a
+   scriptless render get; ActivityPage publishes the measured height. */
 .activity-list {
   position: relative;
-  max-height: 74dvh; overflow-y: auto; scrollbar-gutter: auto;
+  max-height: var(--content-pane-height, 74dvh); overflow-y: auto; scrollbar-gutter: auto;
   padding-right: 0;
 }
 .activity-virtual-space {
@@ -2382,9 +2388,11 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 3px; }
 
+/* Same contract as .activity-list: the measured pane height, with the old
+   fixed fraction only as the pre-measure fallback. */
 .commit-list {
   position: relative;
-  max-height: 74dvh; overflow-y: auto; scrollbar-gutter: stable;
+  max-height: var(--content-pane-height, 74dvh); overflow-y: auto; scrollbar-gutter: stable;
   padding-right: 4px;
 }
 .commit-virtual-space {
@@ -4698,6 +4706,26 @@ span.live-avatar { cursor: default; }
   .items-split[data-detail-open="true"] .items-detail { animation: none; }
 }
 
+/* The Commits overview column: same surface and block rhythm as the rail beside
+   it, but it holds read-only context (range summary, per-day strip, hour
+   profile) rather than ranked facets. Sticky like the rail so a column taller
+   than the viewport does not strand its last block off-screen. */
+.commits-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pane-gap);
+  min-width: 0;
+  align-content: start;
+  position: sticky;
+  top: 12px;
+}
+/* .hm-overview-head / .hm-summary are global, so this column reuses the exact
+   chrome the Activity overview uses rather than a near-copy of it. */
+
+/* The source chips sit on their own line above the repo / branch controls, so a
+   two-source board does not push the repo combobox into a second row. */
+.commits-toolbar .commits-source-group { flex-basis: 100%; }
+
 /* ==================== side rails (Commits digest, Activity who/where/when) ====
    Both rails are stacks of small titled blocks on the page surface, deliberately
    quieter than the Live pulse cards: they sit beside a list that owns the
@@ -4715,7 +4743,7 @@ span.live-avatar { cursor: default; }
   top: 12px;
 }
 /* Once a rail is genuinely wide — an ultrawide or 4K panel, where BOTH rails now
-   take the slack their main column does not need — a single column of five blocks
+   take the slack their main column does not need — a single column of blocks
    becomes a tall thin ribbon with empty space beside it. Flow them two-up.
    This only holds because each rail actually gains width first: splitting a rail
    that is still at a fixed ceiling halves its blocks below the width a ranked
@@ -4724,10 +4752,12 @@ span.live-avatar { cursor: default; }
    The commit detail is excluded: it is a single card, and half of a wide rail
    would leave the other half empty. */
 @media (min-width: 2200px) {
-  /* Commits is deliberately absent: its rail is a 700px sidebar at this width
-     (see above), and two-up there would give ~344px panes -- narrower than the
-     six-bar charts read at, and short enough to strand the height beside a
-     1252px list. Stacked, the five panes fill that column instead. */
+  /* Commits is deliberately absent, though no longer because its rail is
+     narrow: since the split became three ratio columns its rail is 35fr, about
+     1050px at 3008px wide. It now carries four ranked charts rather than five
+     blocks (the per-day strip moved to the overview column), and those four
+     stacked already fill the height beside the list. Two-up would halve them to
+     ~510px for no gain and leave the column half empty at the bottom. */
   .activity-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4806,6 +4836,17 @@ span.live-avatar { cursor: default; }
 }
 .rail-daybar:hover .rail-daybar-tip,
 .rail-hourbar:hover .rail-daybar-tip { opacity: 1; }
+/* The tip is centred on its bar and never wraps, so the outermost bars' tips
+   reach past both ends of the strip. Nothing between them and the page clips,
+   so the right-hand one widened the DOCUMENT — 10px of horizontal page overflow
+   at 930px once the strip moved into a full-width overview column, where the
+   pane's own edge is the page edge. An invisible (opacity: 0) tip still counts:
+   it is laid out either way. Anchor the end tips to their bar's edge instead of
+   its centre; every tip between them keeps the centred position. */
+.rail-daybars > :first-child .rail-daybar-tip,
+.rail-hours > :first-child .rail-daybar-tip { left: 0; transform: none; }
+.rail-daybars > :last-child .rail-daybar-tip,
+.rail-hours > :last-child .rail-daybar-tip { left: auto; right: 0; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .rail-daybar-tip { transition: none; }
 }

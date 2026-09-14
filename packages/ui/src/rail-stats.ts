@@ -1,4 +1,4 @@
-import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActorDirectoryDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
 import { commitBranches, commitMessage } from "./model.ts";
 
@@ -40,15 +40,67 @@ export type DayBucket = {
   count: number;
 };
 
+// The contract's `actor_directory` (4.7.0+) as the two lookups a ranking needs:
+// raw actor string -> canonical display name, and canonical name -> bot.
+//
+// Resolved once per directory rather than per call: every rail ranks actors on
+// two or three different facet sources, and each of those re-ranks on any filter
+// change. Absent directory (a pre-4.7.0 payload, or a hand-loaded file) yields
+// empty maps, which `rankActors` treats as "rank the raw strings" — the old
+// behavior, so an old contract still renders.
+export interface ActorIndex {
+  canonical: ReadonlyMap<string, string>;
+  bots: ReadonlySet<string>;
+}
+
+export const EMPTY_ACTOR_INDEX: ActorIndex = { canonical: new Map(), bots: new Set() };
+
+export function actorIndex(directory: ActorDirectoryDTO | null | undefined): ActorIndex {
+  const canonical = new Map<string, string>();
+  const bots = new Set<string>();
+  for (const identity of directory?.identities ?? []) {
+    if (identity.bot) bots.add(identity.name);
+    for (const actor of identity.actors) canonical.set(actor, identity.name);
+  }
+  return { canonical, bots };
+}
+
+// Every raw actor string belonging to one canonical name, for turning a ranked
+// row back into a filter the raw feed can apply.
+//
+// Unions EVERY entry with that name rather than taking the first. Two identities
+// can legitimately share a display name — distinct actor_keys the producer had
+// no config bridge for, e.g. a CI account seen both as a provider user and as
+// commit authorship — and the ranking already counts them as one row, since it
+// groups by name. Taking only the first entry's actors would then filter to part
+// of the row you clicked.
+export function actorsOf(directory: ActorDirectoryDTO | null | undefined, name: string): string[] {
+  const actors = (directory?.identities ?? []).filter((i) => i.name === name).flatMap((i) => i.actors);
+  return actors.length > 0 ? [...new Set(actors)] : [name];
+}
+
 // Rank by author. `actor` is nullable in the contract and a null author is not a
 // person — bucketing those together under one "unknown" row would invent a
 // contributor, so they are dropped and only named actors compete.
-export function rankActors(activities: readonly ActivityDTO[], limit: number): RailRank[] {
+//
+// With a directory, a person's facets (provider username, commit display names)
+// count as ONE row under their canonical name and CI/dependency accounts are
+// dropped — the same merge and filter `repo_metrics.top_actors` applies, which
+// this ranking could not reach before 4.7.0 because it keys on raw feed strings.
+// Bots are dropped from the RANKING only; they still count wherever totals are
+// computed off the same rows, exactly as top_actors behaves.
+export function rankActors(
+  activities: readonly ActivityDTO[],
+  limit: number,
+  index: ActorIndex = EMPTY_ACTOR_INDEX,
+): RailRank[] {
   const counts = new Map<string, number>();
   for (const a of activities) {
     const actor = a.actor?.trim();
     if (!actor) continue;
-    counts.set(actor, (counts.get(actor) ?? 0) + 1);
+    const name = index.canonical.get(actor) ?? actor;
+    if (index.bots.has(name)) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return topRanks(counts, limit);
 }

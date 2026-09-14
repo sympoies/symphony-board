@@ -472,6 +472,35 @@ test("activityRouteMatches accepts comma-list source/repo/kind/action (multi-sel
   );
 });
 
+test("filterCommits resolves a merged author to every raw actor string it covers", () => {
+  // A ranked Top authors row is labelled with the CANONICAL name, and that is
+  // what the route carries, but the feed stores the raw strings the person
+  // committed under. Without authorActors the route name matches only the rows
+  // that happen to carry it verbatim, so clicking a merged author filters to a
+  // fraction of their own commits.
+  const rows = [
+    activity({ id: "gl|c1", external_id: "c1", kind: "commit", action: "committed", actor: "Terry LIN", details: { sha: "a".repeat(16), branch: "main" } }),
+    activity({ id: "gl|c2", external_id: "c2", kind: "commit", action: "committed", actor: "Terry LIN 林品澄", details: { sha: "b".repeat(16), branch: "main" } }),
+    activity({ id: "gl|c3", external_id: "c3", kind: "commit", action: "committed", actor: "terrylin", details: { sha: "c".repeat(16), branch: "main" } }),
+    activity({ id: "gl|c4", external_id: "c4", kind: "commit", action: "committed", actor: "someone-else", details: { sha: "d".repeat(16), branch: "main" } }),
+  ];
+
+  assert.deepEqual(
+    filterCommits(rows, { author: "terrylin", authorActors: ["Terry LIN", "Terry LIN 林品澄", "terrylin"] }).map((a) => a.id),
+    ["gl|c1", "gl|c2", "gl|c3"],
+    "every facet of the merged identity is kept",
+  );
+
+  // Absent or empty authorActors is the pre-4.7.0 contract and the unmerged
+  // name: fall back to exact equality rather than matching nothing.
+  assert.deepEqual(filterCommits(rows, { author: "terrylin" }).map((a) => a.id), ["gl|c3"]);
+  assert.deepEqual(filterCommits(rows, { author: "terrylin", authorActors: [] }).map((a) => a.id), ["gl|c3"]);
+  assert.deepEqual(filterCommits(rows, { author: "terrylin", authorActors: null }).map((a) => a.id), ["gl|c3"]);
+
+  // authorActors without an author filters nothing: the author field is what
+  // says a filter is active at all.
+  assert.equal(filterCommits(rows, { authorActors: ["Terry LIN"] }).length, 4);
+});
 test("filterCommits keeps only commit records, optionally pinned to one repo", () => {
   const commitA = activity({
     id: "github:github.com|c1",

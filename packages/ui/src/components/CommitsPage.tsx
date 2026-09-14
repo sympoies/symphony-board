@@ -3,8 +3,12 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { CommitsRail } from "./CommitsRail.tsx";
+import { CommitsOverview } from "./CommitsOverview.tsx";
 import { CommitDetail } from "./CommitDetail.tsx";
 import { useListViewport } from "../useListViewport.ts";
+import { useContentPaneHeight } from "../useContentPaneHeight.ts";
+import { sourceDisplayName } from "../model.ts";
+import { EMPTY_ACTOR_INDEX, type ActorIndex } from "../rail-stats.ts";
 import {
   buildCommitRows,
   activityKey,
@@ -380,9 +384,12 @@ export function CommitsPage({
   railRepoSource,
   railAuthorSource,
   railBranchSource,
+  sourceOptions,
+  actorIndex = EMPTY_ACTOR_INDEX,
   onRepo,
   onBranch,
   onAuthor,
+  onSource,
   range,
   timezone,
   sourceKind,
@@ -403,9 +410,17 @@ export function CommitsPage({
   railRepoSource: ActivityDTO[];
   railAuthorSource: ActivityDTO[];
   railBranchSource: ActivityDTO[];
+  // Every source id with a commit in the loaded window, for the source chips.
+  // Commits filter on ONE source at a time (filterCommits compares source_id by
+  // equality, and a repo pin carries its own source), so the chips select rather
+  // than multi-select — unlike Activity's, which are a true facet set.
+  sourceOptions: string[];
+  // Contract actor directory as lookups, for the author ranking and count.
+  actorIndex?: ActorIndex;
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   onAuthor: (author: string | null) => void;
+  onSource: (source: string | null) => void;
   range: TimeRange;
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
@@ -425,22 +440,61 @@ export function CommitsPage({
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
 
-  // The repo + branch SCM filters are rarely changed, so on narrow/portrait they
-  // collapse behind a summary disclosure (same pattern as the date range) and the
-  // commit feed gets the first screen. Desktop always shows them.
+  // The source, repo and branch SCM filters are rarely changed, so on
+  // narrow/portrait they collapse behind a summary disclosure (same pattern as
+  // the date range) and the commit feed gets the first screen. Desktop always
+  // shows them.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch">("repo");
-  const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0);
+  const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0);
+  // The summary has to name every filter the count counts, or a pinned source
+  // reads as "1 active" over the words "all repos · all branches".
   const filtersSummary =
     activeFilterCount === 0
       ? "all repos · all branches"
-      : `${selectedRepo ?? "all repos"} · ${selectedBranch ?? "all branches"}`;
+      : [
+          selectedSource ? sourceDisplayName(selectedSource) : null,
+          selectedRepo ?? "all repos",
+          selectedBranch ?? "all branches",
+        ]
+          .filter(Boolean)
+          .join(" · ");
   const closeFiltersOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") setFiltersOpen(false);
   };
   const selectedRepoKey = selectedRepo ? `${selectedSource ?? ""}|${selectedRepo}` : null;
+  // The commit list is the page's content pane: it fills the viewport below the
+  // split instead of taking a fixed 74dvh, which on a 4K panel ran its last row
+  // past the viewport bottom. Published on the split because its top is the
+  // list's top; only .commit-list reads the var. See pane-height.ts.
+  const { paneRef: splitPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
+    commits.length,
+    selectedKey,
+  ]);
+  // The same chip row Activity uses for its source facet, so switching tabs does
+  // not switch filter idioms. Hidden when there is nothing to choose between
+  // (a single-source board) unless one is already pinned by a drill-down, which
+  // must stay visible and clearable.
+  const sourceChips =
+    sourceOptions.length > 1 || selectedSource ? (
+      <div className="toggle-group commits-source-group">
+        <span className="toggle-label">source</span>
+        {[...new Set([...sourceOptions, ...(selectedSource ? [selectedSource] : [])])].map((id) => (
+          <button
+            key={id}
+            type="button"
+            className={`toggle${id === selectedSource ? " toggle-on" : ""}`}
+            onClick={() => onSource(id === selectedSource ? null : id)}
+            title={id}
+          >
+            {sourceDisplayName(id)}
+          </button>
+        ))}
+      </div>
+    ) : null;
   const filterBody = () => (
     <div className="commits-toolbar commits-toolbar-inline">
+      {sourceChips}
       <div className="commits-filter">
         <RepoCombobox options={repoOptions} selectedSource={selectedSource} value={selectedRepo} onChange={onRepo} sourceKind={sourceKind} />
         <span className="muted commits-filter-hint">
@@ -582,6 +636,7 @@ export function CommitsPage({
           Branch
         </button>
       </div>
+      {sourceChips}
       {filterSheetTab === "repo" ? repoFilterSection() : branchFilterSection()}
     </div>
   );
@@ -632,7 +687,7 @@ export function CommitsPage({
           </div>
         </>
       ) : null}
-      <div className="commits-split">
+      <div className="commits-split" ref={splitPaneRef} style={paneHeightStyle}>
         <CommitTimeline
           commits={commits}
           sourceKind={sourceKind}
@@ -644,6 +699,9 @@ export function CommitsPage({
             setSelectedKey((current) => (current === activityKey(commit) ? null : activityKey(commit)))
           }
         />
+        {/* Middle column. A selected commit takes this slot — it is the detail
+            for the row beside it, so it belongs next to the list rather than out
+            at the far edge; the overview returns when the selection clears. */}
         {selectedCommit ? (
           <CommitDetail
             commit={selectedCommit}
@@ -653,22 +711,27 @@ export function CommitsPage({
             onClose={() => setSelectedKey(null)}
           />
         ) : (
-          <CommitsRail
-            commits={commits}
-            repoSource={railRepoSource}
-            authorSource={railAuthorSource}
-            branchSource={railBranchSource}
-            timezone={timezone}
-            range={range}
-            selectedRepo={selectedRepo}
-            selectedSource={selectedSource}
-            selectedAuthor={selectedAuthor}
-            selectedBranch={selectedBranch}
-            onRepo={onRepo}
-            onAuthor={onAuthor}
-            onBranch={onBranch}
-          />
+          <CommitsOverview commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
         )}
+        {/* Third column: the ranked facets, always present. Unlike Activity's
+            rail this is not gated on a wide breakpoint — the Commits page has
+            only ever had one supporting column, so hiding it below the tier
+            would take away what the page already showed; the stylesheet stacks
+            it under the list instead. */}
+        <CommitsRail
+          commits={commits}
+          repoSource={railRepoSource}
+          authorSource={railAuthorSource}
+          branchSource={railBranchSource}
+          actorIndex={actorIndex}
+          selectedRepo={selectedRepo}
+          selectedSource={selectedSource}
+          selectedAuthor={selectedAuthor}
+          selectedBranch={selectedBranch}
+          onRepo={onRepo}
+          onAuthor={onAuthor}
+          onBranch={onBranch}
+        />
       </div>
     </main>
   );

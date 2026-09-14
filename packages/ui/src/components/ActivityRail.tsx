@@ -3,9 +3,9 @@ import { RAIL_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, RAIL_ROWS_QUERY } from "../layou
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { RankChart } from "./RankChart.tsx";
+import { HourProfile } from "./HourProfile.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
-import { countsByHour, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel } from "../rail-stats.ts";
-import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
+import { EMPTY_ACTOR_INDEX, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
 
 // The Activity "who / where / when / what / how" rail.
 //
@@ -32,63 +32,21 @@ function eventCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
 }
 
-// Hour-of-day profile. All 24 bars always render, including empty ones: the
-// silhouette of a working day — the overnight trough, the morning ramp — is the
-// information, and dropping quiet hours would flatten it into a ranking.
-function HourProfile({ activities, timezone }: { activities: ActivityDTO[]; timezone: string }) {
-  const hours = useMemo(() => countsByHour(activities, timezone), [activities, timezone]);
-  const total = hours.reduce((sum, h) => sum + h.count, 0);
-  if (total === 0) return null;
-  const axisMax = niceAxisMax(Math.max(1, ...hours.map((h) => h.count)));
-  const peak = hours.reduce((best, h) => (h.count > best.count ? h : best), hours[0]!);
-  return (
-    <div className="rail-block">
-      <div className="rail-block-head">
-        <span className="rail-block-title">When</span>
-        <span className="rail-block-meta">peak {formatHour(peak.hour)}</span>
-      </div>
-      <div
-        className="rail-hours"
-        role="img"
-        aria-label={`Activity by hour of day; busiest hour ${formatHour(peak.hour)} with ${eventCountLabel(peak.count)}`}
-      >
-        {hours.map((h) => (
-          <span
-            key={h.hour}
-            className="rail-hourbar"
-            style={{ "--rank-h": rankBarHeight(h.count, axisMax) } as CSSProperties}
-            data-empty={h.count === 0 ? "true" : undefined}
-          >
-            <span className="rail-daybar-tip">{`${formatHour(h.hour)} · ${eventCountLabel(h.count)}`}</span>
-            <span className="rail-daybar-fill" />
-          </span>
-        ))}
-      </div>
-      <div className="rail-hours-axis" aria-hidden="true">
-        <span>00</span>
-        <span>06</span>
-        <span>12</span>
-        <span>18</span>
-        <span>23</span>
-      </div>
-    </div>
-  );
-}
-
-function formatHour(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
-}
-
 export function ActivityRail({
   activities,
   timezone,
   avatarOf,
+  actorIndex = EMPTY_ACTOR_INDEX,
 }: {
   activities: ActivityDTO[];
   timezone: string;
   // Login -> avatar URL, from review-thread comments. Absent logins fall back to
   // initials, so the Who column keeps one shape whoever is in it.
   avatarOf?: ReadonlyMap<string, string>;
+  // Contract actor directory as lookups, so Who merges a person's facets into
+  // one row and drops CI accounts — the same resolution repo_metrics.top_actors
+  // applies. See rail-stats.
+  actorIndex?: ActorIndex;
 }) {
   // Rows are cheap in a sidebar and expensive across a narrow column, so the
   // count follows the layout rather than being fixed. useMediaQuery re-renders
@@ -96,9 +54,9 @@ export function ActivityRail({
   const railRows = useMediaQuery(RAIL_ROWS_QUERY);
   const rankLimit = railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
 
-  const actorRanks = useMemo(() => rankActors(activities, rankLimit), [activities, rankLimit]);
+  const actorRanks = useMemo(() => rankActors(activities, rankLimit, actorIndex), [activities, rankLimit, actorIndex]);
   const repoRanks = useMemo(() => rankRepos(activities, rankLimit), [activities, rankLimit]);
-  const actorTotal = useMemo(() => rankActors(activities, 0).length, [activities]);
+  const actorTotal = useMemo(() => rankActors(activities, 0, actorIndex).length, [activities, actorIndex]);
   const repoTotal = useMemo(() => rankRepos(activities, 0).length, [activities]);
   const kindRanks = useMemo(() => rankKinds(activities, rankLimit), [activities, rankLimit]);
   const actionRanks = useMemo(() => rankActions(activities, rankLimit), [activities, rankLimit]);
@@ -151,7 +109,7 @@ export function ActivityRail({
         />
       </div>
 
-      <HourProfile activities={activities} timezone={timezone} />
+      <HourProfile rows={activities} subject="Activity" timezone={timezone} countLabel={eventCountLabel} />
 
       {/* What / How put counts on the same vocabulary as the filter chips above
           the feed. The chips have always been able to narrow by kind and action

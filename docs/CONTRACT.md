@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.6.0`.
+Current emitted version: `4.7.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.6.0",
+  "contract_version": "4.7.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -496,6 +496,99 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.7.0` is additive: the envelope may carry an optional
+`actor_directory`, which resolves every distinct non-empty `activities[].actor`
+string to a canonical identity and flags CI/dependency accounts:
+
+```jsonc
+"actor_directory": {
+  "identities": [
+    { "name": "terrylin", "actors": ["Terry LIN", "Terry LIN 林品澄", "terrylin"], "bot": false },
+    { "name": "dependabot[bot]", "actors": ["dependabot[bot]"], "bot": true }
+  ]
+}
+```
+
+It exists because the identity merge and bot filter described above were
+reachable only through `repo_metrics[].top_actors`, which is keyed on the
+DB-stored `actor_key` — a value that never reaches `ActivityDTO`. A consumer
+ranking the raw activity feed (the Commits and Activity rails) therefore had no
+way to apply either, and rendered one person as several rows with CI accounts
+among them. The directory publishes that resolution against the only key a feed
+consumer holds: the raw `actor` display string.
+
+It is built from the same pieces `top_actors` uses — the stored `actor_key` as
+the grouping, the config identity matchers, the deterministic display-name
+choice, and the auto-bot / `exclude_actors[]` verdict — so the two surfaces
+cannot drift into disagreeing about who someone is. Because the grouping is the
+`actor_key` and not the display string, the ordinary case of one person whose
+commits carry two spellings of their name merges here with **no config at all**:
+both already share an `email:<hash>` key. Config `identities[]` remain what
+bridges DIFFERENT keys — a provider username and an account-less commit email.
+
+`bot` is `true` when the identity's key is an auto-detected service account (a
+GitHub `[bot]` login suffix, a GitLab `project_`/`group_<id>_bot_…` username)
+or an `exclude_actors[]` pattern matches it. A config identity is a declared
+human, so a merged identity is a bot only when EVERY facet in it is bot-marked.
+As in `top_actors`, a bot is hidden from rankings only; its rows still count in
+any total computed over the feed.
+
+`actors[]` is the identity's addressable set, not a closed set over the feed: it
+is every raw `activities[].actor` value that resolves to the identity PLUS
+`name` itself, and a config-supplied name may never appear in `activities[]`.
+Every name published is a real display string — the producer only ever records
+non-empty actor values, so an opaque `email:<hash>` / `provider-user:` key is
+never emitted as a name.
+
+One raw actor string resolves to **at most one** identity, because that string
+is the only key a feed consumer holds. Grouping is the stored `actor_key`, and
+two keys can surface the same string, so that does not come for free.
+
+The producer does **not** guess that two keys are one person. A shared display
+string is not evidence of identity: it is ambiguous between one account seen
+twice and a string several people use — a build account, `root`, `Ubuntu`, a
+default git author name — and no rule local to the producer separates them. So
+an identity is joined only from what is already known:
+
+- the stored `actor_key`, which is the grouping; and
+- the config `identities[]` map, which is the operator saying explicitly that
+  several keys are one human.
+
+A string held by more than one identity after that is **contested** and is
+published under none of them; a consumer ranks it on its own. The single
+exception is a string that is exactly one declared identity's `name`, since
+naming that person is an explicit operator statement. An identity whose every
+string was contested has nothing a consumer could address it by and is not
+published at all.
+
+The cost is deliberate under-merging: a person whose facets the config does not
+join appears once per facet, and the remedy is exact — add the address or
+username to their `identities[]` entry, which merges the keys before any of
+this runs. The alternative is worse and was tried twice: joining on any shared
+string collapsed several declared people who each committed once as `root` into
+one entry, and requiring nested name sets still swallowed whoever was seen only
+under the shared string. Misattributing one person's commits to another is
+invisible in the UI and unfixable by the operator; an unmerged row is neither.
+
+Two config identities declared under the SAME `name`, each observed only under
+that string, therefore publish neither: the string is contested between two
+people the operator declared distinct, so it belongs to neither and neither has
+anything left to be addressed by. Their rows rank under the raw string, which is
+what makes the duplicate-name configuration visible.
+
+One join is not a guess and is applied: a group whose key exists **only** because
+its rows carried no stored `actor_key` (rows predating the column's backfill)
+has no identity evidence of its own, so it folds into the single stored identity
+carrying the same display string, contributing its bot marker. If several stored
+identities carry that string, nothing is folded and the string is contested as
+above. Without this, a service account's unmigrated rows sit beside their
+migrated twin as a second, unflagged entry and the account ranks as a person.
+
+Entries are sorted by name and each `actors[]` is sorted, so an unchanged data
+set emits an identical directory. Old payloads without the field remain valid; a
+consumer reads it as `env.actor_directory` and falls back to ranking raw
+`actor` strings.
 
 Version `4.6.0` is additive: `items[]` rows may carry optional, nullable
 `comments`, currently shaped as `{ total }`, for the provider's native

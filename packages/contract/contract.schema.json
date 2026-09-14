@@ -53,6 +53,9 @@
     "activity_daily": {
       "$ref": "#/$defs/activityDaily"
     },
+    "actor_directory": {
+      "$ref": "#/$defs/actorDirectory"
+    },
     "repos": {
       "type": "array",
       "description": "Per-repo display metadata (currently: highlight color). Sparse — a repo appears only when it has a configured color. Optional (added in 1.1.0); an old consumer ignores it.",
@@ -357,6 +360,35 @@
           "description": "Ascending by date, sparse: only days with at least one event appear; consumers fill gaps with zero.",
           "items": { "$ref": "#/$defs/activityDailyBucket" }
         }
+      }
+    },
+    "actorDirectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Actor identity + bot directory over the emitted activities[] (added in 4.7.0). Projects the producer's config identities and bot filter — the same ones repo_metrics.top_actors applies — onto the raw actor strings, so a consumer ranking the activity feed resolves people the same way.",
+      "required": ["identities"],
+      "properties": {
+        "identities": {
+          "type": "array",
+          "description": "One entry per resolved identity. A distinct non-empty activities[].actor value appears in AT MOST one entry's actors[]. Identities are joined only from the stored actor key and the producer's config identity map, never from a shared display string; a string held by more than one identity is contested and published under none of them, so a consumer ranks it on its own.",
+          "items": { "$ref": "#/$defs/actorIdentity" }
+        }
+      }
+    },
+    "actorIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One human or bot, and every raw actor string that belongs to them.",
+      "required": ["name", "actors", "bot"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Canonical display name: the config identity's declared name when one claims this person, else the raw actor string itself." },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The addressable set for this identity, sorted: every distinct raw activities[].actor value resolving here, plus the name itself. A config-supplied name may never appear in activities[], so this is a membership set, not a closed set over the feed.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "bot": { "type": "boolean", "description": "True for a CI/dependency account: an auto-detected marker ([bot] suffix, GitLab project_/group_<id>_bot_ service account) or a config exclude_actors match. Consumers that rank people drop these; totals still include them." }
       }
     },
     "aggregateStats": {

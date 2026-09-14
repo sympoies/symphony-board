@@ -154,7 +154,7 @@ import { FullBoard } from "./components/FullBoard.tsx";
 import { ItemsPage } from "./components/ItemsPage.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
-import { actorAvatarIndex } from "./rail-stats.ts";
+import { actorAvatarIndex, actorIndex as buildActorIndex, actorsOf } from "./rail-stats.ts";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { ReviewsPage } from "./components/ReviewsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
@@ -1252,16 +1252,23 @@ export function App() {
   // shared range (the window total + repo option source); repoCommits narrows to
   // the selected repo for branch options; commits applies the optional branch
   // filter when commit rows carry branch/ref details.
+  // The route carries the CANONICAL author name (it is what the rail row is
+  // labeled and what a shared URL should say), but the feed stores raw actor
+  // strings — so a merged identity has to match every string it absorbed.
+  const routeAuthorActors = useMemo(
+    () => (route.author ? actorsOf(visibleEnv?.actor_directory, route.author) : null),
+    [visibleEnv?.actor_directory, route.author],
+  );
   const windowCommits = useMemo(() => filterCommits(windowedActivities), [windowedActivities]);
   const repoCommits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, source: route.source }), [windowedActivities, route.repo, route.source]);
-  const commits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, author: route.author }), [windowedActivities, route.repo, route.branch, route.source, route.author]);
+  const commits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, author: route.author, authorActors: routeAuthorActors }), [windowedActivities, route.repo, route.branch, route.source, route.author, routeAuthorActors]);
   // The digest rail's two ranked lists are FACETS: each is counted with every
   // filter applied EXCEPT its own. Counting them off `commits` instead would
   // collapse the list you are standing in to a single row and leave nowhere to
   // click next — selecting a repo would hide every other repo.
   const commitRailRepoSource = useMemo(
-    () => filterCommits(windowedActivities, { branch: route.branch, author: route.author }),
-    [windowedActivities, route.branch, route.author],
+    () => filterCommits(windowedActivities, { branch: route.branch, author: route.author, authorActors: routeAuthorActors }),
+    [windowedActivities, route.branch, route.author, routeAuthorActors],
   );
   const commitRailAuthorSource = useMemo(
     () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
@@ -1270,12 +1277,29 @@ export function App() {
   // Actor photos for the Activity rail's Who column. Review-thread comments are
   // the only place the contract carries an avatar URL.
   const actorAvatars = useMemo(() => actorAvatarIndex(visibleEnv?.review_threads ?? []), [visibleEnv?.review_threads]);
+  // Contract actor directory (4.7.0+) as the lookups every actor ranking needs.
+  // Built once per contract rather than per rail: the Commits rail alone ranks
+  // authors over two facet sources and re-ranks on any filter change.
+  const railActorIndex = useMemo(() => buildActorIndex(visibleEnv?.actor_directory), [visibleEnv?.actor_directory]);
   const commitRailBranchSource = useMemo(
-    () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author }),
-    [windowedActivities, route.repo, route.source, route.author],
+    () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author, authorActors: routeAuthorActors }),
+    [windowedActivities, route.repo, route.source, route.author, routeAuthorActors],
+  );
+  // Source chip options: every source with a commit in the window, counted
+  // BEFORE the source filter so the chip you are standing on is not the only one
+  // left. Ordered for a stable chip row rather than by first appearance.
+  const commitSources = useMemo(
+    () => [...new Set(windowCommits.map((c) => c.source_id))].sort((a, b) => a.localeCompare(b)),
+    [windowCommits],
   );
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
+  // The source the currently pinned repo lives on, so switching source can tell
+  // whether the repo pin survives (see setRouteSource).
+  const selectedCommitRepoSource = useMemo(
+    () => (route.repo ? (commitRepos.find((r) => r.project_path === route.repo)?.source_id ?? null) : null),
+    [commitRepos, route.repo],
+  );
   // Board-wide commit total from the full-history aggregate (4.0.0 windows
   // env.activities to ~30 days; counting commits there under-reports).
   const totalCommits = useMemo(
@@ -1819,6 +1843,37 @@ export function App() {
     if (readHash() !== next) window.location.hash = next;
   }
 
+  // The Commits source chip. A repo pin carries its own source (setRouteRepo
+  // writes both), so switching source clears a repo that cannot belong to the
+  // new one — leaving it would apply a repo filter no row can satisfy and show
+  // an empty list with two chips lit.
+  //
+  // The branch goes with it. Branches are per-repo, so a branch pinned under the
+  // old repo is just as unsatisfiable once that repo is gone, and keeping it
+  // reproduces the same empty list one filter further in.
+  function setRouteSource(source: string | null) {
+    if (typeof window === "undefined") return;
+    const keepRepo = source === null || source === selectedCommitRepoSource;
+    const next = buildHashRoute({
+      page: "commits",
+      source,
+      repo: keepRepo ? route.repo : null,
+      branch: keepRepo ? route.branch : null,
+      author: route.author,
+      isource: route.isource,
+      istate: route.istate,
+      ikind: route.ikind,
+      ireview: route.ireview,
+      irepo: route.irepo,
+      unresolved: route.unresolved,
+      q: filters.search,
+      from: explicitRange?.from,
+      to: explicitRange?.to,
+      preset: explicitRange ? route.preset : null,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
   function setRouteBranch(branch: string | null) {
     if (typeof window === "undefined") return;
     const next = buildHashRoute({
@@ -2285,6 +2340,7 @@ export function App() {
       ) : page === "activity" ? (
         <ActivityPage
           actorAvatars={actorAvatars}
+          actorIndex={railActorIndex}
           activities={filteredActivities}
           allActivities={env.activities ?? []}
           activityDaily={fullActivityDaily ?? env.activity_daily ?? null}
@@ -2336,9 +2392,12 @@ export function App() {
           railRepoSource={commitRailRepoSource}
           railAuthorSource={commitRailAuthorSource}
           railBranchSource={commitRailBranchSource}
+          sourceOptions={commitSources}
+          actorIndex={railActorIndex}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           onAuthor={setRouteAuthor}
+          onSource={setRouteSource}
           range={activeRange}
           timezone={tz}
           sourceKind={sourceKind}

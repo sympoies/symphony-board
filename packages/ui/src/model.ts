@@ -1809,6 +1809,13 @@ export type CommitFilter = {
   branch?: string | null;
   source?: string | null;
   author?: string | null;
+  // Every raw `actor` string the selected author covers, when the contract's
+  // actor directory (4.7.0+) resolved `author` to a merged identity. `author`
+  // stays the canonical display name — it is what the URL carries and what the
+  // rail row is labeled — but the feed stores raw strings, so one identity has
+  // to match several of them. Absent/empty falls back to exact `author`
+  // equality, which is the pre-4.7.0 behavior and what an unmerged name needs.
+  authorActors?: readonly string[] | null;
 };
 
 export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = {}): ActivityDTO[] {
@@ -1816,6 +1823,7 @@ export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = 
   const branch = filter.branch?.trim() || null;
   const source = filter.source?.trim() || null;
   const author = filter.author?.trim() || null;
+  const authorActors = filter.authorActors?.length ? new Set(filter.authorActors) : null;
   return activities.filter(
     (a) =>
       isCommitActivity(a) &&
@@ -1825,7 +1833,8 @@ export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = 
       // Trimmed on BOTH sides. The rail ranks and labels authors on the trimmed
       // actor, so comparing against the raw field here made a padded actor rank
       // in Top authors and then filter to nothing when clicked.
-      (author === null || (a.actor?.trim() ?? null) === author),
+      (author === null ||
+        (authorActors ? authorActors.has(a.actor?.trim() ?? "") : (a.actor?.trim() ?? null) === author)),
   );
 }
 

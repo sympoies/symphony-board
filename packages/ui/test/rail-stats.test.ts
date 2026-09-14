@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
-import { actorAvatarIndex, commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
+import { actorAvatarIndex, actorIndex, actorsOf, commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -282,4 +282,52 @@ test("actorAvatarIndex skips comments with no author or no avatar", () => {
 test("actorAvatarIndex tolerates a thread with no comments array", () => {
   const bare = { ...thread([]), comments: undefined } as unknown as ReviewThreadDTO;
   assert.equal(actorAvatarIndex([bare]).size, 0);
+});
+
+const directory = {
+  identities: [
+    { name: "terrylin", actors: ["Terry LIN", "Terry LIN 林品澄", "terrylin"], bot: false },
+    { name: "ada", actors: ["ada"], bot: false },
+    { name: "dependabot", actors: ["dependabot"], bot: true },
+    // Two entries sharing a display name: distinct producer identities the
+    // config had no bridge for. The ranking counts them as one row.
+    { name: "semantic-release", actors: ["semantic-release"], bot: true },
+    { name: "semantic-release", actors: ["semantic-release-ci"], bot: true },
+  ],
+};
+
+test("rankActors merges a person’s facets into one row and drops bots", () => {
+  const rows = rankActors(
+    [
+      activity({ actor: "Terry LIN" }),
+      activity({ actor: "Terry LIN 林品澄" }),
+      activity({ actor: "terrylin" }),
+      activity({ actor: "ada" }),
+      activity({ actor: "dependabot" }),
+      activity({ actor: "semantic-release" }),
+    ],
+    5,
+    actorIndex(directory),
+  );
+  assert.deepEqual(rows.map((r) => [r.label, r.count]), [["terrylin", 3], ["ada", 1]]);
+});
+
+test("rankActors without a directory keeps the raw strings (pre-4.7.0 contract)", () => {
+  const rows = rankActors([activity({ actor: "Terry LIN" }), activity({ actor: "terrylin" })], 5);
+  assert.deepEqual(rows.map((r) => r.label).sort(), ["Terry LIN", "terrylin"]);
+});
+
+test("actorIndex ignores an absent directory rather than throwing", () => {
+  const index = actorIndex(null);
+  assert.equal(index.canonical.size, 0);
+  assert.equal(index.bots.size, 0);
+});
+
+test("actorsOf resolves a ranked row back to every raw actor it covers", () => {
+  assert.deepEqual(actorsOf(directory, "terrylin"), ["Terry LIN", "Terry LIN 林品澄", "terrylin"]);
+  // Both entries, not just the first: the row the viewer clicked counted both.
+  assert.deepEqual(actorsOf(directory, "semantic-release"), ["semantic-release", "semantic-release-ci"]);
+  // An unknown name filters by itself, which is what a pre-4.7.0 payload needs.
+  assert.deepEqual(actorsOf(directory, "nobody"), ["nobody"]);
+  assert.deepEqual(actorsOf(null, "ada"), ["ada"]);
 });

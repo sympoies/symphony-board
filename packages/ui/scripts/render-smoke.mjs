@@ -2457,7 +2457,10 @@ try {
   const commitsRailAlignment = (await send("Runtime.evaluate", {
     expression: `(() => {
       const card = document.querySelector('.commits-page .commit-row .commit-row-body');
-      const pane = document.querySelector('.commits-rail .rail-block');
+      // The first supporting pane is the overview column's head; the rail is the
+      // THIRD column now, and below the three-column tier it sits under the
+      // overview rather than level with the list.
+      const pane = document.querySelector('.commits-overview .hm-overview-head');
       if (!card || !pane) return { found: false };
       return {
         found: true,
@@ -4330,6 +4333,9 @@ try {
             activityHeatmapAboveFeed: !activityHeatmap || !activityList || (heatmapRect?.top ?? 0) <= (listRect?.top ?? 0),
             activityHeatmapScrolledToLatest: !heatmapScroll || heatmapMaxScroll === 0 || Math.abs(heatmapMaxScroll - heatmapScroll.scrollLeft) <= 2,
             activityListHeight: activityList ? Math.round(activityList.getBoundingClientRect().height) : 0,
+            activityListBottomGap: activityList
+              ? Math.round(window.innerHeight - activityList.getBoundingClientRect().bottom)
+              : null,
             // The narrow-viewport Feed/Overview segmented toggle and which single
             // pane it currently shows (default: the records feed, heatmap absent).
             activityViewTogglePresent: !!document.querySelector('.activity-view-toggle'),
@@ -4809,28 +4815,53 @@ try {
     expression: `(() => {
       const split = document.querySelector('.commits-split');
       const list = document.querySelector('.commit-list');
+      const overview = document.querySelector('.commits-overview');
       const rail = document.querySelector('.commits-rail');
-      if (!split || !list || !rail) return { found: false, hasSplit: !!split, hasList: !!list, hasRail: !!rail };
+      if (!split || !list || !rail || !overview) return { found: false, hasSplit: !!split, hasList: !!list, hasRail: !!rail, hasOverview: !!overview };
       const listRect = list.getBoundingClientRect();
+      const overviewRect = overview.getBoundingClientRect();
       const railRect = rail.getBoundingClientRect();
-      const blocks = [...rail.querySelectorAll('.rail-block-title')].map((el) => (el.textContent || '').trim());
+      // Both supporting columns together carry the digest the rail alone used to.
+      const blocks = [...document.querySelectorAll('.commits-overview .rail-block-title, .commits-rail .rail-block-title')]
+        .map((el) => (el.textContent || '').trim());
       return {
         found: true,
         listWidth: Math.round(listRect.width),
+        overviewWidth: Math.round(overviewRect.width),
         railWidth: Math.round(railRect.width),
         blocks,
-        // The rail must sit BESIDE the list, not under it.
-        sideBySide: railRect.left >= listRect.right - 2,
-        // ...and the two TRACKS must span their container. justify-content
+        // Three columns in order, none under another.
+        sideBySide: overviewRect.left >= listRect.right - 2 && railRect.left >= overviewRect.right - 2,
+        // ...and the three TRACKS must span their container. justify-content
         // aligns tracks inside a grid that is already full width, so the
         // container's own box cannot show this: when the column ceilings cannot
         // reach the content box, the leftover becomes side gutters and the list
         // and rail sit visibly inset from the full-bleed chrome above them.
         gutterLeft: Math.round(listRect.left - split.getBoundingClientRect().left),
         gutterRight: Math.round(split.getBoundingClientRect().right - railRect.right),
-        dayBars: rail.querySelectorAll('.rail-daybar').length,
+        dayBars: overview.querySelectorAll('.rail-daybar').length,
+        hourBars: overview.querySelectorAll('.rail-hourbar').length,
+        summaryTiles: overview.querySelectorAll('.hm-summary > div').length,
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+
+  // The directory resolves a person's facets to one ranked row. The sample
+  // contract carries the same maintainer under two logins across its two hosts,
+  // which is the cross-key case the field exists for.
+  const commitsAuthorMerge = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rail = document.querySelector('.commits-rail');
+      if (!rail) return { found: false };
+      const block = [...rail.querySelectorAll('.rail-block')]
+        .find((el) => (el.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top authors');
+      if (!block) return { found: false, hasRail: true };
+      const rows = [...block.querySelectorAll('.live-rank-item')]
+        .map((el) => (el.querySelector('.live-rank-name')?.textContent || '').trim())
+        .filter(Boolean);
+      return { found: true, rows, hasMerged: rows.includes('maintainer'), hasFacet: rows.includes('gl-maintainer') };
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
@@ -4878,6 +4909,59 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Picking a source while a repo is pinned must drop the repo: the pair is
+  // unsatisfiable, and leaving it lights two chips over an empty list.
+  // Pin a branch first, in its own step: writing the route re-renders the page,
+  // so a chip node captured before that would be detached by the time it is
+  // clicked.
+  const commitsBranchPin = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = document.querySelector('.commits-page .commit-branch-select select');
+      const option = select && [...select.options].find((o) => o.value);
+      if (!select || !option) return { pinned: false };
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { pinned: true, branch: option.value };
+    })()`,
+    returnByValue: true,
+  })).result.value || { pinned: false };
+  await sleep(300);
+
+  const commitsSourceChip = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const group = document.querySelector('.commits-page .commits-source-group');
+      if (!group) return { found: false };
+      const chips = [...group.querySelectorAll('.toggle')];
+      const params0 = new URLSearchParams(location.hash.replace(/^#\\/?[a-z-]*\\??/, ''));
+      const target = chips.find((c) => !c.classList.contains('toggle-on'));
+      if (!target) return { found: true, clicked: false, chips: chips.length };
+      target.click();
+      return {
+        found: true,
+        clicked: true,
+        chips: chips.length,
+        repoBefore: params0.get('repo'),
+        branchBefore: params0.get('branch'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await sleep(300);
+  const commitsSourceChipApplied = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const params = new URLSearchParams(location.hash.replace(/^#\\/?[a-z-]*\\??/, ''));
+      const group = document.querySelector('.commits-page .commits-source-group');
+      return {
+        hasSource: !!params.get('source'),
+        hasRepo: !!params.get('repo'),
+        hasBranch: !!params.get('branch'),
+        pressed: [...(group?.querySelectorAll('.toggle-on') || [])].length,
+        rows: document.querySelectorAll('.commit-row').length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+
   // Leave the page unfiltered for the checks below.
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(350);
@@ -4900,7 +4984,9 @@ try {
       const rowSha = (document.querySelector('.commit-row-selected .commit-sha-text, .commit-row-selected .commit-sha')?.textContent || '').trim();
       return {
         hasDetail: !!document.querySelector('.commit-detail-card'),
-        hasDigest: !!document.querySelector('.commits-rail .rail-daybars'),
+        // The detail replaces the overview column; the rail is untouched.
+        hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
+        railStillThere: !!document.querySelector('.commits-rail .rail-block'),
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
         hasTitle: !!document.querySelector('.commit-detail-title'),
         // The detail is where the COMPLETE identifier has to be legible; the row
@@ -4920,7 +5006,8 @@ try {
   const commitDetailToggledOff = (await send("Runtime.evaluate", {
     expression: `(() => ({
       hasDetail: !!document.querySelector('.commit-detail-card'),
-      hasDigest: !!document.querySelector('.commits-rail .rail-daybars'),
+      hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
+      railStillThere: !!document.querySelector('.commits-rail .rail-block'),
     }))()`,
     returnByValue: true,
   })).result.value || {};
@@ -5400,22 +5487,46 @@ try {
     debugStickyCheck,
     debugSyncGqlCheck,
     [wideFillShort.length === 0 && wideFillCovered === wideFillExpected, `app: primary pages fill the full-bleed shell on wide viewports (covered ${wideFillCovered}/${wideFillExpected}, short ${JSON.stringify(wideFillShort)})`],
-    // Commits: list keeps its reading measure, rail takes the remainder beside it.
+    // Commits: three columns sharing the width by ratio (30/35/35, like
+    // Activity). The range's SHAPE over time lives in the overview column; the
+    // rail keeps the ranked facets that are also navigation.
     [
       commitsRailWide.found === true &&
         commitsRailWide.sideBySide === true &&
-        commitsRailWide.listWidth > 0 && commitsRailWide.listWidth <= 1182 &&
-        commitsRailWide.railWidth >= 300 &&
+        commitsRailWide.listWidth > 0 &&
+        commitsRailWide.overviewWidth > commitsRailWide.listWidth &&
+        commitsRailWide.railWidth > commitsRailWide.listWidth &&
         commitsRailWide.dayBars > 0 &&
+        commitsRailWide.hourBars === 24 &&
+        commitsRailWide.summaryTiles >= 4 &&
         commitsRailWide.repoRows > 0 &&
-        ["Commits per day", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
-      `commits: digest rail sits beside a measure-capped list (${JSON.stringify(commitsRailWide)})`,
+        ["Commits per day", "When", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
+      `commits: three ratio columns carry list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
     ],
     [
       commitsRailWide.found === true &&
         commitsRailWide.gutterLeft <= 2 &&
         commitsRailWide.gutterRight <= 2,
-      `commits: the list and rail span their container, so the split lines up with the full-bleed chrome above it (gutters left=${commitsRailWide.gutterLeft} right=${commitsRailWide.gutterRight})`,
+      `commits: the three columns span their container, so the split lines up with the full-bleed chrome above it (gutters left=${commitsRailWide.gutterLeft} right=${commitsRailWide.gutterRight})`,
+    ],
+    [
+      commitsAuthorMerge.found === true &&
+        commitsAuthorMerge.hasMerged === true &&
+        commitsAuthorMerge.hasFacet === false,
+      `commits: the directory collapses a person's logins into one Top authors row (${JSON.stringify(commitsAuthorMerge)})`,
+    ],
+    [
+      commitsSourceChip.found === true &&
+        commitsSourceChip.clicked === true &&
+        commitsSourceChip.chips >= 2 &&
+        commitsSourceChip.repoBefore != null &&
+        commitsSourceChip.branchBefore != null &&
+        commitsSourceChipApplied.hasSource === true &&
+        commitsSourceChipApplied.hasRepo === false &&
+        commitsSourceChipApplied.hasBranch === false &&
+        commitsSourceChipApplied.pressed === 1 &&
+        commitsSourceChipApplied.rows > 0,
+      `commits: a source chip applies the source and drops the repo and branch pins it cannot satisfy (${JSON.stringify(commitsBranchPin)} ${JSON.stringify(commitsSourceChip)} -> ${JSON.stringify(commitsSourceChipApplied)})`,
     ],
     // The rail is navigation: a Top repos click writes the same route filter the
     // dropdown writes, and the clicked row shows as pressed.
@@ -5443,10 +5554,12 @@ try {
         commitDetailShown.hasDetail === true &&
         commitDetailShown.hasTitle === true &&
         commitDetailShown.hasDigest === false &&
+        commitDetailShown.railStillThere === true &&
         commitDetailShown.selectedRows === 1 &&
         commitDetailToggledOff.hasDetail === false &&
-        commitDetailToggledOff.hasDigest === true,
-      `commits: selecting a row opens the detail and toggles back to the digest (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+        commitDetailToggledOff.hasDigest === true &&
+        commitDetailToggledOff.railStillThere === true,
+      `commits: selecting a row swaps the overview for the detail and back, leaving the rail in place (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
     ],
     [
       commitDetailShown.shaIsHex === true && commitDetailShown.shaLength === 40,
@@ -5605,7 +5718,12 @@ try {
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === false && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone filters open without keeping search inline (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActiveFilterDisclosure.sheetVisible === true && phoneActiveFilterDisclosure.sheetCount === 1 && phoneActiveFilterDisclosure.sheetTitle === "Filters" && Math.abs((phoneActiveFilterDisclosure.primaryTopAfter || 0) - (phoneActiveFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile search/filter expansion opens one filter overlay sheet without pushing feed (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.tabCount === 2 && phoneCommitsFilterDisclosure.activeTab === "Repo" && phoneCommitsFilterDisclosure.branchTabActive === "Branch" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.visibleRepoOptions >= 1 && phoneCommitsFilterDisclosure.branchTabVisibleBranchOptions >= 3 && phoneCommitsFilterDisclosure.visibleBranchOptions === 0 && phoneCommitsFilterDisclosure.repoPickHashHasRepo === true && phoneCommitsFilterDisclosure.repoPickSelectedRows === 1 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a repo-first sheet mode without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
-    [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.6), `portrait: phone activity defaults to a tall records feed behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, heatmap=${phoneActivity.activityHeatmapPresent})`],
+    // The feed takes everything below its own top and STOPS at the viewport
+    // bottom, the same contract every other content pane follows
+    // (pane-height.ts). It used to take a flat 74dvh, which on a phone ran ~130px
+    // past the bottom edge; asserting a fixed fraction of the viewport would now
+    // be asserting that overhang back.
+    [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.45) && phoneActivity.activityListBottomGap !== null && phoneActivity.activityListBottomGap >= 0 && phoneActivity.activityListBottomGap <= 40, `portrait: phone activity defaults to a records feed that fills to the viewport bottom behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, bottomGap=${phoneActivity.activityListBottomGap}, heatmap=${phoneActivity.activityHeatmapPresent})`],
     [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
     [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
@@ -5884,7 +6002,7 @@ try {
     ],
     [
       commitsRailAlignment.found === true && commitsRailAlignment.offset === 0,
-      `commits: the list and its digest rail start on the same line (${JSON.stringify(commitsRailAlignment)})`,
+      `commits: the list and its overview column start on the same line (${JSON.stringify(commitsRailAlignment)})`,
     ],
     [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
     [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking an option writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],

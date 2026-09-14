@@ -6,6 +6,8 @@ import { MOBILE_VIEWPORT_QUERY, type ColorOf, type TimeRange } from "../model.ts
 import { WIDE_RAIL_QUERY } from "../layout-tier.ts";
 import { ActivityRail } from "./ActivityRail.tsx";
 import { useMediaQuery } from "../useMediaQuery.ts";
+import { useContentPaneHeight } from "../useContentPaneHeight.ts";
+import { EMPTY_ACTOR_INDEX, type ActorIndex } from "../rail-stats.ts";
 import type { ActivityView } from "../nav.ts";
 
 export function ActivityPage({
@@ -23,6 +25,7 @@ export function ActivityPage({
   emptyState,
   view,
   actorAvatars,
+  actorIndex = EMPTY_ACTOR_INDEX,
   onView,
 }: {
   activities: ActivityDTO[];
@@ -51,6 +54,8 @@ export function ActivityPage({
   view: ActivityView;
   // Login -> avatar URL for the rail Who column; see rail-stats.actorAvatarIndex.
   actorAvatars?: ReadonlyMap<string, string>;
+  // Contract actor directory as lookups, for the rail's Who column.
+  actorIndex?: ActorIndex;
   onView: (view: ActivityView) => void;
 }) {
   const [heatmapPanel, setHeatmapPanel] = useState<HTMLElement | null>(null);
@@ -82,10 +87,24 @@ export function ActivityPage({
     activities.length === windowTotal
       ? `${activities.length} in range`
       : `${activities.length} matches`;
-  const layoutStyle =
-    heatmapHeight > 0
+  // The feed is the page's content pane, so it fills the viewport below the
+  // split exactly like Items / Board / Graph do rather than taking a fixed
+  // fraction of it. `.activity-list` used to hardcode `max-height: 74dvh`, which
+  // on a 4K panel stopped the feed ~100px short of the viewport bottom while
+  // every other tab reached it. The var is published on the split (its top is
+  // the feed's top, since the feed is a direct grid child) and only the feed
+  // reads it; the overview and rail keep sizing to their own content.
+  const { paneRef: splitPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
+    activities.length,
+    showFeed,
+    showOverview,
+    showRail,
+  ]);
+  const layoutStyle: CSSProperties | undefined =
+    heatmapHeight > 0 || paneHeightStyle
       ? ({
-          "--activity-rhythm-height": `${heatmapHeight}px`,
+          ...paneHeightStyle,
+          ...(heatmapHeight > 0 ? { "--activity-rhythm-height": `${heatmapHeight}px` } : {}),
         } as CSSProperties)
       : undefined;
 
@@ -117,7 +136,7 @@ export function ActivityPage({
         </span>
       </div>
       {isMobile ? <ActivityViewToggle view={view} onView={onView} /> : null}
-      <div className="activity-layout" style={layoutStyle}>
+      <div className="activity-layout" ref={splitPaneRef} style={layoutStyle}>
         {showFeed ? (
           <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} itemsById={itemsById} />
         ) : null}
@@ -138,7 +157,7 @@ export function ActivityPage({
         ) : null}
         {/* Third column. Gated on the viewport rather than only hidden in CSS so
             a phone never pays to rank actors and repos it will not show. */}
-        {showRail ? <ActivityRail activities={activities} timezone={timezone} avatarOf={actorAvatars} /> : null}
+        {showRail ? <ActivityRail activities={activities} timezone={timezone} avatarOf={actorAvatars} actorIndex={actorIndex} /> : null}
       </div>
     </main>
   );
