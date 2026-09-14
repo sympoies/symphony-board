@@ -1087,6 +1087,42 @@ test("a config identity stays human even when it absorbs a bot-marked facet", ()
   assert.deepEqual(byName.get("Dev A")?.actors, ["Dev A", "project_12_bot_abc"]);
   assert.equal(byName.get("group_9_bot_xyz")?.bot, true, "an unclaimed service account is still a bot");
 });
+test("two config identities declared under one name publish neither", () => {
+  // A deliberate decision, not an oversight. buildIdentityMatchers keeps
+  // same-slug entries distinct so two declared people never merge, and this
+  // path must not undo that: if both are observed only under the name they
+  // share, the string is contested and belongs to neither, so neither has
+  // anything left to be addressed by. Publishing one of them would attribute
+  // the other’s commits; publishing both would break the at-most-one rule the
+  // consumer indexes on. The rows still rank under the raw string, which is
+  // what makes the duplicate-name config visible so it can be corrected.
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "x1", kind: "commit", action: "committed", project_path: "g/p", actor: "shared", actor_key: deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "x@corp.example" }), source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "y1", kind: "commit", action: "committed", project_path: "g/p", actor: "shared", actor_key: deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "y@corp.example" }), source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
+  ];
+  const env = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [
+      { name: "shared", emails: ["x@corp.example"] },
+      { name: "shared", emails: ["y@corp.example"] },
+    ],
+  });
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(env.actor_directory?.identities, [], "neither declared person claims the name they share");
+
+  // Giving them distinct names is the fix, and both are then addressable.
+  const distinct = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [
+      { name: "Person X", emails: ["x@corp.example"] },
+      { name: "Person Y", emails: ["y@corp.example"] },
+    ],
+  });
+  assert.deepEqual((distinct.actor_directory?.identities ?? []).map((i) => i.name), ["Person X", "Person Y"]);
+});
 test("source-scoped config identities do not merge same-name actors from other sources", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },

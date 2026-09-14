@@ -571,6 +571,12 @@ one entry, and requiring nested name sets still swallowed whoever was seen only
 under the shared string. Misattributing one person's commits to another is
 invisible in the UI and unfixable by the operator; an unmerged row is neither.
 
+Two config identities declared under the SAME `name`, each observed only under
+that string, therefore publish neither: the string is contested between two
+people the operator declared distinct, so it belongs to neither and neither has
+anything left to be addressed by. Their rows rank under the raw string, which is
+what makes the duplicate-name configuration visible.
+
 One join is not a guess and is applied: a group whose key exists **only** because
 its rows carried no stored `actor_key` (rows predating the column's backfill)
 has no identity evidence of its own, so it folds into the single stored identity
