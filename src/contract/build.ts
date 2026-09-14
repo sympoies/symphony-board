@@ -6,6 +6,7 @@ import type { ActivityRow, ItemRow, LabelRow, EdgeRow, ReviewThreadRow, SourceRo
 import type {
   ActivityDTO,
   ActivityDailyDTO,
+  ActorDirectoryDTO,
   ContractEnvelope,
   ItemDTO,
   EdgeDTO,
@@ -1290,6 +1291,85 @@ function buildActivityDaily(activities: ActivityDTO[], generatedAt: string, time
   return { timezone, from, to: toDate, total, by_kind, days };
 }
 
+// Build the actor directory over the activity rows actually emitted.
+//
+// top_actors resolves identities from the DB-stored `actor_key`, which never
+// reaches ActivityDTO — so a consumer ranking the raw feed could not apply the
+// same merge, and rendered one person as several rows with CI accounts among
+// them. This publishes that resolution against the only key a feed consumer
+// holds: the raw `actor` display string.
+//
+// It reuses the SAME pieces top_actors does — the stored actor_key as the
+// grouping, resolveIdentity for the config merge, chooseDisplayName for the
+// label, isAutoBot/isExcludedActor for the bot verdict — so the two surfaces
+// cannot drift into disagreeing about who someone is. In particular the
+// grouping is the actor_key, not the display string, so the common case of one
+// person whose commits carry two spellings of their name merges here with NO
+// config at all: both rows already share an `email:<hash>` key.
+function buildActorDirectory(
+  activities: ActivityDTO[],
+  actorKeys: Map<string, string | null>,
+  matchers: IdentityMatcher[],
+  excludes: RegExp[],
+): ActorDirectoryDTO {
+  // One accumulator per stored actor_key, plus the source ids it was seen on
+  // (a source-scoped config identity only claims actors from its own sources).
+  const accs = new Map<string, ActorAccumulator>();
+  const sourceIds = new Map<string, Set<string>>();
+  for (const a of activities) {
+    const actor = a.actor?.trim();
+    if (!actor) continue;
+    // An emitted row whose stored key is missing (a payload assembled outside
+    // the store) still deserves a row: fall back to the name key the producer
+    // would have derived for it.
+    const key = actorKeys.get(refOf(a.source_id, a.external_id)) ?? deriveActorKey({ sourceId: a.source_id, name: actor });
+    if (!key) continue;
+    recordActor(accs, key, actor);
+    let seen = sourceIds.get(key);
+    if (!seen) sourceIds.set(key, (seen = new Set()));
+    seen.add(a.source_id);
+  }
+
+  // Collapse the config identities, then decide each group’s label and verdict.
+  const merged = new Map<string, { acc: ActorAccumulator; bot: boolean }>();
+  for (const [key, acc] of accs) {
+    const observedSources = sourceIds.get(key) ?? new Set<string>();
+    // resolveIdentity scopes per source, and one actor_key may appear on
+    // several; first source that claims it wins, matching top_actors, which
+    // evaluates the same matcher list one source at a time.
+    let claim: IdentityMatcher | null = null;
+    for (const sourceId of observedSources) {
+      claim = resolveIdentity(acc, matchers, sourceId);
+      if (claim) break;
+    }
+    const bot = isAutoBot(key) || isExcludedActor(acc, excludes);
+    const target = claim ? claim.key : key;
+    let entry = merged.get(target);
+    if (!entry) {
+      const next = actorAccumulator(target);
+      if (claim) next.canonicalName = claim.name;
+      merged.set(target, (entry = { acc: next, bot }));
+    } else {
+      // A config identity is a declared HUMAN, so one bot-looking facet does
+      // not make the person a bot; a group is a bot only when all of it is.
+      entry.bot = entry.bot && bot;
+    }
+    for (const [name, count] of acc.names) entry.acc.names.set(name, (entry.acc.names.get(name) ?? 0) + count);
+  }
+
+  const identities = [...merged.values()]
+    .map(({ acc, bot }) => {
+      const { displayName, aliases } = chooseDisplayName(acc);
+      return { name: displayName, actors: [displayName, ...aliases].sort(compareName), bot };
+    })
+    // An identity whose only evidence was an email/name key with no observed
+    // display string cannot be addressed by a feed consumer, which only ever
+    // holds actor strings. chooseDisplayName falls back to the opaque key there,
+    // so drop it rather than publish a key as if it were a name.
+    .filter((identity) => identity.actors.length > 0 && !identity.name.includes(":"))
+    .sort((a, b) => compareName(a.name, b.name));
+  return { identities };
+}
 export function buildContract(input: BuildInput): ContractEnvelope {
   const mapped = mapRows(input);
   const sourcesById = sourceLinkMap(input.sources);
@@ -1325,6 +1405,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     activities: windowedActivities,
     review_threads: reviewThreadsForItems(mapped.reviewThreads, windowed.items),
     activity_daily: activityDaily,
+    actor_directory: buildActorDirectory(windowedActivities, actorKeys, identityMatchers, actorExcludes),
     repos: mapped.repos,
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
@@ -1457,6 +1538,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     // windowed range AS its primary env still gets the Activity Overview / trend
     // instead of a blank panel.
     activity_daily: buildActivityDaily(ranged.activities, input.generatedAt, timezone),
+    actor_directory: buildActorDirectory(ranged.activities, actorKeys, identityMatchers, actorExcludes),
     repos: mapped.repos,
     // Board-wide aggregates over the FULL live set (the same call buildContract
     // makes) — small, but the UI gates them off for bounded range-query envs

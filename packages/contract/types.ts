@@ -421,6 +421,37 @@ export interface ActivityDailyDTO {
   days: ActivityDailyBucketDTO[];
 }
 
+// One human (or one bot) as the producer resolves them, and every raw
+// `activities[].actor` string that belongs to them. Added in 4.7.0.
+//
+// It exists because `repo_metrics[].top_actors` is keyed on the canonical
+// `actor_key` the DB stores, which is NOT on ActivityDTO — so a consumer
+// ranking the raw activity feed (the Commits and Activity rails) had no way to
+// apply the producer's identity merge or its bot filter, and showed one person
+// as two rows with CI accounts between them.
+export interface ActorIdentityDTO {
+  // Canonical display name: the config identity's declared `name` when one
+  // claims this person, otherwise the raw actor string itself.
+  name: string;
+  // Every distinct raw `activities[].actor` value that resolves here, sorted.
+  // Always non-empty, and contains `name` itself for an unmerged identity.
+  actors: string[];
+  // True for a CI/dependency account: the producer's zero-false-positive markers
+  // (a GitHub `[bot]` login suffix, a GitLab `project_`/`group_<id>_bot_…`
+  // service account) or a config `exclude_actors` match. Consumers that RANK
+  // people should drop these; totals and the feed itself still include them,
+  // exactly as `top_actors` already behaves.
+  bot: boolean;
+}
+
+// The actor directory over the emitted `activities[]`. Producer/display config
+// (identities + exclude_actors, read at emit time and never stored), projected
+// so every consumer of the raw feed resolves actors the same way top_actors
+// does. Added in 4.7.0.
+export interface ActorDirectoryDTO {
+  identities: ActorIdentityDTO[];
+}
+
 export interface ContractEnvelope {
   contract_version: string;
   generated_at: string;
@@ -455,6 +486,12 @@ export interface ContractEnvelope {
   // history) and the `/api/range` projection (bucketing the in-range
   // `activities[]`, for a windowed mobile board). Read as `env.activity_daily`.
   activity_daily?: ActivityDailyDTO;
+  // Actor identity + bot directory over the emitted `activities[]` (added in
+  // 4.7.0). Optional: a pre-4.7.0 payload has no key, and a consumer without it
+  // must fall back to ranking raw `actor` strings — which splits a person
+  // across their facets and leaves CI accounts in the ranking, the behavior this
+  // field exists to fix. Read as `env.actor_directory`.
+  actor_directory?: ActorDirectoryDTO;
   // Per-repo display metadata (currently: highlight color). Sparse — only
   // configured repos appear. The producer always emits it (possibly empty);
   // OPTIONAL in the type so a consumer reading a pre-1.1.0 contract (no `repos`

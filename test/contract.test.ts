@@ -866,6 +866,58 @@ test("config identities collapse a GitLab username and commit-email facet into o
   assert.ok((row.aliases ?? []).includes("DEV A"), "observed commit name kept as an alias");
 });
 
+test("actor_directory resolves feed actors by config identity and flags bots", () => {
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  // The same human under three display strings the feed actually carries: the
+  // provider username, and two commit author names.
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "c1", kind: "commit", action: "committed", project_path: "g/p", actor: "dev-b", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "c2", kind: "commit", action: "committed", project_path: "g/p", actor: "Dev A", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
+    activityRow({ external_id: "c3", kind: "commit", action: "committed", project_path: "g/p", actor: "DEV A", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T12:00:00Z" }),
+    // An auto-detected service account and a config-excluded unmarked bot.
+    activityRow({ external_id: "c4", kind: "commit", action: "committed", project_path: "g/p", actor: "project_12_bot_abc", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T13:00:00Z" }),
+    activityRow({ external_id: "c5", kind: "commit", action: "committed", project_path: "g/p", actor: "renovate", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T14:00:00Z" }),
+    // An actor no config mentions: its own identity, not a bot.
+    activityRow({ external_id: "c6", kind: "commit", action: "committed", project_path: "g/p", actor: "carol", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T15:00:00Z" }),
+  ];
+
+  const env = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [{ name: "dev-b", usernames: ["dev-b"], names: ["Dev A"] }],
+    excludeActors: ["renovate"],
+  });
+  assert.deepEqual(validateContract(env), []);
+
+  const byName = new Map((env.actor_directory?.identities ?? []).map((i) => [i.name, i]));
+  // Name matching folds case/whitespace, so one declared `names` entry covers
+  // both spellings; the username facet joins by `usernames`.
+  // compareName order: case-insensitive first, then code unit as the tie-break.
+  assert.deepEqual(byName.get("dev-b")?.actors, ["Dev A", "DEV A", "dev-b"]);
+  assert.equal(byName.get("dev-b")?.bot, false, "a declared identity is a human");
+  assert.equal(byName.get("project_12_bot_abc")?.bot, true, "GitLab service account auto-detected");
+  assert.equal(byName.get("renovate")?.bot, true, "config exclude_actors match");
+  assert.equal(byName.get("carol")?.bot, false);
+  assert.deepEqual(byName.get("carol")?.actors, ["carol"], "an unmerged identity carries its own actor string");
+
+  // Every distinct non-empty feed actor lands in exactly one entry.
+  const listed = (env.actor_directory?.identities ?? []).flatMap((i) => i.actors).sort();
+  assert.deepEqual(listed, ["DEV A", "Dev A", "carol", "dev-b", "project_12_bot_abc", "renovate"].sort());
+
+  // Without the config, the CROSS-facet merge is gone (the username no longer
+  // joins the commit names) but the two spellings of one commit name still
+  // collapse: they share an actor_key, which is the grouping. That is the point
+  // of keying on the stored key rather than the display string — the common case
+  // needs no config at all.
+  const bare = buildContract({ sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  const bareByName = new Map((bare.actor_directory?.identities ?? []).map((i) => [i.name, i]));
+  assert.equal(bareByName.size, 5, "dev-b splits off, but Dev A / DEV A stay one identity");
+  assert.deepEqual(bareByName.get("Dev A")?.actors, ["Dev A", "DEV A"], "one name key, both spellings");
+  assert.deepEqual(bareByName.get("dev-b")?.actors, ["dev-b"], "the username facet is now its own identity");
+  assert.equal(bareByName.get("renovate")?.bot, false, "unmarked bot needs the config list");
+  assert.equal(bareByName.get("project_12_bot_abc")?.bot, true);
+});
 test("source-scoped config identities do not merge same-name actors from other sources", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },

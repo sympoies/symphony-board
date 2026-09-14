@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.6.0`.
+Current emitted version: `4.7.0`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.6.0",
+  "contract_version": "4.7.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -496,6 +496,51 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.7.0` is additive: the envelope may carry an optional
+`actor_directory`, which resolves every distinct non-empty `activities[].actor`
+string to a canonical identity and flags CI/dependency accounts:
+
+```jsonc
+"actor_directory": {
+  "identities": [
+    { "name": "terrylin", "actors": ["Terry LIN", "Terry LIN 林品澄", "terrylin"], "bot": false },
+    { "name": "dependabot[bot]", "actors": ["dependabot[bot]"], "bot": true }
+  ]
+}
+```
+
+It exists because the identity merge and bot filter described above were
+reachable only through `repo_metrics[].top_actors`, which is keyed on the
+DB-stored `actor_key` — a value that never reaches `ActivityDTO`. A consumer
+ranking the raw activity feed (the Commits and Activity rails) therefore had no
+way to apply either, and rendered one person as several rows with CI accounts
+among them. The directory publishes that resolution against the only key a feed
+consumer holds: the raw `actor` display string.
+
+It is built from the same pieces `top_actors` uses — the stored `actor_key` as
+the grouping, the config identity matchers, the deterministic display-name
+choice, and the auto-bot / `exclude_actors[]` verdict — so the two surfaces
+cannot drift into disagreeing about who someone is. Because the grouping is the
+`actor_key` and not the display string, the ordinary case of one person whose
+commits carry two spellings of their name merges here with **no config at all**:
+both already share an `email:<hash>` key. Config `identities[]` remain what
+bridges DIFFERENT keys — a provider username and an account-less commit email.
+
+`bot` is `true` when the identity's key is an auto-detected service account (a
+GitHub `[bot]` login suffix, a GitLab `project_`/`group_<id>_bot_…` username)
+or an `exclude_actors[]` pattern matches it. A config identity is a declared
+human, so a merged identity is a bot only when EVERY facet in it is bot-marked.
+As in `top_actors`, a bot is hidden from rankings only; its rows still count in
+any total computed over the feed.
+
+An identity that never carried an observable display string (email- or
+name-keyed authorship with no name) is omitted rather than published under its
+opaque key, since a feed consumer could not address it anyway. Entries are
+sorted by name and each `actors[]` is sorted, so an unchanged data set emits an
+identical directory. Old payloads without the field remain valid; a consumer
+reads it as `env.actor_directory` and falls back to ranking raw `actor`
+strings.
 
 Version `4.6.0` is additive: `items[]` rows may carry optional, nullable
 `comments`, currently shaped as `{ total }`, for the provider's native
