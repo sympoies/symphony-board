@@ -24,7 +24,12 @@ Options:
   --title TITLE          GitHub Release title. Defaults to the tag.
   --prerelease           Mark the GitHub Release as a prerelease and skip
                          latest verification.
-  --no-wait              Do not wait for the publish-image workflow.
+  --wait                 Wait for the publish-image workflow and verify its
+                         artifacts locally. Off by default for --execute,
+                         which leaves completeness to CI; on by default for
+                         --resume, whose whole purpose is that wait.
+  --no-wait              Do not wait for the publish-image workflow. Already
+                         the default for --execute.
   --timeout SECONDS      Workflow discovery timeout. Defaults to 120.
   --skip-main-check      Skip branch and origin/main ancestry checks.
   --skip-clean-check     Skip the clean-worktree check.
@@ -177,12 +182,18 @@ verify_public_manifest() {
   info "verified public GHCR manifest: ghcr.io/${image_path}:${tag} platforms=${platforms}"
 }
 
-wait_for_publish_run() {
+# Discovery and the watch answer different questions, and only one of them can
+# be handed to CI. "Did it finish, and is it complete?" is now the publish-image
+# run's own job. "Did a run start at all?" is not: if Actions is disabled, the
+# workflow is broken on the default branch, or a concurrency group is holding
+# it, there is no red run to notice -- because there is no run. So every mode
+# still discovers; only waiting is optional.
+find_publish_run() {
   local repo="$1"
   local tag="$2"
   local timeout="$3"
   local target_sha="$4"
-  local start now run_id run_url runs_json
+  local start now run_id runs_json
 
   start="$(date +%s)"
   while :; do
@@ -195,9 +206,7 @@ wait_for_publish_run() {
       --json databaseId,headSha,url)"
     run_id="$(printf '%s' "$runs_json" | json_matching_run_id "$target_sha")"
     if [ -n "$run_id" ]; then
-      run_url="$(gh run view "$run_id" --repo "$repo" --json url --jq .url)"
-      info "publish workflow: $run_url"
-      gh run watch "$run_id" --repo "$repo" --exit-status
+      printf '%s\n' "$run_id"
       return 0
     fi
 
@@ -207,6 +216,26 @@ wait_for_publish_run() {
     fi
     sleep 5
   done
+}
+
+publish_run_url() {
+  local repo="$1"
+  local run_id="$2"
+
+  gh run view "$run_id" --repo "$repo" --json url --jq .url
+}
+
+wait_for_publish_run() {
+  local repo="$1"
+  local tag="$2"
+  local timeout="$3"
+  local target_sha="$4"
+  local run_id run_url
+
+  run_id="$(find_publish_run "$repo" "$tag" "$timeout" "$target_sha")"
+  run_url="$(publish_run_url "$repo" "$run_id")"
+  info "publish workflow: $run_url"
+  gh run watch "$run_id" --repo "$repo" --exit-status
 }
 
 verify_release_asset() {
@@ -236,7 +265,14 @@ mode="dry-run"
 version=""
 title=""
 prerelease=0
-wait_for_workflow=1
+# Unset until the mode is known, because the cutting modes and the inspecting
+# modes want opposite defaults. The cutting modes hand completeness to
+# publish-image.yml, which verifies the GHCR manifests and the desktop assets
+# itself, so blocking a developer machine on `gh run watch` for the tens of
+# minutes the arm64 build takes buys nothing and loses releases when that wait
+# is killed. The inspecting modes are the wait: --resume exists precisely to
+# perform it after the fact.
+wait_for_workflow=""
 timeout=120
 skip_main_check=0
 skip_clean_check=0
@@ -273,6 +309,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --prerelease)
       prerelease=1
+      shift
+      ;;
+    --wait)
+      wait_for_workflow=1
       shift
       ;;
     --no-wait)
@@ -339,6 +379,17 @@ case "$mode" in
   execute | dry-run) cutting=1 ;;
   *) cutting=0 ;;
 esac
+
+if [ -z "$wait_for_workflow" ]; then
+  # The cutting modes hand completeness to publish-image.yml, so neither waits
+  # -- and dry-run has to preview what execute will actually do. The inspecting
+  # modes are the wait: resume exists to perform it after the fact.
+  if [ "$cutting" -eq 1 ]; then
+    wait_for_workflow=0
+  else
+    wait_for_workflow=1
+  fi
+fi
 
 repo="$(repo_slug)" || die "could not resolve GitHub repository slug"
 app_version="$(normalize_version "$(package_version)")"
@@ -424,7 +475,11 @@ fi
 
 if [ "$mode" = "dry-run" ]; then
   info "dry-run: would create GitHub Release $tag titled '$title'"
-  info "dry-run: would wait for publish-image.yml, verify public GHCR manifests, and verify desktop release assets"
+  if [ "$wait_for_workflow" -eq 1 ]; then
+    info "dry-run: would wait for publish-image.yml, verify public GHCR manifests, and verify desktop release assets"
+  else
+    info "dry-run: would leave publish-image.yml to build and verify $tag; add --wait to block on it here"
+  fi
   exit 0
 fi
 
@@ -461,15 +516,19 @@ if [ "$mode" = "execute" ]; then
   if [ "$wait_for_workflow" -eq 1 ]; then
     wait_for_publish_run "$repo" "$tag" "$timeout" "$target_sha"
   else
-    info "skipped workflow wait"
-    if [ "$skip_public_verify" -eq 0 ]; then
-      info "skipped public GHCR verification because --no-wait was set; run --verify-only after publish-image completes"
-      skip_public_verify=1
-    fi
-    if [ "$skip_desktop_verify" -eq 0 ]; then
-      info "skipped desktop asset verification because --no-wait was set; run without --no-wait or inspect the release assets after the workflow completes"
-      skip_desktop_verify=1
-    fi
+    # Not a degraded run: publish-image.yml verifies the GHCR manifests and the
+    # desktop assets itself, so the release is complete when that run is green.
+    # Still discover the run rather than printing the workflow's index URL: a
+    # release that started no run at all is the one failure CI cannot report,
+    # and exiting 0 on it would be a reassuring lie.
+    run_id="$(find_publish_run "$repo" "$tag" "$timeout" "$target_sha")"
+    info "publish run: $(publish_run_url "$repo" "$run_id")"
+    info "that run verifies the GHCR manifests and the desktop assets; a green run means the release is complete"
+    info "to watch and verify from here instead: scripts/release.sh --resume --version $tag"
+    # Nothing is published yet, so local verification has nothing to check and
+    # "complete" would be a claim about a run that has not finished. Stop here
+    # rather than fall through to the verification block and its skip notices.
+    exit 0
   fi
 fi
 

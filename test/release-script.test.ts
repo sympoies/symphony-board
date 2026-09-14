@@ -6,7 +6,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 function cleanGitEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  const env = { ...process.env, ...extra };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    // Hermetic fixtures: read no user or system git config at all. Without this
+    // the fixtures inherit whatever the host has -- an identity, a signing key,
+    // a url rewrite -- and a test that quietly depends on one passes on a
+    // developer machine and fails on a CI runner that has none.
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    ...extra,
+  };
   for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) {
     delete env[key];
   }
@@ -212,6 +221,17 @@ exit 1
 `;
 }
 
+// The part of a gh stub that answers subcommands, without its preamble. Taken
+// by splitting on the case header rather than by line index: the preamble grows
+// whenever the stub learns a new variable, and a positional splice would
+// silently swallow the header and leave an unparseable script.
+function ghStubCases(stub: string): string {
+  const header = 'case "$sub" in';
+  const at = stub.indexOf(header);
+  assert.notEqual(at, -1, "gh stub has no case block to splice");
+  return stub.slice(at);
+}
+
 function writeGhStub(cwd: string, body: string): void {
   writeFileSync(join(cwd, "bin/gh"), body);
   chmodSync(join(cwd, "bin/gh"), 0o755);
@@ -366,4 +386,162 @@ test("execute points at resume when the release already exists", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /GitHub Release already exists: v1\.2\.3/);
   assert.match(result.stderr, /scripts\/release\.sh --resume --version v1\.2\.3/);
+});
+
+// `--execute` reaches two git calls the resume tests never do: it resolves HEAD
+// and asks origin whether the tag already exists. Give it a real commit and a
+// local origin so neither the fixture's missing HEAD nor an SSH timeout decides
+// the result.
+function cuttableRepo(version = "1.2.3"): string {
+  const dir = fixtureRepo(version);
+  const git = (args: string[], cwd = dir) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8", env: cleanGitEnv() });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git(["add", "-A"]);
+  // Carry the identity on the command. cleanGitEnv reads no user or system
+  // config, so there is none to inherit -- which is the point: a fixture that
+  // borrows the host's identity passes on a developer machine and fails on a
+  // CI runner with "Author identity unknown".
+  git([
+    "-c",
+    "user.name=release fixture",
+    "-c",
+    "user.email=release-fixture@invalid",
+    "commit",
+    "--quiet",
+    "--no-gpg-sign",
+    "-m",
+    "fixture",
+  ]);
+  // Rewrite where origin RESOLVES without changing what it is configured as:
+  // repo_slug falls back to the configured URL, so re-pointing the remote would
+  // cost the fixture its sympoies/symphony-board slug. This keeps the slug and
+  // still answers `ls-remote` locally instead of over SSH.
+  const origin = join(dir, "origin.git");
+  git(["init", "--quiet", "--bare", origin], tmpdir());
+  git(["config", `url.${origin}.insteadOf`, "git@github.com:sympoies/symphony-board.git"]);
+  return dir;
+}
+
+// `release create` succeeds, the pre-flight existence check must not, and the
+// URL lookup after creation must. Splitting on the `--json url` query is what
+// tells the last two apart.
+function executeGhStub(extra = ""): string {
+  return `#!/usr/bin/env sh
+sub="$1 $2"
+all="$*"
+case "$sub" in
+  "release create")
+    exit 0
+    ;;
+  "release view")
+    case "$all" in
+      *"--json url"*)
+        printf '%s\\n' 'https://example.test/releases/v1.2.3'
+        exit 0
+        ;;
+      *"--json assets"*)
+        : # a post-publish query; only the caller-supplied cases know the answer
+        ;;
+      *)
+        exit 1
+        ;;
+    esac
+    ;;
+esac
+${extra}
+exit 1
+`;
+}
+
+test("execute does not wait for the publish workflow by default", () => {
+  const cwd = cuttableRepo();
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", env: cleanGitEnv() });
+  assert.equal(head.status, 0, head.stderr);
+  // The wait was the fragile half of cutting a release: tens of minutes of
+  // `gh run watch` on a developer's machine, killed repeatedly, leaving the
+  // release published but unverified. publish-image.yml now decides
+  // completeness itself -- it verifies the GHCR manifests and the desktop
+  // assets -- so a green run is the signal and nothing has to sit and watch.
+  writeGhStub(cwd, executeGhStub(ghStubCases(resumeGhStub({ runHeadSha: head.stdout.trim() }))));
+
+  const result = runRelease(cwd, [
+    "--execute",
+    "--skip-main-check",
+    "--skip-clean-check",
+    ...FAST_DISCOVERY,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /release: created GitHub Release/);
+  // It still confirms a run exists and names it -- that is the one check CI
+  // cannot perform on its own -- but it does not watch or verify.
+  assert.match(result.stdout, /release: publish run: https:\/\/example\.test\/run\/42/);
+  assert.doesNotMatch(result.stdout, /publish workflow: /);
+  assert.doesNotMatch(result.stdout, /release: complete/);
+  // An operator who does want to watch has to be told the exact command.
+  assert.match(result.stdout, /scripts\/release\.sh --resume --version v1\.2\.3/);
+});
+
+test("execute fails when the release started no publish run at all", () => {
+  const cwd = cuttableRepo();
+  // The failure CI cannot report. If Actions is disabled, the workflow is
+  // broken on the default branch, or a concurrency group is holding it, there
+  // is no red run to notice -- because there is no run. Exiting 0 here would be
+  // a reassuring lie about a release nothing is going to finish.
+  writeGhStub(cwd, executeGhStub('if [ "$1 $2" = "run list" ]; then printf \'%s\\n\' \'[]\'; exit 0; fi'));
+
+  const result = runRelease(cwd, [
+    "--execute",
+    "--skip-main-check",
+    "--skip-clean-check",
+    ...FAST_DISCOVERY,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /publish-image workflow did not appear/);
+});
+
+test("execute --wait still watches the publish workflow and verifies it", () => {
+  const cwd = cuttableRepo("9.9.9");
+  // The old behaviour stays reachable for whoever wants to block on it: the
+  // same discovery, watch, and verification the resume path uses. Discovery
+  // matches the run by head SHA, and execute resolves that from the real
+  // fixture HEAD rather than the resume stub's placeholder, so the stub has to
+  // name the commit this repo is actually on.
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", env: cleanGitEnv() });
+  assert.equal(head.status, 0, head.stderr);
+  const stub = resumeGhStub({ runHeadSha: head.stdout.trim(), version: "9.9.9" });
+  writeGhStub(cwd, executeGhStub(ghStubCases(stub)));
+
+  const result = runRelease(cwd, [
+    "--execute",
+    "--wait",
+    "--skip-main-check",
+    "--skip-clean-check",
+    "--skip-public-verify",
+    ...FAST_DISCOVERY,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /release: publish workflow: https:\/\/example\.test\/run\/42/);
+  assert.match(result.stdout, /release: complete/);
+});
+
+test("dry-run previews the cut execute actually performs", () => {
+  const cwd = fixtureRepo();
+  // dry-run is a preview of --execute, so it has to inherit execute's default.
+  // Announcing a wait that --execute will not perform is worse than silence:
+  // it is the line an operator would read before deciding to sit and watch.
+  const result = runRelease(cwd, ["--dry-run"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /dry-run: would leave publish-image\.yml to build and verify v1\.2\.3/);
+  assert.doesNotMatch(result.stdout, /would wait for publish-image/);
+
+  const waiting = runRelease(cwd, ["--dry-run", "--wait"]);
+
+  assert.equal(waiting.status, 0, waiting.stderr);
+  assert.match(waiting.stdout, /dry-run: would wait for publish-image\.yml/);
 });

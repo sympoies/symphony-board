@@ -7,12 +7,48 @@ name: publish-image
 on:
   release:
     types: [published]
+  # Manual runs exist so a change to THIS FILE can be tested. Before it, the only
+  # way to exercise the workflow was to publish a release, which meant every
+  # workflow edit shipped unverified -- and one of them (an arm64 build dying
+  # under QEMU) cost a release before it was caught.
+  #
+  # A manual run publishes NOTHING unless asked: it builds, smoke-tests, and
+  # stops. `push` is what turns it into a real publication, and the downstream
+  # deploy and Homebrew dispatches never fire from here at all.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build, e.g. v1.23.0"
+        required: true
+        type: string
+      push:
+        description: "Push images to GHCR. Leave off to build and smoke-test only."
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
-  group: publish-image-${{ github.ref }}
+  # Key on the tag being built, not on the ref that triggered the run: a manual
+  # run's ref is a branch, so a `push=true` run for vX.Y.Z would otherwise sit
+  # in a different group than the release run for the same tag and race it --
+  # both pushing the same GHCR tags, both clobbering the same release assets.
+  # Spelled out rather than `env.RELEASE_TAG`: `concurrency` is evaluated
+  # before the env context exists.
+  group: publish-image-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
   cancel-in-progress: false
 
 permissions: {}
+
+# The release event is empty on a manual run, so resolve both facts once here
+# rather than letting each step guess. RELEASE_TAG is what gets built and
+# verified; PUBLISH gates every side effect that outlives the run.
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+  PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+  # A manual run has no release payload, so `!github.event.release.prerelease`
+  # would read as "not a prerelease" and move `latest`. It may only do that on a
+  # real release that is publishing.
+  MOVE_LATEST: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
 jobs:
   # Gate the published tag against the repo's version files BEFORE anything is
@@ -33,9 +69,28 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          # On a manual run the triggering ref is a branch; the tag is the
+          # input. Fully qualified, so a BRANCH named like the tag can never be
+          # resolved here -- `tag` is free text and this ref is what gets built.
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      # The checkout above already refuses a non-tag ref, but it fails with
+      # git's "couldn't find remote ref" rather than saying what is wrong. This
+      # is the readable failure, and it states the input's contract: an
+      # EXISTING tag, which is the only thing a release can be built from.
+      - name: Require an existing tag
+        run: |
+          set -euo pipefail
+
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null; then
+            echo "not an existing tag: $RELEASE_TAG" >&2
+            echo "publish-image builds a released tag; it cannot build a branch or an arbitrary ref" >&2
+            exit 1
+          fi
+          echo "building existing tag: $RELEASE_TAG"
 
       - name: Check release version
-        run: scripts/check-release-version.sh "$GITHUB_REF_NAME"
+        run: scripts/check-release-version.sh "$RELEASE_TAG"
 
   publish:
     name: build, smoke-test, push to GHCR
@@ -51,6 +106,10 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          # On a manual run the triggering ref is a branch; the tag is the
+          # input. Fully qualified, so a BRANCH named like the tag can never be
+          # resolved here -- `tag` is free text and this ref is what gets built.
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -71,8 +130,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest,enable=${{ env.MOVE_LATEST == 'true' && env.PUBLISH == 'true' }}
 
       - name: Docker metadata (web)
         id: web_meta
@@ -80,8 +139,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-web
           tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest,enable=${{ env.MOVE_LATEST == 'true' && env.PUBLISH == 'true' }}
 
       - name: Build board amd64 for smoke test
         uses: docker/build-push-action@v7
@@ -176,7 +235,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.board_meta.outputs.tags }}
           labels: ${{ steps.board_meta.outputs.labels }}
           cache-from: type=gha,scope=board
@@ -188,13 +247,14 @@ jobs:
           context: .
           file: docker/ui.Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.web_meta.outputs.tags }}
           labels: ${{ steps.web_meta.outputs.labels }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
       - name: Verify public GHCR manifests
+        if: ${{ env.PUBLISH == 'true' }}
         run: |
           set -euo pipefail
 
@@ -261,7 +321,9 @@ jobs:
           done
 
       - name: Dispatch downstream release
-        if: ${{ !github.event.release.prerelease && vars.DEPLOY_DISPATCH_REPOSITORY != '' }}
+        # Deployment follows a real release only. A manual run must never move
+        # what is running in production, whatever it was asked to build.
+        if: ${{ github.event_name == 'release' && !github.event.release.prerelease && vars.DEPLOY_DISPATCH_REPOSITORY != '' }}
         env:
           DEPLOY_DISPATCH_REPOSITORY: ${{ vars.DEPLOY_DISPATCH_REPOSITORY }}
           DEPLOY_DISPATCH_EVENT_TYPE: ${{ vars.DEPLOY_DISPATCH_EVENT_TYPE || 'symphony-board-release' }}
@@ -281,13 +343,13 @@ jobs:
             */*) ;;
             *) echo "DEPLOY_DISPATCH_REPOSITORY must be owner/repo" >&2; exit 1 ;;
           esac
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           payload="$(
             jq -nc \
               --arg event_type "$DEPLOY_DISPATCH_EVENT_TYPE" \
               --arg version "$version" \
-              --arg tag "$GITHUB_REF_NAME" \
-              --arg source_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+              --arg tag "$RELEASE_TAG" \
+              --arg source_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" \
               --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg run_id "$GITHUB_RUN_ID" \
               --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
@@ -319,6 +381,10 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          # On a manual run the triggering ref is a branch; the tag is the
+          # input. Fully qualified, so a BRANCH named like the tag can never be
+          # resolved here -- `tag` is free text and this ref is what gets built.
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - uses: pnpm/action-setup@v6
 
@@ -338,23 +404,81 @@ jobs:
       - name: Package unsigned desktop apps
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           scripts/package-desktop-release.sh \
             --version "$version" \
             --target "${{ matrix.target }}" \
             --out-dir dist/release
 
       - name: Upload desktop release assets
+        # Built either way, uploaded only for a run that is publishing: a manual
+        # run proves packaging without clobbering a live release's assets.
+        if: ${{ env.PUBLISH == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
+        run: gh release upload "$RELEASE_TAG" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  # The release is complete or it is not, and this job is where that is decided.
+  #
+  # Until now the answer lived on a developer's machine: `release.sh --execute`
+  # created the Release and then blocked on `gh run watch` for the tens of minutes
+  # the arm64 build takes, verifying GHCR and the desktop assets afterwards. That
+  # wait is the fragile part -- it was killed repeatedly by a local supervisor and
+  # left releases published but unverified, with no supported way to finish them
+  # until `--resume` existed.
+  #
+  # CI already verifies the GHCR manifests inside `publish`. The only thing it did
+  # not check was that the desktop assets actually reached the Release, which is
+  # the other half of what the local wait was for. Checking it here makes a green
+  # run mean "complete", so nothing has to sit and watch.
+  release-complete:
+    name: verify the release carries every artifact
+    needs: [publish, desktop]
+    # NOT `env.PUBLISH`: the env context is unavailable in a job-level `if`, so
+    # that reads as empty and skips the job silently -- which would disable the
+    # check this job exists to add while looking correct. Spelled out instead.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Verify desktop release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          version="${RELEASE_TAG#v}"
+          missing=0
+          names="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+
+          for asset in \
+            "Symphony-Board-v${version}-macos-arm64-unsigned.zip" \
+            "Symphony-Board-Standalone-v${version}-macos-arm64-unsigned.zip" \
+            "SHA256SUMS-v${version}-macos-arm64.txt"; do
+            if printf '%s\n' "$names" | grep -Fxq -- "$asset"; then
+              echo "verified release asset: $asset"
+            else
+              echo "MISSING release asset: $asset" >&2
+              missing=1
+            fi
+          done
+
+          test "$missing" -eq 0 || {
+            echo "release $RELEASE_TAG is incomplete: desktop assets are missing" >&2
+            exit 1
+          }
+
+          echo "release $RELEASE_TAG carries every expected artifact"
 
   homebrew-tap:
     name: dispatch Homebrew cask update
     needs:
       - publish
       - desktop
-    if: ${{ !github.event.release.prerelease && vars.HOMEBREW_TAP_DISPATCH_REPOSITORY != '' }}
+    if: ${{ github.event_name == 'release' && !github.event.release.prerelease && vars.HOMEBREW_TAP_DISPATCH_REPOSITORY != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Top-level permissions are `{}`, so this job needs its own read grant for
@@ -367,6 +491,10 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          # On a manual run the triggering ref is a branch; the tag is the
+          # input. Fully qualified, so a BRANCH named like the tag can never be
+          # resolved here -- `tag` is free text and this ref is what gets built.
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - name: Dispatch Homebrew tap cask update
         env:
@@ -383,14 +511,14 @@ jobs:
             */*) ;;
             *) echo "HOMEBREW_TAP_DISPATCH_REPOSITORY must be owner/repo" >&2; exit 1 ;;
           esac
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           payload="$(
             jq -nc \
               --arg event_type "$HOMEBREW_TAP_DISPATCH_EVENT_TYPE" \
               --arg version "$version" \
-              --arg tag "$GITHUB_REF_NAME" \
+              --arg tag "$RELEASE_TAG" \
               --arg source_repo "$GITHUB_REPOSITORY" \
-              --arg source_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+              --arg source_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" \
               --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               '{event_type: $event_type, client_payload: {version: $version, tag: $tag, source_repo: $source_repo, source_url: $source_url, run_url: $run_url}}'
           )"
