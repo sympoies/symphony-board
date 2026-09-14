@@ -5487,21 +5487,23 @@ try {
     debugStickyCheck,
     debugSyncGqlCheck,
     [wideFillShort.length === 0 && wideFillCovered === wideFillExpected, `app: primary pages fill the full-bleed shell on wide viewports (covered ${wideFillCovered}/${wideFillExpected}, short ${JSON.stringify(wideFillShort)})`],
-    // Commits: three columns sharing the width by ratio (30/35/35, like
-    // Activity). The range's SHAPE over time lives in the overview column; the
-    // rail keeps the ranked facets that are also navigation.
+    // Commits: three columns sharing the width by ratio, 40/30/30. The list
+    // LEADS — it carries the long strings, and an even split ellipsized all of
+    // them — while the two supporting columns are equal to each other. The
+    // range's SHAPE over time lives in the overview; the rail keeps the ranked
+    // facets that are also navigation.
     [
       commitsRailWide.found === true &&
         commitsRailWide.sideBySide === true &&
-        commitsRailWide.listWidth > 0 &&
-        commitsRailWide.overviewWidth > commitsRailWide.listWidth &&
-        commitsRailWide.railWidth > commitsRailWide.listWidth &&
+        commitsRailWide.listWidth > commitsRailWide.overviewWidth &&
+        commitsRailWide.listWidth > commitsRailWide.railWidth &&
+        Math.abs(commitsRailWide.overviewWidth - commitsRailWide.railWidth) <= 2 &&
         commitsRailWide.dayBars > 0 &&
         commitsRailWide.hourBars === 24 &&
         commitsRailWide.summaryTiles >= 4 &&
         commitsRailWide.repoRows > 0 &&
         ["Commits per day", "When", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
-      `commits: three ratio columns carry list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
+      `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
     ],
     [
       commitsRailWide.found === true &&

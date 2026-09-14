@@ -317,30 +317,36 @@ test("no pane carries a width ceiling inside a track that has none", () => {
   // left; that is content sizing, not a pane ceiling, and is fine.
 });
 
-test("Commits shares its width across three ratio columns, left-aligned", () => {
+test("Commits leads with its list across three ratio columns, left-aligned", () => {
   // Two defects in sequence produced this rule. First the list was pinned at a
   // 1180px reading measure while the rail took everything else, so at 3008px the
   // SUPPORTING column was wider (1776px) than the primary one and a third its
   // height. Then the very-wide tier fixed that by centring, which left the split
   // visibly inset from the full-bleed toolbar above it. A third column takes the
-  // slack instead, in the same 30/35/35 proportions Activity uses.
+  // slack instead, and the list keeps the largest share of it because it
+  // carries the long strings on the page.
   const split = /\.commits-split\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
   assert.ok(split, "the Commits split must still be styled here");
 
   const cols = /grid-template-columns:([^;]+);/.exec(split)?.[1] ?? "";
   const ratios = [...cols.matchAll(/minmax\(0,\s*(\d+)fr\)/g)].map((m) => Number(m[1]));
-  assert.deepEqual(ratios, [30, 35, 35], "list / overview / rail share the width by ratio");
+  assert.deepEqual(ratios, [40, 30, 30], "the list leads; the two supporting columns share the rest evenly");
   assert.match(split, /justify-content:\s*start/, "the split stays flush with the chrome above it");
 
-  // Activity states the same proportions for the same reason; if one moves
-  // without the other the two pages stop reading as the same layout.
+  // Deliberately NOT Activity's proportions. Both pages are three ratio columns,
+  // but the Commits list carries the long strings — a commit subject, an
+  // org/repo path, an actor and a branch chip on two fixed-height lines — so at
+  // Activity's 30 it ellipsized all of them. The Activity feed wraps instead of
+  // truncating and reads fine narrower, so it keeps 30/35/35 and the two are
+  // pinned separately rather than to each other.
   const railTier = mediaBlock("(min-width: 1700px)");
   const activity = /\.activity-layout\s*\{([^}]*)\}/.exec(railTier)?.[1] ?? "";
   assert.deepEqual(
     [...(/grid-template-columns:([^;]+);/.exec(activity)?.[1] ?? "").matchAll(/minmax\(0,\s*(\d+)fr\)/g)].map((m) => Number(m[1])),
-    ratios,
-    "Activity and Commits use the same three-column proportions",
+    [30, 35, 35],
+    "Activity keeps its own proportions",
   );
+  assert.equal(ratios.reduce((sum, n) => sum + n, 0), 100, "the Commits tracks still describe a whole");
 
   // No very-wide override survives: centring the split is what stranded it.
   const wide = mediaBlock("(min-width: 2200px)");

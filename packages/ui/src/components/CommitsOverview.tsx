@@ -101,9 +101,14 @@ export function CommitsOverview({
     ...(days.length > 0
       ? [{ label: "active days", value: activeDays.toLocaleString("en-US"), detail: `of ${days.length} days` }]
       : []),
-    { label: "repos", value: repoCount.toLocaleString("en-US"), detail: repoCount === 1 ? "repo" : "repos" },
-    { label: "authors", value: authorCount.toLocaleString("en-US"), detail: authorCount === 1 ? "author" : "authors" },
-    { label: "branches", value: branchCount.toLocaleString("en-US"), detail: branchCount === 1 ? "branch" : "branches" },
+    // These three say what the count is OVER rather than repeating their own
+    // label: "Repos 30 repos" used the label as its own detail, so the line
+    // carried nothing. The tiles above earn theirs by saying something the
+    // number does not — which date was busiest, how many days the active ones
+    // are out of.
+    { label: "repos", value: repoCount.toLocaleString("en-US"), detail: "with commits" },
+    { label: "authors", value: authorCount.toLocaleString("en-US"), detail: "with commits" },
+    { label: "branches", value: branchCount.toLocaleString("en-US"), detail: "with commits" },
   ];
 
   return (
