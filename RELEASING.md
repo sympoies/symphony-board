@@ -64,12 +64,26 @@ Preview the release plan:
 scripts/release.sh --dry-run
 ```
 
-Cut the GitHub Release, wait for the image workflow, and verify public GHCR
-manifests:
+Cut the GitHub Release:
 
 ```sh
 scripts/release.sh --execute
 ```
+
+This returns once the Release exists and its `publish-image` run has started,
+printing that run's URL. It does not wait for the run, because the workflow
+decides completeness itself: it verifies the public GHCR manifests and that the
+desktop assets reached the Release, so a green run means the release is done and
+a red one means it is not. Watch the run, not your terminal.
+
+It does still confirm the run exists, because that is the one failure CI cannot
+report: if Actions is disabled, the workflow is broken on `main`, or a
+concurrency group is holding it, there is no red run to notice — there is no
+run. `--timeout` bounds that wait.
+
+Pass `--wait` to block on the workflow and run the same verification locally
+— the old default. It takes tens of minutes because of the emulated
+`linux/arm64` build, and losing that wait is what `--resume` was written for.
 
 Use an explicit version when needed:
 
@@ -93,10 +107,11 @@ scripts/release.sh --verify-only --version v0.1.0
 
 ### Resuming An Interrupted Release
 
-`--execute` creates the GitHub Release and then waits for `publish-image.yml`,
-which takes tens of minutes because of the emulated `linux/arm64` build. If that
-wait dies — the terminal is closed, the session ends, Ctrl+C — the Release is
-already published but nothing verified it, and neither other mode recovers:
+`--execute --wait` creates the GitHub Release and then waits for
+`publish-image.yml`, which takes tens of minutes because of the emulated
+`linux/arm64` build. If that wait dies — the terminal is closed, the session
+ends, Ctrl+C — the Release is already published but nothing verified it, and
+neither other mode recovers:
 `--execute` refuses to run again because the Release exists, and `--verify-only`
 reads GHCR immediately, so it fails while the workflow is still in flight.
 
@@ -107,6 +122,10 @@ reached. It takes the prerelease flag from the Release too, rather than asking
 you to retype `--prerelease`: resume exists precisely because the original
 invocation's flags are gone, and getting that one wrong would check a `latest`
 belonging to some earlier release and still report this one complete.
+
+The default `--execute` no longer has that wait to lose, so this is now a
+recovery path for `--wait` runs and a way to attach to a release someone else
+cut — not something an ordinary release needs.
 
 Resume needs a Release this script cut. `--execute` records the commit, while a
 Release created any other way records a branch name instead, which can never
@@ -149,13 +168,42 @@ Desktop assets (the `desktop` job, in parallel):
 Building on a native arm64 runner is what lets the standalone app bundle the
 matching Node sidecar for Apple Silicon Macs.
 
+Completeness:
+
+8. The `release-complete` job checks that all three desktop assets actually
+   reached the Release. Together with step 5 this makes a green run mean the
+   release carries every artifact, which is why `release.sh --execute` no longer
+   has to wait and verify locally.
+
 Optional downstream dispatch:
 
-8. If `DEPLOY_DISPATCH_REPOSITORY` is configured, the publish job dispatches the
+9. If `DEPLOY_DISPATCH_REPOSITORY` is configured, the publish job dispatches the
    release after public GHCR manifests are verified.
-9. If `HOMEBREW_TAP_DISPATCH_REPOSITORY` is configured, the workflow dispatches
-   the release after both the publish and desktop jobs complete, so the tap can
-   read the macOS SHA256SUMS asset.
+10. If `HOMEBREW_TAP_DISPATCH_REPOSITORY` is configured, the workflow dispatches
+    the release after both the publish and desktop jobs complete, so the tap can
+    read the macOS SHA256SUMS asset.
+
+### Testing A Change To The Workflow
+
+`publish-image.yml` used to run only on `release: published`, so every edit to
+it shipped unverified — one of them, an arm64 build that died under QEMU, cost
+v1.22.0 its images before anyone noticed. It now also accepts a manual run:
+
+```sh
+gh workflow run publish-image.yml --ref <branch> -f tag=v1.23.0
+```
+
+The run builds and smoke-tests the named existing tag and publishes nothing:
+no GHCR push, no asset upload, no deploy or Homebrew dispatch, and `latest`
+stays put. Pass `-f push=true` to make it a real publication of that tag,
+which is the recovery path for a release whose images failed to build.
+
+`tag` must name a tag that already exists. It is free text and every job checks
+that ref out, so the jobs check out `refs/tags/<tag>` and the version gate
+refuses anything origin does not carry as a tag — otherwise anyone with write
+access could push a branch called `v9.9.9`, give it a matching `package.json`,
+and have its `Dockerfile` and packaging scripts built and published as if they
+were a release.
 
 ## Pulling And Running
 
