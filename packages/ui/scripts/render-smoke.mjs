@@ -2442,6 +2442,30 @@ try {
     expression: "document.querySelectorAll('.commits-page .commit-date-slot').length < document.querySelectorAll('.commits-page .commit-row').length",
     returnByValue: true,
   })).result.value || false;
+  // The separator marks a day TRANSITION, so the opening row never carries one.
+  // That is the whole alignment fix: a dated row is taller, and when only the
+  // first row paid that the list sat below a rail which starts at the column top.
+  const commitsFirstRowDated = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const first = document.querySelector('.commits-page .commit-row');
+      return !!first && !!first.querySelector('.commit-date-slot');
+    })()`,
+    returnByValue: true,
+  })).result.value || false;
+  // And the consequence, measured rather than inferred: the first commit card
+  // and the first rail pane share a top edge.
+  const commitsRailAlignment = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.commits-page .commit-row .commit-row-body');
+      const pane = document.querySelector('.commits-rail .rail-block');
+      if (!card || !pane) return { found: false };
+      return {
+        found: true,
+        offset: Math.round(card.getBoundingClientRect().top - pane.getBoundingClientRect().top),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
   const commitsBodyButtons = (await send("Runtime.evaluate", {
     expression: "document.querySelectorAll('.commits-page button[aria-label^=\"Show commit body\"]').length",
     returnByValue: true,
@@ -5839,7 +5863,15 @@ try {
     [commitsDateSlotsHaveLabels === true, "commits: date separator slots only render with date labels"],
     [commitsDateSlotsAreGrouped === true, "commits: rows without a date heading do not render standalone separators"],
     [commitsRowBodyGap.count >= 1 && commitsRowBodyGap.minGap >= 6, `commits: row cards keep visible spacing without separator glyphs (${commitsRowBodyGap.minGap}px >= 6px)`],
-    [has(commitsHtml, "Commits on") && has(commitsHtml, "abc1234"), "commits: date grouping and short hash rendered"],
+    [has(commitsHtml, "abc1234"), "commits: short hash rendered"],
+    [
+      commitsFirstRowDated === false,
+      "commits: the opening row carries no date separator, so it is not taller than the rest",
+    ],
+    [
+      commitsRailAlignment.found === true && commitsRailAlignment.offset === 0,
+      `commits: the list and its digest rail start on the same line (${JSON.stringify(commitsRailAlignment)})`,
+    ],
     [/\d+ in range/.test(commitsCountText), `commits: in-range count rendered (${commitsCountText})`],
     [!!commitsFiltered.hash && commitsFiltered.hash.includes("repo=example-group"), `commits: picking an option writes ?repo= to the URL (${commitsFiltered.hash || "empty"})`],
     [commitsFiltered.inputValue.includes("example-group/symphony-board-fixture"), `commits: picked repo fills the combobox input (${commitsFiltered.inputValue || "empty"})`],
