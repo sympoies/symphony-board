@@ -1321,14 +1321,22 @@ function buildActorDirectory(
   // (a source-scoped config identity only claims actors from its own sources).
   const accs = new Map<string, ActorAccumulator>();
   const sourceIds = new Map<string, Set<string>>();
+  // Keys seen with a real stored actor_key, and keys that exist ONLY because a
+  // row had none. `actor_key` was added as a nullable column that backfills on
+  // the next upsert, so a store keeps rows without one for commits never
+  // refetched — see the fold below for why the difference matters.
+  const storedKeys = new Set<string>();
+  const derivedKeys = new Set<string>();
   for (const a of activities) {
     const actor = a.actor?.trim();
     if (!actor) continue;
-    // An emitted row whose stored key is missing (a payload assembled outside
-    // the store) still deserves a row: fall back to the name key the producer
-    // would have derived for it.
-    const key = actorKeys.get(refOf(a.source_id, a.external_id)) ?? deriveActorKey({ sourceId: a.source_id, name: actor });
+    const stored = actorKeys.get(refOf(a.source_id, a.external_id)) ?? null;
+    // An emitted row whose stored key is missing (a pre-backfill row, or a
+    // payload assembled outside the store) still deserves a row: fall back to
+    // the name key the producer would have derived for it.
+    const key = stored ?? deriveActorKey({ sourceId: a.source_id, name: actor });
     if (!key) continue;
+    (stored ? storedKeys : derivedKeys).add(key);
     recordActor(accs, key, actor);
     let seen = sourceIds.get(key);
     if (!seen) sourceIds.set(key, (seen = new Set()));
@@ -1369,110 +1377,98 @@ function buildActorDirectory(
     return { name: displayName, actors: new Set([displayName, ...aliases]), bot, claimKey };
   });
 
-  // A raw actor string must resolve to at most ONE identity, because that string
-  // is the only key a feed consumer holds. Grouping is the stored actor_key, and
-  // two keys can surface the same string, so the groups above do not give that
-  // for free. Two separate things have to happen, and conflating them is a trap:
+  // A raw actor string resolves to at most ONE identity, because that string is
+  // the only key a feed consumer holds. Grouping is the stored actor_key, and
+  // two keys can surface the same string, so that does not come for free.
   //
-  //   join   two groups that are the SAME thing seen twice — a person whose
-  //          commits carry two addresses where config claims only one, or a row
-  //          written before the actor_key backfill sitting under a derived
-  //          `name:` key beside its migrated twin.
-  //   orphan a string that genuinely belongs to several people — a shared build
-  //          account, `root`, `Ubuntu`, a default git author name.
+  // Nothing here tries to guess that two keys are one person. Two attempts at it
+  // were reverted, and both failed the same way: a shared display string is NOT
+  // evidence of identity. It is ambiguous between one account seen twice and a
+  // string several people happen to use — a build account, `root`, `Ubuntu`, a
+  // default git author name — and no local rule separates them. Joining on any
+  // shared string collapsed four declared people who each committed once as
+  // `root` into one row; requiring nested name sets instead still swallowed an
+  // undeclared person whose only observed name was the one they shared, and let
+  // a service account absorb a human who had committed from the same host.
+  // Misattributing one person’s commits to another is the worst outcome
+  // available here, so the rule is: join only what the producer already KNOWS is
+  // one identity (the stored key, and the config identity map above), and
+  // attribute a contested string to nobody.
   //
-  // Joining on ANY shared string does both at once, and the second is far worse
-  // than the split it fixes: four declared people who each landed one commit as
-  // `root` collapse transitively into whichever the iteration reached first, and
-  // the other three vanish from the directory while still appearing in
-  // top_actors. So a join needs evidence that the groups ARE one thing: nested
-  // name sets. One group seen only as "Terry Z" is a facet of the person whose
-  // set is {Terry, Terry Z, terry-gl}; {Release Bot, shared-host} and
-  // {Pat Human, shared-host} are two accounts that merely met on a build host.
-  const groupsByActor = new Map<string, number[]>();
-  groups.forEach((group, i) => {
-    for (const actor of group.actors) {
-      let seen = groupsByActor.get(actor);
-      if (!seen) groupsByActor.set(actor, (seen = []));
+  // The cost is under-merging: a person whose facets the config does not join
+  // shows up once per facet, and a contested string ranks on its own. That is
+  // visible in the UI and fixable by the operator through `identities[]`, which
+  // is what that map is for. The previous behaviour was invisible and not
+  // fixable by anyone.
+  const entries = [...merged.entries()].map(([key, { acc, bot, claimKey }]) => {
+    const { displayName, aliases } = chooseDisplayName(acc);
+    // `displayName` may be a config-declared name that no activity carries, so
+    // it is deliberately part of the addressable set and not only the label.
+    return {
+      name: displayName,
+      actors: new Set([displayName, ...aliases]),
+      bot,
+      declared: claimKey !== null,
+      // Only a group the config did not claim, whose key exists purely because
+      // its rows carried no stored one, is a candidate to fold below.
+      keyless: claimKey === null && derivedKeys.has(key) && !storedKeys.has(key),
+    };
+  });
+
+  // The one join that is not a guess. A keyless group has no identity evidence
+  // of its own — it exists because rows predating the actor_key backfill have
+  // nothing to group by — so folding it into the single stored identity that
+  // carries the same display string adds no claim that two identities are one.
+  // It only stops a service account's unmigrated rows from sitting beside their
+  // migrated twin as a second, unflagged entry, which is how a CI account ends
+  // up ranked as a person. If several stored identities carry that string, the
+  // string is contested and the sweep below settles it; nothing is folded.
+  const storedByActor = new Map<string, number[]>();
+  entries.forEach((entry, i) => {
+    if (entry.keyless) return;
+    for (const actor of entry.actors) {
+      let seen = storedByActor.get(actor);
+      if (!seen) storedByActor.set(actor, (seen = []));
       seen.push(i);
     }
   });
-
-  const parent = groups.map((_, i) => i);
-  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
-  const nests = (a: Set<string>, b: Set<string>): boolean => {
-    const [small, large] = a.size <= b.size ? [a, b] : [b, a];
-    for (const value of small) if (!large.has(value)) return false;
-    return true;
-  };
-  for (const indices of groupsByActor.values()) {
-    if (indices.length < 2) continue;
-    for (const i of indices) {
-      for (const j of indices) {
-        if (i >= j) continue;
-        const [a, b] = [groups[i]!, groups[j]!];
-        // Two DIFFERENT declared identities are never one thing, whatever they
-        // share: the config said so explicitly, and that outranks a coincidence.
-        if (a.claimKey && b.claimKey && a.claimKey !== b.claimKey) continue;
-        if (!nests(a.actors, b.actors)) continue;
-        const [ra, rb] = [find(i), find(j)];
-        if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
-      }
-    }
-  }
-
-  const collapsed = new Map<number, { names: string[]; actors: Set<string>; bots: boolean[]; claimKeys: (string | null)[] }>();
-  groups.forEach((group, i) => {
-    const root = find(i);
-    let target = collapsed.get(root);
-    if (!target) collapsed.set(root, (target = { names: [], actors: new Set(), bots: [], claimKeys: [] }));
-    target.names.push(group.name);
-    for (const actor of group.actors) target.actors.add(actor);
-    target.bots.push(group.bot);
-    target.claimKeys.push(group.claimKey);
+  const folded = new Set<number>();
+  entries.forEach((entry, i) => {
+    if (!entry.keyless) return;
+    const targets = new Set<number>();
+    for (const actor of entry.actors) for (const owner of storedByActor.get(actor) ?? []) targets.add(owner);
+    if (targets.size !== 1) return;
+    const target = entries[[...targets][0]!]!;
+    for (const actor of entry.actors) target.actors.add(actor);
+    // A marker on either side settles the account: the keyless facet is the same
+    // account, and isAutoBot cannot read the derived `name:` key it landed under.
+    target.bot = target.bot || entry.bot;
+    folded.add(i);
   });
+  for (const i of [...folded].sort((a, b) => b - a)) entries.splice(i, 1);
 
-  const entries = [...collapsed.values()].map((group) => {
-    // A config-declared name labels the identity; otherwise the union is nested
-    // facets of one string, so the broadest of them reads the same.
-    const claimedNames = group.names.filter((_, i) => group.claimKeys[i] !== null);
-    const name = (claimedNames.length > 0 ? claimedNames : group.names).slice().sort(compareName)[0]!;
-    // A declared person stays a person: the operator said so, and one
-    // service-account facet must not delete them from every ranking. An
-    // unclaimed union is nested facets of one account, so a single recognisable
-    // marker settles it — that is what catches a service account whose
-    // pre-backfill rows carry a `name:` key isAutoBot cannot read.
-    const bot = claimedNames.length > 0
-      ? group.bots.filter((_, i) => group.claimKeys[i] !== null).every(Boolean)
-      : group.bots.some(Boolean);
-    return { name, actors: group.actors, bot, declared: claimedNames.length > 0 };
-  });
-
-  // Whatever is still shared after the joins above belongs to several people, so
-  // it cannot be attributed. A declared name wins it — the operator named that
-  // person, which outranks another account merely being observed under the same
-  // string — and otherwise it is dropped from every entry rather than published
-  // under an arbitrary one. A consumer then ranks that string on its own, which
-  // is visible and honest; misattributing one person’s commits to another is
-  // neither.
-  const owners = new Map<string, number[]>();
+  // A string held by more than one identity cannot be attributed. The single
+  // exception is a string that is exactly one DECLARED identity’s name: naming
+  // that person is an explicit operator statement, and it outranks another
+  // account merely being observed under the same string.
+  const holders = new Map<string, number[]>();
   entries.forEach((entry, i) => {
     for (const actor of entry.actors) {
-      let seen = owners.get(actor);
-      if (!seen) owners.set(actor, (seen = []));
+      let seen = holders.get(actor);
+      if (!seen) holders.set(actor, (seen = []));
       seen.push(i);
     }
   });
-  for (const [actor, holders] of owners) {
-    if (holders.length < 2) continue;
-    const declaredBy = holders.filter((i) => entries[i]!.declared && entries[i]!.name === actor);
+  for (const [actor, owners] of holders) {
+    if (owners.length < 2) continue;
+    const declaredBy = owners.filter((i) => entries[i]!.declared && entries[i]!.name === actor);
     const keep = declaredBy.length === 1 ? declaredBy[0] : null;
-    for (const i of holders) if (i !== keep) entries[i]!.actors.delete(actor);
+    for (const i of owners) if (i !== keep) entries[i]!.actors.delete(actor);
   }
 
   const identities = entries
-    // An entry whose every string was contested has nothing a consumer could
-    // address it by, so it is not published.
+    // An identity whose every string was contested has nothing a consumer could
+    // address it by, so it is not published and its rows rank raw.
     .filter((entry) => entry.actors.size > 0)
     .map((entry) => ({
       name: entry.actors.has(entry.name) ? entry.name : [...entry.actors].sort(compareName)[0]!,

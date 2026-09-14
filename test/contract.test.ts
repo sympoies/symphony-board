@@ -945,12 +945,16 @@ test("actor_directory keeps a colon-bearing display name, with its bot verdict",
   assert.equal(byName.get("carol")?.bot, false);
 });
 
-test("actor_directory gives every raw actor string exactly one identity", () => {
-  // Grouping is the stored actor_key, but a consumer indexes by the display
-  // string. Two keys surfacing one string (here: the same commit name under two
-  // addresses, with config claiming only one) used to emit two entries sharing
-  // that string, and a raw-string index kept only the last — so the person the
-  // config merged split apart again.
+test("actor_directory attributes a contested actor string to nobody", () => {
+  // The directory never guesses that two stored keys are one person. Here the
+  // same commit name sits under two addresses and the config claims only one,
+  // so "Terry Z" is contested: it is published under NEITHER, and the unclaimed
+  // facet — which had nothing else to be addressed by — is not published at all.
+  //
+  // That under-merges on purpose. Joining the two on the strength of a shared
+  // display string is what collapsed unrelated people in the two reverted
+  // attempts, and the operator remedy is exact: add the second address to this
+  // identity’s `emails`, which merges the keys before any of this runs.
   const sources: SourceRow[] = [
     { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
   ];
@@ -967,12 +971,81 @@ test("actor_directory gives every raw actor string exactly one identity", () => 
   });
   assert.deepEqual(validateContract(env), []);
   const identities = env.actor_directory?.identities ?? [];
+  assert.deepEqual(identities.map((i) => i.name), ["Terry"]);
+  assert.deepEqual(identities[0]!.actors, ["Terry", "terry-gl"], "the contested string is attributed to nobody");
   const listed = identities.flatMap((i) => i.actors);
-  assert.deepEqual([...new Set(listed)].sort(), listed.slice().sort(), "no raw actor string appears twice");
-  assert.equal(identities.length, 1, "the home-address facet joins the claimed person, not a second row");
-  assert.deepEqual(identities[0]!.actors, ["Terry", "Terry Z", "terry-gl"]);
+  assert.deepEqual([...new Set(listed)].sort(), listed.slice().sort(), "at most one identity per actor string");
+
+  // Declaring the second address is the supported fix, and it merges the keys.
+  const joined = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: [{ name: "Terry", usernames: ["terry-gl"], emails: ["terry@work.example", "terry@home.example"] }],
+  });
+  assert.deepEqual(joined.actor_directory?.identities.map((i) => i.actors), [["Terry", "Terry Z", "terry-gl"]]);
 });
 
+test("a shared author name never merges people the config did not join", () => {
+  // Both reverted attempts failed here. The first joined on ANY shared string,
+  // collapsing everyone who ever committed as `root`. The second required
+  // nested name sets, which still swallowed whoever was seen ONLY under the
+  // shared string — and since the guard it carried only fired when BOTH sides
+  // were config-declared, the common undeclared case still misattributed.
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  const people = [["Pat Human", "pat@corp.example"], ["Dana Dev", "dana@corp.example"]] as const;
+  const activities: ActivityRow[] = people.flatMap(([name, email], i) => {
+    const key = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email });
+    return [
+      activityRow({ external_id: `own-${i}`, kind: "commit", action: "committed", project_path: "g/p", actor: name, actor_key: key, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
+      activityRow({ external_id: `root-${i}`, kind: "commit", action: "committed", project_path: "g/p", actor: "root", actor_key: key, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
+    ];
+  });
+
+  // No config at all, and one person seen ONLY under the shared string — the
+  // shape that beat the nested-set rule, since {root} is a subset of every set
+  // containing it and the declared-identity guard could not fire.
+  const onlyShared: ActivityRow[] = [
+    activityRow({ external_id: "p1", kind: "commit", action: "committed", project_path: "g/p", actor: "Pat Human", actor_key: deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "pat@corp.example" }), source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "p2", kind: "commit", action: "committed", project_path: "g/p", actor: "root", actor_key: deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "pat@corp.example" }), source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
+    activityRow({ external_id: "d1", kind: "commit", action: "committed", project_path: "g/p", actor: "root", actor_key: deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "dana@corp.example" }), source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T12:00:00Z" }),
+  ];
+  const bare = buildContract({ sources, items: [], activities: onlyShared, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(bare), []);
+  assert.deepEqual(
+    (bare.actor_directory?.identities ?? []).map((i) => [i.name, i.actors]),
+    [["Pat Human", ["Pat Human"]]],
+    "Pat keeps only what is theirs; the contested string is published under nobody, so Dana's key has nothing to be addressed by and is not published rather than folded into Pat",
+  );
+
+  // And with both declared, which is the case the second attempt did cover.
+  const declared = buildContract({
+    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
+    identities: people.map(([name, email]) => ({ name, emails: [email] })),
+  });
+  assert.deepEqual((declared.actor_directory?.identities ?? []).map((i) => i.name), ["Dana Dev", "Pat Human"]);
+});
+
+test("a service account never absorbs a person it shares a build host with", () => {
+  // An auto-detected bot seen only as "build-agent" nesting into a human whose
+  // set was {Dana Dev, build-agent} used to publish one bot identity labelled
+  // with the bot string, deleting the person from every ranking that filters
+  // bots. No config is involved, so no declared-identity guard could help.
+  const sources: SourceRow[] = [
+    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
+  ];
+  const humanKey = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "dana@corp.example" });
+  const activities: ActivityRow[] = [
+    activityRow({ external_id: "b1", kind: "commit", action: "committed", project_path: "g/p", actor: "build-agent", actor_key: "provider-user:gitlab:gitlab.internal:project_12_bot_abc", source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
+    activityRow({ external_id: "h1", kind: "commit", action: "committed", project_path: "g/p", actor: "Dana Dev", actor_key: humanKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
+    activityRow({ external_id: "h2", kind: "commit", action: "committed", project_path: "g/p", actor: "build-agent", actor_key: humanKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T12:00:00Z" }),
+  ];
+  const env = buildContract({ sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(env), []);
+  const byName = new Map((env.actor_directory?.identities ?? []).map((i) => [i.name, i]));
+  assert.equal(byName.get("Dana Dev")?.bot, false, "the person is still a person");
+  assert.deepEqual(byName.get("Dana Dev")?.actors, ["Dana Dev"]);
+});
 test("actor_directory flags a bot whose pre-backfill rows carry a derived name key", () => {
   // actor_key was added as a nullable column that backfills on the next upsert,
   // so a store keeps rows with no key for commits never refetched. Those fall
@@ -1013,66 +1086,6 @@ test("a config identity stays human even when it absorbs a bot-marked facet", ()
   assert.equal(byName.get("Dev A")?.bot, false, "a declared human absorbing a service account is still a person");
   assert.deepEqual(byName.get("Dev A")?.actors, ["Dev A", "project_12_bot_abc"]);
   assert.equal(byName.get("group_9_bot_xyz")?.bot, true, "an unclaimed service account is still a bot");
-});
-test("a shared generic author name never merges two declared people", () => {
-  // A join has to mean "the same thing seen twice". Joining on ANY shared actor
-  // string instead collapses everyone who ever committed as `root` (or Ubuntu,
-  // or a build account) into whichever identity the iteration reached first,
-  // transitively — the others vanish from the directory while still appearing in
-  // top_actors. Worse than the split it was meant to fix.
-  const sources: SourceRow[] = [
-    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
-  ];
-  const people = [["Alice", "alice@corp.example"], ["Bob", "bob@corp.example"], ["Carol", "carol@corp.example"]] as const;
-  const activities: ActivityRow[] = people.flatMap(([name, email], i) => {
-    const key = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email });
-    return [
-      activityRow({ external_id: `own-${i}`, kind: "commit", action: "committed", project_path: "g/p", actor: name, actor_key: key, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
-      // The same person, once, from a shared build host.
-      activityRow({ external_id: `root-${i}`, kind: "commit", action: "committed", project_path: "g/p", actor: "root", actor_key: key, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
-    ];
-  });
-  const env = buildContract({
-    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
-    identities: people.map(([name, email]) => ({ name, emails: [email] })),
-  });
-  assert.deepEqual(validateContract(env), []);
-  const identities = env.actor_directory?.identities ?? [];
-  assert.deepEqual(identities.map((i) => i.name), ["Alice", "Bob", "Carol"], "every declared person survives");
-  // "root" belongs to all three, so it belongs to none of them: it is dropped
-  // rather than published under an arbitrary winner.
-  assert.deepEqual(identities.map((i) => i.actors), [["Alice"], ["Bob"], ["Carol"]]);
-  const listed = identities.flatMap((i) => i.actors);
-  assert.deepEqual([...new Set(listed)].sort(), listed.slice().sort(), "still at most one identity per actor string");
-});
-
-test("a declared bot does not swallow an unrelated person it shares a host with", () => {
-  // The union verdict used to be decided by the claimed member alone, so a
-  // config-excluded CI identity that merely shared a build-host author string
-  // with someone took them with it: the person stopped being addressable and
-  // dropped out of every ranking that filters bots.
-  const sources: SourceRow[] = [
-    { source_id: "gitlab:gitlab.internal", kind: "gitlab", host: "gitlab.internal", display_name: "GitLab", last_success_at: null, last_status: "ok" },
-  ];
-  const botKey = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "ci@corp.example" });
-  const humanKey = deriveActorKey({ sourceId: "gitlab:gitlab.internal", email: "pat@corp.example" });
-  const activities: ActivityRow[] = [
-    activityRow({ external_id: "b1", kind: "commit", action: "committed", project_path: "g/p", actor: "Release Bot", actor_key: botKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T10:00:00Z" }),
-    activityRow({ external_id: "b2", kind: "commit", action: "committed", project_path: "g/p", actor: "shared-host", actor_key: botKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T11:00:00Z" }),
-    activityRow({ external_id: "h1", kind: "commit", action: "committed", project_path: "g/p", actor: "Pat Human", actor_key: humanKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T12:00:00Z" }),
-    activityRow({ external_id: "h2", kind: "commit", action: "committed", project_path: "g/p", actor: "shared-host", actor_key: humanKey, source_id: "gitlab:gitlab.internal", target_source_id: "gitlab:gitlab.internal", occurred_at: "2026-06-07T13:00:00Z" }),
-  ];
-  const env = buildContract({
-    sources, items: [], activities, labels: [], edges: [], generatedAt: "2026-06-08T00:00:00.000Z",
-    identities: [{ name: "Release Bot", emails: ["ci@corp.example"] }],
-    excludeActors: ["release bot"],
-  });
-  assert.deepEqual(validateContract(env), []);
-  const byName = new Map((env.actor_directory?.identities ?? []).map((i) => [i.name, i]));
-  assert.equal(byName.get("Pat Human")?.bot, false, "the person is still a person");
-  assert.deepEqual(byName.get("Pat Human")?.actors, ["Pat Human"]);
-  assert.equal(byName.get("Release Bot")?.bot, true);
-  assert.deepEqual(byName.get("Release Bot")?.actors, ["Release Bot"]);
 });
 test("source-scoped config identities do not merge same-name actors from other sources", () => {
   const sources: SourceRow[] = [

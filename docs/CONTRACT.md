@@ -543,34 +543,41 @@ never emitted as a name.
 
 One raw actor string resolves to **at most one** identity, because that string
 is the only key a feed consumer holds. Grouping is the stored `actor_key`, and
-two keys can surface the same string, so that does not come for free. Two
-different situations hide behind one shared string, and the producer separates
-them:
+two keys can surface the same string, so that does not come for free.
 
-- **The same thing seen twice.** One person whose commits carry two addresses
-  with a config identity claiming only one, or a row written before the
-  `actor_key` backfill sitting under a derived `name:` key beside its migrated
-  twin. These are joined. The evidence required is nested name sets: a group
-  seen only as `Terry Z` is a facet of the person whose set is
-  `{Terry, Terry Z, terry-gl}`. Two identities the config declares separately
-  are never joined, whatever they share.
-- **A string several people share.** A build account, `root`, `Ubuntu`, a
-  default git author name. It cannot be attributed, so it is published under
-  **none** of them and a consumer ranks it on its own. The one exception is a
-  string that is exactly one declared identity's `name`: naming that person
-  outranks another account merely being observed under the same string.
+The producer does **not** guess that two keys are one person. A shared display
+string is not evidence of identity: it is ambiguous between one account seen
+twice and a string several people use — a build account, `root`, `Ubuntu`, a
+default git author name — and no rule local to the producer separates them. So
+an identity is joined only from what is already known:
 
-Joining on any shared string instead of on nested sets does both at once, and
-the second failure is worse than the split it fixes: several declared people who
-each landed one commit as `root` collapse transitively into one entry and the
-rest disappear from the directory while still appearing in `top_actors`.
+- the stored `actor_key`, which is the grouping; and
+- the config `identities[]` map, which is the operator saying explicitly that
+  several keys are one human.
 
-Where a join has a config-claimed member, that member's declared name is the
-label and the declared-human rule decides `bot`; otherwise the join is between
-nested facets of one account, and a single recognisable bot marker settles it. A
-declared person is never marked a bot by an account they were not joined with.
-An entry whose every string was contested is not published at all, since nothing
-would address it.
+A string held by more than one identity after that is **contested** and is
+published under none of them; a consumer ranks it on its own. The single
+exception is a string that is exactly one declared identity's `name`, since
+naming that person is an explicit operator statement. An identity whose every
+string was contested has nothing a consumer could address it by and is not
+published at all.
+
+The cost is deliberate under-merging: a person whose facets the config does not
+join appears once per facet, and the remedy is exact — add the address or
+username to their `identities[]` entry, which merges the keys before any of
+this runs. The alternative is worse and was tried twice: joining on any shared
+string collapsed several declared people who each committed once as `root` into
+one entry, and requiring nested name sets still swallowed whoever was seen only
+under the shared string. Misattributing one person's commits to another is
+invisible in the UI and unfixable by the operator; an unmerged row is neither.
+
+One join is not a guess and is applied: a group whose key exists **only** because
+its rows carried no stored `actor_key` (rows predating the column's backfill)
+has no identity evidence of its own, so it folds into the single stored identity
+carrying the same display string, contributing its bot marker. If several stored
+identities carry that string, nothing is folded and the string is contested as
+above. Without this, a service account's unmigrated rows sit beside their
+migrated twin as a second, unflagged entry and the account ranks as a person.
 
 Entries are sorted by name and each `actors[]` is sorted, so an unchanged data
 set emits an identical directory. Old payloads without the field remain valid; a
