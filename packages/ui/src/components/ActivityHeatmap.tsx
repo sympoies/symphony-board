@@ -13,9 +13,8 @@ import {
   type HeatmapCell,
   type TimeRange,
 } from "../model.ts";
+import { HeatmapCalendar } from "./HeatmapCalendar.tsx";
 
-const WEEKDAY_LABELS: Record<number, string> = { 1: "Mon", 3: "Wed", 5: "Fri" };
-const LEVELS = [0, 1, 2, 3, 4] as const;
 const TREND_W = 640;
 const TREND_H = 170;
 const TREND_PAD_X = 18;
@@ -499,54 +498,13 @@ export function ActivityHeatmap({
       </div>
 
       <div ref={calendarScrollRef} className="hm-calendar-scroll">
-        <div
-          className="hm-calendar"
-          role="img"
-          aria-label={`Daily activity from ${hm.from} to ${hm.to}`}
-          onMouseLeave={() => setTip(null)}
-        >
-          <div className="hm-months" aria-hidden="true">
-            {hm.monthLabels.map((m) => (
-              <span key={`${m.col}-${m.label}`} style={{ "--hm-col": m.col } as CSSProperties}>
-                {m.label}
-              </span>
-            ))}
-          </div>
-          <div className="hm-body">
-            <div className="hm-weekdays" aria-hidden="true">
-              {Array.from({ length: 7 }, (_, row) => (
-                <span key={row}>{WEEKDAY_LABELS[row] ?? ""}</span>
-              ))}
-            </div>
-            <div className="hm-grid">
-              {hm.weeks.map((week, col) => (
-                <div className="hm-col" key={col}>
-                  {week.map((cell, row) =>
-                    cell ? (
-                      <div
-                        key={cell.date}
-                        className="hm-cell"
-                        data-level={cell.level}
-                        data-in-range={inSelectedRange(cell.date) || undefined}
-                        onMouseEnter={(e) => setTip({ label: cellTip(cell), x: e.clientX, y: e.clientY })}
-                        onMouseMove={(e) => setTip({ label: cellTip(cell), x: e.clientX, y: e.clientY })}
-                      />
-                    ) : (
-                      <div key={`empty-${col}-${row}`} className="hm-cell hm-cell-empty" />
-                    ),
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="hm-legend">
-            <span>Less</span>
-            {LEVELS.map((level) => (
-              <span key={level} className="hm-cell" data-level={level} />
-            ))}
-            <span>More</span>
-          </div>
-        </div>
+        <HeatmapCalendar
+          heatmap={hm}
+          label={`Daily activity from ${hm.from} to ${hm.to}`}
+          cellTip={cellTip}
+          inSelectedRange={inSelectedRange}
+          onTip={setTip}
+        />
       </div>
 
       <ActivityRangeSummary trend={trend} />

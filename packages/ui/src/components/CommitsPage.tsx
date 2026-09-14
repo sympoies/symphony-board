@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import type { ActivityDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { CommitsRail } from "./CommitsRail.tsx";
@@ -385,6 +385,7 @@ export function CommitsPage({
   railAuthorSource,
   railBranchSource,
   sourceOptions,
+  activityDaily,
   actorIndex = EMPTY_ACTOR_INDEX,
   onRepo,
   onBranch,
@@ -415,6 +416,9 @@ export function CommitsPage({
   // equality, and a repo pin carries its own source), so the chips select rather
   // than multi-select — unlike Activity's, which are a true facet set.
   sourceOptions: string[];
+  // Full-history per-day/per-kind counts, for the trailing-12-month rhythm
+  // calendar. The emitted activities[] is windowed and cannot reach that far.
+  activityDaily: ActivityDailyDTO | null;
   // Contract actor directory as lookups, for the author ranking and count.
   actorIndex?: ActorIndex;
   onRepo: (repo: CommitRepoOption | null) => void;
@@ -711,7 +715,7 @@ export function CommitsPage({
             onClose={() => setSelectedKey(null)}
           />
         ) : (
-          <CommitsOverview commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
+          <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
         )}
         {/* Third column: the ranked facets, always present. Unlike Activity's
             rail this is not gated on a wide breakpoint — the Commits page has

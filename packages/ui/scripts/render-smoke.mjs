@@ -4849,6 +4849,22 @@ try {
         dayBars: overview.querySelectorAll('.rail-daybar').length,
         hourBars: overview.querySelectorAll('.rail-hourbar').length,
         summaryTiles: overview.querySelectorAll('.hm-summary > div').length,
+        // The trailing-12-month commit calendar. Unlike every other block in
+        // this column it charts the whole history, so it is the one that proves
+        // activity_daily reached the page rather than only the windowed feed.
+        rhythmCells: overview.querySelectorAll('.hm-calendar .hm-cell:not(.hm-cell-empty)').length,
+        // The property that matters is that the calendar OPENS on the latest
+        // week, not that scrollLeft equals the maximum to the pixel. The grid
+        // settles a few px wider after the initial pin (the month labels lay
+        // out), and chasing that exactly buys nothing a reader can see — one
+        // column is ~11px plus a 3px gap, so "within a column of the end" is
+        // the real invariant: the most recent week is on screen.
+        rhythmLatestVisible: (() => {
+          const scroll = overview.querySelector('.hm-calendar-scroll');
+          if (!scroll) return null;
+          const max = scroll.scrollWidth - scroll.clientWidth;
+          return max === 0 || max - scroll.scrollLeft <= 16;
+        })(),
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
     })()`,
@@ -5508,10 +5524,12 @@ try {
         commitsRailWide.dayBars > 0 &&
         commitsRailWide.hourBars === 24 &&
         commitsRailWide.summaryTiles >= 4 &&
+        commitsRailWide.rhythmCells > 300 &&
+        commitsRailWide.rhythmLatestVisible === true &&
         commitsRailWide.overviewBlocks > 0 &&
         commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
         commitsRailWide.repoRows > 0 &&
-        ["Commits per day", "When", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
+        ["Commits per day", "When", "Commit rhythm", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
     ],
     [

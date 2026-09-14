@@ -1,7 +1,9 @@
-import type { ActivityDTO } from "@symphony-board/contract";
-import { useMemo, type CSSProperties, type Ref } from "react";
+import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import { EMPTY_ACTOR_INDEX, countsByDay, rankActors, rankBranches, rankRepos, type ActorIndex, type DayBucket } from "../rail-stats.ts";
 import { HourProfile } from "./HourProfile.tsx";
+import { HeatmapCalendar, type HeatmapTip } from "./HeatmapCalendar.tsx";
+import { buildActivityHeatmapFromDaily, pluralize } from "../model.ts";
 import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
 
@@ -61,15 +63,106 @@ function DayBars({ days, range }: { days: readonly DayBucket[]; range: TimeRange
   );
 }
 
+// The trailing-12-month commit calendar.
+//
+// Every other block in this column describes the SELECTED range; this one is
+// deliberately the whole history, because a week of bars says nothing about
+// whether that week was busy. It reads `activity_daily`, which the producer
+// buckets per kind per day, so charting commits alone costs nothing extra and
+// needs no contract change — the emitted `activities[]` is windowed and could
+// not reach back a year.
+function CommitRhythm({
+  activityDaily,
+  range,
+  onTip,
+}: {
+  activityDaily: ActivityDailyDTO | null;
+  range: TimeRange;
+  onTip: (tip: HeatmapTip | null) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const heatmap = useMemo(
+    () => (activityDaily ? buildActivityHeatmapFromDaily(activityDaily, "commit") : null),
+    [activityDaily],
+  );
+
+  // Open on the most recent week rather than a year ago.
+  //
+  // Observed rather than timed, and observed on the CONTENT rather than the
+  // scroller. This column is a ratio track, so nothing here is final at mount:
+  // pinning once, or once more a frame later, left the calendar 10px short of
+  // the last week. The scroller box never changed — its CONTENT did, as the
+  // month labels settled — so watching the scroller saw nothing. The observer
+  // re-pins whenever the grid actually grows, and stops as soon as the reader
+  // scrolls, so it never fights someone looking at an earlier month.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return undefined;
+
+    let follow = true;
+    const pin = () => {
+      if (follow) node.scrollLeft = node.scrollWidth;
+    };
+    // A programmatic pin fires scroll too, so only a position that is NOT the
+    // end counts as the reader taking over.
+    const onScroll = () => {
+      if (Math.abs(node.scrollWidth - node.clientWidth - node.scrollLeft) > 2) follow = false;
+    };
+
+    pin();
+    node.addEventListener("scroll", onScroll, { passive: true });
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(pin) : null;
+    observer?.observe(node);
+    // The calendar itself: the scroller keeps its width while the grid inside
+    // it grows, and it is that growth which moves the end.
+    if (node.firstElementChild) observer?.observe(node.firstElementChild);
+
+    return () => {
+      node.removeEventListener("scroll", onScroll);
+      observer?.disconnect();
+    };
+  }, [heatmap?.from, heatmap?.to, heatmap?.weeks.length]);
+  // No commit history at all (or a pre-4.0.0 payload with no aggregate) means
+  // there is no figure to draw, and an empty grid would read as "no commits
+  // ever" rather than "not loaded".
+  if (!heatmap || heatmap.total === 0) return null;
+
+  const hasRange = Boolean(range.from) && Boolean(range.to) && range.from <= range.to;
+  return (
+    <div className="rail-block">
+      <div className="rail-block-head">
+        <span className="rail-block-title">Commit rhythm</span>
+        <span className="rail-block-meta">{`last 12 months · ${heatmap.total.toLocaleString("en-US")} commits`}</span>
+      </div>
+      <div ref={scrollRef} className="hm-calendar-scroll">
+        <HeatmapCalendar
+          heatmap={heatmap}
+          label={`Daily commits from ${heatmap.from} to ${heatmap.to}`}
+          cellTip={(cell) => `${cell.date} · ${cell.count.toLocaleString("en-US")} ${pluralize(cell.count, "commit")}`}
+          inSelectedRange={(date) => hasRange && date >= range.from && date <= range.to}
+          onTip={onTip}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function CommitsOverview({
   commits,
+  activityDaily,
   timezone,
   range,
   actorIndex = EMPTY_ACTOR_INDEX,
   panelRef,
 }: {
-  // The rows currently on screen — every block here describes exactly these.
+  // The rows currently on screen — every block here describes exactly these,
+  // EXCEPT the rhythm calendar below, which is deliberately the full history.
   commits: ActivityDTO[];
+  // Per-day/per-kind counts over the whole canonical history (4.0.0+). The
+  // emitted `activities[]` is windowed, so this is the only source wide enough
+  // for a trailing-12-month figure. Absent on an older payload, where the
+  // calendar simply does not render.
+  activityDaily: ActivityDailyDTO | null;
   timezone: string;
   range: TimeRange;
   // So the authors tile counts PEOPLE the way the rail ranks them (identities
@@ -77,6 +170,7 @@ export function CommitsOverview({
   actorIndex?: ActorIndex;
   panelRef?: Ref<HTMLElement>;
 }) {
+  const [tip, setTip] = useState<HeatmapTip | null>(null);
   const days = useMemo(
     () => countsByDay(commits, timezone, range.from, range.to),
     [commits, timezone, range.from, range.to],
@@ -139,6 +233,13 @@ export function CommitsOverview({
 
       <DayBars days={days} range={range} />
       <HourProfile rows={commits} subject="Commits" timezone={timezone} countLabel={commitCountLabel} />
+      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} />
+
+      {tip ? (
+        <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>
+          {tip.label}
+        </div>
+      ) : null}
     </aside>
   );
 }
