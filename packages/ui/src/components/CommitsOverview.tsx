@@ -113,22 +113,29 @@ export function CommitsOverview({
 
   return (
     <aside ref={panelRef} className="commits-overview" aria-label="Commit range overview">
-      <div className="hm-overview-head">
-        <h3>Commit overview</h3>
-        <small>{`${range.from} to ${range.to}`}</small>
-      </div>
+      {/* A .rail-block like every other panel in this column and the rail beside
+          it. Activity can leave its head and summary unwrapped because its whole
+          overview is one .activity-heatmap card; this column is a stack of
+          cards, so an unwrapped block sits bare on the page background while
+          everything around it has a surface. */}
+      <div className="rail-block">
+        <div className="hm-overview-head">
+          <h3>Commit overview</h3>
+          <small>{`${range.from} to ${range.to}`}</small>
+        </div>
 
-      <dl className="hm-summary">
-        {summary.map((item) => (
-          <div key={`${item.label}-${item.detail}`}>
-            <dt>{item.label}</dt>
-            <dd>
-              {item.value}
-              <small>{item.detail}</small>
-            </dd>
-          </div>
-        ))}
-      </dl>
+        <dl className="hm-summary">
+          {summary.map((item) => (
+            <div key={`${item.label}-${item.detail}`}>
+              <dt>{item.label}</dt>
+              <dd>
+                {item.value}
+                <small>{item.detail}</small>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
 
       <DayBars days={days} range={range} />
       <HourProfile rows={commits} subject="Commits" timezone={timezone} countLabel={commitCountLabel} />

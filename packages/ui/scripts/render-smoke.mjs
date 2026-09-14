@@ -2457,10 +2457,11 @@ try {
   const commitsRailAlignment = (await send("Runtime.evaluate", {
     expression: `(() => {
       const card = document.querySelector('.commits-page .commit-row .commit-row-body');
-      // The first supporting pane is the overview column's head; the rail is the
-      // THIRD column now, and below the three-column tier it sits under the
-      // overview rather than level with the list.
-      const pane = document.querySelector('.commits-overview .hm-overview-head');
+      // The first supporting pane is the overview column's first CARD; the rail
+      // is the THIRD column now, and below the three-column tier it sits under
+      // the overview rather than level with the list. Compare card to card —
+      // against the head TEXT this would drift by the panel's own padding.
+      const pane = document.querySelector('.commits-overview > .rail-block');
       if (!card || !pane) return { found: false };
       return {
         found: true,
@@ -4839,6 +4840,12 @@ try {
         // and rail sit visibly inset from the full-bleed chrome above them.
         gutterLeft: Math.round(listRect.left - split.getBoundingClientRect().left),
         gutterRight: Math.round(split.getBoundingClientRect().right - railRect.right),
+        // Every block in the overview column carries the same panel chrome as
+        // the rail beside it. The head and summary tiles once rendered as bare
+        // children of the column, so they floated on the page background while
+        // every neighbour had a card.
+        overviewBlocks: overview.children.length,
+        overviewCards: overview.querySelectorAll(':scope > .rail-block').length,
         dayBars: overview.querySelectorAll('.rail-daybar').length,
         hourBars: overview.querySelectorAll('.rail-hourbar').length,
         summaryTiles: overview.querySelectorAll('.hm-summary > div').length,
@@ -5501,6 +5508,8 @@ try {
         commitsRailWide.dayBars > 0 &&
         commitsRailWide.hourBars === 24 &&
         commitsRailWide.summaryTiles >= 4 &&
+        commitsRailWide.overviewBlocks > 0 &&
+        commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
         commitsRailWide.repoRows > 0 &&
         ["Commits per day", "When", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
