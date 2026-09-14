@@ -70,7 +70,8 @@ producer config/tokens (see `docs/DESIGN.md`).
   remain indexed in [`scripts/README.md`](scripts/README.md).
 - Project-local skills live under `.agents/skills/`; use their lifecycle
   tooling instead of hand-maintaining generated Claude discovery bridges.
-- Record durable outcomes through the `project-devlog` skill after current
-  documentation is updated. Keep entries English, newest-first, and free of
-  credentials, private payloads, or runtime data.
+- This repository's log is `docs/devlog/`; its conventions and month index live
+  in `docs/devlog/README.md`. When to read it, when to append, what the
+  mechanism is, and what must never go into it belong to the `project-dev`
+  devlog capability in the agent home, not to this file.
 - Deliver tracked changes through the governed managed-worktree and PR flow.

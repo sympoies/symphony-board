@@ -27,7 +27,9 @@ signal, not a changelog. Not every session earns an entry.
   names, private IPs). Use neutral placeholders (`dev-a`, `gitlab.internal`, "a
   dedicated host") and keep the engineering signal, not the personal specifics.
 - Commit each entry on its own: `docs(devlog): <month> — <subject>`.
-- Search past entries with `scripts/devlog-search.sh <term> [YYYY-MM]`.
+- Search past entries with `devlog search <term> [--month YYYY-MM]`. The
+  `devlog` binary ships with `nils-cli`; without it, `grep -ri <term>` over
+  the month files does the same job.
 
 ### Entry template
 
