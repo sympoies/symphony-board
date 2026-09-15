@@ -4,6 +4,7 @@ import { Badge } from "./Badge.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { ACTION_KIND } from "../activity-action-style.ts";
 import { useListViewport } from "../useListViewport.ts";
+import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import {
   ACTIVITY_DEFAULT_VIEWPORT_PX,
@@ -45,10 +46,13 @@ export function ActivityFeed({
   // A new `activities` array means the range or repo filter changed — the hook
   // jumps back to the top so the viewer is not stranded mid-scroll in a
   // different result set.
-  const { listRef, scrollTop, viewportHeight, scrollbarPx, handleScroll } = useListViewport({
+  const { listRef, scrollTop, viewportHeight, handleScroll } = useListViewport({
     defaultViewportPx: ACTIVITY_DEFAULT_VIEWPORT_PX,
     resetKey: activities,
   });
+  // An empty result renders a paragraph instead of the list, so the element
+  // this measures mounts late.
+  const scrollbarPx = useScrollbarGutter(listRef, [activities.length === 0]);
 
   const virtual = useMemo(
     () => activityVirtualRange({ count: activities.length, scrollTop, viewportHeight, rowHeight }),

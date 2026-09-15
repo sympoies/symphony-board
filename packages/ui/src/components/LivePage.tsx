@@ -14,6 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { LIVE_EVENT_BUFFER_LIMIT } from "../live-config.ts";
 import type { LiveState } from "../useLive.ts";
 import { useListViewport } from "../useListViewport.ts";
+import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { safeHref } from "../url.ts";
@@ -621,6 +622,10 @@ export function LivePage({
     defaultViewportPx: LIVE_DEFAULT_VIEWPORT_PX,
     resetKey: feedResetKey,
   });
+  // Keyed on the FEED's presence, not on feedResetKey: a cold start renders
+  // "Connecting..." and then the split, so the list this measures does not
+  // exist yet, and the filter-derived key does not change when it appears.
+  const scrollbarPx = useScrollbarGutter(feedRef, [shown.length === 0]);
   const virtual = useMemo(
     () =>
       activityVirtualRange({
@@ -1123,7 +1128,15 @@ export function LivePage({
               ref={feedRef}
               onScroll={handleScroll}
               data-animate-shift={feedAtTop ? "true" : "false"}
-              style={{ "--live-row-height": `${rowHeight}px` } as CSSProperties}
+              style={
+                {
+                  "--live-row-height": `${rowHeight}px`,
+                  // What the stylesheet pulls back out of this track so the detail pane
+                  // beside the feed sits one --pane-gap away like everything else on the
+                  // page. See --list-scrollbar in styles.css.
+                  "--list-scrollbar": `${scrollbarPx}px`,
+                } as CSSProperties
+              }
             >
               <li className="live-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }} aria-hidden="true" />
               {visibleShown.map((ev, offset) => {

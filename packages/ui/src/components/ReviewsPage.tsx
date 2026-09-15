@@ -30,6 +30,7 @@ import {
 import { ActorAvatar } from "./ActorAvatar.tsx";
 import { safeHref } from "../url.ts";
 import { useListViewport } from "../useListViewport.ts";
+import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
@@ -538,6 +539,9 @@ export function ReviewsPage({
     defaultViewportPx: REVIEW_DEFAULT_VIEWPORT_PX,
     resetKey: feedResetKey,
   });
+  // This page returns an empty state entirely when no thread matches, so the
+  // feed mounts late the same way Live's does.
+  const scrollbarPx = useScrollbarGutter(feedRef, [threadRows.length === 0]);
   const virtual = useMemo(
     () =>
       activityVirtualRange({
@@ -736,7 +740,15 @@ export function ReviewsPage({
           className="live-feed"
           ref={feedRef}
           onScroll={handleScroll}
-          style={{ "--live-row-height": `${REVIEW_ROW_HEIGHT_PX}px` } as CSSProperties}
+          style={
+            {
+              "--live-row-height": `${REVIEW_ROW_HEIGHT_PX}px`,
+              // What the stylesheet pulls back out of this track so the detail pane
+              // beside the feed sits one --pane-gap away like everything else on the
+              // page. See --list-scrollbar in styles.css.
+              "--list-scrollbar": `${scrollbarPx}px`,
+            } as CSSProperties
+          }
         >
           <li className="live-virtual-space" style={{ height: `${virtual.totalHeightPx}px` }} aria-hidden="true" />
           {visibleRows.map((row, offset) => {
