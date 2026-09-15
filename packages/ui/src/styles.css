@@ -1751,6 +1751,65 @@ a.rf-node-title:hover { color: var(--accent); }
      frame, for any row count that lands within a line of the pane height. */
   .items-split > .items-list { scrollbar-gutter: stable; }
 }
+/* The two supporting columns run to the bottom of the list beside them.
+
+   They are shorter than the list by construction: four digest blocks of fixed
+   height against a pane sized to the viewport, which left the overview 68px
+   and the rail 76px short and made the page read as unfinished next to
+   Activity, whose columns happen to hold enough content to fill.
+
+   The reclaimed height goes to the CHARTS, not to the gaps and not to the
+   cards that cannot use it. Every plot here is height:100% of a fixed box, so
+   growing the box grows the bars and the space carries data instead of
+   becoming more blank card. The old constants stay as minimums, so nothing
+   shrinks and a column with more content than height keeps its natural size.
+
+   Three things bound this rule, each of which it got wrong first:
+
+   - The floor is the THREE-column tier, not 1212px. Between 1212 and 1699px
+     the overview and the rail share one column (the list spans both rows), so
+     a pane height each made the page two viewports tall -- at 1280px, the
+     width the Android wide layout pins the WebView to, among others.
+   - The ceiling is the rows tier. At 2200px the rail's charts relayout to
+     fixed 26px rows, and a flex-grown chart around fixed rows is blank space
+     inside the chart rather than taller bars.
+   - CommitDetail's root carries `commits-rail` too, so the selected-commit
+     pane would stretch one short card to the full height with its content
+     crammed at the top. It is excluded by class.
+
+   Flex rather than grid stretch: `align-content: stretch` hands every row an
+   equal share whether or not it can use one, which put half the reclaimed
+   height into the summary tiles and the calendar -- both fixed by their own
+   content. As a flex column only the blocks that ask for it grow, and that
+   holds whether the rhythm calendar rendered or not. */
+@media (min-width: 1700px) and (max-width: 2199px) {
+  .commits-split > .commits-overview,
+  .commits-split > .commits-rail:not(.commit-detail) {
+    display: flex;
+    flex-direction: column;
+    min-height: var(--content-pane-height, 0px);
+  }
+  /* Only the blocks whose figure can actually absorb height. */
+  .commits-split > .commits-overview > .rail-block:has(.rail-daybars),
+  .commits-split > .commits-overview > .rail-block:has(.rail-hours),
+  .commits-split > .commits-rail:not(.commit-detail) > .rail-block {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 76px;
+  }
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-repos { min-height: 84px; }
+  .commits-split > .commits-overview .rail-daybars,
+  .commits-split > .commits-overview .rail-hours {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 56px;
+  }
+}
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
    layout-tier.test.ts keeps the two in step. The overview column may give up its

@@ -4975,6 +4975,36 @@ try {
             clipped,
           };
         })(),
+        // How far short of the LIST the two supporting columns stop. Activity's
+        // three columns all run to the bottom of the window; Commits' overview
+        // and rail stop well above it, so the page reads as unfinished next to
+        // every other tab. Measured against the list beside them rather than
+        // against the viewport, since the list is what sets the pane height.
+        columnFill: (() => {
+          const listRect = list.getBoundingClientRect();
+          const overviewRect = overview.getBoundingClientRect();
+          const railRect = rail.getBoundingClientRect();
+          return {
+            list: Math.round(listRect.height),
+            overview: Math.round(overviewRect.height),
+            rail: Math.round(railRect.height),
+            overviewShort: Math.round(listRect.bottom - overviewRect.bottom),
+            // ...and the space has to carry DATA. Every plot in these columns is
+            // height:100% of a fixed box, so a column that fills by stretching its
+            // cards without growing their charts would just move the blank space
+            // inside the cards -- the exact thing the commit card fix removed.
+            chartPx: Math.round((rail.querySelector(".live-rank-chart") || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height),
+            stripPx: Math.round((overview.querySelector(".rail-hours") || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height),
+            blockSlack: Math.max(0, ...[...rail.querySelectorAll(":scope > .rail-block")].map((b) => {
+              const kids = [...b.children];
+              if (kids.length === 0) return 0;
+              const last = kids[kids.length - 1].getBoundingClientRect().bottom;
+              const st = getComputedStyle(b);
+              return Math.round(b.getBoundingClientRect().bottom - parseFloat(st.paddingBottom) - last);
+            })),
+            railShort: Math.round(listRect.bottom - railRect.bottom),
+          };
+        })(),
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
     })()`,
@@ -5257,6 +5287,82 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
+
+  // The Commits fill rule across the tiers it is bounded by, not just the one it
+  // was designed at. Filling the columns at 1880 says nothing about 1280, where
+  // the overview and the rail share a column and a pane height each would make
+  // the page two viewports tall, or about 2560, where the rail's charts relayout
+  // to fixed rows that a grown chart cannot fill.
+  const commitsFillTiers = [];
+  for (const vp of [{ name: "two-column", width: 1280, height: 891 }, { name: "three-column", width: 1880, height: 1080 }, { name: "rows", width: 2560, height: 1440 }]) {
+    await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+    await sleep(400);
+    await waitHtml("document.querySelector('.commits-page .commit-list')");
+    const r = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const doc = document.documentElement;
+        const list = document.querySelector('.commit-list');
+        const overview = document.querySelector('.commits-overview');
+        const rail = document.querySelector('.commits-rail:not(.commit-detail)');
+        const blockTail = (root) => root
+          ? Math.max(0, ...[...root.querySelectorAll(':scope > .rail-block')].map((b) => {
+              const kids = [...b.children];
+              if (kids.length === 0) return 0;
+              const st = getComputedStyle(b);
+              return Math.round(b.getBoundingClientRect().bottom - parseFloat(st.paddingBottom) - parseFloat(st.borderBottomWidth || '0') - kids[kids.length - 1].getBoundingClientRect().bottom);
+            }))
+          : 0;
+        // Blank space INSIDE a chart: a flex-grown box around bars that did not
+        // move is invisible at the block boundary.
+        const chartTail = Math.max(0, ...[...document.querySelectorAll('.commits-rail:not(.commit-detail) .live-rank-chart')].map((c) => {
+          const items = [...c.querySelectorAll('.live-rank-item')];
+          if (items.length === 0) return 0;
+          const lowest = Math.max(...items.map((i) => i.getBoundingClientRect().bottom));
+          return Math.round(c.getBoundingClientRect().bottom - lowest);
+        }));
+        return {
+          // A dashboard that fits the window must keep fitting it.
+          pageOverflow: Math.round(doc.scrollHeight - doc.clientHeight),
+          // The rule's SCOPE, asserted directly: a pane-height floor outside the
+          // three-column tier is what made the page two screens tall.
+          minHeightPx: overview ? Math.round(parseFloat(getComputedStyle(overview).minHeight) || 0) : null,
+          overviewShort: list && overview ? Math.round(list.getBoundingClientRect().bottom - overview.getBoundingClientRect().bottom) : null,
+          railShort: list && rail ? Math.round(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().bottom) : null,
+          overviewTail: blockTail(overview),
+          railTail: blockTail(rail),
+          chartTail,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    commitsFillTiers.push({ tier: vp.name, width: vp.width, ...r });
+  }
+  // Selecting a commit swaps the middle column for the detail card, whose root
+  // carries the same class the fill rule targets.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.commit-list .commit-row')");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-list .commit-row').click()" });
+  await sleep(350);
+  const commitsDetailFill = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.commit-detail .commit-detail-card');
+      if (!card) return { found: false };
+      const kids = [...card.children];
+      const st = getComputedStyle(card);
+      const lowest = kids.length ? Math.max(...kids.map((k) => k.getBoundingClientRect().bottom)) : card.getBoundingClientRect().top;
+      return {
+        found: true,
+        height: Math.round(card.getBoundingClientRect().height),
+        tail: Math.round(card.getBoundingClientRect().bottom - parseFloat(st.paddingBottom) - lowest),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(200);
 
   // Activity's third column: present above the breakpoint, absent below it.
   const activityRailByViewport = [];
@@ -5743,6 +5849,23 @@ try {
     // them — while the two supporting columns are equal to each other. The
     // range's SHAPE over time lives in the overview; the rail keeps the ranked
     // facets that are also navigation.
+    // The fill is bounded to the tier it was designed for. Outside it the columns
+    // keep their natural size: below, they share one column and a pane height each
+    // would make the page two screens tall; above, the charts relayout to fixed
+    // rows a grown box cannot fill.
+    [
+      commitsFillTiers.length === 3 &&
+        commitsFillTiers.every((t) =>
+          t.tier === "three-column"
+            ? t.minHeightPx > 0 && t.overviewShort <= 2 && t.railShort <= 2 && t.overviewTail <= 8 && t.railTail <= 8 && t.chartTail <= 12
+            : t.minHeightPx <= 0,
+        ),
+      `commits: the column fill applies to the three-column tier only (${JSON.stringify(commitsFillTiers)})`,
+    ],
+    [
+      commitsDetailFill.found === true && commitsDetailFill.tail <= 24,
+      `commits: selecting a commit does not stretch the detail card (${JSON.stringify(commitsDetailFill)})`,
+    ],
     [
       commitsRailWide.found === true &&
         commitsRailWide.sideBySide === true &&
@@ -5763,6 +5886,13 @@ try {
         commitsRailWide.overviewBlocks > 0 &&
         commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
         commitsRailWide.repoRows > 0 &&
+        // Both supporting columns end level with the list, and the height they
+        // gained went into the charts rather than into blank card.
+        commitsRailWide.columnFill?.overviewShort <= 2 &&
+        commitsRailWide.columnFill?.railShort <= 2 &&
+        commitsRailWide.columnFill?.chartPx >= 76 &&
+        commitsRailWide.columnFill?.stripPx >= 56 &&
+        commitsRailWide.columnFill?.blockSlack <= 8 &&
         // Nothing ellipsized anywhere in the list; the meta over more than one
         // line (one line is ~20px, so 40 is the two-line floor); and the WORST
         // row leaving almost nothing reserved-but-undrawn.
