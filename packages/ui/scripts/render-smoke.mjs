@@ -5005,6 +5005,24 @@ try {
             railShort: Math.round(listRect.bottom - railRect.bottom),
           };
         })(),
+        // The BARS, not the boxes that hold them. Every fill in these columns sizes
+        // itself with a PERCENTAGE (rank-scale.ts returns "37%"), which only
+        // resolves against a definite parent height -- so a container that grows
+        // by flex with an auto height silently collapses every bar to nothing
+        // while the card around it looks perfectly filled. Asserting the
+        // container height cannot see that; asserting the drawn bar can.
+        drawnBars: (() => {
+          const tallest = (sel) => {
+            const nodes = [...document.querySelectorAll(sel)];
+            if (nodes.length === 0) return null;
+            return Math.round(Math.max(...nodes.map((n) => n.getBoundingClientRect().height)));
+          };
+          return {
+            dayBar: tallest('.commits-overview .rail-daybars .rail-daybar-fill'),
+            hourBar: tallest('.commits-overview .rail-hours .rail-daybar-fill'),
+            rankBar: tallest('.commits-rail .live-rank-bar'),
+          };
+        })(),
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
     })()`,
@@ -5326,7 +5344,7 @@ try {
           pageOverflow: Math.round(doc.scrollHeight - doc.clientHeight),
           // The rule's SCOPE, asserted directly: a pane-height floor outside the
           // three-column tier is what made the page two screens tall.
-          minHeightPx: overview ? Math.round(parseFloat(getComputedStyle(overview).minHeight) || 0) : null,
+          minHeightPx: rail ? Math.round(parseFloat(getComputedStyle(rail).minHeight) || 0) : null,
           overviewShort: list && overview ? Math.round(list.getBoundingClientRect().bottom - overview.getBoundingClientRect().bottom) : null,
           railShort: list && rail ? Math.round(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().bottom) : null,
           overviewTail: blockTail(overview),
@@ -5857,7 +5875,7 @@ try {
       commitsFillTiers.length === 3 &&
         commitsFillTiers.every((t) =>
           t.tier === "three-column"
-            ? t.minHeightPx > 0 && t.overviewShort <= 2 && t.railShort <= 2 && t.overviewTail <= 8 && t.railTail <= 8 && t.chartTail <= 12
+            ? t.minHeightPx > 0 && t.railShort <= 2 && t.railTail <= 8 && t.chartTail <= 12
             : t.minHeightPx <= 0,
         ),
       `commits: the column fill applies to the three-column tier only (${JSON.stringify(commitsFillTiers)})`,
@@ -5886,9 +5904,16 @@ try {
         commitsRailWide.overviewBlocks > 0 &&
         commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
         commitsRailWide.repoRows > 0 &&
-        // Both supporting columns end level with the list, and the height they
-        // gained went into the charts rather than into blank card.
-        commitsRailWide.columnFill?.overviewShort <= 2 &&
+        // Every figure still DRAWS. The bars size themselves with a percentage,
+        // so a container that grows without a definite height collapses them to
+        // nothing while the card around it still looks filled -- the container
+        // assertions below cannot see that, and did not.
+        commitsRailWide.drawnBars?.dayBar > 0 &&
+        commitsRailWide.drawnBars?.hourBar > 0 &&
+        commitsRailWide.drawnBars?.rankBar > 0 &&
+        // The rail ends level with the list, and the height it gained went into
+        // the charts rather than into blank card. The overview keeps its natural
+        // height on purpose -- see the percentage-bar note in styles.css.
         commitsRailWide.columnFill?.railShort <= 2 &&
         commitsRailWide.columnFill?.chartPx >= 76 &&
         commitsRailWide.columnFill?.stripPx >= 56 &&

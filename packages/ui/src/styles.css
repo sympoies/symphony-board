@@ -1751,20 +1751,30 @@ a.rf-node-title:hover { color: var(--accent); }
      frame, for any row count that lands within a line of the pane height. */
   .items-split > .items-list { scrollbar-gutter: stable; }
 }
-/* The two supporting columns run to the bottom of the list beside them.
+/* The digest RAIL runs to the bottom of the list beside it.
 
-   They are shorter than the list by construction: four digest blocks of fixed
-   height against a pane sized to the viewport, which left the overview 68px
-   and the rail 76px short and made the page read as unfinished next to
-   Activity, whose columns happen to hold enough content to fill.
+   Both supporting columns are shorter than the list by construction -- digest
+   blocks of fixed height against a pane sized to the viewport -- which left the
+   overview 68px and the rail 76px short and made the page read as unfinished
+   next to Activity, whose columns happen to hold enough content to fill.
 
-   The reclaimed height goes to the CHARTS, not to the gaps and not to the
-   cards that cannot use it. Every plot here is height:100% of a fixed box, so
-   growing the box grows the bars and the space carries data instead of
-   becoming more blank card. The old constants stay as minimums, so nothing
-   shrinks and a column with more content than height keeps its natural size.
+   The rail's height goes to its CHARTS: a ranked plot is height:100% of its
+   chart box, which is grid-laid, so growing the box grows the bars and the
+   space carries data rather than becoming blank card. 76px of chart becomes
+   122px. The old constants stay as minimums, so nothing shrinks.
 
-   Three things bound this rule, each of which it got wrong first:
+   The OVERVIEW column is deliberately not filled the same way, and the reason
+   is worth keeping: its per-day and hour strips size every bar with a
+   PERCENTAGE (rank-scale.ts returns "37%"), and a percentage height resolves
+   only against a definite parent. Growing those strips by flex makes the
+   parent indefinite and every bar collapses to zero -- the card looks filled
+   and the chart is empty. Measured in the page: strip 90px, tallest bar 0px,
+   against 56px/42px with a definite height. Stretching the bar columns or
+   giving the fill a percentage flex-basis does not rescue it; only a definite
+   pixel height does. So the strips keep one, and the overview keeps its
+   natural height until there is a measured value to give them.
+
+   Three things bound the rule that remains, each of which it got wrong first:
 
    - The floor is the THREE-column tier, not 1212px. Between 1212 and 1699px
      the overview and the rail share one column (the list spans both rows), so
@@ -1775,23 +1785,13 @@ a.rf-node-title:hover { color: var(--accent); }
      inside the chart rather than taller bars.
    - CommitDetail's root carries `commits-rail` too, so the selected-commit
      pane would stretch one short card to the full height with its content
-     crammed at the top. It is excluded by class.
-
-   Flex rather than grid stretch: `align-content: stretch` hands every row an
-   equal share whether or not it can use one, which put half the reclaimed
-   height into the summary tiles and the calendar -- both fixed by their own
-   content. As a flex column only the blocks that ask for it grow, and that
-   holds whether the rhythm calendar rendered or not. */
+     crammed at the top. It is excluded by class. */
 @media (min-width: 1700px) and (max-width: 2199px) {
-  .commits-split > .commits-overview,
   .commits-split > .commits-rail:not(.commit-detail) {
     display: flex;
     flex-direction: column;
     min-height: var(--content-pane-height, 0px);
   }
-  /* Only the blocks whose figure can actually absorb height. */
-  .commits-split > .commits-overview > .rail-block:has(.rail-daybars),
-  .commits-split > .commits-overview > .rail-block:has(.rail-hours),
   .commits-split > .commits-rail:not(.commit-detail) > .rail-block {
     flex: 1 1 auto;
     display: flex;
@@ -1803,12 +1803,6 @@ a.rf-node-title:hover { color: var(--accent); }
     min-height: 76px;
   }
   .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-repos { min-height: 84px; }
-  .commits-split > .commits-overview .rail-daybars,
-  .commits-split > .commits-overview .rail-hours {
-    flex: 1 1 auto;
-    height: auto;
-    min-height: 56px;
-  }
 }
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
