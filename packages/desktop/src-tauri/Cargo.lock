@@ -3573,7 +3573,7 @@ dependencies = [
 
 [[package]]
 name = "symphony-board-desktop"
-version = "1.24.2"
+version = "1.24.3"
 dependencies = [
  "tauri",
  "tauri-build",
