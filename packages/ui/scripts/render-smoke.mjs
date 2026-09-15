@@ -495,13 +495,22 @@ function inflateActivityContract(body) {
               // Every third commit carries a long branch name so the Commits page
               // exercises a wide `commit-ref-chip` (regression guard for the chip
               // wrapping past the fixed virtualized row height in portrait).
-              refs: [
-                i % 3 === 0
-                  ? "refs/heads/feat/android-thin-client-shell-portrait-overflow-guard"
-                  : i % 2 === 0
-                    ? "refs/heads/main"
-                    : "refs/heads/release",
-              ],
+              // ...and every fifth carries NONE, so the fixture contains the
+              // short card too. A uniform fixture cannot see a card that is
+              // floored taller than its own content: every row measured the
+              // same, so one sample looked right while the shape that had
+              // fewer facts kept its blank space.
+              ...(i % 5 === 0
+                ? {}
+                : {
+                    refs: [
+                      i % 3 === 0
+                        ? "refs/heads/feat/android-thin-client-shell-portrait-overflow-guard"
+                        : i % 2 === 0
+                          ? "refs/heads/main"
+                          : "refs/heads/release",
+                    ],
+                  }),
               ...(i % 3 === 0 ? { body: `Smoke body ${i}\n\nRendered commit body details.` } : {}),
             }
           : {}),
@@ -4921,6 +4930,51 @@ try {
           const max = scroll.scrollWidth - scroll.clientWidth;
           return max === 0 || max - scroll.scrollLeft <= 16;
         })(),
+        // The commit card at the width the list actually gets. The row HEIGHT is
+        // chosen from the container (clientWidth <= 760 reserves the tall slot)
+        // while the layout that fills it was keyed on the VIEWPORT, so a ~730px
+        // column inside a 1880px window reserved the tall card and then drew the
+        // one-line desktop meta in it: ~54px of dead space per card, with the
+        // repo path, the relative time and the branch chip all ellipsized above
+        // it. Measured as the space left over and the count of facts clipped.
+        commitCard: (() => {
+          // EVERY visible row, not the first one: the shapes differ (a commit
+          // with no branch ref has one less meta line), and it is the shortest
+          // card that exposes a floor the content never reaches.
+          const cards = [...list.querySelectorAll('.commit-row-body')];
+          const worst = cards
+            .map((el) => {
+              const body = el.querySelector('.commit-row-main');
+              if (!body) return null;
+              const s = getComputedStyle(el);
+              const inner = el.getBoundingClientRect().height - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);
+              return { el, body, slack: Math.round(inner - body.getBoundingClientRect().height) };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.slack - a.slack)[0];
+          const card = worst ? worst.el : list.querySelector('.commit-row-body');
+          const main = worst ? worst.body : (card ? card.querySelector('.commit-row-main') : null);
+          if (!card || !main) return null;
+          const clipped = [...list.querySelectorAll('.card-repo, .commit-row-meta span, .commit-ref-chip')]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => (el.textContent || '').trim().slice(0, 28));
+          const meta = card.querySelector('.commit-row-meta');
+          // The meta's own height says how many lines it takes: one line is the bug.
+          const metaHeight = meta ? Math.round(meta.getBoundingClientRect().height) : 0;
+          const style = getComputedStyle(card);
+          const inner = card.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+          return {
+            listWidth: Math.round(list.clientWidth),
+            rows: cards.length,
+            cardHeight: Math.round(card.getBoundingClientRect().height),
+            contentHeight: Math.round(main.getBoundingClientRect().height),
+            // What is reserved and never drawn into.
+            slack: Math.round(inner - main.getBoundingClientRect().height),
+            // How many lines the meta facts occupy: one line is the bug.
+            metaHeight,
+            clipped,
+          };
+        })(),
         repoRows: rail.querySelectorAll('.live-rank-chart-repos .live-rank-item').length,
       };
     })()`,
@@ -5709,6 +5763,12 @@ try {
         commitsRailWide.overviewBlocks > 0 &&
         commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
         commitsRailWide.repoRows > 0 &&
+        // Nothing ellipsized anywhere in the list; the meta over more than one
+        // line (one line is ~20px, so 40 is the two-line floor); and the WORST
+        // row leaving almost nothing reserved-but-undrawn.
+        commitsRailWide.commitCard?.clipped.length === 0 &&
+        commitsRailWide.commitCard?.metaHeight >= 40 &&
+        commitsRailWide.commitCard?.slack <= 24 &&
         ["Commits per day", "When", "Commit rhythm", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
     ],
