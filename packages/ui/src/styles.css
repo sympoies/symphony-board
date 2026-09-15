@@ -178,52 +178,52 @@ body::after {
    clears it after a short idle) or while the pointer hovers the bar. The track is
    never given a visible color and the gutter (--scrollbar-size) is always reserved,
    so revealing the bar never shifts content. */
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll) {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"] {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"] {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track,
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track-piece,
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-corner {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track,
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track-piece,
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-track {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track {
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb {
   background: transparent;
   border: 2px solid transparent;
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)[data-scrolling="true"]::-webkit-scrollbar-thumb {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"]::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:hover {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll)::-webkit-scrollbar-thumb:active {
+:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .hm-calendar-scroll) {
+:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
   --scrollbar-track: color-mix(in srgb, var(--panel) 80%, var(--bg));
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
@@ -1875,7 +1875,21 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .hm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .hm-head h3 { margin: 0; font-size: 14px; }
-.hm-calendar-scroll { overflow-x: auto; scrollbar-gutter: stable; }
+/* The year calendar scrolls sideways but shows no bar in either direction.
+   It is a figure inside a card rather than a pane of content: a bar along its
+   bottom edge reads as part of the chart, and the auto-hiding treatment every
+   real pane uses still leaves the bar visible while scrolling and its gutter
+   reserved always. The vertical one was never even scrollable -- overflow-x on
+   one axis makes the UA compute the other as auto, so `scrollbar-gutter:
+   stable` reserved 10px down the right edge of a figure that has nothing to
+   scroll there. Hidden, not clipped: the grid still scrolls by wheel, trackpad
+   and keyboard, and it still opens pinned to the most recent week. */
+.hm-calendar-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.hm-calendar-scroll::-webkit-scrollbar { display: none; }
 /* One GitHub-style year grid: weekday labels down the left, months across the
    top, weeks as columns left→right. The min-width preserves legibility in the
    right rail and lets smaller viewports scroll horizontally. */
