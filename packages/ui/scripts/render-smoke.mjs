@@ -5337,6 +5337,8 @@ try {
         const list = document.querySelector('.commit-list');
         const overview = document.querySelector('.commits-overview');
         const rail = document.querySelector('.commits-rail:not(.commit-detail)');
+        const dayBlock = overview?.querySelector(':scope > .rail-block:has(.rail-daybars)');
+        const dayStrip = overview?.querySelector('.rail-daybars');
         const blockTail = (root) => root
           ? Math.max(0, ...[...root.querySelectorAll(':scope > .rail-block')].map((b) => {
               const kids = [...b.children];
@@ -5359,6 +5361,9 @@ try {
           // The rule's SCOPE, asserted directly: a pane-height floor outside the
           // three-column tier is what made the page two screens tall.
           minHeightPx: rail ? Math.round(parseFloat(getComputedStyle(rail).minHeight) || 0) : null,
+          overviewDisplay: overview ? getComputedStyle(overview).display : null,
+          dayBlockGrow: dayBlock ? Number.parseFloat(getComputedStyle(dayBlock).flexGrow) : null,
+          dayStripGrow: dayStrip ? Number.parseFloat(getComputedStyle(dayStrip).flexGrow) : null,
           overviewShort: list && overview ? Math.round(list.getBoundingClientRect().bottom - overview.getBoundingClientRect().bottom) : null,
           railShort: list && rail ? Math.round(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().bottom) : null,
           overviewTail: blockTail(overview),
@@ -5889,8 +5894,19 @@ try {
       commitsFillTiers.length === 3 &&
         commitsFillTiers.every((t) =>
           t.tier === "three-column"
-            ? t.minHeightPx > 0 && t.railShort <= 2 && t.railTail <= 8 && t.chartTail <= 12
-            : t.minHeightPx <= 0,
+            ? t.minHeightPx > 0 &&
+              t.overviewDisplay === "flex" &&
+              t.dayBlockGrow > 0 &&
+              t.dayStripGrow > 0 &&
+              Math.abs(t.overviewShort) <= 2 &&
+              Math.abs(t.railShort) <= 2 &&
+              t.overviewTail <= 8 &&
+              t.railTail <= 8 &&
+              t.chartTail <= 12
+            : t.minHeightPx <= 0 &&
+              t.overviewDisplay === "grid" &&
+              t.dayBlockGrow === 0 &&
+              t.dayStripGrow === 0,
         ),
       `commits: the column fill applies to the three-column tier only (${JSON.stringify(commitsFillTiers)})`,
     ],
@@ -5925,10 +5941,10 @@ try {
         commitsRailWide.drawnBars?.dayBar > 0 &&
         commitsRailWide.drawnBars?.hourBar > 0 &&
         commitsRailWide.drawnBars?.rankBar > 0 &&
-        // The rail ends level with the list, and the height it gained went into
-        // the charts rather than into blank card. The overview keeps its natural
-        // height on purpose -- see the percentage-bar note in styles.css.
-        commitsRailWide.columnFill?.railShort <= 2 &&
+        // Both supporting columns end level with the list, and the height they
+        // gained went into the charts rather than into blank card.
+        Math.abs(commitsRailWide.columnFill?.overviewShort) <= 2 &&
+        Math.abs(commitsRailWide.columnFill?.railShort) <= 2 &&
         commitsRailWide.columnFill?.chartPx >= 76 &&
         commitsRailWide.columnFill?.stripPx >= 56 &&
         commitsRailWide.columnFill?.blockSlack <= 8 &&

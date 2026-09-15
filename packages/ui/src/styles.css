@@ -1751,30 +1751,23 @@ a.rf-node-title:hover { color: var(--accent); }
      frame, for any row count that lands within a line of the pane height. */
   .items-split > .items-list { scrollbar-gutter: stable; }
 }
-/* The digest RAIL runs to the bottom of the list beside it.
+/* Both supporting columns run to the bottom of the list beside them.
 
    Both supporting columns are shorter than the list by construction -- digest
    blocks of fixed height against a pane sized to the viewport -- which left the
    overview 68px and the rail 76px short and made the page read as unfinished
    next to Activity, whose columns happen to hold enough content to fill.
 
-   The rail's height goes to its CHARTS: a ranked plot is height:100% of its
-   chart box, which is grid-laid, so growing the box grows the bars and the
-   space carries data rather than becoming blank card. 76px of chart becomes
-   122px. The old constants stay as minimums, so nothing shrinks.
+   The reclaimed height goes to the CHARTS. A ranked plot is height:100% of its
+   grid-laid chart box, so growing the box grows the bars. The overview strips
+   also use percentage-height bars, but those collapsed when the earlier rule
+   supplied only a min-height: flex then laid out an indefinite parent and the
+   percentages resolved to zero. The overview therefore takes the MEASURED
+   pane height as a definite height. Its flex-grown strips now have a definite
+   containing block, so their percentage bars keep drawing while the cards run
+   to the bottom. The old chart constants stay as minimums, so nothing shrinks.
 
-   The OVERVIEW column is deliberately not filled the same way, and the reason
-   is worth keeping: its per-day and hour strips size every bar with a
-   PERCENTAGE (rank-scale.ts returns "37%"), and a percentage height resolves
-   only against a definite parent. Growing those strips by flex makes the
-   parent indefinite and every bar collapses to zero -- the card looks filled
-   and the chart is empty. Measured in the page: strip 90px, tallest bar 0px,
-   against 56px/42px with a definite height. Stretching the bar columns or
-   giving the fill a percentage flex-basis does not rescue it; only a definite
-   pixel height does. So the strips keep one, and the overview keeps its
-   natural height until there is a measured value to give them.
-
-   Three things bound the rule that remains, each of which it got wrong first:
+   Three things bound the rule, each of which it got wrong first:
 
    - The floor is the THREE-column tier, not 1212px. Between 1212 and 1699px
      the overview and the rail share one column (the list spans both rows), so
@@ -1787,11 +1780,19 @@ a.rf-node-title:hover { color: var(--accent); }
      pane would stretch one short card to the full height with its content
      crammed at the top. It is excluded by class. */
 @media (min-width: 1700px) and (max-width: 2199px) {
+  .commits-split > .commits-overview,
   .commits-split > .commits-rail:not(.commit-detail) {
     display: flex;
     flex-direction: column;
+  }
+  .commits-split > .commits-overview {
+    height: var(--content-pane-height, auto);
+  }
+  .commits-split > .commits-rail:not(.commit-detail) {
     min-height: var(--content-pane-height, 0px);
   }
+  .commits-split > .commits-overview > .rail-block:has(.rail-daybars),
+  .commits-split > .commits-overview > .rail-block:has(.rail-hours),
   .commits-split > .commits-rail:not(.commit-detail) > .rail-block {
     flex: 1 1 auto;
     display: flex;
@@ -1803,6 +1804,12 @@ a.rf-node-title:hover { color: var(--accent); }
     min-height: 76px;
   }
   .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-repos { min-height: 84px; }
+  .commits-split > .commits-overview .rail-daybars,
+  .commits-split > .commits-overview .rail-hours {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 56px;
+  }
 }
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
