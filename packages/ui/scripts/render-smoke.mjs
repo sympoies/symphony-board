@@ -3617,6 +3617,9 @@ try {
       const firstRow = rows[0]?.getBoundingClientRect();
       const pulse = document.querySelector('.live-pulse');
       const disclosure = document.querySelector('.live-pulse-disclosure');
+      const headerRect = document.querySelector('.live-header')?.getBoundingClientRect();
+      const headerMainRect = document.querySelector('.live-header-main')?.getBoundingClientRect();
+      const disclosureRect = disclosure?.getBoundingClientRect();
       const split = document.querySelector('.live-split');
       const doc = document.documentElement;
       const collapsed = {
@@ -3626,6 +3629,9 @@ try {
         pulseOpen: pulse?.dataset.open || '',
         pulseDisplay: pulse ? getComputedStyle(pulse).display : '',
         disclosureDisplay: disclosure ? getComputedStyle(disclosure).display : '',
+        disclosureBelowHeaderMain: (disclosureRect?.top ?? 0) >= (headerMainRect?.bottom ?? Infinity),
+        disclosureLeftGap: Math.round((disclosureRect?.left ?? 0) - (headerRect?.left ?? 0)),
+        disclosureRightGap: Math.round((headerRect?.right ?? 0) - (disclosureRect?.right ?? 0)),
         splitColumns: split ? (getComputedStyle(split).gridTemplateColumns || '').split(' ').length : 0,
         scrollHeight: doc.scrollHeight,
         clientHeight: doc.clientHeight,
@@ -6356,6 +6362,7 @@ try {
     [(live.firstRowTop || 0) >= (live.feedTop || 0) - 1 && (live.firstRowBottom || 0) <= (live.feedBottom || 0) + 1, `live: first virtualized feed row is visible inside the feed viewport (${JSON.stringify({ firstRowTop: live.firstRowTop, firstRowBottom: live.firstRowBottom, feedTop: live.feedTop, feedBottom: live.feedBottom })})`],
     [(live.documentScrollHeight || 0) <= (live.documentClientHeight || 0) + 2, `live: desktop Live page does not grow taller than the viewport (${JSON.stringify({ scrollHeight: live.documentScrollHeight, clientHeight: live.documentClientHeight })})`],
     [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
+    [liveFoldable.disclosureBelowHeaderMain === true && Math.abs(liveFoldable.disclosureLeftGap || 0) <= 2 && Math.abs(liveFoldable.disclosureRightGap || 0) <= 2, `live: compact viewports wrap the metrics control onto a full-width header row (${JSON.stringify(liveFoldable)})`],
     [(liveFoldable.feedHeight || 0) >= 240 && (liveFoldable.feedHeight || 0) <= (liveFoldable.clientHeight || 0) && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
     [
       ["flex", "inline-flex"].includes(liveForcedWideAtRest.disclosureDisplay) && liveForcedWideAtRest.pulseOpen === "true",
