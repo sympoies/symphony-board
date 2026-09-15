@@ -4898,6 +4898,23 @@ try {
         // out), and chasing that exactly buys nothing a reader can see — one
         // column is ~11px plus a 3px gap, so "within a column of the end" is
         // the real invariant: the most recent week is on screen.
+        // No scrollbar in EITHER direction on the calendar. It is a figure inside a
+        // card, not a pane: a bar along its bottom edge reads as part of the
+        // chart, and overflow-x auto silently made the other axis scrollable
+        // too, so a reserved vertical gutter sat down its right edge as well.
+        // Both are measured as layout space taken, since an auto-hiding bar is
+        // still occupying room (and still appears while scrolling).
+        rhythmScrollChrome: (() => {
+          const scroll = overview.querySelector('.hm-calendar-scroll');
+          if (!scroll) return null;
+          return {
+            vertical: Math.round(scroll.offsetWidth - scroll.clientWidth),
+            horizontal: Math.round(scroll.offsetHeight - scroll.clientHeight),
+            // ...and it must still SCROLL: hiding the bar must not mean clipping
+            // the year into whatever fits.
+            scrollable: scroll.scrollWidth > scroll.clientWidth,
+          };
+        })(),
         rhythmLatestVisible: (() => {
           const scroll = overview.querySelector('.hm-calendar-scroll');
           if (!scroll) return null;
@@ -5685,6 +5702,9 @@ try {
         commitsRailWide.rhythmCellPx?.w >= 6 &&
         commitsRailWide.rhythmCellPx?.h >= 6 &&
         commitsRailWide.rhythmMonthSpread > 100 &&
+        commitsRailWide.rhythmScrollChrome?.vertical === 0 &&
+        commitsRailWide.rhythmScrollChrome?.horizontal === 0 &&
+        commitsRailWide.rhythmScrollChrome?.scrollable === true &&
         commitsRailWide.rhythmLatestVisible === true &&
         commitsRailWide.overviewBlocks > 0 &&
         commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
