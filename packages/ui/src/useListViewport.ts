@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type UIEvent } from "react";
 
 // Shared scroll/viewport plumbing for the virtualized lists (the Activity feed
-// and the Commit timeline). It owns the three things both lists had copy-pasted:
+// and the Commit timeline). It owns what both lists read off their scroll
+// container -- the first, second and fourth of these were copy-pasted in each:
 //   - the live scroll position,
 //   - the measured viewport height (ResizeObserver, with a window-resize
-//     fallback for environments without it), and
+//     fallback for environments without it),
+//   - the width the scrollbar reserves inside the container, which the
+//     stylesheet needs to keep the gap BESIDE a list equal to every other pane
+//     gap, and
 //   - "jump back to the top when the data set changes", so a new range/filter
 //     never strands the viewer mid-scroll in a different result set.
 //
@@ -29,6 +33,18 @@ export function useListViewport<T extends HTMLElement = HTMLDivElement>({
   const listRef = useRef<T | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(defaultViewportPx);
+  // offsetWidth counts the scrollbar gutter, clientWidth does not, so the
+  // difference is the gutter -- PROVIDED the container has no horizontal border,
+  // which offsetWidth would fold in on top of it. Neither list declares one, and
+  // the value is consumed as a negative margin, so a list that grows a border
+  // must subtract it here rather than pull its neighbour's pane 2px closer.
+  // Measured rather than assumed because the gutter's width is
+  // the UA's call — 10px in Chrome for the thin bar these scrollers ask for, 8
+  // in the macOS WebView — and a stylesheet that guessed would be wrong on one
+  // of them. Both virtualized lists size their scroll height from the row count
+  // rather than from their width, so widening one can never toggle the bar and
+  // start a measure loop.
+  const [scrollbarPx, setScrollbarPx] = useState(0);
 
   const resetScroll = useCallback(() => {
     setScrollTop(0);
@@ -48,6 +64,7 @@ export function useListViewport<T extends HTMLElement = HTMLDivElement>({
 
     const updateHeight = () => {
       setViewportHeight(el.clientHeight || defaultViewportPx);
+      setScrollbarPx(Math.max(0, Math.round(el.offsetWidth - el.clientWidth)));
       onMeasureRef.current?.(el);
     };
     updateHeight();
@@ -69,5 +86,5 @@ export function useListViewport<T extends HTMLElement = HTMLDivElement>({
     [],
   );
 
-  return { listRef, scrollTop, viewportHeight, resetScroll, handleScroll };
+  return { listRef, scrollTop, viewportHeight, scrollbarPx, resetScroll, handleScroll };
 }

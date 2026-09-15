@@ -140,7 +140,7 @@ function CommitTimeline({
   // Scroll position, viewport height, and the scroll-to-top reset are shared
   // with the Activity feed. The commit list also derives its row-body height
   // from the container width (narrow = stacked layout) on every measure.
-  const { listRef, scrollTop, viewportHeight, handleScroll } = useListViewport<HTMLDivElement>({
+  const { listRef, scrollTop, viewportHeight, scrollbarPx, handleScroll } = useListViewport<HTMLDivElement>({
     defaultViewportPx: COMMIT_DEFAULT_VIEWPORT_PX,
     resetKey: commits,
     onMeasure: (el) =>
@@ -240,6 +240,10 @@ function CommitTimeline({
       style={
         {
           "--commit-row-body-height": `${rowBodyHeight}px`,
+          // What the stylesheet pulls back out of the track so the gap beside
+          // this list matches every other pane gap. See --list-scrollbar in
+          // styles.css.
+          "--list-scrollbar": `${scrollbarPx}px`,
         } as CSSProperties
       }
     >

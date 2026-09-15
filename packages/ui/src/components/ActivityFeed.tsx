@@ -45,7 +45,7 @@ export function ActivityFeed({
   // A new `activities` array means the range or repo filter changed — the hook
   // jumps back to the top so the viewer is not stranded mid-scroll in a
   // different result set.
-  const { listRef, scrollTop, viewportHeight, handleScroll } = useListViewport({
+  const { listRef, scrollTop, viewportHeight, scrollbarPx, handleScroll } = useListViewport({
     defaultViewportPx: ACTIVITY_DEFAULT_VIEWPORT_PX,
     resetKey: activities,
   });
@@ -71,6 +71,10 @@ export function ActivityFeed({
       style={
         {
           "--activity-row-height": `${rowHeight}px`,
+          // See --list-scrollbar in styles.css: the feed's scrollbar sits inside
+          // its own track, so without this the overview beside it reads 22px
+          // away while everything else on the page reads 12.
+          "--list-scrollbar": `${scrollbarPx}px`,
         } as CSSProperties
       }
     >

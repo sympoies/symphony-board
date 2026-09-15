@@ -4853,6 +4853,45 @@ try {
         // this column it charts the whole history, so it is the one that proves
         // activity_daily reached the page rather than only the windowed feed.
         rhythmCells: overview.querySelectorAll('.hm-calendar .hm-cell:not(.hm-cell-empty)').length,
+        // ...and they must have SIZE. The sizing tokens (--hm-cell and friends)
+        // were declared on .activity-heatmap, so the same shared calendar drew
+        // here as a grid of zero-width boxes: every cell present, the whole
+        // figure invisible. A node count could never see that.
+        rhythmCellPx: (() => {
+          const cell = overview.querySelector('.hm-calendar .hm-cell:not(.hm-cell-empty)');
+          if (!cell) return null;
+          const r = cell.getBoundingClientRect();
+          return { w: Math.round(r.width), h: Math.round(r.height) };
+        })(),
+        // The months row places each label at a multiple of --hm-step; with the
+        // token unset they all collapse onto the same left edge.
+        rhythmMonthSpread: (() => {
+          const labels = [...overview.querySelectorAll('.hm-calendar .hm-months > span')];
+          if (labels.length < 2) return null;
+          const lefts = labels.map((el) => Math.round(el.getBoundingClientRect().left));
+          return Math.max(...lefts) - Math.min(...lefts);
+        })(),
+        // Reading order of the column: the range summary, then the trailing-year
+        // rhythm that gives it scale, then the two range-shaped strips.
+        overviewOrder: [...overview.querySelectorAll(':scope > .rail-block')].map((block) => {
+          const title = block.querySelector('.rail-block-title');
+          return title ? (title.textContent || '').trim() : (block.querySelector('.hm-overview-head h3')?.textContent || '').trim();
+        }),
+        // The two gaps a READER sees between the three columns. Measured from the
+        // painted card edges, not the track edges: the list is a scroller with a
+        // reserved scrollbar gutter, so its own box runs past the last pixel it
+        // paints and the two gaps look unequal even though one grid gap made both.
+        paneGaps: (() => {
+          const card = list.querySelector('.commit-row');
+          if (!card) return null;
+          const cardRect = card.getBoundingClientRect();
+          return {
+            left: Math.round(overviewRect.left - cardRect.right),
+            right: Math.round(railRect.left - overviewRect.right),
+            token: Math.round(parseFloat(getComputedStyle(split).getPropertyValue('--pane-gap')) || 0),
+            gutterPx: Math.round(list.offsetWidth - list.clientWidth),
+          };
+        })(),
         // The property that matters is that the calendar OPENS on the latest
         // week, not that scrollLeft equals the maximum to the pixel. The grid
         // settles a few px wider after the initial pin (the month labels lay
@@ -5123,12 +5162,26 @@ try {
       const avail = shell
         ? shell.getBoundingClientRect().right - parseFloat(shellStyle.paddingRight || "0")
         : null;
+      // The gap in the TWO-column tier, which has its own grid and its own
+      // row-spanning list. The pane beside the list here is the overview, and
+      // there is no third column to compare against, so this is measured against
+      // the resolved token instead of against a sibling gap.
+      const overview = document.querySelector(".commits-overview");
+      const split = document.querySelector(".commits-split");
+      const card = list.querySelector(".commit-row");
       return {
         found: true,
         sideBySide: railRect.left >= listRect.right - 2,
         listWidth: Math.round(listRect.width),
         railWidth: Math.round(railRect.width),
         deadRight: avail != null ? Math.round(avail - Math.max(listRect.right, railRect.right)) : -1,
+        paneGap: overview && split && card
+          ? {
+              left: Math.round(overview.getBoundingClientRect().left - card.getBoundingClientRect().right),
+              token: Math.round(parseFloat(getComputedStyle(split).getPropertyValue("--pane-gap")) || 0),
+              gutterPx: Math.round(list.offsetWidth - list.clientWidth),
+            }
+          : null,
       };
     })()`,
     returnByValue: true,
@@ -5147,11 +5200,27 @@ try {
         const rail = document.querySelector('.activity-rail');
         const columns = layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\\s+/).length : 0;
         const titles = rail ? [...rail.querySelectorAll('.rail-block-title')].map((el) => (el.textContent || '').trim()) : [];
+        const list = document.querySelector('.activity-list');
+        const row = list ? list.querySelector('.activity-row') : null;
+        const overview = document.querySelector('.activity-heatmap');
         return {
           hasRail: !!rail,
           columns,
           titles,
           hours: rail ? rail.querySelectorAll('.rail-hourbar').length : 0,
+          // Same reader-facing measure as the Commits split: the whitespace
+          // between the last pixel the feed paints and the panel beside it. The
+          // feed is a scroller too, so its bar eats into its own track.
+          // Compared against the RESOLVED token rather than a literal, so
+          // retuning --pane-gap retunes this with it and only a gap that stops
+          // matching the rest of the page fails here.
+          paneGaps: list && row && overview
+            ? {
+                left: Math.round(overview.getBoundingClientRect().left - row.getBoundingClientRect().right),
+                token: Math.round(parseFloat(getComputedStyle(layout || document.documentElement).getPropertyValue('--pane-gap')) || 0),
+                gutterPx: Math.round(list.offsetWidth - list.clientWidth),
+              }
+            : null,
         };
       })()`,
       returnByValue: true,
@@ -5525,12 +5594,38 @@ try {
         commitsRailWide.hourBars === 24 &&
         commitsRailWide.summaryTiles >= 4 &&
         commitsRailWide.rhythmCells > 300 &&
+        commitsRailWide.rhythmCellPx?.w >= 6 &&
+        commitsRailWide.rhythmCellPx?.h >= 6 &&
+        commitsRailWide.rhythmMonthSpread > 100 &&
         commitsRailWide.rhythmLatestVisible === true &&
         commitsRailWide.overviewBlocks > 0 &&
         commitsRailWide.overviewCards === commitsRailWide.overviewBlocks &&
         commitsRailWide.repoRows > 0 &&
         ["Commits per day", "When", "Commit rhythm", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
+    ],
+    // The rhythm sits second, directly under the range summary: it is what gives
+    // the summary's numbers a scale ("1,810 commits" against a year of them),
+    // so it reads with the tiles rather than after the two strips.
+    [
+      JSON.stringify(commitsRailWide.overviewOrder) ===
+        JSON.stringify(["Commit overview", "Commit rhythm", "Commits per day", "When"]),
+      `commits: the overview column reads summary -> rhythm -> per-day -> hour (${JSON.stringify(commitsRailWide.overviewOrder)})`,
+    ],
+    // One gap between panes, the same --pane-gap the two-column pages use. The
+    // list's scrollbar gutter lives inside its own track, so uncompensated the
+    // left gap reads half again as wide as the right one on the same row.
+    [
+      commitsRailWide.paneGaps != null &&
+        // The load-bearing term: only this one can see the compensation
+        // regress. `right` is measured between two marginless grid items, so it
+        // is the declared gap by construction -- which is why the second term
+        // compares it to the TOKEN (catching a gap that drifts away from the
+        // rest of the app) rather than to a literal it can never fail.
+        Math.abs(commitsRailWide.paneGaps.left - commitsRailWide.paneGaps.right) <= 1 &&
+        commitsRailWide.paneGaps.token > 0 &&
+        Math.abs(commitsRailWide.paneGaps.right - commitsRailWide.paneGaps.token) <= 1,
+      `commits: both gaps between the three panes are the same width (${JSON.stringify(commitsRailWide.paneGaps)})`,
     ],
     [
       commitsRailWide.found === true &&
@@ -5618,7 +5713,10 @@ try {
       commitsRailForcedWide.found === true &&
         commitsRailForcedWide.sideBySide === true &&
         commitsRailForcedWide.deadRight >= 0 &&
-        commitsRailForcedWide.deadRight <= 1,
+        commitsRailForcedWide.deadRight <= 1 &&
+        commitsRailForcedWide.paneGap != null &&
+        commitsRailForcedWide.paneGap.token > 0 &&
+        Math.abs(commitsRailForcedWide.paneGap.left - commitsRailForcedWide.paneGap.token) <= 1,
       `commits: the forced wide viewport puts the rail beside the list with no stranded width (${JSON.stringify(commitsRailForcedWide)})`,
     ],
     // Activity's third column appears at the breakpoint and not below it.
@@ -5639,6 +5737,14 @@ try {
         );
       })(),
       `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
+    ],
+    // The same reader-facing gap the Commits split is held to, on the page that
+    // had it wrong for the same reason: the feed's scrollbar is reserved inside
+    // its own track, so the overview beside it sat 22px away while every other
+    // pane on the page sat 12.
+    [
+      activityRailByViewport.every((r) => r.paneGaps && r.paneGaps.token > 0 && Math.abs(r.paneGaps.left - r.paneGaps.token) <= 1),
+      `activity: the feed leaves one pane gap beside it, bar or no bar (${JSON.stringify(activityRailByViewport.map((r) => ({ width: r.width, ...r.paneGaps })))})`,
     ],
     [
       // Activity keeps its two-up tier: its rail track is wide at this size.
