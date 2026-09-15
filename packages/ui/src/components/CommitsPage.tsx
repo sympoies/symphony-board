@@ -238,6 +238,14 @@ function CommitTimeline({
     <div
       ref={listRef}
       className="commit-list"
+      // The row HEIGHT is chosen from this container's width (onMeasure above),
+      // so the layout that fills that height has to be chosen the same way. It
+      // used to be a viewport media query, which disagreed with the measurement
+      // at exactly the size the Commits column lands on in a desktop window: a
+      // ~730px list inside a ~1900px viewport reserved the tall card and then
+      // drew the one-line desktop meta into it, leaving ~56px of dead space
+      // under three ellipsized facts.
+      data-row-layout={narrow ? "stacked" : "inline"}
       role="list"
       aria-label="Commits"
       onScroll={handleScroll}
@@ -327,8 +335,13 @@ function CommitTimeline({
                     ) : null}
                   </div>
                   <div className="commit-row-meta">
-                    <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
-                    <span>{actor} committed {relativeTime(commit.occurred_at)}</span>
+                    {/* Grouped so the stacked layout can give each FACT its own
+                        line: the provider mark belongs to the repo path, not to
+                        whatever follows it. */}
+                    <span className="commit-meta-repo">
+                      <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
+                    </span>
+                    <span className="commit-meta-who">{actor} committed {relativeTime(commit.occurred_at)}</span>
                     {branches.slice(0, 2).map((branch) => (
                       <span key={branch} className="commit-ref-chip">{branch}</span>
                     ))}

@@ -2585,6 +2585,48 @@ a.rf-node-title:hover { color: var(--accent); }
 .commit-row-meta span {
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* The provider mark and the repo path are one fact and travel together. */
+.commit-meta-repo { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* The stacked card: what the list picks when its own width cannot hold the meta
+   on one line. The tall row was already being reserved here -- this is what
+   finally draws into it. Each fact takes a line of its own, so the repo path,
+   the actor and "committed N ago" are read in full instead of being ellipsized
+   over 56px of blank card, and the branch chips get the width of the card
+   rather than a 150px cap. The subject may take a second line.
+
+   Keyed on the list's own attribute rather than a viewport query on purpose:
+   the height beside it comes from this element's clientWidth, and the two must
+   agree or the card reserves space the layout never uses. */
+.commit-list[data-row-layout="stacked"] .commit-row-body {
+  /* Size to content. --commit-row-body-height is an ESTIMATE the timeline uses
+     to reserve a slot before anything is measured, not a floor: the observer in
+     CommitsPage feeds each row's real height back into buildCommitRows. Leaving
+     the floor on kept the exact dead space this change removes for any card with
+     fewer facts -- a commit with no branch ref has two meta lines, not three,
+     and sat 35px short of the 124px estimate. The release was already keyed on
+     the container for the layout; this is its other half, which was still on a
+     viewport query. */
+  min-height: 0;
+}
+.commit-list[data-row-layout="stacked"] .commit-row-meta {
+  flex-wrap: wrap;
+  white-space: normal;
+  row-gap: 5px;
+}
+.commit-list[data-row-layout="stacked"] .commit-meta-repo,
+.commit-list[data-row-layout="stacked"] .commit-meta-who {
+  flex: 0 0 100%;
+}
+.commit-list[data-row-layout="stacked"] .commit-ref-chip { max-width: 100%; }
+.commit-list[data-row-layout="stacked"] .commit-title-line { align-items: flex-start; }
+.commit-list[data-row-layout="stacked"] .commit-message-link {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .commit-ref-chip {
   flex: none;
   max-width: 150px;
