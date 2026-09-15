@@ -955,30 +955,29 @@ export function LivePage({
             {statusLabel(connected, reconnecting)}
           </span>
         </div>
+        {/* Available at EVERY size: this button is the only control for the strip,
+            so hiding it on a roomy viewport means the ~300px it costs cannot be
+            dismissed at all. A foldable in landscape with the Android wide-layout
+            setting on lands at 1280x891 — too wide for the narrow tier, too tall for
+            the short one — and was stuck with a feed sliver. Only the DEFAULT state
+            follows the tier: open on a roomy viewport, collapsed on a short one, and
+            a stored tap beats both. The category-pills disclosure below IS still
+            tier-gated, because a roomy viewport shows those pills inline instead. */}
+        <button
+          type="button"
+          className="filter-summary-disclosure live-pulse-disclosure"
+          aria-expanded={pulseOpen}
+          aria-controls="live-pulse-cards"
+          onClick={togglePulse}
+        >
+          <span className="filter-summary-disclosure-label">metrics</span>
+          <span className="filter-summary-disclosure-summary">
+            {windowTotal}/{SPARK_WINDOW_HOURS}h
+            {latestInstant != null ? ` · ${relativeAge(latestInstant, now)} ago` : ""}
+          </span>
+          <span className="filter-summary-disclosure-caret" aria-hidden="true" />
+        </button>
       </header>
-
-      {/* Available at EVERY size: this button is the only control for the strip,
-          so hiding it on a roomy viewport means the ~300px it costs cannot be
-          dismissed at all. A foldable in landscape with the Android wide-layout
-          setting on lands at 1280x891 — too wide for the narrow tier, too tall for
-          the short one — and was stuck with a feed sliver. Only the DEFAULT state
-          follows the tier: open on a roomy viewport, collapsed on a short one, and
-          a stored tap beats both. The category-pills disclosure below IS still
-          tier-gated, because a roomy viewport shows those pills inline instead. */}
-      <button
-        type="button"
-        className="filter-summary-disclosure live-pulse-disclosure"
-        aria-expanded={pulseOpen}
-        aria-controls="live-pulse-cards"
-        onClick={togglePulse}
-      >
-        <span className="filter-summary-disclosure-label">metrics</span>
-        <span className="filter-summary-disclosure-summary">
-          {windowTotal}/{SPARK_WINDOW_HOURS}h
-          {latestInstant != null ? ` · ${relativeAge(latestInstant, now)} ago` : ""}
-        </span>
-        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
-      </button>
 
       <div className="live-pulse" id="live-pulse-cards" data-open={pulseOpen ? "true" : "false"}>
         <div className="live-card live-card-rate">

@@ -509,7 +509,7 @@ html[data-theme="paper"] .toggle-on {
 .filter-summary-disclosure[aria-expanded="true"] .filter-summary-disclosure-caret {
   transform: translateY(-2px) rotate(45deg);
 }
-.live-pulse-disclosure { display: inline-flex; margin-bottom: 10px; }
+.live-pulse-disclosure { display: inline-flex; margin-left: auto; }
 .live-pulse[data-open="false"] { display: none; }
 .search-disclosure { display: none; }
 .file-load {
@@ -4245,7 +4245,7 @@ a.rf-node-title:hover { color: var(--accent); }
    split below balances the working columns by ratio via --master-detail-columns,
    and detail prose keeps its own reading measure (.live-detail-body caps at
    100ch). render-smoke asserts the fill across the real target displays. */
-.live-header { margin: 16px 0 12px; }
+.live-header { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 16px 0 12px; }
 .live-header-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .live-header-main h1 { font-size: 22px; letter-spacing: -0.015em; }
 
