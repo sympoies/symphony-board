@@ -15,8 +15,9 @@ import type { TimeRange } from "../model.ts";
 // overview / rail gives each half a coherent job:
 //
 //   overview (here) — how much, when, and over how many days: the range summary,
-//                     the per-day strip, and the hour-of-day silhouette. Nothing
-//                     here is a filter; it is all read-only context.
+//                     the trailing-year rhythm that gives it scale, the per-day
+//                     strip, and the hour-of-day silhouette. Nothing here is a
+//                     filter; it is all read-only context.
 //   rail            — the four RANKED facets (repos / branches / types /
 //                     authors), each row of which applies the filter it names.
 //
@@ -231,9 +232,14 @@ export function CommitsOverview({
         </dl>
       </div>
 
+      {/* The rhythm reads SECOND, against the summary rather than after the two
+          strips. Every tile above it is a count inside the selected range, and a
+          count has no scale on its own: 1,810 commits is the week's whole story
+          only next to the year it came out of. The two range-shaped strips that
+          follow then say when inside the range those commits landed. */}
+      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} />
       <DayBars days={days} range={range} />
       <HourProfile rows={commits} subject="Commits" timezone={timezone} countLabel={commitCountLabel} />
-      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} />
 
       {tip ? (
         <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>

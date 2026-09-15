@@ -1546,6 +1546,9 @@ a.rf-node-title:hover { color: var(--accent); }
   gap: var(--pane-gap);
 }
 .activity-layout > .activity-list { min-width: 0; }
+/* The feed's other rule at this tier -- the scrollbar-gutter correction it
+   shares with the Commits list -- is with that one, under "Equal gaps between
+   panes" above, so the two lists' identical treatment stays in one place. */
 @media (min-width: 1212px) {
   .activity-layout { align-items: stretch; }
   .activity-layout > .activity-list {
@@ -1696,6 +1699,39 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-split { grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr); }
   .commits-split > :first-child { grid-row: span 2; }
 }
+/* Equal gaps between panes, on both sides of a list.
+
+   --pane-gap is one number and every split applies it to both of its column
+   gaps, but a list is a SCROLLER: the bar's width is reserved INSIDE its track
+   (`scrollbar-gutter: stable` on the commit list, plain overflow on the activity
+   feed), and the commit list padded itself 4px inside that again. So the last
+   pixel a list actually paints stopped 14px short of its own track edge, and one
+   grid gap produced two visibly different gaps — 26px to the left of the Commits
+   overview against 12px to its right, 22px beside the Activity overview. The
+   gap-token assertion in render-smoke could not see it: the DECLARED gap was
+   right on both sides all along.
+
+   Pulling the reserved gutter back out with a negative margin puts the painted
+   card edge ON the track edge, so both gaps read --pane-gap and the bar — which
+   is transparent until you scroll — lives in the gap the way an overlay
+   scrollbar does. Its width is the UA's decision, so --list-scrollbar is
+   MEASURED off the element by useListViewport rather than assumed here; it
+   resolves to 0 before the first measure and on a list with no bar, which is
+   exactly the no-compensation case. Never more than the gap itself, so a UA with
+   a bar wider than 12px gives up the last of the correction rather than laying
+   the list over the pane beside it.
+
+   Scoped to the tiers where a pane actually sits beside the list: below this
+   floor both pages stack and there is nothing to line up with. */
+@media (min-width: 1212px) {
+  .commits-split > .commit-list {
+    padding-right: 0;
+    margin-right: calc(-1 * min(var(--list-scrollbar, 0px), var(--pane-gap)));
+  }
+  .activity-layout > .activity-list {
+    margin-right: calc(-1 * min(var(--list-scrollbar, 0px), var(--pane-gap)));
+  }
+}
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
    layout-tier.test.ts keeps the two in step. The overview column may give up its
@@ -1754,10 +1790,6 @@ a.rf-node-title:hover { color: var(--accent); }
 
 /* --- Activity heatmap (trailing 12 months) --- */
 .activity-heatmap {
-  --hm-cell: 9px;
-  --hm-gap: 2px;
-  --hm-step: calc(var(--hm-cell) + var(--hm-gap));
-  --hm-weekday-w: 28px;
   /* Fills its track. An element ceiling inside a track that no longer has one
      just moves the dead space one level in -- it stranded 363px at 3008px wide.
      The calendar below keeps its natural size and sits left; everything else in
@@ -1829,6 +1861,17 @@ a.rf-node-title:hover { color: var(--accent); }
    top, weeks as columns left→right. The min-width preserves legibility in the
    right rail and lets smaller viewports scroll horizontally. */
 .hm-calendar {
+  /* The figure's own scale, declared on the figure. These lived on
+     .activity-heatmap, which was true only while the Activity overview was the
+     only thing that drew a calendar: once the Commits overview mounted the same
+     shared component outside that panel, every var below resolved to nothing —
+     `width: var(--hm-cell)` became invalid at computed-value time and fell back
+     to auto, so 373 cells rendered at 0x0 and the month labels all stacked on
+     column 0. An empty card, with every node present. */
+  --hm-cell: 9px;
+  --hm-gap: 2px;
+  --hm-step: calc(var(--hm-cell) + var(--hm-gap));
+  --hm-weekday-w: 28px;
   min-width: 620px;
   display: flex;
   flex-direction: column;
