@@ -10,6 +10,7 @@ import { itemMetricEntries } from "../item-metrics.ts";
 import { relativeTime, reviewThreadsLabel, type ColorOf, type ItemSort, type RelationCount, type TimeRange } from "../model.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
+import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useDetailScrollReset } from "../detail-scroll.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { DETAIL_OVERLAY_QUERY } from "../layout-tier.ts";
@@ -319,6 +320,12 @@ export function ItemsPage({
     previous: selectedIndex > 0 ? items[selectedIndex - 1]! : null,
     next: selectedIndex >= 0 && selectedIndex < items.length - 1 ? items[selectedIndex + 1]! : null,
   }), [items, selectedIndex]);
+  // The list is a plain flex column rather than a virtualized one, so it wants
+  // the scrollbar measurement without the rest of useListViewport.
+  const itemsListRef = useRef<HTMLDivElement | null>(null);
+  // An empty result renders the empty state instead of the list, so the element
+  // this measures mounts late.
+  const scrollbarPx = useScrollbarGutter(itemsListRef, [items.length === 0]);
   const { paneRef: splitPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
     items.length,
     selectedItem?.id ?? null,
@@ -440,7 +447,15 @@ export function ItemsPage({
         emptyState ?? <p className="empty">No items.</p>
       ) : (
         <div className="items-split" ref={splitPaneRef} data-detail-open={detailOpen ? "true" : "false"} style={paneHeightStyle}>
-          <div className="items-list" role="list" aria-label="Items">
+          <div
+            ref={itemsListRef}
+            className="items-list"
+            role="list"
+            aria-label="Items"
+            // See --list-scrollbar in styles.css: without it the detail pane
+            // beside this list sits 29px away while the rest of the page uses 12.
+            style={{ "--list-scrollbar": `${scrollbarPx}px` } as CSSProperties}
+          >
             {items.map((item) => {
               const accentColor = colorOf(item.source_id, item.project_path);
               const related = relationCounts.get(item.id) ?? null;

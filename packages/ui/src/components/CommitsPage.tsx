@@ -6,6 +6,7 @@ import { CommitsRail } from "./CommitsRail.tsx";
 import { CommitsOverview } from "./CommitsOverview.tsx";
 import { CommitDetail } from "./CommitDetail.tsx";
 import { useListViewport } from "../useListViewport.ts";
+import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex } from "../rail-stats.ts";
@@ -140,12 +141,15 @@ function CommitTimeline({
   // Scroll position, viewport height, and the scroll-to-top reset are shared
   // with the Activity feed. The commit list also derives its row-body height
   // from the container width (narrow = stacked layout) on every measure.
-  const { listRef, scrollTop, viewportHeight, scrollbarPx, handleScroll } = useListViewport<HTMLDivElement>({
+  const { listRef, scrollTop, viewportHeight, handleScroll } = useListViewport<HTMLDivElement>({
     defaultViewportPx: COMMIT_DEFAULT_VIEWPORT_PX,
     resetKey: commits,
     onMeasure: (el) =>
       setRowBodyHeight(el.clientWidth <= 760 ? COMMIT_ROW_BODY_HEIGHT_NARROW_PX : COMMIT_ROW_BODY_HEIGHT_PX),
   });
+  // An empty result renders a paragraph instead of the list, so the element
+  // this measures mounts late.
+  const scrollbarPx = useScrollbarGutter(listRef, [commits.length === 0]);
 
   // A new `commits` array collapses any expanded body and drops measured row
   // heights (the hook above handles the scroll reset on the same trigger).

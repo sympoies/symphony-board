@@ -5351,6 +5351,94 @@ try {
       paneGaps.push({ page: p.page, sel, ...(g ?? { missing: true }) });
     }
   }
+  // ...and the gap a READER sees, which is a different number whenever the left
+  // pane is a scroller: the bar's width is reserved inside its own track, so the
+  // last pixel the pane paints stops short of the track edge and the whitespace
+  // beside it reads wider than the gap that produced it. The token check above
+  // cannot see this -- the DECLARED gap was right on every one of these pages
+  // while Live read 22px, Items 24px and Commits 26px.
+  const paintedGaps = [];
+  for (const p of [
+    { page: "live", hash: "#/live", ready: ".live-page .live-split", split: ".live-split", card: ".live-feed .live-event", next: ".live-detail" },
+    { page: "reviews", hash: "#/reviews", ready: ".reviews-page .live-feed .live-event", split: ".reviews-page .live-split", card: ".reviews-page .live-feed .live-event", next: ".reviews-page .live-detail" },
+    { page: "items", hash: "#/items", ready: ".items-page .items-list .item-row", split: ".items-split", card: ".items-list .item-row", next: ".items-detail" },
+  ]) {
+    await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(p.hash)}` });
+    await sleep(400);
+    await waitHtml(`document.querySelector(${JSON.stringify(p.ready)})`);
+    const g = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const split = document.querySelector(${JSON.stringify(p.split)});
+        const card = document.querySelector(${JSON.stringify(p.card)});
+        const next = document.querySelector(${JSON.stringify(p.next)});
+        if (!split || !card || !next) return { found: false, hasSplit: !!split, hasCard: !!card, hasNext: !!next };
+        const scroller = card.closest('.live-feed, .items-list, .commit-list, .activity-list');
+        const nextRect = next.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        // Stacked tiers put the panes on separate rows; only a side-by-side
+        // pair has a horizontal gap to measure.
+        if (nextRect.left < cardRect.right) return { found: false, stacked: true };
+        return {
+          found: true,
+          gap: Math.round(nextRect.left - cardRect.right),
+          token: Math.round(parseFloat(getComputedStyle(split).getPropertyValue('--pane-gap')) || 0),
+          gutterPx: scroller ? Math.round(scroller.offsetWidth - scroller.clientWidth) : null,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || { found: false };
+    paintedGaps.push({ page: p.page, ...g });
+  }
+  const paintedGapOdd = paintedGaps.filter((g) => !g.found || g.token <= 0 || Math.abs(g.gap - g.token) > 1);
+
+  // The correction survives the list going away and coming back. Each of these
+  // pages renders an empty state INSTEAD of its scroller, so the element being
+  // measured mounts late; a measurement keyed on anything but the list's own
+  // presence silently never runs, and the page then looks correct only after
+  // some later render happens to re-measure it. Searching for a string no item
+  // matches and then clearing it reproduces exactly that sequence.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.items-page .items-list .item-row')");
+  const itemsGapNow = async () =>
+    (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const list = document.querySelector('.items-list');
+        const card = document.querySelector('.items-list .item-row');
+        const next = document.querySelector('.items-detail');
+        const split = document.querySelector('.items-split');
+        if (!list || !card || !next || !split) return { found: false };
+        return {
+          found: true,
+          gap: Math.round(next.getBoundingClientRect().left - card.getBoundingClientRect().right),
+          token: Math.round(parseFloat(getComputedStyle(split).getPropertyValue('--pane-gap')) || 0),
+          published: getComputedStyle(list).getPropertyValue('--list-scrollbar').trim(),
+          gutterPx: Math.round(list.offsetWidth - list.clientWidth),
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || { found: false };
+  // The page must MOUNT with no list, which is the state where a measurement
+  // keyed on anything but the list's own presence never runs at all. The search
+  // token lives in the hash, so landing on a query that matches nothing gets
+  // there directly -- emptying a page that is already open would leave the
+  // earlier measurement standing and this would pass without testing anything.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
+  await sleep(250);
+  await waitHtml("document.querySelector('.board-7')");
+  await send("Runtime.evaluate", { expression: "location.hash = '#/items?q=zzz-no-item-matches-this-zzz'" });
+  await sleep(350);
+  await waitHtml("document.querySelector('.items-page')");
+  const itemsMountedEmpty = (await send("Runtime.evaluate", {
+    expression: "!!document.querySelector('.items-page') && !document.querySelector('.items-list .item-row')",
+    returnByValue: true,
+  })).result.value === true;
+  // Same route, so ItemsPage does NOT remount -- the list simply appears.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
+  await sleep(350);
+  await waitHtml("document.querySelector('.items-page .items-list .item-row')");
+  const itemsGapAfterRemount = await itemsGapNow();
+
   const paneGapToken = (await send("Runtime.evaluate", {
     expression: "getComputedStyle(document.documentElement).getPropertyValue('--pane-gap').trim()",
     returnByValue: true,
@@ -5756,6 +5844,18 @@ try {
         railTwoUp.find((r) => r.page === "activity")?.columns === 2 &&
         railTwoUp.find((r) => r.page === "commits")?.columns === 1,
       `rails: Activity flows two-up at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
+    ],
+    [
+      itemsMountedEmpty === true &&
+        itemsGapAfterRemount.found === true &&
+        itemsGapAfterRemount.token > 0 &&
+        Math.abs(itemsGapAfterRemount.gap - itemsGapAfterRemount.token) <= 1 &&
+        itemsGapAfterRemount.published === `${itemsGapAfterRemount.gutterPx}px`,
+      `items: the gap is right on a page that mounted with no list at all (mountedEmpty=${itemsMountedEmpty}, ${JSON.stringify(itemsGapAfterRemount)})`,
+    ],
+    [
+      paintedGapOdd.length === 0 && paintedGaps.length === 3,
+      `app: the gap a reader SEES beside a scrolling pane is the pane gap on every master-detail page (${JSON.stringify(paintedGaps)})`,
     ],
     [
       paneGapOdd.length === 0 && paneGaps.length === 10 && paneGapToken === "12px",
