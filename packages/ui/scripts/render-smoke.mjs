@@ -5889,7 +5889,7 @@ try {
       commitsFillTiers.length === 3 &&
         commitsFillTiers.every((t) =>
           t.tier === "three-column"
-            ? t.minHeightPx > 0 && t.railShort <= 2 && t.railTail <= 8 && t.chartTail <= 12
+            ? t.minHeightPx > 0 && t.overviewShort <= 2 && t.railShort <= 2 && t.overviewTail <= 8 && t.railTail <= 8 && t.chartTail <= 12
             : t.minHeightPx <= 0,
         ),
       `commits: the column fill applies to the three-column tier only (${JSON.stringify(commitsFillTiers)})`,
@@ -5925,9 +5925,9 @@ try {
         commitsRailWide.drawnBars?.dayBar > 0 &&
         commitsRailWide.drawnBars?.hourBar > 0 &&
         commitsRailWide.drawnBars?.rankBar > 0 &&
-        // The rail ends level with the list, and the height it gained went into
-        // the charts rather than into blank card. The overview keeps its natural
-        // height on purpose -- see the percentage-bar note in styles.css.
+        // Both supporting columns end level with the list, and the height they
+        // gained went into the charts rather than into blank card.
+        commitsRailWide.columnFill?.overviewShort <= 2 &&
         commitsRailWide.columnFill?.railShort <= 2 &&
         commitsRailWide.columnFill?.chartPx >= 76 &&
         commitsRailWide.columnFill?.stripPx >= 56 &&
