@@ -527,10 +527,32 @@ test("runBridge exits when a failed connection outlasts the restart window", asy
 test("runBridge treats cursor progress across short SSE sessions as healthy", async () => {
   const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
   const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), 80);
+  const cursorPath = join(dir, "cursor");
+  // Stop on the PROPERTY rather than on a stopwatch.
+  //
+  // This test is about the cursor advancing ACROSS sessions, and the bridge has
+  // proven that the moment the second advance lands; waiting any longer only
+  // measures how loaded the machine is. The old form aborted after a flat 80ms
+  // and asserted two advances had fitted inside it, which failed twice in one
+  // day on CI and reproduces 3/3 on an idle laptop at a 32ms budget -- the
+  // assertion was reading the runner's spare capacity, not the bridge.
+  //
+  // The safety timeout is what a real regression trips: a bridge that never
+  // advances the cursor waits the full 5s and then fails, instead of a bridge
+  // that advanced it slightly too slowly failing at 80ms.
+  const advancedTo = (n: number) => {
+    try {
+      return Number(readFileSync(cursorPath, "utf8")) >= n;
+    } catch {
+      return false;
+    }
+  };
+  writeFileSync(cursorPath, "0", "utf8");
+  const settled = setInterval(() => {
+    if (advancedTo(2)) controller.abort();
+  }, 5);
+  const abortTimer = setTimeout(() => controller.abort(), 5_000);
   try {
-    const cursorPath = join(dir, "cursor");
-    writeFileSync(cursorPath, "0", "utf8");
     const cfg = resolveTelegramBridgeConfig({
       LIVE_URL: "http://live",
       LIVE_TELEGRAM_DRY_RUN: "1",
@@ -548,8 +570,12 @@ test("runBridge treats cursor progress across short SSE sessions as healthy", as
     }) as typeof fetch;
 
     await runBridge(cfg, controller.signal);
-    assert.ok(Number(readFileSync(cursorPath, "utf8")) >= 2);
+    assert.ok(
+      advancedTo(2),
+      `cursor did not advance across sessions (got ${readFileSync(cursorPath, "utf8")})`,
+    );
   } finally {
+    clearInterval(settled);
     clearTimeout(abortTimer);
     rmSync(dir, { recursive: true, force: true });
   }
