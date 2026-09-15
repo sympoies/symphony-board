@@ -3557,6 +3557,8 @@ try {
     expression: `(() => {
       const pulse = document.querySelector('.live-pulse');
       const disclosure = document.querySelector('.live-pulse-disclosure');
+      const headerRect = document.querySelector('.live-header')?.getBoundingClientRect();
+      const disclosureRect = disclosure?.getBoundingClientRect();
       const feedRect = document.querySelector('.live-feed')?.getBoundingClientRect();
       return {
         // Open by default here: 891px clears the short tier, so this viewport is
@@ -3564,6 +3566,12 @@ try {
         pulseOpen: pulse?.dataset.open || '',
         pulseDisplay: pulse ? getComputedStyle(pulse).display : '',
         disclosureDisplay: disclosure ? getComputedStyle(disclosure).display : '',
+        disclosureInHeader: disclosure?.closest('.live-header') != null,
+        disclosureRightGap: Math.round((headerRect?.right ?? 0) - (disclosureRect?.right ?? 0)),
+        disclosureHeaderCenterDelta: Math.round(Math.abs(
+          ((headerRect?.top ?? 0) + (headerRect?.height ?? 0) / 2) -
+          ((disclosureRect?.top ?? 0) + (disclosureRect?.height ?? 0) / 2),
+        )),
         pulseHeight: Math.round(pulse?.getBoundingClientRect().height ?? 0),
         feedHeight: Math.round(feedRect?.height ?? 0),
       };
@@ -6350,8 +6358,14 @@ try {
     [liveFoldable.splitColumns === 2 && liveFoldable.disclosureDisplay !== "none" && liveFoldable.pulseOpen === "false" && liveFoldable.pulseDisplay === "none", `live: a short-but-wide viewport keeps the two-pane split and folds the metric strip by default (${JSON.stringify(liveFoldable)})`],
     [(liveFoldable.feedHeight || 0) >= 240 && (liveFoldable.feedHeight || 0) <= (liveFoldable.clientHeight || 0) && liveFoldable.firstRowFits === true, `live: the foldable feed keeps a usable pane with its first row inside it (${JSON.stringify(liveFoldable)})`],
     [
-      liveForcedWideAtRest.disclosureDisplay === "inline-flex" && liveForcedWideAtRest.pulseOpen === "true",
+      ["flex", "inline-flex"].includes(liveForcedWideAtRest.disclosureDisplay) && liveForcedWideAtRest.pulseOpen === "true",
       `live: the forced wide viewport offers the metrics control and still defaults the strip open (${JSON.stringify(liveForcedWideAtRest)})`,
+    ],
+    [
+      liveForcedWideAtRest.disclosureInHeader === true &&
+        Math.abs(liveForcedWideAtRest.disclosureRightGap || 0) <= 2 &&
+        (liveForcedWideAtRest.disclosureHeaderCenterDelta || 0) <= 2,
+      `live: roomy viewports place the metrics control at the trailing edge of the Live header (${JSON.stringify(liveForcedWideAtRest)})`,
     ],
     [
       liveForcedWideCollapsed.pulseOpen === "false" &&
