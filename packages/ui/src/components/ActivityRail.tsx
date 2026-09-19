@@ -79,9 +79,15 @@ export function ActivityRail({
             key: rank.key,
             label: rank.label,
             count: rank.count,
-            // A face rather than a clipped login, matching the Live tab's buffer
-            // card. The account name is on hover, which is the only way it fits.
-            footer: <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />,
+            // Vertical bars only have room for the face; once the chart relays
+            // into rows, CSS reveals the account beside it so an ultrawide rail
+            // does not turn Who into a column of anonymous circles.
+            footer: (
+              <span className="activity-rank-actor">
+                <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />
+                <span className="activity-rank-actor-name" aria-hidden="true">{rank.label}</span>
+              </span>
+            ),
           }))}
         />
       </div>

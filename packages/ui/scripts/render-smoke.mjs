@@ -5248,10 +5248,19 @@ try {
     expression: `(() => {
       const shaText = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
       const rowSha = (document.querySelector('.commit-row-selected .commit-sha-text, .commit-row-selected .commit-sha')?.textContent || '').trim();
+      const detail = document.querySelector('.commit-detail-card');
+      const overview = document.querySelector('.commits-overview');
+      const detailRect = detail?.getBoundingClientRect();
+      const overviewRect = overview?.getBoundingClientRect();
       return {
-        hasDetail: !!document.querySelector('.commit-detail-card'),
-        // The detail replaces the overview column; the rail is untouched.
+        hasDetail: !!detail,
+        // Detail overlays the overview rather than unmounting it, so the range
+        // context remains visible below the selected commit card.
         hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
+        sharesContext: !!detail?.closest('.commits-context')?.contains(overview),
+        overlapsDigest: !!detailRect && !!overviewRect &&
+          detailRect.left < overviewRect.right && detailRect.right > overviewRect.left &&
+          detailRect.top < overviewRect.bottom && detailRect.bottom > overviewRect.top,
         railStillThere: !!document.querySelector('.commits-rail .rail-block'),
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
         hasTitle: !!document.querySelector('.commit-detail-title'),
@@ -5771,6 +5780,10 @@ try {
           found: true,
           railWidth: Math.round(rail.getBoundingClientRect().width),
           columns: getComputedStyle(rail).gridTemplateColumns.trim().split(/\\s+/).length,
+          visibleActorNames: [...rail.querySelectorAll('.activity-rank-actor-name')].filter((name) => {
+            const rect = name.getBoundingClientRect();
+            return (name.textContent || '').trim().length > 0 && rect.width > 0 && rect.height > 0;
+          }).length,
           overflowing,
         };
       })()`,
@@ -6095,19 +6108,22 @@ try {
         commitsRailFacet.repoRows >= commitsRailWide.repoRows,
       `commits: the rail keeps offering other repos after one is selected — the facet rule (before ${commitsRailWide.repoRows} rows, after ${JSON.stringify(commitsRailFacet)})`,
     ],
-    // Master-detail: selecting a row swaps the digest for the detail, and
-    // selecting it again swaps back.
+    // Master-detail: selecting a row overlays the detail on the digest, keeping
+    // the range context mounted and visible below it; selecting it again closes
+    // only the overlay.
     [
       commitDetailSelect.clicked === true &&
         commitDetailShown.hasDetail === true &&
         commitDetailShown.hasTitle === true &&
-        commitDetailShown.hasDigest === false &&
+        commitDetailShown.hasDigest === true &&
+        commitDetailShown.sharesContext === true &&
+        commitDetailShown.overlapsDigest === true &&
         commitDetailShown.railStillThere === true &&
         commitDetailShown.selectedRows === 1 &&
         commitDetailToggledOff.hasDetail === false &&
         commitDetailToggledOff.hasDigest === true &&
         commitDetailToggledOff.railStillThere === true,
-      `commits: selecting a row swaps the overview for the detail and back, leaving the rail in place (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+      `commits: selecting a row overlays the detail without removing the overview or rail (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
     ],
     [
       commitDetailShown.shaIsHex === true && commitDetailShown.shaLength === 40,
@@ -6178,8 +6194,9 @@ try {
       railTwoUp.length === 2 &&
         railTwoUp.every((r) => r.found === true && r.overflowing.length === 0) &&
         railTwoUp.find((r) => r.page === "activity")?.columns === 2 &&
+        railTwoUp.find((r) => r.page === "activity")?.visibleActorNames > 0 &&
         railTwoUp.find((r) => r.page === "commits")?.columns === 1,
-      `rails: Activity flows two-up at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
+      `rails: Activity flows two-up with visible actor accounts at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
     ],
     [
       itemsMountedEmpty === true &&
