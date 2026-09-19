@@ -1788,7 +1788,7 @@ a.rf-node-title:hover { color: var(--accent); }
    - The ceiling is the rows tier. At 2200px the rail's charts relayout to
      fixed 26px rows, and a flex-grown chart around fixed rows is blank space
      inside the chart rather than taller bars.
-   - CommitDetail overlays the overview inside `.commits-context`; only the
+   - CommitDetail sits before the overview inside `.commits-context`; only the
      persistent overview and direct digest rail participate in column fill. */
 @media (min-width: 1700px) and (max-width: 2199px) {
   .commits-split > .commits-context > .commits-overview,
@@ -4927,24 +4927,20 @@ span.live-avatar { cursor: default; }
 }
 .commits-context {
   display: grid;
-  grid-template-areas: "context";
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pane-gap);
   min-width: 0;
   align-items: start;
   position: sticky;
   top: 12px;
-}
-.commits-context > .commits-overview,
-.commits-context > .commit-detail {
-  grid-area: context;
 }
 .commits-context > .commits-overview {
   position: static;
   top: auto;
 }
 .commits-context > .commit-detail {
-  position: relative;
+  position: static;
   top: auto;
-  z-index: 2;
 }
 /* .hm-overview-head / .hm-summary are global, so this column reuses the exact
    chrome the Activity overview uses rather than a near-copy of it. The one rule
