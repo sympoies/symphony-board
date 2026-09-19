@@ -4,9 +4,10 @@ import { SourceRepo } from "./SourceRepo.tsx";
 import { safeHref } from "../url.ts";
 import { commitBody, commitBranches, commitMessage, commitSha, relativeTime, type ColorOf } from "../model.ts";
 
-// The selected commit, shown where the digest rail sits. This is what lets the
-// full commit message be read at all: the list row clamps to its title and the
-// `…` expander only ever revealed a preview.
+// The selected commit, layered over the overview column while the overview
+// remains mounted beneath it. This is what lets the full commit message be read
+// at all: the list row clamps to its title and the `…` expander only ever
+// revealed a preview.
 //
 // Provider-neutral by the same rule as the list (CommitsPage's header comment) —
 // message, sha, branches, repo, author, time and the provider link are the whole

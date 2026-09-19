@@ -5232,8 +5232,8 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(350);
 
-  // Selecting a commit row swaps the digest for the detail pane, which is what
-  // makes the full commit message readable at all.
+  // Selecting a commit row overlays the digest with the detail pane, which is
+  // what makes the full commit message readable while preserving range context.
   const commitDetailSelect = (await send("Runtime.evaluate", {
     expression: `(() => {
       const row = document.querySelector('.commit-list .commit-row');
@@ -5248,10 +5248,19 @@ try {
     expression: `(() => {
       const shaText = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
       const rowSha = (document.querySelector('.commit-row-selected .commit-sha-text, .commit-row-selected .commit-sha')?.textContent || '').trim();
+      const detail = document.querySelector('.commit-detail-card');
+      const overview = document.querySelector('.commits-overview');
+      const detailRect = detail?.getBoundingClientRect();
+      const overviewRect = overview?.getBoundingClientRect();
       return {
-        hasDetail: !!document.querySelector('.commit-detail-card'),
-        // The detail replaces the overview column; the rail is untouched.
+        hasDetail: !!detail,
+        // Detail overlays the overview rather than unmounting it, so the range
+        // context remains visible below the selected commit card.
         hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
+        sharesContext: !!detail?.closest('.commits-context')?.contains(overview),
+        overlapsDigest: !!detailRect && !!overviewRect &&
+          detailRect.left < overviewRect.right && detailRect.right > overviewRect.left &&
+          detailRect.top < overviewRect.bottom && detailRect.bottom > overviewRect.top,
         railStillThere: !!document.querySelector('.commits-rail .rail-block'),
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
         hasTitle: !!document.querySelector('.commit-detail-title'),
@@ -5277,6 +5286,67 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+
+  // The persistent range context is not just a DOM-presence guarantee. At each
+  // responsive shape, a concrete overview block must remain visibly available
+  // below the selected commit card so the detail never becomes a replacement
+  // screen. Scroll the context itself into view because it follows the list in
+  // the single-column tier.
+  const commitDetailVisibilityByViewport = [];
+  for (const vp of [
+    { name: "stacked", width: 1000, height: 1440 },
+    { name: "two-column", width: 1280, height: 1440 },
+    { name: "three-column", width: 1880, height: 1080 },
+    { name: "rows", width: 2560, height: 1440 },
+  ]) {
+    await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+    await sleep(300);
+    await waitHtml("document.querySelector('.commit-list .commit-row')");
+    await send("Runtime.evaluate", { expression: "document.querySelector('.commit-list .commit-row').click()" });
+    await sleep(300);
+    await send("Runtime.evaluate", { expression: "document.querySelector('.commits-context')?.scrollIntoView({ block: 'start' })" });
+    await sleep(150);
+    const visible = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const context = document.querySelector('.commits-context');
+        const detail = context?.querySelector('.commit-detail-card');
+        const overview = context?.querySelector('.commits-overview');
+        if (!context || !detail || !overview) return { found: false };
+        const detailRect = detail.getBoundingClientRect();
+        const overviewRect = overview.getBoundingClientRect();
+        const blocks = [...overview.querySelectorAll(':scope > .rail-block')];
+        const lowerBlock = blocks
+          .map((block) => ({
+            title: (block.querySelector('.rail-block-title, .hm-overview-head h3')?.textContent || '').trim(),
+            rect: block.getBoundingClientRect(),
+          }))
+          .find(({ rect }) => rect.bottom > detailRect.bottom + 1 && rect.top < innerHeight);
+        const lowerBlockVisiblePx = lowerBlock
+          ? Math.max(0, Math.min(lowerBlock.rect.bottom, innerHeight) - Math.max(lowerBlock.rect.top, detailRect.bottom, 0))
+          : 0;
+        return {
+          found: true,
+          hasDigest: !!overview.querySelector('.rail-daybars'),
+          sharesContext: detail.closest('.commits-context') === context && overview.closest('.commits-context') === context,
+          overlapsDigest: detailRect.left < overviewRect.right && detailRect.right > overviewRect.left &&
+            detailRect.top < overviewRect.bottom && detailRect.bottom > overviewRect.top,
+          visibleBelowPx: Math.max(0, Math.min(overviewRect.bottom, innerHeight) - Math.max(detailRect.bottom, overviewRect.top, 0)),
+          lowerBlock: lowerBlock?.title || null,
+          lowerBlockVisiblePx: Math.round(lowerBlockVisiblePx),
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || { found: false };
+    commitDetailVisibilityByViewport.push({ tier: vp.name, width: vp.width, ...visible });
+    await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail-back')?.click()" });
+    await sleep(200);
+  }
+
+  // Restore the ordinary desktop tier for the interaction checks that follow.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(300);
 
   // Keyboard reachability. Opening the detail is the only way to read a full
   // commit message, so a mouse-only path would put that behind a pointer.
@@ -5740,6 +5810,9 @@ try {
         const rail = document.querySelector(${JSON.stringify(page.rail)});
         if (!rail) return { found: false };
         const blocks = [...rail.querySelectorAll('.rail-block')];
+        const whoBlock = blocks.find((block) =>
+          (block.querySelector('.rail-block-title')?.textContent || '').trim() === 'Who'
+        );
         const overflowing = [];
         for (const b of blocks) {
           for (const plot of b.querySelectorAll('.live-rank-plot, .rail-hours, .rail-daybars')) {
@@ -5771,6 +5844,11 @@ try {
           found: true,
           railWidth: Math.round(rail.getBoundingClientRect().width),
           columns: getComputedStyle(rail).gridTemplateColumns.trim().split(/\\s+/).length,
+          actorRows: whoBlock?.querySelectorAll('.live-rank-item').length || 0,
+          visibleActorNames: [...(whoBlock?.querySelectorAll('.activity-rank-actor-name') || [])].filter((name) => {
+            const rect = name.getBoundingClientRect();
+            return (name.textContent || '').trim().length > 0 && rect.width > 0 && rect.height > 0;
+          }).length,
           overflowing,
         };
       })()`,
@@ -6095,19 +6173,31 @@ try {
         commitsRailFacet.repoRows >= commitsRailWide.repoRows,
       `commits: the rail keeps offering other repos after one is selected — the facet rule (before ${commitsRailWide.repoRows} rows, after ${JSON.stringify(commitsRailFacet)})`,
     ],
-    // Master-detail: selecting a row swaps the digest for the detail, and
-    // selecting it again swaps back.
+    // Master-detail: selecting a row overlays the detail on the digest, keeping
+    // the range context mounted and visible below it; selecting it again closes
+    // only the overlay.
     [
       commitDetailSelect.clicked === true &&
         commitDetailShown.hasDetail === true &&
         commitDetailShown.hasTitle === true &&
-        commitDetailShown.hasDigest === false &&
+        commitDetailShown.hasDigest === true &&
+        commitDetailShown.sharesContext === true &&
+        commitDetailShown.overlapsDigest === true &&
         commitDetailShown.railStillThere === true &&
         commitDetailShown.selectedRows === 1 &&
+        commitDetailVisibilityByViewport.length === 4 &&
+        commitDetailVisibilityByViewport.every((r) =>
+          r.found === true &&
+          r.hasDigest === true &&
+          r.sharesContext === true &&
+          r.overlapsDigest === true &&
+          r.visibleBelowPx > 0 &&
+          r.lowerBlockVisiblePx > 0
+        ) &&
         commitDetailToggledOff.hasDetail === false &&
         commitDetailToggledOff.hasDigest === true &&
         commitDetailToggledOff.railStillThere === true,
-      `commits: selecting a row swaps the overview for the detail and back, leaving the rail in place (${JSON.stringify(commitDetailShown)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+      `commits: selecting a row overlays the detail without removing the overview or rail at every responsive tier (${JSON.stringify(commitDetailShown)}, tiers=${JSON.stringify(commitDetailVisibilityByViewport)} -> ${JSON.stringify(commitDetailToggledOff)})`,
     ],
     [
       commitDetailShown.shaIsHex === true && commitDetailShown.shaLength === 40,
@@ -6178,8 +6268,11 @@ try {
       railTwoUp.length === 2 &&
         railTwoUp.every((r) => r.found === true && r.overflowing.length === 0) &&
         railTwoUp.find((r) => r.page === "activity")?.columns === 2 &&
+        railTwoUp.find((r) => r.page === "activity")?.actorRows > 1 &&
+        railTwoUp.find((r) => r.page === "activity")?.visibleActorNames ===
+          railTwoUp.find((r) => r.page === "activity")?.actorRows &&
         railTwoUp.find((r) => r.page === "commits")?.columns === 1,
-      `rails: Activity flows two-up at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
+      `rails: Activity flows two-up with visible actor accounts at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
     ],
     [
       itemsMountedEmpty === true &&

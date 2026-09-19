@@ -1609,6 +1609,22 @@ a.rf-node-title:hover { color: var(--accent); }
     justify-content: start;
     gap: 6px;
   }
+  .activity-rail .activity-rank-actor {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  .activity-rail .activity-rank-actor-name {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--text) 84%, var(--muted));
+    font-size: 11px;
+  }
   .commits-rail .live-rank-name,
   .activity-rail .live-rank-name {
     max-width: none;
@@ -1772,23 +1788,22 @@ a.rf-node-title:hover { color: var(--accent); }
    - The ceiling is the rows tier. At 2200px the rail's charts relayout to
      fixed 26px rows, and a flex-grown chart around fixed rows is blank space
      inside the chart rather than taller bars.
-   - CommitDetail's root carries `commits-rail` too, so the selected-commit
-     pane would stretch one short card to the full height with its content
-     crammed at the top. It is excluded by class. */
+   - CommitDetail overlays the overview inside `.commits-context`; only the
+     persistent overview and direct digest rail participate in column fill. */
 @media (min-width: 1700px) and (max-width: 2199px) {
-  .commits-split > .commits-overview,
+  .commits-split > .commits-context > .commits-overview,
   .commits-split > .commits-rail:not(.commit-detail) {
     display: flex;
     flex-direction: column;
   }
-  .commits-split > .commits-overview {
+  .commits-split > .commits-context > .commits-overview {
     height: var(--content-pane-height, auto);
   }
   .commits-split > .commits-rail:not(.commit-detail) {
     min-height: var(--content-pane-height, 0px);
   }
-  .commits-split > .commits-overview > .rail-block:has(.rail-daybars),
-  .commits-split > .commits-overview > .rail-block:has(.rail-hours),
+  .commits-split > .commits-context > .commits-overview > .rail-block:has(.rail-daybars),
+  .commits-split > .commits-context > .commits-overview > .rail-block:has(.rail-hours),
   .commits-split > .commits-rail:not(.commit-detail) > .rail-block {
     flex: 1 1 auto;
     display: flex;
@@ -1800,8 +1815,8 @@ a.rf-node-title:hover { color: var(--accent); }
     min-height: 76px;
   }
   .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-repos { min-height: 84px; }
-  .commits-split > .commits-overview .rail-daybars,
-  .commits-split > .commits-overview .rail-hours {
+  .commits-split > .commits-context > .commits-overview .rail-daybars,
+  .commits-split > .commits-context > .commits-overview .rail-hours {
     flex: 1 1 auto;
     height: auto;
     min-height: 56px;
@@ -4440,6 +4455,12 @@ a.rf-node-title:hover { color: var(--accent); }
   height: 24px;
   margin: 0;
 }
+.activity-rank-actor {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+.activity-rank-actor-name { display: none; }
 /* The cursor follows what the element actually IS, rather than being pinned per
    placement. A rank avatar used to be unlinked everywhere, so it was given an
    arrow; now it links to the provider profile when the contract carries one, and
@@ -4903,6 +4924,27 @@ span.live-avatar { cursor: default; }
   align-content: start;
   position: sticky;
   top: 12px;
+}
+.commits-context {
+  display: grid;
+  grid-template-areas: "context";
+  min-width: 0;
+  align-items: start;
+  position: sticky;
+  top: 12px;
+}
+.commits-context > .commits-overview,
+.commits-context > .commit-detail {
+  grid-area: context;
+}
+.commits-context > .commits-overview {
+  position: static;
+  top: auto;
+}
+.commits-context > .commit-detail {
+  position: relative;
+  top: auto;
+  z-index: 2;
 }
 /* .hm-overview-head / .hm-summary are global, so this column reuses the exact
    chrome the Activity overview uses rather than a near-copy of it. The one rule

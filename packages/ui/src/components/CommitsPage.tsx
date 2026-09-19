@@ -724,20 +724,21 @@ export function CommitsPage({
             setSelectedKey((current) => (current === activityKey(commit) ? null : activityKey(commit)))
           }
         />
-        {/* Middle column. A selected commit takes this slot — it is the detail
-            for the row beside it, so it belongs next to the list rather than out
-            at the far edge; the overview returns when the selection clears. */}
-        {selectedCommit ? (
-          <CommitDetail
-            commit={selectedCommit}
-            timezone={timezone}
-            sourceKind={sourceKind}
-            colorOf={colorOf}
-            onClose={() => setSelectedKey(null)}
-          />
-        ) : (
+        {/* Middle column. Keep the range overview mounted as the persistent
+            context for the page; a selected commit layers its readable detail
+            over the top of that column without erasing the charts below it. */}
+        <div className="commits-context">
           <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
-        )}
+          {selectedCommit ? (
+            <CommitDetail
+              commit={selectedCommit}
+              timezone={timezone}
+              sourceKind={sourceKind}
+              colorOf={colorOf}
+              onClose={() => setSelectedKey(null)}
+            />
+          ) : null}
+        </div>
         {/* Third column: the ranked facets, always present. Unlike Activity's
             rail this is not gated on a wide breakpoint — the Commits page has
             only ever had one supporting column, so hiding it below the tier
