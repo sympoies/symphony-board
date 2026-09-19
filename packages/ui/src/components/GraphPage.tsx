@@ -274,7 +274,7 @@ function readableLinkDistance(link: SimLink, dimOf: (id: string) => Dim, density
   return nodeRadius(source, dimOf) + nodeRadius(target, dimOf) + gap;
 }
 
-function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity, tickNodeCount = nodes.length): Map<string, { x: number; y: number }> {
+function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity): Map<string, { x: number; y: number }> {
   const simNodes: SimNode[] = nodes.map((n) => ({ id: n.id }));
   const simLinks: SimLink[] = links.map((l) => ({ source: l.source, target: l.target }));
   const collisionGap = density === "focus" ? FOCUS_COLLISION_GAP : OVERVIEW_COLLISION_GAP;
@@ -292,7 +292,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
     // more room and overlap less.
     .force("collide", forceCollide((d) => nodeRadius((d as SimNode).id, dimOf) + collisionGap))
     .stop();
-  for (let i = 0; i < graphForceLayoutTicks(tickNodeCount); i++) sim.tick();
+  for (let i = 0; i < graphForceLayoutTicks(nodes.length); i++) sim.tick();
   const m = new Map<string, { x: number; y: number }>();
   for (const n of simNodes) {
     const { w, h } = dimOf(n.id);
@@ -842,7 +842,7 @@ export function GraphPage({
     const layoutOne = (component: GraphData) =>
       layout === "hierarchy"
         ? layoutDagre(component.nodes, component.links, dimOf)
-        : layoutForce(component.nodes, component.links, dimOf, inFocus ? "focus" : "overview", view.nodes.length);
+        : layoutForce(component.nodes, component.links, dimOf, inFocus ? "focus" : "overview");
     if (inFocus) return layoutOne(view);
     const components = graphConnectedComponents(view);
     return packGraphComponentLayouts(
