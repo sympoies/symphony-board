@@ -121,6 +121,7 @@ import {
   packGraphComponentLayouts,
   graphTopologyKey,
   graphForceLayoutTicks,
+  graphForceLayoutTickBudgets,
   focusNeighborhoodNodes,
   isSyncRunActive,
   syncProducedFreshData,
@@ -1957,6 +1958,24 @@ test("graphForceLayoutTicks caps synchronous work for a safety-cap graph", () =>
   assert.equal(graphForceLayoutTicks(1), 320);
   assert.ok(graphForceLayoutTicks(200) <= 100);
   assert.ok(graphForceLayoutTicks(200) < graphForceLayoutTicks(80));
+});
+
+test("graphForceLayoutTickBudgets bounds work across disconnected components", () => {
+  assert.deepEqual(graphForceLayoutTickBudgets([2]), [320], "one small graph keeps the high-quality budget");
+
+  const componentSizes = Array.from({ length: 100 }, () => 2);
+  const budgets = graphForceLayoutTickBudgets(componentSizes);
+  const overviewTicks = graphForceLayoutTicks(200);
+  assert.deepEqual(new Set(budgets), new Set([overviewTicks]));
+  assert.ok(
+    budgets.reduce((work, ticks, index) => work + ticks * componentSizes[index]!, 0) <= overviewTicks * 200,
+    "partitioning cannot exceed the safety-cap graph's weighted tick work",
+  );
+  assert.ok(
+    budgets.reduce((total, ticks) => total + ticks, 0) <= overviewTicks * 100,
+    "many two-node simulations retain an explicit aggregate tick-call ceiling",
+  );
+  assert.deepEqual(graphForceLayoutTickBudgets([1, 2, 197]), [0, overviewTicks, overviewTicks], "isolated nodes need no simulation ticks");
 });
 
 // The Graph page's focus view: focusSubgraph builds the focused item + its direct

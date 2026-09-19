@@ -30,7 +30,7 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
@@ -274,7 +274,7 @@ function readableLinkDistance(link: SimLink, dimOf: (id: string) => Dim, density
   return nodeRadius(source, dimOf) + nodeRadius(target, dimOf) + gap;
 }
 
-function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity): Map<string, { x: number; y: number }> {
+function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity, tickBudget: number): Map<string, { x: number; y: number }> {
   const simNodes: SimNode[] = nodes.map((n) => ({ id: n.id }));
   const simLinks: SimLink[] = links.map((l) => ({ source: l.source, target: l.target }));
   const collisionGap = density === "focus" ? FOCUS_COLLISION_GAP : OVERVIEW_COLLISION_GAP;
@@ -292,7 +292,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
     // more room and overlap less.
     .force("collide", forceCollide((d) => nodeRadius((d as SimNode).id, dimOf) + collisionGap))
     .stop();
-  for (let i = 0; i < graphForceLayoutTicks(nodes.length); i++) sim.tick();
+  for (let i = 0; i < tickBudget; i++) sim.tick();
   const m = new Map<string, { x: number; y: number }>();
   for (const n of simNodes) {
     const { w, h } = dimOf(n.id);
@@ -839,14 +839,15 @@ export function GraphPage({
   }, [view]);
 
   const positions = useMemo(() => {
-    const layoutOne = (component: GraphData) =>
+    const layoutOne = (component: GraphData, tickBudget: number) =>
       layout === "hierarchy"
         ? layoutDagre(component.nodes, component.links, dimOf)
-        : layoutForce(component.nodes, component.links, dimOf, inFocus ? "focus" : "overview");
-    if (inFocus) return layoutOne(view);
+        : layoutForce(component.nodes, component.links, dimOf, inFocus ? "focus" : "overview", tickBudget);
+    if (inFocus) return layoutOne(view, graphForceLayoutTicks(view.nodes.length));
     const components = graphConnectedComponents(view);
+    const tickBudgets = graphForceLayoutTickBudgets(components.map((component) => component.nodes.length));
     return packGraphComponentLayouts(
-      components.map((component) => ({ key: component.nodes[0]?.id ?? "", positions: layoutOne(component) })),
+      components.map((component, index) => ({ key: component.nodes[0]?.id ?? "", positions: layoutOne(component, tickBudgets[index] ?? 0) })),
       dimOf,
     );
   }, [view, layout, dimOf, inFocus]);

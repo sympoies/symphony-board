@@ -2515,6 +2515,19 @@ export function graphForceLayoutTicks(nodeCount: number): number {
   return 96;
 }
 
+// Disconnected components are simulated independently, but they still share
+// one synchronous overview-work budget. Giving every tiny island its standalone
+// 320-tick budget would bypass the 200-node safety tier; cap each non-trivial
+// component at the tick tier selected by the full overview. Because each node
+// belongs to exactly one component, weighted simulation work stays at or below
+// `total nodes * overview ticks` while a genuinely small graph keeps its fuller
+// convergence budget. Isolated nodes need no simulation at all.
+export function graphForceLayoutTickBudgets(componentNodeCounts: readonly number[]): number[] {
+  const totalNodeCount = componentNodeCounts.reduce((total, count) => total + count, 0);
+  const overviewTicks = graphForceLayoutTicks(totalNodeCount);
+  return componentNodeCounts.map((count) => (count <= 1 ? 0 : Math.min(graphForceLayoutTicks(count), overviewTicks)));
+}
+
 // Graph side-list ordering: actionable state first, then newest-created.
 // Bucket 0 = `open` (still actionable); bucket 1 = everything else (closed /
 // merged / unknown). Within a bucket, `created_at` DESC so the newest item is
