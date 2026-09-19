@@ -437,8 +437,10 @@ Pages:
   focus exit. Explicit facets and persistent visibility choices remain active.
   In overview, the side list is the
   relationship inventory for the selected range before the mention canvas
-  declutter is applied, so mention-only items remain discoverable; cards hidden
-  from the current canvas carry a `not drawn` cue. Graph overview summary stats
+  declutter is applied, so mention-only items remain discoverable without a
+  redundant per-card canvas-visibility cue. Disconnected overview components
+  are laid out independently and packed into a compact canvas; focus retains
+  the roomier single-neighborhood layout. Graph overview summary stats
   are still scoped to the rendered canvas after the range, mention controls,
   search, and facets. Focus view uses a separate `focus` summary for the focused
   subgraph instead of reusing overview totals. Contract aggregates are used only

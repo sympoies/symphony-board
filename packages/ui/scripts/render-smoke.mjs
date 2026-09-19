@@ -12,7 +12,7 @@
 //   pnpm --filter @symphony-board/ui run build && pnpm --filter @symphony-board/ui run smoke
 
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, normalize } from "node:path";
@@ -1816,6 +1816,13 @@ try {
     returnByValue: true,
   })).result.value || {};
   const graphListHtml = (await send("Runtime.evaluate", { expression: "document.body.innerHTML", returnByValue: true })).result.value || "";
+  const graphBundleSources = await Promise.all(
+    (await readdir(join(DIST, "assets")))
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => readFile(join(DIST, "assets", name), "utf8")),
+  );
+  const graphNotDrawnCueAbsent = !graphListHtml.includes("not drawn") && graphBundleSources.every((source) => !source.includes("not drawn"));
+  const graphOffWindowCueRetained = graphBundleSources.some((source) => source.includes("off-window"));
   const graphFocusSearch = ((await send("Runtime.evaluate", {
     expression: "[...document.querySelectorAll('.graph-list-card .card-iid')].map((iid) => (iid.textContent || '').trim().replace(/^#/, '').trim()).find((iid) => /^\\d+$/.test(iid)) || ''",
     returnByValue: true,
@@ -6272,6 +6279,8 @@ try {
     [has(backHtml, "graph-list-search") && backSearchState.query === graphFocusSearch && backSearchState.disabled === false && backSearchState.narrowed === true && new URLSearchParams(backSearchState.hash.split("?")[1] || "").get("q") === graphFocusSearch, `graph: back resumes the locating search (${JSON.stringify(backSearchState)})`],
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
+    [graphNotDrawnCueAbsent, "graph: side-list presentation omits the redundant not drawn cue"],
+    [graphOffWindowCueRetained, "graph: side-list keeps the meaningful off-window cue"],
     // ...and the chain-link relation count, but NOT the focus-in-graph head link
     // (the card body IS the focus target on this page).
     [graphListRelationCounts >= 1, `graph: side-list cards render the relation count (${graphListRelationCounts} >= 1)`],

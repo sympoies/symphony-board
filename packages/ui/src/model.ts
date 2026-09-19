@@ -2392,6 +2392,99 @@ export function buildGraph(edges: ResolvedEdge[], extraNodes: readonly GraphNeig
   return { nodes: [...nodes.values()], links };
 }
 
+// Partition a graph into deterministic connected components. Overview layout
+// uses this to simulate each island independently, so unrelated work does not
+// repel every other island across an oversized canvas. Isolated focus nodes are
+// retained as one-node components.
+export function graphConnectedComponents(graph: GraphData): GraphData[] {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const adjacency = new Map<string, Set<string>>(graph.nodes.map((node) => [node.id, new Set<string>()]));
+  for (const link of graph.links) {
+    if (!nodeById.has(link.source) || !nodeById.has(link.target)) continue;
+    adjacency.get(link.source)?.add(link.target);
+    adjacency.get(link.target)?.add(link.source);
+  }
+
+  const remaining = new Set([...nodeById.keys()].sort());
+  const components: GraphData[] = [];
+  while (remaining.size > 0) {
+    const start = remaining.values().next().value as string;
+    const queue = [start];
+    let queueIndex = 0;
+    const ids = new Set<string>();
+    remaining.delete(start);
+    while (queueIndex < queue.length) {
+      const id = queue[queueIndex++]!;
+      ids.add(id);
+      for (const neighbour of [...(adjacency.get(id) ?? [])].sort()) {
+        if (!remaining.delete(neighbour)) continue;
+        queue.push(neighbour);
+      }
+    }
+
+    const sortedIds = [...ids].sort();
+    components.push({
+      nodes: sortedIds.map((id) => nodeById.get(id)!),
+      links: graph.links.filter((link) => ids.has(link.source) && ids.has(link.target)),
+    });
+  }
+  return components;
+}
+
+export interface GraphLayoutPoint {
+  x: number;
+  y: number;
+}
+
+export interface GraphComponentLayout {
+  key: string;
+  positions: ReadonlyMap<string, GraphLayoutPoint>;
+}
+
+// Pack independently laid-out components into deterministic shelf rows. Bounds
+// include each node's rendered dimensions; normalising the component origin
+// means force and hierarchy layouts can both feed the same packer.
+export function packGraphComponentLayouts(
+  layouts: readonly GraphComponentLayout[],
+  sizeOf: (id: string) => { w: number; h: number },
+  gap = 72,
+): Map<string, GraphLayoutPoint> {
+  const bounded = layouts
+    .map((layout) => {
+      const entries = [...layout.positions.entries()];
+      if (entries.length === 0) return null;
+      const minX = Math.min(...entries.map(([, point]) => point.x));
+      const minY = Math.min(...entries.map(([, point]) => point.y));
+      const maxX = Math.max(...entries.map(([id, point]) => point.x + sizeOf(id).w));
+      const maxY = Math.max(...entries.map(([id, point]) => point.y + sizeOf(id).h));
+      return { ...layout, entries, minX, minY, width: maxX - minX, height: maxY - minY };
+    })
+    .filter((layout): layout is NonNullable<typeof layout> => layout !== null)
+    .sort((a, b) => a.key.localeCompare(b.key));
+
+  if (bounded.length === 0) return new Map();
+  const totalPaddedArea = bounded.reduce((sum, component) => sum + (component.width + gap) * (component.height + gap), 0);
+  const targetRowWidth = Math.max(...bounded.map((component) => component.width), Math.sqrt(totalPaddedArea) * 1.35);
+  const packed = new Map<string, GraphLayoutPoint>();
+  let cursorX = 0;
+  let cursorY = 0;
+  let rowHeight = 0;
+
+  for (const component of bounded) {
+    if (cursorX > 0 && cursorX + component.width > targetRowWidth) {
+      cursorX = 0;
+      cursorY += rowHeight + gap;
+      rowHeight = 0;
+    }
+    for (const [id, point] of component.entries) {
+      packed.set(id, { x: cursorX + point.x - component.minX, y: cursorY + point.y - component.minY });
+    }
+    cursorX += component.width + gap;
+    rowHeight = Math.max(rowHeight, component.height);
+  }
+  return packed;
+}
+
 // React Flow owns local drag/layout state, so the parent remount key must
 // identify the actual topology rather than merely its node count. Include the
 // expansion mode because fallback and canonical focus views can otherwise

@@ -48,8 +48,10 @@ The Graph page renders edge-connected items with React Flow:
 - `closes` edges are the workflow spine and are colored by lifecycle.
 - `mentions` can be included for context.
 - the side list indexes every relationship candidate in the selected range; the
-  canvas can still hide mention-only items for the default overview, and those
-  list cards are marked `not drawn`.
+  canvas can still hide mention-only items for the default overview without
+  adding a redundant per-card visibility badge.
+- disconnected relationship components are laid out independently and packed
+  into a compact overview, while focus keeps its roomier neighborhood layout.
 - side-list search and kind filters keep the relationship inventory navigable.
 - the shared date range windows the overview.
 - focusing an item loads its canonical-history relationship neighborhood from

@@ -117,6 +117,8 @@ import {
   graphWindowEdgesInRange,
   graphOverviewVisibility,
   graphCanvasEmptyReason,
+  graphConnectedComponents,
+  packGraphComponentLayouts,
   graphTopologyKey,
   graphForceLayoutTicks,
   focusNeighborhoodNodes,
@@ -1849,6 +1851,48 @@ test("graphTopologyKey changes for same-size topology and expansion transitions"
   const b = buildGraph([{ edge: edge("one", "three", null, "mentions"), from: one, to: three }]);
   assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(b, false));
   assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(a, true));
+});
+
+test("graphConnectedComponents partitions linked and isolated nodes deterministically", () => {
+  const one = item({ id: "one" });
+  const two = item({ id: "two" });
+  const three = item({ id: "three" });
+  const four = item({ id: "four" });
+  const isolated = item({ id: "isolated" });
+  const graph = buildGraph(
+    [
+      { edge: edge("three", "four", null, "mentions"), from: three, to: four },
+      { edge: edge("one", "two", null, "closes"), from: one, to: two },
+    ],
+    [{ ref: isolated.id, hop: 0, item: isolated }],
+  );
+
+  assert.deepEqual(
+    graphConnectedComponents(graph).map((component) => component.nodes.map((node) => node.id)),
+    [["four", "three"], ["isolated"], ["one", "two"]],
+  );
+});
+
+test("packGraphComponentLayouts produces stable non-overlapping component bounds", () => {
+  const layouts = [
+    { key: "beta", positions: new Map([["b", { x: -20, y: -10 }]]) },
+    { key: "alpha", positions: new Map([["a", { x: 40, y: 30 }]]) },
+    { key: "gamma", positions: new Map([["c", { x: 0, y: 0 }]]) },
+  ];
+  const sizeOf = () => ({ w: 100, h: 60 });
+  const first = packGraphComponentLayouts(layouts, sizeOf, 40);
+  const second = packGraphComponentLayouts([...layouts].reverse(), sizeOf, 40);
+
+  assert.deepEqual([...first], [...second], "component packing is independent of input order");
+  const boxes = [...first.entries()].map(([id, point]) => ({ id, left: point.x, top: point.y, right: point.x + 100, bottom: point.y + 60 }));
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i]!;
+      const b = boxes[j]!;
+      const separated = a.right + 40 <= b.left || b.right + 40 <= a.left || a.bottom + 40 <= b.top || b.bottom + 40 <= a.top;
+      assert.equal(separated, true, `${a.id} and ${b.id} keep the requested component gap`);
+    }
+  }
 });
 
 test("buildGraph retains an isolated canonical focus node", () => {
