@@ -2407,6 +2407,7 @@ export function graphConnectedComponents(graph: GraphData): GraphData[] {
 
   const remaining = new Set([...nodeById.keys()].sort());
   const components: GraphData[] = [];
+  const componentIndexByNode = new Map<string, number>();
   while (remaining.size > 0) {
     const start = remaining.values().next().value as string;
     const queue = [start];
@@ -2423,10 +2424,17 @@ export function graphConnectedComponents(graph: GraphData): GraphData[] {
     }
 
     const sortedIds = [...ids].sort();
+    const componentIndex = components.length;
+    for (const id of sortedIds) componentIndexByNode.set(id, componentIndex);
     components.push({
       nodes: sortedIds.map((id) => nodeById.get(id)!),
-      links: graph.links.filter((link) => ids.has(link.source) && ids.has(link.target)),
+      links: [],
     });
+  }
+  for (const link of graph.links) {
+    const componentIndex = componentIndexByNode.get(link.source);
+    if (componentIndex === undefined || componentIndex !== componentIndexByNode.get(link.target)) continue;
+    components[componentIndex]!.links.push(link);
   }
   return components;
 }

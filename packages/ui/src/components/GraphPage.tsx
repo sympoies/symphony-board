@@ -1013,7 +1013,7 @@ export function GraphPage({
                 {x.t}
               </span>
             ))}
-            <span className="muted">· solid = structural · dashed = mentions · edge color = lifecycle · size = demand · hover to highlight · click to focus · title → provider</span>
+            <span className="muted">· solid = structural · dashed = mentions · solid color = lifecycle · size = demand · hover to highlight · click to focus · title → provider</span>
           </div>
         }
       />

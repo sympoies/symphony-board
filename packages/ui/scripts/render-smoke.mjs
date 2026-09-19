@@ -1789,8 +1789,73 @@ try {
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-10");
   await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
   const graphNarrowStats = await statsTextOf();
+
+  // Focus an item whose last activity predates the one-day overview. Canonical
+  // history still loads it, and the useful range mismatch must remain visible
+  // after the low-value `not drawn` cue is removed.
+  const offWindowFocusRef = "github:github.com|ISSUE_e";
+  await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(offWindowFocusRef)}'` });
+  await waitHtml("document.querySelector('.graph-list-card.active .glc-offwindow') && [...document.querySelectorAll('.glc-note')].some((note) => note.textContent?.includes('outside the current'))");
+  const graphOffWindowState = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      activeBadge: !!document.querySelector('.graph-list-card.active .glc-offwindow'),
+      explanatoryNote: [...document.querySelectorAll('.glc-note')].some((note) => note.textContent?.includes('outside the current')),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+  await waitHtml("document.querySelector('.react-flow__node')");
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-03-01");
   await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
+
+  // The sample contract contains four disconnected structural islands. Measure
+  // their rendered bounds in both algorithms and require the packer's 72-unit
+  // gap after accounting for React Flow's fitView scale.
+  const expectedGraphComponents = [
+    ["github:github.com|PR_b", "github:github.com|ISSUE_a", "github:github.com|ISSUE_UNTRACKED_99"],
+    ["github:github.com|PR_d", "github:github.com|ISSUE_c"],
+    ["github:github.com|PR_f", "github:github.com|ISSUE_e"],
+    ["gitlab:gitlab.com|gid://gitlab/MergeRequest/201", "gitlab:gitlab.com|gid://gitlab/Issue/101"],
+  ];
+  const measureGraphComponentPacking = async (layout) =>
+    (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const groups = ${JSON.stringify(expectedGraphComponents)};
+        const allNodes = [...document.querySelectorAll('.react-flow__node')];
+        const boxes = groups.map((ids) => {
+          const rects = ids.map((id) => allNodes.find((node) => node.getAttribute('data-id') === id)?.getBoundingClientRect()).filter(Boolean);
+          if (rects.length !== ids.length) return null;
+          return {
+            left: Math.min(...rects.map((rect) => rect.left)),
+            top: Math.min(...rects.map((rect) => rect.top)),
+            right: Math.max(...rects.map((rect) => rect.right)),
+            bottom: Math.max(...rects.map((rect) => rect.bottom)),
+          };
+        }).filter(Boolean);
+        const transform = getComputedStyle(document.querySelector('.react-flow__viewport')).transform;
+        const scale = Number(/^matrix\\(([^,]+)/.exec(transform)?.[1] || 1);
+        const requiredGap = 72 * scale - 3;
+        let minSeparation = Number.POSITIVE_INFINITY;
+        let gapOk = boxes.length === groups.length;
+        for (let i = 0; i < boxes.length; i += 1) {
+          for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i];
+            const b = boxes[j];
+            const separation = Math.max(b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom);
+            minSeparation = Math.min(minSeparation, separation);
+            if (separation < requiredGap) gapOk = false;
+          }
+        }
+        return { layout: ${JSON.stringify(layout)}, components: boxes.length, expected: groups.length, scale, requiredGap, minSeparation, gapOk };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+  const graphForcePacking = await measureGraphComponentPacking("force");
+  await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-controls .toggle')].find((button) => button.textContent?.trim() === 'Hierarchy')?.click()" });
+  await sleep(250);
+  const graphHierarchyPacking = await measureGraphComponentPacking("hierarchy");
+  await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-controls .toggle')].find((button) => button.textContent?.trim() === 'Force')?.click()" });
+  await sleep(250);
   // Graph side list: capture the (enriched) list cards, then click one to enter
   // the focus view and confirm the back button + related-items header render.
   await waitHtml("document.querySelector('.graph-list-card .card-iid')");
@@ -1822,7 +1887,6 @@ try {
       .map((name) => readFile(join(DIST, "assets", name), "utf8")),
   );
   const graphNotDrawnCueAbsent = !graphListHtml.includes("not drawn") && graphBundleSources.every((source) => !source.includes("not drawn"));
-  const graphOffWindowCueRetained = graphBundleSources.some((source) => source.includes("off-window"));
   const graphFocusSearch = ((await send("Runtime.evaluate", {
     expression: "[...document.querySelectorAll('.graph-list-card .card-iid')].map((iid) => (iid.textContent || '').trim().replace(/^#/, '').trim()).find((iid) => /^\\d+$/.test(iid)) || ''",
     returnByValue: true,
@@ -6280,7 +6344,9 @@ try {
     // graph side-list cards reuse the board card, so they pick up the highlight bar too
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
     [graphNotDrawnCueAbsent, "graph: side-list presentation omits the redundant not drawn cue"],
-    [graphOffWindowCueRetained, "graph: side-list keeps the meaningful off-window cue"],
+    [graphOffWindowState.activeBadge === true && graphOffWindowState.explanatoryNote === true, `graph: canonical focus outside the range renders the off-window badge and explanation (${JSON.stringify(graphOffWindowState)})`],
+    [graphForcePacking.components === graphForcePacking.expected && graphForcePacking.gapOk === true, `graph: Force packs all disconnected components with the component gap (${JSON.stringify(graphForcePacking)})`],
+    [graphHierarchyPacking.components === graphHierarchyPacking.expected && graphHierarchyPacking.gapOk === true, `graph: Hierarchy packs all disconnected components with the component gap (${JSON.stringify(graphHierarchyPacking)})`],
     // ...and the chain-link relation count, but NOT the focus-in-graph head link
     // (the card body IS the focus target on this page).
     [graphListRelationCounts >= 1, `graph: side-list cards render the relation count (${graphListRelationCounts} >= 1)`],

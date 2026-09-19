@@ -1871,20 +1871,53 @@ test("graphConnectedComponents partitions linked and isolated nodes deterministi
     graphConnectedComponents(graph).map((component) => component.nodes.map((node) => node.id)),
     [["four", "three"], ["isolated"], ["one", "two"]],
   );
+  assert.deepEqual(graphConnectedComponents(graph).map((component) => component.links.length), [1, 0, 1]);
+
+  const many = buildGraph(
+    Array.from({ length: 1_000 }, (_, index) => {
+      const from = item({ id: `from-${index}` });
+      const to = item({ id: `to-${index}` });
+      return { edge: edge(from.id, to.id, null, "closes"), from, to };
+    }),
+  );
+  const manyComponents = graphConnectedComponents(many);
+  assert.equal(manyComponents.length, 1_000);
+  assert.equal(manyComponents.every((component) => component.nodes.length === 2 && component.links.length === 1), true);
 });
 
 test("packGraphComponentLayouts produces stable non-overlapping component bounds", () => {
   const layouts = [
     { key: "beta", positions: new Map([["b", { x: -20, y: -10 }]]) },
-    { key: "alpha", positions: new Map([["a", { x: 40, y: 30 }]]) },
+    { key: "alpha", positions: new Map([["a1", { x: 40, y: 30 }], ["a2", { x: 180, y: 90 }]]) },
     { key: "gamma", positions: new Map([["c", { x: 0, y: 0 }]]) },
   ];
-  const sizeOf = () => ({ w: 100, h: 60 });
+  const sizes = new Map([
+    ["a1", { w: 100, h: 60 }],
+    ["a2", { w: 140, h: 80 }],
+    ["b", { w: 90, h: 50 }],
+    ["c", { w: 110, h: 70 }],
+  ]);
+  const sizeOf = (id: string) => sizes.get(id)!;
   const first = packGraphComponentLayouts(layouts, sizeOf, 40);
   const second = packGraphComponentLayouts([...layouts].reverse(), sizeOf, 40);
 
   assert.deepEqual([...first], [...second], "component packing is independent of input order");
-  const boxes = [...first.entries()].map(([id, point]) => ({ id, left: point.x, top: point.y, right: point.x + 100, bottom: point.y + 60 }));
+  assert.deepEqual(
+    { x: first.get("a2")!.x - first.get("a1")!.x, y: first.get("a2")!.y - first.get("a1")!.y },
+    { x: 140, y: 60 },
+    "packing preserves the internal geometry of a multi-node component",
+  );
+  const componentIds = [["a1", "a2"], ["b"], ["c"]];
+  const boxes = componentIds.map((ids) => {
+    const points = ids.map((id) => ({ id, point: first.get(id)!, size: sizeOf(id) }));
+    return {
+      id: ids.join("+"),
+      left: Math.min(...points.map(({ point }) => point.x)),
+      top: Math.min(...points.map(({ point }) => point.y)),
+      right: Math.max(...points.map(({ point, size }) => point.x + size.w)),
+      bottom: Math.max(...points.map(({ point, size }) => point.y + size.h)),
+    };
+  });
   for (let i = 0; i < boxes.length; i += 1) {
     for (let j = i + 1; j < boxes.length; j += 1) {
       const a = boxes[i]!;
