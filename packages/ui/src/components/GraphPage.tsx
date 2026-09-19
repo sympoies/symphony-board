@@ -30,7 +30,7 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
@@ -59,8 +59,7 @@ import type { GraphView } from "../nav.ts";
 // instead of staying the windowed overview fit; remounting React Flow on the
 // focus change reframes the camera. Related items are computed from the FULL
 // edge set (model buildAdjacency), so a relation hidden by the "active since"
-// window still lists, marked "off-window"; overview candidates hidden only from
-// the canvas carry "not drawn". A "← all items" button returns.
+// window still lists, marked "off-window". A "← all items" button returns.
 
 // Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
 // the muted "other" grey, which is near-invisible on the dark canvas — a problem
@@ -275,7 +274,7 @@ function readableLinkDistance(link: SimLink, dimOf: (id: string) => Dim, density
   return nodeRadius(source, dimOf) + nodeRadius(target, dimOf) + gap;
 }
 
-function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity): Map<string, { x: number; y: number }> {
+function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string) => Dim, density: LayoutDensity, tickBudget: number): Map<string, { x: number; y: number }> {
   const simNodes: SimNode[] = nodes.map((n) => ({ id: n.id }));
   const simLinks: SimLink[] = links.map((l) => ({ source: l.source, target: l.target }));
   const collisionGap = density === "focus" ? FOCUS_COLLISION_GAP : OVERVIEW_COLLISION_GAP;
@@ -293,7 +292,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
     // more room and overlap less.
     .force("collide", forceCollide((d) => nodeRadius((d as SimNode).id, dimOf) + collisionGap))
     .stop();
-  for (let i = 0; i < graphForceLayoutTicks(nodes.length); i++) sim.tick();
+  for (let i = 0; i < tickBudget; i++) sim.tick();
   const m = new Map<string, { x: number; y: number }>();
   for (const n of simNodes) {
     const { w, h } = dimOf(n.id);
@@ -328,12 +327,14 @@ function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfN
     [nodes, neighbours],
   );
 
+  const baseEdgeStyle = useMemo(() => new Map(rfEdges.map((edge) => [edge.id, edge.style])), [rfEdges]);
+
   const viewEdges = useMemo(
     () =>
       edges.map((e) => {
         const incident = !!hoverId && (e.source === hoverId || e.target === hoverId);
         const labelled = showEdgeLabels || incident;
-        const base: CSSProperties = rfEdges.find((x) => x.id === e.id)?.style ?? e.style ?? {};
+        const base: CSSProperties = baseEdgeStyle.get(e.id) ?? e.style ?? {};
         return {
           ...e,
           // FloatingEdge renders this label via EdgeLabelRenderer (styled by
@@ -342,7 +343,7 @@ function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfN
           style: { ...base, opacity: hoverId ? (incident ? 1 : 0.05) : (base.opacity ?? 1) },
         };
       }),
-    [edges, hoverId, rfEdges, showEdgeLabels],
+    [baseEdgeStyle, edges, hoverId, showEdgeLabels],
   );
 
   return (
@@ -409,6 +410,7 @@ function GraphListCard({
   onActivate: () => void;
 }) {
   const badge = relation?.visibility ?? visibility ?? null;
+  const visibleBadge = badge === "off-window" ? badge : null;
   return (
     <div
       className={`graph-list-card${active ? " active" : ""}`}
@@ -426,20 +428,16 @@ function GraphListCard({
         }
       }}
     >
-      {(relation || badge) && (
+      {(relation || visibleBadge) && (
         <div className="glc-relation muted">
           {relation ? (
             <span className="glc-rel-type">
               {relation.direction === "both" ? "↔" : relation.direction === "out" ? "→" : "←"} {relation.type}
             </span>
           ) : null}
-          {badge === "off-window" ? (
+          {visibleBadge === "off-window" ? (
             <span className="glc-offwindow" title="outside the current “active since” window — shown here in focus, but absent from the overview graph until you widen it">
               off-window
-            </span>
-          ) : badge === "not-drawn" ? (
-            <span className="glc-notdrawn" title="listed as a relationship candidate, but hidden from the current overview canvas by the edge filter">
-              not drawn
             </span>
           ) : null}
         </div>
@@ -472,7 +470,7 @@ function GraphListCard({
 // itself). Two modes share one <aside>:
 //   • list  — searchable, demand-sorted cards of the in-range relationship
 //             candidates, with an all/issue/change-request kind toggle; click a card to
-//             focus it. Cards hidden only by the canvas edge filter are marked.
+//             focus it. Canvas visibility remains an internal sorting signal.
 //   • focus — that item + its related items (other edge ends, from the FULL edge
 //             set, off-window ones flagged). A related card re-focuses
 //             (navigation chain); "← all items" returns.
@@ -549,9 +547,6 @@ function GraphSideList({
           <GraphListCard item={itemsByRef.get(focusId) ?? null} fallbackLabel={labelOf(focusId)} sourceKind={kindOf(focusId)} accentColor={colorFor(focusId)} visibility={focusVisibility} related={countOf(focusId)} active onActivate={onBack} />
           {focusVisibility === "off-window" && (
             <p className="muted glc-note">This item is outside the current “active since” window — it's shown here in focus, but won't appear in the overview graph until you widen the window.</p>
-          )}
-          {focusVisibility === "not-drawn" && (
-            <p className="muted glc-note">This item is in the relationship list, but hidden from the overview canvas by the current edge filter.</p>
           )}
           <div className="graph-related-head muted">
             {related.length} related {pluralize(related.length, "item")}
@@ -844,8 +839,17 @@ export function GraphPage({
   }, [view]);
 
   const positions = useMemo(() => {
-    if (layout === "hierarchy") return layoutDagre(view.nodes, view.links, dimOf);
-    return layoutForce(view.nodes, view.links, dimOf, inFocus ? "focus" : "overview");
+    const layoutOne = (component: GraphData, tickBudget: number) =>
+      layout === "hierarchy"
+        ? layoutDagre(component.nodes, component.links, dimOf)
+        : layoutForce(component.nodes, component.links, dimOf, inFocus ? "focus" : "overview", tickBudget);
+    if (inFocus) return layoutOne(view, graphForceLayoutTicks(view.nodes.length));
+    const components = graphConnectedComponents(view);
+    const tickBudgets = graphForceLayoutTickBudgets(components.map((component) => component.nodes.length));
+    return packGraphComponentLayouts(
+      components.map((component, index) => ({ key: component.nodes[0]?.id ?? "", positions: layoutOne(component, tickBudgets[index] ?? 0) })),
+      dimOf,
+    );
   }, [view, layout, dimOf, inFocus]);
 
   // Distinct neighbours per node IN THE CURRENT VIEW's links — compared against
@@ -1010,7 +1014,7 @@ export function GraphPage({
                 {x.t}
               </span>
             ))}
-            <span className="muted">· solid = closes · dashed = mentions · size = demand · hover to highlight · click to focus · title → provider</span>
+            <span className="muted">· solid = structural · dashed = mentions · solid color = lifecycle · size = demand · hover to highlight · click to focus · title → provider</span>
           </div>
         }
       />

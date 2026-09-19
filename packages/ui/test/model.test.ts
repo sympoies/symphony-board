@@ -117,8 +117,11 @@ import {
   graphWindowEdgesInRange,
   graphOverviewVisibility,
   graphCanvasEmptyReason,
+  graphConnectedComponents,
+  packGraphComponentLayouts,
   graphTopologyKey,
   graphForceLayoutTicks,
+  graphForceLayoutTickBudgets,
   focusNeighborhoodNodes,
   isSyncRunActive,
   syncProducedFreshData,
@@ -1851,6 +1854,81 @@ test("graphTopologyKey changes for same-size topology and expansion transitions"
   assert.notEqual(graphTopologyKey(a, false), graphTopologyKey(a, true));
 });
 
+test("graphConnectedComponents partitions linked and isolated nodes deterministically", () => {
+  const one = item({ id: "one" });
+  const two = item({ id: "two" });
+  const three = item({ id: "three" });
+  const four = item({ id: "four" });
+  const isolated = item({ id: "isolated" });
+  const graph = buildGraph(
+    [
+      { edge: edge("three", "four", null, "mentions"), from: three, to: four },
+      { edge: edge("one", "two", null, "closes"), from: one, to: two },
+    ],
+    [{ ref: isolated.id, hop: 0, item: isolated }],
+  );
+
+  assert.deepEqual(
+    graphConnectedComponents(graph).map((component) => component.nodes.map((node) => node.id)),
+    [["four", "three"], ["isolated"], ["one", "two"]],
+  );
+  assert.deepEqual(graphConnectedComponents(graph).map((component) => component.links.length), [1, 0, 1]);
+
+  const many = buildGraph(
+    Array.from({ length: 1_000 }, (_, index) => {
+      const from = item({ id: `from-${index}` });
+      const to = item({ id: `to-${index}` });
+      return { edge: edge(from.id, to.id, null, "closes"), from, to };
+    }),
+  );
+  const manyComponents = graphConnectedComponents(many);
+  assert.equal(manyComponents.length, 1_000);
+  assert.equal(manyComponents.every((component) => component.nodes.length === 2 && component.links.length === 1), true);
+});
+
+test("packGraphComponentLayouts produces stable non-overlapping component bounds", () => {
+  const layouts = [
+    { key: "beta", positions: new Map([["b", { x: -20, y: -10 }]]) },
+    { key: "alpha", positions: new Map([["a1", { x: 40, y: 30 }], ["a2", { x: 180, y: 90 }]]) },
+    { key: "gamma", positions: new Map([["c", { x: 0, y: 0 }]]) },
+  ];
+  const sizes = new Map([
+    ["a1", { w: 100, h: 60 }],
+    ["a2", { w: 140, h: 80 }],
+    ["b", { w: 90, h: 50 }],
+    ["c", { w: 110, h: 70 }],
+  ]);
+  const sizeOf = (id: string) => sizes.get(id)!;
+  const first = packGraphComponentLayouts(layouts, sizeOf, 40);
+  const second = packGraphComponentLayouts([...layouts].reverse(), sizeOf, 40);
+
+  assert.deepEqual([...first], [...second], "component packing is independent of input order");
+  assert.deepEqual(
+    { x: first.get("a2")!.x - first.get("a1")!.x, y: first.get("a2")!.y - first.get("a1")!.y },
+    { x: 140, y: 60 },
+    "packing preserves the internal geometry of a multi-node component",
+  );
+  const componentIds = [["a1", "a2"], ["b"], ["c"]];
+  const boxes = componentIds.map((ids) => {
+    const points = ids.map((id) => ({ id, point: first.get(id)!, size: sizeOf(id) }));
+    return {
+      id: ids.join("+"),
+      left: Math.min(...points.map(({ point }) => point.x)),
+      top: Math.min(...points.map(({ point }) => point.y)),
+      right: Math.max(...points.map(({ point, size }) => point.x + size.w)),
+      bottom: Math.max(...points.map(({ point, size }) => point.y + size.h)),
+    };
+  });
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i]!;
+      const b = boxes[j]!;
+      const separated = a.right + 40 <= b.left || b.right + 40 <= a.left || a.bottom + 40 <= b.top || b.bottom + 40 <= a.top;
+      assert.equal(separated, true, `${a.id} and ${b.id} keep the requested component gap`);
+    }
+  }
+});
+
 test("buildGraph retains an isolated canonical focus node", () => {
   const focus = item({ id: "isolated" });
   const graph = buildGraph([], [{ ref: focus.id, hop: 0, item: focus }]);
@@ -1880,6 +1958,24 @@ test("graphForceLayoutTicks caps synchronous work for a safety-cap graph", () =>
   assert.equal(graphForceLayoutTicks(1), 320);
   assert.ok(graphForceLayoutTicks(200) <= 100);
   assert.ok(graphForceLayoutTicks(200) < graphForceLayoutTicks(80));
+});
+
+test("graphForceLayoutTickBudgets bounds work across disconnected components", () => {
+  assert.deepEqual(graphForceLayoutTickBudgets([2]), [320], "one small graph keeps the high-quality budget");
+
+  const componentSizes = Array.from({ length: 100 }, () => 2);
+  const budgets = graphForceLayoutTickBudgets(componentSizes);
+  const overviewTicks = graphForceLayoutTicks(200);
+  assert.deepEqual(new Set(budgets), new Set([overviewTicks]));
+  assert.ok(
+    budgets.reduce((work, ticks, index) => work + ticks * componentSizes[index]!, 0) <= overviewTicks * 200,
+    "partitioning cannot exceed the safety-cap graph's weighted tick work",
+  );
+  assert.ok(
+    budgets.reduce((total, ticks) => total + ticks, 0) <= overviewTicks * 100,
+    "many two-node simulations retain an explicit aggregate tick-call ceiling",
+  );
+  assert.deepEqual(graphForceLayoutTickBudgets([1, 2, 197]), [0, overviewTicks, overviewTicks], "isolated nodes need no simulation ticks");
 });
 
 // The Graph page's focus view: focusSubgraph builds the focused item + its direct
