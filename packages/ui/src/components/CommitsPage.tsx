@@ -725,10 +725,9 @@ export function CommitsPage({
           }
         />
         {/* Middle column. Keep the range overview mounted as the persistent
-            context for the page; a selected commit layers its readable detail
-            over the top of that column without erasing the charts below it. */}
+            context for the page; a selected commit is inserted before it so
+            the original pane moves down intact. */}
         <div className="commits-context">
-          <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
           {selectedCommit ? (
             <CommitDetail
               commit={selectedCommit}
@@ -738,6 +737,7 @@ export function CommitsPage({
               onClose={() => setSelectedKey(null)}
             />
           ) : null}
+          <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
         </div>
         {/* Third column: the ranked facets, always present. Unlike Activity's
             rail this is not gated on a wide breakpoint — the Commits page has
