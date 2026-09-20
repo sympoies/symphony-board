@@ -3002,9 +3002,14 @@ try {
       const first = document.querySelector('.commit-list .commit-row');
       const selected = document.querySelector('.commit-list .commit-row-selected');
       const selectedSha = (selected?.querySelector('.commit-sha-text, .commit-sha')?.textContent || '').trim();
+      const toolbar = document.querySelector('.commit-detail-toolbar');
+      const back = toolbar?.querySelector('.commit-detail-back');
+      const mode = toolbar?.querySelector('.live-mode');
       return {
         hasDetail: !!document.querySelector('.commit-detail-card'),
         mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        toolbar: !!toolbar,
+        toolbarSingleLine: !!back && !!mode && Math.abs(back.getBoundingClientRect().top - mode.getBoundingClientRect().top) <= 1,
         selectedIsFirst: !!first && first === selected,
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
         selectedSha,
@@ -6970,7 +6975,7 @@ try {
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
-    [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail for the newest visible row and names the mode (${JSON.stringify(commitsFollowLatestApplied)})`],
+    [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.toolbar === true && commitsFollowLatestApplied.toolbarSingleLine === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail with back and mode on one toolbar line (${JSON.stringify(commitsFollowLatestApplied)})`],
     [commitsFollowLatestTransition.mode === "Following latest" && commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
     [commitsFollowLatestPin.selectedIsFirst === false && commitsFollowLatestPin.selectedRows === 1 && commitsFollowLatestPin.mode === "Pinned · follow latest" && commitsFollowLatestPin.hasRelease === true, `commits: selecting a row pins detail and exposes the follow-latest action (${JSON.stringify(commitsFollowLatestPin)})`],
     [commitsFollowLatestRelease.clicked === true && commitsFollowLatestRelease.selectedIsFirst === true && commitsFollowLatestRelease.mode === "Following latest" && commitsFollowLatestRelease.stored === "true", `commits: releasing the pin returns detail to the latest row (${JSON.stringify(commitsFollowLatestRelease)})`],
