@@ -408,6 +408,7 @@ export function CommitsPage({
   sourceOptions,
   activityDaily,
   actorIndex = EMPTY_ACTOR_INDEX,
+  followLatest,
   onRepo,
   onBranch,
   onAuthor,
@@ -442,6 +443,7 @@ export function CommitsPage({
   activityDaily: ActivityDailyDTO | null;
   // Contract actor directory as lookups, for the author ranking and count.
   actorIndex?: ActorIndex;
+  followLatest: boolean;
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   onAuthor: (author: string | null) => void;
@@ -456,6 +458,14 @@ export function CommitsPage({
   // Selection lives in the page, not the route: a commit is a transient thing to
   // read, unlike the repo/branch/author filters, which are shareable state.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Opt-in follow mode keeps detail on the first (newest) row. Because the
+  // filtered commit list is the dependency, a newly loaded commit or a changed
+  // source/repo/branch/author lens advances to that lens's latest visible row.
+  useEffect(() => {
+    if (!followLatest) return;
+    const latest = commits[0];
+    setSelectedKey(latest ? activityKey(latest) : null);
+  }, [commits, followLatest]);
   // Resolved against the CURRENT rows, so a selection that a re-filter or a range
   // change removed falls back to the digest instead of pinning a stale commit.
   const selectedCommit = useMemo(

@@ -7,6 +7,7 @@
 //   • color mode — device-local display mode (System by default)
 //   • collapsed columns — board column kinds the viewer manually collapsed
 //   • live tab enabled — opt-in Live tab (OFF by default: hidden tab, no stream)
+//   • commits follow latest — keep Commit detail on the newest visible row
 //   • hidden event types — set of HIDDEN Live categories (an independent layer)
 //   • content tab order — the contract-backed top-nav tabs between Live/Settings
 // We store what is HIDDEN (not what is visible) so a repo/source that first
@@ -61,6 +62,10 @@ const COLLAPSED_COLUMNS_KEY = "symphony-board:collapsed-columns";
 // tab is hidden AND the app opens no live connection (no snapshot probe, no
 // SSE/poll), so a deployment that does not care about the feed pays nothing.
 const LIVE_TAB_ENABLED_KEY = "symphony-board:live-tab-enabled";
+// Whether Commits automatically opens the newest visible commit and follows a
+// newer first row after the loaded data or active filters change. Off by default
+// so the existing manual, transient detail selection remains unchanged.
+const COMMITS_FOLLOW_LATEST_KEY = "symphony-board:commits-follow-latest";
 // HIDDEN Live event categories (an independent layer, like hidden sources): a
 // category in this set is dropped from the Live feed and its filter chip. Stored
 // as the hidden set so a new provider category defaults visible.
@@ -279,6 +284,24 @@ export function loadLiveTabEnabled(): boolean {
 export function saveLiveTabEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(LIVE_TAB_ENABLED_KEY, enabled ? "true" : "false");
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+export const DEFAULT_COMMITS_FOLLOW_LATEST = false;
+
+export function loadCommitsFollowLatest(): boolean {
+  try {
+    return localStorage.getItem(COMMITS_FOLLOW_LATEST_KEY) === "true";
+  } catch {
+    return DEFAULT_COMMITS_FOLLOW_LATEST;
+  }
+}
+
+export function saveCommitsFollowLatest(enabled: boolean): void {
+  try {
+    localStorage.setItem(COMMITS_FOLLOW_LATEST_KEY, enabled ? "true" : "false");
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

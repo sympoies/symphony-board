@@ -59,6 +59,8 @@ interface Props {
   onLivePreviewLines: (lines: number) => void;
   liveTabEnabled: boolean; // whether the realtime Live tab is shown + streams (off by default)
   onLiveTabEnabled: (enabled: boolean) => void;
+  commitsFollowLatest: boolean; // automatically select the latest visible commit detail
+  onCommitsFollowLatest: (enabled: boolean) => void;
   liveDisabled: boolean; // Live can't run on this deployment (the static Pages demo has no live server), so the Live tab + its sub-settings render disabled, like the suspended date range
   hiddenEventTypes: ReadonlySet<string>; // HIDDEN Live categories (an independent layer)
   onToggleEventType: (category: string) => void; // flip one category's Live visibility
@@ -138,6 +140,8 @@ export function SettingsPage({
   onLivePreviewLines,
   liveTabEnabled,
   onLiveTabEnabled,
+  commitsFollowLatest,
+  onCommitsFollowLatest,
   liveDisabled,
   hiddenEventTypes,
   onToggleEventType,
@@ -359,6 +363,24 @@ export function SettingsPage({
             );
           })}
         </ol>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Follow latest commit</h3>
+          <p className="muted">
+            Automatically show detail for the newest visible commit and follow newer commits as they arrive.
+            Saved on this device only.
+          </p>
+        </div>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={commitsFollowLatest}
+            onChange={(e) => onCommitsFollowLatest(e.target.checked)}
+            aria-label="Follow the latest commit detail"
+          />
+        </label>
       </div>
 
       {!standalone ? (

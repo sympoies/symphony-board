@@ -122,6 +122,10 @@ is available; richer multi-branch membership can still use `refs` / `branches`.
 Provider-specific signals such as GitHub Verified or check counts are omitted
 until the contract has comparable GitHub and GitLab semantics.
 
+Commit detail is manually selected by default. Settings can opt this device into
+following the latest visible commit: the page opens detail for the newest row
+and advances when a newer row arrives or the active commit filters change.
+
 ### Repo Analytics (`#/repo-analytics`)
 
 Repo Analytics renders `repo_metrics[]`: per-repo totals, bucketed series,
@@ -150,6 +154,7 @@ Settings is a browser-local display surface:
 - hide/show whole sources
 - choose the default shared date range preset
 - set per-repo highlight color overrides
+- opt into following the latest visible commit in the Commits detail pane
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
 Board, Graph, Activity feed, Commits log, and Repo Analytics before each page
