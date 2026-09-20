@@ -462,7 +462,10 @@ export function CommitsPage({
   // mode is explicit so clicking a row can pin it even while the device preference
   // remains enabled; only the release control returns the pane to auto-follow.
   const [detailMode, setDetailMode] = useState<
-    { kind: "closed" } | { kind: "following" } | { kind: "pinned"; key: string }
+    | { kind: "closed" }
+    | { kind: "hidden-following"; latestKey: string | null }
+    | { kind: "following" }
+    | { kind: "pinned"; key: string }
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
   const previousFollowLatest = useRef(followLatest);
   useEffect(() => {
@@ -470,7 +473,12 @@ export function CommitsPage({
     previousFollowLatest.current = followLatest;
     if (previous === followLatest) return;
     setDetailMode((current) => {
-      if (followLatest) return current.kind === "closed" ? { kind: "following" } : current;
+      if (followLatest) {
+        return current.kind === "closed" || current.kind === "hidden-following"
+          ? { kind: "following" }
+          : current;
+      }
+      if (current.kind === "hidden-following") return { kind: "closed" };
       if (current.kind !== "following") return current;
       const latest = commits[0];
       return latest ? { kind: "pinned", key: activityKey(latest) } : { kind: "closed" };
@@ -483,6 +491,17 @@ export function CommitsPage({
     if (commits.some((commit) => activityKey(commit) === detailMode.key)) return;
     setDetailMode(followLatest && commits.length > 0 ? { kind: "following" } : { kind: "closed" });
   }, [commits, detailMode, followLatest]);
+  // Closing the pane hides it without cancelling the enabled preference. A new
+  // first row (new data or a changed filter) makes that retained intent visible
+  // again, matching the pre-pin follow behavior without reopening immediately.
+  useEffect(() => {
+    if (detailMode.kind !== "hidden-following" || !followLatest) return;
+    const latest = commits[0];
+    const latestKey = latest ? activityKey(latest) : null;
+    if (latestKey !== detailMode.latestKey) {
+      setDetailMode(latest ? { kind: "following" } : { kind: "hidden-following", latestKey: null });
+    }
+  }, [commits, detailMode, followLatest]);
   const selectedCommit = useMemo(() => {
     if (detailMode.kind === "following") return commits[0] ?? null;
     if (detailMode.kind === "pinned") {
@@ -494,6 +513,14 @@ export function CommitsPage({
   const releasePin = () => {
     setDetailMode(commits.length > 0 ? { kind: "following" } : { kind: "closed" });
     onFollowLatest();
+  };
+  const closeDetail = () => {
+    const latest = commits[0];
+    setDetailMode(
+      followLatest
+        ? { kind: "hidden-following", latestKey: latest ? activityKey(latest) : null }
+        : { kind: "closed" },
+    );
   };
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
@@ -755,7 +782,7 @@ export function CommitsPage({
           selectedKey={selectedKey}
           onSelect={(commit) => {
             const key = activityKey(commit);
-            if (selectedKey === key) setDetailMode({ kind: "closed" });
+            if (selectedKey === key) closeDetail();
             else setDetailMode({ kind: "pinned", key });
           }}
         />
@@ -771,7 +798,7 @@ export function CommitsPage({
               colorOf={colorOf}
               following={detailMode.kind === "following"}
               onFollowLatest={releasePin}
-              onClose={() => setDetailMode({ kind: "closed" })}
+              onClose={closeDetail}
             />
           ) : null}
           <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
