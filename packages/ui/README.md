@@ -154,7 +154,8 @@ Settings is a browser-local display surface:
 - hide/show whole sources
 - choose the default shared date range preset
 - set per-repo highlight color overrides
-- opt into following the latest visible commit in the Commits detail pane
+- opt into following the latest visible commit in the Commits detail pane;
+  selecting another row pins it, and the in-pane action resumes following
 
 The choices are stored in `localStorage` and apply as a pre-filter across the
 Board, Graph, Activity feed, Commits log, and Repo Analytics before each page

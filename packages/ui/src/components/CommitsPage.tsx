@@ -409,6 +409,7 @@ export function CommitsPage({
   activityDaily,
   actorIndex = EMPTY_ACTOR_INDEX,
   followLatest,
+  onFollowLatest,
   onRepo,
   onBranch,
   onAuthor,
@@ -444,6 +445,7 @@ export function CommitsPage({
   // Contract actor directory as lookups, for the author ranking and count.
   actorIndex?: ActorIndex;
   followLatest: boolean;
+  onFollowLatest: () => void;
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   onAuthor: (author: string | null) => void;
@@ -456,22 +458,43 @@ export function CommitsPage({
   emptyState?: ReactNode;
 }) {
   // Selection lives in the page, not the route: a commit is a transient thing to
-  // read, unlike the repo/branch/author filters, which are shareable state.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // Opt-in follow mode keeps detail on the first (newest) row. Because the
-  // filtered commit list is the dependency, a newly loaded commit or a changed
-  // source/repo/branch/author lens advances to that lens's latest visible row.
+  // read, unlike the repo/branch/author filters, which are shareable state. The
+  // mode is explicit so clicking a row can pin it even while the device preference
+  // remains enabled; only the release control returns the pane to auto-follow.
+  const [detailMode, setDetailMode] = useState<
+    { kind: "closed" } | { kind: "following" } | { kind: "pinned"; key: string }
+  >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
+  const previousFollowLatest = useRef(followLatest);
   useEffect(() => {
-    if (!followLatest) return;
-    const latest = commits[0];
-    setSelectedKey(latest ? activityKey(latest) : null);
+    const previous = previousFollowLatest.current;
+    previousFollowLatest.current = followLatest;
+    if (previous === followLatest) return;
+    setDetailMode((current) => {
+      if (followLatest) return current.kind === "closed" ? { kind: "following" } : current;
+      if (current.kind !== "following") return current;
+      const latest = commits[0];
+      return latest ? { kind: "pinned", key: activityKey(latest) } : { kind: "closed" };
+    });
   }, [commits, followLatest]);
-  // Resolved against the CURRENT rows, so a selection that a re-filter or a range
-  // change removed falls back to the digest instead of pinning a stale commit.
-  const selectedCommit = useMemo(
-    () => commits.find((c) => activityKey(c) === selectedKey) ?? null,
-    [commits, selectedKey],
-  );
+  // A pin is valid only while its row remains visible. If a filter removes it,
+  // resume the configured mode instead of retaining a stale hidden selection.
+  useEffect(() => {
+    if (detailMode.kind !== "pinned") return;
+    if (commits.some((commit) => activityKey(commit) === detailMode.key)) return;
+    setDetailMode(followLatest && commits.length > 0 ? { kind: "following" } : { kind: "closed" });
+  }, [commits, detailMode, followLatest]);
+  const selectedCommit = useMemo(() => {
+    if (detailMode.kind === "following") return commits[0] ?? null;
+    if (detailMode.kind === "pinned") {
+      return commits.find((commit) => activityKey(commit) === detailMode.key) ?? null;
+    }
+    return null;
+  }, [commits, detailMode]);
+  const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
+  const releasePin = () => {
+    setDetailMode(commits.length > 0 ? { kind: "following" } : { kind: "closed" });
+    onFollowLatest();
+  };
   const countLabel =
     commits.length === windowTotal ? `${commits.length} in range` : `${commits.length} of ${windowTotal}`;
 
@@ -729,10 +752,12 @@ export function CommitsPage({
           colorOf={colorOf}
           empty={emptyState}
           timezone={timezone}
-          selectedKey={selectedCommit ? activityKey(selectedCommit) : null}
-          onSelect={(commit) =>
-            setSelectedKey((current) => (current === activityKey(commit) ? null : activityKey(commit)))
-          }
+          selectedKey={selectedKey}
+          onSelect={(commit) => {
+            const key = activityKey(commit);
+            if (selectedKey === key) setDetailMode({ kind: "closed" });
+            else setDetailMode({ kind: "pinned", key });
+          }}
         />
         {/* Middle column. Keep the range overview mounted as the persistent
             context for the page; a selected commit is inserted before it so
@@ -744,7 +769,9 @@ export function CommitsPage({
               timezone={timezone}
               sourceKind={sourceKind}
               colorOf={colorOf}
-              onClose={() => setSelectedKey(null)}
+              following={detailMode.kind === "following"}
+              onFollowLatest={releasePin}
+              onClose={() => setDetailMode({ kind: "closed" })}
             />
           ) : null}
           <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />

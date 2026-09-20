@@ -2404,6 +2404,7 @@ export function App() {
           activityDaily={fullActivityDaily ?? env.activity_daily ?? null}
           actorIndex={railActorIndex}
           followLatest={commitsFollowLatest}
+          onFollowLatest={() => setCommitsFollowLatest(true)}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           onAuthor={setRouteAuthor}
