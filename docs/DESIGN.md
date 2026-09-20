@@ -473,9 +473,11 @@ Pages:
   and branch filters local to the page, links each message to the provider
   commit URL, exposes short SHAs with copy buttons, expands commit body text
   when available, and shows branch choices only when commit rows carry ref
-  details. Provider-specific signals such as GitHub Verified badges or check
-  counts are intentionally omitted until the contract has comparable GitHub and
-  GitLab semantics.
+  details. Detail selection is manual by default; a device-local Settings opt-in
+  follows the newest visible commit and advances when newer data or a changed
+  commit filter produces a new first row. Provider-specific signals such as
+  GitHub Verified badges or check counts are intentionally omitted until the
+  contract has comparable GitHub and GitLab semantics.
 - **Reviews**: current provider review-thread inbox over top-level
   `review_threads[]`, not a review-event feed. It uses the shared date range and
   item lens, lists each synced thread with current resolved/outdated state,
@@ -492,11 +494,13 @@ Pages:
   source-aware Activity or Commits view for the same date range.
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
-  overrides in `localStorage`. These preferences are a pre-filter before Board,
-  Graph, Activity, and Repo Analytics compute their views. They are view-only;
-  the daemon keeps syncing every configured source. When the URL has no explicit
-  `from` / `to`, new browsers default to `this week`, calculated from Sunday in
-  the contract's configured `timezone` (default UTC).
+  overrides in `localStorage`. It also stores the opt-in that keeps Commits
+  detail on the newest visible row. These preferences are a pre-filter or
+  presentation choice before Board, Graph, Activity, Commits, and Repo Analytics
+  compute their views. They are view-only; the daemon keeps syncing every
+  configured source. When the URL has no explicit `from` / `to`, new browsers
+  default to `this week`, calculated from Sunday in the contract's configured
+  `timezone` (default UTC).
 
 The UI supports contract major v4. It warns when a different major is loaded.
 

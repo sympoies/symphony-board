@@ -10,6 +10,7 @@ import {
   loadDefaultTab, saveDefaultTab,
   CONTENT_TAB_OPTIONS, loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
   loadLiveTabEnabled, saveLiveTabEnabled,
+  loadCommitsFollowLatest, saveCommitsFollowLatest,
   loadLivePulseOpenChoice, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
   isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, STANDALONE_CLIENT_KIND, isStandaloneClient,
@@ -206,6 +207,16 @@ test("live tab enabled is a device-local setting that is OFF by default", () => 
   // Hand-edited / stale garbage falls back to the safe OFF default.
   store._raw("symphony-board:live-tab-enabled", "yes");
   assert.equal(loadLiveTabEnabled(), false, "non-boolean value -> default off");
+});
+
+test("commits follow-latest is a device-local setting that is OFF by default", () => {
+  assert.equal(loadCommitsFollowLatest(), false, "default: commit detail stays manually selected");
+  saveCommitsFollowLatest(true);
+  assert.equal(loadCommitsFollowLatest(), true);
+  saveCommitsFollowLatest(false);
+  assert.equal(loadCommitsFollowLatest(), false);
+  store._raw("symphony-board:commits-follow-latest", "yes");
+  assert.equal(loadCommitsFollowLatest(), false, "non-boolean value -> default off");
 });
 
 test("live metrics disclosure stores a CHOICE, and absent means never chosen", () => {

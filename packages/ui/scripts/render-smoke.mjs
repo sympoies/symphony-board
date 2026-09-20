@@ -2978,6 +2978,56 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || { headings: [], boardControl: "", liveControl: "", boardHelp: "", liveStatusRows: [], liveRefreshLabel: "" };
+  const commitsFollowLatestToggle = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const pref = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Follow latest commit');
+      const checkbox = pref?.querySelector('input[type="checkbox"]');
+      const before = !!checkbox?.checked;
+      checkbox?.click();
+      return {
+        found: !!checkbox,
+        before,
+        after: !!checkbox?.checked,
+        stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await waitHtml("document.querySelector('.commits-page .commit-detail-card')");
+  const commitsFollowLatestApplied = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const first = document.querySelector('.commit-list .commit-row');
+      const selected = document.querySelector('.commit-list .commit-row-selected');
+      return {
+        hasDetail: !!document.querySelector('.commit-detail-card'),
+        selectedIsFirst: !!first && first === selected,
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Restore the default/manual mode so the existing row-selection interactions
+  // later in this smoke remain independent from the new follow behavior.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
+  await waitHtml("document.querySelector('.settings-page')");
+  const commitsFollowLatestRestored = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const prefs = Array.from(document.querySelectorAll('.settings-page .settings-pref'));
+      const pref = prefs.find((el) => el.querySelector('h3')?.textContent?.trim() === 'Follow latest commit');
+      const checkbox = pref?.querySelector('input[type="checkbox"]');
+      if (checkbox?.checked) checkbox.click();
+      return {
+        checked: !!checkbox?.checked,
+        stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(150);
   const liveCapabilitiesBeforeRefresh = await capabilitiesRequests();
   const liveStatusRefresh = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -6777,9 +6827,12 @@ try {
     [has(settingsHtml, "Color mode") && colorModeBefore.found === true && colorModeBefore.before === "night-owl" && colorModeBefore.colorScheme === "dark" && colorModeBefore.themeColor === "#030b22" && colorModeBefore.value === "system" && JSON.stringify(colorModeBefore.options) === JSON.stringify(["system", "dark", "light"]) && JSON.stringify(colorModeBefore.labels) === JSON.stringify(["System", "Dark", "Light"]), `settings: color mode selector defaults to System and resolves dark (${JSON.stringify(colorModeBefore)})`],
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
+    [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
+    [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail for the newest visible row (${JSON.stringify(commitsFollowLatestApplied)})`],
+    [commitsFollowLatestRestored.checked === false && commitsFollowLatestRestored.stored === "false", `settings: Follow latest commit can be disabled again (${JSON.stringify(commitsFollowLatestRestored)})`],
     [(settingsDisplayModel.liveStatusRows || []).some((row) => /latest seq 3/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Webhook setup hint: github https:\/\/deploy\.example\/webhooks\/github/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Allowlist enabled for 2 projects/.test(row)), `settings: Live diagnostics render latest event, webhook hint, and allowlist (${JSON.stringify(settingsDisplayModel.liveStatusRows || [])})`],
     [settingsDisplayModel.liveRefreshLabel === "Refresh" && liveStatusRefresh.clicked === true && liveCapabilitiesAfterRefresh > liveCapabilitiesBeforeRefresh, `settings: Live diagnostics refresh re-probes capabilities (${liveCapabilitiesBeforeRefresh} -> ${liveCapabilitiesAfterRefresh}, ${JSON.stringify(liveStatusRefresh)})`],
-    [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Live tab") > settingIndex("Tab order") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
+    [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Follow latest commit") > settingIndex("Tab order") && settingIndex("Live tab") > settingIndex("Follow latest commit") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
     [tabOrderClick.clicked === true && JSON.stringify(tabOrderBefore) === JSON.stringify(expectedTabOrderBeforeMove) && JSON.stringify(tabOrderAfterMove.labels) === JSON.stringify(expectedTabOrderAfterMove) && JSON.stringify(tabOrderAfterMove.rows) === JSON.stringify(expectedContentRowsAfterMove) && tabOrderAfterMove.stored === expectedStoredTabOrderAfterMove, `settings: tab order control moves Graph before Board while Live/Settings stay anchored (${JSON.stringify(tabOrderAfterMove)})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],
