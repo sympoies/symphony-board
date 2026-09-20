@@ -43,20 +43,22 @@ export function CommitDetail({
         className={`commit-detail-card${accentColor ? " commit-row-accent" : ""}`}
         style={{ "--repo-color": accentColor ?? undefined } as CSSProperties}
       >
-        <button type="button" className="commit-detail-back" onClick={onClose}>
-          ← back to digest
-        </button>
+        <div className="commit-detail-toolbar">
+          <button type="button" className="commit-detail-back" onClick={onClose}>
+            ← back to digest
+          </button>
 
-        <div className="live-mode">
-          {following ? (
-            <span className="live-mode-following">
-              <span className="live-mode-dot" aria-hidden="true" /> Following latest
-            </span>
-          ) : (
-            <button type="button" className="live-mode-release" onClick={onFollowLatest}>
-              Pinned · follow latest
-            </button>
-          )}
+          <div className="live-mode">
+            {following ? (
+              <span className="live-mode-following">
+                <span className="live-mode-dot" aria-hidden="true" /> Following latest
+              </span>
+            ) : (
+              <button type="button" className="live-mode-release" onClick={onFollowLatest}>
+                Pinned · follow latest
+              </button>
+            )}
+          </div>
         </div>
 
         <h3 className="commit-detail-title">{commitMessage(commit)}</h3>
