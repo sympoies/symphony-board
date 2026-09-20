@@ -3001,11 +3001,42 @@ try {
     expression: `(() => {
       const first = document.querySelector('.commit-list .commit-row');
       const selected = document.querySelector('.commit-list .commit-row-selected');
+      const selectedSha = (selected?.querySelector('.commit-sha-text, .commit-sha')?.textContent || '').trim();
       return {
         hasDetail: !!document.querySelector('.commit-detail-card'),
         selectedIsFirst: !!first && first === selected,
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        selectedSha,
         stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Stay on the mounted Commits page and change its source lens. The new first
+  // row belongs to a different provider, so follow mode must advance the
+  // selection rather than merely having selected once during page mount.
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const chips = Array.from(document.querySelectorAll('.commits-source-group .toggle'));
+      const target = chips.find((chip) => (chip.textContent || '').toLowerCase().includes('gitlab'));
+      target?.click();
+      return !!target;
+    })()`,
+  });
+  await waitHtml("location.hash.includes('source=gitlab%3A') && document.querySelector('.commit-list .commit-row-selected')");
+  const followInitialSha = JSON.stringify(commitsFollowLatestApplied.selectedSha || "");
+  const commitsFollowLatestTransition = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const first = document.querySelector('.commit-list .commit-row');
+      const selected = document.querySelector('.commit-list .commit-row-selected');
+      const selectedSha = (selected?.querySelector('.commit-sha-text, .commit-sha')?.textContent || '').trim();
+      const detailSha = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
+      return {
+        selectedIsFirst: !!first && first === selected,
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        selectedSha,
+        selectionChanged: !!selectedSha && selectedSha !== ${followInitialSha},
+        detailMatches: !!selectedSha && detailSha.startsWith(selectedSha),
       };
     })()`,
     returnByValue: true,
@@ -6829,6 +6860,7 @@ try {
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
     [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail for the newest visible row (${JSON.stringify(commitsFollowLatestApplied)})`],
+    [commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
     [commitsFollowLatestRestored.checked === false && commitsFollowLatestRestored.stored === "false", `settings: Follow latest commit can be disabled again (${JSON.stringify(commitsFollowLatestRestored)})`],
     [(settingsDisplayModel.liveStatusRows || []).some((row) => /latest seq 3/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Webhook setup hint: github https:\/\/deploy\.example\/webhooks\/github/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Allowlist enabled for 2 projects/.test(row)), `settings: Live diagnostics render latest event, webhook hint, and allowlist (${JSON.stringify(settingsDisplayModel.liveStatusRows || [])})`],
     [settingsDisplayModel.liveRefreshLabel === "Refresh" && liveStatusRefresh.clicked === true && liveCapabilitiesAfterRefresh > liveCapabilitiesBeforeRefresh, `settings: Live diagnostics refresh re-probes capabilities (${liveCapabilitiesBeforeRefresh} -> ${liveCapabilitiesAfterRefresh}, ${JSON.stringify(liveStatusRefresh)})`],
