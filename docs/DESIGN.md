@@ -475,9 +475,11 @@ Pages:
   when available, and shows branch choices only when commit rows carry ref
   details. Detail selection is manual by default; a device-local Settings opt-in
   follows the newest visible commit and advances when newer data or a changed
-  commit filter produces a new first row. Provider-specific signals such as
-  GitHub Verified badges or check counts are intentionally omitted until the
-  contract has comparable GitHub and GitLab semantics.
+  commit filter produces a new first row. The detail identifies that state as
+  `Following latest`; selecting another row changes it to `Pinned`, and the
+  in-pane `follow latest` action releases the pin. Provider-specific signals
+  such as GitHub Verified badges or check counts are intentionally omitted
+  until the contract has comparable GitHub and GitLab semantics.
 - **Reviews**: current provider review-thread inbox over top-level
   `review_threads[]`, not a review-event feed. It uses the shared date range and
   item lens, lists each synced thread with current resolved/outdated state,
@@ -495,7 +497,9 @@ Pages:
 - **Settings**: browser-local display preferences. It can hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
   overrides in `localStorage`. It also stores the opt-in that keeps Commits
-  detail on the newest visible row. These preferences are a pre-filter or
+  detail on the newest visible row; the detail itself exposes the current
+  following/pinned state and can resume following without returning to Settings.
+  These preferences are a pre-filter or
   presentation choice before Board, Graph, Activity, Commits, and Repo Analytics
   compute their views. They are view-only; the daemon keeps syncing every
   configured source. When the URL has no explicit `from` / `to`, new browsers

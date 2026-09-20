@@ -17,12 +17,16 @@ export function CommitDetail({
   timezone,
   sourceKind,
   colorOf,
+  following,
+  onFollowLatest,
   onClose,
 }: {
   commit: ActivityDTO;
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
+  following: boolean;
+  onFollowLatest: () => void;
   onClose: () => void;
 }) {
   const sha = commitSha(commit);
@@ -42,6 +46,18 @@ export function CommitDetail({
         <button type="button" className="commit-detail-back" onClick={onClose}>
           ← back to digest
         </button>
+
+        <div className="live-mode">
+          {following ? (
+            <span className="live-mode-following">
+              <span className="live-mode-dot" aria-hidden="true" /> Following latest
+            </span>
+          ) : (
+            <button type="button" className="live-mode-release" onClick={onFollowLatest}>
+              Pinned · follow latest
+            </button>
+          )}
+        </div>
 
         <h3 className="commit-detail-title">{commitMessage(commit)}</h3>
 

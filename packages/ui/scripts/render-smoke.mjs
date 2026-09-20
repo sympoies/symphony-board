@@ -3004,6 +3004,7 @@ try {
       const selectedSha = (selected?.querySelector('.commit-sha-text, .commit-sha')?.textContent || '').trim();
       return {
         hasDetail: !!document.querySelector('.commit-detail-card'),
+        mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
         selectedIsFirst: !!first && first === selected,
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
         selectedSha,
@@ -3032,11 +3033,121 @@ try {
       const selectedSha = (selected?.querySelector('.commit-sha-text, .commit-sha')?.textContent || '').trim();
       const detailSha = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
       return {
+        mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
         selectedIsFirst: !!first && first === selected,
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
         selectedSha,
         selectionChanged: !!selectedSha && selectedSha !== ${followInitialSha},
         detailMatches: !!selectedSha && detailSha.startsWith(selectedSha),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `document.querySelectorAll('.commit-list .commit-row')[1]?.click()`,
+  });
+  await sleep(100);
+  const commitsFollowLatestPin = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.commit-list .commit-row'));
+      const selected = document.querySelector('.commit-list .commit-row-selected');
+      const release = document.querySelector('.commit-detail .live-mode-release');
+      return {
+        selectedIsFirst: rows[0] === selected,
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        hasRelease: !!release,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const commitsFollowLatestReleaseClicked = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const release = document.querySelector('.commit-detail .live-mode-release');
+      release?.click();
+      return !!release;
+    })()`,
+    returnByValue: true,
+  })).result.value || false;
+  await sleep(100);
+  const commitsFollowLatestRelease = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const first = document.querySelector('.commit-list .commit-row');
+      const selected = document.querySelector('.commit-list .commit-row-selected');
+      return {
+        clicked: ${JSON.stringify(commitsFollowLatestReleaseClicked)},
+        selectedIsFirst: !!first && first === selected,
+        mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.commit-list .commit-row-selected')?.click()`,
+  });
+  await sleep(100);
+  const commitsFollowLatestClosed = (await send("Runtime.evaluate", {
+    expression: `({
+      hasDetail: !!document.querySelector('.commit-detail-card'),
+      selectedRows: document.querySelectorAll('.commit-row-selected').length,
+      stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+    })`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const chips = Array.from(document.querySelectorAll('.commits-source-group .toggle'));
+      const target = chips.find((chip) => (chip.textContent || '').toLowerCase().includes('github'));
+      target?.click();
+      return !!target;
+    })()`,
+  });
+  await waitHtml("location.hash.includes('source=github%3A') && document.querySelector('.commit-list .commit-row-selected') && document.querySelector('.commit-detail .live-mode-following')");
+  const commitsFollowLatestReopened = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const first = document.querySelector('.commit-list .commit-row');
+      const selected = document.querySelector('.commit-list .commit-row-selected');
+      return {
+        selectedIsFirst: !!first && first === selected,
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const populatedCommitsHash = (await send("Runtime.evaluate", {
+    expression: "location.hash",
+    returnByValue: true,
+  })).result.value || "#/commits";
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.commit-list .commit-row-selected')?.click()`,
+  });
+  await sleep(100);
+  await send("Runtime.evaluate", {
+    expression: "location.hash = '#/commits?source=missing%3Amissing'",
+  });
+  await waitHtml("document.querySelectorAll('.commit-list .commit-row').length === 0 && !document.querySelector('.commit-detail-card')");
+  const commitsFollowLatestEmpty = (await send("Runtime.evaluate", {
+    expression: `({
+      rows: document.querySelectorAll('.commit-list .commit-row').length,
+      hasDetail: !!document.querySelector('.commit-detail-card'),
+      stored: localStorage.getItem('symphony-board:commits-follow-latest'),
+    })`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `location.hash = ${JSON.stringify(populatedCommitsHash)}`,
+  });
+  await waitHtml("document.querySelector('.commit-list .commit-row-selected') && document.querySelector('.commit-detail .live-mode-following')");
+  const commitsFollowLatestRepopulated = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const first = document.querySelector('.commit-list .commit-row');
+      const selected = document.querySelector('.commit-list .commit-row-selected');
+      return {
+        selectedIsFirst: !!first && first === selected,
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        mode: document.querySelector('.commit-detail .live-mode')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
       };
     })()`,
     returnByValue: true,
@@ -6859,8 +6970,14 @@ try {
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
-    [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail for the newest visible row (${JSON.stringify(commitsFollowLatestApplied)})`],
-    [commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
+    [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail for the newest visible row and names the mode (${JSON.stringify(commitsFollowLatestApplied)})`],
+    [commitsFollowLatestTransition.mode === "Following latest" && commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
+    [commitsFollowLatestPin.selectedIsFirst === false && commitsFollowLatestPin.selectedRows === 1 && commitsFollowLatestPin.mode === "Pinned · follow latest" && commitsFollowLatestPin.hasRelease === true, `commits: selecting a row pins detail and exposes the follow-latest action (${JSON.stringify(commitsFollowLatestPin)})`],
+    [commitsFollowLatestRelease.clicked === true && commitsFollowLatestRelease.selectedIsFirst === true && commitsFollowLatestRelease.mode === "Following latest" && commitsFollowLatestRelease.stored === "true", `commits: releasing the pin returns detail to the latest row (${JSON.stringify(commitsFollowLatestRelease)})`],
+    [commitsFollowLatestClosed.hasDetail === false && commitsFollowLatestClosed.selectedRows === 0 && commitsFollowLatestClosed.stored === "true", `commits: closing detail hides it without disabling the follow preference (${JSON.stringify(commitsFollowLatestClosed)})`],
+    [commitsFollowLatestReopened.selectedIsFirst === true && commitsFollowLatestReopened.selectedRows === 1 && commitsFollowLatestReopened.mode === "Following latest", `commits: a changed visible list restores following after detail was closed (${JSON.stringify(commitsFollowLatestReopened)})`],
+    [commitsFollowLatestEmpty.rows === 0 && commitsFollowLatestEmpty.hasDetail === false && commitsFollowLatestEmpty.stored === "true", `commits: an empty list retains the enabled follow intent (${JSON.stringify(commitsFollowLatestEmpty)})`],
+    [commitsFollowLatestRepopulated.selectedIsFirst === true && commitsFollowLatestRepopulated.selectedRows === 1 && commitsFollowLatestRepopulated.mode === "Following latest", `commits: following resumes when an empty list is populated again (${JSON.stringify(commitsFollowLatestRepopulated)})`],
     [commitsFollowLatestRestored.checked === false && commitsFollowLatestRestored.stored === "false", `settings: Follow latest commit can be disabled again (${JSON.stringify(commitsFollowLatestRestored)})`],
     [(settingsDisplayModel.liveStatusRows || []).some((row) => /latest seq 3/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Webhook setup hint: github https:\/\/deploy\.example\/webhooks\/github/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Allowlist enabled for 2 projects/.test(row)), `settings: Live diagnostics render latest event, webhook hint, and allowlist (${JSON.stringify(settingsDisplayModel.liveStatusRows || [])})`],
     [settingsDisplayModel.liveRefreshLabel === "Refresh" && liveStatusRefresh.clicked === true && liveCapabilitiesAfterRefresh > liveCapabilitiesBeforeRefresh, `settings: Live diagnostics refresh re-probes capabilities (${liveCapabilitiesBeforeRefresh} -> ${liveCapabilitiesAfterRefresh}, ${JSON.stringify(liveStatusRefresh)})`],
