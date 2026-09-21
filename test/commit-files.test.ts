@@ -16,10 +16,16 @@ import {
   fetchCommitFiles,
   isCommitFilesError,
   parseCommitFilesRequest,
+  type CommitFilesError,
   type CommitFilesResult,
 } from "../src/server/commit-files.ts";
 
+// The cache entry shape is internal to the module; a test only needs a map it
+// can hand in and never inspect.
+type CommitFilesCacheEntry = Parameters<typeof fetchCommitFiles>[2] extends { cache?: Map<string, infer E> } ? E : never;
+
 const SHA = "24f59ca944420547a274023d003032d5e0b666b4";
+const OTHER_SHA = "3bdc04a5bb2f4a1d9c7e5f60718a2c93de41b7aa";
 
 function cfg(): AppConfig {
   return {
@@ -79,12 +85,15 @@ function restStub(handler: (path: string) => unknown): { rest: RestClient; paths
   return { rest, paths };
 }
 
-function deps(rest: RestClient, authTokenResolver: AuthTokenResolver = resolver) {
+function deps(rest: RestClient, authTokenResolver: AuthTokenResolver = resolver, clock?: { now: () => number }) {
   return {
     restClientFactory: () => rest,
     authTokenResolver,
-    // A per-test cache; the module-level one must not leak between tests.
-    cache: new Map<string, CommitFilesResult>(),
+    // Per-test cache and in-flight map; the module-level ones must not leak
+    // between tests.
+    cache: new Map<string, CommitFilesCacheEntry>(),
+    inFlight: new Map<string, Promise<CommitFilesResult | CommitFilesError>>(),
+    ...(clock ? { now: () => clock.now() } : {}),
   };
 }
 
@@ -107,7 +116,10 @@ test("a request must name a source, a project, and a hex sha", () => {
 
   // A sha reaches the provider inside a URL path; anything that could steer it
   // elsewhere is refused before a client is even built.
-  for (const bad of ["", "abc", "../../etc/passwd", "HEAD", `${SHA}/../../other`]) {
+  // An ABBREVIATION is refused too: it resolves to the same commit but under a
+  // different cache key, so one commit would have dozens of keys and each of
+  // them a real provider call. The UI always sends the full oid.
+  for (const bad of ["", "abc", "../../etc/passwd", "HEAD", `${SHA}/../../other`, SHA.slice(0, 7), SHA.slice(0, 39)]) {
     const res = parseCommitFilesRequest(new URL(`${base}?source_id=s&project_path=o/r&sha=${encodeURIComponent(bad)}`));
     assert.equal((res as any).error, "bad_request", `sha "${bad}" must be refused`);
   }
@@ -129,6 +141,7 @@ test("github: the single-commit response becomes one file list plus the commit's
   // The commit's own stats, not the sum of the listed files: they still describe
   // the whole commit when the file list is capped.
   assert.deepEqual((result as CommitFilesResult).total, { additions: 132, deletions: 3 });
+  assert.equal((result as CommitFilesResult).total_scope, "commit");
   assert.equal((result as CommitFilesResult).truncated, false);
 });
 
@@ -139,7 +152,10 @@ test("github: a 300-file response is reported as truncated, not as a small commi
   assert.ok(!isCommitFilesError(result));
   assert.equal((result as CommitFilesResult).truncated, true);
   assert.equal((result as CommitFilesResult).files.length, 300);
+  // GitHub still reports the WHOLE commit under a capped list, which is what
+  // total_scope has to disclose so a label cannot claim "first N files".
   assert.deepEqual((result as CommitFilesResult).total, { additions: 900, deletions: 900 });
+  assert.equal((result as CommitFilesResult).total_scope, "commit");
 });
 
 test("gitlab diff lines: hunk content counts, file headers do not", () => {
@@ -179,6 +195,8 @@ test("gitlab: the raw diff feed becomes the same shape, with counts read off the
   // GitLab reports no commit-level totals on this feed, so the sum of the files
   // is the only honest total.
   assert.deepEqual((result as CommitFilesResult).total, { additions: 3, deletions: 2 });
+  assert.equal((result as CommitFilesResult).total_scope, "listed");
+  assert.equal((result as CommitFilesResult).truncated, false);
 });
 
 test("only a configured project may be read, so the route cannot be pointed at any repo the token can reach", async () => {
@@ -226,4 +244,105 @@ test("a commit is immutable, so the second open costs no provider call", async (
   const second = await fetchCommitFiles(cfg(), { source_id: "github:github.com", project_path: "serenvia/secrets", sha: SHA }, shared);
   assert.deepEqual(paths.length, 1, "the cached commit must not be re-fetched");
   assert.deepEqual(first, second);
+});
+
+test("diff counting is hunk-scoped, so content that looks like a file header still counts", () => {
+  // A removed markdown rule (`---`) arrives as `----` and an added one as
+  // `+---`; skipping every line that merely STARTS with a header prefix
+  // silently undercounted both. Only lines after a `@@` are content.
+  const diff = [
+    "--- a/README.md",
+    "+++ b/README.md",
+    "@@ -1,6 +1,6 @@",
+    " title",
+    "----",
+    "+++new heading",
+    "+---",
+    "-was here",
+    "@@ -20,2 +20,2 @@",
+    "+second hunk add",
+  ].join("\n");
+  assert.deepEqual(countDiffLines(diff), { additions: 3, deletions: 2 });
+  // Nothing before the first hunk counts, whatever it looks like.
+  assert.deepEqual(countDiffLines("--- a/x\n+++ b/x\n"), { additions: 0, deletions: 0 });
+});
+
+test("gitlab: a full diff page is reported as truncated, with the total covering only what is listed", async () => {
+  const entries = Array.from({ length: 100 }, (_, i) => ({
+    new_path: `src/f${i}.ts`,
+    old_path: `src/f${i}.ts`,
+    diff: "@@\n+one\n-two\n",
+  }));
+  const { rest } = restStub(() => entries);
+  const result = await fetchCommitFiles(cfg(), { source_id: "gitlab:gitlab.example.com", project_path: "group/sub/app", sha: SHA }, deps(rest));
+  assert.ok(!isCommitFilesError(result));
+  assert.equal((result as CommitFilesResult).truncated, true);
+  assert.deepEqual((result as CommitFilesResult).total, { additions: 100, deletions: 100 });
+  // Unlike GitHub there is no commit-level total to fall back on, so the label
+  // must be told that this covers the listed prefix only.
+  assert.equal((result as CommitFilesResult).total_scope, "listed");
+});
+
+test("the allowlist is re-checked ahead of the cache, so de-configuring a project takes effect at once", async () => {
+  const { rest, paths } = restStub(() => GITHUB_COMMIT);
+  const shared = deps(rest);
+  const req = { source_id: "github:github.com", project_path: "serenvia/secrets", sha: SHA };
+  assert.ok(!isCommitFilesError(await fetchCommitFiles(cfg(), req, shared)));
+
+  const withoutProject = cfg();
+  withoutProject.sources[0]!.projects = ["serenvia/other"];
+  const removed = await fetchCommitFiles(withoutProject, req, shared);
+  assert.ok(isCommitFilesError(removed) && removed.error === "unknown_project", "a warmed cache must not outlive the config that authorized it");
+
+  const disabled = cfg();
+  disabled.sources[0]!.enabled = false;
+  const off = await fetchCommitFiles(disabled, req, shared);
+  assert.ok(isCommitFilesError(off) && off.error === "unknown_source");
+  assert.equal(paths.length, 1, "neither refusal may reach the provider");
+});
+
+test("concurrent identical requests share one provider call", async () => {
+  let release: (value: unknown) => void = () => {};
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { rest, paths } = restStub(() => gate.then(() => GITHUB_COMMIT));
+  const shared = deps(rest);
+  const req = { source_id: "github:github.com", project_path: "serenvia/secrets", sha: SHA };
+  const both = Promise.all([fetchCommitFiles(cfg(), req, shared), fetchCommitFiles(cfg(), req, shared)]);
+  release(null);
+  const [first, second] = await both;
+  assert.equal(paths.length, 1, "the second caller must join the in-flight resolution, not start another");
+  assert.deepEqual(first, second);
+});
+
+test("a provider failure is cached briefly, then retried; a config refusal is never cached", async () => {
+  let clockMs = 1_000_000;
+  const clock = { now: () => clockMs };
+  let mode: "fail" | "ok" = "fail";
+  const { rest, paths } = restStub(() => {
+    if (mode === "fail") throw new Error("REST HTTP 502: bad gateway");
+    return GITHUB_COMMIT;
+  });
+  const shared = deps(rest, resolver, clock);
+  const req = { source_id: "github:github.com", project_path: "serenvia/secrets", sha: SHA };
+
+  assert.ok(isCommitFilesError(await fetchCommitFiles(cfg(), req, shared)));
+  // Within the window a scripted caller cannot turn requests into provider
+  // calls 1:1 — that is what makes an unauthenticated route affordable.
+  assert.ok(isCommitFilesError(await fetchCommitFiles(cfg(), req, shared)));
+  assert.equal(paths.length, 1);
+
+  // But the reason was transient, so it must not stick to the commit.
+  clockMs += 61_000;
+  mode = "ok";
+  assert.ok(!isCommitFilesError(await fetchCommitFiles(cfg(), req, shared)));
+  assert.equal(paths.length, 2);
+
+  // A refusal derived from config is recomputed every time, never cached.
+  const noToken = deps(rest, noTokens, clock);
+  const first = await fetchCommitFiles(cfg(), { ...req, sha: OTHER_SHA }, noToken);
+  const again = await fetchCommitFiles(cfg(), { ...req, sha: OTHER_SHA }, noToken);
+  assert.ok(isCommitFilesError(first) && first.error === "no_token");
+  assert.ok(isCommitFilesError(again) && again.error === "no_token");
 });

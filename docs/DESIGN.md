@@ -874,26 +874,52 @@ bump.
 
 | Route | Method | Served by | Purpose |
 | --- | --- | --- | --- |
-| `/api/commit-files` | GET | writer (`board` daemon / app server) | one commit's changed files with per-file `additions`/`deletions`, the commit total, and a `truncated` flag |
+| `/api/commit-files` | GET | writer (`board` daemon / app server) | one commit's changed files with per-file `additions`/`deletions`, a total plus the `total_scope` it covers, and a `truncated` flag |
 
 **Safety model.** The request names a source, a project path, and a sha. The
-sha must be plain hex (7-64 chars) because it reaches the provider inside a URL
-path, and the project must be one the deployment already tracks — the
-configured project list is the allowlist, so the route cannot be pointed at an
-arbitrary repository with the deployment's own token. Provider access stays
-read-only (GET). Every failure (unknown source, unconfigured project, no token,
-provider error) answers `200` with an `error` code and message so the detail
-pane can say WHY the breakdown is missing; only a malformed request is a `400`.
+sha must be a FULL hex commit id (40 or 64 chars) because it reaches the
+provider inside a URL path — and because an abbreviation would give one commit
+dozens of distinct cache keys, each of them a real provider call. The project
+must be one the deployment already tracks: the configured project list is the
+allowlist, and it is checked on every request BEFORE the cache, so removing a
+project or disabling a source stops the route answering for it immediately.
+Provider access stays read-only (GET).
 
-**Cost and caching.** One provider call per commit opened, and only while the
-viewer has turned the Settings toggle on (`symphony-board:commit-file-stats`,
-OFF by default — it is the one board surface that reaches a provider on a
-viewer action). A commit's diff is immutable, so results are cached in the
-server process by `(source, project, sha)` with a bounded size and no TTL.
+One honest limit on that guarantee: GitHub resolves `commits/{sha}` within the
+repository's whole fork network, so a caller who already knows such a sha can
+read paths and counts for a commit the tracked repository itself never
+contained. The allowlist bounds the repository *network* the route can reach,
+not the exact commit set.
+
+Every failure (unknown source, unconfigured project, no token, unsupported
+provider, provider error, and a config the route could not load at all —
+`config_error`) answers `200` with an `error` code from one exported union and
+a message, so the detail pane can say WHY the breakdown is missing; only a
+malformed request is a `400`.
+
+**Cost and caching.** One provider call per commit the pane shows, and only
+while the viewer has turned the Settings toggle on
+(`symphony-board:commit-file-stats`, OFF by default — it is the one board
+surface that reaches a provider from the UI). With *Follow latest commit* also
+on, the pane follows a newer head and asks for that commit too; both switches
+are off by default and independent.
+
+A commit's diff is immutable, so a SUCCESS is cached in the server process by
+`(source, project, sha)` with a bounded size and no TTL. A provider FAILURE is
+cached briefly (one minute) as well — otherwise a loop over distinct well-formed
+shas converts one request into one provider call indefinitely — while
+config-derived refusals are never cached, because config is what they are
+recomputed from. Concurrent identical requests share one in-flight resolution
+rather than racing to spend two calls.
+
 GitHub caps its file list at 300 entries and GitLab's diff feed is paged; both
-report `truncated: true` rather than presenting a partial list as a whole
-commit. A deployment that does not serve the route (a static contract host, an
-older build) simply 404s and the pane says the breakdown is unavailable.
+report `truncated: true`. Under truncation `total_scope` says what the total
+covers: GitHub still reports the whole commit, GitLab only the listed files.
+
+A deployment that does not serve the route answers either a `404` (an older
+build, the read-only `api` sidecar) or, on a static SPA host, its `index.html`;
+both are reported to the viewer as "this server does not serve per-file stats"
+rather than as a malformed response.
 
 ## Live Event Stream (Realtime)
 

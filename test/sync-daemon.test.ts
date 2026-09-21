@@ -19,6 +19,7 @@ import {
 } from "../src/cli/sync-daemon.ts";
 import type { SourceRunResult, SyncProgressReporter, SyncRunResult } from "../src/sync-runner.ts";
 import { log } from "../src/log.ts";
+import { commitFilesConfigError, type CommitFilesErrorCode } from "../src/server/commit-files.ts";
 
 const NO_TOTALS = { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
 function okResult(): SyncRunResult {
@@ -785,7 +786,11 @@ test("GET /api/commit-files validates the request, degrades a broken config, and
     const res = await fetch(`${brokenBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${sha}`);
     assert.equal(res.status, 200);
     const body = await json(res);
-    assert.equal(body.error, "config_error");
+    // The code comes from the route contract's own union, not an inline literal:
+    // a consumer typed off CommitFilesErrorCode must be able to see it.
+    const configError: CommitFilesErrorCode = "config_error";
+    assert.equal(body.error, configError);
+    assert.deepEqual(commitFilesConfigError("boom"), { error: "config_error", message: "boom" });
   } finally {
     await close(broken);
   }
@@ -812,9 +817,11 @@ test("GET /api/commit-files validates the request, degrades a broken config, and
   const okServer = createControlServer(controller, ctx(false, { enabled: true, path: okPath, secretsPath: null }));
   const okBase = await listen(okServer);
   try {
-    const bad = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=HEAD`);
-    assert.equal(bad.status, 400, "a non-hex sha never reaches a provider client");
-    assert.equal((await json(bad)).error, "bad_request");
+    for (const badSha of ["HEAD", sha.slice(0, 7)]) {
+      const bad = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${badSha}`);
+      assert.equal(bad.status, 400, `a non-full-hex sha (${badSha}) never reaches a provider client`);
+      assert.equal((await json(bad)).error, "bad_request");
+    }
 
     const unconfigured = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=someone/else&sha=${sha}`);
     assert.equal(unconfigured.status, 200);

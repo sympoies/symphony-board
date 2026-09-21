@@ -1,5 +1,4 @@
 import type { CommitFileStats, CommitFileStatus } from "../contract.ts";
-import type { CommitFileStatsState } from "./CommitDetail.tsx";
 
 // The opened commit's changed files, laid out like `git-scope commit`: one row
 // per file as `[M] path   +40 −0`, then the commit total under them. The status
@@ -11,6 +10,16 @@ import type { CommitFileStatsState } from "./CommitDetail.tsx";
 // this on deliberately, so "why is there no list" has to be answerable in place
 // — a server that cannot reach the provider, or does not serve the route at
 // all, says so here.
+
+// The fetch state this component renders. It lives here, with the component
+// that owns every one of its branches, rather than in the parent that happens
+// to produce it.
+export type CommitFileStatsState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; stats: CommitFileStats };
+
 export function CommitFileList({ state }: { state: CommitFileStatsState }) {
   if (state.kind === "idle") return null;
   return (
@@ -29,6 +38,15 @@ const STATUS_LETTER: Record<CommitFileStatus, string> = {
   removed: "D",
   renamed: "R",
 };
+
+// What the total actually covers, which only differs once the list is capped:
+// GitHub still reports the whole commit, GitLab only the files listed here.
+// Claiming "first N files" over a whole-commit number would be a wrong label,
+// not a vague one.
+function totalLabel(stats: CommitFileStats): string {
+  if (!stats.truncated) return `Total · ${stats.files.length} ${stats.files.length === 1 ? "file" : "files"}`;
+  return stats.total_scope === "commit" ? "Total · whole commit" : `Total · first ${stats.files.length} files`;
+}
 
 function CommitFileRows({ stats }: { stats: CommitFileStats }) {
   if (stats.files.length === 0) {
@@ -55,9 +73,7 @@ function CommitFileRows({ stats }: { stats: CommitFileStats }) {
         ))}
       </ul>
       <div className="commit-files-total">
-        <span className="commit-files-total-label">
-          {stats.truncated ? `Total (first ${stats.files.length} files)` : `Total · ${stats.files.length} ${stats.files.length === 1 ? "file" : "files"}`}
-        </span>
+        <span className="commit-files-total-label">{totalLabel(stats)}</span>
         <span className="commit-files-counts">
           <span className="commit-diffstat-add">+{stats.total.additions.toLocaleString("en-US")}</span>
           <span className="commit-diffstat-del">−{stats.total.deletions.toLocaleString("en-US")}</span>

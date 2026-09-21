@@ -664,6 +664,10 @@ export interface CommitFileStat {
 export interface CommitFileStats {
   files: CommitFileStat[];
   total: { additions: number; deletions: number };
+  // What `total` covers: the whole commit (GitHub reports one even when it caps
+  // the file list) or only the files listed here. Under `truncated` those are
+  // different numbers, so the label cannot be written without it.
+  total_scope: "commit" | "listed";
   truncated: boolean;
 }
 
@@ -671,18 +675,26 @@ export type CommitFilesOutcome = { ok: true; stats: CommitFileStats } | { ok: fa
 
 const COMMIT_FILE_STATUSES: readonly string[] = ["added", "modified", "removed", "renamed"];
 
-function isCommitFileStats(value: any): value is CommitFileStats {
-  if (!value || typeof value !== "object" || !Array.isArray(value.files)) return false;
-  if (!value.total || typeof value.total.additions !== "number" || typeof value.total.deletions !== "number") return false;
-  return value.files.every(
-    (file: any) =>
-      file &&
-      typeof file.path === "string" &&
-      file.path.length > 0 &&
-      COMMIT_FILE_STATUSES.includes(file.status) &&
-      typeof file.additions === "number" &&
-      typeof file.deletions === "number",
+function isCommitFileStat(value: unknown): value is CommitFileStat {
+  const file = value as Partial<CommitFileStat> | null;
+  return (
+    !!file &&
+    typeof file === "object" &&
+    typeof file.path === "string" &&
+    file.path.length > 0 &&
+    COMMIT_FILE_STATUSES.includes(file.status as string) &&
+    typeof file.additions === "number" &&
+    typeof file.deletions === "number"
   );
+}
+
+function isCommitFileStats(value: unknown): value is CommitFileStats {
+  const body = value as Partial<CommitFileStats> | null;
+  if (!body || typeof body !== "object" || !Array.isArray(body.files)) return false;
+  const total = body.total as CommitFileStats["total"] | undefined;
+  if (!total || typeof total.additions !== "number" || typeof total.deletions !== "number") return false;
+  if (body.total_scope !== "commit" && body.total_scope !== "listed") return false;
+  return body.files.every(isCommitFileStat);
 }
 
 export async function fetchCommitFileStats(
@@ -700,20 +712,33 @@ export async function fetchCommitFileStats(
   } catch (err) {
     return { ok: false, message: (err as Error).message };
   }
-  if (res.status === 404) return { ok: false, message: "this server does not serve per-file stats" };
-  let body: any = null;
+  const unavailable = { ok: false as const, message: "this server does not serve per-file stats" };
+  if (res.status === 404) return unavailable;
+  let body: unknown = null;
+  let parsed = true;
   try {
     body = await readJson(res);
   } catch {
-    body = null;
+    parsed = false;
   }
-  if (!res.ok && !body?.message) return { ok: false, message: `HTTP ${res.status}` };
+  // A static SPA host answers an unknown /api path with its index.html rather
+  // than a 404, so "the body is not JSON" is the same fact as "this route is
+  // not served here" — and saying that is more use than "invalid response".
+  if (!parsed) return unavailable;
+  const error = (body as { error?: unknown; message?: unknown } | null)?.error;
+  if (!res.ok && error === undefined) return { ok: false, message: `HTTP ${res.status}` };
   // The route answers 200 with an `error` code for every reason a breakdown is
   // missing (no token, unconfigured project, provider failure), so the message
   // is what the pane shows.
-  if (body?.error) return { ok: false, message: String(body.message ?? body.error) };
+  if (error !== undefined) {
+    const message = (body as { message?: unknown }).message;
+    return { ok: false, message: String(message ?? error) };
+  }
   if (!isCommitFileStats(body)) return { ok: false, message: "invalid per-file stats response" };
-  return { ok: true, stats: { files: body.files, total: body.total, truncated: body.truncated === true } };
+  return {
+    ok: true,
+    stats: { files: body.files, total: body.total, total_scope: body.total_scope, truncated: body.truncated === true },
+  };
 }
 
 // --- UI-triggered manual sync control plane client ---

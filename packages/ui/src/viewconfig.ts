@@ -311,11 +311,15 @@ export function saveCommitsFollowLatest(enabled: boolean): void {
   }
 }
 
-// Whether the Commit detail asks the server for the opened commit's per-file
+// Whether the Commit detail asks the server for the shown commit's per-file
 // breakdown. OFF by default and device-local, like color mode: it is the one
-// board surface that reaches a provider on a viewer action (one request per
-// commit opened, see src/server/commit-files.ts), so it stays something the
-// viewer turns on rather than something a page load spends.
+// board surface that reaches a provider from the UI (one request per commit the
+// pane shows, see src/server/commit-files.ts), so it stays something the viewer
+// turns on rather than something a page load spends.
+//
+// "Shown", not "clicked": with Follow latest commit also on, the pane follows a
+// newer head and asks for that commit too. Bounded by how fast commits arrive,
+// deduplicated by the server cache, and off unless BOTH switches are on.
 export const DEFAULT_COMMIT_FILE_STATS = false;
 
 export function loadCommitFileStats(): boolean {

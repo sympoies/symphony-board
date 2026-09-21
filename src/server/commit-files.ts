@@ -12,7 +12,7 @@
 // sweep every ~30 iterations, that is a different cost class; and because an
 // activity upsert replaces `details` wholesale, any sweep that skipped the
 // enrichment would also ERASE what an earlier one stored. Fetching the one
-// commit the viewer opened costs exactly one provider call and cannot rot.
+// commit the viewer opened costs one provider call and cannot rot.
 //
 // The result is therefore NOT contract data: it never enters raw, the canonical
 // store, or contract.json, so no contract_version bump — the same boundary
@@ -20,8 +20,11 @@
 //
 // Provider reads stay read-only (GET), and a request may only name a project
 // this deployment already tracks: the configured project list is the allowlist,
-// so the endpoint can never be pointed at an arbitrary repository with the
-// deployment's own token.
+// checked on EVERY request before the cache is consulted, so removing a project
+// (or disabling a source) takes effect immediately. The one honest limit on
+// that guarantee: GitHub resolves a commit within the repository's whole fork
+// network, so a caller who already knows such a sha can read paths and counts
+// for a commit the tracked repo itself never contained.
 
 import type { ServerResponse } from "node:http";
 import type { AppConfig, SourceConfig } from "../config.ts";
@@ -38,10 +41,15 @@ const REQUEST_TIMEOUT_MS = 15_000;
 // commit.
 const GITHUB_FILE_LIMIT = 300;
 const GITLAB_DIFF_PAGE = 100;
-// A commit's diff is immutable, so the cache needs no TTL — only a bound. One
-// viewer walking a day of commits stays well inside it, and an eviction costs
-// one provider call the next time that commit is opened.
+// A commit's diff is immutable, so a SUCCESS needs no TTL — only a bound.
 const CACHE_LIMIT = 200;
+// A FAILURE is cached too, briefly, so a scripted caller cannot turn one
+// request per distinct sha into one provider call per request. It must expire,
+// because the reasons are transient (a cooled-down token, a 502): pinning them
+// for the process lifetime would leave the pane stuck on "No file breakdown"
+// long after the cause was fixed. Config-derived refusals are never cached at
+// all — they are recomputed from config on every request by construction.
+const FAILURE_CACHE_MS = 60_000;
 
 export type CommitFileStatus = "added" | "modified" | "removed" | "renamed";
 
@@ -58,13 +66,27 @@ export interface CommitFilesResult {
   sha: string;
   files: CommitFileStat[];
   total: { additions: number; deletions: number };
+  // What `total` covers. GitHub reports the whole commit even when its file
+  // list is capped; GitLab has no commit-level total, so the sum of the listed
+  // files is all there is. Without this the same number means two things under
+  // `truncated` and no consumer can label it honestly.
+  total_scope: "commit" | "listed";
   // The provider capped the file list (GitHub's 300-file response, a full
-  // GitLab diff page). `files` is a prefix of the real change, and `total` then
-  // describes only what is listed unless the provider reported its own totals.
+  // GitLab diff page), so `files` is a prefix of the real change.
   truncated: boolean;
 }
 
-export type CommitFilesErrorCode = "bad_request" | "unknown_source" | "unknown_project" | "no_token" | "unsupported_provider" | "provider_error";
+export type CommitFilesErrorCode =
+  | "bad_request"
+  | "unknown_source"
+  | "unknown_project"
+  | "no_token"
+  | "unsupported_provider"
+  | "provider_error"
+  // The route could not load config at all, so it cannot even say whether the
+  // source exists. Emitted by the route, not by resolution — but it is part of
+  // this contract, because it reaches the same consumer through the same field.
+  | "config_error";
 
 export interface CommitFilesError {
   error: CommitFilesErrorCode;
@@ -80,7 +102,14 @@ export interface CommitFilesRequest {
 interface CommitFilesPayload {
   files: CommitFileStat[];
   total: { additions: number; deletions: number };
+  total_scope: "commit" | "listed";
   truncated: boolean;
+}
+
+interface CacheEntry {
+  value: CommitFilesResult | CommitFilesError;
+  // Absent for a success (immutable); set for a cached provider failure.
+  expiresAt?: number;
 }
 
 export type RestClientFactory = (source: SourceConfig, tokens: AuthToken[]) => RestClient;
@@ -88,13 +117,18 @@ export type RestClientFactory = (source: SourceConfig, tokens: AuthToken[]) => R
 export interface CommitFilesDeps {
   restClientFactory?: RestClientFactory;
   authTokenResolver?: AuthTokenResolver;
-  cache?: Map<string, CommitFilesResult>;
+  cache?: Map<string, CacheEntry>;
+  inFlight?: Map<string, Promise<CommitFilesResult | CommitFilesError>>;
+  now?: () => number;
 }
 
-// A sha reaches the provider inside a URL path, so only a plain hex abbreviation
-// or full oid is accepted — nothing a caller sends can steer the request
-// elsewhere. The lower bound matches git's shortest useful abbreviation.
-const SHA = /^[0-9a-f]{7,64}$/i;
+// The sha reaches the provider inside a URL path, so only plain hex is
+// accepted. FULL length only (SHA-1 or SHA-256): an abbreviation would give one
+// commit 30-odd distinct cache keys, each a miss and each a real provider call,
+// which is both an amplification lever and a way to evict everything real
+// viewers warmed. The UI always sends the full oid (`details.sha`), so nothing
+// legitimate asks for less.
+const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 const defaultRestClientFactory: RestClientFactory = (source, tokens) =>
   makeRestClient(
@@ -104,24 +138,31 @@ const defaultRestClientFactory: RestClientFactory = (source, tokens) =>
     REQUEST_TIMEOUT_MS,
   );
 
-const defaultCache = new Map<string, CommitFilesResult>();
+const defaultCache = new Map<string, CacheEntry>();
+const defaultInFlight = new Map<string, Promise<CommitFilesResult | CommitFilesError>>();
 
 function cacheKey(req: CommitFilesRequest): string {
   return `${req.source_id}\u0000${req.project_path}\u0000${req.sha.toLowerCase()}`;
 }
 
-function remember(cache: Map<string, CommitFilesResult>, key: string, result: CommitFilesResult): CommitFilesResult {
-  cache.set(key, result);
+function remember(cache: Map<string, CacheEntry>, key: string, entry: CacheEntry): void {
+  cache.set(key, entry);
   while (cache.size > CACHE_LIMIT) {
     const oldest = cache.keys().next();
     if (oldest.done) break;
     cache.delete(oldest.value);
   }
-  return result;
 }
 
 function fail(error: CommitFilesErrorCode, message: string): CommitFilesError {
   return { error, message };
+}
+
+// The route's config-load failure, owned here so the error union stays the one
+// source of truth for what a caller can receive (the /api/token-rate-limits
+// pattern).
+export function commitFilesConfigError(message: string): CommitFilesError {
+  return fail("config_error", message);
 }
 
 export function parseCommitFilesRequest(url: URL): CommitFilesRequest | CommitFilesError {
@@ -130,7 +171,7 @@ export function parseCommitFilesRequest(url: URL): CommitFilesRequest | CommitFi
   const sha = (url.searchParams.get("sha") ?? "").trim();
   if (!sourceId) return fail("bad_request", "source_id is required");
   if (!projectPath) return fail("bad_request", "project_path is required");
-  if (!SHA.test(sha)) return fail("bad_request", "sha must be a hex commit id (7-64 chars)");
+  if (!SHA.test(sha)) return fail("bad_request", "sha must be a full hex commit id (40 or 64 chars)");
   return { source_id: sourceId, project_path: projectPath, sha };
 }
 
@@ -181,26 +222,55 @@ async function githubCommitFiles(rest: RestClient, projectPath: string, sha: str
     additions: count(file?.additions),
     deletions: count(file?.deletions),
   })).filter((file) => file.path.length > 0);
-  // `stats` covers the WHOLE commit even when the file list was capped, so it is
-  // the honest total to show above a truncated list.
+  // `stats` covers the WHOLE commit even when the file list was capped, which
+  // is why `total_scope` has to travel with it.
   const stats = commit?.stats;
-  const total = typeof stats?.additions === "number" && typeof stats?.deletions === "number"
-    ? { additions: count(stats.additions), deletions: count(stats.deletions) }
-    : sumFiles(files);
-  return { files, total, truncated: raw.length >= GITHUB_FILE_LIMIT };
+  const hasCommitTotal = typeof stats?.additions === "number" && typeof stats?.deletions === "number";
+  return {
+    files,
+    total: hasCommitTotal ? { additions: count(stats.additions), deletions: count(stats.deletions) } : sumFiles(files),
+    total_scope: hasCommitTotal ? "commit" : "listed",
+    truncated: raw.length >= GITHUB_FILE_LIMIT,
+  };
 }
 
 // GitLab returns a raw unified diff per file and no per-file counts, so the
-// counts come from the hunk lines. `+++`/`---` are the file headers, not content,
-// and a `\ No newline at end of file` marker is neither.
+// counts come from the hunk lines.
+//
+// Counting is HUNK-SCOPED, not prefix-scoped. Skipping every line that starts
+// with `---`/`+++` would also drop content: a removed markdown rule (`---`)
+// arrives as `----` and an added one as `+---`, both of which start with a file
+// header's prefix. Only lines after a `@@` hunk header are content, so that is
+// what the state below tracks.
+//
+// It also walks the string by newline INDEX rather than `split("\n")`: this is
+// the one place the writer daemon handles a raw patch, which can be megabytes
+// for a vendored or generated file, and the split form allocates an array of
+// every line in it just to throw them away.
 export function countDiffLines(diff: unknown): { additions: number; deletions: number } {
   if (typeof diff !== "string" || diff.length === 0) return { additions: 0, deletions: 0 };
   let additions = 0;
   let deletions = 0;
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) additions++;
-    else if (line.startsWith("-")) deletions++;
+  let inHunk = false;
+  let start = 0;
+  while (start <= diff.length) {
+    const nl = diff.indexOf("\n", start);
+    const end = nl === -1 ? diff.length : nl;
+    if (end > start) {
+      const head = diff.charCodeAt(start);
+      if (!inHunk) {
+        // 0x40 === "@": the hunk header is the only thing that opens content.
+        if (head === 0x40 && diff.startsWith("@@", start)) inHunk = true;
+      } else if (head === 0x40 && diff.startsWith("@@", start)) {
+        // The next hunk of the same file.
+      } else if (head === 0x2b) {
+        additions++; // "+"
+      } else if (head === 0x2d) {
+        deletions++; // "-"
+      }
+    }
+    if (nl === -1) break;
+    start = nl + 1;
   }
   return { additions, deletions };
 }
@@ -228,34 +298,22 @@ async function gitlabCommitFiles(rest: RestClient, projectPath: string, sha: str
       deletions: counts.deletions,
     };
   }).filter((file) => file.path.length > 0);
-  return { files, total: sumFiles(files), truncated: raw.length >= GITLAB_DIFF_PAGE };
+  // This feed carries no commit-level total, so the sum of what is listed is
+  // all there is — and under `truncated` that is exactly what `listed` says.
+  return { files, total: sumFiles(files), total_scope: "listed", truncated: raw.length >= GITLAB_DIFF_PAGE };
 }
 
-// Resolve one commit's per-file diffstat. Best effort by design: a provider
-// failure is reported as an error row the UI renders in place, never an
-// exception that takes down the route.
-export async function fetchCommitFiles(
-  cfg: AppConfig,
+// Config-derived refusals are recomputed per request and must never be cached;
+// a provider failure is cached briefly so a loop cannot spend quota 1:1.
+function cacheable(result: CommitFilesResult | CommitFilesError): boolean {
+  return !isCommitFilesError(result) || result.error === "provider_error";
+}
+
+async function resolveCommitFiles(
+  source: SourceConfig,
   req: CommitFilesRequest,
-  deps: CommitFilesDeps = {},
+  deps: CommitFilesDeps,
 ): Promise<CommitFilesResult | CommitFilesError> {
-  const cache = deps.cache ?? defaultCache;
-  const key = cacheKey(req);
-  const cached = cache.get(key);
-  if (cached) return cached;
-
-  const source = cfg.sources.find((s) => s.source_id === req.source_id);
-  if (!source) return fail("unknown_source", `no configured source "${req.source_id}"`);
-  if (!sourceEnabled(source)) return fail("unknown_source", `source "${req.source_id}" is disabled`);
-  // The configured project list is the allowlist: without this the endpoint
-  // would read any repository the deployment's token can reach.
-  if (!projectPaths(source).includes(req.project_path)) {
-    return fail("unknown_project", `project "${req.project_path}" is not configured for source "${req.source_id}"`);
-  }
-  if (source.kind !== "github" && source.kind !== "gitlab") {
-    return fail("unsupported_provider", `source kind "${source.kind}" has no per-file diffstat`);
-  }
-
   const authTokenResolver = deps.authTokenResolver ?? createAuthTokenResolver();
   const tokens = source.kind === "github"
     ? await authTokenResolver.tokensForProject(source, req.project_path)
@@ -268,18 +326,67 @@ export async function fetchCommitFiles(
       ? await githubCommitFiles(rest, req.project_path, req.sha)
       : await gitlabCommitFiles(rest, req.project_path, req.sha);
     if ("error" in resolved) return resolved;
-    const { files, total, truncated } = resolved;
-    return remember(cache, key, {
+    return {
       source_id: req.source_id,
       project_path: req.project_path,
       sha: req.sha,
-      files,
-      total,
-      truncated,
-    });
+      files: resolved.files,
+      total: resolved.total,
+      total_scope: resolved.total_scope,
+      truncated: resolved.truncated,
+    };
   } catch (err) {
     return fail("provider_error", (err as Error).message);
   }
+}
+
+// Resolve one commit's per-file diffstat. Best effort by design: a provider
+// failure is reported as an error row the UI renders in place, never an
+// exception that takes down the route.
+export async function fetchCommitFiles(
+  cfg: AppConfig,
+  req: CommitFilesRequest,
+  deps: CommitFilesDeps = {},
+): Promise<CommitFilesResult | CommitFilesError> {
+  // Authorization FIRST, cache second. Config is reloaded per request so a
+  // removed project or a disabled source stops answering immediately; a cache
+  // read above this line would keep serving both until eviction.
+  const source = cfg.sources.find((s) => s.source_id === req.source_id);
+  if (!source) return fail("unknown_source", `no configured source "${req.source_id}"`);
+  if (!sourceEnabled(source)) return fail("unknown_source", `source "${req.source_id}" is disabled`);
+  if (!projectPaths(source).includes(req.project_path)) {
+    return fail("unknown_project", `project "${req.project_path}" is not configured for source "${req.source_id}"`);
+  }
+  if (source.kind !== "github" && source.kind !== "gitlab") {
+    return fail("unsupported_provider", `source kind "${source.kind}" has no per-file diffstat`);
+  }
+
+  const cache = deps.cache ?? defaultCache;
+  const inFlight = deps.inFlight ?? defaultInFlight;
+  const now = deps.now ?? Date.now;
+  const key = cacheKey(req);
+
+  const cached = cache.get(key);
+  if (cached && (cached.expiresAt === undefined || cached.expiresAt > now())) return cached.value;
+  if (cached) cache.delete(key);
+
+  // Single-flight: two tabs (or a re-open before the first answer lands) share
+  // one provider call instead of racing to spend two.
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+
+  const work = resolveCommitFiles(source, req, deps)
+    .then((result) => {
+      if (cacheable(result)) {
+        remember(cache, key, isCommitFilesError(result) ? { value: result, expiresAt: now() + FAILURE_CACHE_MS } : { value: result });
+      }
+      return result;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+  inFlight.set(key, work);
+  return work;
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -289,21 +396,12 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 // Route handler. Every failure answers with its code and message so the detail
 // pane can say WHY the breakdown is missing; only a malformed request is a 400.
-export async function handleCommitFilesRequest(
-  cfg: AppConfig,
-  url: URL,
-  res: ServerResponse,
-  deps: CommitFilesDeps = {},
-): Promise<void> {
+export async function handleCommitFilesRequest(cfg: AppConfig, url: URL, res: ServerResponse): Promise<void> {
   const parsed = parseCommitFilesRequest(url);
-  if ("error" in parsed) {
+  if (isCommitFilesError(parsed as CommitFilesResult | CommitFilesError)) {
     json(res, 400, parsed);
     return;
   }
-  const result = await fetchCommitFiles(cfg, parsed, deps);
-  if (isCommitFilesError(result)) {
-    json(res, result.error === "bad_request" ? 400 : 200, result);
-    return;
-  }
-  json(res, 200, result);
+  const result = await fetchCommitFiles(cfg, parsed as CommitFilesRequest);
+  json(res, isCommitFilesError(result) && result.error === "bad_request" ? 400 : 200, result);
 }

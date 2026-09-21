@@ -39,7 +39,7 @@ import {
 import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
 import { probeTokenRateLimits, tokenRateLimitsConfigError } from "../server/token-rate-limits.ts";
 import { validateProviderToken, type TokenValidationRequest, type TokenValidator } from "../server/token-validation.ts";
-import { handleCommitFilesRequest } from "../server/commit-files.ts";
+import { commitFilesConfigError, handleCommitFilesRequest } from "../server/commit-files.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -412,7 +412,7 @@ export async function handleControlRequest(
     try {
       cfg = loadConfig(ctx.configControl.path).cfg;
     } catch (err) {
-      sendJson(res, 200, { error: "config_error", message: (err as Error).message });
+      sendJson(res, 200, commitFilesConfigError((err as Error).message));
       return;
     }
     await handleCommitFilesRequest(cfg, url, res);

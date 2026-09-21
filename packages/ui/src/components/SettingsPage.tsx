@@ -392,8 +392,9 @@ export function SettingsPage({
           <h3>Commit file stats</h3>
           <p className="muted">
             Show the changed files and their line counts in Commit detail. Unlike the rest of the board
-            this asks the server for one commit at a time when you open it, so it needs a server that can
-            reach the provider. Saved on this device only.
+            this asks the server for one commit at a time — the one the pane is showing, which with
+            Follow latest commit on includes each newer commit as it arrives — so it needs a server that
+            can reach the provider. Saved on this device only.
           </p>
         </div>
         <label className="settings-toggle">

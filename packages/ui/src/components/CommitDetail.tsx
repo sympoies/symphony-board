@@ -2,9 +2,9 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import { useEffect, useState, type CSSProperties } from "react";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { DiffStat } from "./DiffStat.tsx";
-import { CommitFileList } from "./CommitFileList.tsx";
+import { CommitFileList, type CommitFileStatsState } from "./CommitFileList.tsx";
 import { safeHref } from "../url.ts";
-import { fetchCommitFileStats, type CommitFileStats } from "../contract.ts";
+import { fetchCommitFileStats } from "../contract.ts";
 import { commitBody, commitBranches, commitMessage, commitSha, commitStats, relativeTime, type ColorOf } from "../model.ts";
 
 // The selected commit, inserted before the overview so the original pane moves
@@ -162,12 +162,6 @@ export function CommitDetail({
     </aside>
   );
 }
-
-export type CommitFileStatsState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; stats: CommitFileStats };
 
 // One request per opened commit, and only while the toggle is on. Keyed on the
 // commit identity so following the latest commit re-requests, and aborted on
