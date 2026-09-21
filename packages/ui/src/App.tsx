@@ -156,7 +156,7 @@ import { FullBoard } from "./components/FullBoard.tsx";
 import { ItemsPage } from "./components/ItemsPage.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { ActivityPage } from "./components/ActivityPage.tsx";
-import { actorAvatarIndex, actorIndex as buildActorIndex, actorsOf } from "./rail-stats.ts";
+import { actorAvatarIndex, actorIndex as buildActorIndex, actorsOf, commitAuthorOptions } from "./rail-stats.ts";
 import { CommitsPage } from "./components/CommitsPage.tsx";
 import { ReviewsPage } from "./components/ReviewsPage.tsx";
 import { RepoAnalyticsPage } from "./components/RepoAnalyticsPage.tsx";
@@ -1300,6 +1300,13 @@ export function App() {
   );
   const commitRepos = useMemo(() => commitRepoOptions(windowCommits), [windowCommits]);
   const commitBranches = useMemo(() => commitBranchOptions(repoCommits), [repoCommits]);
+  // The toolbar's author options read the SAME facet source the rail's author
+  // ranking does, so the dropdown and the ranked list never disagree about who
+  // is in range or how many commits they have.
+  const commitAuthors = useMemo(
+    () => commitAuthorOptions(commitRailAuthorSource, railActorIndex),
+    [commitRailAuthorSource, railActorIndex],
+  );
   // The source the currently pinned repo lives on, so switching source can tell
   // whether the repo pin survives (see setRouteSource).
   const selectedCommitRepoSource = useMemo(
@@ -2393,6 +2400,7 @@ export function App() {
           totalCommits={totalCommits}
           repoOptions={commitRepos}
           branchOptions={commitBranches}
+          authorOptions={commitAuthors}
           selectedSource={route.source}
           selectedRepo={route.repo}
           selectedBranch={route.branch}

@@ -585,6 +585,86 @@ test("a pre-expansion GitHub commit payload (defaultBranch, no branches) replays
   });
 });
 
+test("GitHub commit line counts batch through one GraphQL query and skip merges", async () => {
+  // Neither REST commit feed carries `stats`, so the counts come from an
+  // aliased GraphQL lookup. A merge commit must never be asked for: its counts
+  // are the diff against the first parent, so a range that sums them counts the
+  // merged branch twice.
+  const solo = { ...ghMainCommit, parents: [{ sha: "0000001" }] };
+  const merge = {
+    sha: "ccc333",
+    html_url: "https://github.com/o/r/commit/ccc333",
+    commit: {
+      message: "Merge pull request #7",
+      author: { name: "A", email: "octo@example.com", date: "2026-06-09T12:00:00Z" },
+      committer: { name: "A", date: "2026-06-09T12:00:00Z" },
+    },
+    author: { login: "octocat" },
+    parents: [{ sha: "0000001" }, { sha: "0000002" }],
+  };
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [solo, merge] : []) as T;
+    if (path === "repos/o/r/activity") return [] as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const statsQueries: string[] = [];
+  const statsGql: GqlClient = (async (query: string) => {
+    if (query.includes("object(oid:")) {
+      statsQueries.push(query);
+      assert.ok(hasGraphqlCostSelection(query), "the batch reports its rate-limit cost like every other query");
+      return { repository: { c0: { oid: "aaa111", additions: 12, deletions: 4 } } };
+    }
+    return gql(query);
+  }) as GqlClient;
+
+  const src = new GitHubSource(DESC, statsGql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+  assert.equal(statsQueries.length, 1, "every sha of the sweep is read in ONE round trip");
+  assert.match(statsQueries[0]!, /c0: object\(oid:"aaa111"\)/);
+  assert.doesNotMatch(statsQueries[0]!, /ccc333/, "the merge commit is never looked up");
+
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  const soloDetails = details.find((d) => d.sha === "aaa111")!;
+  assert.equal(soloDetails.additions, 12);
+  assert.equal(soloDetails.deletions, 4);
+  const mergeDetails = details.find((d) => d.sha === "ccc333")!;
+  assert.ok(!("additions" in mergeDetails) && !("deletions" in mergeDetails), "a merge row carries no line counts");
+});
+
+test("a failed GitHub commit-stats batch degrades to no counts, not a partial sweep", async () => {
+  // Line counts are a decoration. Marking the sweep incomplete over them would
+  // block the soft-delete pass that only a complete sweep may run.
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [{ ...ghMainCommit, parents: [{ sha: "0000001" }] }] : []) as T;
+    if (path === "repos/o/r/activity") return [] as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const statsGql: GqlClient = (async (query: string) => {
+    if (query.includes("object(oid:")) throw new Error("GraphQL HTTP 502");
+    return gql(query);
+  }) as GqlClient;
+
+  const src = new GitHubSource(DESC, statsGql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true, "a stats failure is not an incomplete sweep");
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  assert.equal(details.length, 1);
+  assert.ok(!("additions" in details[0]!), "the commit still lands, just without counts");
+});
+
 test("commit_branches=default keeps the commit feed on the default branch only", async () => {
   const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
@@ -1416,6 +1496,110 @@ test("GitLab fetch expands live side branches via compare and labels their commi
   });
 });
 
+test("GitLab asks the commit list for stats and resolves compare-only commits by sha", async () => {
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  // The list feed inlines `stats` once asked; the compare feed never does, so
+  // its commits cost one single-commit GET each.
+  const listed = {
+    id: "cafebabefeed",
+    title: "On main",
+    message: "On main",
+    web_url: "https://gitlab.com/g/p/-/commit/cafebabefeed",
+    committed_date: "2026-06-09T10:00:00Z",
+    author_name: "GitLab Dev",
+    author_email: "gitlab@example.com",
+    parent_ids: ["0000001"],
+    stats: { additions: 9, deletions: 1, total: 10 },
+  };
+  const compared = {
+    id: "feedfacecafe",
+    title: "On a side branch",
+    message: "On a side branch",
+    web_url: "https://gitlab.com/g/p/-/commit/feedfacecafe",
+    committed_date: "2026-06-09T11:30:00Z",
+    author_name: "GitLab Dev",
+    author_email: "gitlab@example.com",
+    parent_ids: ["0000001"],
+  };
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/repository/commits") return (params?.page === 1 ? [listed] : []) as T;
+    if (path === "projects/g%2Fp/events") {
+      return (params?.page === 1
+        ? [{
+            id: 10,
+            action_name: "pushed to",
+            created_at: "2026-06-09T11:31:00Z",
+            author_username: "gitlab-user",
+            push_data: { ref: "feature-x", ref_type: "branch", action: "pushed", commit_from: "aaaaaaaa", commit_to: "bbbbbbbb" },
+          }]
+        : []) as T;
+    }
+    if (path === "projects/g%2Fp/repository/compare") return { commits: [compared] } as T;
+    if (path === "projects/g%2Fp/repository/commits/feedfacecafe") return { ...compared, stats: { additions: 3, deletions: 7, total: 10 } } as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+
+  const list = calls.find((c) => c.path === "projects/g%2Fp/repository/commits")!;
+  assert.equal(list.params?.with_stats, true, "the list feed is asked for stats, which costs no extra request");
+  const perSha = calls.filter((c) => c.path.startsWith("projects/g%2Fp/repository/commits/"));
+  assert.deepEqual(perSha.map((c) => c.path), ["projects/g%2Fp/repository/commits/feedfacecafe"], "only the compare-derived commit needs its own call");
+
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  assert.deepEqual(
+    details.find((d) => d.sha === "cafebabefeed"),
+    { sha: "cafebabefeed", message: "On main", branch: "main", ref: "refs/heads/main", additions: 9, deletions: 1 },
+  );
+  assert.deepEqual(
+    details.find((d) => d.sha === "feedfacecafe"),
+    { sha: "feedfacecafe", message: "On a side branch", branch: "feature-x", ref: "refs/heads/feature-x", additions: 3, deletions: 7 },
+  );
+});
+
+test("a stored GitLab merge commit drops the stats its payload carries", () => {
+  // `with_stats` returns counts for merges unasked, and stored raw is replayed
+  // as-is — so the merge rule has to hold on the normalize side too.
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const raw: RawRecord = {
+    entityKind: "activity",
+    externalId: "commit:g%2Fp:merge01",
+    apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_commit",
+      project: "g/p",
+      defaultBranch: "main",
+      commit: {
+        id: "merge01",
+        title: "Merge branch 'feature-x'",
+        message: "Merge branch 'feature-x'",
+        web_url: "https://gitlab.com/g/p/-/commit/merge01",
+        committed_date: "2026-06-09T10:00:00Z",
+        author_name: "GitLab Dev",
+        author_email: "gitlab@example.com",
+        parent_ids: ["0000001", "0000002"],
+        stats: { additions: 400, deletions: 120, total: 520 },
+      },
+    },
+  };
+  assert.deepEqual(src.normalize(raw)!.activities[0]!.details, {
+    sha: "merge01",
+    message: "Merge branch 'feature-x'",
+    branch: "main",
+    ref: "refs/heads/main",
+  });
+});
+
 test("a pre-expansion GitLab commit payload (defaultBranch, no branches) replays unchanged", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {
@@ -1828,8 +2012,8 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/8");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/8");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/9");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/9");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

@@ -512,6 +512,11 @@ function inflateActivityContract(body) {
                     ],
                   }),
               ...(i % 3 === 0 ? { body: `Smoke body ${i}\n\nRendered commit body details.` } : {}),
+              // Line counts on most rows, none on every fourth: absent is the
+              // real shape for a merge commit and for anything the producer
+              // could not read, so the fixture has to contain a row that shows
+              // no diffstat beside rows that do.
+              ...(i % 4 === 0 ? {} : { additions: (i * 7) % 250, deletions: (i * 3) % 90 }),
             }
           : {}),
         smoke_index: i,
@@ -2590,6 +2595,46 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Line counts: present where the fixture supplies them, and — the part worth
+  // guarding — ABSENT rather than zeroed where it does not, on the same action
+  // line as the sha so the fixed virtualized row height still holds.
+  const commitsDiffStat = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.commits-page .commit-row-body'));
+      const withStat = rows.filter((r) => r.querySelector('.commit-diffstat'));
+      const first = withStat[0]?.querySelector('.commit-diffstat');
+      const sha = withStat[0]?.querySelector('.commit-sha');
+      return {
+        rows: rows.length,
+        withStat: withStat.length,
+        withoutStat: rows.length - withStat.length,
+        text: first ? first.textContent.trim() : null,
+        // Same line as the sha chip: their vertical centers coincide.
+        inlineWithSha: !!(first && sha) && Math.abs(
+          (first.getBoundingClientRect().top + first.getBoundingClientRect().bottom) / 2
+          - (sha.getBoundingClientRect().top + sha.getBoundingClientRect().bottom) / 2,
+        ) <= 6,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const commitsAuthorControl = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const select = document.querySelector('.commits-page select[aria-label="Filter commits by author"]');
+      if (!select) return { rendered: false };
+      return {
+        rendered: true,
+        enabled: !select.disabled,
+        options: select.options.length,
+        first: select.options[0]?.textContent?.trim() ?? null,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const commitsRailOrder = (await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.commits-page .commits-rail:not(.commit-detail) .rail-block-title')).map((el) => el.textContent.trim())`,
+    returnByValue: true,
+  })).result.value || [];
   const commitsBodyTogglePlacement = (await send("Runtime.evaluate", {
     expression: `(() => {
       const line = Array.from(document.querySelectorAll('.commits-page .commit-title-line'))
@@ -6575,7 +6620,7 @@ try {
     [phoneSearchDisclosure.sheetVisible === true && phoneSearchDisclosure.sheetTitle === "Search" && phoneSearchDisclosure.inputVisible === true && phoneSearchDisclosure.inputHeight >= 34 && phoneSearchDisclosure.inputHeight <= 52 && phoneSearchDisclosure.sheetHeight <= 150 && Math.abs((phoneSearchDisclosure.primaryTopDuring || 0) - (phoneActiveFilterDisclosureBefore.primaryTopBefore || 0)) <= 4, `portrait: mobile search sheet uses one compact input without pushing feed (${JSON.stringify(phoneSearchDisclosure)})`],
     [phoneActiveFilterDisclosure.hasButton === true && phoneActiveFilterDisclosure.buttonVisible === true && /1 active/.test(phoneActiveFilterDisclosure.buttonText || "") && phoneActiveFilterDisclosure.groupsHidden === true && phoneActiveFilterDisclosure.rangeVisible === true && phoneActiveFilterDisclosure.searchVisible === false && phoneActiveFilterDisclosure.groupsVisible === true && phoneActiveFilterDisclosure.activeChipVisible === true && phoneActiveFilterDisclosure.rangeDisclosureHeight > 0 && phoneActiveFilterDisclosure.rangeDisclosureHeight <= 48, `portrait: active phone filters open without keeping search inline (${JSON.stringify(phoneActiveFilterDisclosure)})`],
     [phoneActiveFilterDisclosure.sheetVisible === true && phoneActiveFilterDisclosure.sheetCount === 1 && phoneActiveFilterDisclosure.sheetTitle === "Filters" && Math.abs((phoneActiveFilterDisclosure.primaryTopAfter || 0) - (phoneActiveFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile search/filter expansion opens one filter overlay sheet without pushing feed (${JSON.stringify(phoneActiveFilterDisclosure)})`],
-    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.tabCount === 2 && phoneCommitsFilterDisclosure.activeTab === "Repo" && phoneCommitsFilterDisclosure.branchTabActive === "Branch" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.visibleRepoOptions >= 1 && phoneCommitsFilterDisclosure.branchTabVisibleBranchOptions >= 3 && phoneCommitsFilterDisclosure.visibleBranchOptions === 0 && phoneCommitsFilterDisclosure.repoPickHashHasRepo === true && phoneCommitsFilterDisclosure.repoPickSelectedRows === 1 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a repo-first sheet mode without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
+    [phoneCommitsFilterDisclosure.hasButton === true && phoneCommitsFilterDisclosure.buttonVisible === true && phoneCommitsFilterDisclosure.toolbarHidden === true && phoneCommitsFilterDisclosure.sheetVisible === true && phoneCommitsFilterDisclosure.sheetCount === 1 && phoneCommitsFilterDisclosure.sheetTitle === "Filters" && phoneCommitsFilterDisclosure.tabCount === 3 && phoneCommitsFilterDisclosure.activeTab === "Repo" && phoneCommitsFilterDisclosure.branchTabActive === "Branch" && phoneCommitsFilterDisclosure.repoInputVisible === false && phoneCommitsFilterDisclosure.repoInputFocused === false && phoneCommitsFilterDisclosure.branchSelectVisible === false && phoneCommitsFilterDisclosure.repoOptions >= 2 && phoneCommitsFilterDisclosure.visibleRepoOptions >= 1 && phoneCommitsFilterDisclosure.branchTabVisibleBranchOptions >= 3 && phoneCommitsFilterDisclosure.visibleBranchOptions === 0 && phoneCommitsFilterDisclosure.repoPickHashHasRepo === true && phoneCommitsFilterDisclosure.repoPickSelectedRows === 1 && phoneCommitsFilterDisclosure.sheetHeight >= Math.round((phoneCommitsFilterDisclosure.viewportHeight || 0) * 0.45) && Math.abs((phoneCommitsFilterDisclosure.primaryTopAfter || 0) - (phoneCommitsFilterDisclosure.primaryTopBefore || 0)) <= 4, `portrait: mobile commits filters open a repo-first sheet mode without keyboard/native popups or pushing feed (${JSON.stringify(phoneCommitsFilterDisclosure)})`],
     // The feed takes everything below its own top and STOPS at the viewport
     // bottom, the same contract every other content pane follows
     // (pane-height.ts). It used to take a flat 74dvh, which on a phone ran ~130px
@@ -6852,6 +6897,16 @@ try {
     [commitsHasCommitLink === true, "commits: commit row title links to the provider commit page"],
     [commitsHasCopyHash === true, "commits: commit hash copy buttons rendered"],
     [commitsBranchControl.rendered === true && commitsBranchControl.enabled === true && commitsBranchControl.options >= 3, `commits: branch selector renders all plus synthetic branches (${commitsBranchControl.options || 0} options)`],
+    [commitsAuthorControl.rendered === true && commitsAuthorControl.enabled === true && commitsAuthorControl.options >= 2, `commits: author selector renders all plus each author (${commitsAuthorControl.options || 0} options)`],
+    [commitsDiffStat.withStat >= 1, `commits: line counts render where the producer supplied them (${commitsDiffStat.withStat || 0} rows, e.g. "${commitsDiffStat.text || "n/a"}")`],
+    [commitsDiffStat.withoutStat >= 1, `commits: a commit without counts shows none rather than +0 -0 (${commitsDiffStat.withoutStat || 0} rows)`],
+    [commitsDiffStat.inlineWithSha === true, "commits: line counts sit on the sha line, not on a new row"],
+    [
+      // Authors first: the question the page is opened with. Branches last:
+      // the longest list, and the toolbar already answers it.
+      JSON.stringify(commitsRailOrder) === JSON.stringify(["Top authors", "Top repos", "Commit types", "Top branches"]),
+      `commits: digest rail is ordered authors, repos, types, branches (${commitsRailOrder.join(" / ") || "none"})`,
+    ],
     [commitsBodyButtons >= 1, `commits: body toggle renders for commits with details.body (${commitsBodyButtons} >= 1)`],
     [commitsToolbarLayout.bodyToggleHasNoTitle === true, "commits: body toggle has no hover title"],
     [commitsBodyTogglePlacement.rendered === true && commitsBodyTogglePlacement.sameLine === true && commitsBodyTogglePlacement.hugsTitle === true, `commits: body toggle sits at the title tail (${commitsBodyTogglePlacement.lineWidth || 0}px of ${commitsBodyTogglePlacement.mainWidth || 0}px)`],

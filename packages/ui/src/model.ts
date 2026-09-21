@@ -1367,6 +1367,15 @@ function detailText(details: ActivityDTO["details"], key: string): string | null
   return cleanText(details[key]);
 }
 
+// A whole non-negative count from an activity's open `details` object. Anything
+// else — a float, a negative, a numeric string, a missing key — is not a count
+// the producer wrote, and coercing it would invent a number.
+function detailCount(details: ActivityDTO["details"], key: string): number | null {
+  if (!details || typeof details !== "object") return null;
+  const value = details[key];
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 function detailTextList(details: ActivityDTO["details"], key: string): string[] {
   if (!details || typeof details !== "object") return [];
   const value = details[key];
@@ -1783,6 +1792,27 @@ export function commitMessage(activity: ActivityDTO): string {
 
 export function commitBody(activity: ActivityDTO): string | null {
   return detailText(activity.details, "body");
+}
+
+export interface CommitStats {
+  additions: number;
+  deletions: number;
+}
+
+// The commit's line counts, or null when the row does not carry them.
+//
+// Null is the common case and means UNKNOWN, not "changed nothing": the
+// producer emits the pair only when it could read it, and never for a merge
+// commit (whose counts are measured against the first parent, so summing a
+// range would double-count the merged branch — see docs/CONTRACT.md). Callers
+// render nothing for null rather than `+0 −0`.
+//
+// The pair is all-or-nothing here too: a payload carrying only one half is
+// treated as no counts, so a caller never has to reason about half a diffstat.
+export function commitStats(activity: ActivityDTO): CommitStats | null {
+  const additions = detailCount(activity.details, "additions");
+  const deletions = detailCount(activity.details, "deletions");
+  return additions === null || deletions === null ? null : { additions, deletions };
 }
 
 // Branch/ref membership is optional contract detail. Producers may emit the
