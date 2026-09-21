@@ -11,6 +11,7 @@ import {
   CONTENT_TAB_OPTIONS, loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadCommitsFollowLatest, saveCommitsFollowLatest,
+  loadCommitFileStats, saveCommitFileStats,
   loadLivePulseOpenChoice, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
   isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, STANDALONE_CLIENT_KIND, isStandaloneClient,
@@ -217,6 +218,19 @@ test("commits follow-latest is a device-local setting that is OFF by default", (
   assert.equal(loadCommitsFollowLatest(), false);
   store._raw("symphony-board:commits-follow-latest", "yes");
   assert.equal(loadCommitsFollowLatest(), false, "non-boolean value -> default off");
+});
+
+test("commit file stats is a device-local setting that is OFF by default", () => {
+  // Off by default because turning it on makes the detail pane reach a provider
+  // once per commit opened — every other board surface reads the emitted
+  // contract and costs nothing.
+  assert.equal(loadCommitFileStats(), false, "default: no per-file provider read");
+  saveCommitFileStats(true);
+  assert.equal(loadCommitFileStats(), true);
+  saveCommitFileStats(false);
+  assert.equal(loadCommitFileStats(), false);
+  store._raw("symphony-board:commit-file-stats", "yes");
+  assert.equal(loadCommitFileStats(), false, "non-boolean value -> default off");
 });
 
 test("live metrics disclosure stores a CHOICE, and absent means never chosen", () => {

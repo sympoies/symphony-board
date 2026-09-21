@@ -18,6 +18,7 @@ import {
   validateSecretValue,
   fetchActivityDaily,
   fetchGraphNeighborhood,
+  fetchCommitFileStats,
   SYNC_CONTROL_HEADER,
   initLoadRetryDelayMs,
   INIT_LOAD_RETRY_BASE_MS,
@@ -885,5 +886,62 @@ test("formatContractLoadError: substitutes the cache age and leaves no slot behi
     assert.ok(headline.includes("3h ago"), `${kind} headline shows the freshness`);
     assert.ok(!headline.includes("{freshness}"), `${kind} headline has no leftover slot`);
     assert.ok(headline.endsWith("."), `${kind} headline is a full sentence`);
+  }
+});
+
+// The per-file diffstat is the one board read that reaches a provider, and the
+// one that is allowed to be missing: a static deploy has no route, a server may
+// have no token for the repo, and the provider itself can fail. Every one of
+// those has to arrive as a MESSAGE the detail pane can render, never a throw —
+// the pane is already open when the answer lands.
+test("fetchCommitFileStats turns every failure into a message and validates a success", async () => {
+  const realFetch = globalThis.fetch;
+  const sha = "24f59ca944420547a274023d003032d5e0b666b4";
+  const stats = {
+    source_id: "github:github.com",
+    project_path: "o/r",
+    sha,
+    files: [{ path: "src/app.ts", status: "modified", additions: 4, deletions: 2 }],
+    total: { additions: 4, deletions: 2 },
+    truncated: false,
+  };
+  try {
+    let seen = "";
+    globalThis.fetch = (async (url: string) => {
+      seen = String(url);
+      return { ok: true, status: 200, json: async () => stats };
+    }) as unknown as typeof fetch;
+    const ok = await fetchCommitFileStats("github:github.com", "o/r", sha, null);
+    assert.deepEqual(ok, { ok: true, stats: { files: stats.files, total: stats.total, truncated: false } });
+    assert.match(seen, /\/api\/commit-files\?source_id=github%3Agithub.com&project_path=o%2Fr&sha=/);
+
+    // A deployment without the route (static contract, older build).
+    globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), {
+      ok: false,
+      message: "this server does not serve per-file stats",
+    });
+
+    // The route's own 200 + error shape (no token, unconfigured project, ...).
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ error: "no_token", message: "no token is set for source \"s\"" }),
+    })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), {
+      ok: false,
+      message: 'no token is set for source "s"',
+    });
+
+    // A body that is not the agreed shape must not reach the pane as data.
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ files: [{ path: 1 }] }) })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), { ok: false, message: "invalid per-file stats response" });
+
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), { ok: false, message: "offline" });
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

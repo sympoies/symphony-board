@@ -763,3 +763,70 @@ test("GET /api/token-rate-limits degrades a broken config to 200+error and shape
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- the per-file diffstat route (GET /api/commit-files) ---
+//
+// The resolution itself is covered network-free in commit-files.test.ts; here
+// we cover the ROUTE wiring: a malformed request is refused with 400 before any
+// provider work, a broken config degrades to 200 + error rather than 500, and
+// an unconfigured project is rejected with no provider call. A configured
+// source whose token env is UNSET cannot reach the network, which is what keeps
+// this test offline.
+test("GET /api/commit-files validates the request, degrades a broken config, and refuses an unconfigured project", async () => {
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const dir = mkdtempSync(join(tmpdir(), "commit-files-route-"));
+  const sha = "24f59ca944420547a274023d003032d5e0b666b4";
+
+  const badPath = join(dir, "broken.json");
+  writeFileSync(badPath, "{ not valid json", "utf8");
+  const broken = createControlServer(controller, ctx(false, { enabled: true, path: badPath, secretsPath: null }));
+  const brokenBase = await listen(broken);
+  try {
+    const res = await fetch(`${brokenBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${sha}`);
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.equal(body.error, "config_error");
+  } finally {
+    await close(broken);
+  }
+
+  delete process.env.COMMIT_FILES_ROUTE_UNSET_TOKEN;
+  const okPath = join(dir, "sources.json");
+  writeFileSync(
+    okPath,
+    JSON.stringify({
+      db_path: join(dir, "x.db"),
+      sources: [
+        {
+          source_id: "github:github.com",
+          kind: "github",
+          host: "github.com",
+          token_env: "COMMIT_FILES_ROUTE_UNSET_TOKEN",
+          graphql_url: "https://api.github.com/graphql",
+          projects: ["o/r"],
+        },
+      ],
+    }),
+    "utf8",
+  );
+  const okServer = createControlServer(controller, ctx(false, { enabled: true, path: okPath, secretsPath: null }));
+  const okBase = await listen(okServer);
+  try {
+    const bad = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=HEAD`);
+    assert.equal(bad.status, 400, "a non-hex sha never reaches a provider client");
+    assert.equal((await json(bad)).error, "bad_request");
+
+    const unconfigured = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=someone/else&sha=${sha}`);
+    assert.equal(unconfigured.status, 200);
+    assert.equal((await json(unconfigured)).error, "unknown_project");
+
+    // Configured project, but the token env is unset: the route stops at token
+    // resolution, so this stays offline while still proving the path is wired.
+    const noToken = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${sha}`);
+    assert.equal(noToken.status, 200);
+    assert.equal((await json(noToken)).error, "no_token");
+  } finally {
+    await close(okServer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

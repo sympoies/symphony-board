@@ -425,6 +425,7 @@ export function CommitsPage({
   actorIndex = EMPTY_ACTOR_INDEX,
   followLatest,
   onFollowLatest,
+  fileStats,
   onRepo,
   onBranch,
   onAuthor,
@@ -465,6 +466,9 @@ export function CommitsPage({
   actorIndex?: ActorIndex;
   followLatest: boolean;
   onFollowLatest: () => void;
+  // Settings opt-in: ask the server for the opened commit's per-file diffstat.
+  // Off by default, because it is one provider read per commit opened.
+  fileStats: boolean;
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   onAuthor: (author: string | null) => void;
@@ -911,6 +915,7 @@ export function CommitsPage({
               timezone={timezone}
               sourceKind={sourceKind}
               colorOf={colorOf}
+              fileStats={fileStats}
               following={detailMode.kind === "following"}
               onFollowLatest={releasePin}
               onClose={closeDetail}

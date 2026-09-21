@@ -61,6 +61,8 @@ interface Props {
   onLiveTabEnabled: (enabled: boolean) => void;
   commitsFollowLatest: boolean; // automatically select the latest visible commit detail
   onCommitsFollowLatest: (enabled: boolean) => void;
+  commitFileStats: boolean; // fetch the opened commit's per-file diffstat from the server
+  onCommitFileStats: (enabled: boolean) => void;
   liveDisabled: boolean; // Live can't run on this deployment (the static Pages demo has no live server), so the Live tab + its sub-settings render disabled, like the suspended date range
   hiddenEventTypes: ReadonlySet<string>; // HIDDEN Live categories (an independent layer)
   onToggleEventType: (category: string) => void; // flip one category's Live visibility
@@ -142,6 +144,8 @@ export function SettingsPage({
   onLiveTabEnabled,
   commitsFollowLatest,
   onCommitsFollowLatest,
+  commitFileStats,
+  onCommitFileStats,
   liveDisabled,
   hiddenEventTypes,
   onToggleEventType,
@@ -379,6 +383,25 @@ export function SettingsPage({
             checked={commitsFollowLatest}
             onChange={(e) => onCommitsFollowLatest(e.target.checked)}
             aria-label="Follow the latest commit detail"
+          />
+        </label>
+      </div>
+
+      <div className="settings-pref">
+        <div>
+          <h3>Commit file stats</h3>
+          <p className="muted">
+            Show the changed files and their line counts in Commit detail. Unlike the rest of the board
+            this asks the server for one commit at a time when you open it, so it needs a server that can
+            reach the provider. Saved on this device only.
+          </p>
+        </div>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={commitFileStats}
+            onChange={(e) => onCommitFileStats(e.target.checked)}
+            aria-label="Show per-file line counts in commit detail"
           />
         </label>
       </div>

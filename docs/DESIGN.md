@@ -846,6 +846,55 @@ re-reads from the top. The `sync_run` table (surfaced by `/api/stats`) already
 carries per-run `status` / `error`, which covers most "why did sync fail"
 questions without log access.
 
+## On-Demand Commit File Stats
+
+Commit rows carry their line TOTALS in the contract (`details.additions` /
+`details.deletions`). The per-FILE breakdown does not, and deliberately so.
+
+**Why it is not a sync field.** The totals are affordable on both providers:
+GitHub answers up to 100 commits in one aliased GraphQL document, and GitLab
+inlines them on the commit list feed (`with_stats`). Per-file counts have no
+such batch. GitHub's GraphQL commit exposes no file list at all, so the only
+source is one REST `repos/{o}/{n}/commits/{sha}` call per commit; GitLab serves
+only a raw unified diff per commit, whose counts must be read off the hunks.
+At the observed volume (~700 commits/week across ~25 repos) with a full sweep
+every `FULL_EVERY` iterations, that is a different cost class from the sweep's
+current one-call-per-100. Worse, it would not even be stable: an activity
+upsert replaces `details` wholesale, so any sweep that skipped or capped the
+enrichment would ERASE the breakdown an earlier sweep had stored.
+
+**What it is instead.** `GET /api/commit-files?source_id&project_path&sha`
+resolves ONE commit's per-file diffstat on request, served by the **writer**
+(the `board` daemon or the standalone app server) because — like
+`/api/token-rate-limits` — it needs config, token resolution, and outbound
+provider access. nginx proxies it to `board` with one exact-match location. The
+response is operational, not contract: it never enters raw, the canonical
+store, or `contract.json`, so it carries no `contract_version` and needs no
+bump.
+
+| Route | Method | Served by | Purpose |
+| --- | --- | --- | --- |
+| `/api/commit-files` | GET | writer (`board` daemon / app server) | one commit's changed files with per-file `additions`/`deletions`, the commit total, and a `truncated` flag |
+
+**Safety model.** The request names a source, a project path, and a sha. The
+sha must be plain hex (7-64 chars) because it reaches the provider inside a URL
+path, and the project must be one the deployment already tracks — the
+configured project list is the allowlist, so the route cannot be pointed at an
+arbitrary repository with the deployment's own token. Provider access stays
+read-only (GET). Every failure (unknown source, unconfigured project, no token,
+provider error) answers `200` with an `error` code and message so the detail
+pane can say WHY the breakdown is missing; only a malformed request is a `400`.
+
+**Cost and caching.** One provider call per commit opened, and only while the
+viewer has turned the Settings toggle on (`symphony-board:commit-file-stats`,
+OFF by default — it is the one board surface that reaches a provider on a
+viewer action). A commit's diff is immutable, so results are cached in the
+server process by `(source, project, sha)` with a bounded size and no TTL.
+GitHub caps its file list at 300 entries and GitLab's diff feed is paged; both
+report `truncated: true` rather than presenting a partial list as a whole
+commit. A deployment that does not serve the route (a static contract host, an
+older build) simply 404s and the pane says the breakdown is unavailable.
+
 ## Live Event Stream (Realtime)
 
 A second, **independent** pipeline provides realtime "Live" activity, parallel to

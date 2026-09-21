@@ -645,6 +645,77 @@ export async function fetchGraphNeighborhood(
   return body;
 }
 
+// --- On-demand per-file diffstat for one commit ---
+// Served by the writer daemon (src/server/commit-files.ts), proxied by the web
+// sidecar. It is NOT contract data: the commit breakdown is fetched only for the
+// commit the viewer opened, and only while the Settings toggle is on. A
+// deployment without the route (a static contract, an older build) 404s, which
+// surfaces as an unavailable message rather than an error.
+
+export type CommitFileStatus = "added" | "modified" | "removed" | "renamed";
+
+export interface CommitFileStat {
+  path: string;
+  status: CommitFileStatus;
+  additions: number;
+  deletions: number;
+}
+
+export interface CommitFileStats {
+  files: CommitFileStat[];
+  total: { additions: number; deletions: number };
+  truncated: boolean;
+}
+
+export type CommitFilesOutcome = { ok: true; stats: CommitFileStats } | { ok: false; message: string };
+
+const COMMIT_FILE_STATUSES: readonly string[] = ["added", "modified", "removed", "renamed"];
+
+function isCommitFileStats(value: any): value is CommitFileStats {
+  if (!value || typeof value !== "object" || !Array.isArray(value.files)) return false;
+  if (!value.total || typeof value.total.additions !== "number" || typeof value.total.deletions !== "number") return false;
+  return value.files.every(
+    (file: any) =>
+      file &&
+      typeof file.path === "string" &&
+      file.path.length > 0 &&
+      COMMIT_FILE_STATUSES.includes(file.status) &&
+      typeof file.additions === "number" &&
+      typeof file.deletions === "number",
+  );
+}
+
+export async function fetchCommitFileStats(
+  sourceId: string,
+  projectPath: string,
+  sha: string,
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  signal?: AbortSignal,
+): Promise<CommitFilesOutcome> {
+  const params = new URLSearchParams({ source_id: sourceId, project_path: projectPath, sha });
+  const target = resolveEndpoint(`./api/commit-files?${params.toString()}`, serverBaseUrl);
+  let res: Response;
+  try {
+    res = await appFetch(target, { cache: "no-store", signal });
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
+  if (res.status === 404) return { ok: false, message: "this server does not serve per-file stats" };
+  let body: any = null;
+  try {
+    body = await readJson(res);
+  } catch {
+    body = null;
+  }
+  if (!res.ok && !body?.message) return { ok: false, message: `HTTP ${res.status}` };
+  // The route answers 200 with an `error` code for every reason a breakdown is
+  // missing (no token, unconfigured project, provider failure), so the message
+  // is what the pane shows.
+  if (body?.error) return { ok: false, message: String(body.message ?? body.error) };
+  if (!isCommitFileStats(body)) return { ok: false, message: "invalid per-file stats response" };
+  return { ok: true, stats: { files: body.files, total: body.total, truncated: body.truncated === true } };
+}
+
 // --- UI-triggered manual sync control plane client ---
 // The board daemon serves these beside the contract; the web sidecar proxies
 // them. All routes are relative so they work under any base path.
