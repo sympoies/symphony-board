@@ -635,7 +635,11 @@ export function CommitsPage({
         <select
           aria-label="Filter commits by author"
           value={selectedAuthor ?? ""}
-          disabled={authorOptions.length === 0}
+          // Never disabled while an author is pinned. The options are the facet
+          // source, and a repo pin can empty it of the very author being
+          // filtered on — disabling then would strand the filter with no way to
+          // clear it from the control that shows it.
+          disabled={authorOptions.length === 0 && !selectedAuthor}
           onChange={(event) => onAuthor(event.target.value || null)}
         >
           <option value="">All authors</option>
@@ -761,7 +765,9 @@ export function CommitsPage({
           data-kind="author-all"
           aria-pressed={!selectedAuthor}
           onClick={() => onAuthor(null)}
-          disabled={authorOptions.length === 0}
+          // Same reason as the toolbar select: clearing must stay reachable
+          // when the facet source no longer contains the pinned author.
+          disabled={authorOptions.length === 0 && !selectedAuthor}
         >
           <span className="commit-filter-option-main">All authors</span>
           <span className="commit-filter-option-meta">{windowTotal} {pluralize(windowTotal, "commit")}</span>
