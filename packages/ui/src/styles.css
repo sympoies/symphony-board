@@ -5182,7 +5182,9 @@ span.live-avatar { cursor: default; }
 /* Commit bodies are plain text that authors wrapped by hand; preserve it rather
    than reflowing, but let a long URL wrap instead of forcing a scrollbar. */
 .commit-detail-body {
-  margin: 0 0 12px;
+  /* The meta list has no bottom margin, so without this the filled body panel
+     shared an edge with the BRANCH row once the facts moved above it. */
+  margin: 12px 0 0;
   padding: 10px 12px;
   background: var(--panel-2);
   border-radius: 8px;
@@ -5215,17 +5217,12 @@ span.live-avatar { cursor: default; }
 .commit-detail-title-link { color: inherit; }
 .commit-detail-title-link:hover { color: var(--accent); }
 
-/* The opened commit's changed files, laid out like `git-scope commit`: status
-   letter, path, right-aligned counts, then one total row. Monospace because the
-   content is paths and numbers that read as a column. */
-.commit-files { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
-.commit-files-head {
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 8px;
-}
+/* The selected commit's changed files, laid out like `git-scope commit`:
+   status letter, path, right-aligned counts, then one total row. Monospace
+   because the content is paths and numbers that read as a column. It is a
+   rail-block at the head of the digest rail, so it inherits that block's frame
+   and only owns its rows. */
+.commit-files .commit-files-list { margin-top: 2px; }
 .commit-files-note { margin: 0; font-size: 12px; }
 .commit-files-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .commit-files-row,
@@ -5312,3 +5309,23 @@ span.live-avatar { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .rank-name-tip { transition: none; }
 }
+
+/* The `git-scope` directory tree above the flat file list: pre-formatted ASCII
+   connectors, so it must not wrap — a wrapped line breaks the columns that make
+   it readable. It scrolls sideways instead, like a code block. */
+.commit-files-tree { margin-bottom: 10px; }
+.commit-files-tree-body {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.commit-files-tree-summary { margin-top: 4px; font-size: 11px; }

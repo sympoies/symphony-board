@@ -5,6 +5,8 @@ import { useMemo } from "react";
 import { RankChart } from "./RankChart.tsx";
 import { EMPTY_ACTOR_INDEX, rankActors, rankBranches, rankCommitTypes, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
 import type { CommitRepoOption } from "../model.ts";
+import type { CommitFileStatsState } from "../useCommitFileStats.ts";
+import { CommitFileList } from "./CommitFileList.tsx";
 
 // The Commits digest rail: the RANKED facets of the selected range, and a way
 // into each of them. The range’s shape over time (per-day strip, hour profile,
@@ -29,6 +31,7 @@ function commitCountLabel(count: number): string {
 }
 
 export function CommitsRail({
+  changedFiles,
   commits,
   repoSource,
   branchSource,
@@ -42,6 +45,10 @@ export function CommitsRail({
   onAuthor,
   onBranch,
 }: {
+  // The selected commit's changed files, when the Settings toggle is on. It
+  // leads the rail: it is the only block here that describes the ONE row the
+  // viewer picked, so it outranks rankings that describe the whole range.
+  changedFiles?: CommitFileStatsState;
   // The rows currently on screen. The one read-only panel here (commit types)
   // describes what is visible rather than what could be selected, so it reads
   // these instead of a facet source.
@@ -83,6 +90,8 @@ export function CommitsRail({
 
   return (
     <aside className="commits-rail" aria-label="Commit range digest">
+      {changedFiles ? <CommitFileList state={changedFiles} /> : null}
+
       {/* Authors lead: "who has been working" is the question this page is
           opened with, and the repo/branch answers are also reachable from the
           toolbar above, while this list is the only ranking of people. */}
