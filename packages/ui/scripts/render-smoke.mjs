@@ -3283,7 +3283,7 @@ try {
     })()`,
   });
   await send("Runtime.evaluate", { expression: "location.reload()" });
-  await waitHtml("document.querySelector('.commits-page .commit-list')");
+  await waitHtml("document.querySelector('.commits-page .commit-list .commit-row-selected')");
   const commitFilesRailOff = (await send("Runtime.evaluate", {
     expression: `({
       hasBlock: !!document.querySelector('.commit-files'),

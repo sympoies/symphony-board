@@ -391,10 +391,11 @@ export function SettingsPage({
         <div>
           <h3>Commit file stats</h3>
           <p className="muted">
-            Show the changed files and their line counts in Commit detail. Unlike the rest of the board
-            this asks the server for one commit at a time — the one the pane is showing, which with
-            Follow latest commit on includes each newer commit as it arrives — so it needs a server that
-            can reach the provider. Saved on this device only.
+            Lead the Commits digest rail with the selected commit's changed files: its directory tree,
+            each file's line counts, and the total. Unlike the rest of the board this asks the server
+            for one commit at a time — the one the pane is showing, which with Follow latest commit on
+            includes each newer commit as it arrives — so it needs a server that can reach the provider.
+            Saved on this device only.
           </p>
         </div>
         <label className="settings-toggle">
@@ -402,7 +403,7 @@ export function SettingsPage({
             type="checkbox"
             checked={commitFileStats}
             onChange={(e) => onCommitFileStats(e.target.checked)}
-            aria-label="Show per-file line counts in commit detail"
+            aria-label="Show the selected commit's changed files in the digest rail"
           />
         </label>
       </div>
