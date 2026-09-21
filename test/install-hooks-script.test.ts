@@ -19,6 +19,17 @@ const SCRIPT = fileURLToPath(new URL("../scripts/install-hooks.sh", import.meta.
 const LEFTHOOK = fileURLToPath(new URL("../node_modules/.bin/lefthook", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
+// The suite itself runs under this repository's own pre-push hook, and git
+// exports GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE to the hooks it runs. A
+// sandbox that inherits those resolves the CHECKOUT RUNNING THE SUITE instead
+// of itself — which is how `git push` came to fail on a green `pnpm test`:
+// the local-hooksPath case read the host's config, found none, and saw the
+// script succeed where it had to fail. Every spawn below therefore starts from
+// a git-free environment and names what it needs.
+function hostEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+}
+
 // A stand-in for a host dispatcher: it chains into the repository's own hook,
 // which is exactly why lefthook's hooks only need to reach `.git/hooks`.
 const DISPATCHER = `#!/bin/bash
@@ -43,7 +54,7 @@ interface Sandbox {
 // relying on every call site passing the right `cwd`.
 function gitEnv(box: Sandbox, repo = box.repo): NodeJS.ProcessEnv {
   return {
-    ...process.env,
+    ...hostEnv(),
     GIT_CONFIG_GLOBAL: box.gitconfig,
     GIT_DIR: join(repo, ".git"),
     GIT_WORK_TREE: repo,
@@ -108,7 +119,7 @@ function runScript(box: Sandbox, root = box.repo) {
     cwd: root,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...hostEnv(),
       GIT_CONFIG_GLOBAL: box.gitconfig,
       PATH: `${join(REPO_ROOT, "node_modules/.bin")}:${process.env.PATH ?? ""}`,
     },
@@ -153,7 +164,7 @@ test("the installed hook actually fires, through the host dispatcher, on a push"
   const remote = join(box.dir, "remote.git");
   // A bare init names its own target, so it is the one call with no work tree.
   assert.equal(
-    spawnSync("git", ["init", "-q", "--bare", remote], { env: { ...process.env, GIT_CONFIG_GLOBAL: box.gitconfig } }).status,
+    spawnSync("git", ["init", "-q", "--bare", remote], { env: { ...hostEnv(), GIT_CONFIG_GLOBAL: box.gitconfig } }).status,
     0,
   );
   git(box, ["remote", "add", "origin", remote]);
@@ -189,6 +200,29 @@ test("fails loudly on a repo-local core.hooksPath instead of skipping the gate",
   assert.match(`${res.stdout}${res.stderr}`, /core\.hooksPath/, "the message must name what is in the way");
 });
 
+test("a sandbox ignores the GIT_* environment git exports to its own hooks", (t) => {
+  // The suite runs inside this repository's pre-push hook, where GIT_DIR and
+  // GIT_WORK_TREE point at the checkout being pushed. Inheriting them sent the
+  // case above at the HOST repository, where there is no local core.hooksPath,
+  // so the script exited 0 and the assertion that it must fail silently passed
+  // the wrong way round. Poison the environment and pin the isolation.
+  const poisoned = { GIT_DIR: join(REPO_ROOT, ".git"), GIT_WORK_TREE: REPO_ROOT, GIT_INDEX_FILE: join(REPO_ROOT, ".git/index") };
+  const restore = Object.entries(poisoned).map(([key]) => [key, process.env[key]] as const);
+  Object.assign(process.env, poisoned);
+  t.after(() => {
+    for (const [key, value] of restore) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const box = sandbox(t, { managedHooksPath: false });
+  git(box, ["config", "--local", "core.hooksPath", join(box.dir, "elsewhere")]);
+  const res = runScript(box);
+  assert.notEqual(res.status, 0, "the sandbox's own local hooks path must still be what the script sees");
+  assert.match(`${res.stdout}${res.stderr}`, /core\.hooksPath/);
+});
+
 test("finds lefthook in node_modules/.bin when run by hand, not only through pnpm", (t) => {
   // `prepare` is invoked with the package bin directory on PATH; a hand run
   // (which scripts/README.md documents) is not.
@@ -203,7 +237,7 @@ test("finds lefthook in node_modules/.bin when run by hand, not only through pnp
     cwd: box.repo,
     encoding: "utf8",
     // Deliberately WITHOUT the repo's node_modules/.bin on PATH.
-    env: { ...process.env, GIT_CONFIG_GLOBAL: box.gitconfig, PATH: "/usr/bin:/bin" },
+    env: { ...hostEnv(), GIT_CONFIG_GLOBAL: box.gitconfig, PATH: "/usr/bin:/bin" },
   });
   assert.equal(res.status, 0, `script failed: ${res.stderr}`);
   assert.equal(readFileSync(marker, "utf8").trim(), "install", "the local lefthook is the one that runs");
