@@ -5209,7 +5209,11 @@ span.live-avatar { cursor: default; }
   padding: 2px 8px;
   font-size: 11px;
 }
-.commit-detail-link { display: inline-block; margin-top: 12px; font-size: 12px; }
+/* The detail title IS the provider link (see CommitDetail), so it keeps the
+   title color and only brightens on hover — the same rule .commit-message-link
+   follows in the list, rather than the teal `a` color. */
+.commit-detail-title-link { color: inherit; }
+.commit-detail-title-link:hover { color: var(--accent); }
 
 /* Full rank-row name on hover.
    Replaces the native `title` on these footers. The browser's own tooltip waits
