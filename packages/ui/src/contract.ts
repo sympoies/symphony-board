@@ -645,6 +645,102 @@ export async function fetchGraphNeighborhood(
   return body;
 }
 
+// --- On-demand per-file diffstat for one commit ---
+// Served by the writer daemon (src/server/commit-files.ts), proxied by the web
+// sidecar. It is NOT contract data: the commit breakdown is fetched only for the
+// commit the viewer opened, and only while the Settings toggle is on. A
+// deployment without the route (a static contract, an older build) 404s, which
+// surfaces as an unavailable message rather than an error.
+
+export type CommitFileStatus = "added" | "modified" | "removed" | "renamed";
+
+export interface CommitFileStat {
+  path: string;
+  status: CommitFileStatus;
+  additions: number;
+  deletions: number;
+}
+
+export interface CommitFileStats {
+  files: CommitFileStat[];
+  total: { additions: number; deletions: number };
+  // What `total` covers: the whole commit (GitHub reports one even when it caps
+  // the file list) or only the files listed here. Under `truncated` those are
+  // different numbers, so the label cannot be written without it.
+  total_scope: "commit" | "listed";
+  truncated: boolean;
+}
+
+export type CommitFilesOutcome = { ok: true; stats: CommitFileStats } | { ok: false; message: string };
+
+const COMMIT_FILE_STATUSES: readonly string[] = ["added", "modified", "removed", "renamed"];
+
+function isCommitFileStat(value: unknown): value is CommitFileStat {
+  const file = value as Partial<CommitFileStat> | null;
+  return (
+    !!file &&
+    typeof file === "object" &&
+    typeof file.path === "string" &&
+    file.path.length > 0 &&
+    COMMIT_FILE_STATUSES.includes(file.status as string) &&
+    typeof file.additions === "number" &&
+    typeof file.deletions === "number"
+  );
+}
+
+function isCommitFileStats(value: unknown): value is CommitFileStats {
+  const body = value as Partial<CommitFileStats> | null;
+  if (!body || typeof body !== "object" || !Array.isArray(body.files)) return false;
+  const total = body.total as CommitFileStats["total"] | undefined;
+  if (!total || typeof total.additions !== "number" || typeof total.deletions !== "number") return false;
+  if (body.total_scope !== "commit" && body.total_scope !== "listed") return false;
+  return body.files.every(isCommitFileStat);
+}
+
+export async function fetchCommitFileStats(
+  sourceId: string,
+  projectPath: string,
+  sha: string,
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  signal?: AbortSignal,
+): Promise<CommitFilesOutcome> {
+  const params = new URLSearchParams({ source_id: sourceId, project_path: projectPath, sha });
+  const target = resolveEndpoint(`./api/commit-files?${params.toString()}`, serverBaseUrl);
+  let res: Response;
+  try {
+    res = await appFetch(target, { cache: "no-store", signal });
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
+  const unavailable = { ok: false as const, message: "this server does not serve per-file stats" };
+  if (res.status === 404) return unavailable;
+  let body: unknown = null;
+  let parsed = true;
+  try {
+    body = await readJson(res);
+  } catch {
+    parsed = false;
+  }
+  // A static SPA host answers an unknown /api path with its index.html rather
+  // than a 404, so "the body is not JSON" is the same fact as "this route is
+  // not served here" — and saying that is more use than "invalid response".
+  if (!parsed) return unavailable;
+  const error = (body as { error?: unknown; message?: unknown } | null)?.error;
+  if (!res.ok && error === undefined) return { ok: false, message: `HTTP ${res.status}` };
+  // The route answers 200 with an `error` code for every reason a breakdown is
+  // missing (no token, unconfigured project, provider failure), so the message
+  // is what the pane shows.
+  if (error !== undefined) {
+    const message = (body as { message?: unknown }).message;
+    return { ok: false, message: String(message ?? error) };
+  }
+  if (!isCommitFileStats(body)) return { ok: false, message: "invalid per-file stats response" };
+  return {
+    ok: true,
+    stats: { files: body.files, total: body.total, total_scope: body.total_scope, truncated: body.truncated === true },
+  };
+}
+
 // --- UI-triggered manual sync control plane client ---
 // The board daemon serves these beside the contract; the web sidecar proxies
 // them. All routes are relative so they work under any base path.

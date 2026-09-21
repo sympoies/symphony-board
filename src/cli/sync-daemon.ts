@@ -39,6 +39,7 @@ import {
 import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
 import { probeTokenRateLimits, tokenRateLimitsConfigError } from "../server/token-rate-limits.ts";
 import { validateProviderToken, type TokenValidationRequest, type TokenValidator } from "../server/token-validation.ts";
+import { commitFilesConfigError, handleCommitFilesRequest } from "../server/commit-files.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -397,6 +398,24 @@ export async function handleControlRequest(
     }
     const result = await probeTokenRateLimits(cfg);
     sendJson(res, 200, result);
+    return;
+  }
+
+  // On-demand per-file diffstat for the commit the viewer opened
+  // (src/server/commit-files.ts). Provider-reaching like the rate-limit probe
+  // above, so it belongs to the writer daemon rather than the read-only api
+  // sidecar. It is a decoration: a deployment that does not serve it 404s and
+  // the detail pane simply says the breakdown is unavailable. Config is read
+  // fresh so a newly configured repo works without a restart.
+  if (method === "GET" && path === "/api/commit-files") {
+    let cfg: AppConfig;
+    try {
+      cfg = loadConfig(ctx.configControl.path).cfg;
+    } catch (err) {
+      sendJson(res, 200, commitFilesConfigError((err as Error).message));
+      return;
+    }
+    await handleCommitFilesRequest(cfg, url, res);
     return;
   }
 

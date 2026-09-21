@@ -8,6 +8,7 @@
 //   • collapsed columns — board column kinds the viewer manually collapsed
 //   • live tab enabled — opt-in Live tab (OFF by default: hidden tab, no stream)
 //   • commits follow latest — keep Commit detail on the newest visible row
+//   • commit file stats — opt-in per-file diffstat in Commit detail (OFF by default)
 //   • hidden event types — set of HIDDEN Live categories (an independent layer)
 //   • content tab order — the contract-backed top-nav tabs between Live/Settings
 // We store what is HIDDEN (not what is visible) so a repo/source that first
@@ -66,6 +67,9 @@ const LIVE_TAB_ENABLED_KEY = "symphony-board:live-tab-enabled";
 // newer first row after the loaded data or active filters change. Off by default
 // so the existing manual, transient detail selection remains unchanged.
 const COMMITS_FOLLOW_LATEST_KEY = "symphony-board:commits-follow-latest";
+// Whether the Commit detail fetches the opened commit's per-file diffstat from
+// the server. Off by default: it is a per-open provider read, not contract data.
+const COMMIT_FILE_STATS_KEY = "symphony-board:commit-file-stats";
 // HIDDEN Live event categories (an independent layer, like hidden sources): a
 // category in this set is dropped from the Live feed and its filter chip. Stored
 // as the hidden set so a new provider category defaults visible.
@@ -302,6 +306,33 @@ export function loadCommitsFollowLatest(): boolean {
 export function saveCommitsFollowLatest(enabled: boolean): void {
   try {
     localStorage.setItem(COMMITS_FOLLOW_LATEST_KEY, enabled ? "true" : "false");
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// Whether the Commit detail asks the server for the shown commit's per-file
+// breakdown. OFF by default and device-local, like color mode: it is the one
+// board surface that reaches a provider from the UI (one request per commit the
+// pane shows, see src/server/commit-files.ts), so it stays something the viewer
+// turns on rather than something a page load spends.
+//
+// "Shown", not "clicked": with Follow latest commit also on, the pane follows a
+// newer head and asks for that commit too. Bounded by how fast commits arrive,
+// deduplicated by the server cache, and off unless BOTH switches are on.
+export const DEFAULT_COMMIT_FILE_STATS = false;
+
+export function loadCommitFileStats(): boolean {
+  try {
+    return localStorage.getItem(COMMIT_FILE_STATS_KEY) === "true";
+  } catch {
+    return DEFAULT_COMMIT_FILE_STATS;
+  }
+}
+
+export function saveCommitFileStats(enabled: boolean): void {
+  try {
+    localStorage.setItem(COMMIT_FILE_STATS_KEY, enabled ? "true" : "false");
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

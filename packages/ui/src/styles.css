@@ -5215,6 +5215,43 @@ span.live-avatar { cursor: default; }
 .commit-detail-title-link { color: inherit; }
 .commit-detail-title-link:hover { color: var(--accent); }
 
+/* The opened commit's changed files, laid out like `git-scope commit`: status
+   letter, path, right-aligned counts, then one total row. Monospace because the
+   content is paths and numbers that read as a column. */
+.commit-files { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.commit-files-head {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+.commit-files-note { margin: 0; font-size: 12px; }
+.commit-files-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.commit-files-row,
+.commit-files-total {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.commit-files-total {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.commit-files-total-label { color: var(--muted); }
+.commit-files-status { color: var(--muted); text-align: center; }
+.commit-files-status-added { color: var(--open); }
+.commit-files-status-removed { color: var(--broken); }
+.commit-files-status-renamed { color: var(--iid); }
+/* A path matters at its end (the file name), so the row clips its start. */
+.commit-files-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.commit-files-counts { display: inline-flex; gap: 6px; white-space: nowrap; }
+
 /* Full rank-row name on hover.
    Replaces the native `title` on these footers. The browser's own tooltip waits
    roughly a second before appearing, hides again on the smallest pointer move,

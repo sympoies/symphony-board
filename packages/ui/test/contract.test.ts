@@ -18,6 +18,7 @@ import {
   validateSecretValue,
   fetchActivityDaily,
   fetchGraphNeighborhood,
+  fetchCommitFileStats,
   SYNC_CONTROL_HEADER,
   initLoadRetryDelayMs,
   INIT_LOAD_RETRY_BASE_MS,
@@ -885,5 +886,106 @@ test("formatContractLoadError: substitutes the cache age and leaves no slot behi
     assert.ok(headline.includes("3h ago"), `${kind} headline shows the freshness`);
     assert.ok(!headline.includes("{freshness}"), `${kind} headline has no leftover slot`);
     assert.ok(headline.endsWith("."), `${kind} headline is a full sentence`);
+  }
+});
+
+// The per-file diffstat is the one board read that reaches a provider, and the
+// one that is allowed to be missing: a static deploy has no route, a server may
+// have no token for the repo, and the provider itself can fail. Every one of
+// those has to arrive as a MESSAGE the detail pane can render, never a throw —
+// the pane is already open when the answer lands.
+test("fetchCommitFileStats turns every failure into a message and validates a success", async () => {
+  const realFetch = globalThis.fetch;
+  const sha = "24f59ca944420547a274023d003032d5e0b666b4";
+  const stats = {
+    source_id: "github:github.com",
+    project_path: "o/r",
+    sha,
+    files: [{ path: "src/app.ts", status: "modified", additions: 4, deletions: 2 }],
+    total: { additions: 4, deletions: 2 },
+    total_scope: "listed",
+    truncated: false,
+  };
+  try {
+    let seen = "";
+    globalThis.fetch = (async (url: string) => {
+      seen = String(url);
+      return { ok: true, status: 200, json: async () => stats };
+    }) as unknown as typeof fetch;
+    const ok = await fetchCommitFileStats("github:github.com", "o/r", sha, null);
+    assert.deepEqual(ok, { ok: true, stats: { files: stats.files, total: stats.total, total_scope: "listed", truncated: false } });
+    assert.match(seen, /\/api\/commit-files\?source_id=github%3Agithub.com&project_path=o%2Fr&sha=/);
+
+    // A deployment without the route (static contract, older build).
+    globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), {
+      ok: false,
+      message: "this server does not serve per-file stats",
+    });
+
+    // The route's own 200 + error shape (no token, unconfigured project, ...).
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ error: "no_token", message: "no token is set for source \"s\"" }),
+    })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), {
+      ok: false,
+      message: 'no token is set for source "s"',
+    });
+
+    // A body that is not the agreed shape must not reach the pane as data. The
+    // envelope and the per-FILE rows are separate gates: CommitFileList indexes
+    // STATUS_LETTER by `status` and calls toLocaleString on the counts, so a
+    // well-formed envelope carrying a junk row has to be refused too.
+    const badBodies: Array<Record<string, unknown>> = [
+      { files: [{ path: 1 }] },
+      { files: [{ path: "a.ts", status: "bogus", additions: 1, deletions: 1 }], total: { additions: 1, deletions: 1 }, total_scope: "listed", truncated: false },
+      { files: [{ path: "a.ts", status: "modified", additions: "4", deletions: 1 }], total: { additions: 4, deletions: 1 }, total_scope: "listed", truncated: false },
+      { files: [], total: { additions: 0, deletions: 0 }, truncated: false },
+    ];
+    for (const body of badBodies) {
+      globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => body })) as unknown as typeof fetch;
+      assert.deepEqual(
+        await fetchCommitFileStats("s", "o/r", sha, null),
+        { ok: false, message: "invalid per-file stats response" },
+        `must refuse ${JSON.stringify(body)}`,
+      );
+    }
+
+    // `truncated` drives the total's label, so it has to survive as sent.
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...stats, total_scope: "commit", truncated: true }),
+    })) as unknown as typeof fetch;
+    const capped = await fetchCommitFileStats("s", "o/r", sha, null);
+    assert.equal(capped.ok && capped.stats.truncated, true);
+    assert.equal(capped.ok && capped.stats.total_scope, "commit");
+
+    // A static SPA host answers an unknown /api path with index.html, not a
+    // 404, so a non-JSON body means the same thing: the route is not served.
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("Unexpected token < in JSON");
+      },
+    })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), {
+      ok: false,
+      message: "this server does not serve per-file stats",
+    });
+
+    // A failure with no body at all still names the status.
+    globalThis.fetch = (async () => ({ ok: false, status: 500, json: async () => ({}) })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), { ok: false, message: "HTTP 500" });
+
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await fetchCommitFileStats("s", "o/r", sha, null), { ok: false, message: "offline" });
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

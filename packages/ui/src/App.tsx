@@ -111,6 +111,8 @@ import {
   saveLiveTabEnabled,
   loadCommitsFollowLatest,
   saveCommitsFollowLatest,
+  loadCommitFileStats,
+  saveCommitFileStats,
   loadBoardScope,
   saveBoardScope,
   deviceCeilingDays,
@@ -298,6 +300,7 @@ export function App() {
   // filter (an independent layer, like hidden sources).
   const [liveTabEnabled, setLiveTabEnabled] = useState<boolean>(loadLiveTabEnabled);
   const [commitsFollowLatest, setCommitsFollowLatest] = useState<boolean>(loadCommitsFollowLatest);
+  const [commitFileStats, setCommitFileStats] = useState<boolean>(loadCommitFileStats);
   // Whether THIS device loads contract-backed board data at all. Date range owns
   // download size; this setting only gates "full/on" vs "off/Live-only".
   const [boardScope, setBoardScope] = useState<BoardScope>(loadBoardScope);
@@ -785,6 +788,9 @@ export function App() {
   useEffect(() => {
     saveCommitsFollowLatest(commitsFollowLatest);
   }, [commitsFollowLatest]);
+  useEffect(() => {
+    saveCommitFileStats(commitFileStats);
+  }, [commitFileStats]);
   useEffect(() => {
     saveBoardScope(boardScope);
   }, [boardScope]);
@@ -2053,6 +2059,8 @@ export function App() {
       onLiveTabEnabled={setLiveTabEnabled}
       commitsFollowLatest={commitsFollowLatest}
       onCommitsFollowLatest={setCommitsFollowLatest}
+      commitFileStats={commitFileStats}
+      onCommitFileStats={setCommitFileStats}
       liveDisabled={livePreferencesDisabled}
       hiddenEventTypes={hiddenEventTypes}
       onToggleEventType={toggleEventType}
@@ -2413,6 +2421,7 @@ export function App() {
           actorIndex={railActorIndex}
           followLatest={commitsFollowLatest}
           onFollowLatest={() => setCommitsFollowLatest(true)}
+          fileStats={commitFileStats}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           onAuthor={setRouteAuthor}

@@ -19,6 +19,7 @@ import {
 } from "../src/cli/sync-daemon.ts";
 import type { SourceRunResult, SyncProgressReporter, SyncRunResult } from "../src/sync-runner.ts";
 import { log } from "../src/log.ts";
+import { commitFilesConfigError, type CommitFilesErrorCode } from "../src/server/commit-files.ts";
 
 const NO_TOTALS = { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
 function okResult(): SyncRunResult {
@@ -758,6 +759,79 @@ test("GET /api/token-rate-limits degrades a broken config to 200+error and shape
     assert.deepEqual(body.tokens, [], "no token value resolved -> nothing to probe");
     assert.equal(typeof body.generated_at, "string", "success stamps generated_at");
     assert.equal(body.error, undefined);
+  } finally {
+    await close(okServer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- the per-file diffstat route (GET /api/commit-files) ---
+//
+// The resolution itself is covered network-free in commit-files.test.ts; here
+// we cover the ROUTE wiring: a malformed request is refused with 400 before any
+// provider work, a broken config degrades to 200 + error rather than 500, and
+// an unconfigured project is rejected with no provider call. A configured
+// source whose token env is UNSET cannot reach the network, which is what keeps
+// this test offline.
+test("GET /api/commit-files validates the request, degrades a broken config, and refuses an unconfigured project", async () => {
+  const controller = new SyncController({ run: () => Promise.resolve(okResult()) });
+  const dir = mkdtempSync(join(tmpdir(), "commit-files-route-"));
+  const sha = "24f59ca944420547a274023d003032d5e0b666b4";
+
+  const badPath = join(dir, "broken.json");
+  writeFileSync(badPath, "{ not valid json", "utf8");
+  const broken = createControlServer(controller, ctx(false, { enabled: true, path: badPath, secretsPath: null }));
+  const brokenBase = await listen(broken);
+  try {
+    const res = await fetch(`${brokenBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${sha}`);
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    // The code comes from the route contract's own union, not an inline literal:
+    // a consumer typed off CommitFilesErrorCode must be able to see it.
+    const configError: CommitFilesErrorCode = "config_error";
+    assert.equal(body.error, configError);
+    assert.deepEqual(commitFilesConfigError("boom"), { error: "config_error", message: "boom" });
+  } finally {
+    await close(broken);
+  }
+
+  delete process.env.COMMIT_FILES_ROUTE_UNSET_TOKEN;
+  const okPath = join(dir, "sources.json");
+  writeFileSync(
+    okPath,
+    JSON.stringify({
+      db_path: join(dir, "x.db"),
+      sources: [
+        {
+          source_id: "github:github.com",
+          kind: "github",
+          host: "github.com",
+          token_env: "COMMIT_FILES_ROUTE_UNSET_TOKEN",
+          graphql_url: "https://api.github.com/graphql",
+          projects: ["o/r"],
+        },
+      ],
+    }),
+    "utf8",
+  );
+  const okServer = createControlServer(controller, ctx(false, { enabled: true, path: okPath, secretsPath: null }));
+  const okBase = await listen(okServer);
+  try {
+    for (const badSha of ["HEAD", sha.slice(0, 7)]) {
+      const bad = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${badSha}`);
+      assert.equal(bad.status, 400, `a non-full-hex sha (${badSha}) never reaches a provider client`);
+      assert.equal((await json(bad)).error, "bad_request");
+    }
+
+    const unconfigured = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=someone/else&sha=${sha}`);
+    assert.equal(unconfigured.status, 200);
+    assert.equal((await json(unconfigured)).error, "unknown_project");
+
+    // Configured project, but the token env is unset: the route stops at token
+    // resolution, so this stays offline while still proving the path is wired.
+    const noToken = await fetch(`${okBase}/api/commit-files?source_id=github:github.com&project_path=o/r&sha=${sha}`);
+    assert.equal(noToken.status, 200);
+    assert.equal((await json(noToken)).error, "no_token");
   } finally {
     await close(okServer);
     rmSync(dir, { recursive: true, force: true });
