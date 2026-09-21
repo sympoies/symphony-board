@@ -24,6 +24,7 @@ scripts/check-app-versions.sh
 
 | Script | What it does |
 | --- | --- |
+| `install-hooks.sh` | Installs the lefthook git hooks. Wired as the package `prepare` script, so `pnpm install` gives a fresh clone its pre-push gate. Wraps `lefthook install` for hosts that manage `core.hooksPath` globally: lefthook refuses to install while that key is set, so the install runs with the global git config hidden from it (`GIT_CONFIG_GLOBAL=/dev/null`). The hooks land in the repository's own hooks directory, where a chaining host dispatcher picks them up, and the managed path is left untouched — unlike `--reset-hooks-path` (unsets it) and `--force` (overwrites it). Skips quietly outside a git work tree; fails loudly on a repo-local `core.hooksPath`. |
 | `install-release-app.sh [PATH] [options]` | Installs a downloaded, unsigned macOS release. Extracts a release `.zip` (or takes an extracted `.app`), strips the `com.apple.quarantine` flag recursively, copies the bundle into `/Applications`, and opens it. Handles both the thin client and the standalone variants. With no `PATH`, picks the newest `Symphony-Board-*.zip` / `Symphony Board*.app` in `~/Downloads`. Options: `--no-install`, `--no-open`, `--resign`, `--downloads-dir DIR`. macOS only. |
 
 ```sh

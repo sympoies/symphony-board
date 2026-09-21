@@ -296,8 +296,8 @@ writer/reader boundaries here and place expanded runbook detail there.
 
 ## Git Hooks
 
-`pnpm install` runs `lefthook install` through the root `prepare` script. The
-configured pre-push hook runs:
+`pnpm install` installs the hooks through the root `prepare` script, which runs
+`scripts/install-hooks.sh`. The configured pre-push hook runs:
 
 ```sh
 pnpm run typecheck
@@ -313,3 +313,15 @@ network access.
 tooling path used by the UI image. The Docker UI image installs with
 `--ignore-scripts` and rebuilds only `esbuild`, because root `prepare` needs a
 Git checkout and hooks are irrelevant inside the image.
+
+`prepare` is a wrapper, not a bare `lefthook install`, because a host may manage
+`core.hooksPath` globally — and lefthook refuses to install while that key is
+set, whatever it points at. pnpm then records the install as failed and re-runs
+it before every later `pnpm <script>`, so the suite and the pre-push gate become
+unreachable. `scripts/install-hooks.sh` hides the global config from lefthook
+for the install only, which puts the hooks in the repository's own hooks
+directory: a host dispatcher that chains into `$GIT_COMMON_DIR/hooks/<name>`
+then runs them, and the managed path is never modified. lefthook's own escapes
+are not usable here — `--reset-hooks-path` unsets the managed path and `--force`
+overwrites what it points at. `test/install-hooks-script.test.ts` covers both
+host shapes against a throwaway global config.

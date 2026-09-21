@@ -10,7 +10,7 @@
     "pnpm": ">=11"
   },
   "scripts": {
-    "prepare": "lefthook install",
+    "prepare": "bash scripts/install-hooks.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:app-versions": "bash scripts/check-app-versions.sh",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts test/*.test.mjs",
