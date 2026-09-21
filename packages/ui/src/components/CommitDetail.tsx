@@ -66,7 +66,19 @@ export function CommitDetail({
           </div>
         </div>
 
-        <h3 className="commit-detail-title">{commitMessage(commit)}</h3>
+        {/* The title carries the provider link, the way the list row does
+            (CommitsPage `.commit-message-link`): the commit subject IS the
+            handle for "this commit over there", so a separate trailing
+            "Open on provider" line was a second control for the same target. */}
+        <h3 className="commit-detail-title">
+          {href ? (
+            <a className="commit-detail-title-link" href={href} target="_blank" rel="noreferrer noopener">
+              {commitMessage(commit)}
+            </a>
+          ) : (
+            commitMessage(commit)
+          )}
+        </h3>
 
         {/* The body is plain commit text, not markdown: rendering it as markdown
             would reflow trailers and wrapped prose that authors aligned by hand. */}
@@ -128,12 +140,6 @@ export function CommitDetail({
             </div>
           ) : null}
         </dl>
-
-        {href ? (
-          <a className="commit-detail-link" href={href} target="_blank" rel="noreferrer noopener">
-            Open on provider ↗
-          </a>
-        ) : null}
       </div>
     </aside>
   );
