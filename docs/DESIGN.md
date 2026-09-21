@@ -894,8 +894,16 @@ not the exact commit set.
 Every failure (unknown source, unconfigured project, no token, unsupported
 provider, provider error, and a config the route could not load at all —
 `config_error`) answers `200` with an `error` code from one exported union and
-a message, so the detail pane can say WHY the breakdown is missing; only a
-malformed request is a `400`.
+a message, so the block can say WHY the breakdown is missing; only a malformed
+request is a `400`.
+
+**Where it renders.** The breakdown leads the Commits **digest rail** as its
+first `rail-block`, not the detail pane: it is the only block there that
+describes the ONE selected row rather than the whole range, and stacking a long
+commit message and a long file list in one column pushed the files off the
+bottom of the screen exactly when they were worth reading. The block reproduces
+`git-scope commit` — the directory tree first (where the change landed), then
+one row per file as `[M] path  +40 -0`, then the total.
 
 **Cost and caching.** One provider call per commit the pane shows, and only
 while the viewer has turned the Settings toggle on

@@ -3202,6 +3202,99 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // The detail pane's vertical rhythm. Ordering the pane as title -> facts ->
+  // body -> files left the body panel sharing an edge with the last meta row:
+  // the `<dl>` has no bottom margin and the panel had no top margin, so a
+  // filled block butted straight against the BRANCH line. Pin the separation
+  // rather than the exact value, and pin it on a commit that HAS a body.
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = Array.from(document.querySelectorAll('.commit-list .commit-row'));
+      // NOT the selected row: clicking that one toggles the pane closed.
+      const withBody = rows.find((row) => row.querySelector('.commit-body-toggle') && !row.classList.contains('commit-row-selected'));
+      withBody?.click();
+      return !!withBody;
+    })()`,
+  });
+  await waitHtml("document.querySelector('.commit-detail-card .commit-detail-body')");
+  const commitDetailRhythm = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.commit-detail-card');
+      const title = card?.querySelector('.commit-detail-title');
+      const meta = card?.querySelector('.commit-detail-meta');
+      const body = card?.querySelector('.commit-detail-body');
+      if (!card || !title || !meta || !body) return { measured: false };
+      const gapAfterTitle = Math.round(meta.getBoundingClientRect().top - title.getBoundingClientRect().bottom);
+      const gapBeforeBody = Math.round(body.getBoundingClientRect().top - meta.getBoundingClientRect().bottom);
+      return {
+        measured: true,
+        gapAfterTitle,
+        gapBeforeBody,
+        // The facts must still read as one block, not as two halves split by a
+        // gap wider than the one separating them from the body panel.
+        metaTighterThanBody: gapBeforeBody >= gapAfterTitle,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Changed files lead the digest rail while the Settings toggle is on: they
+  // describe the ONE selected row, so they outrank the range-wide rankings. No
+  // server answers /api/commit-files in this smoke, so the block renders its
+  // "why not" line — placement and framing are what this pins.
+  const commitFilesRailEnabled = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      try {
+        localStorage.setItem('symphony-board:commit-file-stats', 'true');
+        return true;
+      } catch {
+        return false;
+      }
+    })()`,
+    returnByValue: true,
+  })).result.value || false;
+  await send("Runtime.evaluate", { expression: "location.reload()" });
+  await waitHtml("document.querySelector('.commits-page .commit-detail-card')");
+  await waitHtml("document.querySelector('.commits-split > .commits-rail:not(.commit-detail) .commit-files')");
+  const commitFilesRail = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rail = document.querySelector('.commits-split > .commits-rail:not(.commit-detail)');
+      const blocks = Array.from(rail?.querySelectorAll(':scope > .rail-block') || []);
+      const files = rail?.querySelector('.commit-files');
+      return {
+        enabled: ${JSON.stringify(commitFilesRailEnabled)},
+        isRailBlock: !!files && files.classList.contains('rail-block'),
+        isFirstBlock: blocks.length > 0 && blocks[0] === files,
+        title: files?.querySelector('.rail-block-title')?.textContent?.trim() || '',
+        // Nothing of the block may leak back into the detail pane.
+        inDetail: !!document.querySelector('.commit-detail .commit-files'),
+        // The pane it replaced still renders its own content.
+        detailStillRenders: !!document.querySelector('.commit-detail-card .commit-detail-title'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      try {
+        localStorage.setItem('symphony-board:commit-file-stats', 'false');
+      } catch {
+        /* the assertion above already recorded whether storage works */
+      }
+    })()`,
+  });
+  await send("Runtime.evaluate", { expression: "location.reload()" });
+  await waitHtml("document.querySelector('.commits-page .commit-list .commit-row-selected')");
+  const commitFilesRailOff = (await send("Runtime.evaluate", {
+    expression: `({
+      hasBlock: !!document.querySelector('.commit-files'),
+      firstTitle: document.querySelector('.commits-split > .commits-rail:not(.commit-detail) .rail-block-title')?.textContent?.trim() || '',
+    })`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.commit-list .commit-row-selected')?.click()`,
+  });
+  await sleep(100);
   // Restore the default/manual mode so the existing row-selection interactions
   // later in this smoke remain independent from the new follow behavior.
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -7030,6 +7123,9 @@ try {
 	    [themeAfter.root === "paper" && themeAfter.stored === "light" && themeAfter.bg === "#f4f3ed", `settings: Light mode applies and persists (${JSON.stringify(themeAfter)})`],
     [settingsDisplayModel.boardControl === "checkbox" && settingsDisplayModel.liveControl === "checkbox" && settingsDisplayModel.boardChecked === true && !/Live feed only/i.test(settingsDisplayModel.boardHelp), `settings: Board data and Live tab use matching binary controls (${JSON.stringify(settingsDisplayModel)})`],
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
+    [commitDetailRhythm.measured === true && commitDetailRhythm.gapBeforeBody >= 8 && commitDetailRhythm.metaTighterThanBody === true, `commits: the detail body panel is separated from the meta list (${JSON.stringify(commitDetailRhythm)})`],
+    [commitFilesRail.enabled === true && commitFilesRail.isRailBlock === true && commitFilesRail.isFirstBlock === true && commitFilesRail.title === "Changed files" && commitFilesRail.inDetail === false && commitFilesRail.detailStillRenders === true, `commits: changed files lead the digest rail when enabled (${JSON.stringify(commitFilesRail)})`],
+    [commitFilesRailOff.hasBlock === false && commitFilesRailOff.firstTitle === "Top authors", `commits: the rail keeps its ranked head when file stats are off (${JSON.stringify(commitFilesRailOff)})`],
     [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.toolbar === true && commitsFollowLatestApplied.toolbarSingleLine === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail with back and mode on one toolbar line (${JSON.stringify(commitsFollowLatestApplied)})`],
     [commitsFollowLatestTransition.mode === "Following latest" && commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
     [commitsFollowLatestPin.selectedIsFirst === false && commitsFollowLatestPin.selectedRows === 1 && commitsFollowLatestPin.mode === "Pinned · follow latest" && commitsFollowLatestPin.hasRelease === true, `commits: selecting a row pins detail and exposes the follow-latest action (${JSON.stringify(commitsFollowLatestPin)})`],

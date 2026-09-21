@@ -9,6 +9,7 @@ import { CommitDetail } from "./CommitDetail.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
+import { useCommitFileStats } from "../useCommitFileStats.ts";
 import { sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
 import {
@@ -466,8 +467,9 @@ export function CommitsPage({
   actorIndex?: ActorIndex;
   followLatest: boolean;
   onFollowLatest: () => void;
-  // Settings opt-in: ask the server for the opened commit's per-file diffstat.
-  // Off by default, because it is one provider read per commit opened.
+  // Settings opt-in: ask the server for the selected commit's per-file
+  // diffstat, rendered at the head of the digest rail. Off by default, because
+  // it is one provider read per commit the pane shows.
   fileStats: boolean;
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
@@ -533,6 +535,15 @@ export function CommitsPage({
     return null;
   }, [commits, detailMode]);
   const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
+  // The changed-file breakdown belongs to the SELECTED commit but renders in
+  // the digest rail, so the page owns the request and hands the state across.
+  // Off unless the viewer turned the Settings toggle on; see useCommitFileStats.
+  const changedFiles = useCommitFileStats(
+    fileStats,
+    selectedCommit?.source_id ?? null,
+    selectedCommit?.project_path ?? null,
+    selectedCommit ? commitSha(selectedCommit) : null,
+  );
   const releasePin = () => {
     setDetailMode(commits.length > 0 ? { kind: "following" } : { kind: "closed" });
     onFollowLatest();
@@ -915,7 +926,6 @@ export function CommitsPage({
               timezone={timezone}
               sourceKind={sourceKind}
               colorOf={colorOf}
-              fileStats={fileStats}
               following={detailMode.kind === "following"}
               onFollowLatest={releasePin}
               onClose={closeDetail}
@@ -929,6 +939,7 @@ export function CommitsPage({
             would take away what the page already showed; the stylesheet stacks
             it under the list instead. */}
         <CommitsRail
+          changedFiles={changedFiles}
           commits={commits}
           repoSource={railRepoSource}
           authorSource={railAuthorSource}
