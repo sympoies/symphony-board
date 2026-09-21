@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, copyFileSync, existsSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, copyFileSync, realpathSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,27 @@ interface Sandbox {
   gitconfig: string;
 }
 
+// Every git call here names its repository through GIT_DIR / GIT_WORK_TREE, not
+// just `cwd`. Discovery by walking up from a working directory is what lets a
+// stray invocation commit into the checkout the suite is running in — a real
+// enough hazard that this file makes it structurally impossible rather than
+// relying on every call site passing the right `cwd`.
+function gitEnv(box: Sandbox, repo = box.repo): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: box.gitconfig,
+    GIT_DIR: join(repo, ".git"),
+    GIT_WORK_TREE: repo,
+    // `prepare` runs with the package's bin directory on PATH; mirror that
+    // rather than depending on a lefthook installed on the host.
+    PATH: `${join(REPO_ROOT, "node_modules/.bin")}:${process.env.PATH ?? ""}`,
+  };
+}
+
+function git(box: Sandbox, args: string[], repo = box.repo) {
+  return spawnSync("git", args, { cwd: repo, encoding: "utf8", env: gitEnv(box, repo) });
+}
+
 // The script resolves its target from its OWN location, like every other script
 // here, so a sandbox gets its own copy rather than being passed as a cwd.
 function placeScript(root: string): string {
@@ -59,20 +80,29 @@ function sandbox(t: { after: (fn: () => void) => void }, opts: { managedHooksPat
   chmodSync(join(globalHooks, "pre-push"), 0o755);
   writeFileSync(gitconfig, "");
 
-  const git = (...args: string[]): void => {
-    const res = spawnSync("git", args, { cwd: repo, env: { ...process.env, GIT_CONFIG_GLOBAL: gitconfig } });
-    assert.equal(res.status, 0, `git ${args.join(" ")} failed: ${res.stderr?.toString() ?? ""}`);
+  const box: Sandbox = { dir, repo, globalHooks, gitconfig };
+  const run = (...args: string[]): void => {
+    const res = git(box, args);
+    assert.equal(res.status, 0, `git ${args.join(" ")} failed: ${res.stderr ?? ""}`);
   };
-  git("init", "-q", "-b", "main", ".");
-  git("config", "--global", "user.email", "sandbox@example.com");
-  git("config", "--global", "user.name", "sandbox");
-  if (opts.managedHooksPath) git("config", "--global", "core.hooksPath", globalHooks);
+  // GIT_DIR is already pointed at <repo>/.git, so `init` creates exactly that.
+  run("init", "-q", "-b", "main");
+  run("config", "--global", "user.email", "sandbox@example.com");
+  run("config", "--global", "user.name", "sandbox");
+  if (opts.managedHooksPath) run("config", "--global", "core.hooksPath", globalHooks);
+
+  // The guard the rest of the file rests on: every sandbox really is its own
+  // repository, so nothing below can reach the checkout running the suite.
+  const toplevel = git(box, ["rev-parse", "--show-toplevel"]).stdout.trim();
+  assert.equal(toplevel, realpathSync(repo), "the sandbox must be its own git repository");
 
   writeFileSync(join(repo, "lefthook.yml"), 'pre-push:\n  commands:\n    hello:\n      run: echo "lefthook ran"\n');
   placeScript(repo);
-  return { dir, repo, globalHooks, gitconfig };
+  return box;
 }
 
+// The script under test resolves its own repository, so it gets a plain
+// environment — GIT_DIR would defeat the very lookup being exercised.
 function runScript(box: Sandbox, root = box.repo) {
   return spawnSync("bash", [join(root, "scripts/install-hooks.sh")], {
     cwd: root,
@@ -80,8 +110,6 @@ function runScript(box: Sandbox, root = box.repo) {
     env: {
       ...process.env,
       GIT_CONFIG_GLOBAL: box.gitconfig,
-      // `prepare` runs with the package's bin directory on PATH; mirror that
-      // rather than depending on a lefthook installed on the host.
       PATH: `${join(REPO_ROOT, "node_modules/.bin")}:${process.env.PATH ?? ""}`,
     },
   });
@@ -99,11 +127,7 @@ test("installs into the repository hooks dir when the host manages core.hooksPat
     DISPATCHER,
     "the managed dispatcher must be left exactly as it was (`lefthook install --force` overwrites it)",
   );
-  const configured = spawnSync("git", ["config", "--get", "core.hooksPath"], {
-    cwd: box.repo,
-    encoding: "utf8",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: box.gitconfig },
-  });
+  const configured = git(box, ["config", "--get", "core.hooksPath"]);
   assert.equal(configured.stdout.trim(), box.globalHooks, "the managed path must still be in effect afterwards");
 });
 
@@ -126,16 +150,18 @@ test("the installed hook actually fires, through the host dispatcher, on a push"
   const box = sandbox(t, { managedHooksPath: true });
   assert.equal(runScript(box).status, 0);
 
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: box.gitconfig, PATH: `${join(REPO_ROOT, "node_modules/.bin")}:${process.env.PATH ?? ""}` };
-  const git = (args: string[]) => spawnSync("git", args, { cwd: box.repo, encoding: "utf8", env });
   const remote = join(box.dir, "remote.git");
-  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote], { env }).status, 0);
-  git(["remote", "add", "origin", remote]);
-  writeFileSync(join(box.repo, "a.txt"), "hi\n");
-  git(["add", "a.txt"]);
-  assert.equal(git(["-c", "commit.gpgsign=false", "commit", "-qm", "chore: seed"]).status, 0);
+  // A bare init names its own target, so it is the one call with no work tree.
+  assert.equal(
+    spawnSync("git", ["init", "-q", "--bare", remote], { env: { ...process.env, GIT_CONFIG_GLOBAL: box.gitconfig } }).status,
+    0,
+  );
+  git(box, ["remote", "add", "origin", remote]);
+  writeFileSync(join(box.repo, "seed.txt"), "hi\n");
+  git(box, ["add", "seed.txt"]);
+  assert.equal(git(box, ["-c", "commit.gpgsign=false", "commit", "-qm", "chore: seed"]).status, 0);
 
-  const push = git(["push", "origin", "HEAD:refs/heads/main"]);
+  const push = git(box, ["push", "origin", "HEAD:refs/heads/main"]);
   const output = `${push.stdout}${push.stderr}`;
   assert.equal(push.status, 0, `push failed: ${output}`);
   assert.match(output, /dispatcher ran/, "the host dispatcher still runs first");
@@ -157,10 +183,7 @@ test("fails loudly on a repo-local core.hooksPath instead of skipping the gate",
   // (lefthook refuses whatever the key points at). Silently skipping is how the
   // pre-push gate disappears unnoticed, so this must be an error.
   const box = sandbox(t, { managedHooksPath: false });
-  spawnSync("git", ["config", "--local", "core.hooksPath", join(box.dir, "elsewhere")], {
-    cwd: box.repo,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: box.gitconfig },
-  });
+  git(box, ["config", "--local", "core.hooksPath", join(box.dir, "elsewhere")]);
   const res = runScript(box);
   assert.notEqual(res.status, 0, "a local hooks path must not pass silently");
   assert.match(`${res.stdout}${res.stderr}`, /core\.hooksPath/, "the message must name what is in the way");
