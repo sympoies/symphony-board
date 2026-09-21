@@ -83,6 +83,37 @@ export function CommitsRail({
 
   return (
     <aside className="commits-rail" aria-label="Commit range digest">
+      {/* Authors lead: "who has been working" is the question this page is
+          opened with, and the repo/branch answers are also reachable from the
+          toolbar above, while this list is the only ranking of people. */}
+      <div className="rail-block">
+        <div className="rail-block-head">
+          <span className="rail-block-title">Top authors</span>
+          <span className="rail-block-meta">{authorTotal} total</span>
+        </div>
+        <RankChart
+          className="rail-rank-chart"
+          ariaLabel="Top commit authors in the selected range"
+          empty="no authors in range"
+          countLabel={commitCountLabel}
+          items={authorRanks.map((rank) => ({
+            key: rank.key,
+            label: rank.label,
+            count: rank.count,
+            selected: rank.label === selectedAuthor,
+            // The rail owns the toggle for BOTH lists, matching the repo row
+            // below. Leaving it to the route setter would make `onAuthor` a
+            // setter that secretly toggles, unlike `onRepo`.
+            onSelect: () => onAuthor(rank.label === selectedAuthor ? null : rank.label),
+            footer: (
+              <span className="live-rank-name" aria-hidden="true">
+                {rank.label}
+              </span>
+            ),
+          }))}
+        />
+      </div>
+
       <div className="rail-block">
         <div className="rail-block-head">
           <span className="rail-block-title">Top repos</span>
@@ -118,31 +149,6 @@ export function CommitsRail({
 
       <div className="rail-block">
         <div className="rail-block-head">
-          <span className="rail-block-title">Top branches</span>
-          <span className="rail-block-meta">{branchTotal} total</span>
-        </div>
-        <RankChart
-          className="rail-rank-chart"
-          ariaLabel="Branches with the most commits in the selected range"
-          empty="no branch refs in range"
-          countLabel={commitCountLabel}
-          items={branchRanks.map((rank) => ({
-            key: rank.key,
-            label: rank.label,
-            count: rank.count,
-            selected: rank.label === selectedBranch,
-            onSelect: () => onBranch(rank.label === selectedBranch ? null : rank.label),
-            footer: (
-              <span className="live-rank-name" aria-hidden="true">
-                {shortRepoLabel(rank.label)}
-              </span>
-            ),
-          }))}
-        />
-      </div>
-
-      <div className="rail-block">
-        <div className="rail-block-head">
           <span className="rail-block-title">Commit types</span>
           <span className="rail-block-meta">{typeTotal} kinds</span>
         </div>
@@ -164,28 +170,27 @@ export function CommitsRail({
         />
       </div>
 
+      {/* Branches last: the longest list, the least often the question, and
+          the one the toolbar's own select already answers directly. */}
       <div className="rail-block">
         <div className="rail-block-head">
-          <span className="rail-block-title">Top authors</span>
-          <span className="rail-block-meta">{authorTotal} total</span>
+          <span className="rail-block-title">Top branches</span>
+          <span className="rail-block-meta">{branchTotal} total</span>
         </div>
         <RankChart
           className="rail-rank-chart"
-          ariaLabel="Top commit authors in the selected range"
-          empty="no authors in range"
+          ariaLabel="Branches with the most commits in the selected range"
+          empty="no branch refs in range"
           countLabel={commitCountLabel}
-          items={authorRanks.map((rank) => ({
+          items={branchRanks.map((rank) => ({
             key: rank.key,
             label: rank.label,
             count: rank.count,
-            selected: rank.label === selectedAuthor,
-            // The rail owns the toggle for BOTH lists, matching the repo row
-            // above. Leaving it to the route setter would make `onAuthor` a
-            // setter that secretly toggles, unlike `onRepo`.
-            onSelect: () => onAuthor(rank.label === selectedAuthor ? null : rank.label),
+            selected: rank.label === selectedBranch,
+            onSelect: () => onBranch(rank.label === selectedBranch ? null : rank.label),
             footer: (
               <span className="live-rank-name" aria-hidden="true">
-                {rank.label}
+                {shortRepoLabel(rank.label)}
               </span>
             ),
           }))}

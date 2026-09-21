@@ -1,17 +1,21 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import type { CSSProperties } from "react";
 import { SourceRepo } from "./SourceRepo.tsx";
+import { DiffStat } from "./DiffStat.tsx";
 import { safeHref } from "../url.ts";
-import { commitBody, commitBranches, commitMessage, commitSha, relativeTime, type ColorOf } from "../model.ts";
+import { commitBody, commitBranches, commitMessage, commitSha, commitStats, relativeTime, type ColorOf } from "../model.ts";
 
 // The selected commit, inserted before the overview so the original pane moves
 // down intact. This is what lets the full commit message be read at all: the
 // list row clamps to its title and the `…` expander only ever revealed a
 // preview.
 //
-// Provider-neutral by the same rule as the list (CommitsPage's header comment) —
-// message, sha, branches, repo, author, time and the provider link are the whole
-// surface. No verification badges or check counts.
+// Provider-neutral by the same rule as the list (CommitsPage's header comment):
+// message, sha, branches, repo, author, time, line counts and the provider link
+// are the whole surface. The test is whether the contract carries the field for
+// every provider, not whether one provider has something interesting — so a
+// GitHub-only Verified badge or check count still has no place here, while
+// `additions`/`deletions` (both providers, absent when unknown) does.
 export function CommitDetail({
   commit,
   timezone,
@@ -32,6 +36,7 @@ export function CommitDetail({
   const sha = commitSha(commit);
   const branches = commitBranches(commit);
   const body = commitBody(commit);
+  const stats = commitStats(commit);
   const href = safeHref(commit.url);
   // Same per-repo accent the list row carries, so the detail reads as the
   // selected row enlarged rather than as an unrelated panel.
@@ -99,6 +104,14 @@ export function CommitDetail({
                     identifier has to be readable and selectable, so rendering
                     `shortSha ?? sha` here would leave it nowhere on screen. */}
                 <code className="commit-detail-sha">{sha}</code>
+              </dd>
+            </div>
+          ) : null}
+          {stats ? (
+            <div className="commit-detail-row">
+              <dt>Lines</dt>
+              <dd>
+                <DiffStat stats={stats} />
               </dd>
             </div>
           ) : null}

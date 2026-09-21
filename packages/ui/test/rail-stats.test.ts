@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
-import { actorAvatarIndex, actorIndex, actorsOf, commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
+import { actorAvatarIndex, actorIndex, actorsOf, commitAuthorOptions, commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -310,6 +310,36 @@ test("rankActors merges a person’s facets into one row and drops bots", () => 
     actorIndex(directory),
   );
   assert.deepEqual(rows.map((r) => [r.label, r.count]), [["terrylin", 3], ["ada", 1]]);
+});
+
+test("commitAuthorOptions merges facets like the ranking but KEEPS bot accounts", () => {
+  // The rail ranks people, so a CI account is noise there. The toolbar filter
+  // is a picker: dropping bots would leave their rows visible in the list with
+  // no way to select them.
+  const rows = commitAuthorOptions(
+    [
+      activity({ actor: "Terry LIN" }),
+      activity({ actor: "terrylin" }),
+      activity({ actor: "ada" }),
+      activity({ actor: "dependabot" }),
+      activity({ actor: "dependabot" }),
+      activity({ actor: " " }),
+      activity({ actor: null }),
+    ],
+    actorIndex(directory),
+  );
+  assert.deepEqual(
+    rows.map((r) => [r.author, r.count]),
+    [["dependabot", 2], ["terrylin", 2], ["ada", 1]],
+    "count desc, then name; unattributed rows are not a person and are dropped",
+  );
+});
+
+test("commitAuthorOptions is unlimited, unlike the ranked rail list", () => {
+  const rows = commitAuthorOptions(
+    Array.from({ length: 12 }, (_, i) => activity({ actor: `dev-${i}` })),
+  );
+  assert.equal(rows.length, 12, "a picker that omits the author you want is worse than a long list");
 });
 
 test("rankActors without a directory keeps the raw strings (pre-4.7.0 contract)", () => {

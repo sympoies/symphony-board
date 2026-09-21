@@ -52,6 +52,7 @@ import {
   commitMessage,
   commitSha,
   commitShortSha,
+  commitStats,
   commitRepoOptions,
   itemInTimeRange,
   filterItemsByRange,
@@ -504,6 +505,26 @@ test("filterCommits resolves a merged author to every raw actor string it covers
   // says a filter is active at all.
   assert.equal(filterCommits(rows, { authorActors: ["Terry LIN"] }).length, 4);
 });
+test("commitStats reads a whole pair of line counts, or nothing", () => {
+  const withStats = activity({ kind: "commit", action: "committed", details: { sha: "a1", additions: 12, deletions: 0 } });
+  assert.deepEqual(commitStats(withStats), { additions: 12, deletions: 0 }, "a real 0 on one side is still a known diffstat");
+
+  // Absent means UNKNOWN, and every one of these has to stay unknown rather
+  // than become a half-read or coerced number the UI would render as fact.
+  const unknown: Array<[string, ActivityDTO["details"]]> = [
+    ["no details at all", null],
+    ["a commit stored before line counts existed", { sha: "a1", branch: "main" }],
+    ["only one half of the pair", { sha: "a1", additions: 3 }],
+    ["a merge commit, whose counts the producer never emits", { sha: "a1" }],
+    ["a string instead of a number", { sha: "a1", additions: "3", deletions: "1" }],
+    ["a negative count", { sha: "a1", additions: -3, deletions: 1 }],
+    ["a fractional count", { sha: "a1", additions: 3.5, deletions: 1 }],
+  ];
+  for (const [why, details] of unknown) {
+    assert.equal(commitStats(activity({ kind: "commit", action: "committed", details })), null, why);
+  }
+});
+
 test("filterCommits keeps only commit records, optionally pinned to one repo", () => {
   const commitA = activity({
     id: "github:github.com|c1",

@@ -8,6 +8,37 @@ export function stableActivityId(parts: Array<string | number | null | undefined
     .join(":");
 }
 
+export interface CommitLineStats {
+  additions: number;
+  deletions: number;
+}
+
+// The line counts a commit activity may carry, or null when the row must not
+// carry any. Shared by both providers so the rule is one rule.
+//
+// A MERGE commit is deliberately excluded. Both providers report a merge's
+// additions/deletions as the diff against its FIRST parent, so anything that
+// sums a range counts the merged branch's work twice — once in its own commits
+// and again in the merge that brought them in. The fetchers already skip the
+// lookup for merges (no request spent); this is the replay-side guard, because
+// a stored payload can carry stats for one anyway — GitLab's list response
+// returns them for every commit once `with_stats` is on, merges included.
+//
+// Anything that is not a whole non-negative count yields null rather than a
+// coerced number: an absent value means "unknown", which consumers render as
+// nothing, and inventing a 0 would claim the commit changed nothing.
+export function commitLineStats(raw: unknown, parentCount: number): CommitLineStats | null {
+  if (parentCount > 1) return null;
+  const stats = raw as { additions?: unknown; deletions?: unknown } | null | undefined;
+  const additions = lineCount(stats?.additions);
+  const deletions = lineCount(stats?.deletions);
+  return additions === null || deletions === null ? null : { additions, deletions };
+}
+
+function lineCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 export function itemActivities(item: CanonicalItem): CanonicalActivity[] {
   const target = { sourceId: item.sourceId, externalId: item.externalId };
   const base = {

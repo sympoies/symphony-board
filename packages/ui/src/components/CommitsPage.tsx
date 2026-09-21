@@ -3,13 +3,14 @@ import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { CommitsRail } from "./CommitsRail.tsx";
+import { DiffStat } from "./DiffStat.tsx";
 import { CommitsOverview } from "./CommitsOverview.tsx";
 import { CommitDetail } from "./CommitDetail.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { sourceDisplayName } from "../model.ts";
-import { EMPTY_ACTOR_INDEX, type ActorIndex } from "../rail-stats.ts";
+import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
 import {
   buildCommitRows,
   activityKey,
@@ -17,6 +18,7 @@ import {
   commitMessage,
   commitSha,
   commitShortSha,
+  commitStats,
   commitVirtualRange,
   relativeTime,
   pluralize,
@@ -29,11 +31,13 @@ import {
   type TimeRange,
 } from "../model.ts";
 
-// A cross-provider commit log over ActivityDTO commit rows. It intentionally does
-// not render GitHub-only badges such as Verified or check counts; only fields
-// already present in the provider-neutral contract surface appear here. The
-// row-layout / visible-window math lives in model.ts (buildCommitRows /
-// commitVirtualRange); this file owns the rendering and the DOM measurement.
+// A cross-provider commit log over ActivityDTO commit rows. Only fields the
+// contract carries for EVERY provider appear here, which is why there are no
+// GitHub-only badges such as Verified or check counts — and why the `+`/`-`
+// line counts do belong, since both providers report them (and the row simply
+// shows none where they are unknown, see DiffStat). The row-layout /
+// visible-window math lives in model.ts (buildCommitRows / commitVirtualRange);
+// this file owns the rendering and the DOM measurement.
 
 function CopyIcon() {
   return (
@@ -79,6 +83,15 @@ function BranchIcon() {
       <circle cx="4" cy="12.4" r="1.6" />
       <path d="M4 5.2v5.6" />
       <path d="M5.6 3.6h2.8A3.6 3.6 0 0 1 12 7.2v3.6" />
+    </svg>
+  );
+}
+
+function AuthorIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      <circle cx="8" cy="5.2" r="2.6" />
+      <path d="M2.8 13.4a5.2 5.2 0 0 1 10.4 0" />
     </svg>
   );
 }
@@ -353,6 +366,7 @@ function CommitTimeline({
                   ) : null}
                 </div>
                 <div className="commit-row-actions">
+                  <DiffStat stats={commitStats(commit)} />
                   {short ? <code className="commit-sha">{short}</code> : null}
                   <button
                     type="button"
@@ -398,6 +412,7 @@ export function CommitsPage({
   totalCommits,
   repoOptions,
   branchOptions,
+  authorOptions,
   selectedSource,
   selectedRepo,
   selectedBranch,
@@ -425,6 +440,10 @@ export function CommitsPage({
   totalCommits: number;
   repoOptions: CommitRepoOption[];
   branchOptions: CommitBranchOption[];
+  // Author options for the toolbar filter: the author facet source, merged
+  // through the contract actor directory. Bots are kept — see
+  // rail-stats.commitAuthorOptions.
+  authorOptions: CommitAuthorOption[];
   selectedSource: string | null;
   selectedRepo: string | null;
   selectedBranch: string | null;
@@ -530,17 +549,18 @@ export function CommitsPage({
   // the date range) and the commit feed gets the first screen. Desktop always
   // shows them.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch">("repo");
-  const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0);
+  const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch" | "author">("repo");
+  const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0) + (selectedAuthor ? 1 : 0);
   // The summary has to name every filter the count counts, or a pinned source
   // reads as "1 active" over the words "all repos · all branches".
   const filtersSummary =
     activeFilterCount === 0
-      ? "all repos · all branches"
+      ? "all repos · all branches · all authors"
       : [
           selectedSource ? sourceDisplayName(selectedSource) : null,
           selectedRepo ?? "all repos",
           selectedBranch ?? "all branches",
+          selectedAuthor ?? "all authors",
         ]
           .filter(Boolean)
           .join(" · ");
@@ -602,6 +622,33 @@ export function CommitsPage({
           {branchOptions.map((option) => (
             <option key={option.branch} value={option.branch}>
               {option.branch} ({option.count})
+            </option>
+          ))}
+        </select>
+      </label>
+      {/* Author, the third SCM filter the route has always carried. Until now
+          only the digest rail could set it, which left it unreachable wherever
+          the rail is a sheet — and unfindable even on desktop, since nothing
+          named it. Same shape as the branch select so the two read as a pair. */}
+      <label className="commit-author-select">
+        <AuthorIcon />
+        <select
+          aria-label="Filter commits by author"
+          value={selectedAuthor ?? ""}
+          disabled={authorOptions.length === 0}
+          onChange={(event) => onAuthor(event.target.value || null)}
+        >
+          <option value="">All authors</option>
+          {/* A route can name an author the current facet source no longer
+              contains (a shared link, or a repo pin that excludes them). Keep
+              it selectable so the control still shows what is being filtered
+              instead of silently snapping back to "All authors". */}
+          {selectedAuthor && !authorOptions.some((option) => option.author === selectedAuthor) ? (
+            <option value={selectedAuthor}>{selectedAuthor}</option>
+          ) : null}
+          {authorOptions.map((option) => (
+            <option key={option.author} value={option.author}>
+              {option.author} ({option.count})
             </option>
           ))}
         </select>
@@ -699,9 +746,62 @@ export function CommitsPage({
       </div>
     </div>
   );
+  const authorFilterSection = () => (
+    <div className="commit-filter-section commit-filter-section-author" data-panel="author">
+      <div className="commit-filter-section-head">
+        <strong>Author</strong>
+        <span className="muted">
+          {authorOptions.length} {pluralize(authorOptions.length, "author")}
+        </span>
+      </div>
+      <div className="commit-filter-option-list">
+        <button
+          type="button"
+          className={`commit-filter-option${selectedAuthor ? "" : " is-selected"}`}
+          data-kind="author-all"
+          aria-pressed={!selectedAuthor}
+          onClick={() => onAuthor(null)}
+          disabled={authorOptions.length === 0}
+        >
+          <span className="commit-filter-option-main">All authors</span>
+          <span className="commit-filter-option-meta">{windowTotal} {pluralize(windowTotal, "commit")}</span>
+        </button>
+        {selectedAuthor && !authorOptions.some((option) => option.author === selectedAuthor) ? (
+          <button
+            type="button"
+            className="commit-filter-option is-selected"
+            data-kind="author"
+            aria-pressed="true"
+            onClick={() => onAuthor(selectedAuthor)}
+          >
+            <span className="commit-filter-option-main">{selectedAuthor}</span>
+            <span className="commit-filter-option-meta">selected</span>
+          </button>
+        ) : null}
+        {authorOptions.map((option) => (
+          <button
+            key={option.author}
+            type="button"
+            className={`commit-filter-option${option.author === selectedAuthor ? " is-selected" : ""}`}
+            data-kind="author"
+            aria-pressed={option.author === selectedAuthor}
+            onClick={() => onAuthor(option.author)}
+          >
+            <span className="commit-filter-option-main">{option.author}</span>
+            <span className="commit-filter-option-meta">
+              {option.count} {pluralize(option.count, "commit")}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
   const filterSheetBody = () => (
     <div className="commits-filter-sheet-body" data-active-filter={filterSheetTab}>
       <div className="commit-filter-sheet-tabs" role="tablist" aria-label="Commit filters">
+        {/* Repo, branch, author — the order the inline toolbar uses, and the
+            order the sheet opens in. The digest rail leads with authors
+            instead, because it RANKS people rather than offering filters. */}
         <button
           type="button"
           className="commit-filter-sheet-tab"
@@ -720,9 +820,18 @@ export function CommitsPage({
         >
           Branch
         </button>
+        <button
+          type="button"
+          className="commit-filter-sheet-tab"
+          role="tab"
+          aria-selected={filterSheetTab === "author"}
+          onClick={() => setFilterSheetTab("author")}
+        >
+          Author
+        </button>
       </div>
       {sourceChips}
-      {filterSheetTab === "repo" ? repoFilterSection() : branchFilterSection()}
+      {filterSheetTab === "repo" ? repoFilterSection() : filterSheetTab === "branch" ? branchFilterSection() : authorFilterSection()}
     </div>
   );
 

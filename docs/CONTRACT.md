@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.7.0`.
+Current emitted version: `4.7.1`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.7.0",
+  "contract_version": "4.7.1",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -384,7 +384,13 @@ below):
   commit's primary branch (the default branch whenever the commit is on it). A
   commit reachable from more than one branch also carries the full membership
   as `details.branches` / `details.refs` (default branch first, side branches
-  alphabetical).
+  alphabetical). A commit may also carry `details.additions` /
+  `details.deletions`, its line counts as whole non-negative numbers. They are
+  present as a PAIR or not at all, and are absent — never zero — whenever the
+  producer could not read them, which consumers must render as "unknown"
+  rather than "no change". They are also absent for every MERGE commit by
+  design: a provider reports a merge's counts against its first parent, so a
+  consumer summing a range would count the merged branch's work twice.
 
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for comments, commits, and
@@ -496,6 +502,25 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.7.1` is a clarification release: commit activity rows may now carry
+`details.additions` / `details.deletions`, the commit's line counts. `details`
+was already an open object and every key in it was already optional, so no row
+shape changed and no consumer breaks.
+
+They are emitted as a pair or not at all. Absent means the producer could not
+read them — a provider call that failed, a commit stored before this existed,
+or one past a per-sweep enrichment bound — which is NOT the same as a commit
+that changed nothing, so a consumer must render an absent pair as unknown
+rather than as `0`. There is no backfill: stored raw payloads predating this do
+not contain the counts, and `normalize` is pure, so those rows gain them only
+when a later full sweep re-reads the commit.
+
+MERGE commits never carry them. Both providers report a merge's counts as the
+diff against its FIRST parent, so a consumer summing a range would count the
+merged branch's work twice — once in its own commits and again in the merge.
+Producers skip the lookup for merges and drop the counts on replay even when a
+stored payload has them.
 
 Version `4.7.0` is additive: the envelope may carry an optional
 `actor_directory`, which resolves every distinct non-empty `activities[].actor`

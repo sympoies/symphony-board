@@ -105,6 +105,41 @@ export function rankActors(
   return topRanks(counts, limit);
 }
 
+export interface CommitAuthorOption {
+  author: string;
+  count: number;
+}
+
+// The author options the Commits toolbar offers, counted over the facet source
+// (every filter applied except this one) and merged through the same
+// `actor_directory` identity as the rail, so picking a name in the dropdown and
+// clicking that person's rail row select the same rows.
+//
+// Unlike `rankActors` this KEEPS bot accounts. That ranking answers "who are
+// the top people", where a CI account is noise; a filter answers "show me only
+// these commits", and hiding bots there would leave rows plainly visible in the
+// list with no way to select them. It is also unlimited, because a picker that
+// silently omits the author you are looking for is worse than a long list.
+//
+// It lives here rather than beside commitBranchOptions in model.ts because the
+// identity merge it depends on is this module's — and model.ts cannot import
+// back from here.
+export function commitAuthorOptions(
+  activities: readonly ActivityDTO[],
+  index: ActorIndex = EMPTY_ACTOR_INDEX,
+): CommitAuthorOption[] {
+  const counts = new Map<string, number>();
+  for (const a of activities) {
+    const actor = a.actor?.trim();
+    if (!actor) continue;
+    const name = index.canonical.get(actor) ?? actor;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([author, count]) => ({ author, count }))
+    .sort((a, b) => b.count - a.count || a.author.localeCompare(b.author));
+}
+
 // Rank by repository, across sources. The key carries `source_id` so the same
 // `project_path` mirrored on two providers stays two rows — identity is
 // `(source_id, project_path)` per the repo's grouping rule.

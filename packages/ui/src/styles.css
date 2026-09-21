@@ -2299,20 +2299,26 @@ a.rf-node-title:hover { color: var(--accent); }
   align-items: stretch;
 }
 .commits-filter-hint { align-self: flex-end; font-size: 12px; }
-.commit-branch-select {
+/* The branch and author pickers are one control family: same pill chrome, same
+   icon-then-value shape, so the toolbar reads as a row of equals. */
+.commit-branch-select,
+.commit-author-select {
   flex: none;
   display: inline-flex; align-items: center; gap: 8px;
   height: 34px; padding: 0 10px;
   color: var(--muted); background: var(--panel);
   border: 1px solid var(--line); border-radius: 8px;
 }
-.commit-branch-select select {
+.commit-branch-select select,
+.commit-author-select select {
   max-width: 210px;
   color: var(--text); background: transparent; border: none; outline: none;
   font: inherit; font-weight: 600;
 }
-.commit-branch-select:has(select:disabled) { opacity: 0.72; }
-.commit-branch-select select:disabled { color: var(--muted); }
+.commit-branch-select:has(select:disabled),
+.commit-author-select:has(select:disabled) { opacity: 0.72; }
+.commit-branch-select select:disabled,
+.commit-author-select select:disabled { color: var(--muted); }
 /* Self-styled typeahead combobox (replaces a native <datalist>, whose popup the
    browser renders with un-themeable OS chrome). The suggestion list is our own
    DOM, so it uses the same panel / border / accent tokens as the rest of the UI. */
@@ -2726,6 +2732,20 @@ a.rf-node-title:hover { color: var(--accent); }
   padding: 1px 7px;
   background: var(--chip-bg);
 }
+/* Line counts, on the action line beside the sha rather than on their own row:
+   the wide commit row reserves a FIXED body height for the virtualized list
+   (COMMIT_ROW_BODY_HEIGHT_PX in model.ts), so anything that added a line here
+   would desynchronize every row offset below it. */
+.commit-diffstat {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* Reuses the existing semantic hues rather than introducing a diff palette, so
+   both themes follow the same swap every other chip does. */
+.commit-diffstat-add { color: var(--open); }
+.commit-diffstat-del { color: var(--broken); }
 .commit-icon-button {
   position: relative;
   width: 30px; height: 30px;
@@ -3039,8 +3059,10 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-filter { flex: none; max-width: none; }
   .commits-filter-hint { align-self: flex-start; }
   .repo-combobox { flex: none; width: 100%; }
-  .commit-branch-select { width: 100%; box-sizing: border-box; }
-  .commit-branch-select select { max-width: none; flex: 1; }
+  .commit-branch-select,
+  .commit-author-select { width: 100%; box-sizing: border-box; }
+  .commit-branch-select select,
+  .commit-author-select select { max-width: none; flex: 1; }
   .mobile-control-sheet[data-panel="commits-filters"] {
     min-height: min(62vh, 520px);
     max-height: min(76vh, 640px);

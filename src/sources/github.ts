@@ -18,7 +18,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { itemActivities, stableActivityId } from "../model/activity.ts";
+import { commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
@@ -38,6 +38,13 @@ const MAX_REST_PAGES = 20;
 // GitHub's compare API serves at most 250 commits for a base...head range, so
 // three 100-commit pages always cover everything the provider will return.
 const MAX_COMPARE_PAGES = 3;
+// Line counts per GraphQL round trip. Neither REST commit feed carries them
+// (`stats` exists only on the single-commit response), so a REST enrichment
+// would be one extra call per sha. Aliasing N `object(oid:)` lookups into one
+// GraphQL document costs ONE rate-limit point instead — measured against the
+// live API at this width — which is what makes a full sweep of every tracked
+// repo affordable.
+const COMMIT_STATS_BATCH = 100;
 
 function mapState(s: string | null | undefined): ItemState {
   if (s === "OPEN") return "open";
@@ -142,6 +149,26 @@ const REVIEW_THREADS_PAGE_Q = `query ReviewThreadsPage($owner:String!, $name:Str
   }
 }`;
 
+// One GraphQL document that reads the line counts of up to COMMIT_STATS_BATCH
+// commits. `object(oid:)` has no list form, so the shas are interpolated as
+// field ALIASES (`c0`, `c1`, …) rather than passed as a variable — hence the
+// shape guard below: only plain hex reaches the document, so nothing a provider
+// response carries can alter the query. Every alias is optional on the
+// response: an oid GitHub cannot resolve comes back null and yields no stats.
+const COMMIT_STATS_OID = /^[0-9a-f]{4,64}$/;
+
+function commitStatsQuery(shas: readonly string[]): string {
+  const lookups = shas
+    .map((sha, i) => `    c${i}: object(oid:"${sha}") { ... on Commit { oid additions deletions } }`)
+    .join("\n");
+  return `query CommitStats($owner:String!, $name:String!) {
+  rateLimit { cost remaining used resetAt }
+  repository(owner:$owner, name:$name) {
+${lookups}
+  }
+}`;
+}
+
 const hash = (s: string): string => createHash("sha256").update(s).digest("hex");
 
 export class GitHubSource implements Source {
@@ -151,7 +178,8 @@ export class GitHubSource implements Source {
   // github/6: items carry provider body text for detail views.
   // github/7: items carry provider-native comment/conversation totals.
   // github/8: legacy PR raw without totalCommentsCount replays comment_total as unknown.
-  readonly normalizerVersion = "github/8";
+  // github/9: commit activity details carry additions/deletions (never for merges).
+  readonly normalizerVersion = "github/9";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -243,11 +271,11 @@ export class GitHubSource implements Source {
       }
     }
     for (const project of this.projects) {
-      const { rest } = this.clientsFor(project);
+      const { gql, rest } = this.clientsFor(project);
       if (!rest) continue;
       log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetch start`);
       try {
-        const activity = await this.fetchRepoActivity(project, since, now, rest);
+        const activity = await this.fetchRepoActivity(project, since, now, rest, gql);
         records.push(...activity.records);
         if (activity.latest && (!latest || activity.latest > latest)) latest = activity.latest;
         log.info(`[${this.descriptor.sourceId}] project ${project}: activity fetched ${activity.records.length} records`);
@@ -586,7 +614,7 @@ export class GitHubSource implements Source {
     return out;
   }
 
-  private async fetchRepoActivity(project: string, since: string | null, now: string, rest: RestClient): Promise<{ records: RawRecord[]; latest: string | null }> {
+  private async fetchRepoActivity(project: string, since: string | null, now: string, rest: RestClient, gql: GqlClient): Promise<{ records: RawRecord[]; latest: string | null }> {
     const [owner, name] = project.split("/");
     const defaultBranch = await this.fetchDefaultBranch(owner, name, rest);
     const records: RawRecord[] = [];
@@ -675,13 +703,20 @@ export class GitHubSource implements Source {
       }
     }
 
+    const stats = await this.fetchCommitStats(project, owner, name, [...bySha.values()].map((e) => e.commit), gql);
+
     for (const { commit, branches } of bySha.values()) {
+      const stat = stats.get(String(commit.sha).toLowerCase());
       const payload = {
         __activityKind: "github_commit",
         project,
         defaultBranch,
         branches: orderedBranches(branches, defaultBranch),
         commit,
+        // Absent (not null) when the lookup was skipped or failed, so a payload
+        // written before this existed and one written by a sweep that could not
+        // reach the stats query hash identically.
+        ...(stat ? { stats: stat } : {}),
       };
       const payloadJson = JSON.stringify(payload);
       records.push({
@@ -694,6 +729,49 @@ export class GitHubSource implements Source {
       });
     }
     return { records, latest };
+  }
+
+  // Line counts for the commits of one sweep, keyed by sha. Best effort by
+  // design: a commit whose stats could not be read is stored without them and
+  // picked up by the next sweep that can, which is strictly better than failing
+  // a sweep — and marking it incomplete over a decoration would block the
+  // soft-delete pass that only a complete sweep may run.
+  //
+  // Merge commits are filtered out here rather than at the call site so the
+  // reason travels with the request that is NOT sent: their counts are the diff
+  // against the first parent, which double-counts the branch being merged (see
+  // commitLineStats).
+  private async fetchCommitStats(
+    project: string,
+    owner: string | undefined,
+    name: string | undefined,
+    commits: readonly any[],
+    gql: GqlClient,
+  ): Promise<Map<string, { additions: number; deletions: number }>> {
+    const out = new Map<string, { additions: number; deletions: number }>();
+    if (!owner || !name) return out;
+    const shas = commits
+      .filter((c) => (Array.isArray(c?.parents) ? c.parents.length : 0) <= 1)
+      .map((c) => String(c?.sha ?? "").toLowerCase())
+      .filter((sha) => COMMIT_STATS_OID.test(sha));
+    for (let i = 0; i < shas.length; i += COMMIT_STATS_BATCH) {
+      const batch = shas.slice(i, i + COMMIT_STATS_BATCH);
+      try {
+        const data: any = await gql(commitStatsQuery(batch), { owner, name });
+        const repo = data?.repository ?? {};
+        for (let j = 0; j < batch.length; j++) {
+          const node = repo[`c${j}`];
+          // Every sha here is a non-merge by construction, so 1 parent; the
+          // shared helper is still what decides a usable pair of counts.
+          const stats = commitLineStats(node, 1);
+          if (stats) out.set(batch[j]!, stats);
+        }
+      } catch (err) {
+        log.warn(`[${this.descriptor.sourceId}] project ${project}: commit stats batch failed: ${(err as Error).message}`);
+        break;
+      }
+    }
+    return out;
   }
 
   private async fetchRepoCommentActivity(project: string, owner: string | undefined, name: string | undefined, since: string | null, now: string, rest: RestClient): Promise<{ records: RawRecord[]; latest: string | null }> {
@@ -802,7 +880,7 @@ export class GitHubSource implements Source {
         actorKey,
         occurredAt,
         summary: `Committed ${sha.slice(0, 7)}${p.project ? ` in ${p.project}` : ""}`,
-        details: commitDetails(sha, title, body, payloadBranches(p)),
+        details: commitDetails(sha, title, body, payloadBranches(p), commitLineStats(p.stats, parentCount(commit.parents))),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -936,10 +1014,16 @@ function messageBody(value: unknown): string | null {
   return cleanText(value.split(/\r?\n/).slice(1).join("\n"));
 }
 
+function parentCount(parents: unknown): number {
+  return Array.isArray(parents) ? parents.length : 0;
+}
+
 // Branch detail for a commit row: `branch`/`ref` carry the primary branch (the
 // default branch whenever the commit is on it), and multi-branch membership
-// adds the full `branches`/`refs` lists (see docs/CONTRACT.md activity details).
-function commitDetails(sha: string, message: string | null, body: string | null, branches: string[]): Record<string, unknown> {
+// adds the full `branches`/`refs` lists. `additions`/`deletions` are the
+// commit's line counts when the producer could read them and the commit is not
+// a merge (see docs/CONTRACT.md activity details).
+function commitDetails(sha: string, message: string | null, body: string | null, branches: string[], stats: CommitLineStats | null): Record<string, unknown> {
   const details: Record<string, unknown> = { sha, message };
   if (body) details.body = body;
   const primary = branches[0];
@@ -950,6 +1034,10 @@ function commitDetails(sha: string, message: string | null, body: string | null,
   if (branches.length > 1) {
     details.branches = branches;
     details.refs = branches.map((b) => `refs/heads/${b}`);
+  }
+  if (stats) {
+    details.additions = stats.additions;
+    details.deletions = stats.deletions;
   }
   return details;
 }

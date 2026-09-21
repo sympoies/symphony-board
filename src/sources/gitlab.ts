@@ -44,7 +44,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { itemActivities, stableActivityId } from "../model/activity.ts";
+import { commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
@@ -57,6 +57,12 @@ const PAGE_SIZE = 50;
 const MAX_PAGES = 40;
 const MAX_REST_PAGES = 10;
 const NOTES_PAGE = 50; // system notes per item (fetched per-item to stay under the complexity limit)
+// Per-sweep ceiling on the single-commit stats GETs a project may spend on its
+// compare-derived commits. A branch-unique compare set is normally small, but
+// one long-lived side branch could otherwise turn a sweep into hundreds of
+// round trips. Past the cap those commits simply keep no line counts until a
+// later sweep sees a shorter set.
+const MAX_COMMIT_STATS_FETCHES = 200;
 
 function mapState(s: string | null | undefined): ItemState {
   const v = (s ?? "").toLowerCase();
@@ -175,7 +181,8 @@ export class GitLabSource implements Source {
   // when GitLab omits web_url; gitlab/5 added review-thread comment avatarUrl.
   // gitlab/7: items carry provider description text as body for detail views.
   // gitlab/8: items carry provider-native note/comment totals.
-  readonly normalizerVersion = "gitlab/8";
+  // gitlab/9: commit activity details carry additions/deletions (never for merges).
+  readonly normalizerVersion = "gitlab/9";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -631,6 +638,10 @@ export class GitLabSource implements Source {
       const commits = await this.rest<any[]>(`projects/${projectId}/repository/commits`, {
         per_page: 100,
         page,
+        // Line counts come back inline on this feed for no extra request, which
+        // is why the commit log can show them at all. The compare feed below
+        // has no equivalent, so its commits are enriched separately.
+        with_stats: true,
         ...(since ? { since } : {}),
       });
       for (const commit of commits ?? []) addCommit(commit, defaultBranch);
@@ -652,13 +663,20 @@ export class GitLabSource implements Source {
       }
     }
 
+    const stats = await this.fetchCommitStats(project, projectId, [...bySha.values()].map((e) => e.commit));
+
     for (const { commit, branches } of bySha.values()) {
+      const stat = stats.get(String(commit.id));
       const payload = {
         __activityKind: "gitlab_commit",
         project,
         defaultBranch,
         branches: orderedBranches(branches, defaultBranch),
         commit,
+        // Only the compare-derived commits need this: the list feed already
+        // carries `commit.stats`. Absent (not null) when the lookup was skipped
+        // or failed, so a payload predating it hashes identically.
+        ...(stat ? { stats: stat } : {}),
       };
       const payloadJson = JSON.stringify(payload);
       records.push({
@@ -671,6 +689,48 @@ export class GitLabSource implements Source {
       });
     }
     return { records, latest };
+  }
+
+  // Line counts for the commits the compare feed contributed, keyed by sha.
+  // `repository/compare` returns no `stats` (unlike the list feed, which does
+  // once `with_stats` is on), so each of those shas costs one single-commit
+  // GET — bounded by MAX_COMMIT_STATS_FETCHES and overlapped like every other
+  // per-item resolve pass.
+  //
+  // Merge commits never reach the request: their counts are the diff against
+  // the first parent, which double-counts the branch being merged (see
+  // commitLineStats). Best effort throughout — a commit whose stats could not
+  // be read is stored without them rather than failing the sweep, because
+  // marking it incomplete over a decoration would block the soft-delete pass.
+  private async fetchCommitStats(
+    project: string,
+    projectId: string,
+    commits: readonly any[],
+  ): Promise<Map<string, { additions: number; deletions: number }>> {
+    const out = new Map<string, { additions: number; deletions: number }>();
+    const rest = this.rest;
+    if (!rest) return out;
+    const pending = commits
+      .filter((c) => (Array.isArray(c?.parent_ids) ? c.parent_ids.length : 0) <= 1)
+      .filter((c) => commitLineStats(c?.stats, 1) === null)
+      .map((c) => String(c?.id ?? ""))
+      .filter((sha) => sha.length > 0)
+      .slice(0, MAX_COMMIT_STATS_FETCHES);
+    if (pending.length === 0) return out;
+    const resolved = await mapWithConcurrency(pending, resolveConcurrency(), async (sha) => {
+      try {
+        const commit = await rest<any>(`projects/${projectId}/repository/commits/${encodeURIComponent(sha)}`);
+        return commitLineStats(commit?.stats, 1);
+      } catch (err) {
+        log.info(`[${this.descriptor.sourceId}] project ${project}: commit ${sha} stats unavailable: ${(err as Error).message}`);
+        return null;
+      }
+    });
+    for (let i = 0; i < pending.length; i++) {
+      const stats = resolved[i];
+      if (stats) out.set(pending[i]!, stats);
+    }
+    return out;
   }
 
   // Live side branches worth a compare. The latest push event per branch decides
@@ -736,7 +796,9 @@ export class GitLabSource implements Source {
         }),
         occurredAt,
         summary: `Committed ${sha.slice(0, 8)}${p.project ? ` in ${p.project}` : ""}`,
-        details: commitDetails(sha, title, body, payloadBranches(p)),
+        // The list feed inlines `commit.stats`; the compare feed does not, so a
+        // separately resolved `p.stats` stands in for those rows.
+        details: commitDetails(sha, title, body, payloadBranches(p), commitLineStats(p.stats ?? commit.stats, parentCount(commit.parent_ids))),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -908,10 +970,16 @@ function messageBody(value: unknown): string | null {
   return cleanText(value.split(/\r?\n/).slice(1).join("\n"));
 }
 
+function parentCount(parents: unknown): number {
+  return Array.isArray(parents) ? parents.length : 0;
+}
+
 // Branch detail for a commit row: `branch`/`ref` carry the primary branch (the
 // default branch whenever the commit is on it), and multi-branch membership
-// adds the full `branches`/`refs` lists (see docs/CONTRACT.md activity details).
-function commitDetails(sha: string, message: string | null, body: string | null, branches: string[]): Record<string, unknown> {
+// adds the full `branches`/`refs` lists. `additions`/`deletions` are the
+// commit's line counts when the producer could read them and the commit is not
+// a merge (see docs/CONTRACT.md activity details).
+function commitDetails(sha: string, message: string | null, body: string | null, branches: string[], stats: CommitLineStats | null): Record<string, unknown> {
   const details: Record<string, unknown> = { sha, message };
   if (body) details.body = body;
   const primary = branches[0];
@@ -922,6 +990,10 @@ function commitDetails(sha: string, message: string | null, body: string | null,
   if (branches.length > 1) {
     details.branches = branches;
     details.refs = branches.map((b) => `refs/heads/${b}`);
+  }
+  if (stats) {
+    details.additions = stats.additions;
+    details.deletions = stats.deletions;
   }
   return details;
 }
