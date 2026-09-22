@@ -5312,7 +5312,12 @@ span.live-avatar { cursor: default; }
 
 /* The `git-scope` directory tree above the flat file list: pre-formatted ASCII
    connectors, so it must not wrap — a wrapped line breaks the columns that make
-   it readable. It scrolls sideways instead, like a code block. */
+   it readable. It scrolls sideways instead, like a code block.
+
+   Vertically it does NOT scroll: the tree is the shape of the commit, and a
+   fixed-height window on it hides exactly the deep, wide commits the shape is
+   worth reading for. The block grows and the rail scrolls as one column, the
+   way every other rail block does. */
 .commit-files-tree { margin-bottom: 10px; }
 .commit-files-tree-body {
   margin: 0;
@@ -5325,7 +5330,5 @@ span.live-avatar { cursor: default; }
   color: var(--text);
   white-space: pre;
   overflow-x: auto;
-  max-height: 260px;
-  overflow-y: auto;
 }
 .commit-files-tree-summary { margin-top: 4px; font-size: 11px; }
