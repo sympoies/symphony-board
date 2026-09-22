@@ -134,6 +134,23 @@ let contractRequestCount = 0;
 // static ./contract.json is only the default-90d / static-deploy fast-path), so
 // the refresh assertion below counts range requests, not contract.json hits.
 let rangeRequestCount = 0;
+// The Commits rail per-file breakdown (see the /api/commit-files stub below).
+let commitFilesRequestCount = 0;
+// Deep and wide on purpose: eleven files across nested directories make a tree
+// tall enough that a fixed-height window on it would clip visibly.
+const SMOKE_COMMIT_FILE_PATHS = [
+  "README.md",
+  "docs/DESIGN.md",
+  "docs/devlog/2026-09.md",
+  "packages/ui/src/components/CommitDetail.tsx",
+  "packages/ui/src/components/CommitFileList.tsx",
+  "packages/ui/src/components/CommitsRail.tsx",
+  "packages/ui/src/commit-file-tree.ts",
+  "packages/ui/src/styles.css",
+  "packages/ui/test/commit-file-tree.test.ts",
+  "src/server/commit-files.ts",
+  "test/commit-files.test.ts",
+];
 let rangeFailOnce = false;
 let graphNeighborhoodRequestCount = 0;
 const graphNeighborhoodRequestUrls = [];
@@ -731,6 +748,37 @@ async function handleSmokeRequest(req, res) {
       const rawBody = await readFile(join(DIST, "contract.json"));
       const response = graphNeighborhoodProjection(rawBody, req.url || "/api/graph-neighborhood");
       res.writeHead(response.status, JSON_HEADERS).end(response.body);
+      return;
+    }
+    // The per-file breakdown the Commits rail asks for when its Settings toggle
+    // is on. The real route reaches a provider (src/server/commit-files.ts); the
+    // smoke answers a deterministic payload so the block's READY state — the
+    // directory tree, the rows and the total — is rendered rather than reduced
+    // to its "no breakdown" line. Deep and wide on purpose: the tree must prove
+    // it renders whole rather than inside a fixed-height window.
+    if (p === "/api/commit-files") {
+      commitFilesRequestCount += 1;
+      const requestUrl = new URL(req.url || "/api/commit-files", `http://127.0.0.1:${HTTP_PORT}`);
+      const files = SMOKE_COMMIT_FILE_PATHS.map((path, index) => ({
+        path,
+        status: index === 0 ? "added" : index === 1 ? "removed" : index === 2 ? "renamed" : "modified",
+        additions: (index + 1) * 3,
+        deletions: index % 4,
+      }));
+      res.writeHead(200, JSON_HEADERS).end(
+        JSON.stringify({
+          source_id: requestUrl.searchParams.get("source_id") || "",
+          project_path: requestUrl.searchParams.get("project_path") || "",
+          sha: requestUrl.searchParams.get("sha") || "",
+          files,
+          total: files.reduce(
+            (acc, file) => ({ additions: acc.additions + file.additions, deletions: acc.deletions + file.deletions }),
+            { additions: 0, deletions: 0 },
+          ),
+          total_scope: "listed",
+          truncated: false,
+        }),
+      );
       return;
     }
     if (p === "/__smoke/contract-count") {
@@ -3238,9 +3286,9 @@ try {
     returnByValue: true,
   })).result.value || {};
   // Changed files lead the digest rail while the Settings toggle is on: they
-  // describe the ONE selected row, so they outrank the range-wide rankings. No
-  // server answers /api/commit-files in this smoke, so the block renders its
-  // "why not" line — placement and framing are what this pins.
+  // describe the ONE selected row, so they outrank the range-wide rankings. The
+  // smoke server answers /api/commit-files with a deep fixture, so this also
+  // renders the block's READY state — tree, rows and total.
   const commitFilesRailEnabled = (await send("Runtime.evaluate", {
     expression: `(() => {
       try {
@@ -3254,7 +3302,35 @@ try {
   })).result.value || false;
   await send("Runtime.evaluate", { expression: "location.reload()" });
   await waitHtml("document.querySelector('.commits-page .commit-detail-card')");
-  await waitHtml("document.querySelector('.commits-split > .commits-rail:not(.commit-detail) .commit-files')");
+  await waitHtml("document.querySelector('.commits-split > .commits-rail:not(.commit-detail) .commit-files .commit-files-list')");
+  // The tree is the shape of the commit, so it renders WHOLE: a fixed-height
+  // window on it would hide exactly the deep commits the shape is read for.
+  const commitFilesTree = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const block = document.querySelector('.commits-rail:not(.commit-detail) .commit-files');
+      const tree = block?.querySelector('.commit-files-tree-body');
+      const summary = block?.querySelector('.commit-files-tree-summary');
+      const list = block?.querySelector('.commit-files-list');
+      const total = block?.querySelector('.commit-files-total');
+      if (!block || !tree || !list || !total) return { rendered: false };
+      const lines = (tree.textContent || '').split('\\n').length;
+      const style = getComputedStyle(tree);
+      return {
+        rendered: true,
+        lines,
+        rows: list.querySelectorAll('.commit-files-row').length,
+        summary: (summary?.textContent || '').trim(),
+        // scrollHeight beyond the box is exactly what a capped height produces.
+        clipped: tree.scrollHeight > tree.clientHeight + 1,
+        maxHeight: style.maxHeight,
+        overflowY: style.overflowY,
+        // Tree first, then the rows, then the total.
+        treeBeforeList: tree.getBoundingClientRect().bottom <= list.getBoundingClientRect().top + 1,
+        totalLast: total.getBoundingClientRect().top >= list.getBoundingClientRect().bottom - 1,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   const commitFilesRail = (await send("Runtime.evaluate", {
     expression: `(() => {
       const rail = document.querySelector('.commits-split > .commits-rail:not(.commit-detail)');
@@ -7125,6 +7201,7 @@ try {
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
     [commitDetailRhythm.measured === true && commitDetailRhythm.gapBeforeBody >= 8 && commitDetailRhythm.metaTighterThanBody === true, `commits: the detail body panel is separated from the meta list (${JSON.stringify(commitDetailRhythm)})`],
     [commitFilesRail.enabled === true && commitFilesRail.isRailBlock === true && commitFilesRail.isFirstBlock === true && commitFilesRail.title === "Changed files" && commitFilesRail.inDetail === false && commitFilesRail.detailStillRenders === true, `commits: changed files lead the digest rail when enabled (${JSON.stringify(commitFilesRail)})`],
+    [commitFilesTree.rendered === true && commitFilesTree.rows === 11 && commitFilesTree.lines >= 17 && commitFilesTree.clipped === false && commitFilesTree.maxHeight === "none" && commitFilesTree.treeBeforeList === true && commitFilesTree.totalLast === true && commitFilesTree.summary === "11 directories, 11 files", `commits: the changed-files tree renders whole above the rows (${JSON.stringify(commitFilesTree)})`],
     [commitFilesRailOff.hasBlock === false && commitFilesRailOff.firstTitle === "Top authors", `commits: the rail keeps its ranked head when file stats are off (${JSON.stringify(commitFilesRailOff)})`],
     [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.toolbar === true && commitsFollowLatestApplied.toolbarSingleLine === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail with back and mode on one toolbar line (${JSON.stringify(commitsFollowLatestApplied)})`],
     [commitsFollowLatestTransition.mode === "Following latest" && commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
