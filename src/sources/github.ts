@@ -179,7 +179,8 @@ export class GitHubSource implements Source {
   // github/7: items carry provider-native comment/conversation totals.
   // github/8: legacy PR raw without totalCommentsCount replays comment_total as unknown.
   // github/9: commit activity details carry additions/deletions (never for merges).
-  readonly normalizerVersion = "github/9";
+  // github/10: provider actor photos are retained in activity details.
+  readonly normalizerVersion = "github/10";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -857,6 +858,7 @@ export class GitHubSource implements Source {
       const title = firstLine(commit.commit?.message);
       const body = messageBody(commit.commit?.message);
       const actor = commit.author?.login ?? commit.commit?.author?.name ?? commit.commit?.committer?.name ?? null;
+      const actorAvatarUrl = commit.author?.login ? cleanText(commit.author?.avatar_url) : null;
       // Prefer the linked account login (groups with this person's issues/PRs);
       // fall back to the commit email for account-less commits, then the name.
       const actorKey = deriveActorKey({
@@ -880,7 +882,10 @@ export class GitHubSource implements Source {
         actorKey,
         occurredAt,
         summary: `Committed ${sha.slice(0, 7)}${p.project ? ` in ${p.project}` : ""}`,
-        details: commitDetails(sha, title, body, payloadBranches(p), commitLineStats(p.stats, parentCount(commit.parents))),
+        details: {
+          ...commitDetails(sha, title, body, payloadBranches(p), commitLineStats(p.stats, parentCount(commit.parents))),
+          ...(actorAvatarUrl ? { actor_avatar_url: actorAvatarUrl } : {}),
+        },
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -893,7 +898,9 @@ export class GitHubSource implements Source {
       if (!occurredAt) return null;
       const ref = String(event.ref ?? "");
       const pushType = String(event.activity_type ?? event.push_type ?? "push");
-      const actorLogin = event.actor?.login ?? event.pusher?.login ?? null;
+      const actorInfo = event.actor?.login ? event.actor : event.pusher;
+      const actorLogin = actorInfo?.login ?? null;
+      const actorAvatarUrl = cleanText(actorInfo?.avatar_url);
       const targetKind = ref.startsWith("refs/tags/") ? "tag" : ref.startsWith("refs/heads/") ? "branch" : "ref";
       const action = mapRepoActivityAction(pushType);
       const projectPath = p.project ?? null;
@@ -917,6 +924,7 @@ export class GitHubSource implements Source {
           before: event.before ?? null,
           after: event.after ?? null,
           push_type: pushType,
+          ...(actorAvatarUrl ? { actor_avatar_url: actorAvatarUrl } : {}),
         },
       };
       return { item: null, labels: [], edges: [], activities: [activity] };

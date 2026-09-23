@@ -1286,13 +1286,15 @@ export function App() {
     () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
     [windowedActivities, route.repo, route.branch, route.source],
   );
-  // Actor photos for the Activity rail's Who column. Review-thread comments are
-  // the only place the contract carries an avatar URL.
-  const actorAvatars = useMemo(() => actorAvatarIndex(visibleEnv?.review_threads ?? []), [visibleEnv?.review_threads]);
   // Contract actor directory (4.7.0+) as the lookups every actor ranking needs.
   // Built once per contract rather than per rail: the Commits rail alone ranks
   // authors over two facet sources and re-ranks on any filter change.
   const railActorIndex = useMemo(() => buildActorIndex(visibleEnv?.actor_directory), [visibleEnv?.actor_directory]);
+  // Both ranked author rails use the same provider photos and merged names.
+  const actorAvatars = useMemo(
+    () => actorAvatarIndex(visibleEnv?.review_threads ?? [], visibleEnv?.activities ?? [], railActorIndex),
+    [visibleEnv?.review_threads, visibleEnv?.activities, railActorIndex],
+  );
   const commitRailBranchSource = useMemo(
     () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author, authorActors: routeAuthorActors }),
     [windowedActivities, route.repo, route.source, route.author, routeAuthorActors],
@@ -2403,6 +2405,7 @@ export function App() {
         />
       ) : page === "commits" ? (
         <CommitsPage
+          actorAvatars={actorAvatars}
           commits={commits}
           windowTotal={windowCommits.length}
           totalCommits={totalCommits}

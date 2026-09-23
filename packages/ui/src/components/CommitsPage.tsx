@@ -408,6 +408,7 @@ function CommitTimeline({
 }
 
 export function CommitsPage({
+  actorAvatars,
   commits,
   windowTotal,
   totalCommits,
@@ -437,6 +438,7 @@ export function CommitsPage({
   colorOf,
   emptyState,
 }: {
+  actorAvatars?: ReadonlyMap<string, string>;
   commits: ActivityDTO[];
   windowTotal: number;
   totalCommits: number;
@@ -939,6 +941,7 @@ export function CommitsPage({
             would take away what the page already showed; the stylesheet stacks
             it under the list instead. */}
         <CommitsRail
+          avatarOf={actorAvatars}
           changedFiles={changedFiles}
           commits={commits}
           repoSource={railRepoSource}

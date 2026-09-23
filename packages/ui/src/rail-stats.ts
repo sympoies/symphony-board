@@ -1,6 +1,7 @@
 import type { ActivityDTO, ActorDirectoryDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
 import { commitBranches, commitMessage } from "./model.ts";
+import { safeHref } from "./url.ts";
 
 // Aggregations for the Commits and Activity side rails. Every one of these reads
 // the SAME array the page already renders, so a rail can never disagree with the
@@ -280,25 +281,28 @@ export function rankActions(activities: readonly ActivityDTO[], limit: number): 
   return rankByField(activities, "action", limit);
 }
 
-// Login -> avatar URL, built from review-thread comments.
-//
-// This is the ONLY place the contract carries an actor photo: `ActivityDTO` has
-// just an `actor` string, and `RepoMetricActorDTO` carries a profile link but no
-// image. So the Activity rail can show a real face for anyone who has commented
-// on a review thread, and falls back to initials for everyone else — the same
-// circle either way, so the row never changes shape depending on who it is.
-//
-// Deliberately NOT derived from the provider (e.g. github.com/<login>.png): that
-// would be provider-specific in a provider-neutral surface and would fetch from a
-// third party the board never otherwise contacts.
-export function actorAvatarIndex(threads: readonly ReviewThreadDTO[]): ReadonlyMap<string, string> {
+// Canonical actor name -> provider-reported avatar URL. Project/repository events
+// carry the event author's photo in details; review comments fill gaps. Resolve
+// both through the same directory as rankActors so a GitLab username can supply
+// the photo for its merged commit-author name. Never infer an image URL from a
+// username: account-less git authors have no reliable provider profile.
+export function actorAvatarIndex(
+  threads: readonly ReviewThreadDTO[],
+  activities: readonly ActivityDTO[] = [],
+  actorIndex: ActorIndex = EMPTY_ACTOR_INDEX,
+): ReadonlyMap<string, string> {
   const index = new Map<string, string>();
+  const add = (actor: string | null | undefined, value: unknown) => {
+    const name = actor?.trim();
+    const url = typeof value === "string" ? safeHref(value.trim()) : null;
+    if (!name || !url || !/^https?:\/\//i.test(url)) return;
+    const canonical = actorIndex.canonical.get(name) ?? name;
+    if (!index.has(canonical)) index.set(canonical, url);
+  };
+  for (const activity of activities) add(activity.actor, activity.details?.actor_avatar_url);
   for (const thread of threads) {
     for (const comment of thread.comments ?? []) {
-      const author = comment.author?.trim();
-      const url = comment.avatar_url?.trim();
-      if (!author || !url || index.has(author)) continue;
-      index.set(author, url);
+      add(comment.author, comment.avatar_url);
     }
   }
   return index;

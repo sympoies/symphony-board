@@ -7,6 +7,7 @@ import { EMPTY_ACTOR_INDEX, rankActors, rankBranches, rankCommitTypes, rankRepos
 import type { CommitRepoOption } from "../model.ts";
 import type { CommitFileStatsState } from "../useCommitFileStats.ts";
 import { CommitFileList } from "./CommitFileList.tsx";
+import { ActorAvatar } from "./ActorAvatar.tsx";
 
 // The Commits digest rail: the RANKED facets of the selected range, and a way
 // into each of them. The range’s shape over time (per-day strip, hour profile,
@@ -31,6 +32,7 @@ function commitCountLabel(count: number): string {
 }
 
 export function CommitsRail({
+  avatarOf,
   changedFiles,
   commits,
   repoSource,
@@ -45,6 +47,7 @@ export function CommitsRail({
   onAuthor,
   onBranch,
 }: {
+  avatarOf?: ReadonlyMap<string, string>;
   // The selected commit's changed files, when the Settings toggle is on. It
   // leads the rail: it is the only block here that describes the ONE row the
   // viewer picked, so it outranks rankings that describe the whole range.
@@ -115,8 +118,9 @@ export function CommitsRail({
             // setter that secretly toggles, unlike `onRepo`.
             onSelect: () => onAuthor(rank.label === selectedAuthor ? null : rank.label),
             footer: (
-              <span className="live-rank-name" aria-hidden="true">
-                {rank.label}
+              <span className="activity-rank-actor">
+                <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />
+                <span className="activity-rank-actor-name" aria-hidden="true">{rank.label}</span>
               </span>
             ),
           }))}

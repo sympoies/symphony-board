@@ -182,7 +182,8 @@ export class GitLabSource implements Source {
   // gitlab/7: items carry provider description text as body for detail views.
   // gitlab/8: items carry provider-native note/comment totals.
   // gitlab/9: commit activity details carry additions/deletions (never for merges).
-  readonly normalizerVersion = "gitlab/9";
+  // gitlab/10: project-event author photos are retained in activity details.
+  readonly normalizerVersion = "gitlab/10";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -822,6 +823,12 @@ export class GitLabSource implements Source {
       const noteableIid = typeof note?.noteable_iid === "number" ? note.noteable_iid : null;
       const rawTargetIid = typeof event.target_iid === "number" ? event.target_iid : null;
       const targetIid = targetKind === "comment" ? noteableIid : rawTargetIid;
+      const actorUsername = event.author_username ?? event.author?.username ?? null;
+      // GitLab may report a different author_username on push events. The photo
+      // belongs to author, so attach it only when it names the activity actor.
+      const actorAvatarUrl = event.author?.username?.toLowerCase() === actorUsername?.toLowerCase()
+        ? resolveAvatarUrl(event.author?.avatar_url, this.descriptor.host)
+        : null;
       const activity: CanonicalActivity = {
         sourceId: this.descriptor.sourceId,
         externalId: raw.externalId,
@@ -833,10 +840,10 @@ export class GitLabSource implements Source {
         targetIid,
         title,
         url: gitLabProjectEventUrl(this.descriptor, projectPath, targetKind, action, rawTargetIid, data, note),
-        actor: event.author_username ?? event.author?.username ?? null,
+        actor: actorUsername,
         actorKey: deriveActorKey({
           sourceId: this.descriptor.sourceId,
-          username: event.author_username ?? event.author?.username ?? null,
+          username: actorUsername,
           name: event.author?.name ?? null,
         }),
         occurredAt,
@@ -847,6 +854,7 @@ export class GitLabSource implements Source {
           ref: data?.ref ?? null,
           commit_from: data?.commit_from ?? null,
           commit_to: data?.commit_to ?? null,
+          ...(actorAvatarUrl ? { actor_avatar_url: actorAvatarUrl } : {}),
         },
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
