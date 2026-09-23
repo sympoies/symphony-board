@@ -744,6 +744,8 @@ export function GraphPage({
   const showListPane = !isMobile || mobileView === "list";
   const showGraphPane = !isMobile || mobileView === "graph";
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
+  // This preference belongs to the overview canvas. A focused item always
+  // reveals its available relationships, including mentions.
   const [showMentions, setShowMentions] = useState(false);
   const [mentionTarget, setMentionTarget] = useState<GraphMentionTarget>("all");
   // Drives BOTH the side list's focus view and the canvas subgraph below;
@@ -764,10 +766,7 @@ export function GraphPage({
   // Side-list derivations over the FOCUS edge set: every resolvable item in the
   // loaded projection, the adjacency map, and the set of refs currently available
   // to the overview list/canvas.
-  const focusViewEdges = useMemo(
-    () => focusId && !showMentions ? focusEdges.filter((edge) => edge.edge.type !== "mentions") : focusEdges,
-    [focusEdges, focusId, showMentions],
-  );
+  const focusViewEdges = focusEdges;
   const focusViewNodes = useMemo(
     () => focusExpanded && focusId ? focusNeighborhoodNodes(focusNodes, focusId, focusViewEdges) : focusNodes,
     [focusExpanded, focusId, focusNodes, focusViewEdges],
@@ -964,13 +963,15 @@ export function GraphPage({
             Hierarchy
           </button>
         </div>
-        <div className="toggle-group">
-          <span className="toggle-label">edges</span>
-          <button type="button" className={`toggle${showMentions ? " toggle-on" : ""}`} onClick={() => setShowMentions((v) => !v)}>
-            + mentions
-          </button>
-        </div>
-        {showMentions && (
+        {!focusId ? (
+          <div className="toggle-group">
+            <span className="toggle-label">edges</span>
+            <button type="button" className={`toggle${showMentions ? " toggle-on" : ""}`} onClick={() => setShowMentions((v) => !v)}>
+              + mentions
+            </button>
+          </div>
+        ) : null}
+        {!focusId && showMentions && (
           <div className="toggle-group">
             <span className="toggle-label">mentions of</span>
             {([

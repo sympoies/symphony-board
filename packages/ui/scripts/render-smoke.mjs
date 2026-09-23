@@ -158,6 +158,7 @@ let graphNeighborhoodFailOnce = false;
 let graphNeighborhoodDelayDepth = null;
 let graphNeighborhoodDelayMs = 0;
 let graphNeighborhoodForcedLimitReason = null;
+const MENTION_ONLY_FOCUS_REF = "github:github.com|ISSUE_e";
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
@@ -648,14 +649,18 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
     : env.items.find((item) => item.id !== focusRef);
   if (!direct) return { status: 404, body: JSON.stringify({ error: "smoke neighbour not found" }) };
 
-  const firstEdge = directEdge ?? {
-    type: "closes",
-    from: focusRef,
-    to: direct.id,
-    from_state: focus.state,
-    to_state: direct.state,
-    lifecycle: null,
-  };
+  // Recast this one focus response as mention-only to exercise the focused
+  // relation view while the overview mention preference remains off.
+  const firstEdge = focusRef === MENTION_ONLY_FOCUS_REF && directEdge
+    ? { ...directEdge, type: "mentions", lifecycle: null }
+    : directEdge ?? {
+        type: "closes",
+        from: focusRef,
+        to: direct.id,
+        from_state: focus.state,
+        to_state: direct.state,
+        lifecycle: null,
+      };
   const secondHopId = `${focus.source_id}|SMOKE_SECOND_HOP_${requestedDepth}`;
   const secondHop = {
     ...focus,
@@ -1846,7 +1851,7 @@ try {
   // Focus an item whose last activity predates the one-day overview. Canonical
   // history still loads it, and the useful range mismatch must remain visible
   // after the low-value `not drawn` cue is removed.
-  const offWindowFocusRef = "github:github.com|ISSUE_e";
+  const offWindowFocusRef = MENTION_ONLY_FOCUS_REF;
   await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(offWindowFocusRef)}'` });
   await waitHtml("document.querySelector('.graph-list-card.active .glc-offwindow') && [...document.querySelectorAll('.glc-note')].some((note) => note.textContent?.includes('outside the current'))");
   const graphOffWindowState = (await send("Runtime.evaluate", {
@@ -6333,6 +6338,43 @@ try {
   await send("Runtime.evaluate", { expression: "document.documentElement.style.removeProperty('--android-safe-area-bottom')" });
 
   await send("Emulation.clearDeviceMetricsOverride");
+  // Run the mention-only focus regression in a fresh page, after the other
+  // Graph range/layout probes have captured their results. The mock recasts
+  // ISSUE_e's direct relation as a mention for this focused response.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/#/graph?focus=${encodeURIComponent(MENTION_ONLY_FOCUS_REF)}` });
+  const mentionFocusReady = `location.hash.includes(${JSON.stringify(encodeURIComponent(MENTION_ONLY_FOCUS_REF))}) && document.querySelector('.graph-focus-load-ready') && [...document.querySelectorAll('.graph-list-card:not(.active) .glc-rel-type')].some((tag) => tag.textContent?.includes('mentions')) && [...document.querySelectorAll('.rf-edge-label')].some((label) => label.textContent?.trim() === 'mentions')`;
+  await waitHtml(mentionFocusReady);
+  const graphMentionFocusState = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      related: !!document.querySelector('.graph-list-card:not(.active) .glc-rel-type')?.textContent?.includes('mentions'),
+      link: [...document.querySelectorAll('.rf-edge-label')].some((label) => label.textContent?.trim() === 'mentions'),
+      toggleAbsent: ![...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
+  await waitHtml("document.querySelector('.graph-list-kinds') && [...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && !button.classList.contains('toggle-on'))");
+  const graphOverviewMentionsRestored = (await send("Runtime.evaluate", {
+    expression: "[...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && !button.classList.contains('toggle-on'))",
+    returnByValue: true,
+  })).result.value;
+
+  await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-controls .toggle')].find((button) => button.textContent?.trim() === '+ mentions')?.click()" });
+  await waitHtml("[...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && button.classList.contains('toggle-on'))");
+  await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(MENTION_ONLY_FOCUS_REF)}'` });
+  await waitHtml(mentionFocusReady);
+  const graphEnabledFocusToggleAbsent = (await send("Runtime.evaluate", {
+    expression: "![...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions')",
+    returnByValue: true,
+  })).result.value;
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
+  await waitHtml("document.querySelector('.graph-list-kinds') && [...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && button.classList.contains('toggle-on'))");
+  const graphOverviewMentionsEnabledRestored = (await send("Runtime.evaluate", {
+    expression: "[...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && button.classList.contains('toggle-on'))",
+    returnByValue: true,
+  })).result.value;
+
   ws.close();
 
   // --- assertions ---
@@ -6431,6 +6473,7 @@ try {
     `debug fill: Sync runs renders gql telemetry columns (${JSON.stringify(debugSync)})`,
   ];
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
+
   const checks = [
     ...debugFillChecks,
     debugStickyCheck,
@@ -6846,6 +6889,7 @@ try {
     [has(graphListHtml, "card-accent"), "graph: side-list highlight bar rendered (card-accent)"],
     [graphNotDrawnCueAbsent, "graph: side-list presentation omits the redundant not drawn cue"],
     [graphOffWindowState.activeBadge === true && graphOffWindowState.explanatoryNote === true, `graph: canonical focus outside the range renders the off-window badge and explanation (${JSON.stringify(graphOffWindowState)})`],
+    [graphMentionFocusState.related === true && graphMentionFocusState.link === true && graphMentionFocusState.toggleAbsent === true && graphOverviewMentionsRestored === true && graphEnabledFocusToggleAbsent === true && graphOverviewMentionsEnabledRestored === true, `graph: mention-only focus draws its relation and preserves both overview mention choices (${JSON.stringify({ graphMentionFocusState, graphOverviewMentionsRestored, graphEnabledFocusToggleAbsent, graphOverviewMentionsEnabledRestored })})`],
     [graphForcePacking.components === graphForcePacking.expected && graphForcePacking.gapOk === true, `graph: Force packs all disconnected components with the component gap (${JSON.stringify(graphForcePacking)})`],
     [graphHierarchyPacking.components === graphHierarchyPacking.expected && graphHierarchyPacking.gapOk === true, `graph: Hierarchy packs all disconnected components with the component gap (${JSON.stringify(graphHierarchyPacking)})`],
     // ...and the chain-link relation count, but NOT the focus-in-graph head link
