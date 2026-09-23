@@ -11,7 +11,7 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.7.1`.
+Current emitted version: `4.7.2`.
 
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
@@ -21,7 +21,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.7.1",
+  "contract_version": "4.7.2",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -412,7 +412,7 @@ match; account-linked GitHub commits can supply it too. Older rows, anonymous
 commits, and providers without an actor photo omit the key. The UI resolves the
 photo through `actor_directory` for ranked Activity and Commits authors and
 falls back to review-comment photos or initials. This optional detail key uses
-the existing open `details` object, so the contract version is unchanged.
+the existing open `details` object and is documented in version `4.7.2`.
 
 Version `3.3.0` is additive: a new optional `item.review_threads`
 (`{ open, total }` resolvable review threads for a `change_request`, else null)
@@ -511,6 +511,10 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.7.2` is a clarification release: supported activity rows may carry
+`details.actor_avatar_url` for the matching provider account's photo. `details`
+was already an open object, so the row shape and required fields are unchanged.
 
 Version `4.7.1` is a clarification release: commit activity rows may now carry
 `details.additions` / `details.deletions`, the commit's line counts. `details`

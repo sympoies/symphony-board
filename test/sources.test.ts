@@ -684,7 +684,7 @@ test("commit_branches=default keeps the commit feed on the default branch only",
   assert.ok(!calls.some((c) => c.path.startsWith("repos/o/r/compare/")), "no compare calls in default-only mode");
 });
 
-test("GitHub commit with no linked account keys the actor by hashed email", () => {
+test("GitHub commit avatars require a linked account, while anonymous authors use hashed email", () => {
   const src = new GitHubSource(DESC, gql, ["o/r"]);
   const raw: RawRecord = {
     entityKind: "activity",
@@ -710,6 +710,22 @@ test("GitHub commit with no linked account keys the actor by hashed email", () =
   const activity = src.normalize(raw)!.activities[0]!;
   assert.equal(activity.actor, "Anon Dev", "display string is unchanged");
   assert.match(activity.actorKey ?? "", /^email:[0-9a-f]{16}$/, "no linked login -> hashed email key");
+  assert.equal(activity.details?.actor_avatar_url, undefined, "an unlinked commit has no account photo");
+
+  const linked = src.normalize({
+    ...raw,
+    externalId: "commit:o/r:linkedcafe",
+    payload: {
+      ...(raw.payload as Record<string, unknown>),
+      commit: {
+        ...(raw.payload as { commit: Record<string, unknown> }).commit,
+        sha: "linkedcafe",
+        author: { login: "octocat", avatar_url: "https://avatars.example/octocat.png" },
+      },
+    },
+  })!.activities[0]!;
+  assert.equal(linked.actor, "octocat");
+  assert.equal(linked.details?.actor_avatar_url, "https://avatars.example/octocat.png");
 });
 
 test("GitHub repository activity links created refs and deleted refs conservatively", () => {

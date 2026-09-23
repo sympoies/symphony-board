@@ -58,6 +58,7 @@ function envPort(name, fallback) {
   return n;
 }
 const HTTP_PORT = envPort("SYMPHONY_BOARD_SMOKE_HTTP_PORT", 4399);
+const SMOKE_AUTHOR_AVATAR = `http://127.0.0.1:${HTTP_PORT}/__smoke/author-avatar.svg`;
 const STANDALONE_API_PORT = envPort("SYMPHONY_BOARD_SMOKE_STANDALONE_API_PORT", 8787);
 const CDP_PORT = envPort("SYMPHONY_BOARD_SMOKE_CDP_PORT", 9333);
 import { DEFAULT_RUN_MS, DEFAULT_WAIT_MS, waitDeadline } from "./smoke-wait.mjs";
@@ -508,6 +509,7 @@ function inflateActivityContract(body) {
       occurred_at: new Date(baseTime - i * 60_000).toISOString(),
       details: {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
+        ...(a.actor === "maintainer" ? { actor_avatar_url: SMOKE_AUTHOR_AVATAR } : {}),
         ...(a.kind === "commit"
           ? {
               // Every third commit carries a long branch name so the Commits page
@@ -723,6 +725,11 @@ async function handleSmokeRequest(req, res) {
     if (p.startsWith("/api/secrets")) secretRequestLog.push(`${req.method} ${p}`);
     if (req.method === "OPTIONS") {
       res.writeHead(204, CORS_HEADERS).end();
+      return;
+    }
+    if (p === "/__smoke/author-avatar.svg") {
+      res.writeHead(200, { "Content-Type": "image/svg+xml", ...CORS_HEADERS })
+        .end('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#55c4e8"/></svg>');
       return;
     }
     if (p === "/api/range") {
@@ -5543,7 +5550,9 @@ try {
       const rows = [...block.querySelectorAll('.live-rank-item')]
         .map((el) => (el.querySelector('.activity-rank-actor-name')?.textContent || '').trim())
         .filter(Boolean);
-      return { found: true, rows, hasAvatar: !!block.querySelector('.live-avatar'), hasMerged: rows.includes('maintainer'), hasFacet: rows.includes('gl-maintainer') };
+      const maintainer = [...block.querySelectorAll('.live-rank-item')]
+        .find((el) => (el.querySelector('.activity-rank-actor-name')?.textContent || '').trim() === 'maintainer');
+      return { found: true, rows, avatarSrc: maintainer?.querySelector('.live-avatar-image img')?.getAttribute('src') || '', hasMerged: rows.includes('maintainer'), hasFacet: rows.includes('gl-maintainer') };
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
@@ -5966,6 +5975,10 @@ try {
         const rail = document.querySelector('.activity-rail');
         const columns = layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\\s+/).length : 0;
         const titles = rail ? [...rail.querySelectorAll('.rail-block-title')].map((el) => (el.textContent || '').trim()) : [];
+        const who = rail ? [...rail.querySelectorAll('.rail-block')]
+          .find((el) => (el.querySelector('.rail-block-title')?.textContent || '').trim() === 'Who') : null;
+        const maintainer = who ? [...who.querySelectorAll('.live-rank-item')]
+          .find((el) => (el.querySelector('.activity-rank-actor-name')?.textContent || '').trim() === 'maintainer') : null;
         const list = document.querySelector('.activity-list');
         const row = list ? list.querySelector('.activity-row') : null;
         const overview = document.querySelector('.activity-heatmap');
@@ -5973,6 +5986,7 @@ try {
           hasRail: !!rail,
           columns,
           titles,
+          maintainerAvatarSrc: maintainer?.querySelector('.live-avatar-image img')?.getAttribute('src') || '',
           hours: rail ? rail.querySelectorAll('.rail-hourbar').length : 0,
           // Same reader-facing measure as the Commits split: the whitespace
           // between the last pixel the feed paints and the panel beside it. The
@@ -6586,7 +6600,7 @@ try {
     ],
     [
       commitsAuthorMerge.found === true &&
-        commitsAuthorMerge.hasAvatar === true &&
+        commitsAuthorMerge.avatarSrc === SMOKE_AUTHOR_AVATAR &&
         commitsAuthorMerge.hasMerged === true &&
         commitsAuthorMerge.hasFacet === false,
       `commits: the directory collapses a person's logins into one Top authors row (${JSON.stringify(commitsAuthorMerge)})`,
@@ -6703,6 +6717,10 @@ try {
         );
       })(),
       `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
+    ],
+    [
+      activityRailByViewport.find((r) => r.viewport === "wide")?.maintainerAvatarSrc === SMOKE_AUTHOR_AVATAR,
+      `activity: Who renders the canonical maintainer's provider photo (${activityRailByViewport.find((r) => r.viewport === "wide")?.maintainerAvatarSrc || "none"})`,
     ],
     // The same reader-facing gap the Commits split is held to, on the page that
     // had it wrong for the same reason: the feed's scrollbar is reserved inside
