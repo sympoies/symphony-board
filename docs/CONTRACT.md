@@ -405,6 +405,15 @@ and `details.branch` / `details.ref` are documented as the commit's primary
 branch rather than always the default branch. `details` was already an open
 object and the keys were already optional, so the row shape is unchanged.
 
+Supported provider events may also carry `details.actor_avatar_url`, an absolute
+HTTP(S) image URL reported for that event's actor. GitLab project events and
+GitHub repository events supply it when their author account and activity actor
+match; account-linked GitHub commits can supply it too. Older rows, anonymous
+commits, and providers without an actor photo omit the key. The UI resolves the
+photo through `actor_directory` for ranked Activity and Commits authors and
+falls back to review-comment photos or initials. This optional detail key uses
+the existing open `details` object, so the contract version is unchanged.
+
 Version `3.3.0` is additive: a new optional `item.review_threads`
 (`{ open, total }` resolvable review threads for a `change_request`, else null)
 and an optional `unresolved_review_threads` repo metric. Both are new fields old

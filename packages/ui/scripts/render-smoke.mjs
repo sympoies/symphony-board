@@ -5541,9 +5541,9 @@ try {
         .find((el) => (el.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top authors');
       if (!block) return { found: false, hasRail: true };
       const rows = [...block.querySelectorAll('.live-rank-item')]
-        .map((el) => (el.querySelector('.live-rank-name')?.textContent || '').trim())
+        .map((el) => (el.querySelector('.activity-rank-actor-name')?.textContent || '').trim())
         .filter(Boolean);
-      return { found: true, rows, hasMerged: rows.includes('maintainer'), hasFacet: rows.includes('gl-maintainer') };
+      return { found: true, rows, hasAvatar: !!block.querySelector('.live-avatar'), hasMerged: rows.includes('maintainer'), hasFacet: rows.includes('gl-maintainer') };
     })()`,
     returnByValue: true,
   })).result.value || { found: false };
@@ -6586,6 +6586,7 @@ try {
     ],
     [
       commitsAuthorMerge.found === true &&
+        commitsAuthorMerge.hasAvatar === true &&
         commitsAuthorMerge.hasMerged === true &&
         commitsAuthorMerge.hasFacet === false,
       `commits: the directory collapses a person's logins into one Top authors row (${JSON.stringify(commitsAuthorMerge)})`,

@@ -1609,14 +1609,16 @@ a.rf-node-title:hover { color: var(--accent); }
     justify-content: start;
     gap: 6px;
   }
-  .activity-rail .activity-rank-actor {
+  .activity-rail .activity-rank-actor,
+  .commits-rail .activity-rank-actor {
     display: flex;
     align-items: center;
     gap: 6px;
     width: 100%;
     min-width: 0;
   }
-  .activity-rail .activity-rank-actor-name {
+  .activity-rail .activity-rank-actor-name,
+  .commits-rail .activity-rank-actor-name {
     display: block;
     min-width: 0;
     overflow: hidden;

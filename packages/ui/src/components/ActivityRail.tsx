@@ -40,7 +40,7 @@ export function ActivityRail({
 }: {
   activities: ActivityDTO[];
   timezone: string;
-  // Login -> avatar URL, from review-thread comments. Absent logins fall back to
+  // Canonical actor name -> provider avatar URL. Missing photos fall back to
   // initials, so the Who column keeps one shape whoever is in it.
   avatarOf?: ReadonlyMap<string, string>;
   // Contract actor directory as lookups, so Who merges a person's facets into

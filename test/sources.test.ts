@@ -729,10 +729,11 @@ test("GitHub repository activity links created refs and deleted refs conservativ
     before: "0000000",
     after: "abc1234",
     timestamp: "2026-06-09T11:00:00Z",
-    actor: { login: "octocat" },
+    actor: { login: "octocat", avatar_url: "https://avatars.example/octocat.png" },
   }))!.activities[0]!;
   assert.equal(created.action, "created");
   assert.equal(created.actor, "octocat");
+  assert.equal(created.details?.actor_avatar_url, "https://avatars.example/octocat.png");
   assert.equal(created.url, "https://github.com/o/r/tree/feature%2Flink-ui");
 
   // Legacy fixture shape (pushed_at / push_type / pusher): pre-real-API test
@@ -1303,6 +1304,7 @@ test("GitLab project events normalize without fake tracked target refs", () => {
         target_title: "Close me",
         created_at: "2026-06-09T12:00:00Z",
         author_username: "gitlab-user",
+        author: { username: "gitlab-user", avatar_url: "/uploads/user/avatar/1/photo.png" },
       },
     },
   };
@@ -1315,6 +1317,7 @@ test("GitLab project events normalize without fake tracked target refs", () => {
   assert.equal(b!.activities[0]!.target, null, "REST target_id is not the GraphQL global id");
   assert.equal(b!.activities[0]!.targetIid, 5);
   assert.equal(b!.activities[0]!.url, "https://gitlab.com/g/p/-/issues/5");
+  assert.equal(b!.activities[0]!.details?.actor_avatar_url, "https://gitlab.com/uploads/user/avatar/1/photo.png");
 });
 
 test("GitLab project events link reliable push destinations and comments to their note permalink", () => {
@@ -1337,6 +1340,13 @@ test("GitLab project events link reliable push destinations and comments to thei
     push_data: { ref: "main", commit_from: "aaaaaaaa", commit_to: "bbbbbbbb" },
   }))!.activities[0]!;
   assert.equal(push.url, "https://gitlab.com/g/p/-/compare/aaaaaaaa...bbbbbbbb");
+
+  const otherAuthor = src.normalize(ev(20, {
+    action_name: "pushed to",
+    author: { username: "different-user", avatar_url: "https://gitlab.com/uploads/other.png" },
+    push_data: { ref: "main", commit_from: "aaaaaaaa", commit_to: "bbbbbbbb" },
+  }))!.activities[0]!;
+  assert.equal(otherAuthor.details?.actor_avatar_url, undefined, "a mismatched author must not supply this actor's photo");
 
   // A note event's target_iid is the NOTE id, not the parent item iid; the parent
   // lives in event.note.noteable_iid. Comments (plain Note, plus DiffNote and
@@ -2012,8 +2022,8 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/9");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/9");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/10");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/10");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

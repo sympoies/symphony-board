@@ -284,6 +284,32 @@ test("actorAvatarIndex tolerates a thread with no comments array", () => {
   assert.equal(actorAvatarIndex([bare]).size, 0);
 });
 
+test("actorAvatarIndex maps a provider event photo to the merged author name", () => {
+  const index = actorAvatarIndex(
+    [],
+    [activity({ source_id: "gl", actor: "terrylin", kind: "branch", details: { actor_avatar_url: "https://gitlab.example/uploads/terry.png" } })],
+    actorIndex({ identities: [{ name: "Terry LIN", actors: ["terrylin", "Terry LIN"], bot: false }] }),
+  );
+  assert.equal(index.get("Terry LIN"), "https://gitlab.example/uploads/terry.png");
+});
+
+test("actorAvatarIndex uses review photos for merged names when events have none", () => {
+  const index = actorAvatarIndex(
+    [thread([{ author: "terrylin", avatar_url: "https://gitlab.example/uploads/terry.png" }])],
+    [activity({ actor: "Terry LIN", details: null })],
+    actorIndex({ identities: [{ name: "Terry LIN", actors: ["terrylin", "Terry LIN"], bot: false }] }),
+  );
+  assert.equal(index.get("Terry LIN"), "https://gitlab.example/uploads/terry.png");
+});
+
+test("actorAvatarIndex skips unsafe event URLs so a valid review photo can win", () => {
+  const index = actorAvatarIndex(
+    [thread([{ author: "ada", avatar_url: "https://img/ada.png" }])],
+    [activity({ actor: "ada", details: { actor_avatar_url: "javascript:alert(1)" } })],
+  );
+  assert.equal(index.get("ada"), "https://img/ada.png");
+});
+
 const directory = {
   identities: [
     { name: "terrylin", actors: ["Terry LIN", "Terry LIN 林品澄", "terrylin"], bot: false },

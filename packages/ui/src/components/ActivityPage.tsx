@@ -52,7 +52,7 @@ export function ActivityPage({
   // ONE of the two panes, chosen here; on wide viewports both render and this is
   // ignored.
   view: ActivityView;
-  // Login -> avatar URL for the rail Who column; see rail-stats.actorAvatarIndex.
+  // Canonical actor name -> avatar URL for the rail Who column.
   actorAvatars?: ReadonlyMap<string, string>;
   // Contract actor directory as lookups, for the rail's Who column.
   actorIndex?: ActorIndex;
