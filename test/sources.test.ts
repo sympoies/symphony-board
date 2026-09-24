@@ -554,6 +554,38 @@ test("a side branch deleted before its compare is skipped without failing the sw
   assert.deepEqual(commits.map((a) => (a.details as any).sha), ["aaa111"], "the default feed still lands");
 });
 
+test("a GitHub repository with no commits yet completes its sweep with no commit activity", async () => {
+  const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") throw new Error("REST HTTP 409: Git Repository is empty.");
+    if (path === "repos/o/r/activity") return [] as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, true, "an empty repository is a complete sweep, not a failed one");
+  assert.equal(res.error, null);
+  const commits = res.records.filter((r) => r.entityKind === "activity").map((r) => src.normalize(r)!.activities[0]!).filter((a) => a.kind === "commit");
+  assert.deepEqual(commits, []);
+});
+
+test("a GitHub commit-list 409 other than an empty repository still fails the sweep", async () => {
+  const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") throw new Error("REST HTTP 409: Conflict");
+    if (path === "repos/o/r/activity") return [] as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitHubSource(DESC, gql, ["o/r"], rest);
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, false);
+  assert.match(res.error ?? "", /o\/r activity: REST HTTP 409: Conflict/);
+});
+
 test("a pre-expansion GitHub commit payload (defaultBranch, no branches) replays unchanged", () => {
   // Stored raw is immutable history: payloads written before the multi-branch
   // expansion only carry `defaultBranch`, and normalize must keep emitting the
