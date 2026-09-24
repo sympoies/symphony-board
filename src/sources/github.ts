@@ -672,11 +672,20 @@ export class GitHubSource implements Source {
     };
 
     for (let page = 1; page <= MAX_REST_PAGES; page++) {
-      const commits = await rest<any[]>(`repos/${owner}/${name}/commits`, {
-        per_page: 100,
-        page,
-        ...(since ? { since } : {}),
-      });
+      let commits: any[];
+      try {
+        commits = await rest<any[]>(`repos/${owner}/${name}/commits`, {
+          per_page: 100,
+          page,
+          ...(since ? { since } : {}),
+        });
+      } catch (err) {
+        // A repository created without an initial commit answers 409 until its
+        // first push — it has no commits yet, not an incomplete sweep.
+        if (!/^REST HTTP 409: Git Repository is empty\b/.test((err as Error).message)) throw err;
+        log.info(`[${this.descriptor.sourceId}] project ${project}: repository is empty; no commits`);
+        break;
+      }
       for (const commit of commits ?? []) addCommit(commit, defaultBranch);
       if ((commits ?? []).length < 100) break;
     }
