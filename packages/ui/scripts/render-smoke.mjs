@@ -1986,6 +1986,8 @@ try {
       const node = document.querySelector('.rf-node-focused');
       const marker = node?.querySelector('.rf-node-focus-marker');
       const button = document.querySelector('.graph-locate-focus');
+      const minimap = document.querySelector('.graph-minimap-target');
+      const otherMinimapNode = document.querySelector('.react-flow__minimap-node:not(.graph-minimap-target)');
       const originalTheme = root.dataset.theme;
       const themes = ['night-owl', 'paper'].map((theme) => {
         root.dataset.theme = theme;
@@ -2000,7 +2002,9 @@ try {
           color,
           matches: !!node && getComputedStyle(node).outlineColor === resolvedColor
             && getComputedStyle(marker).backgroundColor === resolvedColor
-            && getComputedStyle(button).borderColor === resolvedColor,
+            && getComputedStyle(button).borderColor === resolvedColor
+            && !!minimap && getComputedStyle(minimap).fill === resolvedColor
+            && !!otherMinimapNode && getComputedStyle(otherMinimapNode).fill !== resolvedColor,
         };
       });
       root.dataset.theme = originalTheme;
@@ -2008,6 +2012,7 @@ try {
         marker: marker?.textContent?.trim() || '',
         button: button?.getAttribute('aria-label') || '',
         outlined: !!node && getComputedStyle(node).outlineWidth === '3px',
+        minimapTargets: document.querySelectorAll('.graph-minimap-target').length,
         themes,
       };
     })()`,
@@ -2032,6 +2037,26 @@ try {
     returnByValue: true,
   })).result.value || {};
   const focusRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  await send("Runtime.evaluate", { expression: `(() => {
+    const [path, query] = location.hash.split('?');
+    const params = new URLSearchParams(query || '');
+    params.set('focus', 'github:github.com|I_unknown_focus_smoke');
+    params.set('depth', '2');
+    location.hash = path + '?' + params.toString();
+  })()` });
+  await waitHtml("document.querySelector('.graph-focus-load-fallback')");
+  const absentFocusLocator = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      focused: !!document.querySelector('.graph-list-back'),
+      graphNodes: document.querySelectorAll('.react-flow__node').length,
+      locator: document.querySelectorAll('.graph-locate-focus').length,
+      markers: document.querySelectorAll('.rf-node-focus-marker').length,
+      minimapTargets: document.querySelectorAll('.graph-minimap-target').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(focusRoute)}` });
+  await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('1/1 hops')");
   const focusSearchState = (await send("Runtime.evaluate", {
     expression: `(() => {
       const input = document.querySelector('#global-search');
@@ -6938,8 +6963,9 @@ try {
     [graphNeighborhoodRequestCount >= 2, `graph: focus loads canonical neighbourhood history (${graphNeighborhoodRequestCount} requests)`],
     [!has(focusHtml, "Second-hop smoke relation"), "graph: the default one-hop focus does not draw second-hop history"],
     [has(focusHtml, "rf-node-focused"), "graph: the selected focus node has distinct canvas styling"],
-    [focusLocator.marker === "TARGET" && focusLocator.button === "Locate target card" && focusLocator.outlined === true && focusLocator.themes?.length === 2 && focusLocator.themes.every((theme) => theme.matches), `graph: focused target uses its own theme-matched marker, outline, and locator (${JSON.stringify(focusLocator)})`],
+    [focusLocator.marker === "TARGET" && focusLocator.button === "Locate target card" && focusLocator.outlined === true && focusLocator.minimapTargets === 1 && focusLocator.themes?.length === 2 && focusLocator.themes.every((theme) => theme.matches), `graph: focused target uses its own theme-matched marker, outline, minimap cue, and locator (${JSON.stringify(focusLocator)})`],
     [focusLocated.found === true && Math.abs(focusLocated.zoom - 1) < 0.05 && Math.abs(focusLocated.dx) < 40 && Math.abs(focusLocated.dy) < 40, `graph: Locate target restores readable zoom and centers the focused card (${JSON.stringify(focusLocated)})`],
+    [absentFocusLocator.focused === true && absentFocusLocator.graphNodes > 0 && absentFocusLocator.locator === 0 && absentFocusLocator.markers === 0 && absentFocusLocator.minimapTargets === 0, `graph: a missing focus falls back to a usable graph without an inert locator or target marker (${JSON.stringify(absentFocusLocator)})`],
     [/^\d+$/.test(graphFocusSearch) && focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true && focusRouteQuery === graphFocusSearch, `graph: focus preserves but suspends a non-empty locating search (${JSON.stringify({ graphFocusSearch, focusRouteQuery, focusSearchState })})`],
     [graphDelayRejection.status === 400 && graphDelayRejection.body?.error === "invalid_delay_ms" && graphDelayRejection.body?.graphNeighborhoodDelayMs === 0, `graph: smoke delay control rejects untrusted timer duration (${JSON.stringify(graphDelayRejection)})`],
     [/[?&]depth=1(?:&|$)/.test(focusRoute), `graph: focused route persists the default one-hop bound (${focusRoute})`],

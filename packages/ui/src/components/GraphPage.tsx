@@ -388,7 +388,11 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
         </Panel>
       ) : null}
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color} />
+      <MiniMap
+        pannable zoomable
+        nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color}
+        nodeClassName={(n) => (n.data as unknown as ItemNodeData).focused ? "graph-minimap-target" : ""}
+      />
     </ReactFlow>
   );
 }
