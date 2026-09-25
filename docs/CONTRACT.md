@@ -750,14 +750,14 @@ It therefore has its own operational schema,
 `contract_version`.
 
 The endpoint defaults to one hop and `mentions=all` for existing callers. The UI
-requests `mentions=direct`. It returns current live configured-repo data:
+requests `mentions=all` so depth expands through mentions. It returns current
+live configured-repo data:
 
 - `focus_ref`, `requested_depth`, and `reached_depth`;
 - `nodes[]` with `ref`, shortest `hop`, and the resolved `ItemDTO` when tracked;
-- original directed `edges[]` for the induced neighborhood. Structural edges
-  expand through the requested depth; in `direct` mode, mentions incident to the
-  focus are hop-one leaves and do not expand. `mentions=all` opts into recursive
-  mention traversal for callers that explicitly need it;
+- original directed `edges[]` for the induced neighborhood. All edges expand
+  through the requested depth in `all` mode; in `direct` mode, mentions incident
+  to the focus are hop-one leaves and do not expand;
 - `complete`, ordered `limit_reasons` (`depth`, `nodes`, `edges`), fixed limits,
   and returned node/edge counts.
 

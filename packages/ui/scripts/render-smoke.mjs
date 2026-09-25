@@ -681,14 +681,14 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
     window_reasons: ["edge_endpoint"],
   };
   const secondEdge = {
-    type: "closes",
+    type: "mentions",
     from: direct.id,
     to: secondHopId,
     from_state: direct.state,
     to_state: secondHop.state,
     lifecycle: null,
   };
-  const includeSecondHop = requestedDepth >= 2;
+  const includeSecondHop = requestedDepth >= 2 && url.searchParams.get("mentions") === "all";
   const nodes = [
     { ref: focus.id, hop: 0, item: focus },
     { ref: direct.id, hop: 1, item: direct },
@@ -6892,7 +6892,7 @@ try {
     [/[?&]depth=1(?:&|$)/.test(focusRoute), `graph: focused route persists the default one-hop bound (${focusRoute})`],
     [focusDepthButtons.length === 5 && focusDepthButtons.map((button) => button.text).join(",") === "1,2,3,4,5" && focusDepthButtons[0]?.active === true, `graph: focus exposes 1-5 hop controls with 1 active (${JSON.stringify(focusDepthButtons)})`],
     [has(focusHtml, "1/1 hops") && has(focusHtml, "limited by depth"), "graph: focus reports the default one-hop boundary"],
-    [graphNeighborhoodRequestUrls.some((url) => url.includes("mentions=direct")), `graph: focused history requests direct, non-expanding mention context (${JSON.stringify(graphNeighborhoodRequestUrls)})`],
+    [graphNeighborhoodRequestUrls.some((url) => url.includes("mentions=all")), `graph: focused history requests recursively expanding mentions (${JSON.stringify(graphNeighborhoodRequestUrls)})`],
     [/[?&]depth=3(?:&|$)/.test(graphDepthRefetchRoute) && has(graphDepthRefetchHtml, "Second-hop smoke relation depth 3"), `graph: changing depth refetches canonical history and persists the route (${graphDepthRefetchRoute})`],
     [graphStaleDelayControl.status === 200 && graphStaleDelayControl.body?.graphNeighborhoodDelayDepth === 2 && graphStaleDelayControl.body?.graphNeighborhoodDelayMs === 700 && /[?&]depth=4(?:&|$)/.test(graphStaleRace.hash || "") && /2\/4 hops/.test(graphStaleRace.status || "") && graphStaleRace.hasDepth4 === true && graphStaleRace.hasDepth2 === false, `graph: a confirmed delayed stale depth response cannot replace the latest topology (${JSON.stringify({ graphStaleDelayControl, graphStaleRace })})`],
     [graphLimitResults.length === 3 && graphLimitResults.every((result) => result.shown === true), `graph: all safety truncation reasons are explicit (${JSON.stringify(graphLimitResults)})`],
