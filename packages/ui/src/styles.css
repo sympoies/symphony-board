@@ -1092,8 +1092,26 @@ a.item-metric:hover {
 }
 .rf-node:hover { border-color: var(--accent); }
 .rf-node-focused {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 20px color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: var(--iid);
+  background: color-mix(in srgb, var(--iid) 10%, var(--panel-2));
+  outline: 3px solid var(--iid);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--iid) 24%, transparent);
+}
+.rf-node-focused:hover { border-color: var(--iid); }
+.rf-node-focus-marker {
+  margin-left: auto; padding: 1px 5px; border-radius: 4px;
+  background: var(--iid); color: var(--bg); font-size: .8em; font-weight: 800;
+  letter-spacing: .04em; white-space: nowrap;
+}
+.graph-focus-panel { margin: 12px; }
+.graph-locate-focus {
+  padding: 6px 10px; border: 1px solid var(--iid); border-radius: 6px;
+  background: var(--panel); color: var(--iid); font: inherit; font-size: 12px;
+  font-weight: 700; cursor: pointer; box-shadow: var(--shadow-float);
+}
+.graph-locate-focus:hover, .graph-locate-focus:focus-visible {
+  background: color-mix(in srgb, var(--iid) 14%, var(--panel));
 }
 .rf-node-untracked { border-style: dashed; opacity: .8; font-family: ui-monospace, monospace; }
 .rf-node-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
