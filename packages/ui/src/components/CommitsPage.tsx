@@ -498,9 +498,13 @@ export function CommitsPage({
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
   const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   const [mobileDetailRequested, setMobileDetailRequested] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"info" | "files">("info");
   const mobileDetailOpen = isMobile && mobileDetailRequested;
   useEffect(() => {
-    if (!isMobile) setMobileDetailRequested(false);
+    if (!isMobile) {
+      setMobileDetailRequested(false);
+      setMobilePane("info");
+    }
   }, [isMobile]);
   const previousFollowLatest = useRef(followLatest);
   useEffect(() => {
@@ -563,6 +567,7 @@ export function CommitsPage({
   };
   const closeDetail = () => {
     setMobileDetailRequested(false);
+    setMobilePane("info");
     const latest = commits[0];
     setDetailMode(
       followLatest
@@ -608,7 +613,8 @@ export function CommitsPage({
   useLayoutEffect(() => {
     if (!mobileDetailOpen) return;
     const split = document.querySelector<HTMLElement>(".commits-split[data-mobile-detail-open='true']");
-    split?.scrollTo(0, 0);
+    split?.querySelector<HTMLElement>(".commits-context")?.scrollTo(0, 0);
+    split?.querySelector<HTMLElement>(".commits-rail")?.scrollTo(0, 0);
     split?.querySelector<HTMLButtonElement>(".commit-mobile-back")?.focus({ preventScroll: true });
   }, [mobileDetailOpen, selectedKey]);
   // The same chip row Activity uses for its source facet, so switching tabs does
@@ -927,9 +933,10 @@ export function CommitsPage({
         ref={splitPaneRef}
         style={paneHeightStyle}
         data-mobile-detail-open={mobileDetailOpen}
+        data-mobile-pane={mobilePane}
         role={mobileDetailOpen ? "dialog" : undefined}
         aria-modal={mobileDetailOpen ? true : undefined}
-        aria-label={mobileDetailOpen ? "Commit information" : undefined}
+        aria-label={mobileDetailOpen ? "Commit information and changed files" : undefined}
         onKeyDown={(event) => {
           if (mobileDetailOpen && event.key === "Escape") closeDetail();
         }}
@@ -937,8 +944,8 @@ export function CommitsPage({
         {mobileDetailOpen ? (
           <nav className="commit-mobile-pane-nav" aria-label="Commit panes">
             <button type="button" className="commit-mobile-back" onClick={closeDetail}>← Commits</button>
-            <button type="button" onClick={() => document.querySelector<HTMLElement>(".commits-split")?.scrollTo({ top: 0, behavior: "smooth" })}>Info</button>
-            <button type="button" onClick={() => document.querySelector<HTMLElement>(".commits-split .commit-files")?.scrollIntoView({ block: "start", behavior: "smooth" })}>Files</button>
+            <button type="button" aria-pressed={mobilePane === "info"} onClick={() => setMobilePane("info")}>Info</button>
+            <button type="button" aria-pressed={mobilePane === "files"} onClick={() => setMobilePane("files")}>Files</button>
           </nav>
         ) : null}
         <CommitTimeline
@@ -952,6 +959,7 @@ export function CommitsPage({
             const key = activityKey(commit);
             if (isMobile) {
               if (selectedKey !== key) setDetailMode({ kind: "pinned", key });
+              setMobilePane("info");
               setMobileDetailRequested(true);
               return;
             }

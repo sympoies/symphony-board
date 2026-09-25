@@ -5197,7 +5197,9 @@ span.live-avatar { cursor: default; }
     position: fixed;
     inset: 0;
     z-index: 60;
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
     box-sizing: border-box;
     height: 100vh;
     height: 100dvh;
@@ -5206,23 +5208,30 @@ span.live-avatar { cursor: default; }
       calc(16px + var(--android-safe-area-right, 0px))
       calc(14px + var(--android-safe-area-bottom, 0px))
       calc(16px + var(--android-safe-area-left, 0px));
-    overflow: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
     background: var(--bg);
   }
   .commits-split[data-mobile-detail-open="true"] > .commit-list,
   .commits-split[data-mobile-detail-open="true"] .commits-overview { display: none; }
   .commits-split[data-mobile-detail-open="true"] > .commits-context,
-  .commits-split[data-mobile-detail-open="true"] > .commits-rail { position: static; }
-  .commits-split[data-mobile-detail-open="true"] > .commits-rail { margin-top: var(--pane-gap); }
+  .commits-split[data-mobile-detail-open="true"] > .commits-rail {
+    position: static;
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .commits-split[data-mobile-detail-open="true"][data-mobile-pane="info"] > .commits-rail,
+  .commits-split[data-mobile-detail-open="true"][data-mobile-pane="files"] > .commits-context { display: none; }
   .commit-mobile-pane-nav {
-    position: sticky;
-    top: 0;
-    z-index: 1;
     display: flex;
+    flex: 0 0 auto;
+    align-self: stretch;
     gap: 8px;
     padding: 0 0 12px;
-    background: var(--bg);
   }
   .commit-mobile-pane-nav button {
     padding: 8px 12px;
@@ -5233,7 +5242,10 @@ span.live-avatar { cursor: default; }
     font: inherit;
   }
   .commit-mobile-pane-nav .commit-mobile-back { margin-right: auto; }
-  .commits-split[data-mobile-detail-open="true"] .commit-files { scroll-margin-top: 52px; }
+  .commit-mobile-pane-nav button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
   .commits-split[data-mobile-detail-open="true"] .commit-detail-back { display: none; }
   .commit-detail-back-desktop { display: none; }
   .commit-detail-back-mobile { display: inline; }
