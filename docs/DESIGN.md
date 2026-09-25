@@ -482,8 +482,9 @@ Pages:
   such as GitHub Verified badges or check counts are intentionally omitted
   until the contract has comparable GitHub and GitLab semantics.
   On phone widths, tapping a commit opens a full-screen reading view with two
-  panes: the selected commit detail and its changed-file list. A sticky control
-  jumps between Info and Files so long commit messages do not bury the list.
+  panes: the selected commit detail and its changed-file list. Info and Files
+  switch between separate scrolling content areas beneath a fixed control,
+  matching the other phone detail views without covering scrolled text.
   The tap fetches the files even when the desktop rail's file-stats setting is
   off. Back returns to the commit list. Following a newer commit does not open
   the reading view or fetch its files by itself.
