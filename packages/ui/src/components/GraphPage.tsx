@@ -5,6 +5,7 @@ import {
   Background,
   Controls,
   MiniMap,
+  Panel,
   Handle,
   Position,
   MarkerType,
@@ -13,6 +14,7 @@ import {
   useNodesState,
   useEdgesState,
   useInternalNode,
+  useReactFlow,
   getBezierPath,
   type Node,
   type Edge,
@@ -120,7 +122,7 @@ function ItemNode({ data }: NodeProps) {
       style={{
         borderLeftColor: d.color,
         fontSize: `${(11 * scale).toFixed(1)}px`,
-        ...(d.accentColor ? { outline: `2px solid ${d.accentColor}`, outlineOffset: "1px" } : {}),
+        ...(d.accentColor && !d.focused ? { outline: `2px solid ${d.accentColor}`, outlineOffset: "1px" } : {}),
       }}
       title={d.demand != null ? `${d.label} · ${d.demand} comments + reactions` : d.label}
     >
@@ -128,6 +130,7 @@ function ItemNode({ data }: NodeProps) {
       <div className="rf-node-head">
         <ItemKindIcon kind={d.kind} className="rf-node-kind-icon" />
         <Badge text={d.state} kind={d.state} />
+        {d.focused ? <span className="rf-node-focus-marker">TARGET</span> : null}
       </div>
       {/* The title is a real anchor to the provider page when the item has a
           URL — visible link affordance, cmd/middle-click, hover URL preview.
@@ -306,10 +309,21 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
+function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const { getNode, setCenter } = useReactFlow();
+  const hasTarget = !!focusId && rfNodes.some((node) => node.id === focusId);
+
+  const locateFocus = () => {
+    if (!focusId) return;
+    const node = getNode(focusId);
+    if (!node) return;
+    const width = node.measured?.width ?? NODE_W;
+    const height = node.measured?.height ?? NODE_H;
+    void setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: 1, duration: 400 });
+  };
 
   // Neighbour set of the hovered node (itself + every node one edge away).
   const neighbours = useMemo(() => {
@@ -368,8 +382,13 @@ function Flow({ rfNodes, rfEdges, showEdgeLabels, onNodeActivate, theme }: { rfN
       proOptions={{ hideAttribution: true }}
     >
       <Background color="var(--graph-grid)" gap={22} />
+      {hasTarget ? (
+        <Panel position="top-left" className="graph-focus-panel">
+          <button type="button" className="graph-locate-focus nodrag nopan" aria-label="Locate target card" onClick={locateFocus}>Locate target</button>
+        </Panel>
+      ) : null}
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable nodeColor={(n) => (n.data as unknown as GraphNode).color} />
+      <MiniMap pannable zoomable nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color} />
     </ReactFlow>
   );
 }
@@ -1082,7 +1101,7 @@ export function GraphPage({
                     onShowAllMentions={() => setMentionTarget("all")}
                   />
                 ) : (
-                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
+                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
                 )}
               </div>
             ) : null}

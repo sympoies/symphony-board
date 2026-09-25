@@ -455,7 +455,9 @@ Pages:
   at 200 nodes / 500 edges. It reports whether depth or a safety cap limited the
   result. A static/local
   file deployment cannot query the store, so it keeps the previous loaded
-  one-hop fallback and labels that limitation in the focus view.
+  one-hop fallback and labels that limitation in the focus view. The focused
+  canvas card has a theme-aware target marker and outline; a Locate target
+  control centers it at readable zoom when a deeper neighborhood is crowded.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It uses the same date range as Board and Graph. The
   range is applied before source/kind/search filters, and the page virtualizes

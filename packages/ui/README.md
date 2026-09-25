@@ -60,6 +60,8 @@ The Graph page renders edge-connected items with React Flow:
   remembered when focus is exited and re-entered during the app session.
 - all relationships, including mentions, expand to the requested depth;
   the status line reports reached/requested hops plus depth/node/edge limits.
+- the target card is marked in the canvas and minimap; **Locate target** centers
+  it at readable zoom after the deeper neighborhood is fitted to the canvas.
 - Board card deep-links use `#/graph?focus=<ref>`; focus state is independent of
   the global cross-tab search.
 
