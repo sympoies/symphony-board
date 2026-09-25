@@ -34,6 +34,7 @@ function commitCountLabel(count: number): string {
 export function CommitsRail({
   avatarOf,
   changedFiles,
+  showOnlyChangedFiles = false,
   commits,
   repoSource,
   branchSource,
@@ -48,10 +49,9 @@ export function CommitsRail({
   onBranch,
 }: {
   avatarOf?: ReadonlyMap<string, string>;
-  // The selected commit's changed files, when the Settings toggle is on. It
-  // leads the rail: it is the only block here that describes the ONE row the
-  // viewer picked, so it outranks rankings that describe the whole range.
+  // Desktop uses the Settings toggle; a phone tap opens this as its second pane.
   changedFiles?: CommitFileStatsState;
+  showOnlyChangedFiles?: boolean;
   // The rows currently on screen. The one read-only panel here (commit types)
   // describes what is visible rather than what could be selected, so it reads
   // these instead of a facet source.
@@ -90,6 +90,14 @@ export function CommitsRail({
   const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);
   const typeTotal = useMemo(() => rankCommitTypes(commits, 0).length, [commits]);
   const selectedRepoKey = selectedRepo && selectedSource ? `${selectedSource}|${selectedRepo}` : null;
+
+  if (showOnlyChangedFiles) {
+    return (
+      <aside className="commits-rail" aria-label="Changed files">
+        {changedFiles ? <CommitFileList state={changedFiles} /> : null}
+      </aside>
+    );
+  }
 
   return (
     <aside className="commits-rail" aria-label="Commit range digest">

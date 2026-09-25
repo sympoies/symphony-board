@@ -10,6 +10,7 @@ import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useCommitFileStats } from "../useCommitFileStats.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
 import {
@@ -26,6 +27,7 @@ import {
   COMMIT_DEFAULT_VIEWPORT_PX,
   COMMIT_ROW_BODY_HEIGHT_PX,
   COMMIT_ROW_BODY_HEIGHT_NARROW_PX,
+  MOBILE_VIEWPORT_QUERY,
   type ColorOf,
   type CommitBranchOption,
   type CommitRepoOption,
@@ -494,6 +496,12 @@ export function CommitsPage({
     | { kind: "following" }
     | { kind: "pinned"; key: string }
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
+  const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
+  const [mobileDetailRequested, setMobileDetailRequested] = useState(false);
+  const mobileDetailOpen = isMobile && mobileDetailRequested;
+  useEffect(() => {
+    if (!isMobile) setMobileDetailRequested(false);
+  }, [isMobile]);
   const previousFollowLatest = useRef(followLatest);
   useEffect(() => {
     const previous = previousFollowLatest.current;
@@ -537,11 +545,14 @@ export function CommitsPage({
     return null;
   }, [commits, detailMode]);
   const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
-  // The changed-file breakdown belongs to the SELECTED commit but renders in
-  // the digest rail, so the page owns the request and hands the state across.
-  // Off unless the viewer turned the Settings toggle on; see useCommitFileStats.
+  useEffect(() => {
+    if (!selectedCommit) setMobileDetailRequested(false);
+  }, [selectedCommit]);
+  // A phone tap explicitly asks to read this commit and its files. Keep the
+  // Settings opt-in for the desktop rail and for automatic follow selection,
+  // which can change without a tap and would otherwise spend provider reads.
   const changedFiles = useCommitFileStats(
-    fileStats,
+    fileStats || mobileDetailOpen,
     selectedCommit?.source_id ?? null,
     selectedCommit?.project_path ?? null,
     selectedCommit ? commitSha(selectedCommit) : null,
@@ -551,6 +562,7 @@ export function CommitsPage({
     onFollowLatest();
   };
   const closeDetail = () => {
+    setMobileDetailRequested(false);
     const latest = commits[0];
     setDetailMode(
       followLatest
@@ -593,6 +605,12 @@ export function CommitsPage({
     commits.length,
     selectedKey,
   ]);
+  useLayoutEffect(() => {
+    if (!mobileDetailOpen) return;
+    const split = document.querySelector<HTMLElement>(".commits-split[data-mobile-detail-open='true']");
+    split?.scrollTo(0, 0);
+    split?.querySelector<HTMLButtonElement>(".commit-mobile-back")?.focus({ preventScroll: true });
+  }, [mobileDetailOpen, selectedKey]);
   // The same chip row Activity uses for its source facet, so switching tabs does
   // not switch filter idioms. Hidden when there is nothing to choose between
   // (a single-source board) unless one is already pinned by a drill-down, which
@@ -904,7 +922,25 @@ export function CommitsPage({
           </div>
         </>
       ) : null}
-      <div className="commits-split" ref={splitPaneRef} style={paneHeightStyle}>
+      <div
+        className="commits-split"
+        ref={splitPaneRef}
+        style={paneHeightStyle}
+        data-mobile-detail-open={mobileDetailOpen}
+        role={mobileDetailOpen ? "dialog" : undefined}
+        aria-modal={mobileDetailOpen ? true : undefined}
+        aria-label={mobileDetailOpen ? "Commit information" : undefined}
+        onKeyDown={(event) => {
+          if (mobileDetailOpen && event.key === "Escape") closeDetail();
+        }}
+      >
+        {mobileDetailOpen ? (
+          <nav className="commit-mobile-pane-nav" aria-label="Commit panes">
+            <button type="button" className="commit-mobile-back" onClick={closeDetail}>← Commits</button>
+            <button type="button" onClick={() => document.querySelector<HTMLElement>(".commits-split")?.scrollTo({ top: 0, behavior: "smooth" })}>Info</button>
+            <button type="button" onClick={() => document.querySelector<HTMLElement>(".commits-split .commit-files")?.scrollIntoView({ block: "start", behavior: "smooth" })}>Files</button>
+          </nav>
+        ) : null}
         <CommitTimeline
           commits={commits}
           sourceKind={sourceKind}
@@ -914,6 +950,11 @@ export function CommitsPage({
           selectedKey={selectedKey}
           onSelect={(commit) => {
             const key = activityKey(commit);
+            if (isMobile) {
+              if (selectedKey !== key) setDetailMode({ kind: "pinned", key });
+              setMobileDetailRequested(true);
+              return;
+            }
             if (selectedKey === key) closeDetail();
             else setDetailMode({ kind: "pinned", key });
           }}
@@ -943,6 +984,7 @@ export function CommitsPage({
         <CommitsRail
           avatarOf={actorAvatars}
           changedFiles={changedFiles}
+          showOnlyChangedFiles={mobileDetailOpen}
           commits={commits}
           repoSource={railRepoSource}
           authorSource={railAuthorSource}
