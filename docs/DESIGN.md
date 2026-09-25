@@ -481,6 +481,12 @@ Pages:
   in-pane `follow latest` action releases the pin. Provider-specific signals
   such as GitHub Verified badges or check counts are intentionally omitted
   until the contract has comparable GitHub and GitLab semantics.
+  On phone widths, tapping a commit opens a full-screen reading view with two
+  panes: the selected commit detail and its changed-file list. A sticky control
+  jumps between Info and Files so long commit messages do not bury the list.
+  The tap fetches the files even when the desktop rail's file-stats setting is
+  off. Back returns to the commit list. Following a newer commit does not open
+  the reading view or fetch its files by itself.
 - **Reviews**: current provider review-thread inbox over top-level
   `review_threads[]`, not a review-event feed. It uses the shared date range and
   item lens, lists each synced thread with current resolved/outdated state,
@@ -906,12 +912,13 @@ bottom of the screen exactly when they were worth reading. The block reproduces
 `git-scope commit` — the directory tree first (where the change landed), then
 one row per file as `[M] path  +40 -0`, then the total.
 
-**Cost and caching.** One provider call per commit the pane shows, and only
-while the viewer has turned the Settings toggle on
-(`symphony-board:commit-file-stats`, OFF by default — it is the one board
-surface that reaches a provider from the UI). With *Follow latest commit* also
-on, the pane follows a newer head and asks for that commit too; both switches
-are off by default and independent.
+**Cost and caching.** One provider call per commit the pane shows when the
+viewer has turned the Settings toggle on
+(`symphony-board:commit-file-stats`, OFF by default). An explicit phone tap
+also fetches that commit's files for the second pane, without changing the
+setting. With *Follow latest commit* and file stats both on, the pane follows a
+newer head and asks for that commit too; both switches are off by default and
+independent.
 
 A commit's diff is immutable, so a SUCCESS is cached in the server process by
 `(source, project, sha)` with a bounded size and no TTL. A provider FAILURE is

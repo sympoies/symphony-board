@@ -11,8 +11,8 @@ export type CommitFileStatsState =
   | { kind: "error"; message: string }
   | { kind: "ready"; stats: CommitFileStats };
 
-// One request per commit the pane shows, and only while the Settings toggle is
-// on. Keyed on the commit identity so following a newer head re-requests, and
+// One request per commit while the Settings toggle is on or a phone detail
+// view is open. Keyed on the commit identity so following a newer head re-requests, and
 // aborted on unmount/change so a slow provider cannot land its answer against a
 // later commit.
 //

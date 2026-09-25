@@ -137,6 +137,7 @@ let contractRequestCount = 0;
 let rangeRequestCount = 0;
 // The Commits rail per-file breakdown (see the /api/commit-files stub below).
 let commitFilesRequestCount = 0;
+let commitFilesLastRequestedSha = "";
 // Deep and wide on purpose: eleven files across nested directories make a tree
 // tall enough that a fixed-height window on it would clip visibly.
 const SMOKE_COMMIT_FILE_PATHS = [
@@ -771,8 +772,10 @@ async function handleSmokeRequest(req, res) {
     if (p === "/api/commit-files") {
       commitFilesRequestCount += 1;
       const requestUrl = new URL(req.url || "/api/commit-files", `http://127.0.0.1:${HTTP_PORT}`);
+      const requestedSha = requestUrl.searchParams.get("sha") || "";
+      commitFilesLastRequestedSha = requestedSha;
       const files = SMOKE_COMMIT_FILE_PATHS.map((path, index) => ({
-        path,
+        path: index === 0 ? `README-${requestedSha.slice(0, 8)}.md` : path,
         status: index === 0 ? "added" : index === 1 ? "removed" : index === 2 ? "renamed" : "modified",
         additions: (index + 1) * 3,
         deletions: index % 4,
@@ -781,7 +784,7 @@ async function handleSmokeRequest(req, res) {
         JSON.stringify({
           source_id: requestUrl.searchParams.get("source_id") || "",
           project_path: requestUrl.searchParams.get("project_path") || "",
-          sha: requestUrl.searchParams.get("sha") || "",
+          sha: requestedSha,
           files,
           total: files.reduce(
             (acc, file) => ({ additions: acc.additions + file.additions, deletions: acc.deletions + file.deletions }),
@@ -3437,6 +3440,94 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(120);
+  const commitsMobileBeforeTap = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const target = document.querySelectorAll('.commit-list .commit-row')[1];
+      return {
+        selected: !!document.querySelector('.commit-row-selected'),
+        overlayOpen: document.querySelector('.commits-split')?.getAttribute('data-mobile-detail-open') === 'true',
+        targetSha: target?.querySelector('.commit-sha')?.textContent?.trim() || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.commit-list .commit-row')[1]?.click()" });
+  await waitValue(`document.querySelector('.commit-files .commit-files-path')?.textContent?.includes('README-${commitsMobileBeforeTap.targetSha}')`);
+  const commitsMobileDetail = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const detail = split?.querySelector('.commit-detail-card');
+      const files = split?.querySelector('.commits-rail:not(.commit-detail) .commit-files');
+      const list = split?.querySelector('.commit-list');
+      const overview = split?.querySelector('.commits-overview');
+      const nav = split?.querySelector('.commit-mobile-pane-nav');
+      const visible = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
+      const inViewport = (el) => !!el && el.getBoundingClientRect().top < innerHeight && el.getBoundingClientRect().bottom > 0;
+      return {
+        open: split?.getAttribute('data-mobile-detail-open') === 'true',
+        fixed: getComputedStyle(split).position === 'fixed',
+        selectedIsTappedRow: document.querySelector('.commit-row-selected') === document.querySelectorAll('.commit-list .commit-row')[1],
+        selectedRows: document.querySelectorAll('.commit-row-selected').length,
+        detailSha: detail?.querySelector('.commit-detail-sha')?.textContent?.trim() || '',
+        detailVisible: visible(detail) && inViewport(detail),
+        filesVisible: visible(files),
+        filesMatchTappedSha: files?.querySelector('.commit-files-path')?.textContent?.trim() === 'README-' + detail?.querySelector('.commit-detail-sha')?.textContent?.trim().slice(0, 8) + '.md',
+        filesBelowDetail: !!detail && !!files && files.getBoundingClientRect().top >= detail.getBoundingClientRect().bottom,
+        navVisible: visible(nav) && inViewport(nav),
+        hasFilesButton: nav?.querySelector('button:last-child')?.textContent?.trim() === 'Files',
+        listHidden: !visible(list),
+        overviewHidden: !visible(overview),
+        backLabel: nav?.querySelector('.commit-mobile-back')?.textContent?.trim().toLowerCase() || '',
+        noHorizontalOverflow: split.scrollWidth <= split.clientWidth + 1,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 854, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  const commitsMobileWide = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      return {
+        overlayClosed: split?.getAttribute('data-mobile-detail-open') !== 'true',
+        dialogRemoved: split?.getAttribute('role') !== 'dialog' && split?.getAttribute('aria-modal') !== 'true',
+        detailVisible: !!document.querySelector('.commit-detail-card'),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(150);
+  const commitsMobilePortraitReturn = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const row = document.querySelector('.commit-row-selected');
+      const closed = split?.getAttribute('data-mobile-detail-open') !== 'true';
+      row?.click();
+      return { closed, rowPresent: !!row };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-mobile-back')?.click()" });
+  await sleep(120);
+  const commitsMobileAfterBack = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const list = split?.querySelector('.commit-list');
+      return {
+        closed: split?.getAttribute('data-mobile-detail-open') !== 'true',
+        listVisible: !!list && getComputedStyle(list).display !== 'none' && list.getClientRects().length > 0,
+        detailClosed: !split?.querySelector('.commit-detail-card'),
+        selectedRows: split?.querySelectorAll('.commit-row-selected').length ?? -1,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
   await send("Runtime.evaluate", {
     expression: `(() => {
       try {
@@ -3446,8 +3537,10 @@ try {
       }
     })()`,
   });
+  const commitFilesRequestsAtDisable = commitFilesRequestCount;
   await send("Runtime.evaluate", { expression: "location.reload()" });
   await waitHtml("document.querySelector('.commits-page .commit-list .commit-row-selected')");
+  const commitFilesRequestsBeforePhoneTap = commitFilesRequestCount;
   const commitFilesRailOff = (await send("Runtime.evaluate", {
     expression: `({
       hasBlock: !!document.querySelector('.commit-files'),
@@ -3455,10 +3548,56 @@ try {
     })`,
     returnByValue: true,
   })).result.value || {};
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.commit-list .commit-row-selected')?.click()`,
-  });
+  await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
+  await sleep(150);
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.commit-list .commit-row')[1]?.click()" });
+  await waitHtml("document.querySelector('.commits-split[data-mobile-detail-open=\"true\"] .commit-files .commit-files-list')");
+  const commitFilesMobileDefault = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const detail = split?.querySelector('.commit-detail-card');
+      const rail = split?.querySelector(':scope > .commits-rail');
+      const files = rail?.querySelector('.commit-files');
+      const nav = split?.querySelector('.commit-mobile-pane-nav');
+      return {
+        detailVisible: !!detail && detail.getBoundingClientRect().top < innerHeight,
+        filesVisible: !!files && getComputedStyle(files).display !== 'none',
+        fileRows: files?.querySelectorAll('.commit-files-row').length ?? 0,
+        onlyFilePane: rail?.querySelectorAll(':scope > .rail-block').length === 1,
+        detailSha: detail?.querySelector('.commit-detail-sha')?.textContent?.trim() || '',
+        firstFile: files?.querySelector('.commit-files-path')?.textContent?.trim() || '',
+        navVisible: !!nav && nav.getBoundingClientRect().top < innerHeight && nav.getBoundingClientRect().bottom > 0,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  const commitFilesRequestsAfterPhoneTap = commitFilesRequestCount;
+  const commitFilesPhoneRequestedSha = commitFilesLastRequestedSha;
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-mobile-pane-nav button:last-child')?.click()" });
+  await sleep(550);
+  const commitFilesMobileJump = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const files = document.querySelector('.commit-files');
+      const heading = files?.querySelector('.rail-block-title');
+      const row = files?.querySelector('.commit-files-row');
+      const inViewport = (el) => !!el && el.getBoundingClientRect().top < innerHeight && el.getBoundingClientRect().bottom > 0;
+      return { headingVisible: inViewport(heading), firstRowVisible: inViewport(row) };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-mobile-pane-nav button:nth-child(2)')?.click()" });
+  await sleep(550);
+  const commitFilesMobileReturn = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const detail = split?.querySelector('.commit-detail-card');
+      return { atTop: split?.scrollTop < 3, detailVisible: !!detail && detail.getBoundingClientRect().top < innerHeight };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-mobile-back')?.click()" });
   await sleep(100);
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
   // Restore the default/manual mode so the existing row-selection interactions
   // later in this smoke remain independent from the new follow behavior.
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
@@ -7343,8 +7482,9 @@ try {
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
     [commitDetailRhythm.measured === true && commitDetailRhythm.gapBeforeBody >= 8 && commitDetailRhythm.metaTighterThanBody === true, `commits: the detail body panel is separated from the meta list (${JSON.stringify(commitDetailRhythm)})`],
     [commitFilesRail.enabled === true && commitFilesRail.isRailBlock === true && commitFilesRail.isFirstBlock === true && commitFilesRail.title === "Changed files" && commitFilesRail.inDetail === false && commitFilesRail.detailStillRenders === true, `commits: changed files lead the digest rail when enabled (${JSON.stringify(commitFilesRail)})`],
+    [commitsMobileBeforeTap.selected === true && commitsMobileBeforeTap.overlayOpen === false && commitsMobileBeforeTap.targetSha !== "" && commitsMobileDetail.open === true && commitsMobileDetail.fixed === true && commitsMobileDetail.selectedIsTappedRow === true && commitsMobileDetail.selectedRows === 1 && commitsMobileDetail.detailSha.startsWith(commitsMobileBeforeTap.targetSha) && commitsMobileDetail.detailVisible === true && commitsMobileDetail.filesVisible === true && commitsMobileDetail.filesBelowDetail === true && commitsMobileDetail.listHidden === true && commitsMobileDetail.overviewHidden === true && commitsMobileDetail.backLabel.includes("commits") && commitsMobileDetail.noHorizontalOverflow === true && commitsMobileWide.overlayClosed === true && commitsMobileWide.dialogRemoved === true && commitsMobileWide.detailVisible === true && commitsMobilePortraitReturn.closed === true && commitsMobilePortraitReturn.rowPresent === true && commitsMobileAfterBack.closed === true && commitsMobileAfterBack.listVisible === true && commitsMobileAfterBack.detailClosed === true && commitsMobileAfterBack.selectedRows === 0, `commits: phone detail opens for the tapped commit, handles rotation, then returns to the list (${JSON.stringify({ before: commitsMobileBeforeTap, open: commitsMobileDetail, wide: commitsMobileWide, portrait: commitsMobilePortraitReturn, back: commitsMobileAfterBack })})`],
     [commitFilesTree.rendered === true && commitFilesTree.rows === 11 && commitFilesTree.lines >= 17 && commitFilesTree.clipped === false && commitFilesTree.maxHeight === "none" && commitFilesTree.treeBeforeList === true && commitFilesTree.totalLast === true && commitFilesTree.summary === "11 directories, 11 files", `commits: the changed-files tree renders whole above the rows (${JSON.stringify(commitFilesTree)})`],
-    [commitFilesRailOff.hasBlock === false && commitFilesRailOff.firstTitle === "Top authors", `commits: the rail keeps its ranked head when file stats are off (${JSON.stringify(commitFilesRailOff)})`],
+    [commitFilesRailOff.hasBlock === false && commitFilesRailOff.firstTitle === "Top authors" && commitFilesMobileDefault.detailVisible === true && commitFilesMobileDefault.filesVisible === true && commitFilesMobileDefault.fileRows > 0 && commitFilesMobileDefault.onlyFilePane === true, `commits: file stats stay opt-in for the desktop rail but a phone tap opens the detail and changed-file panes (${JSON.stringify({ desktop: commitFilesRailOff, mobile: commitFilesMobileDefault })})`],
     [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.toolbar === true && commitsFollowLatestApplied.toolbarSingleLine === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail with back and mode on one toolbar line (${JSON.stringify(commitsFollowLatestApplied)})`],
     [commitsFollowLatestTransition.mode === "Following latest" && commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
     [commitsFollowLatestPin.selectedIsFirst === false && commitsFollowLatestPin.selectedRows === 1 && commitsFollowLatestPin.mode === "Pinned · follow latest" && commitsFollowLatestPin.hasRelease === true, `commits: selecting a row pins detail and exposes the follow-latest action (${JSON.stringify(commitsFollowLatestPin)})`],
@@ -7371,6 +7511,9 @@ try {
     // downstream of it is suspect. Surfacing it as its own check is the
     // difference between "this page regressed" and "the machine was too slow";
     // guessing between those cost an afternoon before this was reported.
+    [commitsMobileDetail.navVisible === true && commitsMobileDetail.hasFilesButton === true && commitsMobileDetail.filesMatchTappedSha === true, `commits: phone pane navigation and file identity match the tapped SHA (${JSON.stringify(commitsMobileDetail)})`],
+    [commitFilesRequestsBeforePhoneTap === commitFilesRequestsAtDisable && commitFilesRequestsAfterPhoneTap > commitFilesRequestsBeforePhoneTap && commitFilesPhoneRequestedSha === commitFilesMobileDefault.detailSha && commitFilesMobileDefault.firstFile === `README-${commitFilesMobileDefault.detailSha.slice(0, 8)}.md`, `commits: phone tap alone requests the selected commit's changed files (${JSON.stringify({ before: commitFilesRequestsBeforePhoneTap, after: commitFilesRequestsAfterPhoneTap, sha: commitFilesPhoneRequestedSha, mobile: commitFilesMobileDefault })})`],
+    [commitFilesMobileDefault.navVisible === true && commitFilesMobileJump.headingVisible === true && commitFilesMobileJump.firstRowVisible === true && commitFilesMobileReturn.atTop === true && commitFilesMobileReturn.detailVisible === true, `commits: Files and Info controls reach their panes on a phone (${JSON.stringify({ opened: commitFilesMobileDefault, files: commitFilesMobileJump, info: commitFilesMobileReturn })})`],
     [waitTimeouts.length === 0, `no waits timed out (${waitTimeouts.length})`],
   ];
   let ok = true;

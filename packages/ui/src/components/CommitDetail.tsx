@@ -24,9 +24,9 @@ import { commitBody, commitBranches, commitMessage, commitSha, commitStats, rela
 // `additions`/`deletions` (both providers, absent when unknown) does.
 //
 // The per-file breakdown is NOT here: it is fetched per shown commit from the
-// server's /api/commit-files route and rendered at the head of the digest rail
-// beside this pane (see CommitFileList), because a long message and a long file
-// list stacked in one column pushed the files off the bottom of the screen.
+// server's /api/commit-files route and rendered in the rail (see CommitFileList).
+// On a phone, the rail becomes a separate file pane with a jump control, so a
+// long commit message cannot hide the path to the changed-file list.
 export function CommitDetail({
   commit,
   timezone,
@@ -61,7 +61,8 @@ export function CommitDetail({
       >
         <div className="commit-detail-toolbar">
           <button type="button" className="commit-detail-back" onClick={onClose}>
-            ← back to digest
+            <span className="commit-detail-back-desktop">← back to digest</span>
+            <span className="commit-detail-back-mobile">← back to commits</span>
           </button>
 
           <div className="live-mode">
