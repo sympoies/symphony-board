@@ -3628,6 +3628,9 @@ try {
       const info = split?.querySelector(':scope > .commits-context');
       const nav = split?.querySelector('.commit-mobile-pane-nav');
       const navTop = nav?.getBoundingClientRect().top;
+      const detail = info?.querySelector('.commit-detail-card');
+      const originalMinHeight = detail?.style.minHeight || '';
+      if (detail && info) detail.style.minHeight = String(info.clientHeight + 120) + 'px';
       if (info) info.scrollTop = info.scrollHeight;
       const result = {
         infoScrollTop: info?.scrollTop,
@@ -3637,6 +3640,7 @@ try {
         navStable: navTop != null && Math.abs(nav.getBoundingClientRect().top - navTop) < 2,
         navClearOfContent: !!nav && !!info && nav.getBoundingClientRect().bottom <= info.getBoundingClientRect().top + 2,
       };
+      if (detail) detail.style.minHeight = originalMinHeight;
       if (info) info.scrollTop = 0;
       return result;
     })()`,
