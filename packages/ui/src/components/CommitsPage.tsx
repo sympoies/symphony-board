@@ -952,7 +952,6 @@ export function CommitsPage({
               onClose={closeDetail}
             />
           ) : null}
-          {!mobileDetailOpen ? detailNavigation : null}
           <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
         </div>
         {/* Third column: the ranked facets, always present. Unlike Activity's

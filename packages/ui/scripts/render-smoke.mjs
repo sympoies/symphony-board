@@ -6186,8 +6186,8 @@ try {
         hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
         sharesContext: !!detail?.closest('.commits-context')?.contains(overview),
         overviewStartsAfterDetail: !!detailRect && !!overviewRect && overviewRect.top >= detailRect.bottom,
-        navigationAfterDetail: !!navigationRect && !!detailRect && navigationRect.top >= detailRect.bottom,
-        flowGap: navigationRect && overviewRect ? Math.round(overviewRect.top - navigationRect.bottom) : null,
+        navigationHidden: !navigationRect,
+        flowGap: detailRect && overviewRect ? Math.round(overviewRect.top - detailRect.bottom) : null,
         contextGap: context ? Math.round(parseFloat(getComputedStyle(context).rowGap) || 0) : null,
         railStillThere: !!document.querySelector('.commits-rail .rail-block'),
         selectedRows: document.querySelectorAll('.commit-row-selected').length,
@@ -6251,8 +6251,8 @@ try {
           sharesContext: detail.closest('.commits-context') === context && overview.closest('.commits-context') === context,
           overviewHidden: getComputedStyle(overview).display === "none",
           overviewStartsAfterDetail: overviewRect.top >= detailRect.bottom,
-          navigationAfterDetail: !!navigationRect && navigationRect.top >= detailRect.bottom,
-          flowGap: navigationRect ? Math.round(overviewRect.top - navigationRect.bottom) : null,
+          navigationHidden: !navigationRect,
+          flowGap: Math.round(overviewRect.top - detailRect.bottom),
           contextGap,
           sameWidth: Math.abs(overviewRect.width - detailRect.width) <= 1,
           firstBlockVisiblePx: firstBlockRect
@@ -7151,7 +7151,7 @@ try {
         commitDetailShown.hasDigest === true &&
         commitDetailShown.sharesContext === true &&
         commitDetailShown.overviewStartsAfterDetail === true &&
-        commitDetailShown.navigationAfterDetail === true &&
+        commitDetailShown.navigationHidden === true &&
         commitDetailShown.flowGap === commitDetailShown.contextGap &&
         commitDetailShown.railStillThere === true &&
         commitDetailShown.selectedRows === 1 &&
@@ -7162,7 +7162,7 @@ try {
           r.sharesContext === true &&
           (r.tier === "compact-split" ? r.overviewHidden === true : (
             r.overviewStartsAfterDetail === true &&
-            r.navigationAfterDetail === true &&
+            r.navigationHidden === true &&
             r.flowGap === r.contextGap &&
             r.sameWidth === true &&
             r.firstBlockVisiblePx > 0
