@@ -564,7 +564,9 @@ export function CommitsPage({
     detailTouchRef.current = null;
     const target = event.target;
     if (!selectedKey || event.touches.length !== 1 || !(target instanceof Element)) return;
-    if (!target.closest(".commit-detail, .commit-files")) return;
+    // Like Live, the entire open reader accepts swipes, including its blank
+    // space. Outside the phone overlay, keep gestures in the detail column.
+    if (!mobileDetailOpen && !target.closest(".commits-context, .commits-compact-support, .commit-files")) return;
     if (target.closest("a, button, input, textarea, select, summary, [role='button']")) return;
     const candidate = target.closest("table, pre");
     const scroller = candidate instanceof HTMLElement && candidate.scrollWidth > candidate.clientWidth + 2 ? candidate : null;
@@ -924,6 +926,14 @@ export function CommitsPage({
     </div>
   );
 
+  const detailNavigation = selectedCommit ? (
+    <nav className="commit-detail-nav live-detail-nav" aria-label="Browse commits">
+      <button type="button" className="live-detail-nav-button" aria-label="Show newer commit" disabled={selectedIndex <= 0} onClick={() => navigateDetail("previous")}>← Newer</button>
+      <span className="live-detail-nav-count" aria-live="polite">{selectedIndex + 1} / {commits.length}</span>
+      <button type="button" className="live-detail-nav-button" aria-label="Show older commit" disabled={selectedIndex < 0 || selectedIndex >= commits.length - 1} onClick={() => navigateDetail("next")}>Older →</button>
+    </nav>
+  ) : null;
+
   const supportPanes = (
     <>
         {/* Middle column. Keep the range overview mounted as the persistent
@@ -939,14 +949,9 @@ export function CommitsPage({
               following={detailMode.kind === "following"}
               onFollowLatest={releasePin}
               onClose={closeDetail}
-              navigation={{
-                position: selectedIndex + 1,
-                total: commits.length,
-                onPrevious: selectedIndex > 0 ? () => navigateDetail("previous") : null,
-                onNext: selectedIndex < commits.length - 1 ? () => navigateDetail("next") : null,
-              }}
             />
           ) : null}
+          {!mobileDetailOpen ? detailNavigation : null}
           <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
         </div>
         {/* Third column: the ranked facets, always present. Unlike Activity's
@@ -1066,6 +1071,7 @@ export function CommitsPage({
           }}
         />
         {isCompactSplit ? <div className="commits-compact-support">{supportPanes}</div> : supportPanes}
+        {mobileDetailOpen ? detailNavigation : null}
       </div>
     </main>
   );

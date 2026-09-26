@@ -488,7 +488,9 @@ Pages:
   Detail supports the same left/right swipes as Live and Items: left moves
   to the older commit and right to the newer one in the filtered list, stopping
   at either end. Swiping pins the commit, preserves the active Info/Files pane,
-  and resets detail/files scrolling. Newer/Older buttons offer the same actions.
+  and resets detail/files scrolling. Newer/Older controls sit beneath the detail;
+  in the phone reader they stay at the viewport bottom outside both scrolling
+  panes. The entire reader accepts swipes, including blank space, just like Live.
   Links, controls, vertical gestures, and scrollable code retain their behavior.
   The tap fetches the files even when the desktop rail's file-stats setting is
   off. Back returns to the commit list. Following a newer commit does not open

@@ -5438,4 +5438,4 @@ span.live-avatar { cursor: default; }
   .commits-split > .commit-list .commit-message-link { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 }
 
-.commit-detail-nav.live-detail-nav { display: flex; margin: 8px 0 12px; }
+.commit-detail-nav.live-detail-nav { display: flex; flex: 0 0 auto; align-self: stretch; margin: 10px 0 0; }
