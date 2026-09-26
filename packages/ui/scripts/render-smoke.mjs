@@ -4518,6 +4518,41 @@ try {
   liveSnapshotRankFit = true;
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(200);
+  // Between the narrow tier (<=760px) and the wide rail (>=1212px) the filter
+  // toggle groups used to stay one unwrapped row, so a long `action` group
+  // widened the whole page -- a landscape handheld (833px) scrolled sideways.
+  const activityMidWidthFilters = [];
+  for (const width of [761, 833, 1024, 1211]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 704, deviceScaleFactor: 1, mobile: false });
+    await sleep(120);
+    activityMidWidthFilters.push((await send("Runtime.evaluate", {
+      expression: `(() => {
+        const groups = Array.from(document.querySelectorAll('.controls > .filter-groups .toggle-group')).filter((g) => g.getClientRects().length > 0);
+        // The sample contract carries fewer actions than a live board, so pad
+        // the longest group with inert clones to a live-sized row, measure,
+        // then remove them before React sees the DOM again.
+        const longest = groups.reduce((a, g) => (g.querySelectorAll('.toggle').length > (a?.querySelectorAll('.toggle').length ?? -1) ? g : a), null);
+        const clones = [];
+        const sample = longest?.querySelector('.toggle');
+        while (sample && longest.querySelectorAll('.toggle').length < 12) {
+          const clone = sample.cloneNode(true);
+          clone.textContent = 'changes_requested';
+          longest.appendChild(clone);
+          clones.push(clone);
+        }
+        const result = {
+          width: innerWidth,
+          groups: groups.length,
+          maxToggles: longest?.querySelectorAll('.toggle').length ?? 0,
+          groupsFit: groups.every((g) => g.getBoundingClientRect().right <= innerWidth + 1),
+          noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+        };
+        for (const clone of clones) clone.remove();
+        return result;
+      })()`,
+      returnByValue: true,
+    })).result.value || { width });
+  }
   await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(120);
   await send("Runtime.evaluate", { expression: "location.hash = '#/live'" });
@@ -7602,6 +7637,7 @@ try {
     [liveHiddenType.toggled === true && liveHiddenType.rows === 1 && liveHiddenType.allCount === "1" && liveHiddenType.hasCommentChip === false && liveHiddenType.hasCommentRow === false && /^2\/5h$/.test(liveHiddenType.activityText || "") && /^3\/1000$/.test(liveHiddenType.bufferText || ""), `live: Settings event-type checkbox hides the comment feed/chip while pulse remains raw (${JSON.stringify(liveHiddenType)})`],
     [(liveHiddenType.bufferRanks || [])[0] === "The Octocat · 2 events" && (liveHiddenType.bufferRanks || [])[1] === "hubot · 1 event" && (liveHiddenType.repoRanks || [])[0] === "acme/widgets · 3 events", `live: hidden event types keep rank charts scoped to the raw retained buffer (${JSON.stringify({ bufferRanks: liveHiddenType.bufferRanks, repoRanks: liveHiddenType.repoRanks })})`],
     [liveRankFit.allFit === true && / /.test(liveRankFit.columns || ""), `live: six-rank charts fit without horizontal overflow at 1024px (${JSON.stringify(liveRankFit)})`],
+    [activityMidWidthFilters.length === 4 && activityMidWidthFilters.every(r => r.groups > 0 && r.maxToggles >= 12 && r.groupsFit && r.noHorizontalOverflow), `activity: filter groups wrap without horizontal overflow at 761-1211px (${JSON.stringify(activityMidWidthFilters)})`],
     // event-link precision: the auto-selected newest event (a comment) shows the
     // exact ev.url permalink (#issuecomment-…) in its detail pane …
     [live.detailLink.includes("#issuecomment-"), `live: the newest event's detail links to the exact event permalink (${live.detailLink || "none"})`],
