@@ -20,9 +20,14 @@ the same files from its provider; do not invent deployment commands.
 ## Workflow
 
 1. Follow the canonical skill to verify SSH, X11, and tailnet connectivity.
-2. Use `https://c8.tail841b2e.ts.net:8443/` for the c8 Board baseline. It serves
-   this project's built UI and synthetic contract, without live provider sync
-   or writer APIs. Tests needing APIs require their own isolated fixture backend.
+2. Use `https://c8.tail841b2e.ts.net:8443/` for the c8 Board deployment. It runs
+   the real UI, sync daemon, range API, and Live receiver with persistent local
+   data for sympoies-infra, c8-infra, agent-console, and symphony-board only.
+   Real Live events arrive through the existing sympoies ingress via a scoped
+   tailnet relay. Provider APIs remain read-only; c8 sends no notifications.
+   Follow the canonical skill's API/data/SSE acceptance in addition to UI tests;
+   fixture rendering or HTTP availability alone cannot establish deployment
+   correctness.
 3. Run feature-specific rendering, filtering, and navigation assertions on c8
    using its installed Chrome and Playwright. For a change under development,
    use a separate managed checkout and loopback port per the canonical skill.
