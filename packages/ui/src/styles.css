@@ -5230,6 +5230,7 @@ span.live-avatar { cursor: default; }
   }
   .commits-split[data-mobile-detail-open="true"] .commit-detail {
     display: flex;
+    flex-direction: column;
     flex: 1 0 auto;
   }
   .commits-split[data-mobile-detail-open="true"] .commit-detail-card,

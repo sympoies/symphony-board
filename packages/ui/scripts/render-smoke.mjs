@@ -3770,7 +3770,8 @@ try {
     expression: `(() => {
       const pane = document.querySelector('.commits-split > .commits-context');
       const card = pane?.querySelector('.commit-detail-card');
-      return !!pane && !!card && card.getBoundingClientRect().bottom >= pane.getBoundingClientRect().bottom - 2;
+      return !!pane && !!card && card.getBoundingClientRect().bottom >= pane.getBoundingClientRect().bottom - 2 &&
+        card.getBoundingClientRect().right <= pane.getBoundingClientRect().right + 2;
     })()`, returnByValue: true,
   })).result.value;
   if (!commitReaderFilled) throw new Error('Commit card must fill the phone reader like Live');
