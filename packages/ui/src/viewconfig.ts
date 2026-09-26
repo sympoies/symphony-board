@@ -572,13 +572,13 @@ export const saveHiddenEventTypes = (hidden: ReadonlySet<string>): void => saveS
 // the special realtime entry before these; Settings remains the recovery/config
 // surface after them.
 export const CONTENT_TAB_OPTIONS = [
+  { id: "commits", label: "Commits" },
   { id: "activity", label: "Activity" },
   { id: "repo-analytics", label: "Metrics" },
   { id: "board", label: "Board" },
   { id: "graph", label: "Graph" },
   { id: "items", label: "Items" },
   { id: "reviews", label: "Reviews" },
-  { id: "commits", label: "Commits" },
 ] as const satisfies readonly { id: Page; label: string }[];
 export type ContentTab = (typeof CONTENT_TAB_OPTIONS)[number]["id"];
 
@@ -603,6 +603,7 @@ const LEGACY_DEFAULT_CONTENT_TAB_ORDER: readonly ContentTab[] = ["activity", "it
 
 type StoredContentTabOrder = {
   order?: unknown;
+  version?: unknown;
 };
 
 function contentTabOrderEquals(order: readonly unknown[], expected: readonly ContentTab[]): boolean {
@@ -611,13 +612,13 @@ function contentTabOrderEquals(order: readonly unknown[], expected: readonly Con
 
 // Legacy array values are eligible for the old-default migration. Current saves
 // wrap the order so an explicit user preference can still match that old order.
-function parseStoredContentTabOrder(parsed: unknown): { order: readonly unknown[] | null; legacyShape: boolean } {
-  if (Array.isArray(parsed)) return { order: parsed, legacyShape: true };
+function parseStoredContentTabOrder(parsed: unknown): { order: readonly unknown[] | null; legacyShape: boolean; current: boolean } {
+  if (Array.isArray(parsed)) return { order: parsed, legacyShape: true, current: false };
   if (parsed && typeof parsed === "object") {
     const order = (parsed as StoredContentTabOrder).order;
-    if (Array.isArray(order)) return { order, legacyShape: false };
+    if (Array.isArray(order)) return { order, legacyShape: false, current: (parsed as StoredContentTabOrder).version === 2 };
   }
-  return { order: null, legacyShape: false };
+  return { order: null, legacyShape: false, current: false };
 }
 
 export function normalizeContentTabOrder(order: readonly unknown[] | null | undefined): ContentTab[] {
@@ -655,7 +656,9 @@ export function loadContentTabOrder(): ContentTab[] {
     const parsed = JSON.parse(raw) as unknown;
     const stored = parseStoredContentTabOrder(parsed);
     if (stored.legacyShape && stored.order && contentTabOrderEquals(stored.order, LEGACY_DEFAULT_CONTENT_TAB_ORDER)) return [...DEFAULT_CONTENT_TAB_ORDER];
-    return normalizeContentTabOrder(stored.order);
+    const order = normalizeContentTabOrder(stored.order);
+    // Upgrade existing devices once; subsequent explicit moves remain authoritative.
+    return stored.current ? order : ["commits", ...order.filter((tab) => tab !== "commits")];
   } catch {
     return [...DEFAULT_CONTENT_TAB_ORDER];
   }
@@ -663,7 +666,7 @@ export function loadContentTabOrder(): ContentTab[] {
 
 export function saveContentTabOrder(order: readonly unknown[]): void {
   try {
-    localStorage.setItem(CONTENT_TAB_ORDER_KEY, JSON.stringify({ order: normalizeContentTabOrder(order) }));
+    localStorage.setItem(CONTENT_TAB_ORDER_KEY, JSON.stringify({ order: normalizeContentTabOrder(order), version: 2 }));
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }
