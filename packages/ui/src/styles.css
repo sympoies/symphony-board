@@ -443,7 +443,7 @@ html[data-theme="paper"] .brand-refresh.refreshing .brand-refresh-glyph { animat
 }
 .search:disabled { opacity: 0.62; cursor: not-allowed; }
 .search-suspended-note { font-size: 12px; white-space: nowrap; }
-.toggle-group { display: inline-flex; gap: 4px; align-items: center; }
+.toggle-group { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .toggle-label { color: var(--muted); margin-right: 2px; }
 .toggle-separator { width: 1px; height: 16px; background: var(--line); margin: 0 3px; flex: none; }
 .toggle {
