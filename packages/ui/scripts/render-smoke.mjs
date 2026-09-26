@@ -3771,10 +3771,23 @@ try {
       const pane = document.querySelector('.commits-split > .commits-context');
       const card = pane?.querySelector('.commit-detail-card');
       return !!pane && !!card && card.getBoundingClientRect().bottom >= pane.getBoundingClientRect().bottom - 2 &&
-        card.getBoundingClientRect().right <= pane.getBoundingClientRect().right + 2;
+        Math.abs(card.getBoundingClientRect().right - pane.getBoundingClientRect().right) < 2 &&
+        Math.abs(card.getBoundingClientRect().left - pane.getBoundingClientRect().left) < 2;
     })()`, returnByValue: true,
   })).result.value;
   if (!commitReaderFilled) throw new Error('Commit card must fill the phone reader like Live');
+  for (const width of [624, 704, 384]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 854, deviceScaleFactor: 3, mobile: true });
+    await sleep(150);
+    const fillsWidth = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const pane = document.querySelector('.commits-split > .commits-context')?.getBoundingClientRect();
+        const card = document.querySelector('.commit-detail-card')?.getBoundingClientRect();
+        return !!pane && !!card && Math.abs(pane.left - card.left) < 2 && Math.abs(pane.right - card.right) < 2;
+      })()`, returnByValue: true,
+    })).result.value;
+    if (!fillsWidth) throw new Error('Commit card must fill phone width at ' + width);
+  }
   const phoneBlankFirst = await commitSwipeState();
   await swipeCommitDetail('.commits-split > .commits-context', -130);
   if ((await commitSwipeState()).sha === phoneBlankFirst.sha) throw new Error('Commit Info blank scrolling area does not accept swipe');
@@ -3797,7 +3810,7 @@ try {
         firstRowVisible: inViewport(row),
         filesPaneActive: split?.getAttribute('data-mobile-pane') === 'files',
         infoPaneHidden: !!info && getComputedStyle(info).display === 'none',
-        filesPaneSpansPane: !!rail && !!split && Math.abs(rail.getBoundingClientRect().right - split.getBoundingClientRect().right + parseFloat(getComputedStyle(split).paddingRight)) < 2,
+        filesPaneSpansPane: !!rail && !!split && !!files && Math.abs(rail.getBoundingClientRect().right - split.getBoundingClientRect().right + parseFloat(getComputedStyle(split).paddingRight)) < 2 && Math.abs(files.getBoundingClientRect().right - rail.getBoundingClientRect().right) < 2 && Math.abs(files.getBoundingClientRect().left - rail.getBoundingClientRect().left) < 2,
         navClearOfContent: !!nav && !!rail && nav.getBoundingClientRect().bottom <= rail.getBoundingClientRect().top + 2,
       };
     })()`,

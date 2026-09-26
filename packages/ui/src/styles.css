@@ -5227,6 +5227,7 @@ span.live-avatar { cursor: default; }
   .commits-split[data-mobile-detail-open="true"] > .commits-rail {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
   }
   .commits-split[data-mobile-detail-open="true"] .commit-detail {
     display: flex;
