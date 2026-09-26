@@ -1722,11 +1722,17 @@ a.rf-node-title:hover { color: var(--accent); }
    them there: with two tracks and three items, auto-placement would otherwise
    wrap the rail under the LIST rather than under the overview.
 
+   Commits gains its third column at 1280px: after page padding and gaps,
+   the 40/30/30 split leaves about 480px for the wrapping list and 360px
+   for each supporting pane. Below that the commit actions squeeze the subject
+   and the six-bar chart labels become too narrow. This is independent of
+   Activity's rail tier and mirrors COMMIT_THREE_COLUMN_MIN_WIDTH_PX.
+
    Activity has no equivalent rule because its rail is JS-gated on
    WIDE_RAIL_QUERY and simply does not render below 1700px. The Commits rail
    predates its overview and always rendered, so hiding it here would take away
    what the page already showed. */
-@media (min-width: 1212px) and (max-width: 1699px) {
+@media (min-width: 1212px) and (max-width: 1279px) {
   .commits-split { grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr); }
   .commits-split > :first-child { grid-row: span 2; }
 }
@@ -1800,7 +1806,7 @@ a.rf-node-title:hover { color: var(--accent); }
 
    Three things bound the rule, each of which it got wrong first:
 
-   - The floor is the THREE-column tier, not 1212px. Between 1212 and 1699px
+   - The floor is the THREE-column tier, not 1212px. Between 1212 and 1279px
      the overview and the rail share one column (the list spans both rows), so
      a pane height each made the page two viewports tall -- at 1280px, the
      width the Android wide layout pins the WebView to, among others.
@@ -1809,7 +1815,7 @@ a.rf-node-title:hover { color: var(--accent); }
      inside the chart rather than taller bars.
    - CommitDetail sits before the overview inside `.commits-context`; only the
      persistent overview and direct digest rail participate in column fill. */
-@media (min-width: 1700px) and (max-width: 2199px) {
+@media (min-width: 1280px) and (max-width: 2199px) {
   .commits-split > .commits-context > .commits-overview,
   .commits-split > .commits-rail:not(.commit-detail) {
     display: flex;
