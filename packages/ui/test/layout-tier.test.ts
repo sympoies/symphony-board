@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   COMPACT_CHROME_QUERY,
+  COMMIT_COMPACT_SPLIT_QUERY,
   CONTENT_PANE_MIN_HEIGHT_PX,
   DETAIL_OVERLAY_QUERY,
   NARROW_MAX_WIDTH_PX,
@@ -430,4 +431,11 @@ test("the rail row tier is published once and mirrored in the stylesheet", () =>
       assert.match(deps, /rankLimit/, "a memo reading rankLimit must list it as a dependency");
     }
   }
+});
+
+test("Commits fits list and detail beside each other on foldable screens", () => {
+  assert.equal(COMMIT_COMPACT_SPLIT_QUERY, "(min-width: 761px) and (max-width: 1211px)");
+  const tier = mediaBlock(COMMIT_COMPACT_SPLIT_QUERY);
+  assert.match(tier, /\.commits-split\s*\{[^}]*grid-template-columns:[^}]*45fr[^}]*55fr/);
+  assert.match(tier, /\.commits-filter-disclosure\s*\{[^}]*display: inline-flex/);
 });

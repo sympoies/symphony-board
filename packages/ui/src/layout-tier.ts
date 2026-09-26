@@ -73,12 +73,8 @@ export const RAIL_RANK_LIMIT_ROWS = 8;
 export const SPLIT_RAIL_MIN_WIDTH_PX = 1212;
 export const SPLIT_STACK_QUERY = `(max-width: ${SPLIT_RAIL_MIN_WIDTH_PX - 1}px)`;
 
-// Not every breakpoint belongs here, and one nearby deliberately does not: the
-// Commits list/rail split collapses at 1500px purely in CSS. Nothing in JS gates
-// it — the rail renders at every width and the grid decides whether it sits
-// beside the list or under it — so there is no pair that could drift, and
-// publishing a constant only this file would read is noise. Recorded so an audit
-// starting here does not conclude 1500 went missing.
+// Commits fits a compact list/detail pair below the analytics split floor.
+export const COMMIT_COMPACT_SPLIT_QUERY = `(min-width: ${NARROW_MAX_WIDTH_PX + 1}px) and (max-width: ${SPLIT_RAIL_MIN_WIDTH_PX - 1}px)`;
 
 // Floor for a content pane, in the units that matter: rows. A Live/Reviews row
 // is 114px at the default two-line preview plus a 6px gap, so 240px is two whole

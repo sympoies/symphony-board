@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -10,6 +10,7 @@ import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useCommitFileStats } from "../useCommitFileStats.ts";
+import { COMMIT_COMPACT_SPLIT_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
@@ -27,7 +28,6 @@ import {
   COMMIT_DEFAULT_VIEWPORT_PX,
   COMMIT_ROW_BODY_HEIGHT_PX,
   COMMIT_ROW_BODY_HEIGHT_NARROW_PX,
-  MOBILE_VIEWPORT_QUERY,
   type ColorOf,
   type CommitBranchOption,
   type CommitRepoOption,
@@ -496,16 +496,17 @@ export function CommitsPage({
     | { kind: "following" }
     | { kind: "pinned"; key: string }
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
-  const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
+  const isNarrow = useMediaQuery(NARROW_VIEWPORT_QUERY);
+  const isCompactSplit = useMediaQuery(COMMIT_COMPACT_SPLIT_QUERY);
   const [mobileDetailRequested, setMobileDetailRequested] = useState(false);
   const [mobilePane, setMobilePane] = useState<"info" | "files">("info");
-  const mobileDetailOpen = isMobile && mobileDetailRequested;
+  const mobileDetailOpen = isNarrow && mobileDetailRequested;
   useEffect(() => {
-    if (!isMobile) {
+    if (!isNarrow) {
       setMobileDetailRequested(false);
       setMobilePane("info");
     }
-  }, [isMobile]);
+  }, [isNarrow]);
   const previousFollowLatest = useRef(followLatest);
   useEffect(() => {
     const previous = previousFollowLatest.current;
@@ -549,14 +550,52 @@ export function CommitsPage({
     return null;
   }, [commits, detailMode]);
   const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
+  const selectedIndex = commits.findIndex((commit) => activityKey(commit) === selectedKey);
+  const navigateDetail = (direction: "previous" | "next") => {
+    if (selectedIndex < 0) return;
+    const commit = commits[selectedIndex + (direction === "next" ? 1 : -1)];
+    if (commit) setDetailMode({ kind: "pinned", key: activityKey(commit) });
+  };
+  const detailTouchRef = useRef<{
+    x: number; y: number; t: number; key: string;
+    scroller: HTMLElement | null; scrollLeft: number;
+  } | null>(null);
+  const handleDetailTouchStart = (event: TouchEvent<HTMLElement>) => {
+    detailTouchRef.current = null;
+    const target = event.target;
+    if (!selectedKey || event.touches.length !== 1 || !(target instanceof Element)) return;
+    if (!target.closest(".commit-detail, .commit-files")) return;
+    if (target.closest("a, button, input, textarea, select, summary, [role='button']")) return;
+    const candidate = target.closest("table, pre");
+    const scroller = candidate instanceof HTMLElement && candidate.scrollWidth > candidate.clientWidth + 2 ? candidate : null;
+    const touch = event.touches[0]!;
+    detailTouchRef.current = {
+      x: touch.clientX, y: touch.clientY, t: Date.now(), key: selectedKey,
+      scroller, scrollLeft: scroller?.scrollLeft ?? 0,
+    };
+  };
+  const handleDetailTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const start = detailTouchRef.current;
+    detailTouchRef.current = null;
+    if (!start || start.key !== selectedKey || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0]!;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Date.now() - start.t > 1100 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    if (start.scroller) {
+      const max = start.scroller.scrollWidth - start.scroller.clientWidth;
+      if ((dx < 0 && start.scrollLeft < max - 2) || (dx > 0 && start.scrollLeft > 2)) return;
+    }
+    navigateDetail(dx < 0 ? "next" : "previous");
+  };
   useEffect(() => {
     if (!selectedCommit) setMobileDetailRequested(false);
   }, [selectedCommit]);
-  // A phone tap explicitly asks to read this commit and its files. Keep the
-  // Settings opt-in for the desktop rail and for automatic follow selection,
-  // which can change without a tap and would otherwise spend provider reads.
+  // Phone taps and the visible compact detail column include changed files.
+  // Compact follow mode keeps those files in sync with its selected commit;
+  // wider desktop rails still require the Settings opt-in.
   const changedFiles = useCommitFileStats(
-    fileStats || mobileDetailOpen,
+    fileStats || mobileDetailOpen || (isCompactSplit && !!selectedCommit),
     selectedCommit?.source_id ?? null,
     selectedCommit?.project_path ?? null,
     selectedCommit ? commitSha(selectedCommit) : null,
@@ -581,7 +620,7 @@ export function CommitsPage({
   // The source, repo and branch SCM filters are rarely changed, so on
   // narrow/portrait they collapse behind a summary disclosure (same pattern as
   // the date range) and the commit feed gets the first screen. Desktop always
-  // shows them.
+  // shows them. Foldable screens expand the inline toolbar on demand.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch" | "author">("repo");
   const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0) + (selectedAuthor ? 1 : 0);
@@ -611,12 +650,15 @@ export function CommitsPage({
     selectedKey,
   ]);
   useLayoutEffect(() => {
+    if (isCompactSplit) {
+      document.querySelector<HTMLElement>(".commits-compact-support")?.scrollTo(0, 0);
+    }
     if (!mobileDetailOpen) return;
     const split = document.querySelector<HTMLElement>(".commits-split[data-mobile-detail-open='true']");
     split?.querySelector<HTMLElement>(".commits-context")?.scrollTo(0, 0);
-    split?.querySelector<HTMLElement>(".commits-rail")?.scrollTo(0, 0);
+    split?.querySelector<HTMLElement>(":scope > .commits-rail")?.scrollTo(0, 0);
     split?.querySelector<HTMLButtonElement>(".commit-mobile-back")?.focus({ preventScroll: true });
-  }, [mobileDetailOpen, selectedKey]);
+  }, [isCompactSplit, mobileDetailOpen, selectedKey]);
   // The same chip row Activity uses for its source facet, so switching tabs does
   // not switch filter idioms. Hidden when there is nothing to choose between
   // (a single-source board) unless one is already pinned by a drill-down, which
@@ -882,6 +924,56 @@ export function CommitsPage({
     </div>
   );
 
+  const supportPanes = (
+    <>
+        {/* Middle column. Keep the range overview mounted as the persistent
+            context for the page; a selected commit is inserted before it so
+            the original pane moves down intact. */}
+        <div className="commits-context">
+          {selectedCommit ? (
+            <CommitDetail
+              commit={selectedCommit}
+              timezone={timezone}
+              sourceKind={sourceKind}
+              colorOf={colorOf}
+              following={detailMode.kind === "following"}
+              onFollowLatest={releasePin}
+              onClose={closeDetail}
+              navigation={{
+                position: selectedIndex + 1,
+                total: commits.length,
+                onPrevious: selectedIndex > 0 ? () => navigateDetail("previous") : null,
+                onNext: selectedIndex < commits.length - 1 ? () => navigateDetail("next") : null,
+              }}
+            />
+          ) : null}
+          <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
+        </div>
+        {/* Third column: the ranked facets, always present. Unlike Activity's
+            rail this is not gated on a wide breakpoint — the Commits page has
+            only ever had one supporting column, so hiding it below the tier
+            would take away what the page already showed; the stylesheet stacks
+            it under the list instead. */}
+        <CommitsRail
+          avatarOf={actorAvatars}
+          changedFiles={changedFiles}
+          showOnlyChangedFiles={mobileDetailOpen || (isCompactSplit && !!selectedCommit)}
+          commits={commits}
+          repoSource={railRepoSource}
+          authorSource={railAuthorSource}
+          branchSource={railBranchSource}
+          actorIndex={actorIndex}
+          selectedRepo={selectedRepo}
+          selectedSource={selectedSource}
+          selectedAuthor={selectedAuthor}
+          selectedBranch={selectedBranch}
+          onRepo={onRepo}
+          onAuthor={onAuthor}
+          onBranch={onBranch}
+        />
+    </>
+  );
+
   return (
     <main className="commits-page">
       <div className="activity-head">
@@ -895,7 +987,7 @@ export function CommitsPage({
         type="button"
         className="filter-summary-disclosure commits-filter-disclosure"
         aria-expanded={filtersOpen}
-        aria-controls="mobile-commits-filter-panel"
+        aria-controls={isNarrow ? "mobile-commits-filter-panel" : "inline-commits-filter-panel"}
         onClick={() => setFiltersOpen((open) => {
           if (!open) setFilterSheetTab("repo");
           return !open;
@@ -905,8 +997,10 @@ export function CommitsPage({
         <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
         <span className="filter-summary-disclosure-caret" aria-hidden="true" />
       </button>
-      {filterBody()}
-      {filtersOpen ? (
+      <div id="inline-commits-filter-panel" onKeyDown={closeFiltersOnEscape} hidden={isCompactSplit && !filtersOpen}>
+        {filterBody()}
+      </div>
+      {isNarrow && filtersOpen ? (
         <>
           <button type="button" className="mobile-control-backdrop" aria-label="Close commit filters" onClick={() => setFiltersOpen(false)} />
           <div
@@ -934,6 +1028,9 @@ export function CommitsPage({
         style={paneHeightStyle}
         data-mobile-detail-open={mobileDetailOpen}
         data-mobile-pane={mobilePane}
+        onTouchStart={handleDetailTouchStart}
+        onTouchEnd={handleDetailTouchEnd}
+        onTouchCancel={() => { detailTouchRef.current = null; }}
         role={mobileDetailOpen ? "dialog" : undefined}
         aria-modal={mobileDetailOpen ? true : undefined}
         aria-label={mobileDetailOpen ? "Commit information and changed files" : undefined}
@@ -957,55 +1054,18 @@ export function CommitsPage({
           selectedKey={selectedKey}
           onSelect={(commit) => {
             const key = activityKey(commit);
-            if (isMobile) {
+            if (isNarrow) {
               if (selectedKey !== key) setDetailMode({ kind: "pinned", key });
               setMobilePane("info");
               setMobileDetailRequested(true);
               return;
             }
-            if (selectedKey === key) closeDetail();
+            if (isCompactSplit && detailMode.kind === "following") setDetailMode({ kind: "pinned", key });
+            else if (selectedKey === key) closeDetail();
             else setDetailMode({ kind: "pinned", key });
           }}
         />
-        {/* Middle column. Keep the range overview mounted as the persistent
-            context for the page; a selected commit is inserted before it so
-            the original pane moves down intact. */}
-        <div className="commits-context">
-          {selectedCommit ? (
-            <CommitDetail
-              commit={selectedCommit}
-              timezone={timezone}
-              sourceKind={sourceKind}
-              colorOf={colorOf}
-              following={detailMode.kind === "following"}
-              onFollowLatest={releasePin}
-              onClose={closeDetail}
-            />
-          ) : null}
-          <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
-        </div>
-        {/* Third column: the ranked facets, always present. Unlike Activity's
-            rail this is not gated on a wide breakpoint — the Commits page has
-            only ever had one supporting column, so hiding it below the tier
-            would take away what the page already showed; the stylesheet stacks
-            it under the list instead. */}
-        <CommitsRail
-          avatarOf={actorAvatars}
-          changedFiles={changedFiles}
-          showOnlyChangedFiles={mobileDetailOpen}
-          commits={commits}
-          repoSource={railRepoSource}
-          authorSource={railAuthorSource}
-          branchSource={railBranchSource}
-          actorIndex={actorIndex}
-          selectedRepo={selectedRepo}
-          selectedSource={selectedSource}
-          selectedAuthor={selectedAuthor}
-          selectedBranch={selectedBranch}
-          onRepo={onRepo}
-          onAuthor={onAuthor}
-          onBranch={onBranch}
-        />
+        {isCompactSplit ? <div className="commits-compact-support">{supportPanes}</div> : supportPanes}
       </div>
     </main>
   );

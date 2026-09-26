@@ -1983,6 +1983,35 @@ try {
     if (/[?&]focus=/.test(focusClickState.hash)) break;
   }
   const focusHtml = await waitHtml("document.querySelector('.graph-focus-load-ready')?.textContent.includes('1/1 hops')");
+  const selectionSurfaces = [];
+  async function captureSelectionSurface(pageName, selector, wrapperSelector = null) {
+    // The newest Live event flashes on arrival independently of selection.
+    // Compare its resting selection after that transient animation completes.
+    if (pageName === "Live") await sleep(1500);
+    const result = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const card = document.querySelector(${JSON.stringify(selector)});
+        const wrapper = ${JSON.stringify(wrapperSelector)} ? document.querySelector(${JSON.stringify(wrapperSelector)}) : null;
+        if (!card) return { found: false };
+        const root = document.documentElement, original = root.dataset.theme;
+        const themes = ['night-owl', 'paper'].map(theme => {
+          root.dataset.theme = theme;
+          const probe = document.createElement('span');
+          probe.style.background = 'var(--selection-bg)';
+          probe.style.border = '1px solid var(--selection-border)';
+          document.body.append(probe);
+          const expected = getComputedStyle(probe), actual = getComputedStyle(card);
+          const matches = actual.backgroundColor === expected.backgroundColor && actual.borderTopColor === expected.borderTopColor;
+          probe.remove();
+          return { theme, matches, wrapperClear: !wrapper || getComputedStyle(wrapper).backgroundColor === 'rgba(0, 0, 0, 0)' };
+        });
+        root.dataset.theme = original;
+        return { found: true, themes };
+      })()`, returnByValue: true,
+    })).result.value || {};
+    selectionSurfaces.push({ pageName, ...result });
+  }
+  await captureSelectionSurface('Graph', '.graph-list-card.active .card');
   const focusLocator = (await send("Runtime.evaluate", {
     expression: `(() => {
       const root = document.documentElement;
@@ -2412,6 +2441,7 @@ try {
   await captureTitleLinkHitTarget("items detail", ".items-page .items-detail-title-link", ".items-detail-title");
   const itemsRangeButtons = await rangeButtonLabels();
   const itemsCountText = await textOf(".items-head .count");
+  await captureSelectionSurface('Items', '.item-row-selected');
   const itemsSummary = (await send("Runtime.evaluate", {
     expression: `new Promise((resolve) => {
       const rows = Array.from(document.querySelectorAll('.items-page .item-row'));
@@ -2986,6 +3016,7 @@ try {
   await captureTitleLinkHitTarget("reviews detail", ".reviews-page .live-detail-title-link", ".live-detail-title");
   const reviewsRangeButtons = await rangeButtonLabels();
   const reviewsCountText = await textOf(".reviews-head .count");
+  await captureSelectionSurface('Reviews', '.reviews-page .live-event-selected');
   const reviewsSummary = (await send("Runtime.evaluate", {
     expression: `(() => {
       const detail = document.querySelector('.reviews-page .live-detail');
@@ -3508,7 +3539,7 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 854, deviceScaleFactor: 1, mobile: false });
+  await send("Emulation.setDeviceMetricsOverride", { width: 1212, height: 854, deviceScaleFactor: 1, mobile: false });
   await sleep(150);
   const commitsMobileWide = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -3560,6 +3591,56 @@ try {
       }
     })()`,
   });
+  const commitsCompactSplits = [];
+  for (const width of [761, 933, 1211]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 704, deviceScaleFactor: 1, mobile: false });
+    await sleep(120);
+    const before = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const row = document.querySelectorAll('.commit-list .commit-row')[1];
+        const targetSha = row?.querySelector('.commit-sha')?.textContent?.trim() || '';
+        const disclosure = document.querySelector('.commits-filter-disclosure');
+        const panel = document.querySelector('#inline-commits-filter-panel');
+        const filtersCollapsed = panel?.hidden === true && !!disclosure?.getClientRects().length;
+        row?.click();
+        disclosure?.click();
+        return { targetSha, filtersCollapsed };
+      })()`, returnByValue: true,
+    })).result.value || {};
+    await sleep(120);
+    const opened = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const panel = document.querySelector('#inline-commits-filter-panel');
+        const expanded = panel?.hidden === false && !!panel?.querySelector('[aria-label="Filter commits by author"]')?.getClientRects().length;
+        document.querySelector('.commits-filter-disclosure')?.click();
+        return expanded;
+      })()`, returnByValue: true,
+    })).result.value;
+    await sleep(120);
+    const reader = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const split = document.querySelector('.commits-split');
+        const list = split?.querySelector('.commit-list');
+        const support = split?.querySelector('.commits-compact-support');
+        const detail = support?.querySelector('.commit-detail-card');
+        const l = list?.getBoundingClientRect(), d = detail?.getBoundingClientRect();
+        const fits = !!l && !!d && l.right <= d.left && d.top >= 0 && d.top < innerHeight && d.right <= innerWidth;
+        const independentScroll = getComputedStyle(list).overflowY === 'auto' && getComputedStyle(support).overflowY === 'auto' && support.clientHeight <= list.clientHeight + 2;
+        const sha = detail?.querySelector('.commit-detail-meta')?.textContent || '';
+        const filesMounted = !!support?.querySelector('.commit-files');
+        const noHorizontalOverflow = document.documentElement.scrollWidth <= innerWidth;
+        detail?.querySelector('.commit-detail-back')?.click();
+        return { fits, independentScroll, sha, filesMounted, noHorizontalOverflow, overlayClosed: split?.getAttribute('role') !== 'dialog' };
+      })()`, returnByValue: true,
+    })).result.value || {};
+    await sleep(100);
+    const closed = (await send("Runtime.evaluate", {
+      expression: "!document.querySelector('.commit-detail-card') && document.querySelector('#inline-commits-filter-panel')?.hidden === true", returnByValue: true,
+    })).result.value;
+    commitsCompactSplits.push({ width, ...before, opened, ...reader, closed });
+  }
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
   const commitFilesRequestsAtDisable = commitFilesRequestCount;
   await send("Runtime.evaluate", { expression: "location.reload()" });
   await waitHtml("document.querySelector('.commits-page .commit-list .commit-row-selected')");
@@ -3571,9 +3652,76 @@ try {
     })`,
     returnByValue: true,
   })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 933, height: 704, deviceScaleFactor: 1, mobile: false });
+  await waitHtml("document.querySelector('.commits-compact-support .commit-files .commit-files-list')");
+  const commitFilesCompactFollowing = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const detail = document.querySelector('.commits-compact-support .commit-detail-card');
+      return { following: !!detail?.querySelector('.live-mode-following'),
+        sha: detail?.querySelector('.commit-detail-sha')?.textContent?.trim() || '',
+        file: document.querySelector('.commits-compact-support .commit-files-path')?.textContent?.trim() || '' };
+    })()`, returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.commit-list .commit-row')[1]?.click()" });
+  await sleep(120);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail .live-mode-release')?.click()" });
+  await sleep(150);
+  const commitFilesCompactReleased = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const detail = document.querySelector('.commits-compact-support .commit-detail-card');
+      return { following: !!detail?.querySelector('.live-mode-following'),
+        sha: detail?.querySelector('.commit-detail-sha')?.textContent?.trim() || '',
+        file: document.querySelector('.commits-compact-support .commit-files-path')?.textContent?.trim() || '' };
+    })()`, returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
+  const swipeCommitDetail = async (selector, dx, dy = 4) => {
+    await send("Runtime.evaluate", { expression: `(() => {
+      const target = document.querySelector(${JSON.stringify(selector)});
+      if (!target) throw new Error('Missing commit swipe target');
+      const rect = target.getBoundingClientRect();
+      const x = rect.left + rect.width * .7, y = rect.top + Math.min(100, rect.height / 2);
+      const make = (x, y) => new Touch({ identifier: 28, target,
+        clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
+      const start = make(x, y), end = make(x + ${dx}, y + ${dy});
+      target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true,
+        touches: [start], targetTouches: [start], changedTouches: [start] }));
+      target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true,
+        touches: [], targetTouches: [], changedTouches: [end] }));
+    })()` });
+    await sleep(180);
+  };
+  const commitSwipeState = async () => (await send("Runtime.evaluate", {
+    expression: `({ sha: document.querySelector('.commit-detail-sha')?.textContent,
+      file: document.querySelector('.commit-files-path')?.textContent?.trim(),
+      pane: document.querySelector('.commits-split')?.dataset.mobilePane,
+      following: !!document.querySelector('.commit-detail .live-mode-following'),
+      scroll: document.querySelector('.commits-split > .commits-rail')?.scrollTop || 0 })`,
+    returnByValue: true,
+  })).result.value;
+  await send("Emulation.setDeviceMetricsOverride", { width: 933, height: 704, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  const compactSwipeFirst = await commitSwipeState();
+  await swipeCommitDetail('.commit-detail-card', 130);
+  if ((await commitSwipeState()).sha !== compactSwipeFirst.sha) throw new Error('Commit swipe crossed newest boundary');
+  await swipeCommitDetail('.commit-detail-card', -130, 180);
+  await swipeCommitDetail('.commit-detail-title-link', -130);
+  await swipeCommitDetail('.commit-list .commit-row-body', -130);
+  if ((await commitSwipeState()).sha !== compactSwipeFirst.sha) throw new Error('Commit swipe intercepted vertical gesture, link, or list');
+  await swipeCommitDetail('.commit-detail-card', -130);
+  const compactSwipeOlder = await commitSwipeState();
+  if (!compactSwipeOlder.sha || compactSwipeOlder.sha === compactSwipeFirst.sha || compactSwipeOlder.following ||
+      compactSwipeOlder.file !== `README-${compactSwipeOlder.sha.slice(0, 8)}.md`) throw new Error('Compact commit swipe did not synchronize older detail/files');
+  await swipeCommitDetail('.commit-detail-card', 130);
+  if ((await commitSwipeState()).sha !== compactSwipeFirst.sha) throw new Error('Compact commit swipe did not return to newer commit');
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail .live-mode-release')?.click()" });
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
+  const commitFilesRequestsBeforeFinalPhoneTap = commitFilesRequestCount;
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
   await sleep(150);
-  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.commit-list .commit-row')[1]?.click()" });
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.commit-list .commit-row')[2]?.click()" });
   await waitHtml("document.querySelector('.commits-split[data-mobile-detail-open=\"true\"] .commit-files .commit-files-list')");
   const commitFilesMobileDefault = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -3625,6 +3773,15 @@ try {
   })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 500, deviceScaleFactor: 3, mobile: true });
   await sleep(100);
+  const phoneSwipeFirst = await commitSwipeState();
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-split > .commits-rail').scrollTop = 100" });
+  await swipeCommitDetail('.commit-files', -130);
+  await waitHtml("(() => { const sha = document.querySelector('.commit-detail-sha')?.textContent; return sha && document.querySelector('.commit-files-path')?.textContent?.trim() === 'README-' + sha.slice(0, 8) + '.md'; })()");
+  const phoneSwipeOlder = await commitSwipeState();
+  if (phoneSwipeOlder.sha === phoneSwipeFirst.sha || phoneSwipeOlder.pane !== 'files' ||
+      phoneSwipeOlder.scroll !== 0 || phoneSwipeOlder.file !== `README-${phoneSwipeOlder.sha.slice(0, 8)}.md`) throw new Error('Phone swipe did not preserve Files pane, synchronize files, or reset scrolling: ' + JSON.stringify({ before: phoneSwipeFirst, after: phoneSwipeOlder }));
+  await swipeCommitDetail('.commit-files', 130);
+  if ((await commitSwipeState()).sha !== phoneSwipeFirst.sha) throw new Error('Phone files swipe did not return to newer commit');
   const commitFilesMobileScroll = (await send("Runtime.evaluate", {
     expression: `(() => {
       const split = document.querySelector('.commits-split');
@@ -4066,6 +4223,7 @@ try {
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
   await sleep(120); // let the auto-select effect populate the detail pane
   await captureTitleLinkHitTarget("live detail", ".live-page .live-detail-title-link", ".live-detail-title");
+  await captureSelectionSurface('Live', '.live-event-selected');
   const live = (await send("Runtime.evaluate", {
     expression: `(() => {
       const page = document.querySelector('.live-page');
@@ -5975,6 +6133,7 @@ try {
     returnByValue: true,
   })).result.value || { clicked: false };
   await sleep(300);
+  await captureSelectionSurface('Commits', '.commit-row-selected .commit-row-body', '.commit-row-selected');
   const commitDetailShown = (await send("Runtime.evaluate", {
     expression: `(() => {
       const shaText = (document.querySelector('.commit-detail-sha')?.textContent || '').trim();
@@ -6024,7 +6183,7 @@ try {
   // because it follows the list in the single-column tier.
   const commitDetailVisibilityByViewport = [];
   for (const vp of [
-    { name: "stacked", width: 1000, height: 1440 },
+    { name: "compact-split", width: 1000, height: 1440 },
     { name: "two-column", width: 1280, height: 1440 },
     { name: "three-column", width: 1880, height: 1080 },
     { name: "rows", width: 2560, height: 1440 },
@@ -6052,6 +6211,7 @@ try {
           found: true,
           hasDigest: !!overview.querySelector('.rail-daybars'),
           sharesContext: detail.closest('.commits-context') === context && overview.closest('.commits-context') === context,
+          overviewHidden: getComputedStyle(overview).display === "none",
           overviewStartsAfterDetail: overviewRect.top >= detailRect.bottom,
           flowGap: Math.round(overviewRect.top - detailRect.bottom),
           contextGap,
@@ -6960,15 +7120,17 @@ try {
           r.found === true &&
           r.hasDigest === true &&
           r.sharesContext === true &&
-          r.overviewStartsAfterDetail === true &&
-          r.flowGap === r.contextGap &&
-          r.sameWidth === true &&
-          r.firstBlockVisiblePx > 0
+          (r.tier === "compact-split" ? r.overviewHidden === true : (
+            r.overviewStartsAfterDetail === true &&
+            r.flowGap === r.contextGap &&
+            r.sameWidth === true &&
+            r.firstBlockVisiblePx > 0
+          ))
         ) &&
         commitDetailToggledOff.hasDetail === false &&
         commitDetailToggledOff.hasDigest === true &&
         commitDetailToggledOff.railStillThere === true,
-      `commits: selecting a row moves the intact overview below the detail at every responsive tier (${JSON.stringify(commitDetailShown)}, tiers=${JSON.stringify(commitDetailVisibilityByViewport)} -> ${JSON.stringify(commitDetailToggledOff)})`,
+      `commits: selection preserves desktop overview and prioritizes compact detail (${JSON.stringify(commitDetailShown)}, tiers=${JSON.stringify(commitDetailVisibilityByViewport)} -> ${JSON.stringify(commitDetailToggledOff)})`,
     ],
     [
       commitDetailShown.shaIsHex === true && commitDetailShown.shaLength === 40,
@@ -6991,8 +7153,8 @@ try {
       `commits: a rail row is a button inside a listitem and exposes aria-pressed (${JSON.stringify(railRowSemantics)}, after=${railRowPressedAfter})`,
     ],
     [
-      commitsRailNarrow.found === true && commitsRailNarrow.sideBySide === false,
-      `commits: the rail stacks under the list below the split floor (${JSON.stringify(commitsRailNarrow)})`,
+      commitsRailNarrow.found === true && commitsRailNarrow.sideBySide === true,
+      `commits: the compact rail stays beside the list below the analytics split floor (${JSON.stringify(commitsRailNarrow)})`,
     ],
     [
       commitsRailForcedWide.found === true &&
@@ -7353,7 +7515,7 @@ try {
     [live.avatarDotContent === "none", `live: feed avatars render without a lower-right category dot (${live.avatarDotContent || "empty"})`],
     [(live.unselectedAccent?.width || 0) >= 3 && (live.unselectedAccent?.opacity || 0) > 0.4 && live.unselectedAccent?.matchesCategory === true && !/rgba\\(0, 0, 0, 0\\)/.test(live.unselectedAccent?.background || ""), `live: non-selected rows show the category-colored left accent line (${JSON.stringify(live.unselectedAccent || {})})`],
     [live.selectedAccent?.matchesCategory === true && live.selectedAccent?.category !== live.unselectedAccent?.category && live.selectedAccent?.background !== live.unselectedAccent?.background, `live: distinct event categories render distinct left accent colours (${JSON.stringify({ selected: live.selectedAccent, unselected: live.unselectedAccent })})`],
-    [(live.selectedAccent?.opacity || 0) > (live.unselectedAccent?.opacity || 0) && live.selectedAccent?.rowBackground !== live.unselectedAccent?.rowBackground, `live: selected row keeps stronger accent/background emphasis (${JSON.stringify({ selected: live.selectedAccent, unselected: live.unselectedAccent })})`],
+    [(live.selectedAccent?.opacity || 0) >= (live.unselectedAccent?.opacity || 0) && live.selectedAccent?.rowBackground !== live.unselectedAccent?.rowBackground, `live: selected row preserves category cues with subtle background emphasis (${JSON.stringify({ selected: live.selectedAccent, unselected: live.unselectedAccent })})`],
     [live.detailAvatarHref === "https://github.com/octocat" && /avatars\.githubusercontent\.com\/u\/583231/.test(live.detailAvatarImgSrc || "") && /Octocat/.test(live.detailAvatarLabel || "") && live.detailAvatarDotContent === "none", `live: detail pane renders the selected actor avatar without a dot (${JSON.stringify({ href: live.detailAvatarHref, src: live.detailAvatarImgSrc, label: live.detailAvatarLabel, dot: live.detailAvatarDotContent })})`],
     [/^2\/5h$/.test(live.activityText || ""), `live: Activity headline counts the full sparkline window, including the outside-hour event (${live.activityText || "empty"})`],
     [/^3\/1000$/.test(live.bufferText || ""), `live: Buffer headline shows retained rows over the memory cap (${live.bufferText || "empty"})`],
@@ -7572,8 +7734,11 @@ try {
     [commitsFollowLatestToggle.found === true && commitsFollowLatestToggle.before === false && commitsFollowLatestToggle.after === true && commitsFollowLatestToggle.stored === "true", `settings: Follow latest commit defaults off and persists on (${JSON.stringify(commitsFollowLatestToggle)})`],
     [commitDetailRhythm.measured === true && commitDetailRhythm.gapBeforeBody >= 8 && commitDetailRhythm.metaTighterThanBody === true, `commits: the detail body panel is separated from the meta list (${JSON.stringify(commitDetailRhythm)})`],
     [commitFilesRail.enabled === true && commitFilesRail.isRailBlock === true && commitFilesRail.isFirstBlock === true && commitFilesRail.title === "Changed files" && commitFilesRail.inDetail === false && commitFilesRail.detailStillRenders === true, `commits: changed files lead the digest rail when enabled (${JSON.stringify(commitFilesRail)})`],
+    [commitsCompactSplits.every(r => r.targetSha && r.filtersCollapsed && r.opened && r.fits && r.independentScroll && r.sha.includes(r.targetSha) && r.filesMounted && r.noHorizontalOverflow && r.overlayClosed && r.closed), `commits: foldable list/detail split and filter collapse (${JSON.stringify(commitsCompactSplits)})`],
     [commitsMobileBeforeTap.selected === true && commitsMobileBeforeTap.overlayOpen === false && commitsMobileBeforeTap.targetSha !== "" && commitsMobileDetail.open === true && commitsMobileDetail.fixed === true && commitsMobileDetail.selectedIsTappedRow === true && commitsMobileDetail.selectedRows === 1 && commitsMobileDetail.detailSha.startsWith(commitsMobileBeforeTap.targetSha) && commitsMobileDetail.detailVisible === true && commitsMobileDetail.filesMounted === true && commitsMobileDetail.filesHiddenOnInfo === true && commitsMobileDetail.listHidden === true && commitsMobileDetail.overviewHidden === true && commitsMobileDetail.backLabel.includes("commits") && commitsMobileDetail.noHorizontalOverflow === true && commitsMobileWide.overlayClosed === true && commitsMobileWide.dialogRemoved === true && commitsMobileWide.detailVisible === true && commitsMobilePortraitReturn.closed === true && commitsMobilePortraitReturn.rowPresent === true && commitsMobileAfterBack.closed === true && commitsMobileAfterBack.listVisible === true && commitsMobileAfterBack.detailClosed === true && commitsMobileAfterBack.selectedRows === 0, `commits: phone detail opens for the tapped commit, handles rotation, then returns to the list (${JSON.stringify({ before: commitsMobileBeforeTap, open: commitsMobileDetail, wide: commitsMobileWide, portrait: commitsMobilePortraitReturn, back: commitsMobileAfterBack })})`],
     [commitFilesTree.rendered === true && commitFilesTree.rows === 11 && commitFilesTree.lines >= 17 && commitFilesTree.clipped === false && commitFilesTree.maxHeight === "none" && commitFilesTree.treeBeforeList === true && commitFilesTree.totalLast === true && commitFilesTree.summary === "11 directories, 11 files", `commits: the changed-files tree renders whole above the rows (${JSON.stringify(commitFilesTree)})`],
+    [selectionSurfaces.length === 5 && selectionSurfaces.every(s => s.found && s.themes.length === 2 && s.themes.every(t => t.matches && t.wrapperClear)), `selection: content lists share quiet card surfaces in both themes, without virtual-row shading (${JSON.stringify(selectionSurfaces)})`],
+    [[commitFilesCompactFollowing, commitFilesCompactReleased].every(r => r.following && r.sha && r.file === `README-${r.sha.slice(0, 8)}.md`), `commits: compact following keeps files matched to the latest SHA with desktop file stats off (${JSON.stringify({ initial: commitFilesCompactFollowing, released: commitFilesCompactReleased })})`],
     [commitFilesRailOff.hasBlock === false && commitFilesRailOff.firstTitle === "Top authors" && commitFilesMobileDefault.detailVisible === true && commitFilesMobileDefault.filesMounted === true && commitFilesMobileDefault.fileRows > 0 && commitFilesMobileDefault.onlyFilePane === true, `commits: file stats stay opt-in for the desktop rail but a phone tap opens the detail and changed-file panes (${JSON.stringify({ desktop: commitFilesRailOff, mobile: commitFilesMobileDefault })})`],
     [commitsFollowLatestApplied.hasDetail === true && commitsFollowLatestApplied.mode === "Following latest" && commitsFollowLatestApplied.toolbar === true && commitsFollowLatestApplied.toolbarSingleLine === true && commitsFollowLatestApplied.selectedIsFirst === true && commitsFollowLatestApplied.selectedRows === 1 && commitsFollowLatestApplied.stored === "true", `commits: follow-latest opens detail with back and mode on one toolbar line (${JSON.stringify(commitsFollowLatestApplied)})`],
     [commitsFollowLatestTransition.mode === "Following latest" && commitsFollowLatestTransition.selectedIsFirst === true && commitsFollowLatestTransition.selectedRows === 1 && commitsFollowLatestTransition.selectionChanged === true && commitsFollowLatestTransition.detailMatches === true, `commits: follow-latest advances after the mounted page's source filter changes (${JSON.stringify(commitsFollowLatestTransition)})`],
@@ -7604,7 +7769,7 @@ try {
     // difference between "this page regressed" and "the machine was too slow";
     // guessing between those cost an afternoon before this was reported.
     [commitsMobileDetail.navVisible === true && commitsMobileDetail.hasFilesButton === true && commitsMobileDetail.filesMatchTappedSha === true, `commits: phone pane navigation and file identity match the tapped SHA (${JSON.stringify(commitsMobileDetail)})`],
-    [commitFilesRequestsBeforePhoneTap === commitFilesRequestsAtDisable && commitFilesRequestsAfterPhoneTap > commitFilesRequestsBeforePhoneTap && commitFilesPhoneRequestedSha === commitFilesMobileDefault.detailSha && commitFilesMobileDefault.firstFile === `README-${commitFilesMobileDefault.detailSha.slice(0, 8)}.md`, `commits: phone tap alone requests the selected commit's changed files (${JSON.stringify({ before: commitFilesRequestsBeforePhoneTap, after: commitFilesRequestsAfterPhoneTap, sha: commitFilesPhoneRequestedSha, mobile: commitFilesMobileDefault })})`],
+    [commitFilesRequestsBeforePhoneTap === commitFilesRequestsAtDisable && commitFilesRequestsAfterPhoneTap > commitFilesRequestsBeforeFinalPhoneTap && commitFilesPhoneRequestedSha === commitFilesMobileDefault.detailSha && commitFilesMobileDefault.firstFile === `README-${commitFilesMobileDefault.detailSha.slice(0, 8)}.md`, `commits: phone tap alone requests the selected commit's changed files (${JSON.stringify({ before: commitFilesRequestsBeforePhoneTap, after: commitFilesRequestsAfterPhoneTap, sha: commitFilesPhoneRequestedSha, mobile: commitFilesMobileDefault })})`],
     [commitFilesMobileDefault.navVisible === true && commitFilesMobileDefault.navSpansPane === true && commitFilesMobileDefault.filesButtonRightAligned === true && commitFilesMobileDefault.infoPaneActive === true && commitFilesMobileDefault.filesPaneHidden === true && commitFilesMobileJump.headingVisible === true && commitFilesMobileJump.firstRowVisible === true && commitFilesMobileJump.filesPaneActive === true && commitFilesMobileJump.infoPaneHidden === true && commitFilesMobileJump.filesPaneSpansPane === true && commitFilesMobileJump.navClearOfContent === true && commitFilesMobileScroll.railScrollTop > 0 && commitFilesMobileScroll.splitScrollTop === 0 && commitFilesMobileScroll.navStable === true && commitFilesMobileScroll.navClearOfContent === true && commitInfoMobileScroll.infoScrollTop > 0 && commitInfoMobileScroll.splitScrollTop === 0 && commitInfoMobileScroll.navStable === true && commitInfoMobileScroll.navClearOfContent === true && commitFilesMobileReturn.atTop === true && commitFilesMobileReturn.detailVisible === true && commitFilesMobileReturn.infoPaneActive === true && commitFilesMobileReturn.filesPaneHidden === true, `commits: phone switches separate Info and Files scrolling panes below a stable header (${JSON.stringify({ opened: commitFilesMobileDefault, files: commitFilesMobileJump, filesScroll: commitFilesMobileScroll, infoScroll: commitInfoMobileScroll, info: commitFilesMobileReturn })})`],
     [waitTimeouts.length === 0, `no waits timed out (${waitTimeouts.length})`],
   ];
