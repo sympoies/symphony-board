@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from "react";
 import type { SourceDTO } from "@symphony-board/contract";
 import {
   relativeTime,
@@ -214,210 +215,329 @@ export function SettingsPage({
       {showTabs ? <SettingsTabs active={activeTab} onTab={onTab} lockedToSources={setupLocked} /> : null}
       <div className="settings-head">
         <div>
-          <h2>Display</h2>
+          <h2>Device preferences</h2>
           <p className="muted">
-            View-only preferences saved in your browser — display basics, board data and defaults,
-            connection, and which repos and sources appear. The daemon keeps syncing every source
-            regardless.
+            Choose a section below. Display choices are saved on this device; hiding repos does not stop syncing.
           </p>
         </div>
       </div>
 
-      <div className="settings-pref">
-        <div>
-          <h3>Color mode</h3>
-          <p className="muted">Follows this device by default. Light mode is tuned for e-ink readability.</p>
+      <SettingsGroup title="Connection & sync" description="Server address and manual sync." initiallyOpen={!serverBaseUrl && !standalone}>
+        <div className="settings-pref settings-server">
+          <div>
+            <h3>Server</h3>
+            <p className="muted">Used by the desktop app and optional remote deployments.</p>
+          </div>
+          <ServerConnectionForm serverBaseUrl={serverBaseUrl} onServerBaseUrl={onServerBaseUrl} />
         </div>
-        <select
-          className="settings-select"
-          value={colorMode}
-          onChange={(e) => {
-            if (isViewColorMode(e.target.value)) onColorMode(e.target.value);
-          }}
-        >
-          {VIEW_COLOR_MODES.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </div>
 
-      {isAndroid ? (
+        {sync?.available ? <SyncControls sync={sync} /> : null}
+      </SettingsGroup>
+
+      <SettingsGroup title="Appearance" description="Color mode and screen layout." initiallyOpen>
         <div className="settings-pref">
           <div>
-            <h3>Wide layout</h3>
+            <h3>Color mode</h3>
+            <p className="muted">Follows this device by default. Light mode is tuned for e-ink readability.</p>
+          </div>
+          <select
+            className="settings-select"
+            value={colorMode}
+            onChange={(e) => {
+              if (isViewColorMode(e.target.value)) onColorMode(e.target.value);
+            }}
+          >
+            {VIEW_COLOR_MODES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {isAndroid ? (
+          <div className="settings-pref">
+            <div>
+              <h3>Wide layout</h3>
+              <p className="muted">
+                Render the full desktop layout instead of the phone layout — for a large screen such as
+                an e-reader. Leave off on a phone. Saved on this device only.
+              </p>
+            </div>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={wideLayout}
+                onChange={(e) => onWideLayout(e.target.checked)}
+                aria-label="Use the wide desktop layout"
+              />
+            </label>
+          </div>
+        ) : null}
+      </SettingsGroup>
+
+      <SettingsGroup title="Navigation" description="Starting page and tab order.">
+        <div className="settings-pref">
+          <div>
+            <h3>Default tab</h3>
             <p className="muted">
-              Render the full desktop layout instead of the phone layout — for a large screen such as
-              an e-reader. Leave off on a phone. Saved on this device only.
+              The tab to open when the URL has no specific page (a fresh open). Saved on this device only.
+            </p>
+          </div>
+          <select
+            className="settings-select"
+            value={resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled)}
+            onChange={(e) => {
+              if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
+            }}
+          >
+            {tabOptions.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="settings-pref settings-tab-order-pref">
+          <div>
+            <h3>Tab order</h3>
+            <p className="muted">
+              Order of the content tabs before Settings. Saved on this device only.
+            </p>
+          </div>
+          <ol className="settings-tab-order-list" aria-label="Content tab order">
+            {contentTabOrder.map((tab, index) => {
+              const label = contentTabLabels.get(tab) ?? tab;
+              return (
+                <li key={tab}>
+                  <span>{label}</span>
+                  <span className="settings-tab-order-actions">
+                    <button
+                      type="button"
+                      className="settings-order-button"
+                      disabled={index === 0}
+                      onClick={() => onMoveContentTab(tab, -1)}
+                      aria-label={`Move ${label} earlier`}
+                      title={`Move ${label} earlier`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-order-button"
+                      disabled={index === contentTabOrder.length - 1}
+                      onClick={() => onMoveContentTab(tab, 1)}
+                      aria-label={`Move ${label} later`}
+                      title={`Move ${label} later`}
+                    >
+                      ↓
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Board & repositories" description="Board data, date range, visible repos and colors.">
+
+        <div className="settings-pref">
+          <div>
+            <h3>Board data</h3>
+            <p className="muted">
+              {standalone
+                ? "Turn contract-backed board data on or off for this device."
+                : "Turn contract-backed board data on or off. When off, only the Live feed is shown — open the Live tab below."}
             </p>
           </div>
           <label className="settings-toggle">
             <input
               type="checkbox"
-              checked={wideLayout}
-              onChange={(e) => onWideLayout(e.target.checked)}
-              aria-label="Use the wide desktop layout"
+              checked={boardScope !== "off"}
+              onChange={(e) => onBoardScope(e.target.checked ? "full" : "off")}
+              aria-label="Load board data"
             />
           </label>
         </div>
-      ) : null}
 
-      <SettingsSectionTitle title="Board" />
-      <div className="settings-pref">
-        <div>
-          <h3>Board data</h3>
-          <p className="muted">
-            {standalone
-              ? "Turn contract-backed board data on or off for this device."
-              : "Turn contract-backed board data on or off. When off, only the Live feed is shown — open the Live tab below."}
-          </p>
+        <div className="settings-pref">
+          <div>
+            <h3>Default range</h3>
+            <p className="muted">Used when the URL does not include from/to dates.</p>
+            {disabledRangePresets.size > 0 ? (
+              <p className="muted">Longer ranges are unavailable on this device.</p>
+            ) : null}
+          </div>
+          <select
+            className="settings-select"
+            value={defaultRangePreset}
+            onChange={(e) => {
+              if (isTimeRangePresetId(e.target.value)) onDefaultRangePreset(e.target.value);
+            }}
+          >
+            {TIME_RANGE_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id} disabled={disabledRangePresets.has(preset.id)}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
         </div>
-        <label className="settings-toggle">
-          <input
-            type="checkbox"
-            checked={boardScope !== "off"}
-            onChange={(e) => onBoardScope(e.target.checked ? "full" : "off")}
-            aria-label="Load board data"
-          />
-        </label>
-      </div>
 
-      <div className="settings-pref">
-        <div>
-          <h3>Default range</h3>
-          <p className="muted">Used when the URL does not include from/to dates.</p>
-          {disabledRangePresets.size > 0 ? (
-            <p className="muted">Longer ranges are unavailable on this device.</p>
-          ) : null}
-        </div>
-        <select
-          className="settings-select"
-          value={defaultRangePreset}
-          onChange={(e) => {
-            if (isTimeRangePresetId(e.target.value)) onDefaultRangePreset(e.target.value);
-          }}
-        >
-          {TIME_RANGE_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id} disabled={disabledRangePresets.has(preset.id)}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
-      </div>
+        {repos.length > 0 ? (
+          <div className="settings-repos-head">
+            <div>
+              <h3>Sources &amp; repos</h3>
+              <p className="muted">
+                Choose which repos and sources appear on the Board and Graph, and give a repo a
+                highlight color. Hiding here is view-only — the daemon keeps syncing every source.
+              </p>
+            </div>
+            <div className="settings-bulk">
+              <span className="muted">
+                {shownTotal}/{allKeys.length} repos shown
+              </span>
+              <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, true)}>
+                Show all
+              </button>
+              <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, false)}>
+                Hide all
+              </button>
+            </div>
+          </div>
+        ) : null}
 
-      <div className="settings-pref">
-        <div>
-          <h3>Default tab</h3>
-          <p className="muted">
-            The tab to open when the URL has no specific page (a fresh open). Saved on this device only.
-          </p>
-        </div>
-        <select
-          className="settings-select"
-          value={resolveDefaultTab(defaultTab, liveTabEffectivelyEnabled)}
-          onChange={(e) => {
-            if (isDefaultTab(e.target.value)) onDefaultTab(e.target.value);
-          }}
-        >
-          {tabOptions.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="settings-pref settings-tab-order-pref">
-        <div>
-          <h3>Tab order</h3>
-          <p className="muted">
-            Order of the content tabs before Settings. Saved on this device only.
-          </p>
-        </div>
-        <ol className="settings-tab-order-list" aria-label="Content tab order">
-          {contentTabOrder.map((tab, index) => {
-            const label = contentTabLabels.get(tab) ?? tab;
-            return (
-              <li key={tab}>
-                <span>{label}</span>
-                <span className="settings-tab-order-actions">
-                  <button
-                    type="button"
-                    className="settings-order-button"
-                    disabled={index === 0}
-                    onClick={() => onMoveContentTab(tab, -1)}
-                    aria-label={`Move ${label} earlier`}
-                    title={`Move ${label} earlier`}
-                  >
-                    ↑
+        {[...bySource.entries()].map(([sourceId, list]) => {
+          const meta = sourceMeta.get(sourceId);
+          const keys = list.map((r) => r.key);
+          const shown = keys.filter((k) => !hidden.has(k)).length;
+          const status = meta?.last_status ?? "unknown";
+          const sourceHidden = hiddenSources.has(sourceId);
+          return (
+            <div className={`settings-source${sourceHidden ? " settings-source-off" : ""}`} key={sourceId}>
+              <div className="settings-source-head">
+                <label className="settings-source-show" title="show this source on the Board and Graph">
+                  <input type="checkbox" checked={!sourceHidden} onChange={() => onToggleSource(sourceId)} />
+                </label>
+                <Badge text={status} kind={`status-${status}`} />
+                <span className="source-name">{meta?.display_name ?? sourceId}</span>
+                {meta?.color && isHexColor(meta.color) ? (
+                  <span className="color-swatch" style={{ background: meta.color }} title={`source color ${meta.color} (set in config)`} />
+                ) : null}
+                <span className="muted">
+                  {meta?.kind ?? "?"} @ {meta?.host ?? "?"} · ok {relativeTime(meta?.last_success_at ?? null)}
+                </span>
+                <span className="settings-source-actions">
+                  <span className="count">
+                    {shown}/{keys.length}
+                  </span>
+                  <button type="button" className="link-btn" onClick={() => onSetVisible(keys, true)}>
+                    all
                   </button>
-                  <button
-                    type="button"
-                    className="settings-order-button"
-                    disabled={index === contentTabOrder.length - 1}
-                    onClick={() => onMoveContentTab(tab, 1)}
-                    aria-label={`Move ${label} later`}
-                    title={`Move ${label} later`}
-                  >
-                    ↓
+                  <button type="button" className="link-btn" onClick={() => onSetVisible(keys, false)}>
+                    none
                   </button>
                 </span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+              </div>
+              <ul className="settings-repos">
+                {list.map((r) => {
+                  const effective = colorOf(r.source_id, r.project_path);
+                  const overridden = colorOverrides.has(r.key);
+                  return (
+                    <li key={r.key}>
+                      <label className="settings-repo">
+                        <input type="checkbox" checked={!hidden.has(r.key)} onChange={() => onToggle(r.key)} />
+                        <span className="settings-repo-name">{r.project_path ?? "(no project)"}</span>
+                        <span
+                          className="count"
+                          title={`${r.count} ${r.count === 1 ? "item" : "items"}${
+                            r.last_activity_at
+                              ? ` · last active ${new Date(r.last_activity_at).toLocaleString("en-US", { hour12: false })}`
+                              : " · no activity recorded"
+                          }`}
+                        >
+                          {r.last_activity_at ? relativeTime(r.last_activity_at) : "—"}
+                        </span>
+                      </label>
+                      <span className="settings-repo-color">
+                        <input
+                          type="color"
+                          className="color-input"
+                          value={toInputHex(effective)}
+                          onChange={(e) => onSetColor(r.key, e.target.value)}
+                          title={
+                            overridden
+                              ? `override ${effective}`
+                              : effective
+                                ? `inherited ${effective} — pick to override`
+                                : "set a highlight color"
+                          }
+                        />
+                        {overridden ? (
+                          <button type="button" className="link-btn" onClick={() => onClearColor(r.key)} title="reset to the inherited color">
+                            reset
+                          </button>
+                        ) : (
+                          <span className="link-btn-placeholder" aria-hidden="true" />
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
 
-      <div className="settings-pref">
-        <div>
-          <h3>Follow latest commit</h3>
-          <p className="muted">
-            Automatically show detail for the newest visible commit and follow newer commits as they arrive.
-            Saved on this device only.
-          </p>
-        </div>
-        <label className="settings-toggle">
-          <input
-            type="checkbox"
-            checked={commitsFollowLatest}
-            onChange={(e) => onCommitsFollowLatest(e.target.checked)}
-            aria-label="Follow the latest commit detail"
-          />
-        </label>
-      </div>
+        {repos.length === 0 && <p className="empty">No repos in the contract yet.</p>}
+      </SettingsGroup>
 
-      <div className="settings-pref">
-        <div>
-          <h3>Commit file stats</h3>
-          <p className="muted">
-            Lead the Commits digest rail with the selected commit's changed files: its directory tree,
-            each file's line counts, and the total. Unlike the rest of the board this asks the server
-            for one commit at a time — the one the pane is showing, which with Follow latest commit on
-            includes each newer commit as it arrives — so it needs a server that can reach the provider.
-            Saved on this device only.
-          </p>
+      <SettingsGroup title="Commits" description="Follow the latest commit and show changed files.">
+        <div className="settings-pref">
+          <div>
+            <h3>Follow latest commit</h3>
+            <p className="muted">
+              Automatically show detail for the newest visible commit and follow newer commits as they arrive.
+              Saved on this device only.
+            </p>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={commitsFollowLatest}
+              onChange={(e) => onCommitsFollowLatest(e.target.checked)}
+              aria-label="Follow the latest commit detail"
+            />
+          </label>
         </div>
-        <label className="settings-toggle">
-          <input
-            type="checkbox"
-            checked={commitFileStats}
-            onChange={(e) => onCommitFileStats(e.target.checked)}
-            aria-label="Show the selected commit's changed files in the digest rail"
-          />
-        </label>
-      </div>
+
+        <div className="settings-pref">
+          <div>
+            <h3>Commit file stats</h3>
+            <p className="muted">
+              Show changed files and line counts for the selected commit. Requires a connected server;
+              following the latest commit also loads its file stats.
+            </p>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={commitFileStats}
+              onChange={(e) => onCommitFileStats(e.target.checked)}
+              aria-label="Show the selected commit's changed files in the digest rail"
+            />
+          </label>
+        </div>
+      </SettingsGroup>
 
       {!standalone ? (
-        <>
-          <SettingsSectionTitle title="Live" />
+        <SettingsGroup title="Live" description="Realtime feed, previews and event types.">
           <div className={`settings-pref${liveDisabled ? " settings-pref-disabled" : ""}`} title={liveDisabled ? LIVE_DISABLED_TITLE : undefined}>
             <div>
               <h3>Live tab</h3>
               <p className="muted">
-                Show the realtime Live tab and stream activity as it lands. Off by default — while off
-                the tab is hidden and the app opens no live connection, so it costs nothing. Saved on
-                this device only.
+                Show the Live tab and stream new activity. When off, the tab is hidden and streaming stops.
               </p>
               {liveDisabled ? <p className="muted">Live needs a running server — unavailable in this static demo.</p> : null}
             </div>
@@ -480,132 +600,23 @@ export function SettingsPage({
               </div>
             </>
           ) : null}
-        </>
+        </SettingsGroup>
       ) : null}
-
-      <SettingsSectionTitle title="Connection" />
-      <div className="settings-pref settings-server">
-        <div>
-          <h3>Server</h3>
-          <p className="muted">Used by the desktop app and optional remote deployments.</p>
-        </div>
-        <ServerConnectionForm serverBaseUrl={serverBaseUrl} onServerBaseUrl={onServerBaseUrl} />
-      </div>
-
-      {sync?.available ? <SyncControls sync={sync} /> : null}
-
-      {repos.length > 0 ? (
-        <div className="settings-repos-head">
-          <div>
-            <h3>Sources &amp; repos</h3>
-            <p className="muted">
-              Choose which repos and sources appear on the Board and Graph, and give a repo a
-              highlight color. Hiding here is view-only — the daemon keeps syncing every source.
-            </p>
-          </div>
-          <div className="settings-bulk">
-            <span className="muted">
-              {shownTotal}/{allKeys.length} repos shown
-            </span>
-            <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, true)}>
-              Show all
-            </button>
-            <button type="button" className="toggle" onClick={() => onSetVisible(allKeys, false)}>
-              Hide all
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {[...bySource.entries()].map(([sourceId, list]) => {
-        const meta = sourceMeta.get(sourceId);
-        const keys = list.map((r) => r.key);
-        const shown = keys.filter((k) => !hidden.has(k)).length;
-        const status = meta?.last_status ?? "unknown";
-        const sourceHidden = hiddenSources.has(sourceId);
-        return (
-          <div className={`settings-source${sourceHidden ? " settings-source-off" : ""}`} key={sourceId}>
-            <div className="settings-source-head">
-              <label className="settings-source-show" title="show this source on the Board and Graph">
-                <input type="checkbox" checked={!sourceHidden} onChange={() => onToggleSource(sourceId)} />
-              </label>
-              <Badge text={status} kind={`status-${status}`} />
-              <span className="source-name">{meta?.display_name ?? sourceId}</span>
-              {meta?.color && isHexColor(meta.color) ? (
-                <span className="color-swatch" style={{ background: meta.color }} title={`source color ${meta.color} (set in config)`} />
-              ) : null}
-              <span className="muted">
-                {meta?.kind ?? "?"} @ {meta?.host ?? "?"} · ok {relativeTime(meta?.last_success_at ?? null)}
-              </span>
-              <span className="settings-source-actions">
-                <span className="count">
-                  {shown}/{keys.length}
-                </span>
-                <button type="button" className="link-btn" onClick={() => onSetVisible(keys, true)}>
-                  all
-                </button>
-                <button type="button" className="link-btn" onClick={() => onSetVisible(keys, false)}>
-                  none
-                </button>
-              </span>
-            </div>
-            <ul className="settings-repos">
-              {list.map((r) => {
-                const effective = colorOf(r.source_id, r.project_path);
-                const overridden = colorOverrides.has(r.key);
-                return (
-                  <li key={r.key}>
-                    <label className="settings-repo">
-                      <input type="checkbox" checked={!hidden.has(r.key)} onChange={() => onToggle(r.key)} />
-                      <span className="settings-repo-name">{r.project_path ?? "(no project)"}</span>
-                      <span
-                        className="count"
-                        title={`${r.count} ${r.count === 1 ? "item" : "items"}${
-                          r.last_activity_at
-                            ? ` · last active ${new Date(r.last_activity_at).toLocaleString("en-US", { hour12: false })}`
-                            : " · no activity recorded"
-                        }`}
-                      >
-                        {r.last_activity_at ? relativeTime(r.last_activity_at) : "—"}
-                      </span>
-                    </label>
-                    <span className="settings-repo-color">
-                      <input
-                        type="color"
-                        className="color-input"
-                        value={toInputHex(effective)}
-                        onChange={(e) => onSetColor(r.key, e.target.value)}
-                        title={
-                          overridden
-                            ? `override ${effective}`
-                            : effective
-                              ? `inherited ${effective} — pick to override`
-                              : "set a highlight color"
-                        }
-                      />
-                      {overridden ? (
-                        <button type="button" className="link-btn" onClick={() => onClearColor(r.key)} title="reset to the inherited color">
-                          reset
-                        </button>
-                      ) : (
-                        <span className="link-btn-placeholder" aria-hidden="true" />
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        );
-      })}
-
-      {repos.length === 0 && <p className="empty">No repos in the contract yet.</p>}
     </section>
   );
 }
 
-function SettingsSectionTitle({ title }: { title: string }) {
-  return <div className="settings-section-title">{title}</div>;
+function SettingsGroup({ title, description, initiallyOpen = false, children }: { title: string; description: string; initiallyOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(initiallyOpen);
+  return (
+    <details className="settings-group" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        <span className="settings-group-title">{title}</span>
+        <span className="settings-group-description muted">{description}</span>
+      </summary>
+      <div className="settings-group-body">{children}</div>
+    </details>
+  );
 }
 
 function LiveCapabilitiesStatus({ state }: { state: CapabilitiesState }) {

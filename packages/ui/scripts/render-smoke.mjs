@@ -3102,6 +3102,29 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  const settingsGroups = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const groups = Array.from(document.querySelectorAll('.settings-group'));
+      const result = groups.map((group) => ({ title: group.querySelector('.settings-group-title')?.textContent, open: group.open }));
+      for (const group of groups) {
+        if (!group.open) group.querySelector('summary').click();
+      }
+      return { initial: result, expanded: groups.every((group) => group.open) };
+    })()`,
+    returnByValue: true,
+  })).result.value;
+  await send("Runtime.evaluate", { expression: `(() => {
+    const input = document.querySelector('.server-url-input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'http://127.0.0.1:${HTTP_PORT}/');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()` });
+  await sleep(100);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.server-form').requestSubmit()" });
+  await waitValue("document.querySelector('.server-url-status')?.textContent.includes('http://127.0.0.1:') ? true : null");
+  const connectionGroupAfterConnect = (await send("Runtime.evaluate", {
+    expression: "document.querySelector('.settings-server').closest('details').open", returnByValue: true,
+  })).result.value;
+  await send("Runtime.evaluate", { expression: "document.querySelector('.server-form .link-btn').click()" });
   await waitValue("document.querySelectorAll('.settings-live-status-list li').length > 0 ? true : null");
   const colorModeBefore = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -6689,10 +6712,10 @@ try {
   const boardKindIcons = m(boardHtml, /icon-item-kind/g);
   const settingsRepos = m(settingsHtml, /class="settings-repo"/g);
   const settingIndex = (title) => (settingsDisplayModel.headings || []).indexOf(title);
-  const expectedTabOrderBeforeMove = ["Live", "Activity", "Metrics", "Board", "Graph", "Items", "Reviews", "Commits", "Settings"];
-  const expectedTabOrderAfterMove = ["Live", "Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Commits", "Settings"];
-  const expectedContentRowsAfterMove = ["Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Commits"];
-  const expectedStoredTabOrderAfterMove = JSON.stringify({ order: ["activity", "repo-analytics", "graph", "board", "items", "reviews", "commits"] });
+  const expectedTabOrderBeforeMove = ["Live", "Commits", "Activity", "Metrics", "Board", "Graph", "Items", "Reviews", "Settings"];
+  const expectedTabOrderAfterMove = ["Live", "Commits", "Activity", "Metrics", "Graph", "Board", "Items", "Reviews", "Settings"];
+  const expectedContentRowsAfterMove = ["Commits", "Activity", "Metrics", "Graph", "Board", "Items", "Reviews"];
+  const expectedStoredTabOrderAfterMove = JSON.stringify({ order: ["commits", "activity", "repo-analytics", "graph", "board", "items", "reviews"], version: 2 });
   const graphCards = m(graphListHtml, /class="graph-list-card/g);
   const graphListKindIcons = m(graphListHtml, /icon-item-kind/g);
   const activityRows = activityDomRows || m(activityHtml, /class="activity-row/g);
@@ -7563,7 +7586,9 @@ try {
     [commitsFollowLatestRestored.checked === false && commitsFollowLatestRestored.stored === "false", `settings: Follow latest commit can be disabled again (${JSON.stringify(commitsFollowLatestRestored)})`],
     [(settingsDisplayModel.liveStatusRows || []).some((row) => /latest seq 3/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Webhook setup hint: github https:\/\/deploy\.example\/webhooks\/github/.test(row)) && (settingsDisplayModel.liveStatusRows || []).some((row) => /Allowlist enabled for 2 projects/.test(row)), `settings: Live diagnostics render latest event, webhook hint, and allowlist (${JSON.stringify(settingsDisplayModel.liveStatusRows || [])})`],
     [settingsDisplayModel.liveRefreshLabel === "Refresh" && liveStatusRefresh.clicked === true && liveCapabilitiesAfterRefresh > liveCapabilitiesBeforeRefresh, `settings: Live diagnostics refresh re-probes capabilities (${liveCapabilitiesBeforeRefresh} -> ${liveCapabilitiesAfterRefresh}, ${JSON.stringify(liveStatusRefresh)})`],
-    [settingIndex("Board data") > settingIndex("Color mode") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Default tab") > settingIndex("Default range") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Follow latest commit") > settingIndex("Tab order") && settingIndex("Live tab") > settingIndex("Follow latest commit") && settingIndex("Server") > settingIndex("Live event types"), `settings: Display preferences are ordered board-first, then Live, then Connection (${(settingsDisplayModel.headings || []).join(" > ")})`],
+    [connectionGroupAfterConnect === true, "settings: connecting a server preserves the open Connection section"],
+    [JSON.stringify(settingsGroups?.initial?.map((group) => group.title)) === JSON.stringify(["Connection & sync", "Appearance", "Navigation", "Board & repositories", "Commits", "Live"]) && settingsGroups?.initial?.find((group) => group.title === "Appearance")?.open === true && settingsGroups?.initial?.find((group) => group.title === "Navigation")?.open === false && settingsGroups?.expanded === true, `settings: related controls have discoverable, expandable groups (${JSON.stringify(settingsGroups)})`],
+    [settingIndex("Server") < settingIndex("Color mode") && settingIndex("Default tab") > settingIndex("Color mode") && settingIndex("Tab order") > settingIndex("Default tab") && settingIndex("Board data") > settingIndex("Tab order") && settingIndex("Default range") > settingIndex("Board data") && settingIndex("Follow latest commit") > settingIndex("Default range") && settingIndex("Live tab") > settingIndex("Follow latest commit"), `settings: connection, appearance, navigation, board, commits and Live controls stay grouped (${(settingsDisplayModel.headings || []).join(" > ")})`],
     [tabOrderClick.clicked === true && JSON.stringify(tabOrderBefore) === JSON.stringify(expectedTabOrderBeforeMove) && JSON.stringify(tabOrderAfterMove.labels) === JSON.stringify(expectedTabOrderAfterMove) && JSON.stringify(tabOrderAfterMove.rows) === JSON.stringify(expectedContentRowsAfterMove) && tabOrderAfterMove.stored === expectedStoredTabOrderAfterMove, `settings: tab order control moves Graph before Board while Live/Settings stay anchored (${JSON.stringify(tabOrderAfterMove)})`],
     [liveOnlySettings.boardChecked === false && liveOnlySettings.hasPreview === true && liveOnlySettings.hasTypes === true, `settings: Live-only mode still renders Live sub-settings (${JSON.stringify(liveOnlySettings)})`],
     [bothOffGuard.hasEnableLive === true && /Board data is turned off/.test(bothOffGuardHtml), `settings: both-off board route exposes an Enable Live affordance (${JSON.stringify(bothOffGuard)})`],

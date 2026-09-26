@@ -502,7 +502,12 @@ Pages:
   look like healthy in-range activity. Repo names link through
   `repo_metrics[].repo_url` when present; non-zero metric values deep-link to the
   source-aware Activity or Commits view for the same date range.
-- **Settings**: browser-local display preferences. It can hide repos or whole
+- **Settings**: browser-local display preferences, organized into expandable
+  Connection & sync, Appearance, Navigation, Board & repositories, Commits,
+  and Live groups. Appearance opens by default; an unconfigured client also
+  opens Connection & sync. The writer-owned Sources editor remains separate.
+  Commits follows Live in the default navigation; upgrades move Commits first
+  while preserving the other saved positions, and later custom orders persist. It can hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
   overrides in `localStorage`. It also stores the opt-in that keeps Commits
   detail on the newest visible row; the detail itself exposes the current
