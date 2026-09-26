@@ -3700,6 +3700,9 @@ try {
       scroll: document.querySelector('.commits-split > .commits-rail')?.scrollTop || 0 })`,
     returnByValue: true,
   })).result.value;
+  const overviewSwipeFirst = await commitSwipeState();
+  await swipeCommitDetail('.commits-overview', -130);
+  if ((await commitSwipeState()).sha !== overviewSwipeFirst.sha) throw new Error('Desktop overview swipe navigated commit detail');
   await send("Emulation.setDeviceMetricsOverride", { width: 933, height: 704, deviceScaleFactor: 1, mobile: false });
   await sleep(150);
   const compactSwipeFirst = await commitSwipeState();
@@ -3748,6 +3751,35 @@ try {
   })).result.value || {};
   const commitFilesRequestsAfterPhoneTap = commitFilesRequestCount;
   const commitFilesPhoneRequestedSha = commitFilesLastRequestedSha;
+  const commitReaderFooter = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const footer = split?.querySelector(':scope > .commit-detail-nav');
+      const info = split?.querySelector(':scope > .commits-context');
+      const rect = footer?.getBoundingClientRect();
+      return { outsideContent: !!footer, bottom: rect?.bottom,
+        fullWidth: !!rect && !!info && Math.abs(rect.right - info.getBoundingClientRect().right) < 2,
+        contentBottom: info?.getBoundingClientRect().bottom, height: innerHeight };
+    })()`, returnByValue: true,
+  })).result.value || {};
+  if (!commitReaderFooter.outsideContent || !commitReaderFooter.fullWidth || commitReaderFooter.bottom < commitReaderFooter.height - 30 ||
+      commitReaderFooter.contentBottom > commitReaderFooter.bottom - 30) {
+    throw new Error('Commit reader navigation must stay at viewport bottom outside scrolling Info/Files content: ' + JSON.stringify(commitReaderFooter));
+  }
+  const commitReaderFilled = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const pane = document.querySelector('.commits-split > .commits-context');
+      const card = pane?.querySelector('.commit-detail-card');
+      return !!pane && !!card && card.getBoundingClientRect().bottom >= pane.getBoundingClientRect().bottom - 2 &&
+        card.getBoundingClientRect().right <= pane.getBoundingClientRect().right + 2;
+    })()`, returnByValue: true,
+  })).result.value;
+  if (!commitReaderFilled) throw new Error('Commit card must fill the phone reader like Live');
+  const phoneBlankFirst = await commitSwipeState();
+  await swipeCommitDetail('.commits-split > .commits-context', -130);
+  if ((await commitSwipeState()).sha === phoneBlankFirst.sha) throw new Error('Commit Info blank scrolling area does not accept swipe');
+  await swipeCommitDetail('.commits-split', 130);
+  if ((await commitSwipeState()).sha !== phoneBlankFirst.sha) throw new Error('Commit reader outer blank area does not accept swipe');
   await send("Runtime.evaluate", { expression: "document.querySelector('.commit-mobile-pane-nav button:last-child')?.click()" });
   await sleep(550);
   const commitFilesMobileJump = (await send("Runtime.evaluate", {
@@ -3775,13 +3807,16 @@ try {
   await sleep(100);
   const phoneSwipeFirst = await commitSwipeState();
   await send("Runtime.evaluate", { expression: "document.querySelector('.commits-split > .commits-rail').scrollTop = 100" });
-  await swipeCommitDetail('.commit-files', -130);
+  await swipeCommitDetail('.commits-split > .commits-rail', -130);
   await waitHtml("(() => { const sha = document.querySelector('.commit-detail-sha')?.textContent; return sha && document.querySelector('.commit-files-path')?.textContent?.trim() === 'README-' + sha.slice(0, 8) + '.md'; })()");
   const phoneSwipeOlder = await commitSwipeState();
   if (phoneSwipeOlder.sha === phoneSwipeFirst.sha || phoneSwipeOlder.pane !== 'files' ||
       phoneSwipeOlder.scroll !== 0 || phoneSwipeOlder.file !== `README-${phoneSwipeOlder.sha.slice(0, 8)}.md`) throw new Error('Phone swipe did not preserve Files pane, synchronize files, or reset scrolling: ' + JSON.stringify({ before: phoneSwipeFirst, after: phoneSwipeOlder }));
   await swipeCommitDetail('.commit-files', 130);
   if ((await commitSwipeState()).sha !== phoneSwipeFirst.sha) throw new Error('Phone files swipe did not return to newer commit');
+  const footerBeforeScroll = (await send("Runtime.evaluate", {
+    expression: "document.querySelector('.commits-split > .commit-detail-nav')?.getBoundingClientRect().top", returnByValue: true,
+  })).result.value;
   const commitFilesMobileScroll = (await send("Runtime.evaluate", {
     expression: `(() => {
       const split = document.querySelector('.commits-split');
@@ -3795,6 +3830,7 @@ try {
         railClientHeight: rail?.clientHeight,
         splitScrollTop: split?.scrollTop,
         navStable: navTop != null && Math.abs(nav.getBoundingClientRect().top - navTop) < 2,
+        footerStable: Math.abs(document.querySelector('.commits-split > .commit-detail-nav')?.getBoundingClientRect().top - ${footerBeforeScroll}) < 2,
         navClearOfContent: !!nav && !!rail && nav.getBoundingClientRect().bottom <= rail.getBoundingClientRect().top + 2,
       };
     })()`,
@@ -6143,6 +6179,7 @@ try {
       const context = document.querySelector('.commits-context');
       const detailRect = detail?.getBoundingClientRect();
       const overviewRect = overview?.getBoundingClientRect();
+      const navigationRect = context?.querySelector(':scope > .commit-detail-nav')?.getBoundingClientRect();
       return {
         hasDetail: !!detail,
         // Detail participates in normal flow before the overview, so the range
@@ -6150,6 +6187,7 @@ try {
         hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
         sharesContext: !!detail?.closest('.commits-context')?.contains(overview),
         overviewStartsAfterDetail: !!detailRect && !!overviewRect && overviewRect.top >= detailRect.bottom,
+        navigationHidden: !navigationRect,
         flowGap: detailRect && overviewRect ? Math.round(overviewRect.top - detailRect.bottom) : null,
         contextGap: context ? Math.round(parseFloat(getComputedStyle(context).rowGap) || 0) : null,
         railStillThere: !!document.querySelector('.commits-rail .rail-block'),
@@ -6204,6 +6242,7 @@ try {
         if (!context || !detail || !overview) return { found: false };
         const detailRect = detail.getBoundingClientRect();
         const overviewRect = overview.getBoundingClientRect();
+        const navigationRect = context.querySelector(':scope > .commit-detail-nav')?.getBoundingClientRect();
         const blocks = [...overview.querySelectorAll(':scope > .rail-block')];
         const firstBlockRect = blocks[0]?.getBoundingClientRect();
         const contextGap = Math.round(parseFloat(getComputedStyle(context).rowGap) || 0);
@@ -6213,6 +6252,7 @@ try {
           sharesContext: detail.closest('.commits-context') === context && overview.closest('.commits-context') === context,
           overviewHidden: getComputedStyle(overview).display === "none",
           overviewStartsAfterDetail: overviewRect.top >= detailRect.bottom,
+          navigationHidden: !navigationRect,
           flowGap: Math.round(overviewRect.top - detailRect.bottom),
           contextGap,
           sameWidth: Math.abs(overviewRect.width - detailRect.width) <= 1,
@@ -7112,6 +7152,7 @@ try {
         commitDetailShown.hasDigest === true &&
         commitDetailShown.sharesContext === true &&
         commitDetailShown.overviewStartsAfterDetail === true &&
+        commitDetailShown.navigationHidden === true &&
         commitDetailShown.flowGap === commitDetailShown.contextGap &&
         commitDetailShown.railStillThere === true &&
         commitDetailShown.selectedRows === 1 &&
@@ -7122,6 +7163,7 @@ try {
           r.sharesContext === true &&
           (r.tier === "compact-split" ? r.overviewHidden === true : (
             r.overviewStartsAfterDetail === true &&
+            r.navigationHidden === true &&
             r.flowGap === r.contextGap &&
             r.sameWidth === true &&
             r.firstBlockVisiblePx > 0
@@ -7770,7 +7812,7 @@ try {
     // guessing between those cost an afternoon before this was reported.
     [commitsMobileDetail.navVisible === true && commitsMobileDetail.hasFilesButton === true && commitsMobileDetail.filesMatchTappedSha === true, `commits: phone pane navigation and file identity match the tapped SHA (${JSON.stringify(commitsMobileDetail)})`],
     [commitFilesRequestsBeforePhoneTap === commitFilesRequestsAtDisable && commitFilesRequestsAfterPhoneTap > commitFilesRequestsBeforeFinalPhoneTap && commitFilesPhoneRequestedSha === commitFilesMobileDefault.detailSha && commitFilesMobileDefault.firstFile === `README-${commitFilesMobileDefault.detailSha.slice(0, 8)}.md`, `commits: phone tap alone requests the selected commit's changed files (${JSON.stringify({ before: commitFilesRequestsBeforePhoneTap, after: commitFilesRequestsAfterPhoneTap, sha: commitFilesPhoneRequestedSha, mobile: commitFilesMobileDefault })})`],
-    [commitFilesMobileDefault.navVisible === true && commitFilesMobileDefault.navSpansPane === true && commitFilesMobileDefault.filesButtonRightAligned === true && commitFilesMobileDefault.infoPaneActive === true && commitFilesMobileDefault.filesPaneHidden === true && commitFilesMobileJump.headingVisible === true && commitFilesMobileJump.firstRowVisible === true && commitFilesMobileJump.filesPaneActive === true && commitFilesMobileJump.infoPaneHidden === true && commitFilesMobileJump.filesPaneSpansPane === true && commitFilesMobileJump.navClearOfContent === true && commitFilesMobileScroll.railScrollTop > 0 && commitFilesMobileScroll.splitScrollTop === 0 && commitFilesMobileScroll.navStable === true && commitFilesMobileScroll.navClearOfContent === true && commitInfoMobileScroll.infoScrollTop > 0 && commitInfoMobileScroll.splitScrollTop === 0 && commitInfoMobileScroll.navStable === true && commitInfoMobileScroll.navClearOfContent === true && commitFilesMobileReturn.atTop === true && commitFilesMobileReturn.detailVisible === true && commitFilesMobileReturn.infoPaneActive === true && commitFilesMobileReturn.filesPaneHidden === true, `commits: phone switches separate Info and Files scrolling panes below a stable header (${JSON.stringify({ opened: commitFilesMobileDefault, files: commitFilesMobileJump, filesScroll: commitFilesMobileScroll, infoScroll: commitInfoMobileScroll, info: commitFilesMobileReturn })})`],
+    [commitFilesMobileDefault.navVisible === true && commitFilesMobileDefault.navSpansPane === true && commitFilesMobileDefault.filesButtonRightAligned === true && commitFilesMobileDefault.infoPaneActive === true && commitFilesMobileDefault.filesPaneHidden === true && commitFilesMobileJump.headingVisible === true && commitFilesMobileJump.firstRowVisible === true && commitFilesMobileJump.filesPaneActive === true && commitFilesMobileJump.infoPaneHidden === true && commitFilesMobileJump.filesPaneSpansPane === true && commitFilesMobileJump.navClearOfContent === true && commitFilesMobileScroll.railScrollTop > 0 && commitFilesMobileScroll.splitScrollTop === 0 && commitFilesMobileScroll.navStable === true && commitFilesMobileScroll.footerStable === true && commitFilesMobileScroll.navClearOfContent === true && commitInfoMobileScroll.infoScrollTop > 0 && commitInfoMobileScroll.splitScrollTop === 0 && commitInfoMobileScroll.navStable === true && commitInfoMobileScroll.navClearOfContent === true && commitFilesMobileReturn.atTop === true && commitFilesMobileReturn.detailVisible === true && commitFilesMobileReturn.infoPaneActive === true && commitFilesMobileReturn.filesPaneHidden === true, `commits: phone switches separate Info and Files scrolling panes below a stable header (${JSON.stringify({ opened: commitFilesMobileDefault, files: commitFilesMobileJump, filesScroll: commitFilesMobileScroll, infoScroll: commitInfoMobileScroll, info: commitFilesMobileReturn })})`],
     [waitTimeouts.length === 0, `no waits timed out (${waitTimeouts.length})`],
   ];
   let ok = true;

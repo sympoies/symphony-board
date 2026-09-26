@@ -35,7 +35,6 @@ export function CommitDetail({
   following,
   onFollowLatest,
   onClose,
-  navigation,
 }: {
   commit: ActivityDTO;
   timezone: string;
@@ -44,12 +43,6 @@ export function CommitDetail({
   following: boolean;
   onFollowLatest: () => void;
   onClose: () => void;
-  navigation: {
-    position: number;
-    total: number;
-    onPrevious: (() => void) | null;
-    onNext: (() => void) | null;
-  };
 }) {
   const sha = commitSha(commit);
   const branches = commitBranches(commit);
@@ -84,12 +77,6 @@ export function CommitDetail({
             )}
           </div>
         </div>
-
-        <nav className="commit-detail-nav live-detail-nav" aria-label="Browse commits">
-          <button type="button" className="live-detail-nav-button" aria-label="Show newer commit" disabled={!navigation.onPrevious} onClick={navigation.onPrevious ?? undefined}>← Newer</button>
-          <span className="live-detail-nav-count" aria-live="polite">{navigation.position} / {navigation.total}</span>
-          <button type="button" className="live-detail-nav-button" aria-label="Show older commit" disabled={!navigation.onNext} onClick={navigation.onNext ?? undefined}>Older →</button>
-        </nav>
 
         {/* The title carries the provider link, the way the list row does
             (CommitsPage `.commit-message-link`): the commit subject IS the
