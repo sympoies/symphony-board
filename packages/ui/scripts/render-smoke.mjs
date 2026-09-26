@@ -3676,6 +3676,48 @@ try {
   })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
   await sleep(120);
+  const swipeCommitDetail = async (selector, dx, dy = 4) => {
+    await send("Runtime.evaluate", { expression: `(() => {
+      const target = document.querySelector(${JSON.stringify(selector)});
+      if (!target) throw new Error('Missing commit swipe target');
+      const rect = target.getBoundingClientRect();
+      const x = rect.left + rect.width * .7, y = rect.top + Math.min(100, rect.height / 2);
+      const make = (x, y) => new Touch({ identifier: 28, target,
+        clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
+      const start = make(x, y), end = make(x + ${dx}, y + ${dy});
+      target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true,
+        touches: [start], targetTouches: [start], changedTouches: [start] }));
+      target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true,
+        touches: [], targetTouches: [], changedTouches: [end] }));
+    })()` });
+    await sleep(180);
+  };
+  const commitSwipeState = async () => (await send("Runtime.evaluate", {
+    expression: `({ sha: document.querySelector('.commit-detail-sha')?.textContent,
+      file: document.querySelector('.commit-files-path')?.textContent?.trim(),
+      pane: document.querySelector('.commits-split')?.dataset.mobilePane,
+      following: !!document.querySelector('.commit-detail .live-mode-following'),
+      scroll: document.querySelector('.commits-split > .commits-rail')?.scrollTop || 0 })`,
+    returnByValue: true,
+  })).result.value;
+  await send("Emulation.setDeviceMetricsOverride", { width: 933, height: 704, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  const compactSwipeFirst = await commitSwipeState();
+  await swipeCommitDetail('.commit-detail-card', 130);
+  if ((await commitSwipeState()).sha !== compactSwipeFirst.sha) throw new Error('Commit swipe crossed newest boundary');
+  await swipeCommitDetail('.commit-detail-card', -130, 180);
+  await swipeCommitDetail('.commit-detail-title-link', -130);
+  await swipeCommitDetail('.commit-list .commit-row-body', -130);
+  if ((await commitSwipeState()).sha !== compactSwipeFirst.sha) throw new Error('Commit swipe intercepted vertical gesture, link, or list');
+  await swipeCommitDetail('.commit-detail-card', -130);
+  const compactSwipeOlder = await commitSwipeState();
+  if (!compactSwipeOlder.sha || compactSwipeOlder.sha === compactSwipeFirst.sha || compactSwipeOlder.following ||
+      compactSwipeOlder.file !== `README-${compactSwipeOlder.sha.slice(0, 8)}.md`) throw new Error('Compact commit swipe did not synchronize older detail/files');
+  await swipeCommitDetail('.commit-detail-card', 130);
+  if ((await commitSwipeState()).sha !== compactSwipeFirst.sha) throw new Error('Compact commit swipe did not return to newer commit');
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail .live-mode-release')?.click()" });
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(120);
   const commitFilesRequestsBeforeFinalPhoneTap = commitFilesRequestCount;
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 854, deviceScaleFactor: 3, mobile: true });
   await sleep(150);
@@ -3731,6 +3773,15 @@ try {
   })).result.value || {};
   await send("Emulation.setDeviceMetricsOverride", { width: 384, height: 500, deviceScaleFactor: 3, mobile: true });
   await sleep(100);
+  const phoneSwipeFirst = await commitSwipeState();
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-split > .commits-rail').scrollTop = 100" });
+  await swipeCommitDetail('.commit-files', -130);
+  await waitHtml("(() => { const sha = document.querySelector('.commit-detail-sha')?.textContent; return sha && document.querySelector('.commit-files-path')?.textContent?.trim() === 'README-' + sha.slice(0, 8) + '.md'; })()");
+  const phoneSwipeOlder = await commitSwipeState();
+  if (phoneSwipeOlder.sha === phoneSwipeFirst.sha || phoneSwipeOlder.pane !== 'files' ||
+      phoneSwipeOlder.scroll !== 0 || phoneSwipeOlder.file !== `README-${phoneSwipeOlder.sha.slice(0, 8)}.md`) throw new Error('Phone swipe did not preserve Files pane, synchronize files, or reset scrolling: ' + JSON.stringify({ before: phoneSwipeFirst, after: phoneSwipeOlder }));
+  await swipeCommitDetail('.commit-files', 130);
+  if ((await commitSwipeState()).sha !== phoneSwipeFirst.sha) throw new Error('Phone files swipe did not return to newer commit');
   const commitFilesMobileScroll = (await send("Runtime.evaluate", {
     expression: `(() => {
       const split = document.querySelector('.commits-split');

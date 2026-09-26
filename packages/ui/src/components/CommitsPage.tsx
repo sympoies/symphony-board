@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -550,6 +550,44 @@ export function CommitsPage({
     return null;
   }, [commits, detailMode]);
   const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
+  const selectedIndex = commits.findIndex((commit) => activityKey(commit) === selectedKey);
+  const navigateDetail = (direction: "previous" | "next") => {
+    if (selectedIndex < 0) return;
+    const commit = commits[selectedIndex + (direction === "next" ? 1 : -1)];
+    if (commit) setDetailMode({ kind: "pinned", key: activityKey(commit) });
+  };
+  const detailTouchRef = useRef<{
+    x: number; y: number; t: number; key: string;
+    scroller: HTMLElement | null; scrollLeft: number;
+  } | null>(null);
+  const handleDetailTouchStart = (event: TouchEvent<HTMLElement>) => {
+    detailTouchRef.current = null;
+    const target = event.target;
+    if (!selectedKey || event.touches.length !== 1 || !(target instanceof Element)) return;
+    if (!target.closest(".commit-detail, .commit-files")) return;
+    if (target.closest("a, button, input, textarea, select, summary, [role='button']")) return;
+    const candidate = target.closest("table, pre");
+    const scroller = candidate instanceof HTMLElement && candidate.scrollWidth > candidate.clientWidth + 2 ? candidate : null;
+    const touch = event.touches[0]!;
+    detailTouchRef.current = {
+      x: touch.clientX, y: touch.clientY, t: Date.now(), key: selectedKey,
+      scroller, scrollLeft: scroller?.scrollLeft ?? 0,
+    };
+  };
+  const handleDetailTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const start = detailTouchRef.current;
+    detailTouchRef.current = null;
+    if (!start || start.key !== selectedKey || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0]!;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Date.now() - start.t > 1100 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    if (start.scroller) {
+      const max = start.scroller.scrollWidth - start.scroller.clientWidth;
+      if ((dx < 0 && start.scrollLeft < max - 2) || (dx > 0 && start.scrollLeft > 2)) return;
+    }
+    navigateDetail(dx < 0 ? "next" : "previous");
+  };
   useEffect(() => {
     if (!selectedCommit) setMobileDetailRequested(false);
   }, [selectedCommit]);
@@ -618,7 +656,7 @@ export function CommitsPage({
     if (!mobileDetailOpen) return;
     const split = document.querySelector<HTMLElement>(".commits-split[data-mobile-detail-open='true']");
     split?.querySelector<HTMLElement>(".commits-context")?.scrollTo(0, 0);
-    split?.querySelector<HTMLElement>(".commits-rail")?.scrollTo(0, 0);
+    split?.querySelector<HTMLElement>(":scope > .commits-rail")?.scrollTo(0, 0);
     split?.querySelector<HTMLButtonElement>(".commit-mobile-back")?.focus({ preventScroll: true });
   }, [isCompactSplit, mobileDetailOpen, selectedKey]);
   // The same chip row Activity uses for its source facet, so switching tabs does
@@ -901,6 +939,12 @@ export function CommitsPage({
               following={detailMode.kind === "following"}
               onFollowLatest={releasePin}
               onClose={closeDetail}
+              navigation={{
+                position: selectedIndex + 1,
+                total: commits.length,
+                onPrevious: selectedIndex > 0 ? () => navigateDetail("previous") : null,
+                onNext: selectedIndex < commits.length - 1 ? () => navigateDetail("next") : null,
+              }}
             />
           ) : null}
           <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
@@ -984,6 +1028,9 @@ export function CommitsPage({
         style={paneHeightStyle}
         data-mobile-detail-open={mobileDetailOpen}
         data-mobile-pane={mobilePane}
+        onTouchStart={handleDetailTouchStart}
+        onTouchEnd={handleDetailTouchEnd}
+        onTouchCancel={() => { detailTouchRef.current = null; }}
         role={mobileDetailOpen ? "dialog" : undefined}
         aria-modal={mobileDetailOpen ? true : undefined}
         aria-label={mobileDetailOpen ? "Commit information and changed files" : undefined}
