@@ -70,6 +70,10 @@ export const RAIL_ROWS_QUERY = `(min-width: ${RAIL_ROWS_MIN_WIDTH_PX}px)`;
 export const RAIL_RANK_LIMIT = 6;
 export const RAIL_RANK_LIMIT_ROWS = 8;
 
+// Commits needs about 480px for its wrapping list and 360px per supporting
+// pane, plus page padding and gaps. It fits three columns before Activity does.
+export const COMMIT_THREE_COLUMN_MIN_WIDTH_PX = 1280;
+
 export const SPLIT_RAIL_MIN_WIDTH_PX = 1212;
 export const SPLIT_STACK_QUERY = `(max-width: ${SPLIT_RAIL_MIN_WIDTH_PX - 1}px)`;
 

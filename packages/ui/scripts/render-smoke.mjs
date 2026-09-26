@@ -2820,7 +2820,9 @@ try {
       return {
         rendered: true,
         sameLine: Math.abs((messageRect.top + messageRect.bottom) / 2 - (buttonRect.top + buttonRect.bottom) / 2) <= 8,
-        hugsTitle: mainRect.width - lineRect.width >= 80,
+        // Measure adjacency directly: a narrower list need not leave 80px
+        // of unused width to keep the toggle beside its title.
+        hugsTitle: buttonRect.left - messageRect.right >= -1 && buttonRect.left - messageRect.right <= 10,
         lineWidth: Math.round(lineRect.width),
         mainWidth: Math.round(mainRect.width),
       };
@@ -6440,7 +6442,7 @@ try {
   // the page two viewports tall, or about 2560, where the rail's charts relayout
   // to fixed rows that a grown chart cannot fill.
   const commitsFillTiers = [];
-  for (const vp of [{ name: "two-column", width: 1280, height: 891 }, { name: "three-column", width: 1880, height: 1080 }, { name: "rows", width: 2560, height: 1440 }]) {
+  for (const vp of [{ name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1600, height: 1080 }, { name: "three-column", width: 1880, height: 1080 }, { name: "rows", width: 2560, height: 1440 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
     await sleep(400);
@@ -7056,7 +7058,7 @@ try {
     // would make the page two screens tall; above, the charts relayout to fixed
     // rows a grown box cannot fill.
     [
-      commitsFillTiers.length === 3 &&
+      commitsFillTiers.length === 5 &&
         commitsFillTiers.every((t) =>
           t.tier === "three-column"
             ? t.minHeightPx > 0 &&

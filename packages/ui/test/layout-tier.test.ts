@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   COMPACT_CHROME_QUERY,
   COMMIT_COMPACT_SPLIT_QUERY,
+  COMMIT_THREE_COLUMN_MIN_WIDTH_PX,
   CONTENT_PANE_MIN_HEIGHT_PX,
   DETAIL_OVERLAY_QUERY,
   NARROW_MAX_WIDTH_PX,
@@ -438,4 +439,13 @@ test("Commits fits list and detail beside each other on foldable screens", () =>
   const tier = mediaBlock(COMMIT_COMPACT_SPLIT_QUERY);
   assert.match(tier, /\.commits-split\s*\{[^}]*grid-template-columns:[^}]*45fr[^}]*55fr/);
   assert.match(tier, /\.commits-filter-disclosure\s*\{[^}]*display: inline-flex/);
+});
+
+test("Commits keeps three columns at browser-sidebar laptop widths", () => {
+  assert.equal(COMMIT_THREE_COLUMN_MIN_WIDTH_PX, 1280);
+  const twoColumn = mediaBlock(`(min-width: 1212px) and (max-width: ${COMMIT_THREE_COLUMN_MIN_WIDTH_PX - 1}px)`);
+  assert.match(twoColumn, /grid-row: span 2/);
+  const fill = mediaBlock(`(min-width: ${COMMIT_THREE_COLUMN_MIN_WIDTH_PX}px) and (max-width: 2199px)`);
+  assert.match(fill, /\.commits-split > \.commits-context/);
+  assert.doesNotMatch(fill, /\.activity-layout/);
 });
