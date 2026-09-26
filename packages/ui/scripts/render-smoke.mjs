@@ -3700,6 +3700,9 @@ try {
       scroll: document.querySelector('.commits-split > .commits-rail')?.scrollTop || 0 })`,
     returnByValue: true,
   })).result.value;
+  const overviewSwipeFirst = await commitSwipeState();
+  await swipeCommitDetail('.commits-overview', -130);
+  if ((await commitSwipeState()).sha !== overviewSwipeFirst.sha) throw new Error('Desktop overview swipe navigated commit detail');
   await send("Emulation.setDeviceMetricsOverride", { width: 933, height: 704, deviceScaleFactor: 1, mobile: false });
   await sleep(150);
   const compactSwipeFirst = await commitSwipeState();
@@ -3763,6 +3766,14 @@ try {
       commitReaderFooter.contentBottom > commitReaderFooter.bottom - 30) {
     throw new Error('Commit reader navigation must stay at viewport bottom outside scrolling Info/Files content: ' + JSON.stringify(commitReaderFooter));
   }
+  const commitReaderFilled = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const pane = document.querySelector('.commits-split > .commits-context');
+      const card = pane?.querySelector('.commit-detail-card');
+      return !!pane && !!card && card.getBoundingClientRect().bottom >= pane.getBoundingClientRect().bottom - 2;
+    })()`, returnByValue: true,
+  })).result.value;
+  if (!commitReaderFilled) throw new Error('Commit card must fill the phone reader like Live');
   const phoneBlankFirst = await commitSwipeState();
   await swipeCommitDetail('.commits-split > .commits-context', -130);
   if ((await commitSwipeState()).sha === phoneBlankFirst.sha) throw new Error('Commit Info blank scrolling area does not accept swipe');

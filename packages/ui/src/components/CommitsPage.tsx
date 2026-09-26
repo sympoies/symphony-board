@@ -566,7 +566,8 @@ export function CommitsPage({
     if (!selectedKey || event.touches.length !== 1 || !(target instanceof Element)) return;
     // Like Live, the entire open reader accepts swipes, including its blank
     // space. Outside the phone overlay, keep gestures in the detail column.
-    if (!mobileDetailOpen && !target.closest(".commits-context, .commits-compact-support, .commit-files")) return;
+    if (!mobileDetailOpen && (target.closest(".commits-overview") ||
+        !target.closest(".commits-context, .commits-compact-support, .commit-files"))) return;
     if (target.closest("a, button, input, textarea, select, summary, [role='button']")) return;
     const candidate = target.closest("table, pre");
     const scroller = candidate instanceof HTMLElement && candidate.scrollWidth > candidate.clientWidth + 2 ? candidate : null;

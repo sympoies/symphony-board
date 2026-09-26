@@ -5223,6 +5223,20 @@ span.live-avatar { cursor: default; }
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
+  .commits-split[data-mobile-detail-open="true"] > .commits-context,
+  .commits-split[data-mobile-detail-open="true"] > .commits-rail {
+    display: flex;
+    flex-direction: column;
+  }
+  .commits-split[data-mobile-detail-open="true"] .commit-detail {
+    display: flex;
+    flex: 1 0 auto;
+  }
+  .commits-split[data-mobile-detail-open="true"] .commit-detail-card,
+  .commits-split[data-mobile-detail-open="true"] > .commits-rail > .commit-files {
+    flex: 1 0 auto;
+    box-sizing: border-box;
+  }
   .commits-split[data-mobile-detail-open="true"][data-mobile-pane="info"] > .commits-rail,
   .commits-split[data-mobile-detail-open="true"][data-mobile-pane="files"] > .commits-context { display: none; }
   .commit-mobile-pane-nav {
