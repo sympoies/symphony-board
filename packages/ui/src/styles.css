@@ -19,6 +19,9 @@
      strings/links in teal); dark text rides on the bright accent */
   --accent: #82aaff;
   --accent-fg: #011627;
+  /* Quiet, theme-aware selection shared by content lists and cards. */
+  --selection-bg: color-mix(in srgb, var(--accent) 5%, var(--panel));
+  --selection-border: color-mix(in srgb, var(--accent) 24%, var(--line));
   --link: #7fdbca;
   --iid: #ecc48d;        /* sandy tan (Night Owl string hue) — work-item number highlight */
 
@@ -669,7 +672,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
   display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start;
 }
-.card:target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.card:target { border-color: var(--selection-border); background: var(--selection-bg); }
 /* repo/source highlight: a colored left bar drawn as a ::before so it layers
    over the card border and is NOT clobbered by hover / active / :target (which
    take the border-color + box-shadow channels). --repo-color is set inline per
@@ -1073,7 +1076,7 @@ a.item-metric:hover {
 .graph-list-card { display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
 .graph-list .card { width: 100%; }
 .graph-list-card:hover .card { border-color: var(--accent); }
-.graph-list-card.active .card { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.graph-list-card.active .card { border-color: var(--selection-border); background: var(--selection-bg); }
 /* untracked endpoint: the board-card shell, faded + dashed like the graph node */
 .card-untracked { border-style: dashed; opacity: .85; }
 /* relation tag (focus view only) — sits above the card */
@@ -1215,14 +1218,11 @@ a.rf-node-title:hover { color: var(--accent); }
   cursor: pointer;
 }
 .item-row-accent { box-shadow: inset 3px 0 0 var(--repo-color); }
-.item-row:hover,
-.item-row:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
-  outline: none;
-}
+.item-row:hover { border-color: var(--selection-border); }
+.item-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .item-row-selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-color: var(--selection-border);
+  background: var(--selection-bg);
 }
 .item-row-kind {
   display: inline-flex;
@@ -1233,7 +1233,6 @@ a.rf-node-title:hover { color: var(--accent); }
   padding-top: 2px;
 }
 .item-row-kind .icon-item-kind { width: 16px; height: 16px; }
-.item-row-selected .item-row-kind .icon-item-kind { color: var(--accent); }
 .item-row-main {
   min-width: 0;
   display: flex;
@@ -2387,7 +2386,7 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .repo-combobox-option.is-active { background: var(--accent); color: var(--accent-fg); }
 .repo-combobox-option.is-active .repo-combobox-meta { color: var(--accent-fg); }
-.repo-combobox-option.is-selected:not(.is-active) { box-shadow: inset 0 0 0 1px var(--accent); }
+.repo-combobox-option.is-selected:not(.is-active) { background: var(--selection-bg); border-color: var(--selection-border); }
 .repo-combobox-name { font-weight: 500; }
 .repo-combobox-meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .commits-filter-sheet-body {
@@ -2487,9 +2486,8 @@ a.rf-node-title:hover { color: var(--accent); }
   opacity: 0.68;
 }
 .commit-filter-option.is-selected {
-  color: var(--accent-fg);
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--selection-bg);
+  border-color: var(--selection-border);
 }
 .commit-filter-option-main {
   min-width: 0;
@@ -2503,9 +2501,6 @@ a.rf-node-title:hover { color: var(--accent); }
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
-}
-.commit-filter-option.is-selected .commit-filter-option-meta {
-  color: color-mix(in srgb, var(--accent-fg) 78%, transparent);
 }
 .activity-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 10px; }
 /* The feed fills the viewport below the split, like every other content pane
@@ -3351,11 +3346,6 @@ a.rf-node-title:hover { color: var(--accent); }
   min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* Selection highlight in the neutral accent (not the Live green). */
-.reviews-live .live-event-selected {
-  --live-row-bg: color-mix(in srgb, var(--accent) 12%, var(--panel));
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
-}
 
 /* Row meta line: repo · commenter · location. */
 .review-row-meta {
@@ -4594,11 +4584,11 @@ span.live-avatar { cursor: default; }
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
   border-radius: 3px; background: var(--cat, var(--muted)); opacity: 0.62;
 }
-.live-event:hover { --live-row-bg: var(--hover-soft); }
+.live-event:hover { --live-row-bg: color-mix(in srgb, var(--accent) 3%, var(--panel)); }
 .live-event:hover::before { opacity: 0.82; }
 .live-event:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.live-event-selected { --live-row-bg: color-mix(in srgb, var(--live) 13%, var(--panel)); border-color: color-mix(in srgb, var(--live) 35%, var(--line)); }
-.live-event-selected::before { opacity: 0.95; }
+.live-event-selected,
+.live-event-selected:hover { --live-row-bg: var(--selection-bg); border-color: var(--selection-border); }
 .live-avatar {
   width: 32px; height: 32px; border-radius: 50%; margin-top: 1px; position: relative;
   display: inline-grid; place-items: center; overflow: visible; flex: none;
@@ -4652,7 +4642,6 @@ span.live-avatar { cursor: default; }
   animation: live-enter 650ms cubic-bezier(0.2, 0.7, 0.3, 1), live-arrive 1400ms ease-out;
 }
 .live-feed .live-event[data-feed-index="0"]::before { opacity: 0.85; }
-.live-feed .live-event-selected[data-feed-index="0"]::before { opacity: 0.95; }
 
 /* When the viewer is at the top, a new arrival bumps every existing row's index
    by one, so each one's translateY target moves down a full stride. Easing that
@@ -5163,7 +5152,13 @@ span.live-avatar { cursor: default; }
 .live-rank-item-on .live-rank-footer { color: var(--text); font-weight: 600; }
 
 /* ---- Commits: selected row + detail pane ---- */
-.commit-row-selected { background: var(--hover-strong); }
+.commit-row:focus-visible { outline: none; }
+.commit-row:focus-visible .commit-row-body { outline: 2px solid var(--accent); outline-offset: -2px; }
+.commit-row-selected { background: transparent; }
+.commit-row-selected .commit-row-body {
+  background: var(--selection-bg);
+  border-color: var(--selection-border);
+}
 .commit-detail-card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -5415,3 +5410,30 @@ span.live-avatar { cursor: default; }
   overflow-x: auto;
 }
 .commit-files-tree-summary { margin-top: 4px; font-size: 11px; }
+
+/* Foldable/tablet: retain the list beside one scrollable detail column. */
+@media (min-width: 761px) and (max-width: 1211px) {
+  .commits-split { grid-template-columns: minmax(0, 45fr) minmax(0, 55fr); }
+  .commits-filter-disclosure { display: inline-flex; margin: 0 0 8px; }
+  .commits-compact-support {
+    min-width: 0;
+    display: grid;
+    gap: var(--pane-gap);
+    align-content: start;
+    max-height: var(--content-pane-height, 74dvh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .commits-compact-support > .commits-context,
+  .commits-compact-support > .commits-rail { position: static; }
+  .commits-compact-support:has(.commit-detail-card) .commits-overview { display: none; }
+  .commits-split > .commit-list .commit-row-body {
+    align-items: stretch;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .commits-split > .commit-list .commit-row-meta { flex-wrap: wrap; white-space: normal; }
+  .commits-split > .commit-list .commit-row-actions { align-self: flex-start; margin-top: 0; }
+  .commits-split > .commit-list .commit-title-line { align-items: flex-start; }
+  .commits-split > .commit-list .commit-message-link { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+}

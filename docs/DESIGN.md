@@ -488,6 +488,14 @@ Pages:
   The tap fetches the files even when the desktop rail's file-stats setting is
   off. Back returns to the commit list. Following a newer commit does not open
   the reading view or fetch its files by itself.
+  At 761–1211 CSS pixels, the list stays beside a scrollable detail/files
+  column. Filters collapse behind a summary and expand inline; selecting a
+  commit prioritizes its detail over the range overview and resets the right
+  column to the top. The visible compact detail fetches files and keeps them
+  synchronized while following latest, without changing the device setting. Wider screens retain their overview and digest columns.
+  Selected content cards share a subtle theme-aware fill and border across
+  Commits, Items, Live, Reviews, and the Graph list; selection paints the
+  rounded card rather than virtual-row spacing. Keyboard focus remains visible.
 - **Reviews**: current provider review-thread inbox over top-level
   `review_threads[]`, not a review-event feed. It uses the shared date range and
   item lens, lists each synced thread with current resolved/outdated state,
@@ -920,8 +928,8 @@ one row per file as `[M] path  +40 -0`, then the total.
 
 **Cost and caching.** One provider call per commit the pane shows when the
 viewer has turned the Settings toggle on
-(`symphony-board:commit-file-stats`, OFF by default). An explicit phone tap
-also fetches that commit's files for the second pane, without changing the
+(`symphony-board:commit-file-stats`, OFF by default). An explicit phone or
+compact detail also fetches that commit's files, including follow mode, without changing the
 setting. With *Follow latest commit* and file stats both on, the pane follows a
 newer head and asks for that commit too; both switches are off by default and
 independent.
