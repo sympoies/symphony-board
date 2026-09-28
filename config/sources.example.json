@@ -72,7 +72,7 @@
       ]
     }
   ],
-  "$comment_identities": "Optional. Collapse one human's separate Repo Analytics actor identities into a single top_actors row — most useful for a GitLab person whose issues/MRs carry a username while their commits carry only an email + name. List the usernames, commit emails (matched by hash; never stored or emitted), and raw commit display names that are the same person; `name` is the canonical display. Add `source_ids` when a broad username/name/email should apply only to selected provider instances. Display-only, like colors — applied at emit time, never stored in the DB.",
+  "$comment_identities": "Optional. Collapse one human's separate Repo Analytics actor identities into a single top_actors row — most useful for a GitLab person whose issues/MRs carry a username while their commits carry only an email + name. List the usernames, commit emails (matched by hash; never stored or emitted), and raw commit display names that are the same person; `name` is the canonical display. Add `source_ids` when a broad username/name/email should apply only to selected provider instances. The same merge feeds the contract's `actor_directory`, so the Activity and Commits rails rank one row per person. Display-only, like colors — applied at emit time, never stored in the DB.",
   "identities": [
     {
       "name": "Your Name",
@@ -82,6 +82,6 @@
       "source_ids": ["gitlab:gitlab.com"]
     }
   ],
-  "$comment_exclude_actors": "Optional. Drop CI/dependency bots from Repo Analytics top_actors as noise (they still count in repo totals). The board already auto-drops unambiguous markers — a GitHub `[bot]` login suffix and GitLab service-account usernames (project_/group_<id>_bot_…) — so list only the unmarked ones here. Each entry matches an actor's provider username OR a display name, case-insensitively, with `*` as a wildcard.",
+  "$comment_exclude_actors": "Optional. Drop CI/dependency bots from Repo Analytics top_actors as noise (they still count in repo totals). The board already auto-drops unambiguous markers — a GitHub `[bot]` login suffix and GitLab service-account usernames (project_/group_<id>_bot_…) — so list only the unmarked ones here. Matches are also flagged as bots in the contract's `actor_directory`, so the Activity and Commits rails hide the same actors. Each entry matches an actor's provider username OR a display name, case-insensitively, with `*` as a wildcard.",
   "exclude_actors": ["dependabot", "github-code-quality", "renovate*"]
 }

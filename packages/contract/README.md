@@ -117,18 +117,18 @@ The current emitted contract is `4.7.2`. Important compatibility milestones:
   endpoints.
 - 4.5.0 adds optional, nullable `ItemDTO.body`, bounded provider issue / PR / MR
   description text for detail views.
-- 4.7.2 documents optional `details.actor_avatar_url` on activity rows where
-  the provider identifies the matching actor account; older rows omit it.
-- 4.7.1 documents optional `details.additions` / `details.deletions` on commit
-  activity rows — a pair or nothing, absent when unknown and always absent for
-  merge commits, whose counts are measured against the first parent.
+- 4.6.0 adds optional, nullable `ItemDTO.comments` (`{ total }`) for the
+  provider's native discussion comment count, separate from the broader
+  `demand` attention score.
 - 4.7.0 adds optional `actor_directory`, resolving every raw `activities[].actor`
   string to a canonical identity and flagging CI/dependency accounts, so a feed
   consumer can apply the same identity merge and bot filter `repo_metrics`
   `top_actors` already does.
-- 4.6.0 adds optional, nullable `ItemDTO.comments` (`{ total }`) for the
-  provider's native discussion comment count, separate from the broader
-  `demand` attention score.
+- 4.7.1 documents optional `details.additions` / `details.deletions` on commit
+  activity rows — a pair or nothing, absent when unknown and always absent for
+  merge commits, whose counts are measured against the first parent.
+- 4.7.2 documents optional `details.actor_avatar_url` on activity rows where
+  the provider identifies the matching actor account; older rows omit it.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

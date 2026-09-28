@@ -1,8 +1,10 @@
 # Releasing
 
-Creating a GitHub Release publishes two artifact sets: public container images
-to the GitHub Container Registry (GHCR) for the Docker stack, and unsigned macOS
-desktop app bundles attached to the Release.
+Creating a GitHub Release publishes three artifact sets: public container
+images to the GitHub Container Registry (GHCR) for the Docker stack, unsigned
+macOS desktop app bundles attached to the Release, and a signed universal
+Android APK attached by the separate `release-apk` workflow (see
+["CI: build + publish the APK on release"](packages/android/README.md#ci-build--publish-the-apk-on-release)).
 
 Container images (GHCR):
 
@@ -22,9 +24,11 @@ Silicon macOS runner so the standalone app bundles a matching Node sidecar:
 | --- | --- |
 | `Symphony-Board-vX.Y.Z-macos-arm64-unsigned.zip` | Apple Silicon |
 | `Symphony-Board-Standalone-vX.Y.Z-macos-arm64-unsigned.zip` | Apple Silicon |
+| `SHA256SUMS-vX.Y.Z-macos-arm64.txt` | checksums for both zips |
 
-These are unsigned, un-notarized app bundles; see the root README's "Build The
-macOS App" section for installing them with `scripts/install-release-app.sh`.
+These are unsigned, un-notarized app bundles; see the "macOS Apps" section of
+[`docs/running.md`](docs/running.md#macos-apps) for installing them with
+`scripts/install-release-app.sh`.
 
 ## Versioning
 
@@ -162,8 +166,8 @@ Desktop assets (the `desktop` job, in parallel):
 6. On the native Apple Silicon macOS runner (`macos-26`), run
    `scripts/package-desktop-release.sh` to build both the thin-client and
    standalone apps for arm64.
-7. Upload the two resulting unsigned `.zip` bundles to the GitHub Release with
-   `gh release upload --clobber`.
+7. Upload the two resulting unsigned `.zip` bundles and their `SHA256SUMS`
+   file to the GitHub Release with `gh release upload --clobber`.
 
 Building on a native arm64 runner is what lets the standalone app bundle the
 matching Node sidecar for Apple Silicon Macs.

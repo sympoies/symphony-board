@@ -4,12 +4,12 @@
 // `docker/compose.yaml` and the opt-in Postgres `docker/compose.pg.yaml`. A
 // single gitignored `.env` key, `SYMPHONY_BOARD_ENV`, records which one is
 // active. This module is the ONE place that reads + classifies that switch so
-// every consumer (the `deploy` tooling and `project-review-cleanup`) resolves
-// it identically and they can never target different stacks.
+// every consumer (the `deploy` tooling and `active-compose-file.mjs`) resolves
+// it identically. `project-review-cleanup` does not read it; it targets
+// `SYMPHONY_BOARD_BASE_URL`.
 //
-// Precedence mirrors review-cleanup: the process environment wins over the repo
-// `.env`. `SYMPHONY_BOARD_RUNTIME` is accepted as an alias of
-// `SYMPHONY_BOARD_ENV`.
+// Precedence: the process environment wins over the repo `.env`.
+// `SYMPHONY_BOARD_RUNTIME` is accepted as an alias of `SYMPHONY_BOARD_ENV`.
 
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -76,7 +76,8 @@ export function loadRepoEnv() {
 
 // Classify the active runtime. Returns the normalized runtime string:
 // `"postgres"`, `"sqlite"`, or `""` (unset). The empty-vs-`"sqlite"` distinction
-// is preserved on purpose — review-cleanup reports it in its source `origin`.
+// is preserved on purpose so a caller can tell an unset switch from an explicit
+// `sqlite` choice.
 // Throws a usage error for any other value.
 export function resolveRuntime({ processEnv = {}, repoEnv = {} } = {}) {
   const envValue = (name) => stringValue(processEnv[name]) ?? stringValue(repoEnv[name]);

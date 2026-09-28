@@ -13,6 +13,23 @@ Definition files:
 
 Current emitted version: `4.7.2`.
 
+Major 4 version index (newest first). Each note lives beside the field it
+changes; earlier majors are described inline where their fields are defined.
+
+| Version | Kind | Change | Section |
+| --- | --- | --- | --- |
+| `4.7.2` | clarification | `details.actor_avatar_url` on supported activity rows | Activities |
+| `4.7.1` | clarification | `details.additions` / `details.deletions` on commit activity rows | Activities |
+| `4.7.0` | additive | optional top-level `actor_directory` | Activities |
+| `4.6.0` | additive | optional `items[].comments` (`{ total }`) | Activities |
+| `4.5.0` | additive | optional `items[].body` | Activities |
+| `4.4.0` | additive | range `activity_target` item rows and `item_window.activity_target_items` | Activities |
+| `4.3.0` | additive | `review_threads[].last_comment_at` | Activities |
+| `4.2.1` | clarification | config is the source of truth for surfaced sources, repos, and rows | Config-Gated Projection |
+| `4.2.0` | additive | `review_threads[].comments[].avatar_url` | Activities |
+| `4.1.0` | additive | optional top-level `review_threads[]` | Activities |
+| `4.0.0` | major | static `activities[]` windowed to 30 days; activity `id` / `summary` removed; `activity_daily` added | Activities, Activity Daily |
+
 The private workspace package version in `packages/contract/package.json` is
 package metadata. Consumers must use the envelope's `contract_version`, not the
 package version, to decide compatibility.
@@ -251,9 +268,13 @@ Top-level fields:
   window whenever the endpoint belongs to a tracked item.
 - `activities`: optional developer-significant event feed, added in `1.2.0`. As
   of `4.0.0` the static contract windows it to the last 30 days (see Activities).
+- `review_threads`: optional current provider review-thread detail rows, added
+  in `4.1.0` (see Activities).
 - `activity_daily`: optional pre-computed per-day/per-kind activity counts, added
   in `4.0.0` (see Activity Daily). Emitted by both the static contract (over the
   full canonical history) and `/api/range` (over the in-range activities).
+- `actor_directory`: optional identity and bot directory over the distinct
+  `activities[].actor` strings, added in `4.7.0` (see Activities).
 - `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
 - `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 - `item_window`: required v2 metadata describing the primary loaded item window.
@@ -262,9 +283,10 @@ Top-level fields:
 - `range_query`: optional metadata on read-only range API responses, added in
   `2.1.0`.
 
-The producer currently emits `activities`, `repos`, `aggregates`,
-`item_window`, `repo_stats`, and `repo_metrics` every time, usually as empty
-arrays when no rows apply. Consumers should still read older optional fields
+The producer currently emits `timezone`, `activities`, `review_threads`,
+`activity_daily`, `actor_directory`, `repos`, `aggregates`, `item_window`,
+`repo_stats`, and `repo_metrics` every time; array fields are empty when no
+rows apply. Consumers should still read older optional fields
 defensively as `env.activities ?? []`, `env.repos ?? []`,
 `env.aggregates ?? []`, and `env.repo_metrics ?? []`.
 

@@ -16,6 +16,7 @@ The fixtures exercise:
 | --- | --- |
 | `seed-github-fixture.sh [owner/repo]` | Seeds a GitHub fixture repo via `gh`. Default target is `sympoies/symphony-board-fixture`. Requires authenticated `gh`. |
 | `seed-gitlab-fixture.mjs [namespace/path]` | Seeds a gitlab.com fixture project via REST. Default project is `symphony-board-fixture` under the token user's namespace. Requires `GITLAB_TOKEN` with API scope. |
+| `seed-sample-activity.mjs` | Rewrites only the activity surfaces (`activity_daily`, `activities[]`) of the tracked UI sample contract `packages/ui/public/contract.json` with a deterministic ~12-month history. Touches no provider; re-validate the contract after running it. |
 | `verify-board.mjs` | Headless-Chrome CDP probe of an already-served board URL. Checks board columns, graph nodes, links, theme/link styling, and fixture-derived counts. Read-only against the UI. |
 
 Example:

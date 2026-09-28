@@ -34,8 +34,7 @@ run_repo_node() {
 }
 
 # Pick the docker compose stack from the active runtime switch
-# (SYMPHONY_BOARD_ENV), resolved by the same module project-review-cleanup uses
-# so deploy and review-cleanup never target different stacks. postgres -> the
+# (SYMPHONY_BOARD_ENV), resolved by scripts/lib/repo-env.mjs. postgres -> the
 # opt-in Postgres stack; sqlite or unset -> the default SQLite stack.
 compose_file="$(run_repo_node "$repo_root/scripts/active-compose-file.mjs")"
 
