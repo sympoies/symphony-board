@@ -2431,6 +2431,23 @@ try {
       returnByValue: true,
     })).result.value || {};
   }
+  // The rhythm calendar keeps a 620px minimum and opens pinned to the latest
+  // week, so in the three-column tier (a ~613px track at 1912px) the grid
+  // scrolls and used to carry the Mon/Wed/Fri labels out of view with it.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1912, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(80);
+  const heatmapWeekdays = (await send("Runtime.evaluate", {
+    expression: `(() => { try {
+      const scroll = document.querySelector('.activity-heatmap .hm-calendar-scroll');
+      if (!scroll) return { present: false };
+      scroll.scrollLeft = scroll.scrollWidth;
+      const box = scroll.getBoundingClientRect();
+      const labels = Array.from(scroll.querySelectorAll('.hm-weekdays > span')).filter((n) => (n.textContent || '').trim());
+      const clipped = labels.filter((n) => { const r = n.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).map((n) => n.textContent.trim());
+      return { present: true, overflow: Math.round(scroll.scrollWidth - scroll.clientWidth), scrollLeft: Math.round(scroll.scrollLeft), labels: labels.length, clipped };
+    } catch (e) { return { probeError: String(e && e.message || e) }; } })()`,
+    returnByValue: true,
+  })).result.value || {};
   // Page 3b — Items: a chronological issue + change request lookup surface over items[].
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(100);
@@ -7541,6 +7558,10 @@ try {
         (activityBreakpoint["1280"]?.deadRight ?? -1) >= 0 &&
         (activityBreakpoint["1280"]?.deadRight ?? -1) <= 1,
       `activity: the forced wide viewport is side by side and uses its full width (${JSON.stringify(activityBreakpoint["1280"])})`,
+    ],
+    [
+      heatmapWeekdays.present === true && heatmapWeekdays.labels === 3 && heatmapWeekdays.clipped?.length === 0,
+      `activity: rhythm weekday labels stay visible while the calendar is scrolled to the latest week (${JSON.stringify(heatmapWeekdays)})`,
     ],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
     // page 3b: Items renders issues and change requests in one chronological lookup surface

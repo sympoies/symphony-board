@@ -2012,10 +2012,19 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .hm-months > span { position: absolute; left: calc(var(--hm-col) * var(--hm-step)); white-space: nowrap; }
 .hm-body { display: flex; gap: var(--hm-gap); }
+/* The labels stay put while the grid scrolls. The calendar keeps its 620px
+   minimum and opens pinned to the latest week, so a narrower track (the
+   three-column Activity tier, the Commits overview) scrolls the first weeks
+   out of view -- and used to take Mon/Wed/Fri with them, leaving "on / ed /
+   ri" at the edge. Both hosts paint --panel, so the column masks the cells
+   that pass beneath it, gap included. */
 .hm-weekdays {
   display: flex; flex-direction: column; gap: var(--hm-gap);
   width: calc(var(--hm-weekday-w) - var(--hm-gap)); flex: none;
   font-size: 10px; color: var(--muted);
+  position: sticky; left: 0; z-index: 1;
+  background: var(--panel);
+  box-shadow: var(--hm-gap) 0 0 var(--panel);
 }
 .hm-weekdays > span { height: var(--hm-cell); line-height: var(--hm-cell); }
 .hm-grid { display: flex; gap: var(--hm-gap); }
