@@ -71,7 +71,7 @@ test("an unsupported runtime throws a usage error", () => {
   );
 });
 
-test("resolveRuntime preserves the unset-vs-sqlite distinction review-cleanup needs", () => {
+test("resolveRuntime preserves the unset-vs-sqlite distinction", () => {
   assert.equal(resolveRuntime({ processEnv: {}, repoEnv: {} }), "");
   assert.equal(resolveRuntime({ processEnv: { SYMPHONY_BOARD_ENV: "sqlite" }, repoEnv: {} }), "sqlite");
   assert.equal(resolveRuntime({ processEnv: { SYMPHONY_BOARD_ENV: "postgres" }, repoEnv: {} }), "postgres");

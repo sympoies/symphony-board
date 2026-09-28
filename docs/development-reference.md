@@ -189,10 +189,11 @@ The backend test suite covers deterministic logic and default SQLite behavior:
 - sync-engine soft-delete and failed-fetch invariants
 
 The UI test suite covers view-model and localStorage behavior. The UI
-render-smoke builds the app, opens it in headless Chrome, and asserts that the
-Board, Graph, Activity, Commits, Repo Analytics, Settings, deep-link search,
-configured colors, graph focus, range controls, and manual-sync affordances
-render without console errors.
+render-smoke opens the built app in headless Chrome and asserts that every page,
+deep-link search, configured colors, graph focus, range controls, responsive
+Commits layouts, and manual-sync affordances render without console errors; the
+full list lives in the
+[UI package README](../packages/ui/README.md#smoke-test).
 
 `pnpm coverage` measures backend `.ts` files plus UI `.ts` logic. It
 intentionally excludes React `.tsx` from the percentage because bundled browser
