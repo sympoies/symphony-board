@@ -7560,7 +7560,10 @@ try {
       `activity: the forced wide viewport is side by side and uses its full width (${JSON.stringify(activityBreakpoint["1280"])})`,
     ],
     [
-      heatmapWeekdays.present === true && heatmapWeekdays.labels === 3 && heatmapWeekdays.clipped?.length === 0,
+      // overflow/scrollLeft keep the check honest: without a scrolled grid there
+      // is nothing for the labels to be carried out of view by.
+      heatmapWeekdays.present === true && heatmapWeekdays.overflow > 0 && heatmapWeekdays.scrollLeft > 0 &&
+        heatmapWeekdays.labels === 3 && heatmapWeekdays.clipped?.length === 0,
       `activity: rhythm weekday labels stay visible while the calendar is scrolled to the latest week (${JSON.stringify(heatmapWeekdays)})`,
     ],
     [!activityHeatmap.present || (activityHeatmap.inRange >= 1 && activityHeatmap.inRange < activityHeatmap.total), `activity: selected range tints a scoped subset of heatmap cells (${activityHeatmap.inRange}/${activityHeatmap.total} in range, present=${activityHeatmap.present})`],
