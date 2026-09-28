@@ -48,6 +48,10 @@ signal, not a changelog. Not every session earns an entry.
 
 - Commands run and key numbers.
 
+### Links
+
+- Commits, issues, pull requests, and external references.
+
 ### Follow-ups
 
 - Anything left open.
