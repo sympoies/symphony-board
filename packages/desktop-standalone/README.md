@@ -85,4 +85,4 @@ sidecar runtime; build with the repo's `.node-version` toolchain active.
 For self-use, no paid Apple Developer Program membership is required. The app
 is not notarized; a local build usually opens directly, while a downloaded
 release zip can be unblocked and installed with `scripts/install-release-app.sh`
-(see the root README's "Build The macOS App" section).
+(see the "macOS Apps" section of [`docs/running.md`](../../docs/running.md#macos-apps)).

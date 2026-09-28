@@ -22,7 +22,7 @@
 //
 // Run from anywhere; re-validate after writing:
 //   node --disable-warning=ExperimentalWarning scripts/fixtures/seed-sample-activity.mjs
-//   pnpm run validate -- --in packages/ui/public/contract.json
+//   pnpm run validate --in packages/ui/public/contract.json
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

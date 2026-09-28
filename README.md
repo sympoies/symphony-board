@@ -23,6 +23,8 @@ store, not the consumer API.
 - Maintenance principles: [DEVELOPMENT.md](DEVELOPMENT.md)
 - Detailed development reference:
   [docs/development-reference.md](docs/development-reference.md)
+- Releases: [RELEASING.md](RELEASING.md); helper scripts:
+  [scripts/README.md](scripts/README.md)
 - UI package: [packages/ui](packages/ui)
 - Contract package: [packages/contract](packages/contract)
 
@@ -38,9 +40,10 @@ The full product path is implemented end to end:
   soft-delete unseen items or edges.
 - `emit` produces contract major v4, currently `4.7.2`, and validates the JSON
   envelope before writing.
-- The UI renders the contract as a Board, relationship Graph, Activity feed,
-  work-item log, Commits log, Review thread inbox, Repo Analytics view, and
-  Settings surface.
+- The UI renders the contract as Commits, Activity, Metrics (repo analytics),
+  Board, relationship Graph, Items, and Reviews (review-thread inbox) pages plus
+  Settings, and adds an opt-in Live page streamed from the webhook receiver
+  rather than the contract.
 - Docker Compose runs a sole-writer sync/emit daemon, a read-only API sidecar,
   a read-only web sidecar, and the least-privilege Live webhook receiver.
 - The read-only API sidecar also exposes operational views such as bounded
@@ -161,7 +164,7 @@ boundaries.
 ## Contract
 
 The current emitted contract is major v4, currently `4.7.2`. The canonical
-schema, field semantics, version rules, and full version history live in
+schema, field semantics, version rules, and major-4 version index live in
 [docs/CONTRACT.md](docs/CONTRACT.md). The TypeScript DTO and JSON Schema entry
 point is [`@symphony-board/contract`](packages/contract).
 

@@ -24,6 +24,7 @@ The repo is a pnpm workspace:
 - `packages/contract`: versioned contract schema and DTOs
 - `packages/ui`: Vite + React web UI
 - `packages/desktop`: Tauri macOS desktop shell for the same UI (thin client)
+- `packages/android`: Tauri Android shell for the same UI (thin client)
 - `packages/desktop-standalone`: Tauri macOS app bundling the UI plus the whole
   backend (Node sidecar running `src/cli/app-server.ts`)
 
@@ -52,14 +53,20 @@ src/sources/                  provider fetchers and pure normalizers
 src/db/                       Store interface + SQLite/Postgres drivers
 src/sync-engine.ts            fetch -> raw -> normalize -> reconcile -> upsert
 src/contract/                 contract builder, validator, version constants
-src/server/                   shared HTTP handling (range queries)
+src/server/                   shared read-only HTTP handlers (range, stats,
+                              actionable, graph neighborhood, capabilities, …)
+src/live/                     Live webhook receiver, verification, event store
+src/lib/                      small shared helpers (concurrency, timezone)
 src/cli/                      init-db, sync, emit-contract, validate-contract,
-                              sync-daemon, range-api, app-server
+                              sync-daemon, range-api, app-server,
+                              review-candidates, live-receiver,
+                              live-telegram-bridge
 test/                         backend node --test suite
 
 packages/contract/            LAYER 3 package: schema + mirrored DTO types
 packages/ui/                  Vite + React UI, UI tests, render-smoke
 packages/desktop/             Tauri macOS app shell; no DB, daemon, or tokens
+packages/android/             Tauri Android app shell; no DB, daemon, or tokens
 packages/desktop-standalone/  Tauri macOS app bundling Node + the full backend
 
 docker/                       backend daemon image, UI sidecar image, compose
@@ -155,8 +162,8 @@ pnpm coverage
 Contract validation:
 
 ```sh
-pnpm run emit -- --out data/contract.json
-pnpm run validate -- --in data/contract.json
+pnpm run emit --out data/contract.json
+pnpm run validate --in data/contract.json
 ```
 
 Provider/source smoke, when credentials and network are available:
@@ -249,8 +256,8 @@ Postgres stack. The API sidecars use `openConfiguredStoreReadOnly`, so
 `/api/range` and `/api/stats` read whichever store the config selects. The agent
 deploy entrypoint (`.agents/scripts/deploy.sh`) picks between the two stacks from
 the `SYMPHONY_BOARD_ENV` switch in `.env` (`postgres` → `docker/compose.pg.yaml`,
-`sqlite`/unset → `docker/compose.yaml`), resolved by `scripts/lib/repo-env.mjs` —
-the same switch `project-review-cleanup` reads.
+`sqlite`/unset → `docker/compose.yaml`), resolved by `scripts/lib/repo-env.mjs`.
+`project-review-cleanup` targets `SYMPHONY_BOARD_BASE_URL` instead.
 
 ### Changing The Contract
 
@@ -270,8 +277,10 @@ repurposing, or changing required fields is a major version change.
 1. Keep contract loading in `packages/ui/src/contract.ts`.
 2. Keep pure view-model logic in `packages/ui/src/model.ts`.
 3. Keep persistent browser preferences in `packages/ui/src/viewconfig.ts`.
-4. Keep Settings changes view-only. The UI must not write back to the backend,
-   provider APIs, SQLite, or generated contracts.
+4. Keep Settings read-only toward providers. The UI must not write to provider
+   APIs, the canonical store, or generated contracts; writer actions (manual
+   sync, config and token edits) go only through the capability-gated control
+   plane served by `board`.
 5. Run the UI gate and root typecheck. Run render-smoke after a build.
 
 ### Changing The Desktop App

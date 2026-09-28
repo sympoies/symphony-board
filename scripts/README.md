@@ -32,11 +32,18 @@ scripts/install-release-app.sh
 scripts/install-release-app.sh ~/Downloads/Symphony-Board-v1.1.0-macos-arm64-unsigned.zip
 ```
 
+## Deploy Helper
+
+| Script | What it does |
+| --- | --- |
+| `active-compose-file.mjs` | Prints the active compose file for `.agents/scripts/deploy.sh`: `docker/compose.pg.yaml` when `SYMPHONY_BOARD_ENV` (process env, then `.env`) is `postgres`, else `docker/compose.yaml`. The switch is parsed by `lib/repo-env.mjs`. Exit 2 on an unsupported value. |
+
 ## Release Helper
 
 | Script | What it does |
 | --- | --- |
 | `release.sh [--dry-run\|--execute\|--resume\|--verify-only] [--version X.Y.Z]` | Cuts a GitHub Release that publishes the GHCR images and the unsigned macOS desktop assets. `--execute` refuses a dirty tree, a non-`main` branch, or a local `main` that differs from `origin/main`; the inspecting modes do not. `--execute` returns once the Release exists and leaves verification to `publish-image.yml`, which checks the GHCR manifests and the desktop assets itself; `--wait` blocks on that run and verifies locally instead. `--resume` recovers a release whose post-create workflow wait was interrupted: it mutates nothing, and re-attaches to the `publish-image` run for the released commit before verifying. See [../RELEASING.md](../RELEASING.md). |
+| `package-desktop-release.sh [options]` | Builds the thin and standalone macOS `.app` bundles, zips them as unsigned release assets, and writes SHA256 sums. |
 
 ```sh
 scripts/release.sh --dry-run
@@ -49,6 +56,7 @@ scripts/release.sh --resume --version v0.1.0
 | Script | What it does |
 | --- | --- |
 | `demo/build-demo-contract.sh` | Regenerates the frozen GitHub Pages demo contract (`site/demo-contract.json`) by running the normal sync → emit pipeline against the **public-only** sources in `config/sources.demo.json` (the sympoies org on GitHub + `gitlab-org/labkit` on GitLab.com). The result is a committed one-shot snapshot, so every item / commit / review / activity on the demo links to a live provider URL. Requires `GITHUB_TOKEN` and a gitlab.com `GITLAB_TOKEN` (env-ref only); writes a throwaway `data/demo.db`. |
+| `demo/narrow-landing-window.mjs [contract.json] [days]` | Offline post-step of `build-demo-contract.sh`: narrows only `item_window.window` of the frozen demo contract to a trailing N-day landing window, leaving the payload untouched. Idempotent. |
 
 ```sh
 GITHUB_TOKEN=$(gh auth token) GITLAB_TOKEN=glpat-... scripts/demo/build-demo-contract.sh
@@ -62,8 +70,8 @@ GITHUB_TOKEN=$(gh auth token) GITLAB_TOKEN=glpat-... scripts/demo/build-demo-con
 | `ci/coverage-summary.sh [lcov]` | Emits a Markdown coverage summary with worst-covered files. Used by CI job summary and PR comment. |
 | `ci/coverage-badge.sh [lcov] [out.svg]` | Renders the self-hosted coverage badge SVG published from CI to the `coverage-badge` branch. |
 | `ci/pg-e2e.sh` | Composes up a throwaway Postgres, runs the store-conformance suite with the Postgres driver registered plus the live e2e, then tears down. The `pnpm run test:pg-e2e` / CI `pg` gate. Needs Docker. |
+| `ci/dispatch-release.sh <owner/repo>` | Posts a `repository_dispatch` (payload on stdin) to a downstream repo from `publish-image.yml` and fails unless GitHub accepts it; with `DISPATCH_EXPECT_WORKFLOW` / `DISPATCH_EXPECT_RUN_NAME` it also waits for the correlated downstream run to succeed. Needs `DISPATCH_TOKEN`. |
 | `ci/pg-compose-smoke.sh` | Builds the backend and UI images, starts the isolated `docker/compose.pg.yaml` stack, and asserts the served contract and `/api/stats` reporting `driver: "postgres"`. The `pnpm run test:pg-compose` / CI `pg_compose` gate. Needs Docker. |
-| `package-desktop-release.sh [options]` | Builds the thin and standalone macOS `.app` bundles, zips them as unsigned release assets, and writes SHA256 sums. |
 
 Coverage covers backend `.ts` files and UI `.ts` view-model logic. The React
 `.tsx` layer is gated by the UI render-smoke, not by a percentage.

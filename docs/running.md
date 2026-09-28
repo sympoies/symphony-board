@@ -135,16 +135,18 @@ Docker Compose runs these services in the default SQLite stack:
 - `api`: a read-only Node sidecar. It opens the configured store read-only and
   serves `GET /api/range?from=YYYY-MM-DD&to=YYYY-MM-DD`, review cleanup
   discovery on `GET /api/review-candidates`, actionable open-work discovery on
-  `GET /api/actionable`, plus store statistics on `GET /api/stats`, and safe
-  server/Live metadata on `GET /api/capabilities`.
+  `GET /api/actionable`, bounded graph neighborhoods on
+  `GET /api/graph-neighborhood`, per-day activity counts on
+  `GET /api/activity-daily`, plus store statistics on `GET /api/stats`, and
+  safe server/Live metadata on `GET /api/capabilities`.
 - `live`: a least-privilege webhook receiver. It owns its own append-only
   `live.db`; it does not mount provider config, provider tokens, or the
   canonical store.
 - `web`: a read-only nginx sidecar that serves the built UI and the daemon's
-  latest `data/contract.json` as `/contract.json`, proxies `/api/range`,
-  `/api/stats`, `/api/review-candidates`, `/api/actionable`,
-  `/api/capabilities`, and `/api/live*` to read-only services, and proxies
-  sync-control and log-tail routes to `board`.
+  latest `data/contract.json` as `/contract.json`, proxies `/api/live*` to
+  `live`, proxies the routes the `board` daemon owns (sync-control, sync-runs, config,
+  secrets, logs, token-rate-limits, and commit-files) to `board`, and proxies
+  every other `/api/*` route to the read-only `api` sidecar.
 
 ```sh
 cat > .env <<'EOF'
@@ -191,8 +193,9 @@ used as a full queue inventory.
 The agent deploy entrypoint (`.agents/scripts/deploy.sh`, used by the `deploy`
 skill) builds and starts whichever stack the `SYMPHONY_BOARD_ENV` switch in
 `.env` selects: `postgres` selects `docker/compose.pg.yaml`; `sqlite` or unset
-selects `docker/compose.yaml`. The same switch is read by
-`project-review-cleanup`, so the two never target different stacks. The explicit
+selects `docker/compose.yaml`. `project-review-cleanup` does not read this
+switch: it targets `SYMPHONY_BOARD_BASE_URL` (default: the Postgres stack's
+`http://127.0.0.1:18080`). The explicit
 `docker compose -f ...` commands above stay valid for ad-hoc use.
 
 The deployment smoke gate for this path is:

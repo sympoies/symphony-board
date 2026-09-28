@@ -4,8 +4,9 @@
 // `docker/compose.yaml` and the opt-in Postgres `docker/compose.pg.yaml`. A
 // single gitignored `.env` key, `SYMPHONY_BOARD_ENV`, records which one is
 // active. This module is the ONE place that reads + classifies that switch so
-// every consumer (the `deploy` tooling and `project-review-cleanup`) resolves
-// it identically and they can never target different stacks.
+// every consumer (the `deploy` tooling and `active-compose-file.mjs`) resolves
+// it identically. `project-review-cleanup` does not read it; it targets
+// `SYMPHONY_BOARD_BASE_URL`.
 //
 // Precedence mirrors review-cleanup: the process environment wins over the repo
 // `.env`. `SYMPHONY_BOARD_RUNTIME` is accepted as an alias of

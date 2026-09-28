@@ -2,8 +2,14 @@
 
 Read-only web UI for the `symphony-board` contract. It imports DTO types from
 `@symphony-board/contract`, fetches `./contract.json`, and renders the board,
-graph, activity feed, commits log, repo analytics, and settings surface. It
-never reads SQLite, provider APIs, or backend source modules.
+graph, activity feed, work-item list, commits log, review-thread inbox, repo
+metrics, and settings surface, plus an opt-in Live feed streamed from the Live
+receiver. It never reads SQLite, provider APIs, or backend source modules.
+
+Top-nav tabs default to Live (when enabled), Commits, Activity, Metrics, Board,
+Graph, Items, Reviews, then Settings; the order is configurable per device.
+Per-page detail beyond this overview lives in
+[`docs/DESIGN.md`](../../docs/DESIGN.md) (UI › Pages).
 
 The backend stays buildless. This package is the deliberate home for browser
 dependencies and the Vite + React build.
@@ -21,8 +27,9 @@ Status is derived from item state plus relationship edges. Spotlight lanes are
 cross-cuts based on label/kind conventions, so their counts do not sum to the
 item total.
 
-The Board uses the shared URL-backed date range with quick presets (`today`,
-`this week`, `1w`, `2w`, `1mo`, `3mo`). It filters cards by `updated_at` and
+The Board uses the shared URL-backed date range with quick presets: calendar
+`today`, `yesterday`, `this week`, `last week` and rolling `1w`, `1mo`, `3mo`,
+`6mo`, `1y`. It filters cards by `updated_at` and
 defaults to the Settings default range preset (`this week` for new browsers).
 The summary pills on the Board are scoped to that same Board window: item totals
 count the cards that survive the date-range filter, and edge lifecycle counts
@@ -99,10 +106,10 @@ destination. Unlinked rows are intentional; the UI does not reconstruct provider
 URLs locally.
 
 Activity uses the same date range as Board and Graph, plus the global search
-box and source/kind filters. Search includes title, summary, actor, project
+box and source/repo/kind/action facets. Search includes title, summary, actor, project
 path, target metadata, and provider details; a `#<iid>` token matches
-`target_iid` exactly. The page filters by range before the global
-source/kind/search facets, then virtualizes the matching rows so large windows
+`target_iid` exactly. The page filters by range before the
+source/repo/kind/action facets and search, then virtualizes the matching rows so large windows
 keep the DOM bounded.
 
 ### Commits (`#/commits`)
@@ -111,13 +118,18 @@ The Commits page renders a commit-only SCM log over `activities[]`, visually
 separate from the mixed Activity feed. It uses the shared URL-backed date range
 and page-local SCM filters:
 
-- repo: self-styled typeahead over repos with commits in the loaded window
+- source chips and repo: self-styled typeahead over repos with commits in the
+  loaded window
 - branch: enabled only when commit rows carry `details.ref`, `details.refs`,
   `details.branch`, or `details.branches`
+- author: select over commit authors, merged and ranked through the contract's
+  `actor_directory`
 
 Rows group by commit date, link the commit message to the provider commit URL,
 show provider/repo/actor metadata, expose short SHAs with copy buttons, and
-offer an inline body toggle when `details.body` is present. Current live sources
+offer an inline body toggle when `details.body` is present. Rows show `+N -M`
+line counts when the commit activity carries `details.additions` /
+`details.deletions`. Current live sources
 annotate REST commit rows with the default branch/ref when repository metadata
 is available; richer multi-branch membership can still use `refs` / `branches`.
 Provider-specific signals such as GitHub Verified or check counts are omitted
@@ -125,11 +137,36 @@ until the contract has comparable GitHub and GitLab semantics.
 
 Commit detail is manually selected by default. Settings can opt this device into
 following the latest visible commit: the page opens detail for the newest row
-and advances when a newer row arrives or the active commit filters change.
+and advances when a newer row arrives or the active commit filters change. The
+detail shows `Following latest` or `Pinned`; selecting another row pins it.
 
-### Repo Analytics (`#/repo-analytics`)
+The changed-file tree and per-file line counts come from `/api/commit-files` on
+request. The layout adapts by width: phones open a full-screen Info/Files reader
+with swipes and bottom Newer/Older controls; 761–1211px keeps the list beside a
+compact detail/files column; 1212–1279px stacks the overview and digest rail
+beside the list; and 1280px and wider show list, overview, and rail as three
+columns.
 
-Repo Analytics renders `repo_metrics[]`: per-repo totals, bucketed series,
+### Items (`#/items`)
+
+Newest-updated issue and PR/MR lookup list over `items[]`, scoped by the shared
+date range. Rows link to provider items and keep the Graph focus affordance.
+
+### Reviews (`#/reviews`)
+
+Current provider review-thread inbox over top-level `review_threads[]`, with
+resolved/outdated state, file/line metadata, compact comment previews, and
+repo-level breakdowns. Metrics' non-zero `Threads` cells deep-link here.
+
+### Live (`#/live`)
+
+Opt-in (off by default) realtime webhook event feed. It does not read the
+contract; it streams from the Live receiver through the configured server. See
+[Live Capabilities](#live-capabilities).
+
+### Metrics (`#/repo-analytics`)
+
+The Metrics page (formerly Repo Analytics) renders `repo_metrics[]`: per-repo totals, bucketed series,
 bounded top actors, and data-quality metadata for the selected window.
 
 The page uses the same URL-backed date range as Board, Graph, Activity, and
@@ -144,23 +181,26 @@ deep-link to source-aware Activity or Commits routes for the same selected date
 range so repeated provider paths from different sources stay distinct.
 
 `repo_metrics[]` is not a full inventory surface. Settings and external
-inventory consumers should use `repo_stats[]`; Repo Analytics uses
+inventory consumers should use `repo_stats[]`; Metrics uses
 `repo_metrics[]` because it is explicitly scoped to the current date range.
 
 ### Settings (`#/settings`)
 
-Settings is a browser-local display surface:
+Settings has a Display tab of browser-local preferences, grouped into
+collapsible sections. When the writer config surface is available, a Sources
+tab adds the writer-owned Sources editor. Display groups:
 
-- hide/show individual repos
-- hide/show whole sources
-- choose the default shared date range preset
-- set per-repo highlight color overrides
-- opt into following the latest visible commit in the Commits detail pane;
-  selecting another row pins it, and the in-pane action resumes following
+- Connection & sync: server URL and manual sync
+- Appearance: color mode and screen layout
+- Navigation: default landing tab and tab order
+- Board & repositories: board data, default date range preset, visible
+  sources and repos, per-repo highlight color overrides
+- Commits: follow the latest visible commit, changed-file stats
+- Live: the Live tab, preview lines, and event types
 
-The choices are stored in `localStorage` and apply as a pre-filter across the
-Board, Graph, Activity feed, Commits log, and Repo Analytics before each page
-computes its view. They are view-only; the daemon keeps syncing every configured
+Appearance opens by default; Connection & sync also opens when no server URL is
+set. The choices are stored in `localStorage` and apply as a pre-filter across
+every contract-backed page before it computes its view. They are view-only; the daemon keeps syncing every configured
 source.
 
 Repo rows use `repo_stats[]` when present so Settings keeps full repo counts
@@ -240,13 +280,14 @@ Docker stack for full local range-query testing.
 
 `pnpm --filter @symphony-board/ui run smoke` runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
-Chrome. It asserts the Board, Graph, Activity feed, Commits log, Repo Analytics,
-Settings, deep-link search, focus path, and configured display colors render
+Chrome. It asserts the Board, Graph, Activity feed, Items, Commits log, Reviews,
+Metrics, Live, Settings, deep-link search, focus path, and configured display colors render
 without console errors. It also verifies that Board, Graph, Activity, Commits,
-and Repo Analytics share the same range presets, that the Settings default-range
+and Metrics share the same range presets, that the Settings default-range
 selector renders, that Board/Graph scoped summaries change when the range
 narrows through `/api/range`, and that large synthetic Activity/Commits feeds
-stay virtualized. It also mocks the daemon's sync control surface to assert the
+stay virtualized. Commits layout checks cover the phone reader, foldable
+compact split, filter wrapping, and the laptop three-column tier. It also mocks the daemon's sync control surface to assert the
 Header Sync action renders, enters the running (disabled) state on click, shows
 the reloaded status on completion, and that Settings exposes the advanced
 manual-sync controls.

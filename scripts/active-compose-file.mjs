@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Resolve which docker compose stack is active from `SYMPHONY_BOARD_ENV` and
-// print its path, so `.agents/scripts/deploy.sh` deploys the stack the rest of
-// the tooling (project-review-cleanup) reads from. Postgres -> the opt-in
+// print its path, so `.agents/scripts/deploy.sh` deploys the stack that switch
+// selects. Postgres -> the opt-in
 // Postgres stack; sqlite or unset -> the default SQLite stack.
 //
 //   node scripts/active-compose-file.mjs            # -> docker/compose.yaml | docker/compose.pg.yaml

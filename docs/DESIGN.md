@@ -414,6 +414,12 @@ not alter the provider-read-only boundary.
 
 Pages:
 
+- **Live**: opt-in realtime webhook event feed (off by default). It does not
+  read the contract; it streams from the Live receiver (see "Live Event Stream
+  (Realtime)"). The tab renders once enabled and hides only when the connection
+  is definitely unavailable, so a slow snapshot seed can still be opened and
+  retried. Its detail supports left/right swipes; Settings owns preview lines
+  and hidden event types.
 - **Board**: 7 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
   `Closed`) plus three Spotlight lanes (`Follow-up`, `Plan-tracking`, `PR`).
   Status is derived from item state and relationship edges. Spotlight lanes are
@@ -423,7 +429,7 @@ Pages:
   no viewer-local filters are active. For custom `/api/range` responses and
   viewer-local filters, it computes scoped summary stats locally from the
   returned window.
-- **Graph**: relationship view built from edge-connected items. It supports an
+- **Graph**: relationship view built from edge-connected items. It supports the
   shared date range, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>` (the `focus` ref alone drives
   the side-list focus view and the focus subgraph; the global search bar is a
@@ -460,7 +466,8 @@ Pages:
   control centers it at readable zoom when a deeper neighborhood is crowded.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It uses the same date range as Board and Graph. The
-  range is applied before source/kind/search filters, and the page virtualizes
+  range is applied before its route-backed source/repo/kind/action facets and
+  search, and the page virtualizes
   matching rows so large activity histories remain scrollable without flooding
   the DOM. Rows link to `activities[].url` only when the producer supplied a
   reliable provider destination.
@@ -470,8 +477,8 @@ Pages:
   workflow view. Rows link to provider items and preserve the shared Graph focus
   affordance for related items.
 - **Commits**: commit-only SCM log over `activities[]`, styled separately from
-  Activity so it behaves like a provider-neutral commit history. It keeps repo
-  and branch filters local to the page, links each message to the provider
+  Activity so it behaves like a provider-neutral commit history. It keeps source,
+  repo, branch, and author filters local to the page, links each message to the provider
   commit URL, exposes short SHAs with copy buttons, expands commit body text
   when available, and shows branch choices only when commit rows carry ref
   details. Detail selection is manual by default; a device-local Settings opt-in
@@ -485,14 +492,14 @@ Pages:
   panes: the selected commit detail and its changed-file list. Info and Files
   switch between separate scrolling content areas beneath a fixed control,
   matching the other phone detail views without covering scrolled text.
-  Detail supports the same left/right swipes as Live and Items: left moves
-  to the older commit and right to the newer one in the filtered list, stopping
-  at either end. Swiping pins the commit, preserves the active Info/Files pane,
-  and resets detail/files scrolling. Newer/Older controls are hidden in desktop split views;
-  in the phone reader they stay at the viewport bottom outside both scrolling
-  panes. Short Info and Files cards fill the remaining reading area like Live;
-  longer content scrolls without moving the footer. The entire reader accepts
-  swipes, including blank space, just like Live.
+  The entire reader, including blank space, accepts the same left/right swipes
+  as Live and Items: left moves to the older commit and right to the newer one
+  in the filtered list, stopping at either end. Swiping pins the commit,
+  preserves the active Info/Files pane, and resets detail/files scrolling.
+  Newer/Older controls are hidden in desktop split views; in the phone reader
+  they stay at the viewport bottom outside both scrolling panes. Short Info and
+  Files cards fill the remaining reading area like Live; longer content scrolls
+  without moving the footer.
   Links, controls, vertical gestures, and scrollable code retain their behavior.
   The tap fetches the files even when the desktop rail's file-stats setting is
   off. Back returns to the commit list. Following a newer commit does not open
@@ -501,7 +508,9 @@ Pages:
   column. Filters collapse behind a summary and expand inline; selecting a
   commit prioritizes its detail over the range overview and resets the right
   column to the top. The visible compact detail fetches files and keeps them
-  synchronized while following latest, without changing the device setting. Wider screens retain their overview and digest columns.
+  synchronized while following latest, without changing the device setting. At 1212–1279px the overview and digest
+  rail stack in one column beside the list; from 1280px Commits shows the list,
+  overview, and rail as three columns.
   Selected content cards share a subtle theme-aware fill and border across
   Commits, Items, Live, Reviews, and the Graph list; selection paints the
   rounded card rather than virtual-row spacing. Keyboard focus remains visible.
@@ -509,9 +518,10 @@ Pages:
   `review_threads[]`, not a review-event feed. It uses the shared date range and
   item lens, lists each synced thread with current resolved/outdated state,
   file/line metadata, and compact comment previews, and shows repo-level
-  thread breakdown/trends. Repo Analytics' non-zero `Threads` cells deep-link
+  thread breakdown/trends. Metrics' non-zero `Threads` cells deep-link
   here with source/repo/unresolved filters.
-- **Repo Analytics**: per-repo totals and trends from `repo_metrics[]`. It uses
+- **Metrics** (`#/repo-analytics`, formerly Repo Analytics): per-repo totals
+  and trends from `repo_metrics[]`. It uses
   the shared date range and source/state/kind/search controls, ranks repos by
   contract `activity_score`, renders compact trend bars from contract series
   buckets, and shows a coverage badge (`active` / `partial` / `idle` /
@@ -523,15 +533,19 @@ Pages:
   Connection & sync, Appearance, Navigation, Board & repositories, Commits,
   and Live groups. Appearance opens by default; an unconfigured client also
   opens Connection & sync. The writer-owned Sources editor remains separate.
-  Commits follows Live in the default navigation; upgrades move Commits first
-  while preserving the other saved positions, and later custom orders persist. It can hide repos or whole
+  The default tab order is Live (when enabled), Commits, Activity, Metrics,
+  Board, Graph, Items, Reviews. A device whose saved order is the old default
+  gets the new default; any other saved order has Commits moved to the front of
+  the content tabs once, and later custom orders persist. The default landing
+  tab is Live, which falls back to Activity while the Live tab is off. It can
+  hide repos or whole
   sources, set the default shared date range preset, and set per-repo color
   overrides in `localStorage`. It also stores the opt-in that keeps Commits
   detail on the newest visible row; the detail itself exposes the current
   following/pinned state and can resume following without returning to Settings.
   These preferences are a pre-filter or
-  presentation choice before Board, Graph, Activity, Commits, and Repo Analytics
-  compute their views. They are view-only; the daemon keeps syncing every
+  presentation choice before every contract-backed page (Board, Graph,
+  Activity, Commits, Items, Reviews, Metrics) computes its view. They are view-only; the daemon keeps syncing every
   configured source. When the URL has no explicit `from` / `to`, new browsers
   default to `this week`, calculated from Sunday in the contract's configured
   `timezone` (default UTC).
@@ -927,8 +941,10 @@ provider, provider error, and a config the route could not load at all —
 a message, so the block can say WHY the breakdown is missing; only a malformed
 request is a `400`.
 
-**Where it renders.** The breakdown leads the Commits **digest rail** as its
-first `rail-block`, not the detail pane: it is the only block there that
+**Where it renders.** On wide screens the breakdown leads the Commits **digest
+rail** as its first `rail-block`, not the detail pane (on phones it is the
+reader's Files pane; at 761–1211px it renders alone in the compact
+detail/files column): it is the only block there that
 describes the ONE selected row rather than the whole range, and stacking a long
 commit message and a long file list in one column pushed the files off the
 bottom of the screen exactly when they were worth reading. The block reproduces
