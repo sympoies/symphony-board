@@ -181,52 +181,52 @@ body::after {
    clears it after a short idle) or while the pointer hovers the bar. The track is
    never given a visible color and the gutter (--scrollbar-size) is always reserved,
    so revealing the bar never shifts content. */
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"] {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"] {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track,
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track-piece,
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-corner {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track,
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track-piece,
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track {
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb {
   background: transparent;
   border: 2px solid transparent;
   border-radius: 999px;
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"]::-webkit-scrollbar-thumb {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"]::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:hover {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:active {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(.board-7, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
+:where(.board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
   --scrollbar-track: color-mix(in srgb, var(--panel) 80%, var(--bg));
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
@@ -791,7 +791,7 @@ a.item-metric:hover {
 .board-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 8px 0; }
 .board-mobile-selector { display: none; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .board-mobile-selector .toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; }
-.board-7 {
+.board-lanes {
   display: flex;
   gap: var(--pane-gap);
   align-items: stretch;
@@ -806,7 +806,7 @@ a.item-metric:hover {
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  /* Fixed readable lanes, horizontally scrolled by .board-7 when the full board
+  /* Fixed readable lanes, horizontally scrolled by .board-lanes when the full board
      cannot fit. Allowing the flex items to shrink made populated lanes collapse
      into narrow scan columns on desktop. */
   flex: 0 0 var(--board-column-width);
@@ -864,9 +864,8 @@ a.item-metric:hover {
 .dot-in_progress { background: var(--declared); }
 .dot-trailing { background: var(--merged); }
 .dot-closed { background: var(--muted); }
-/* spotlight-lane dots (the 3 cross-cut columns on the full board) */
+/* spotlight-lane dots (the 2 cross-cut columns on the full board) */
 .dot-lane-follow-up { background: var(--broken); }
-.dot-lane-plan { background: var(--closed); }
 .dot-lane-pr { background: var(--link); }
 /* fill the (stretched) column height and scroll inside; min-height:0 lets a
    flex child shrink below content so the scroll engages. */
@@ -890,7 +889,7 @@ a.item-metric:hover {
 }
 .col-collapse-btn:hover { color: var(--text); background: var(--hover-strong); }
 /* the column board uses one card per row, so let cards fill the column width */
-.board-7 .card { width: 100%; }
+.board-lanes .card { width: 100%; }
 
 /* graph page (relationship graph, cytoscape) */
 /* Full-bleed like Live: the canvas is the one surface with no reading measure at
@@ -3855,7 +3854,7 @@ a.rf-node-title:hover { color: var(--accent); }
 .debug-section-fill > .debug-runs-wrap .debug-table thead th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); }
 
 @media (max-width: 1180px) {
-  .board-7 {
+  .board-lanes {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     overflow-x: visible;
@@ -4087,11 +4086,11 @@ a.rf-node-title:hover { color: var(--accent); }
     font-size: 12px;
     line-height: 1.2;
   }
-  .board-7 {
+  .board-lanes {
     display: block;
     overflow-x: visible;
   }
-  .board-7 .col {
+  .board-lanes .col {
     display: none;
     height: auto;
     min-height: 0;
@@ -4101,13 +4100,13 @@ a.rf-node-title:hover { color: var(--accent); }
      longer grows without bound — the pinned chips and the column header stay in
      place while only the cards move. dvh tracks the mobile browser's collapsing
      toolbar; the 640px cap keeps it from over-stretching on tall screens. */
-  .board-7 .col-mobile-active {
+  .board-lanes .col-mobile-active {
     display: flex;
     height: var(--content-pane-height, min(74dvh, 640px));
   }
   /* A collapsed active lane is just a short rail — don't stretch it to full
      pane height. */
-  .board-7 .col-collapsed.col-mobile-active {
+  .board-lanes .col-collapsed.col-mobile-active {
     height: auto;
     min-height: 96px;
   }

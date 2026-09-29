@@ -420,8 +420,8 @@ Pages:
   is definitely unavailable, so a slow snapshot seed can still be opened and
   retried. Its detail supports left/right swipes; Settings owns preview lines
   and hidden event types.
-- **Board**: 7 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
-  `Closed`) plus three Spotlight lanes (`Follow-up`, `Plan-tracking`, `PR`).
+- **Board**: 6 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
+  `Closed`) plus two Spotlight lanes (`Follow-up`, `PR`).
   Status is derived from item state and relationship edges. Spotlight lanes are
   cross-cuts, so their counts do not sum to the item total. The Board uses the
   shared date range and filters primary cards by item `updated_at`. For the

@@ -18,10 +18,10 @@ dependencies and the Vite + React build.
 
 ### Board (`#/`)
 
-The primary board is a 7-column surface:
+The primary board is a 6-column surface:
 
 - status columns: `Open`, `In Progress`, `Trailing`, `Closed`
-- Spotlight lanes: `Follow-up`, `Plan-tracking`, `PR`
+- Spotlight lanes: `Follow-up`, `PR`
 
 Status is derived from item state plus relationship edges. Spotlight lanes are
 cross-cuts based on label/kind conventions, so their counts do not sum to the

@@ -3412,15 +3412,13 @@ test("columnCollapsed: empty is a rail unless peeked; non-empty is a rail only i
 // whole board column, so the pick/sort behavior is locked here.
 test("spotlight lanes pick by kind + label convention; closed items stay visible", () => {
   const follow = item({ id: "i|f", state: "closed", labels: [{ name: "workflow::follow-up", scope: "workflow", color: null }] });
-  const plan = item({ id: "i|p", labels: [{ name: "workflow::plan", scope: "workflow", color: null }] });
   const wrongKind = item({ id: "i|wk", kind: "change_request", labels: [{ name: "workflow::follow-up", scope: "workflow", color: null }] });
   const pr = item({ id: "i|pr", kind: "change_request", state: "merged" });
   const plain = item({ id: "i|plain" });
-  const lanes = spotlight([follow, plan, wrongKind, pr, plain]);
-  assert.deepEqual(lanes.map((l) => l.lane.key), ["follow-up", "plan", "pr"], "every configured lane is returned, in config order");
+  const lanes = spotlight([follow, wrongKind, pr, plain]);
+  assert.deepEqual(lanes.map((l) => l.lane.key), ["follow-up", "pr"], "only the retained lanes are returned, in config order");
   const byKey = new Map(lanes.map((l) => [l.lane.key, l.items.map((i) => i.id)]));
   assert.deepEqual(byKey.get("follow-up"), ["i|f"], "issue kind + label only — and a closed item is still shown");
-  assert.deepEqual(byKey.get("plan"), ["i|p"]);
   assert.deepEqual(byKey.get("pr")?.sort(), ["i|pr", "i|wk"], "the change request lane takes every change_request regardless of label or state");
 });
 

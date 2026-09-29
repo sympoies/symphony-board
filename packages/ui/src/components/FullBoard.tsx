@@ -200,7 +200,7 @@ export function FullBoard({
           </button>
         ))}
       </div>
-      <section className="board-7" ref={boardPaneRef} style={paneHeightStyle}>
+      <section className="board-lanes" ref={boardPaneRef} style={paneHeightStyle}>
         {STATUS_ORDER.map((s) => (
           <Column
             key={s}
