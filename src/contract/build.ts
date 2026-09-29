@@ -1,3 +1,4 @@
+import { timestampMs, timestampInRange, compareTimestampDesc } from "../../shared/time.ts";
 // Build the contract envelope (LAYER 3) from canonical DB rows. Pure mapping:
 // given rows + a `generatedAt` instant, produce the versioned envelope. No DB
 // access here, so it is unit-testable with fabricated rows.
@@ -252,23 +253,11 @@ function cutoffIso(days: number, generatedAt: string): string {
   return new Date(Date.parse(generatedAt) - days * 86_400_000).toISOString();
 }
 
-function timestampMs(value: string | null | undefined): number | null {
-  const ms = Date.parse(value ?? "");
-  return Number.isFinite(ms) ? ms : null;
-}
-
 function timestampAtOrAfter(value: string | null | undefined, cutoff: string | null): boolean {
   if (!cutoff) return true;
   const valueMs = timestampMs(value);
   const cutoffMs = timestampMs(cutoff);
   return valueMs !== null && cutoffMs !== null && valueMs >= cutoffMs;
-}
-
-function timestampInRange(value: string | null | undefined, range: TimeRangeDTO): boolean {
-  const valueMs = timestampMs(value);
-  const fromMs = timestampMs(range.from);
-  const toMs = timestampMs(range.to);
-  return valueMs !== null && fromMs !== null && toMs !== null && valueMs >= fromMs && valueMs <= toMs;
 }
 
 function itemActiveSince(item: ItemDTO, cutoff: string | null): boolean {
@@ -284,12 +273,7 @@ function activityOccurredInRange(activity: ActivityDTO, range: TimeRangeDTO): bo
 }
 
 function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
-  const aMs = timestampMs(a.occurred_at);
-  const bMs = timestampMs(b.occurred_at);
-  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
-  if (aMs !== null && bMs === null) return -1;
-  if (aMs === null && bMs !== null) return 1;
-  return 0;
+  return compareTimestampDesc(a.occurred_at, b.occurred_at);
 }
 
 function sortActivitiesByInstantDesc(activities: ActivityDTO[]): ActivityDTO[] {

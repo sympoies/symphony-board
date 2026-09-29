@@ -62,8 +62,9 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY schema ./schema
 COPY packages/contract ./packages/contract
 COPY src ./src
+COPY shared ./shared
 COPY docker/docker-entrypoint.sh ./
-RUN chmod -R a+rX package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json schema packages/contract src \
+RUN chmod -R a+rX package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json schema packages/contract src shared \
   && chmod 0755 docker-entrypoint.sh
 
 # Silence the type-stripping / node:sqlite experimental warnings globally.

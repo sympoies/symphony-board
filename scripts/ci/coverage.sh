@@ -43,12 +43,18 @@ echo "==> backend coverage (src/**/*.ts, incl. CLI/glue)"
   "${NODE_TEST[@]}" test/*.test.ts
 
 echo "==> ui view-model coverage (src/**/*.ts only — .tsx is render-smoke's gate)"
-( cd packages/ui && "${C8[@]}" --all --src src -n 'src/**/*.ts' -x 'src/**/*.d.ts' \
+# Run at the repository root so UI tests credit neutral shared helpers too.
+# The UI report owns shared/time.ts exactly once; the backend report only owns src/.
+"${C8[@]}" --all --src packages/ui/src --src shared \
+  -n 'packages/ui/src/**/*.ts' -n 'shared/**/*.ts' -x '**/*.d.ts' \
   --reporter=lcovonly --report-dir="$ROOT/coverage/ui" \
-  "${NODE_TEST[@]}" test/*.test.ts )
+  "${NODE_TEST[@]}" packages/ui/test/*.test.ts
 
 # One merged LCOV: the badge + summary + gate all read this.
 cat coverage/backend/lcov.info coverage/ui/lcov.info > coverage/lcov.info
+
+# Guard the cross-root source path and the single coverage owner.
+awk '/^SF:.*shared\/time.ts$/ { count++ } END { exit count == 1 ? 0 : 1 }' coverage/lcov.info
 
 # Combined line gate. awk sums LH/LF across every SF record (both packages).
 awk -F: -v floor="$FLOOR" '

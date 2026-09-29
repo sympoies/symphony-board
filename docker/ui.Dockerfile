@@ -25,6 +25,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 # types and the UI source.
 COPY packages/contract packages/contract
 COPY packages/ui packages/ui
+COPY shared shared
 RUN pnpm --filter @symphony-board/ui run build
 
 # Non-root nginx: the unprivileged image runs as uid 101 and listens on 8080

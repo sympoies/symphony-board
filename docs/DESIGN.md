@@ -1168,9 +1168,11 @@ allowlist, by env-var name, and never holds a provider token or config mount.
   grouping — the range API expands `from` / `to` queries at the zone's day
   boundaries, and (3.1.1) the `repo_metrics[].series` day / week / month buckets
   align to the zone's calendar so one local day is one `day` bucket. Resolved
-  with `Intl.DateTimeFormat` (DST-aware, dependency-free); the helper is
-  duplicated in `src/lib/tz.ts` (producer) and `packages/ui/src/tz.ts`
-  (consumer) because the contract package is type-only at runtime. Absolute
+  with `Intl.DateTimeFormat` (DST-aware, dependency-free); the implementation lives in
+  dependency-free `shared/time.ts`, with adapters in `src/lib/tz.ts`
+  (producer) and `packages/ui/src/tz.ts` (consumer). The contract package
+  remains type-only at runtime; Docker and standalone resources include the
+  neutral shared module. Absolute
   instants (`generated_at`, `updated_at`, `occurred_at`) stay UTC ISO-8601 —
   only calendar-day bucketing honors the zone.
 - **Provider links (3.2.0)**: the producer owns GitHub/GitLab URL construction
