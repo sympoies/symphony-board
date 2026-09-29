@@ -1,3 +1,4 @@
+import { serialPoll } from "./serial-poll.ts";
 // UI client state for the writer-owned sync control plane. It probes the daemon
 // on mount, polls the active run fast while one is in flight, and re-probes at a
 // slow idle cadence (plus on tab focus) so daemon-scheduled background runs show
@@ -86,16 +87,16 @@ export function useSync(onFreshData: () => void, serverBaseUrl: string | null): 
   useEffect(() => {
     if (!activeRunId) return;
     let cancelled = false;
-    const tick = async () => {
+    const tick = async (signal: AbortSignal) => {
       try {
-        const next = await fetchCurrentSyncRun(serverBaseUrl);
+        const next = await fetchCurrentSyncRun(serverBaseUrl, signal);
         if (cancelled) return;
         if (next && next.status === "running") {
           setCurrent(next);
           return;
         }
         // The slot cleared: the run finished. /last carries the terminal status.
-        const finished = next ?? (await fetchLastSyncRun(serverBaseUrl));
+        const finished = next ?? (await fetchLastSyncRun(serverBaseUrl, signal));
         if (cancelled) return;
         setCurrent(null);
         adoptFinished(finished);
@@ -103,10 +104,10 @@ export function useSync(onFreshData: () => void, serverBaseUrl: string | null): 
         if (!cancelled) setError((err as Error).message);
       }
     };
-    const id = setInterval(() => void tick(), POLL_INTERVAL_MS);
+    const poll = serialPoll(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      poll.stop();
     };
   }, [activeRunId, serverBaseUrl, adoptFinished]);
 
@@ -118,8 +119,8 @@ export function useSync(onFreshData: () => void, serverBaseUrl: string | null): 
   useEffect(() => {
     if (!available || activeRunId) return;
     let cancelled = false;
-    const probe = async () => {
-      const next = await fetchSyncControl(serverBaseUrl);
+    const probe = async (signal: AbortSignal) => {
+      const next = await fetchSyncControl(serverBaseUrl, signal);
       if (cancelled || !next) return;
       setInfo(next); // keeps enabled/sources fresh after config edits too
       if (isSyncRunActive(next.current)) {
@@ -129,14 +130,16 @@ export function useSync(onFreshData: () => void, serverBaseUrl: string | null): 
       adoptFinished(next.last);
     };
     const wake = () => {
-      if (document.visibilityState === "visible") void probe();
+      if (document.visibilityState === "visible") poll.trigger();
     };
-    const id = setInterval(wake, IDLE_PROBE_INTERVAL_MS);
+    const poll = serialPoll(async (signal) => {
+      if (document.visibilityState === "visible") await probe(signal);
+    }, IDLE_PROBE_INTERVAL_MS);
     window.addEventListener("focus", wake);
     document.addEventListener("visibilitychange", wake);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      poll.stop();
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", wake);
     };
