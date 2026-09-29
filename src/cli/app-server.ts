@@ -30,6 +30,7 @@
 // surface edits and token resolution reads fresh; the desktop shell points it
 // at the data dir's secrets.env).
 
+import { handleReadApiRequest } from "../server/read-api.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFileSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -45,23 +46,12 @@ import {
   sourceOptions,
   type ControlContext,
 } from "./sync-daemon.ts";
-import { handleRangeRequest } from "../server/range.ts";
-import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
-import { handleStatsRequest } from "../server/stats.ts";
-import { handleActivityDailyRequest } from "../server/activity-daily.ts";
-import { handleActionableRequest } from "../server/actionable.ts";
-import { handleGraphNeighborhoodRequest } from "../server/graph-neighborhood.ts";
-import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
-import { acceptsGzip } from "../server/http.ts";
+import { capabilitiesOptionsFromEnv, type CapabilitiesOptions } from "../server/capabilities.ts";
+import { acceptsGzip, sendJson } from "../server/http.ts";
 import { log } from "../log.ts";
 
 export const STANDALONE_DEFAULT_INTERVAL_SECONDS = 600;
 export const STANDALONE_DEFAULT_FULL_INTERVAL_SECONDS = 86400;
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(body) + "\n");
-}
 
 // gzipped-contract cache keyed on (path, emitted-file mtime). The contract is
 // the largest, hottest response (every UI load) and only changes when the
@@ -184,48 +174,14 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
       return;
     }
 
-    // Full-history activity_daily, read straight from the emitted contract file
-    // (no store access, no config needed). Lets the Activity Overview render a true
-    // trailing 12 months even when this device's Board data scope loaded a windowed
-    // range as its primary env. See src/server/activity-daily.ts.
-    if (method === "GET" && path === "/api/activity-daily") {
-      handleActivityDailyRequest(opts.contractOut, res, req.headers["accept-encoding"]);
-      return;
-    }
-
-    if (method === "GET" && path === "/api/capabilities") {
-      await handleCapabilitiesRequest(
-        {
-          ...capabilitiesOptionsFromEnv(process.env, { serverMode: "standalone" }),
-          ...opts.capabilities,
-        },
-        res,
-      );
-      return;
-    }
-
-    if (
-      method === "GET" &&
-      (path === "/api/range" || path === "/api/stats" || path === "/api/review-candidates" || path === "/api/actionable" || path === "/api/graph-neighborhood")
-    ) {
-      let cfg: AppConfig;
-      try {
-        cfg = freshConfig();
-      } catch (err) {
-        sendJson(res, 500, { error: "config_error", message: (err as Error).message });
-        return;
-      }
-      if (path === "/api/stats") await handleStatsRequest(cfg, url, res);
-      else if (path === "/api/review-candidates") await handleReviewCandidatesRequest(cfg, url, res);
-      else if (path === "/api/actionable") await handleActionableRequest(cfg, url, res);
-      else if (path === "/api/graph-neighborhood") {
-        const controller = new AbortController();
-        req.once("aborted", () => controller.abort());
-        await handleGraphNeighborhoodRequest(cfg, url, res, req.headers["accept-encoding"], controller.signal);
-      }
-      else await handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
-      return;
-    }
+    if (await handleReadApiRequest({
+      freshConfig,
+      contractOut: opts.contractOut,
+      capabilities: () => ({
+        ...capabilitiesOptionsFromEnv(process.env, { serverMode: "standalone" }),
+        ...opts.capabilities,
+      }),
+    }, req, res, url)) return;
 
     // /healthz, /api/sync-control, /api/sync-runs*, /api/config and the 404
     // fallback all live in the shared control handler.
@@ -234,6 +190,7 @@ export function createAppServer(controller: SyncController, opts: AppServerOptio
 
   return createServer((req, res) => {
     void handle(req, res).catch((err: unknown) => {
+      if (res.headersSent) { res.destroy(); return; }
       sendJson(res, 500, { error: "internal_error", message: (err as Error).message });
     });
   });

@@ -750,28 +750,52 @@ export async function fetchCommitFileStats(
 // request came from this app.
 export const SYNC_CONTROL_HEADER = "X-Symphony-Sync-Control";
 
+type JsonObject = Record<string, unknown>;
+
+// Small operational JSON endpoints share transport, while endpoint decoders
+// retain their own validation and absence semantics.
+async function probeJson<T>(path: string, serverBaseUrl: string | null, decode: (body: unknown) => T | null, signal?: AbortSignal): Promise<T | null> {
+  try {
+    const res = await appFetch(resolveEndpoint(path, serverBaseUrl), { cache: "no-store", signal });
+    return res.ok ? decode(await readJson(res)) : null;
+  } catch { return null; }
+}
+
+function jsonObject(body: unknown): JsonObject | null {
+  return body !== null && typeof body === "object" && !Array.isArray(body) ? body as JsonObject : null;
+}
+
+async function controlJson(method: "POST" | "PUT", path: string, payload: unknown, serverBaseUrl: string | null) {
+  const res = await appFetch(resolveEndpoint(path, serverBaseUrl), {
+    method,
+    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
+    body: JSON.stringify(payload),
+  });
+  let body: JsonObject | null = null;
+  try { body = jsonObject(await readJson(res)); } catch { /* proxy/non-JSON failure */ }
+  const message = typeof body?.message === "string" ? body.message : typeof body?.error === "string" ? body.error : `HTTP ${res.status}`;
+  return { ok: res.ok, status: res.status, body, error: res.ok ? null : message };
+}
+
 // Availability probe. Returns null on ANY failure (route missing, network error,
 // non-2xx) so the caller treats sync control as simply unavailable and hides the
 // affordance — the common case for a static deploy without the daemon.
-export async function fetchSyncControl(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SyncControlInfo | null> {
-  try {
-    const res = await appFetch(resolveEndpoint("./api/sync-control", serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await readJson(res)) as SyncControlInfo;
-  } catch {
-    return null;
-  }
+export async function fetchSyncControl(serverBaseUrl: string | null = loadServerBaseUrl(), signal?: AbortSignal): Promise<SyncControlInfo | null> {
+  return probeJson("./api/sync-control", serverBaseUrl, (body) => {
+    const info = jsonObject(body);
+    return info && typeof info.enabled === "boolean" ? info as unknown as SyncControlInfo : null;
+  }, signal);
 }
 
-export async function fetchCurrentSyncRun(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SyncRunStatus | null> {
-  const res = await appFetch(resolveEndpoint("./api/sync-runs/current", serverBaseUrl), { cache: "no-store" });
+export async function fetchCurrentSyncRun(serverBaseUrl: string | null = loadServerBaseUrl(), signal?: AbortSignal): Promise<SyncRunStatus | null> {
+  const res = await appFetch(resolveEndpoint("./api/sync-runs/current", serverBaseUrl), { cache: "no-store", signal });
   if (!res.ok) throw new Error(`sync status: HTTP ${res.status}`);
   const body = (await readJson(res)) as { current: SyncRunStatus | null };
   return body.current ?? null;
 }
 
-export async function fetchLastSyncRun(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SyncRunStatus | null> {
-  const res = await appFetch(resolveEndpoint("./api/sync-runs/last", serverBaseUrl), { cache: "no-store" });
+export async function fetchLastSyncRun(serverBaseUrl: string | null = loadServerBaseUrl(), signal?: AbortSignal): Promise<SyncRunStatus | null> {
+  const res = await appFetch(resolveEndpoint("./api/sync-runs/last", serverBaseUrl), { cache: "no-store", signal });
   if (!res.ok) throw new Error(`sync status: HTTP ${res.status}`);
   const body = (await readJson(res)) as { last: SyncRunStatus | null };
   return body.last ?? null;
@@ -787,23 +811,8 @@ export interface StartSyncResult {
 }
 
 export async function startSyncRun(req: SyncRunRequest, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<StartSyncResult> {
-  const res = await appFetch(resolveEndpoint("./api/sync-runs", serverBaseUrl), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
-    body: JSON.stringify(req),
-  });
-  let body: { current?: SyncRunStatus | null; error?: string } | null = null;
-  try {
-    body = (await readJson(res)) as { current?: SyncRunStatus | null; error?: string };
-  } catch {
-    body = null;
-  }
-  return {
-    ok: res.ok,
-    status: res.status,
-    run: body?.current ?? null,
-    error: res.ok ? null : (body?.error ?? `HTTP ${res.status}`),
-  };
+  const result = await controlJson("POST", "./api/sync-runs", req, serverBaseUrl);
+  return { ok: result.ok, status: result.status, run: result.body?.current as SyncRunStatus | null ?? null, error: result.error };
 }
 
 // --- writer-owned config control plane client (Settings -> Sources editor) ---
@@ -815,14 +824,10 @@ export async function startSyncRun(req: SyncRunRequest, serverBaseUrl: string | 
 // editor; `enabled: true` with `config: null` is the not-configured-yet state
 // the first-run onboarding starts from.
 export async function fetchConfigControl(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ConfigControlInfo | null> {
-  try {
-    const res = await appFetch(resolveEndpoint("./api/config", serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as ConfigControlInfo | null;
-    return body && typeof body.enabled === "boolean" ? body : null;
-  } catch {
-    return null;
-  }
+  return probeJson("./api/config", serverBaseUrl, (body) => {
+    const info = jsonObject(body);
+    return info && typeof info.enabled === "boolean" ? info as unknown as ConfigControlInfo : null;
+  });
 }
 
 export interface SaveConfigResult {
@@ -833,37 +838,18 @@ export interface SaveConfigResult {
 }
 
 export async function saveConfigDocument(config: ConfigDocument, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SaveConfigResult> {
-  const res = await appFetch(resolveEndpoint("./api/config", serverBaseUrl), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
-    body: JSON.stringify(config),
-  });
-  let body: { error?: string; errors?: string[] } | null = null;
-  try {
-    body = (await readJson(res)) as { error?: string; errors?: string[] };
-  } catch {
-    body = null;
-  }
-  const errors = body?.errors ?? [];
-  return {
-    ok: res.ok,
-    status: res.status,
-    errors,
-    error: res.ok || errors.length > 0 ? null : (body?.error ?? `HTTP ${res.status}`),
-  };
+  const result = await controlJson("PUT", "./api/config", config, serverBaseUrl);
+  const errors = Array.isArray(result.body?.errors) ? result.body.errors.filter((error): error is string => typeof error === "string") : [];
+  return { ok: result.ok, status: result.status, errors, error: errors.length ? null : result.error };
 }
 
 // Which token env names are set (booleans only — values never cross this
 // surface). Null on any failure, mirroring the capability probes.
 export async function fetchSecrets(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SecretsInfo | null> {
-  try {
-    const res = await appFetch(resolveEndpoint("./api/secrets", serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as SecretsInfo | null;
-    return body && typeof body.enabled === "boolean" ? body : null;
-  } catch {
-    return null;
-  }
+  return probeJson("./api/secrets", serverBaseUrl, (body) => {
+    const info = jsonObject(body);
+    return info && typeof info.enabled === "boolean" ? info as unknown as SecretsInfo : null;
+  });
 }
 
 export interface SaveSecretResult {
@@ -875,48 +861,15 @@ export interface SaveSecretResult {
 // Write-only: set/replace a token for an env name, or remove it with null.
 // The value rides in the request body once and is never echoed or stored.
 export async function saveSecretValue(env: string, value: string | null, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SaveSecretResult> {
-  const res = await appFetch(resolveEndpoint("./api/secrets", serverBaseUrl), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
-    body: JSON.stringify({ env, value }),
-  });
-  let body: { error?: string; message?: string } | null = null;
-  try {
-    body = (await readJson(res)) as { error?: string; message?: string };
-  } catch {
-    body = null;
-  }
-  return {
-    ok: res.ok,
-    status: res.status,
-    error: res.ok ? null : (body?.message ?? body?.error ?? `HTTP ${res.status}`),
-  };
+  const { ok, status, error } = await controlJson("PUT", "./api/secrets", { env, value }, serverBaseUrl);
+  return { ok, status, error };
 }
 
 // Validate a PAT against the configured source before it is persisted. The token
 // value is sent once for the provider probe and is never returned by the server.
-export async function validateSecretValue(
-  sourceId: string,
-  env: string,
-  value: string,
-  serverBaseUrl: string | null = loadServerBaseUrl(),
-): Promise<SaveSecretResult> {
-  const res = await appFetch(resolveEndpoint("./api/secrets/validate", serverBaseUrl), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", [SYNC_CONTROL_HEADER]: "1" },
-    body: JSON.stringify({ source_id: sourceId, env, value }),
-  });
-  let body: { error?: string; message?: string } | null = null;
-  try {
-    body = (await readJson(res)) as { error?: string; message?: string };
-  } catch {
-    body = null;
-  }
-  return {
-    ok: res.ok,
-    status: res.status,
-    error: res.ok ? null : (body?.message ?? body?.error ?? `HTTP ${res.status}`),
-  };
+export async function validateSecretValue(sourceId: string, env: string, value: string, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<SaveSecretResult> {
+  const { ok, status, error } = await controlJson("POST", "./api/secrets/validate", { source_id: sourceId, env, value }, serverBaseUrl);
+  return { ok, status, error };
 }
 
 // --- diagnostics client (the hidden #/debug page) ---
@@ -932,54 +885,36 @@ export async function validateSecretValue(
 // pure-static deploy, no server, network error, pre-4.0.0 contract) so the caller
 // falls back to the primary env's own activity_daily — the prior behavior.
 export async function fetchActivityDaily(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<ActivityDailyDTO | null> {
-  try {
-    const res = await appFetch(resolveEndpoint("./api/activity-daily", serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as { activity_daily?: ActivityDailyDTO | null } | null;
-    const daily = body?.activity_daily ?? null;
+  return probeJson("./api/activity-daily", serverBaseUrl, (body) => {
+    const daily = jsonObject(body)?.activity_daily as ActivityDailyDTO | null;
     return daily && typeof daily === "object" && Array.isArray(daily.days) && typeof daily.total === "number" ? daily : null;
-  } catch {
-    return null;
-  }
+  });
 }
 
 export async function fetchStoreStats(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<StoreStats | null> {
-  try {
-    const res = await appFetch(resolveEndpoint("./api/stats", serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as StoreStats | null;
-    return body && typeof body === "object" && typeof (body as { db?: unknown }).db === "object" ? body : null;
-  } catch {
-    return null;
-  }
+  return probeJson("./api/stats", serverBaseUrl, (body) => {
+    const info = jsonObject(body);
+    return info && typeof info.db === "object" ? info as unknown as StoreStats : null;
+  });
 }
 
 // The writer daemon's recent-log tail. `after` is the caller's last-seen seq
 // (0 = full buffer), so the poll loop ships deltas, not the whole buffer.
-export async function fetchDaemonLogs(after: number, serverBaseUrl: string | null = loadServerBaseUrl()): Promise<DaemonLogsInfo | null> {
-  try {
-    const path = after > 0 ? `./api/logs?after=${after}` : "./api/logs";
-    const res = await appFetch(resolveEndpoint(path, serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as DaemonLogsInfo | null;
-    return body && typeof body.enabled === "boolean" ? body : null;
-  } catch {
-    return null;
-  }
+export async function fetchDaemonLogs(after: number, serverBaseUrl: string | null = loadServerBaseUrl(), signal?: AbortSignal): Promise<DaemonLogsInfo | null> {
+  return probeJson(after > 0 ? `./api/logs?after=${after}` : "./api/logs", serverBaseUrl, (body) => {
+    const info = jsonObject(body);
+    return info && typeof info.enabled === "boolean" ? info as unknown as DaemonLogsInfo : null;
+  }, signal);
 }
 
 // On-demand GitHub GraphQL rate-limit probe. null on ANY failure (route missing
 // on this deployment, or network error) so the tab renders "unavailable" rather
 // than erroring — the same probe discipline as the store/log surfaces above.
 export async function fetchTokenRateLimits(serverBaseUrl: string | null = loadServerBaseUrl()): Promise<TokenRateLimitsInfo | null> {
-  try {
-    const res = await appFetch(resolveEndpoint("./api/token-rate-limits", serverBaseUrl), { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await readJson(res)) as TokenRateLimitsInfo | null;
-    return body && Array.isArray((body as { tokens?: unknown }).tokens) ? body : null;
-  } catch {
-    return null;
-  }
+  return probeJson("./api/token-rate-limits", serverBaseUrl, (body) => {
+    const info = jsonObject(body);
+    return info && Array.isArray(info.tokens) ? info as unknown as TokenRateLimitsInfo : null;
+  });
 }
 
 function isCapabilitiesStatus(value: unknown): value is ServerCapabilities["live"]["status"] {
@@ -1071,6 +1006,7 @@ export const LIVE_SNAPSHOT_RETRY_BASE_MS = 500;
 const LIVE_SNAPSHOT_RETRY_MAX_MS = 4_000;
 
 export interface LiveSnapshotFetchOptions {
+  signal?: AbortSignal; // caller lifecycle, in addition to each attempt timeout
   retries?: number; // extra attempts after the first, only on a TRANSIENT failure
   retryBaseDelayMs?: number;
   requestTimeoutMs?: number; // per-attempt overall ceiling (browser + desktop)
@@ -1103,8 +1039,20 @@ async function fetchLiveSnapshotAttempt(
   target: string,
   requestTimeoutMs: number,
   connectTimeoutMs: number,
+  callerSignal?: AbortSignal,
 ): Promise<{ snapshot: LiveSnapshot | null; transient: boolean }> {
-  const signal = createAttemptTimeoutSignal(requestTimeoutMs);
+  const timeoutSignal = createAttemptTimeoutSignal(requestTimeoutMs);
+  const controller = new AbortController();
+  const signals = callerSignal ? [timeoutSignal, callerSignal] : [timeoutSignal];
+  const abort = () => {
+    controller.abort();
+    for (const source of signals) source.removeEventListener("abort", abort);
+  };
+  for (const source of signals) {
+    if (source.aborted) { abort(); break; }
+    source.addEventListener("abort", abort, { once: true });
+  }
+  const signal = controller.signal;
   let res: Response;
   try {
     res = await appFetch(target, { cache: "no-store", signal, connectTimeout: connectTimeoutMs });
@@ -1168,9 +1116,9 @@ export async function fetchLiveSnapshotResult(
   const target = resolveEndpoint(path, serverBaseUrl);
 
   for (let attempt = 0; ; attempt++) {
-    const { snapshot, transient } = await fetchLiveSnapshotAttempt(target, requestTimeoutMs, connectTimeoutMs);
+    const { snapshot, transient } = await fetchLiveSnapshotAttempt(target, requestTimeoutMs, connectTimeoutMs, opts.signal);
     if (snapshot !== null) return { snapshot, transientFailure: false };
-    if (!transient || attempt >= retries) return { snapshot: null, transientFailure: transient };
+    if (opts.signal?.aborted || !transient || attempt >= retries) return { snapshot: null, transientFailure: transient };
     await sleep(Math.min(retryBaseDelayMs * 2 ** attempt, LIVE_SNAPSHOT_RETRY_MAX_MS));
   }
 }

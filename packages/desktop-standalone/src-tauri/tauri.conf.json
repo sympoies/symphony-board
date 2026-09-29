@@ -38,6 +38,7 @@
       "../../../package.json": "backend/package.json",
       "../../../tsconfig.json": "backend/tsconfig.json",
       "../../../src": "backend/src",
+      "../../../shared": "backend/shared",
       "../../../schema": "backend/schema",
       "../../../packages/contract": "backend/packages/contract"
     },
