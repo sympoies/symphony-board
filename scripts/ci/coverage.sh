@@ -36,19 +36,25 @@ echo "==> backend coverage (src/**/*.ts, incl. CLI/glue)"
 # with the pg driver registered + test/e2e/pg-live.test.ts, the CI `pg` job) —
 # this Docker-free default run would count it 0% as an artifact of the
 # environment, the same reasoning that keeps `.tsx` with render-smoke.
-"${C8[@]}" --all --src src --src shared -n 'src/**/*.ts' -n 'shared/**/*.ts' -x 'src/**/*.d.ts' \
+"${C8[@]}" --all --src src -n 'src/**/*.ts' -x 'src/**/*.d.ts' \
   -x 'src/model/types.ts' -x 'src/sources/types.ts' -x 'src/db/store.ts' \
   -x 'src/db/postgres.ts' \
   --reporter=lcovonly --report-dir=coverage/backend \
   "${NODE_TEST[@]}" test/*.test.ts
 
 echo "==> ui view-model coverage (src/**/*.ts only — .tsx is render-smoke's gate)"
-( cd packages/ui && "${C8[@]}" --all --src src --src shared -n 'src/**/*.ts' -n 'shared/**/*.ts' -x 'src/**/*.d.ts' \
+# Run at the repository root so UI tests credit neutral shared helpers too.
+# The UI report owns shared/time.ts exactly once; the backend report only owns src/.
+"${C8[@]}" --all --src packages/ui/src --src shared \
+  -n 'packages/ui/src/**/*.ts' -n 'shared/**/*.ts' -x '**/*.d.ts' \
   --reporter=lcovonly --report-dir="$ROOT/coverage/ui" \
-  "${NODE_TEST[@]}" test/*.test.ts )
+  "${NODE_TEST[@]}" packages/ui/test/*.test.ts
 
 # One merged LCOV: the badge + summary + gate all read this.
 cat coverage/backend/lcov.info coverage/ui/lcov.info > coverage/lcov.info
+
+# Guard the cross-root source path and the single coverage owner.
+awk '/^SF:.*shared\/time.ts$/ { count++ } END { exit count == 1 ? 0 : 1 }' coverage/lcov.info
 
 # Combined line gate. awk sums LH/LF across every SF record (both packages).
 awk -F: -v floor="$FLOOR" '
