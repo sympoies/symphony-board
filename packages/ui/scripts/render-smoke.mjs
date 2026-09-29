@@ -6818,6 +6818,25 @@ try {
           (block.querySelector('.rail-block-title')?.textContent || '').trim() === 'Who'
         );
         const overflowing = [];
+        const overflowingCounts = [...rail.querySelectorAll('.live-rank-tooltip')].filter((count) => {
+          const rect = count.getBoundingClientRect();
+          const cell = count.parentElement?.getBoundingClientRect();
+          return cell && rect.right > cell.right + 2;
+        }).map((count) => (count.textContent || '').trim());
+        // An exact axis maximum is supported data (10,000 / 10,000). The
+        // sample counts sit below their rounded axis, which can hide spillover.
+        const fullBarCell = rail.querySelector('.live-rank-bar-cell');
+        const fullBarCount = fullBarCell?.querySelector('.live-rank-tooltip');
+        let fullBarCountOverflow = null;
+        if (fullBarCell && fullBarCount) {
+          const originalHeight = fullBarCell.style.getPropertyValue('--rank-h');
+          const originalCount = fullBarCount.textContent;
+          fullBarCell.style.setProperty('--rank-h', '100%');
+          fullBarCount.textContent = '10,000';
+          fullBarCountOverflow = Math.round(fullBarCount.getBoundingClientRect().right - fullBarCell.getBoundingClientRect().right);
+          fullBarCell.style.setProperty('--rank-h', originalHeight);
+          fullBarCount.textContent = originalCount;
+        }
         for (const b of blocks) {
           for (const plot of b.querySelectorAll('.live-rank-plot, .rail-hours, .rail-daybars')) {
             // Measure the IN-FLOW children's right edge against the container's.
@@ -6854,6 +6873,8 @@ try {
             return (name.textContent || '').trim().length > 0 && rect.width > 0 && rect.height > 0;
           }).length,
           overflowing,
+          overflowingCounts,
+          fullBarCountOverflow,
         };
       })()`,
       returnByValue: true,
@@ -7320,7 +7341,7 @@ try {
       // two-up would give ~344px panes, narrower than the six-bar charts read
       // at. Neither may overflow its card whichever shape it takes.
       railTwoUp.length === 2 &&
-        railTwoUp.every((r) => r.found === true && r.overflowing.length === 0) &&
+        railTwoUp.every((r) => r.found === true && r.overflowing.length === 0 && r.overflowingCounts.length === 0 && r.fullBarCountOverflow != null && r.fullBarCountOverflow <= 2) &&
         railTwoUp.find((r) => r.page === "activity")?.columns === 2 &&
         railTwoUp.find((r) => r.page === "activity")?.actorRows > 1 &&
         railTwoUp.find((r) => r.page === "activity")?.visibleActorNames ===
