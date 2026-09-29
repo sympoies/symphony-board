@@ -61,3 +61,8 @@ export function sendJsonMaybeGzip(
   });
   res.end(text);
 }
+
+export function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.end(JSON.stringify(body) + "\n");
+}

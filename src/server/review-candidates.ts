@@ -1,3 +1,5 @@
+import { parsePositiveInt, parseNonNegativeNumber, parseBoolean } from "./query-params.ts";
+import { sendJson as json } from "./http.ts";
 // Read-only review-cleanup candidate discovery for the board's operational API.
 // This is the HTTP counterpart to `pnpm review-candidates`: it builds the same
 // full, unwindowed contract projection from the configured canonical store, then
@@ -12,30 +14,7 @@ import {
   defaultOptions,
   type ReviewCandidate,
   type ReviewCandidateOptions,
-} from "../cli/review-candidates.ts";
-
-function parsePositiveInt(value: string | null, name: string): number | null {
-  if (value == null || value === "") return null;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
-}
-
-function parseNonNegativeNumber(value: string | null, name: string): number | null {
-  if (value == null || value === "") return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative number`);
-  }
-  return parsed;
-}
-
-function parseBoolean(value: string | null): boolean {
-  if (value == null || value === "") return false;
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
+} from "../model/review-candidates.ts";
 
 export function reviewCandidateOptionsFromUrl(url: URL, now = Date.now()): ReviewCandidateOptions {
   const options = { ...defaultOptions(), now };
@@ -62,14 +41,6 @@ export async function reviewCandidates(cfg: AppConfig, options: ReviewCandidateO
   } finally {
     await store.close();
   }
-}
-
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-store",
-  });
-  res.end(JSON.stringify(body) + "\n");
 }
 
 export async function handleReviewCandidatesRequest(cfg: AppConfig, url: URL, res: ServerResponse): Promise<void> {
