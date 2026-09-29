@@ -108,7 +108,6 @@ const PARK_LABELS = new Set([
   "state::needs-decision",
   "state::needs-info",
   "state::needs-triage",
-  "workflow::plan",
   "workflow::tracking",
 ]);
 

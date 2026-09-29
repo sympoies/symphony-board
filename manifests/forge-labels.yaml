@@ -275,11 +275,6 @@ labels:
     applies_to: [issue, pr, mr]
 
   # --- workflow ----------------------------------------------------------
-  - name: "workflow::plan"
-    group: workflow
-    color: c5def5
-    description: Plan-backed workflow record.
-    applies_to: [issue, pr, mr]
   - name: "workflow::tracking"
     group: workflow
     color: bfdadc

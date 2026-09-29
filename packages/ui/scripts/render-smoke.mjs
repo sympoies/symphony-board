@@ -1546,7 +1546,7 @@ try {
   const fileAuthorityAfterPending = (await send("Runtime.evaluate", {
     expression: `(() => ({
       sentinel: document.body.innerText.includes('uploaded-file-sentinel'),
-      hasBoardCard: !!document.querySelector('.board-7 .card'),
+      hasBoardCard: !!document.querySelector('.board-lanes .card'),
       hasInlineRangeError: !!document.querySelector('[data-testid="range-load-banner"]'),
     }))()`,
     returnByValue: true,
@@ -1639,12 +1639,12 @@ try {
   await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
-  // Page 1 — the full-bleed 7-column board.
-  const boardHtml = await waitHtml("document.querySelector('.board-7 .card')");
-  await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
+  // Page 1 — the full-bleed 6-column board.
+  const boardHtml = await waitHtml("document.querySelector('.board-lanes .card')");
+  await captureTitleLinkHitTarget("board card", ".board-lanes .card-title[href]", ".card");
   const boardKindLabelSummary = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const lane = document.querySelector('.board-7 .col-lane-pr');
+      const lane = document.querySelector('.board-lanes .col-lane-pr');
       const head = lane?.querySelector('.col-head');
       const label = head ? Array.from(head.childNodes)
         .filter((node) => node.nodeType === Node.TEXT_NODE)
@@ -1661,10 +1661,10 @@ try {
   })).result.value || {};
   const boardPaneLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const board = document.querySelector('.board-7');
-      const column = Array.from(document.querySelectorAll('.board-7 .col'))
+      const board = document.querySelector('.board-lanes');
+      const column = Array.from(document.querySelectorAll('.board-lanes .col'))
         .find((el) => getComputedStyle(el).display !== 'none' && !el.classList.contains('col-collapsed'));
-      const columns = Array.from(document.querySelectorAll('.board-7 .col'))
+      const columns = Array.from(document.querySelectorAll('.board-lanes .col'))
         .filter((el) => getComputedStyle(el).display !== 'none');
       const regularWidths = columns
         .filter((el) => !el.classList.contains('col-collapsed'))
@@ -1688,7 +1688,7 @@ try {
   })).result.value || {};
   const boardCardChrome = (await send("Runtime.evaluate", {
     expression: `(() => {
-      const card = document.querySelector('.board-7 .card');
+      const card = document.querySelector('.board-lanes .card');
       const icon = card?.querySelector('.card-kind-icon');
       const badge = card?.querySelector('.badge');
       const title = card?.querySelector('.card-title');
@@ -1722,7 +1722,7 @@ try {
     returnByValue: true,
   })).result.value || {};
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-10");
-  const boardNarrowHtml = await waitHtml("document.querySelector('.board-7 .card') && !document.body.innerText.includes('Loading range')");
+  const boardNarrowHtml = await waitHtml("document.querySelector('.board-lanes .card') && !document.body.innerText.includes('Loading range')");
   const boardNarrowStats = await statsTextOf();
   // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
@@ -1794,10 +1794,10 @@ try {
     await sleep(100);
     await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
     await sleep(250);
-    await waitHtml("document.querySelector('.board-7 .card')");
+    await waitHtml("document.querySelector('.board-lanes .card')");
     const boardSample = (await send("Runtime.evaluate", {
       expression: `(() => {
-        const widths = Array.from(document.querySelectorAll('.board-7 .col'))
+        const widths = Array.from(document.querySelectorAll('.board-lanes .col'))
           .filter((el) => getComputedStyle(el).display !== 'none' && !el.classList.contains('col-collapsed'))
           .map((el) => Math.round(el.getBoundingClientRect().width));
         return { widths };
@@ -4095,8 +4095,8 @@ try {
   // canvas mounted, the search box untouched, and the default range kept.
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
-  const board2Html = await waitHtml("document.querySelector('.board-7 .card')");
-  await captureTitleLinkHitTarget("board card", ".board-7 .card-title[href]", ".card");
+  const board2Html = await waitHtml("document.querySelector('.board-lanes .card')");
+  await captureTitleLinkHitTarget("board card", ".board-lanes .card-title[href]", ".card");
   await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
   await sleep(500);
   const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
@@ -4238,7 +4238,7 @@ try {
   // tab hop via nav.tabHref). This locks the cross-tab single-track behaviour.
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(350);
-  await waitHtml("document.querySelector('.board-7 .card') && document.querySelector('.controls .toggle-group')");
+  await waitHtml("document.querySelector('.board-lanes .card') && document.querySelector('.controls .toggle-group')");
   const itemKindGroupExpr = `Array.from(document.querySelectorAll('.controls .toggle-group')).find((g) => g.querySelector('.toggle-label')?.textContent === 'kind')`;
   const boardFacetInitial = (await send("Runtime.evaluate", {
     expression: `(() => { const g = ${itemKindGroupExpr}; const c = g?.querySelector('.toggle'); return { hasGroup: !!g, value: c?.textContent?.trim() || null, anyOn: !!g?.querySelector('.toggle.toggle-on'), hashHasIkind: location.hash.includes('ikind=') }; })()`,
@@ -4264,7 +4264,7 @@ try {
   // field silently breaks the toggle — chip never lights, data never filters).
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(350);
-  await waitHtml("document.querySelector('.board-7 .card') && document.querySelector('.controls .toggle-group')");
+  await waitHtml("document.querySelector('.board-lanes .card') && document.querySelector('.controls .toggle-group')");
   const reviewGroupExpr = `Array.from(document.querySelectorAll('.controls .toggle-group')).find((g) => g.querySelector('.toggle-label')?.textContent === 'review')`;
   const boardReviewInitial = (await send("Runtime.evaluate", {
     expression: `(() => { const g = ${reviewGroupExpr}; const chips = Array.from(g?.querySelectorAll('.toggle') || []).map((c) => c.textContent?.trim()); return { hasGroup: !!g, chips, anyOn: !!g?.querySelector('.toggle.toggle-on'), hashHasIreview: location.hash.includes('ireview=') }; })()`,
@@ -4801,7 +4801,7 @@ try {
   await sleep(150);
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(400);
-  await waitHtml("document.querySelector('.board-7')");
+  await waitHtml("document.querySelector('.board-lanes')");
   const shortDesktopStats = (await send("Runtime.evaluate", {
     expression: `(() => {
       const onScreen = (node) => !!node && !!node.offsetParent && node.getBoundingClientRect().height > 0;
@@ -4832,7 +4832,7 @@ try {
   await sleep(150);
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(400);
-  await waitHtml("document.querySelector('.board-7')");
+  await waitHtml("document.querySelector('.board-lanes')");
   const roomyDesktopStats = (await send("Runtime.evaluate", {
     expression: `(() => {
       const onScreen = (node) => !!node && !!node.offsetParent && node.getBoundingClientRect().height > 0;
@@ -5292,7 +5292,7 @@ try {
     { name: "tablet-portrait", width: 930, height: 1240, dpr: 2 },
   ];
   const portraitPages = [
-    { page: "board", hash: "#/board", selector: ".board-7" },
+    { page: "board", hash: "#/board", selector: ".board-lanes" },
     { page: "graph", hash: "#/graph", selector: ".graph-body" },
     { page: "activity", hash: "#/activity", selector: ".activity-page" },
     { page: "items", hash: "#/items", selector: ".items-page" },
@@ -5315,7 +5315,7 @@ try {
           const doc = document.documentElement;
           const root = document.querySelector(${JSON.stringify(page.selector)});
           const boardSelector = document.querySelector('.board-mobile-selector');
-          const cols = Array.from(document.querySelectorAll('.board-7 .col'));
+          const cols = Array.from(document.querySelectorAll('.board-lanes .col'));
           const graphBody = document.querySelector('.graph-body');
           const graphListRect = document.querySelector('.graph-list')?.getBoundingClientRect();
           const graphCanvasRect = document.querySelector('.graph-canvas')?.getBoundingClientRect();
@@ -5360,7 +5360,7 @@ try {
             : pageName === 'commits'
               ? document.querySelector('.commit-list')
               : pageName === 'board'
-                ? document.querySelector('.board-7')
+                ? document.querySelector('.board-lanes')
                 : pageName === 'graph'
                   ? document.querySelector('.graph-list')
                   : pageName === 'repo-analytics'
@@ -6679,7 +6679,7 @@ try {
     { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
     { page: "activity", hash: "#/activity", ready: ".activity-page", panes: [".activity-layout"] },
     { page: "commits", hash: "#/commits", ready: ".commits-page", panes: [".commits-split", ".commits-rail"] },
-    { page: "board", hash: "#/board", ready: ".board-7", panes: [".board-7"] },
+    { page: "board", hash: "#/board", ready: ".board-lanes", panes: [".board-lanes"] },
     { page: "graph", hash: "#/graph", ready: ".graph-body", panes: [".graph-body"] },
     { page: "reviews", hash: "#/reviews", ready: ".reviews-page", panes: [".live-split"] },
     { page: "repo-analytics", hash: "#/repo-analytics", ready: ".repo-analytics-page", panes: [".repo-stat-grid"] },
@@ -6777,7 +6777,7 @@ try {
   // earlier measurement standing and this would pass without testing anything.
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(250);
-  await waitHtml("document.querySelector('.board-7')");
+  await waitHtml("document.querySelector('.board-lanes')");
   await send("Runtime.evaluate", { expression: "location.hash = '#/items?q=zzz-no-item-matches-this-zzz'" });
   await sleep(350);
   await waitHtml("document.querySelector('.items-page')");
@@ -7372,17 +7372,17 @@ try {
     [headerRefresh.hasIdleAppIcon === true && headerRefresh.idleIconTag === "svg" && headerRefresh.idleIconViewBox === "0 0 1024 1024", `app: header refresh idles as the app SVG mark (${JSON.stringify(headerRefresh)})`],
     [headerRefresh.hasBusyRefreshGlyph === true && headerRefresh.restoredAppIcon === true, `app: header refresh shows glyph while loading then restores app icon (${JSON.stringify(headerRefresh)})`],
     [headerRefresh.clicked === true && headerRefresh.requestsAfter > headerRefresh.requestsBefore && headerRefresh.hashAfter === headerRefresh.hashBefore, `app: header refresh reloads data in place (${JSON.stringify(headerRefresh)})`],
-    // page 1: the primary board fuses 4 status + 3 spotlight lanes into 7 columns
+    // page 1: the primary board fuses 4 status + 2 spotlight lanes into 6 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
     [boardKindIcons >= boardCards, `board: item kind renders as shared SVG icons (${boardKindIcons} icons for ${boardCards} cards)`],
-    [has(boardHtml, "board-7"), "board: 7-column board rendered"],
-    [boardCols >= 7, `board: >= 7 columns rendered (${boardCols})`],
+    [has(boardHtml, "board-lanes"), "board: 6-column board rendered"],
+    [boardCols >= 6, `board: >= 6 columns rendered (${boardCols})`],
     [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
     [has(boardHtml, "col-lane-pr"), "board: change request spotlight lane present"],
     [boardKindLabelSummary.label === "Change requests" && boardKindLabelSummary.sub === "change requests, any state", `board: change request spotlight lane uses neutral visible label and hint (${JSON.stringify(boardKindLabelSummary)})`],
     [!has(boardHtml, "PR/MR"), "board: no PR/MR label remains in board markup"],
     [boardPaneLayout.fillsViewport === true, `board: lane height fills to the same viewport bottom gutter as list tabs (${JSON.stringify(boardPaneLayout)})`],
-    [boardPaneLayout.readableColumns === true && boardPaneLayout.scrollsHorizontally === true, `board: full board keeps readable column widths and scrolls inside the board when needed (${JSON.stringify(boardPaneLayout)})`],
+    [boardPaneLayout.readableColumns === true, `board: full board keeps readable column widths whether or not all lanes fit (${JSON.stringify(boardPaneLayout)})`],
     [boardCardChrome.found === true && boardCardChrome.badgeStartsAfterIcon === true && boardCardChrome.titleStartsAfterIcon === true, `board: card SVG kind icon sits in the same fixed rail as list rows (${JSON.stringify(boardCardChrome)})`],
     [sameRangeButtons(boardRangeButtons), `board: shared range quick presets rendered without all (${boardRangeButtons.join(", ")})`],
     [initialRangePending?.header && initialRangePending?.tabs && initialRangePending?.rangeControls && initialRangePending?.contentRetained, `board: a range refetch keeps app chrome + loaded content mounted, no full-screen reload (${JSON.stringify(initialRangePending)})`],
