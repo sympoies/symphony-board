@@ -6295,7 +6295,7 @@ try {
   const commitDetailVisibilityByViewport = [];
   for (const vp of [
     { name: "compact-split", width: 1000, height: 1440 },
-    { name: "two-column", width: 1280, height: 1440 },
+    { name: "three-column-boundary", width: 1280, height: 1440 },
     { name: "three-column", width: 1880, height: 1080 },
     { name: "rows", width: 2560, height: 1440 },
   ]) {
@@ -7240,7 +7240,7 @@ try {
             r.navigationHidden === true &&
             r.flowGap === r.contextGap &&
             r.sameWidth === true &&
-            (r.tier === "two-column" || Math.abs(r.overviewShort) <= 2) &&
+            Math.abs(r.overviewShort) <= 2 &&
             r.firstBlockVisiblePx > 0
           ))
         ) &&
