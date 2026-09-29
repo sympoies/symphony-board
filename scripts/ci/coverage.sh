@@ -36,14 +36,14 @@ echo "==> backend coverage (src/**/*.ts, incl. CLI/glue)"
 # with the pg driver registered + test/e2e/pg-live.test.ts, the CI `pg` job) —
 # this Docker-free default run would count it 0% as an artifact of the
 # environment, the same reasoning that keeps `.tsx` with render-smoke.
-"${C8[@]}" --all --src src -n 'src/**/*.ts' -x 'src/**/*.d.ts' \
+"${C8[@]}" --all --src src --src shared -n 'src/**/*.ts' -n 'shared/**/*.ts' -x 'src/**/*.d.ts' \
   -x 'src/model/types.ts' -x 'src/sources/types.ts' -x 'src/db/store.ts' \
   -x 'src/db/postgres.ts' \
   --reporter=lcovonly --report-dir=coverage/backend \
   "${NODE_TEST[@]}" test/*.test.ts
 
 echo "==> ui view-model coverage (src/**/*.ts only — .tsx is render-smoke's gate)"
-( cd packages/ui && "${C8[@]}" --all --src src -n 'src/**/*.ts' -x 'src/**/*.d.ts' \
+( cd packages/ui && "${C8[@]}" --all --src src --src shared -n 'src/**/*.ts' -n 'shared/**/*.ts' -x 'src/**/*.d.ts' \
   --reporter=lcovonly --report-dir="$ROOT/coverage/ui" \
   "${NODE_TEST[@]}" test/*.test.ts )
 

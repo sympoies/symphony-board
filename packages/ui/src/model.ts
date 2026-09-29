@@ -1,3 +1,4 @@
+import { timestampMs, timestampInRange, compareTimestampDesc } from "../../../shared/time.ts";
 // Pure view-model helpers over the contract: filtering, edge resolution, and
 // small stats. No React here — easy to reason about and reuse.
 
@@ -585,11 +586,6 @@ export function timeRangeToIso(range: TimeRange, tz: string = DEFAULT_TIMEZONE):
   return { from: zonedDayStartIso(range.from, tz), to: zonedDayEndIso(range.to, tz) };
 }
 
-function timestampMs(value: string | null | undefined): number | null {
-  const ms = Date.parse(value ?? "");
-  return Number.isFinite(ms) ? ms : null;
-}
-
 // The actual calendar span of an activity set, earliest to latest `occurred_at`,
 // as date-only in the contract timezone. Unlike staticContractTimeRange (the
 // 90-day item window), activities are stored UNWINDOWED, so this is the true
@@ -616,11 +612,7 @@ export function activityOccurredExtent(
 }
 
 function timestampInTimeRange(value: string | null | undefined, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
-  const { from, to } = timeRangeToIso(range, tz);
-  const valueMs = timestampMs(value);
-  const fromMs = timestampMs(from);
-  const toMs = timestampMs(to);
-  return valueMs !== null && fromMs !== null && toMs !== null && valueMs >= fromMs && valueMs <= toMs;
+  return timestampInRange(value, timeRangeToIso(range, tz));
 }
 
 export function itemInTimeRange(it: ItemDTO, range: TimeRange, tz: string = DEFAULT_TIMEZONE): boolean {
@@ -666,12 +658,7 @@ export function filterItemsByRange(items: ItemDTO[], range: TimeRange, tz: strin
 }
 
 function compareActivityInstantDesc(a: ActivityDTO, b: ActivityDTO): number {
-  const aMs = timestampMs(a.occurred_at);
-  const bMs = timestampMs(b.occurred_at);
-  if (aMs !== null && bMs !== null && aMs !== bMs) return bMs - aMs;
-  if (aMs !== null && bMs === null) return -1;
-  if (aMs === null && bMs !== null) return 1;
-  return 0;
+  return compareTimestampDesc(a.occurred_at, b.occurred_at);
 }
 
 export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRange, tz: string = DEFAULT_TIMEZONE): ActivityDTO[] {

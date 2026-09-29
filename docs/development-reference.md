@@ -56,7 +56,8 @@ src/contract/                 contract builder, validator, version constants
 src/server/                   shared read-only HTTP handlers (range, stats,
                               actionable, graph neighborhood, capabilities, …)
 src/live/                     Live webhook receiver, verification, event store
-src/lib/                      small shared helpers (concurrency, timezone)
+src/lib/                      backend helpers and shared calendar adapter
+shared/                       pure producer/consumer calendar and timestamp math
 src/cli/                      init-db, sync, emit-contract, validate-contract,
                               sync-daemon, range-api, app-server,
                               review-candidates, live-receiver,
