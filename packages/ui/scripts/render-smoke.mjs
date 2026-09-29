@@ -3605,6 +3605,13 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // The system/browser Back must close a phone reader before leaving Commits.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-list .commit-row')?.click()" });
+  await waitValue("location.hash.includes('commitDetail=1') && document.querySelector('.commits-split')?.dataset.mobileDetailOpen === 'true' ? true : null");
+  await send("Runtime.evaluate", { expression: "history.back()" });
+  await waitValue("location.hash.startsWith('#/commits') && !location.hash.includes('commitDetail=1') && document.querySelector('.commits-split')?.dataset.mobileDetailOpen !== 'true' ? true : null");
+  // Return to the same local closed state expected by the next scenario.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-row-selected')?.click()" });
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
   await sleep(120);
   await send("Runtime.evaluate", {
@@ -5479,7 +5486,7 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  await send("Runtime.evaluate", { expression: "document.querySelector('.controls .search-disclosure')?.click();" });
+  await send("Runtime.evaluate", { expression: "document.querySelector('.controls .search-disclosure')?.focus(); document.querySelector('.controls .search-disclosure')?.click();" });
   await sleep(150);
   const phoneSearchDisclosure = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -5502,8 +5509,8 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  await send("Runtime.evaluate", { expression: "document.querySelector('.mobile-control-backdrop')?.click()" });
-  await sleep(100);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.mobile-control-search')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))" });
+  await waitValue("!document.querySelector('#mobile-search-panel') && document.activeElement === document.querySelector('.search-disclosure') ? true : null");
   await send("Runtime.evaluate", {
     expression: "document.querySelector('.controls .search-disclosure')?.click(); document.querySelector('.controls .filter-disclosure')?.click();",
   });

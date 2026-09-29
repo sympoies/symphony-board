@@ -1,3 +1,5 @@
+import { detailRouteController } from "./detail-route.ts";
+import { inPageHref } from "./nav.ts";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, fetchGraphNeighborhood, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
@@ -227,10 +229,7 @@ const readStartupHash = (): string =>
   // there (matches App's liveTabEffectivelyEnabled); the stored preference is left
   // untouched and re-applies on a real, server-backed deployment.
   startupRouteHash(readHash(), resolveDefaultTab(loadDefaultTab(), effectiveLiveTabEnabled(loadLiveTabEnabled(), isStaticDeployment(), currentClientKind())));
-const historyStateObject = (): Record<string, unknown> => {
-  const state = window.history.state;
-  return state && typeof state === "object" && !Array.isArray(state) ? { ...(state as Record<string, unknown>) } : {};
-};
+
 
 export function App() {
   // Compute the cold-start hash once and seed every startup consumer from it.
@@ -1417,24 +1416,8 @@ export function App() {
   // and a shared link never disagree. Preserves the graph focus and the time
   // range of the current page.
   function setItemFacet(dim: ItemFacetDim, value: string) {
-    if (typeof window === "undefined") return;
     const current = parseHashRoute(readHash());
-    const nextFacets = toggleItemFacet(itemFacets(current), dim, value);
-    const next = buildHashRoute({
-      page,
-      focus: page === "graph" ? current.focus : null,
-      depth: page === "graph" && current.focus ? graphFocusDepthValue : null,
-      ...itemFacetFields(nextFacets),
-      // Preserve the Reviews sort toggle across a facet change (page-local view
-      // state, like focus for Graph); null off Reviews so it never leaks.
-      itemSort: page === "items" ? route.itemSort : null,
-      reviewSort: page === "reviews" ? route.reviewSort : null,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute(itemFacetFields(toggleItemFacet(itemFacets(current), dim, value)));
   }
 
   // Drop every search / facet / SCM filter for the current page in one step,
@@ -1471,50 +1454,15 @@ export function App() {
   // truth, so the chip state, the feed, and a shared link can never disagree.
   // The shared item-facet lens (isource/istate/ikind) rides along untouched.
   function setActivityFacet(dim: ActivityFacetDim, value: string) {
-    if (typeof window === "undefined") return;
     const current = parseHashRoute(readHash());
-    const nextFacets = toggleActivityFacet(activityFacets(current), dim, value);
-    const next = buildHashRoute({
-      page: "activity",
-      // Keep the mobile Activity sub-view (Feed / Overview) the user is editing;
-      // dropping `tab` here would snap a narrow-screen Overview back to the Feed.
-      tab: current.tab,
-      ...activityFacetFields(nextFacets),
-      isource: current.isource,
-      istate: current.istate,
-      ikind: current.ikind,
-      ireview: current.ireview,
-      irepo: current.irepo,
-      unresolved: current.unresolved,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute(activityFacetFields(toggleActivityFacet(activityFacets(current), dim, value)));
   }
 
   // Flip the Activity "unresolved only" toggle (?unresolved=1). Preserves every
   // other Activity facet and the shared item lens, mirroring setActivityFacet.
   function setUnresolvedReviews() {
-    if (typeof window === "undefined") return;
     const current = parseHashRoute(readHash());
-    const next = buildHashRoute({
-      page: "activity",
-      tab: current.tab,
-      ...activityFacetFields(activityFacets(current)),
-      isource: current.isource,
-      istate: current.istate,
-      ikind: current.ikind,
-      ireview: current.ireview,
-      irepo: current.irepo,
-      unresolved: current.unresolved === "1" ? null : "1",
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ unresolved: current.unresolved === "1" ? null : "1" });
   }
 
   function toggleRepo(key: string) {
@@ -1628,125 +1576,21 @@ export function App() {
     });
   }
 
-  function liveDetailHash(open: boolean): string | null {
-    const current = parseHashRoute(readHash());
-    if (current.page !== "live") return null;
-    return buildHashRoute({ ...current, page: "live", liveDetail: open ? "1" : null });
+  function readerRoute(readerPage: "live" | "reviews" | "items" | "commits") {
+    return detailRouteController(readerPage, { readHash, setHash, history: window.history });
   }
-
-  function openLiveDetailRoute() {
-    if (typeof window === "undefined") return;
-    const next = liveDetailHash(true);
-    if (!next || readHash() === next) return;
-    window.history.pushState({ ...historyStateObject(), symphonyLiveDetail: true }, "", next);
-    setHash(next);
-  }
-
-  function replaceLiveDetailRouteClosed() {
-    if (typeof window === "undefined") return;
-    const next = liveDetailHash(false);
-    if (!next || readHash() === next) return;
-    const state = historyStateObject();
-    delete state.symphonyLiveDetail;
-    window.history.replaceState(state, "", next);
-    setHash(next);
-  }
-
-  function closeLiveDetailRoute() {
-    if (typeof window === "undefined") return;
-    const current = parseHashRoute(readHash());
-    if (current.page !== "live" || current.liveDetail !== "1") return;
-    const next = liveDetailHash(false);
-    if ((window.history.state as { symphonyLiveDetail?: unknown } | null)?.symphonyLiveDetail === true) {
-      window.history.back();
-      if (next) setHash(next);
-      return;
-    }
-    replaceLiveDetailRouteClosed();
-  }
-
-  // Reviews phone-overlay route, mirroring the Live detail route above: the
-  // narrow-screen thread detail is a full-screen overlay whose open/closed state
-  // is route-backed (?reviewDetail=1) so Android/browser Back closes the detail
-  // before leaving the Reviews tab. Wide screens render the detail inline and
-  // ignore this flag (the page clears a stray one).
-  function reviewDetailHash(open: boolean): string | null {
-    const current = parseHashRoute(readHash());
-    if (current.page !== "reviews") return null;
-    return buildHashRoute({ ...current, page: "reviews", reviewDetail: open ? "1" : null });
-  }
-
-  function openReviewDetailRoute() {
-    if (typeof window === "undefined") return;
-    const next = reviewDetailHash(true);
-    if (!next || readHash() === next) return;
-    window.history.pushState({ ...historyStateObject(), symphonyReviewDetail: true }, "", next);
-    setHash(next);
-  }
-
-  function replaceReviewDetailRouteClosed() {
-    if (typeof window === "undefined") return;
-    const next = reviewDetailHash(false);
-    if (!next || readHash() === next) return;
-    const state = historyStateObject();
-    delete state.symphonyReviewDetail;
-    window.history.replaceState(state, "", next);
-    setHash(next);
-  }
-
-  function closeReviewDetailRoute() {
-    if (typeof window === "undefined") return;
-    const current = parseHashRoute(readHash());
-    if (current.page !== "reviews" || current.reviewDetail !== "1") return;
-    const next = reviewDetailHash(false);
-    if ((window.history.state as { symphonyReviewDetail?: unknown } | null)?.symphonyReviewDetail === true) {
-      window.history.back();
-      if (next) setHash(next);
-      return;
-    }
-    replaceReviewDetailRouteClosed();
-  }
-
-  // Items phone-overlay route, mirroring Live/Reviews: narrow screens show the
-  // item detail as a full-screen overlay and Android/browser Back closes it
-  // before leaving the Items tab. Wide screens render detail inline and clear
-  // any stale route flag.
-  function itemDetailHash(open: boolean): string | null {
-    const current = parseHashRoute(readHash());
-    if (current.page !== "items") return null;
-    return buildHashRoute({ ...current, page: "items", itemDetail: open ? "1" : null });
-  }
-
-  function openItemDetailRoute() {
-    if (typeof window === "undefined") return;
-    const next = itemDetailHash(true);
-    if (!next || readHash() === next) return;
-    window.history.pushState({ ...historyStateObject(), symphonyItemDetail: true }, "", next);
-    setHash(next);
-  }
-
-  function replaceItemDetailRouteClosed() {
-    if (typeof window === "undefined") return;
-    const next = itemDetailHash(false);
-    if (!next || readHash() === next) return;
-    const state = historyStateObject();
-    delete state.symphonyItemDetail;
-    window.history.replaceState(state, "", next);
-    setHash(next);
-  }
-
-  function closeItemDetailRoute() {
-    if (typeof window === "undefined") return;
-    const current = parseHashRoute(readHash());
-    if (current.page !== "items" || current.itemDetail !== "1") return;
-    const next = itemDetailHash(false);
-    if ((window.history.state as { symphonyItemDetail?: unknown } | null)?.symphonyItemDetail === true) {
-      window.history.back();
-      if (next) setHash(next);
-      return;
-    }
-    replaceItemDetailRouteClosed();
-  }
+  const openLiveDetailRoute = () => readerRoute("live").open();
+  const closeLiveDetailRoute = () => readerRoute("live").close();
+  const replaceLiveDetailRouteClosed = () => readerRoute("live").clear();
+  const openReviewDetailRoute = () => readerRoute("reviews").open();
+  const closeReviewDetailRoute = () => readerRoute("reviews").close();
+  const replaceReviewDetailRouteClosed = () => readerRoute("reviews").clear();
+  const openItemDetailRoute = () => readerRoute("items").open();
+  const closeItemDetailRoute = () => readerRoute("items").close();
+  const replaceItemDetailRouteClosed = () => readerRoute("items").clear();
+  const openCommitDetailRoute = () => readerRoute("commits").open();
+  const closeCommitDetailRoute = () => readerRoute("commits").close();
+  const replaceCommitDetailRouteClosed = () => readerRoute("commits").clear();
 
   // Reviews list order (?reviewSort=grouped). Route-backed like reviewDetail so a
   // reload / shared link preserves it; recency is the default, so it maps to a
@@ -1770,207 +1614,43 @@ export function App() {
     if (readHash() !== nextHash) window.location.hash = nextHash;
   }
 
+  function writePageRoute(patch: Parameters<typeof inPageHref>[1]) {
+    if (typeof window === "undefined") return;
+    const current = parseHashRoute(readHash());
+    const next = inPageHref(current, {
+      q: filters.search,
+      from: explicitRange?.from ?? null,
+      to: explicitRange?.to ?? null,
+      preset: explicitRange ? current.preset : null,
+      ...(current.page === "graph" && current.focus ? { depth: graphFocusDepthValue } : {}),
+      ...patch,
+    });
+    if (readHash() !== next) window.location.hash = next;
+  }
+
   function setRouteSearch(q: string) {
     setFilters((f) => ({ ...f, search: q }));
-    if (typeof window === "undefined") return;
-    const next = buildHashRoute({
-      page,
-      // Keep the current page's sub-view (Activity Feed/Overview, Graph List/Graph)
-      // so changing the search box does not reset it on a narrow screen.
-      tab: route.tab,
-      focus: page === "graph" ? route.focus : null,
-      depth: page === "graph" && route.focus ? graphFocusDepthValue : null,
-      source: page === "activity" || page === "commits" ? route.source : null,
-      repo: page === "activity" || page === "commits" ? route.repo : null,
-      branch: page === "commits" ? route.branch : null,
-      author: page === "commits" ? route.author : null,
-      kind: page === "activity" ? route.kind : null,
-      action: page === "activity" ? route.action : null,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      itemSort: page === "items" ? route.itemSort : null,
-      reviewSort: page === "reviews" ? route.reviewSort : null,
-      q,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ q });
   }
-
-  // The Graph page's focus is URL-backed BOTH ways: deep-links seed "?focus="
-  // and every in-graph focus change (side-list click, canvas node click,
-  // "← all items") writes it back here — so a focused view is shareable and the
-  // browser back button steps through focus history. Only called while the
-  // Graph page is mounted, hence the hard-coded page.
   function setRouteFocus(focus: string | null) {
-    if (typeof window === "undefined") return;
-    const next = buildHashRoute({
-      page: "graph",
-      focus,
-      depth: focus ? graphFocusDepthValue : null,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ focus, depth: focus ? graphFocusDepthValue : null });
   }
-
   function setRouteFocusDepth(depth: number) {
-    if (typeof window === "undefined" || !route.focus) return;
+    if (!route.focus) return;
     setRememberedGraphFocusDepth(depth);
-    const next = buildHashRoute({
-      ...route,
-      page: "graph",
-      focus: route.focus,
-      depth,
-      q: filters.search,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ depth });
   }
-
-  // The Commits page's SCM filters are URL-backed (like search/focus) so they
-  // are shareable and survive reload. Clearing a value drops that query param.
   function setRouteRepo(repo: { source_id: string; project_path: string } | null) {
-    if (typeof window === "undefined") return;
-    const next = buildHashRoute({
-      page: "commits",
-      source: repo?.source_id ?? null,
-      repo: repo?.project_path ?? null,
-      branch: route.branch,
-      author: route.author,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ source: repo?.source_id ?? null, repo: repo?.project_path ?? null });
   }
-
-  // The Commits source chip. A repo pin carries its own source (setRouteRepo
-  // writes both), so switching source clears a repo that cannot belong to the
-  // new one — leaving it would apply a repo filter no row can satisfy and show
-  // an empty list with two chips lit.
-  //
-  // The branch goes with it. Branches are per-repo, so a branch pinned under the
-  // old repo is just as unsatisfiable once that repo is gone, and keeping it
-  // reproduces the same empty list one filter further in.
   function setRouteSource(source: string | null) {
-    if (typeof window === "undefined") return;
     const keepRepo = source === null || source === selectedCommitRepoSource;
-    const next = buildHashRoute({
-      page: "commits",
-      source,
-      repo: keepRepo ? route.repo : null,
-      branch: keepRepo ? route.branch : null,
-      author: route.author,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ source, repo: keepRepo ? route.repo : null, branch: keepRepo ? route.branch : null });
   }
-
-  function setRouteBranch(branch: string | null) {
-    if (typeof window === "undefined") return;
-    const next = buildHashRoute({
-      page: "commits",
-      source: route.source,
-      repo: route.repo,
-      branch,
-      author: route.author,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
-  }
-
-  // Author is a Commits-only drill-down, set from the digest rail. A plain
-  // setter, like setRouteRepo: the rail decides when a row means "clear", so
-  // this cannot surprise a future caller by toggling behind its back.
-  function setRouteAuthor(author: string | null) {
-    if (typeof window === "undefined") return;
-    const next = buildHashRoute({
-      page: "commits",
-      source: route.source,
-      repo: route.repo,
-      branch: route.branch,
-      author,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      q: filters.search,
-      from: explicitRange?.from,
-      to: explicitRange?.to,
-      preset: explicitRange ? route.preset : null,
-    });
-    if (readHash() !== next) window.location.hash = next;
-  }
-
+  function setRouteBranch(branch: string | null) { writePageRoute({ branch }); }
+  function setRouteAuthor(author: string | null) { writePageRoute({ author }); }
   function setRouteRange(range: TimeRange, presetId: TimeRangePresetId | null = null) {
-    if (typeof window === "undefined") return;
-    const next = buildHashRoute({
-      page,
-      // Preserve the current page's sub-view (Activity Feed/Overview, Graph
-      // List/Graph) across a date-range change on a narrow screen.
-      tab: route.tab,
-      focus: page === "graph" ? route.focus : null,
-      depth: page === "graph" && route.focus ? graphFocusDepthValue : null,
-      source: page === "activity" || page === "commits" ? route.source : null,
-      repo: page === "activity" || page === "commits" ? route.repo : null,
-      branch: page === "commits" ? route.branch : null,
-      author: page === "commits" ? route.author : null,
-      kind: page === "activity" ? route.kind : null,
-      action: page === "activity" ? route.action : null,
-      isource: route.isource,
-      istate: route.istate,
-      ikind: route.ikind,
-      ireview: route.ireview,
-      irepo: route.irepo,
-      unresolved: route.unresolved,
-      itemSort: page === "items" ? route.itemSort : null,
-      reviewSort: page === "reviews" ? route.reviewSort : null,
-      q: filters.search,
-      from: range.from,
-      to: range.to,
-      preset: presetId,
-    });
-    if (readHash() !== next) window.location.hash = next;
+    writePageRoute({ from: range.from, to: range.to, preset: presetId });
   }
 
   // The hidden Diagnostics page renders BEFORE the contract-loading gates on
@@ -2405,6 +2085,10 @@ export function App() {
         />
       ) : page === "commits" ? (
         <CommitsPage
+          detailRouteOpen={route.commitDetail === "1"}
+          onOpenDetailRoute={openCommitDetailRoute}
+          onCloseDetailRoute={closeCommitDetailRoute}
+          onClearDetailRoute={replaceCommitDetailRouteClosed}
           actorAvatars={actorAvatars}
           commits={commits}
           windowTotal={windowCommits.length}

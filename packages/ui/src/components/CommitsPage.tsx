@@ -1,4 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
+import { DetailNav } from "./DetailNav.tsx";
+import { detailNavigation } from "../detail-navigation.ts";
+import { useDetailSwipe } from "../useDetailSwipe.ts";
+import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -411,6 +415,7 @@ function CommitTimeline({
 
 export function CommitsPage({
   actorAvatars,
+  detailRouteOpen, onOpenDetailRoute, onCloseDetailRoute, onClearDetailRoute,
   commits,
   windowTotal,
   totalCommits,
@@ -441,6 +446,10 @@ export function CommitsPage({
   emptyState,
 }: {
   actorAvatars?: ReadonlyMap<string, string>;
+  detailRouteOpen: boolean;
+  onOpenDetailRoute: () => void;
+  onCloseDetailRoute: () => void;
+  onClearDetailRoute: () => void;
   commits: ActivityDTO[];
   windowTotal: number;
   totalCommits: number;
@@ -498,15 +507,14 @@ export function CommitsPage({
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
   const isNarrow = useMediaQuery(NARROW_VIEWPORT_QUERY);
   const isCompactSplit = useMediaQuery(COMMIT_COMPACT_SPLIT_QUERY);
-  const [mobileDetailRequested, setMobileDetailRequested] = useState(false);
   const [mobilePane, setMobilePane] = useState<"info" | "files">("info");
-  const mobileDetailOpen = isNarrow && mobileDetailRequested;
+  const mobileDetailOpen = isNarrow && detailRouteOpen;
   useEffect(() => {
     if (!isNarrow) {
-      setMobileDetailRequested(false);
+      if (detailRouteOpen) onClearDetailRoute();
       setMobilePane("info");
     }
-  }, [isNarrow]);
+  }, [isNarrow, detailRouteOpen, onClearDetailRoute]);
   const previousFollowLatest = useRef(followLatest);
   useEffect(() => {
     const previous = previousFollowLatest.current;
@@ -551,49 +559,18 @@ export function CommitsPage({
   }, [commits, detailMode]);
   const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
   const selectedIndex = commits.findIndex((commit) => activityKey(commit) === selectedKey);
+  const detailNav = detailNavigation(commits, selectedIndex);
   const navigateDetail = (direction: "previous" | "next") => {
-    if (selectedIndex < 0) return;
-    const commit = commits[selectedIndex + (direction === "next" ? 1 : -1)];
+    const commit = direction === "next" ? detailNav.next : detailNav.previous;
     if (commit) setDetailMode({ kind: "pinned", key: activityKey(commit) });
   };
-  const detailTouchRef = useRef<{
-    x: number; y: number; t: number; key: string;
-    scroller: HTMLElement | null; scrollLeft: number;
-  } | null>(null);
-  const handleDetailTouchStart = (event: TouchEvent<HTMLElement>) => {
-    detailTouchRef.current = null;
-    const target = event.target;
-    if (!selectedKey || event.touches.length !== 1 || !(target instanceof Element)) return;
-    // Like Live, the entire open reader accepts swipes, including its blank
-    // space. Outside the phone overlay, keep gestures in the detail column.
-    if (!mobileDetailOpen && (target.closest(".commits-overview") ||
-        !target.closest(".commits-context, .commits-compact-support, .commit-files"))) return;
-    if (target.closest("a, button, input, textarea, select, summary, [role='button']")) return;
-    const candidate = target.closest("table, pre");
-    const scroller = candidate instanceof HTMLElement && candidate.scrollWidth > candidate.clientWidth + 2 ? candidate : null;
-    const touch = event.touches[0]!;
-    detailTouchRef.current = {
-      x: touch.clientX, y: touch.clientY, t: Date.now(), key: selectedKey,
-      scroller, scrollLeft: scroller?.scrollLeft ?? 0,
-    };
-  };
-  const handleDetailTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    const start = detailTouchRef.current;
-    detailTouchRef.current = null;
-    if (!start || start.key !== selectedKey || event.changedTouches.length !== 1) return;
-    const touch = event.changedTouches[0]!;
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    if (Date.now() - start.t > 1100 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
-    if (start.scroller) {
-      const max = start.scroller.scrollWidth - start.scroller.clientWidth;
-      if ((dx < 0 && start.scrollLeft < max - 2) || (dx > 0 && start.scrollLeft > 2)) return;
-    }
-    navigateDetail(dx < 0 ? "next" : "previous");
-  };
+  const { handleDetailTouchStart, handleDetailTouchEnd, handleDetailTouchCancel } = useDetailSwipe(
+    selectedKey, navigateDetail, (target) => mobileDetailOpen ||
+      (!target.closest(".commits-overview") && Boolean(target.closest(".commits-context, .commits-compact-support, .commit-files"))),
+  );
   useEffect(() => {
-    if (!selectedCommit) setMobileDetailRequested(false);
-  }, [selectedCommit]);
+    if (!selectedCommit && detailRouteOpen) onClearDetailRoute();
+  }, [selectedCommit, detailRouteOpen, onClearDetailRoute]);
   // Phone taps and the visible compact detail column include changed files.
   // Compact follow mode keeps those files in sync with its selected commit;
   // wider desktop rails still require the Settings opt-in.
@@ -608,7 +585,7 @@ export function CommitsPage({
     onFollowLatest();
   };
   const closeDetail = () => {
-    setMobileDetailRequested(false);
+    if (mobileDetailOpen) onCloseDetailRoute();
     setMobilePane("info");
     const latest = commits[0];
     setDetailMode(
@@ -927,12 +904,10 @@ export function CommitsPage({
     </div>
   );
 
-  const detailNavigation = selectedCommit ? (
-    <nav className="commit-detail-nav live-detail-nav" aria-label="Browse commits">
-      <button type="button" className="live-detail-nav-button" aria-label="Show newer commit" disabled={selectedIndex <= 0} onClick={() => navigateDetail("previous")}>← Newer</button>
-      <span className="live-detail-nav-count" aria-live="polite">{selectedIndex + 1} / {commits.length}</span>
-      <button type="button" className="live-detail-nav-button" aria-label="Show older commit" disabled={selectedIndex < 0 || selectedIndex >= commits.length - 1} onClick={() => navigateDetail("next")}>Older →</button>
-    </nav>
+  const detailNavigationNode = selectedCommit ? (
+    <DetailNav className="commit-detail-nav" label="Browse commits" noun="commit" chronological hideSingle={false}
+      position={detailNav.position} total={detailNav.total} canPrevious={detailNav.previous !== null}
+      canNext={detailNav.next !== null} onNavigate={navigateDetail} />
   ) : null;
 
   const supportPanes = (
@@ -988,44 +963,21 @@ export function CommitsPage({
           {windowTotal} window / {totalCommits} total · {range.from} to {range.to}
         </span>
       </div>
-      <button
-        type="button"
-        className="filter-summary-disclosure commits-filter-disclosure"
-        aria-expanded={filtersOpen}
-        aria-controls={isNarrow ? "mobile-commits-filter-panel" : "inline-commits-filter-panel"}
+      <ControlDisclosure className="commits-filter-disclosure" open={filtersOpen}
+        controls={isNarrow ? "mobile-commits-filter-panel" : "inline-commits-filter-panel"}
+        label="filters" summary={filtersSummary}
         onClick={() => setFiltersOpen((open) => {
           if (!open) setFilterSheetTab("repo");
           return !open;
-        })}
-      >
-        <span className="filter-summary-disclosure-label">filters</span>
-        <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
-        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
-      </button>
+        })} />
       <div id="inline-commits-filter-panel" onKeyDown={closeFiltersOnEscape} hidden={isCompactSplit && !filtersOpen}>
         {filterBody()}
       </div>
       {isNarrow && filtersOpen ? (
-        <>
-          <button type="button" className="mobile-control-backdrop" aria-label="Close commit filters" onClick={() => setFiltersOpen(false)} />
-          <div
-            id="mobile-commits-filter-panel"
-            className="mobile-control-sheet"
-            data-panel="commits-filters"
-            role="dialog"
-            aria-modal="false"
-            aria-labelledby="mobile-commits-filter-title"
-            onKeyDown={closeFiltersOnEscape}
-          >
-            <div className="mobile-control-sheet-head">
-              <strong id="mobile-commits-filter-title" className="mobile-control-sheet-title">Filters</strong>
-              <button type="button" className="mobile-control-sheet-close" aria-label="Close commit filters" onClick={() => setFiltersOpen(false)}>
-                ×
-              </button>
-            </div>
-            {filterSheetBody()}
-          </div>
-        </>
+        <MobileControlSheet id="mobile-commits-filter-panel" titleId="mobile-commits-filter-title"
+          panel="commits-filters" title="Filters" closeLabel="Close commit filters" onClose={() => setFiltersOpen(false)}>
+          {filterSheetBody()}
+        </MobileControlSheet>
       ) : null}
       <div
         className="commits-split"
@@ -1035,7 +987,7 @@ export function CommitsPage({
         data-mobile-pane={mobilePane}
         onTouchStart={handleDetailTouchStart}
         onTouchEnd={handleDetailTouchEnd}
-        onTouchCancel={() => { detailTouchRef.current = null; }}
+        onTouchCancel={handleDetailTouchCancel}
         role={mobileDetailOpen ? "dialog" : undefined}
         aria-modal={mobileDetailOpen ? true : undefined}
         aria-label={mobileDetailOpen ? "Commit information and changed files" : undefined}
@@ -1062,7 +1014,7 @@ export function CommitsPage({
             if (isNarrow) {
               if (selectedKey !== key) setDetailMode({ kind: "pinned", key });
               setMobilePane("info");
-              setMobileDetailRequested(true);
+              onOpenDetailRoute();
               return;
             }
             if (isCompactSplit && detailMode.kind === "following") setDetailMode({ kind: "pinned", key });
@@ -1071,7 +1023,7 @@ export function CommitsPage({
           }}
         />
         {isCompactSplit ? <div className="commits-compact-support">{supportPanes}</div> : supportPanes}
-        {mobileDetailOpen ? detailNavigation : null}
+        {mobileDetailOpen ? detailNavigationNode : null}
       </div>
     </main>
   );

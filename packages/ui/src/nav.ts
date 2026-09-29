@@ -25,6 +25,25 @@ export { graphFocusHref };
 
 export type Page = "live" | "activity" | "items" | "commits" | "reviews" | "board" | "graph" | "repo-analytics" | "settings";
 
+// Same-page edits preserve the shared lens and the page's view/reader state.
+// Tab hops have a separate policy in tabHref and deliberately drop drill-downs.
+export function inPageHref(route: HashRoute, patch: Partial<HashRoute>): string {
+  const shared = ["q", "from", "to", "preset", "tab", "isource", "istate", "ikind", "ireview", "irepo"] as const;
+  const local: Record<string, readonly (keyof HashRoute)[]> = {
+    graph: ["focus", "depth"],
+    activity: ["source", "repo", "kind", "action", "unresolved"],
+    commits: ["source", "repo", "branch", "author", "commitDetail"],
+    live: ["liveDetail"],
+    items: ["itemSort", "itemDetail"],
+    reviews: ["reviewSort", "reviewDetail"],
+  };
+  const fields: Partial<HashRoute> = {};
+  for (const field of [...shared, ...(local[route.page] ?? [])]) {
+    Object.assign(fields, { [field]: route[field] });
+  }
+  return buildHashRoute({ page: route.page, ...fields, ...patch });
+}
+
 // Where a COLD START lands. A cold start is the app first executing its bundle:
 // a fresh open, a reopen, or a reload — in all of them the in-memory route state
 // is gone and the only input is the hash the host restored (the browser keeps

@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ChangeEvent, type KeyboardEvent } from "react";
+import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
+import { type ChangeEvent } from "react";
 
 // A single facet group the Controls bar renders. `mode` decides which values
 // show: "facet" lists every value (the usual multi-select chips, hidden when
@@ -65,7 +66,6 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
 }
 
 export function Controls({ search, searchSuspended = false, groups, mobilePanel = null, onSearch, onToggle, onClearFilters, onLoadFile, onMobilePanel }: Props) {
-  const mobileSearchRef = useRef<HTMLInputElement | null>(null);
   const filtersOpen = mobilePanel === "filters";
   const searchOpen = mobilePanel === "search";
   const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
@@ -75,9 +75,6 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
   // disclosures so every page's filter chrome reads the same on a phone.
   const filtersSummary = activeFilterCount === 0 ? "all" : `${activeFilterCount} active`;
   const searchSummary = searchSuspended ? "not applied in focus" : search.trim() === "" ? "search" : "search active";
-  useEffect(() => {
-    if (searchOpen) mobileSearchRef.current?.focus();
-  }, [searchOpen]);
   const setMobilePanel = (panel: "search" | "filters" | "range" | null) => {
     onMobilePanel?.(panel);
   };
@@ -85,26 +82,15 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
     onClearFilters?.();
     setMobilePanel(null);
   };
-  const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") setMobilePanel(null);
-  };
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onLoadFile(file);
   };
   return (
     <div className="controls" data-search-open={searchOpen}>
-      <button
-        type="button"
-        className="filter-summary-disclosure search-disclosure"
-        aria-expanded={searchOpen}
-        aria-controls="mobile-search-panel"
-        aria-label={`${searchOpen ? "Hide" : "Show"} search`}
-        disabled={searchSuspended}
-        onClick={() => setMobilePanel(searchOpen ? null : "search")}
-      >
-        <span className="filter-summary-disclosure-summary">{searchSummary}</span>
-      </button>
+      <ControlDisclosure className="search-disclosure" open={searchOpen} controls="mobile-search-panel"
+        summary={searchSummary} ariaLabel={`${searchOpen ? "Hide" : "Show"} search`} disabled={searchSuspended}
+        onClick={() => setMobilePanel(searchOpen ? null : "search")} />
       <input
         id="global-search"
         className="search"
@@ -118,18 +104,9 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
       {searchSuspended ? (
         <span id="search-suspended-note" className="muted search-suspended-note">not applied in focus</span>
       ) : null}
-      <button
-        type="button"
-        className="filter-summary-disclosure filter-disclosure"
-        aria-expanded={filtersOpen}
-        aria-controls="mobile-filter-panel"
-        aria-label={`${filtersOpen ? "Hide" : "Show"} filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ""}`}
-        onClick={() => setMobilePanel(filtersOpen ? null : "filters")}
-      >
-        <span className="filter-summary-disclosure-label">filters</span>
-        <span className="filter-summary-disclosure-summary">{filtersSummary}</span>
-        <span className="filter-summary-disclosure-caret" aria-hidden="true" />
-      </button>
+      <ControlDisclosure className="filter-disclosure" open={filtersOpen} controls="mobile-filter-panel" label="filters"
+        summary={filtersSummary} ariaLabel={`${filtersOpen ? "Hide" : "Show"} filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ""}`}
+        onClick={() => setMobilePanel(filtersOpen ? null : "filters")} />
       <div id="facet-filter-groups" className="filter-groups" data-open={filtersOpen}>
         {groups.map((group) => (
           <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
@@ -147,33 +124,15 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
         </button>
       ) : null}
       {searchOpen || filtersOpen ? (
-        <>
-          <button type="button" className="mobile-control-backdrop" aria-label="Close controls" onClick={() => setMobilePanel(null)} />
-          <div
-            id={searchOpen ? "mobile-search-panel" : "mobile-filter-panel"}
-            className="mobile-control-sheet"
-            data-panel={searchOpen ? "search" : "filters"}
-            role="dialog"
-            aria-modal="false"
-            aria-labelledby={searchOpen ? "mobile-search-title" : "mobile-filter-title"}
-            onKeyDown={closeOnEscape}
-          >
-            <div className="mobile-control-sheet-head">
-              <strong id={searchOpen ? "mobile-search-title" : "mobile-filter-title"} className="mobile-control-sheet-title">
-                {searchOpen ? "Search" : "Filters"}
-              </strong>
-              {clearable && onClearFilters ? (
-                <button type="button" className="mobile-control-sheet-clear" onClick={clearFilters}>
-                  Clear
-                </button>
-              ) : null}
-              <button type="button" className="mobile-control-sheet-close" aria-label="Close controls" onClick={() => setMobilePanel(null)}>
-                ×
-              </button>
-            </div>
+        <MobileControlSheet id={searchOpen ? "mobile-search-panel" : "mobile-filter-panel"}
+          titleId={searchOpen ? "mobile-search-title" : "mobile-filter-title"}
+          panel={searchOpen ? "search" : "filters"} title={searchOpen ? "Search" : "Filters"}
+          onClose={() => setMobilePanel(null)}
+          headerAction={clearable && onClearFilters ? (
+            <button type="button" className="mobile-control-sheet-clear" onClick={clearFilters}>Clear</button>
+          ) : null}>
             {searchOpen ? (
               <input
-                ref={mobileSearchRef}
                 id="global-search-mobile"
                 className="search mobile-control-search"
                 type="search"
@@ -189,8 +148,7 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
                 ))}
               </div>
             )}
-          </div>
-        </>
+        </MobileControlSheet>
       ) : null}
       <details className="file-load">
         <summary className="toggle file-load-summary">Local file</summary>

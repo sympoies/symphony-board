@@ -1,3 +1,6 @@
+import { DetailNav } from "./DetailNav.tsx";
+import { useDetailSwipe } from "../useDetailSwipe.ts";
+import { detailNavigation } from "../detail-navigation.ts";
 // Reviews tab — provider review-thread inbox.
 //
 // Unlike Activity/Commits (which are event feeds), each row here is the LIVE
@@ -15,7 +18,7 @@
 // tab — the same affordance the Live tab uses. The shared facet Controls (search
 // + source/repo/state/kind/review-lens chips) live in App above this page, so the
 // FILTER operation stays identical to the other content tabs.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { ItemDTO, ReviewThreadCommentDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import {
   activityVirtualRange,
@@ -177,14 +180,8 @@ function threadKey(row: ThreadRow): string {
 }
 
 function threadNavigation(rows: ThreadRow[], current: ThreadRow | null): ThreadNavigation {
-  const id = current ? current.thread.id : null;
-  const index = id ? rows.findIndex((row) => row.thread.id === id) : -1;
-  return {
-    position: index >= 0 ? index + 1 : 0,
-    total: rows.length,
-    previous: index > 0 ? rows[index - 1]! : null,
-    next: index >= 0 && index + 1 < rows.length ? rows[index + 1]! : null,
-  };
+  const id = current?.thread.id;
+  return detailNavigation(rows, id ? rows.findIndex((row) => row.thread.id === id) : -1);
 }
 
 function ReviewRow({
@@ -272,83 +269,6 @@ function ReviewRow({
   );
 }
 
-function blocksDetailSwipe(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(target.closest("a, button, input, textarea, select, summary, [role='button']"));
-}
-
-// A horizontally-scrollable ancestor (a wide code block or markdown table) gets
-// first claim on a horizontal drag, so swiping inside one scrolls it instead of
-// flipping to the next/previous thread. Mirrors LivePage.
-function horizontalSwipeScroller(target: EventTarget | null): HTMLElement | null {
-  if (!(target instanceof Element)) return null;
-  const scroller = target.closest("table, pre");
-  if (!(scroller instanceof HTMLElement)) return null;
-  return scroller.scrollWidth > scroller.clientWidth + 2 ? scroller : null;
-}
-
-function scrollCanConsumeSwipe(scroller: HTMLElement, scrollLeft: number, dx: number): boolean {
-  const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-  if (maxScrollLeft <= 2) return false;
-  if (dx < 0) return scrollLeft < maxScrollLeft - 2;
-  if (dx > 0) return scrollLeft > 2;
-  return false;
-}
-
-function ReviewDetailNav({
-  position,
-  total,
-  canPrevious,
-  canNext,
-  onNavigate,
-}: {
-  position: number;
-  total: number;
-  canPrevious: boolean;
-  canNext: boolean;
-  onNavigate: (move: ReviewDetailMove) => void;
-}) {
-  if (total <= 1) return null;
-  const handleTouchNavigate = (move: ReviewDetailMove) => (event: TouchEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    onNavigate(move);
-  };
-  const stopTouchPropagation = (event: TouchEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-  };
-  return (
-    <nav className="live-detail-nav" aria-label="Review thread navigation">
-      <button
-        type="button"
-        className="live-detail-nav-button"
-        disabled={!canPrevious}
-        aria-label="Show previous thread"
-        title="Show previous thread"
-        onTouchStart={stopTouchPropagation}
-        onTouchEnd={handleTouchNavigate("previous")}
-        onClick={() => onNavigate("previous")}
-      >
-        ‹ <span>Prev</span>
-      </button>
-      <span className="live-detail-nav-count" aria-live="polite">
-        {position > 0 ? position : "—"} / {total}
-      </span>
-      <button
-        type="button"
-        className="live-detail-nav-button"
-        disabled={!canNext}
-        aria-label="Show next thread"
-        title="Show next thread"
-        onTouchStart={stopTouchPropagation}
-        onTouchEnd={handleTouchNavigate("next")}
-        onClick={() => onNavigate("next")}
-      >
-        <span>Next</span> ›
-      </button>
-    </nav>
-  );
-}
 
 function ReviewComment({ comment }: { comment: ReviewThreadCommentDTO }) {
   const link = safeHref(comment.url);
@@ -644,50 +564,7 @@ export function ReviewsPage({
   // `.live-detail` wrapper — which holds the scrolling card AND the pinned nav —
   // so a swipe anywhere in the overlay navigates, except over a control or a
   // horizontally-scrollable code block / table.
-  const detailTouchRef = useRef<{
-    x: number;
-    y: number;
-    t: number;
-    scroller: HTMLElement | null;
-    scrollLeft: number;
-  } | null>(null);
-  const handleDetailTouchStart = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (!detail || e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
-        detailTouchRef.current = null;
-        return;
-      }
-      const touch = e.touches[0]!;
-      const scroller = horizontalSwipeScroller(e.target);
-      detailTouchRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        t: Date.now(),
-        scroller,
-        scrollLeft: scroller?.scrollLeft ?? 0,
-      };
-    },
-    [detail],
-  );
-  const handleDetailTouchEnd = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      const start = detailTouchRef.current;
-      detailTouchRef.current = null;
-      if (!start || e.changedTouches.length !== 1) return;
-      const touch = e.changedTouches[0]!;
-      const dx = touch.clientX - start.x;
-      const dy = touch.clientY - start.y;
-      const elapsed = Date.now() - start.t;
-      if (elapsed > REVIEW_DETAIL_SWIPE_MAX_MS) return;
-      if (Math.abs(dx) < REVIEW_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
-      if (start.scroller && scrollCanConsumeSwipe(start.scroller, start.scrollLeft, dx)) return;
-      navigateDetail(dx < 0 ? "next" : "previous");
-    },
-    [navigateDetail],
-  );
-  const handleDetailTouchCancel = useCallback(() => {
-    detailTouchRef.current = null;
-  }, []);
+  const { handleDetailTouchStart, handleDetailTouchEnd, handleDetailTouchCancel } = useDetailSwipe(detail?.thread.id ?? null, navigateDetail);
 
   if (threadRows.length === 0) {
     return (
@@ -782,7 +659,7 @@ export function ReviewsPage({
                 sourceKind={sourceKind}
                 onClose={closeDetail}
               />
-              <ReviewDetailNav
+              <DetailNav noun="thread" label="Review thread navigation"
                 position={detailNav.position}
                 total={detailNav.total}
                 canPrevious={detailNav.previous !== null}
