@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import {
   ACTIVITY_SUMMARY_KINDS,
@@ -51,8 +51,9 @@ function trendCoord(
   count: number,
   maxY: number,
   value: number,
+  width: number,
 ): { x: number; y: number } {
-  const spanX = TREND_W - TREND_PAD_X * 2;
+  const spanX = width - TREND_PAD_X * 2;
   const spanY = TREND_H - TREND_PAD_Y * 2;
   const x = TREND_PAD_X + (count <= 1 ? spanX / 2 : (index / (count - 1)) * spanX);
   const y = TREND_H - TREND_PAD_Y - (maxY > 0 ? (value / maxY) * spanY : 0);
@@ -116,6 +117,21 @@ function ActivityTrendChart({
   // stays full-strength while the others dim to background grey.
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(TREND_DEFAULT_HIDDEN));
   const [focused, setFocused] = useState<string | null>(null);
+  const chartRef = useRef<SVGSVGElement | null>(null);
+  const [chartWidth, setChartWidth] = useState(TREND_W);
+
+  // Keep the SVG coordinates in CSS pixels. A fixed 640px viewBox with the
+  // default aspect ratio centered the entire plot in a wide chart box, leaving
+  // hundreds of pixels unused on ultrawide displays.
+  useLayoutEffect(() => {
+    const node = chartRef.current;
+    if (!node) return;
+    const measure = () => setChartWidth(Math.max(TREND_PAD_X * 2 + 1, Math.round(node.getBoundingClientRect().width)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const modelSeries = useMemo(
     () => new Map(trend.series.map((series) => [series.kind, series] as const)),
@@ -149,8 +165,8 @@ function ActivityTrendChart({
   // the dots sit — so the dots show the actual values around the trend line.
   const dotStep = Math.max(1, Math.ceil(points.length / 120));
   const lines = visible.map((series) => {
-    const line = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.average));
-    const raw = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.count));
+    const line = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.average, chartWidth));
+    const raw = series.points.map((point, index) => trendCoord(index, series.points.length, maxY, point.count, chartWidth));
     return { kind: series.kind, series, line, raw, path: smoothPath(line) };
   });
 
@@ -162,10 +178,10 @@ function ActivityTrendChart({
   // Full-height invisible hit bands, one per bucket with boundaries at the
   // midpoints between neighbors: every bucket is hoverable — including
   // zero-count ones — without aiming at a thin line.
-  const axisX = points.map((_, index) => trendCoord(index, points.length, maxY, 0).x);
+  const axisX = points.map((_, index) => trendCoord(index, points.length, maxY, 0, chartWidth).x);
   const hitBands = axisX.map((x, index) => {
     const left = index === 0 ? 0 : (axisX[index - 1]! + x) / 2;
-    const right = index === axisX.length - 1 ? TREND_W : (x + axisX[index + 1]!) / 2;
+    const right = index === axisX.length - 1 ? chartWidth : (x + axisX[index + 1]!) / 2;
     return { x: left, width: right - left };
   });
 
@@ -249,8 +265,9 @@ function ActivityTrendChart({
       {/* aria-label, not <title>: a <title> child doubles as a native hover
           tooltip and fights the custom hm-tip. */}
       <svg
+        ref={chartRef}
         className="hm-trend-chart"
-        viewBox={`0 0 ${TREND_W} ${TREND_H}`}
+        viewBox={`0 0 ${chartWidth} ${TREND_H}`}
         role="img"
         aria-label={`Activity trend by ${byLabel} from ${from} to ${to}`}
         onMouseLeave={clearChartFocus}
@@ -260,7 +277,7 @@ function ActivityTrendChart({
             key={n}
             className="hm-trend-grid"
             x1={TREND_PAD_X}
-            x2={TREND_W - TREND_PAD_X}
+            x2={chartWidth - TREND_PAD_X}
             y1={TREND_PAD_Y + n * (TREND_H - TREND_PAD_Y * 2)}
             y2={TREND_PAD_Y + n * (TREND_H - TREND_PAD_Y * 2)}
           />
