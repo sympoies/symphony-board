@@ -1,3 +1,4 @@
+import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { activeTimeRangePresetId, isDateOnly, normalizeTimeRange, presetBeyondLoadedWindow, TIME_RANGE_PRESETS, timeRangeForPreset, type TimeRange, type TimeRangePresetId } from "../model.ts";
 
@@ -315,41 +316,15 @@ export function TimeRangeControls({
       title={suspended ? (suspendedReason === "static" ? "This is a static demo with no server, so it shows the full bundled contract — the time range can't be narrowed here." : "Time range doesn't apply while an item is focused in the graph — the focus view shows the loaded relationships for that item. Leave focus to re-enable.") : undefined}
     >
       {collapsibleOnNarrow ? (
-        <button
-          type="button"
-          className="filter-summary-disclosure range-disclosure"
-          aria-expanded={rangeOpen}
-          onClick={() => setRangeOpen(!rangeOpen)}
-        >
-          <span className="filter-summary-disclosure-label">range</span>
-          <span className="filter-summary-disclosure-summary">{rangeSummary}</span>
-          <span className="filter-summary-disclosure-caret" aria-hidden="true" />
-        </button>
+        <ControlDisclosure className="range-disclosure" open={rangeOpen} controls="mobile-range-panel"
+          label="range" summary={rangeSummary} onClick={() => setRangeOpen(!rangeOpen)} />
       ) : null}
       {rangeBody("time-range-inline")}
       {rangeOpen ? (
-        <>
-          <button type="button" className="mobile-control-backdrop" aria-label="Close controls" onClick={() => setRangeOpen(false)} />
-          <div
-            id="mobile-range-panel"
-            className="mobile-control-sheet"
-            data-panel="range"
-            role="dialog"
-            aria-modal="false"
-            aria-labelledby="mobile-range-title"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setRangeOpen(false);
-            }}
-          >
-            <div className="mobile-control-sheet-head">
-              <strong id="mobile-range-title" className="mobile-control-sheet-title">Range</strong>
-              <button type="button" className="mobile-control-sheet-close" aria-label="Close controls" onClick={() => setRangeOpen(false)}>
-                ×
-              </button>
-            </div>
-            {rangeBody("time-range-sheet-body")}
-          </div>
-        </>
+        <MobileControlSheet id="mobile-range-panel" titleId="mobile-range-title" panel="range" title="Range"
+          onClose={() => setRangeOpen(false)}>
+          {rangeBody("time-range-sheet-body")}
+        </MobileControlSheet>
       ) : null}
     </div>
   );

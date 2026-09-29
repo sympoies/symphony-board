@@ -1,3 +1,4 @@
+import { detailNavigation } from "./detail-navigation.ts";
 // Pure view-model helpers over the contract: filtering, edge resolution, and
 // small stats. No React here — easy to reason about and reuse.
 
@@ -199,6 +200,7 @@ export interface HashRoute {
   tab: string | null; // a sub-tab within a page (Settings: "sources" | default display)
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
+  commitDetail: string | null; // Commits phone overlay; Back closes the reader before leaving the page.
   itemDetail: string | null; // Items phone overlay state; route-backed so Back closes the item detail before leaving Items.
   itemSort: string | null; // Items list order; absent = recent (default), "open" = open work first.
   reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-change-request layout.
@@ -258,12 +260,13 @@ export function parseHashRoute(hash: string): HashRoute {
     liveDetail: routeParam(params?.get("liveDetail")),
     reviewDetail: routeParam(params?.get("reviewDetail")),
     itemDetail: routeParam(params?.get("itemDetail")),
+    commitDetail: routeParam(params?.get("commitDetail")),
     itemSort: routeParam(params?.get("itemSort")),
     reviewSort: routeParam(params?.get("reviewSort")),
   };
 }
 
-export function buildHashRoute(route: { page: string; focus?: string | null; depth?: number | null; q?: string | null; source?: string | null; repo?: string | null; branch?: string | null; author?: string | null; kind?: string | null; action?: string | null; isource?: string | null; istate?: string | null; ikind?: string | null; ireview?: string | null; irepo?: string | null; unresolved?: string | null; from?: string | null; to?: string | null; preset?: TimeRangePresetId | null; tab?: string | null; liveDetail?: string | null; reviewDetail?: string | null; itemDetail?: string | null; itemSort?: string | null; reviewSort?: string | null }): string {
+export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<HashRoute, "page">>): string {
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const depth = graphFocusDepth(route.depth);
@@ -287,6 +290,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; dep
   const liveDetail = routeParam(route.liveDetail);
   const reviewDetail = routeParam(route.reviewDetail);
   const itemDetail = routeParam(route.itemDetail);
+  const commitDetail = routeParam(route.commitDetail);
   const itemSort = routeParam(route.itemSort);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
@@ -311,6 +315,7 @@ export function buildHashRoute(route: { page: string; focus?: string | null; dep
   if (liveDetail) params.push(`liveDetail=${encodeURIComponent(liveDetail)}`);
   if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
   if (itemDetail) params.push(`itemDetail=${encodeURIComponent(itemDetail)}`);
+  if (commitDetail) params.push(`commitDetail=${encodeURIComponent(commitDetail)}`);
   if (itemSort) params.push(`itemSort=${encodeURIComponent(itemSort)}`);
   if (reviewSort) params.push(`reviewSort=${encodeURIComponent(reviewSort)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
@@ -3295,16 +3300,8 @@ export function liveWorkItemTitle(ev: Pick<LiveEvent, "target">): string | null 
 }
 
 export function liveDetailNavigation(events: readonly LiveEvent[], current: LiveEvent | null): LiveDetailNavigation {
-  const total = events.length;
   const currentKey = current ? liveEventKey(current) : null;
-  const index = currentKey ? events.findIndex((ev) => liveEventKey(ev) === currentKey) : -1;
-  return {
-    index,
-    position: index >= 0 ? index + 1 : 0,
-    total,
-    previous: index > 0 ? events[index - 1]! : null,
-    next: index >= 0 && index + 1 < total ? events[index + 1]! : null,
-  };
+  return detailNavigation(events, currentKey ? events.findIndex((ev) => liveEventKey(ev) === currentKey) : -1);
 }
 
 export interface LiveSnapshot {

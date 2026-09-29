@@ -488,6 +488,9 @@ Pages:
   in-pane `follow latest` action releases the pin. Provider-specific signals
   such as GitHub Verified badges or check counts are intentionally omitted
   until the contract has comparable GitHub and GitLab semantics.
+  The phone reader open state is route-backed as `commitDetail=1`, like the
+  Live, Reviews, and Items readers. Browser/Android Back closes the reader
+  before leaving Commits; the selected commit and follow/pin mode remain local.
   On phone widths, tapping a commit opens a full-screen reading view with two
   panes: the selected commit detail and its changed-file list. Info and Files
   switch between separate scrolling content areas beneath a fixed control,

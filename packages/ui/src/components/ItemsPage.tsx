@@ -1,3 +1,6 @@
+import { DetailNav } from "./DetailNav.tsx";
+import { useDetailSwipe } from "../useDetailSwipe.ts";
+import { detailNavigation } from "../detail-navigation.ts";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref, type TouchEvent } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
@@ -54,25 +57,6 @@ function stopRowSelection(event: { stopPropagation: () => void }) {
   event.stopPropagation();
 }
 
-function blocksDetailSwipe(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(target.closest("a, button, input, textarea, select, summary, [role='button']"));
-}
-
-function horizontalSwipeScroller(target: EventTarget | null): HTMLElement | null {
-  if (!(target instanceof Element)) return null;
-  const scroller = target.closest("table, pre");
-  if (!(scroller instanceof HTMLElement)) return null;
-  return scroller.scrollWidth > scroller.clientWidth + 2 ? scroller : null;
-}
-
-function scrollCanConsumeSwipe(scroller: HTMLElement, scrollLeft: number, dx: number): boolean {
-  const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-  if (maxScrollLeft <= 2) return false;
-  if (dx < 0) return scrollLeft < maxScrollLeft - 2;
-  if (dx > 0) return scrollLeft > 2;
-  return false;
-}
 
 function relativeTimeValue(value: string | null | undefined): ReactNode {
   if (!value) return null;
@@ -211,60 +195,6 @@ function ItemDetail({
   );
 }
 
-function ItemDetailNav({
-  position,
-  total,
-  canPrevious,
-  canNext,
-  onNavigate,
-}: {
-  position: number;
-  total: number;
-  canPrevious: boolean;
-  canNext: boolean;
-  onNavigate: (move: ItemDetailMove) => void;
-}) {
-  if (total <= 1) return null;
-  const handleTouchNavigate = (move: ItemDetailMove) => (event: TouchEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    onNavigate(move);
-  };
-  const stopTouchPropagation = (event: TouchEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-  };
-  return (
-    <nav className="live-detail-nav" aria-label="Item navigation">
-      <button
-        type="button"
-        className="live-detail-nav-button"
-        disabled={!canPrevious}
-        aria-label="Show newer item"
-        title="Show newer item"
-        onTouchStart={stopTouchPropagation}
-        onTouchEnd={handleTouchNavigate("previous")}
-        onClick={() => onNavigate("previous")}
-      >
-        ‹ <span>Newer</span>
-      </button>
-      <span className="live-detail-nav-count" aria-live="polite">
-        {position > 0 ? position : "—"} / {total}
-      </span>
-      <button
-        type="button"
-        className="live-detail-nav-button"
-        disabled={!canNext}
-        aria-label="Show older item"
-        title="Show older item"
-        onTouchStart={stopTouchPropagation}
-        onTouchEnd={handleTouchNavigate("next")}
-        onClick={() => onNavigate("next")}
-      >
-        <span>Older</span> ›
-      </button>
-    </nav>
-  );
-}
 
 export function ItemsPage({
   items,
@@ -314,12 +244,7 @@ export function ItemsPage({
     return items.findIndex((item) => item.id === selectedItem.id);
   }, [items, selectedItem]);
   const detailScrollRef = useDetailScrollReset<HTMLElement>(selectedItem?.id ?? null);
-  const detailNav = useMemo(() => ({
-    position: selectedIndex >= 0 ? selectedIndex + 1 : 0,
-    total: items.length,
-    previous: selectedIndex > 0 ? items[selectedIndex - 1]! : null,
-    next: selectedIndex >= 0 && selectedIndex < items.length - 1 ? items[selectedIndex + 1]! : null,
-  }), [items, selectedIndex]);
+  const detailNav = useMemo(() => detailNavigation(items, selectedIndex), [items, selectedIndex]);
   // The list is a plain flex column rather than a virtualized one, so it wants
   // the scrollbar measurement without the rest of useListViewport.
   const itemsListRef = useRef<HTMLDivElement | null>(null);
@@ -376,44 +301,7 @@ export function ItemsPage({
     if (detailRouteOpen) onCloseDetailRoute();
   };
 
-  const detailTouchRef = useRef<{
-    x: number;
-    y: number;
-    t: number;
-    scroller: HTMLElement | null;
-    scrollLeft: number;
-  } | null>(null);
-  const handleDetailTouchStart = useCallback((e: TouchEvent<HTMLElement>) => {
-    if (!selectedItem || e.touches.length !== 1 || blocksDetailSwipe(e.target)) {
-      detailTouchRef.current = null;
-      return;
-    }
-    const touch = e.touches[0]!;
-    const scroller = horizontalSwipeScroller(e.target);
-    detailTouchRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      t: Date.now(),
-      scroller,
-      scrollLeft: scroller?.scrollLeft ?? 0,
-    };
-  }, [selectedItem]);
-  const handleDetailTouchEnd = useCallback((e: TouchEvent<HTMLElement>) => {
-    const start = detailTouchRef.current;
-    detailTouchRef.current = null;
-    if (!start || e.changedTouches.length !== 1) return;
-    const touch = e.changedTouches[0]!;
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    const elapsed = Date.now() - start.t;
-    if (elapsed > ITEMS_DETAIL_SWIPE_MAX_MS) return;
-    if (Math.abs(dx) < ITEMS_DETAIL_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.3) return;
-    if (start.scroller && scrollCanConsumeSwipe(start.scroller, start.scrollLeft, dx)) return;
-    navigateDetail(dx < 0 ? "next" : "previous");
-  }, [navigateDetail]);
-  const handleDetailTouchCancel = useCallback(() => {
-    detailTouchRef.current = null;
-  }, []);
+  const { handleDetailTouchStart, handleDetailTouchEnd, handleDetailTouchCancel } = useDetailSwipe(selectedItem?.id ?? null, navigateDetail);
 
   return (
     <section className="items-page">
@@ -551,7 +439,7 @@ export function ItemsPage({
               onTouchCancel={handleDetailTouchCancel}
               scrollRootRef={detailScrollRef}
             >
-              <ItemDetailNav
+              <DetailNav noun="item" label="Item navigation" chronological
                 position={detailNav.position}
                 total={detailNav.total}
                 canPrevious={detailNav.previous !== null}

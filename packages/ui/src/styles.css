@@ -468,6 +468,7 @@ html[data-theme="paper"] .toggle-on {
 .filter-groups { display: contents; }
 .mobile-control-backdrop,
 .mobile-control-sheet { display: none; }
+.mobile-control-sheet-body { display: contents; }
 .time-range-inline { display: contents; }
 /* The facet filters, the date range, the Commits repo/branch filters and the
    read-only metric strips each collapse behind this same full-width summary
