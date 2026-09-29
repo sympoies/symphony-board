@@ -1664,10 +1664,10 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .commits-rail .live-rank-bar-cell,
   .activity-rail .live-rank-bar-cell {
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
     align-items: center;
-    justify-content: flex-start;
+    justify-items: start;
     gap: 8px;
   }
   .commits-rail .live-rank-bar,
@@ -1803,25 +1803,32 @@ a.rf-node-title:hover { color: var(--accent); }
    containing block, so their percentage bars keep drawing while the cards run
    to the bottom. The old chart constants stay as minimums, so nothing shrinks.
 
-   Three things bound the rule, each of which it got wrong first:
+   Three constraints shape the rule:
 
    - The floor is the THREE-column tier, not 1212px. Between 1212 and 1279px
      the overview and the rail share one column (the list spans both rows), so
      a pane height each made the page two viewports tall -- at 1280px, the
      width the Android wide layout pins the WebView to, among others.
-   - The ceiling is the rows tier. At 2200px the rail's charts relayout to
-     fixed 26px rows, and a flex-grown chart around fixed rows is blank space
-     inside the chart rather than taller bars.
-   - CommitDetail sits before the overview inside `.commits-context`; only the
-     persistent overview and direct digest rail participate in column fill. */
-@media (min-width: 1280px) and (max-width: 2199px) {
+   - At 2200px the rail's charts use rows; their rows must spread over the
+     expanded chart instead of leaving the extra height blank.
+   - CommitDetail sits before the overview inside `.commits-context`; the
+     overview uses only the height left after that detail card. */
+@media (min-width: 1280px) {
+  .commits-split > .commits-context {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    height: var(--content-pane-height, auto);
+  }
+  .commits-split > .commits-context > .commit-detail { flex: 0 0 auto; }
   .commits-split > .commits-context > .commits-overview,
   .commits-split > .commits-rail:not(.commit-detail) {
     display: flex;
     flex-direction: column;
   }
   .commits-split > .commits-context > .commits-overview {
-    height: var(--content-pane-height, auto);
+    flex: 1 1 auto;
+    min-height: 0;
   }
   .commits-split > .commits-rail:not(.commit-detail) {
     min-height: var(--content-pane-height, 0px);
@@ -1844,6 +1851,20 @@ a.rf-node-title:hover { color: var(--accent); }
     flex: 1 1 auto;
     height: auto;
     min-height: 56px;
+  }
+}
+@media (min-width: 2200px) {
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart {
+    display: flex;
+    flex-direction: column;
+  }
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-plot {
+    flex: 1 1 auto;
+    grid-auto-rows: minmax(26px, 1fr);
+    height: auto;
+  }
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-item {
+    height: 100%;
   }
 }
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in

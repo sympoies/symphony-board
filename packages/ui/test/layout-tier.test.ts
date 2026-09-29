@@ -350,9 +350,10 @@ test("Commits leads with its list across three ratio columns, left-aligned", () 
   );
   assert.equal(ratios.reduce((sum, n) => sum + n, 0), 100, "the Commits tracks still describe a whole");
 
-  // No very-wide override survives: centring the split is what stranded it.
+  // The very-wide tier may fill the existing columns, but must not re-size or
+  // re-centre the split: centring it was what stranded the page width.
   const wide = mediaBlock("(min-width: 2200px)");
-  assert.doesNotMatch(wide, /\.commits-split/, "the very-wide tier must not re-size or re-centre the split");
+  assert.doesNotMatch(wide, /\.commits-split\s*\{/, "the very-wide tier must not re-size or re-centre the split");
   // The Commits rail still does not go two-up there. Not because it is narrow —
   // at 35fr it is about 1050px — but because its four ranked charts already fill
   // the height beside the list, so halving their width would only leave the
@@ -445,7 +446,7 @@ test("Commits keeps three columns at browser-sidebar laptop widths", () => {
   assert.equal(COMMIT_THREE_COLUMN_MIN_WIDTH_PX, 1280);
   const twoColumn = mediaBlock(`(min-width: 1212px) and (max-width: ${COMMIT_THREE_COLUMN_MIN_WIDTH_PX - 1}px)`);
   assert.match(twoColumn, /grid-row: span 2/);
-  const fill = mediaBlock(`(min-width: ${COMMIT_THREE_COLUMN_MIN_WIDTH_PX}px) and (max-width: 2199px)`);
+  const fill = mediaBlock(`(min-width: ${COMMIT_THREE_COLUMN_MIN_WIDTH_PX}px)`);
   assert.match(fill, /\.commits-split > \.commits-context/);
   assert.doesNotMatch(fill, /\.activity-layout/);
 });

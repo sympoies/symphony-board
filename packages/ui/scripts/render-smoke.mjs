@@ -2393,6 +2393,11 @@ try {
         const layoutStyle = layout ? getComputedStyle(layout) : null;
         const listRect = list?.getBoundingClientRect();
         const panelRect = panel?.getBoundingClientRect();
+        const trend = panel?.querySelector('.hm-trend-chart');
+        const totalLine = trend?.querySelector('.hm-trend-line[data-kind="total"]');
+        const trendRightGap = trend && totalLine
+          ? Math.round(trend.getBoundingClientRect().right - totalLine.getBoundingClientRect().right)
+          : null;
         // Unused width to the right of the row. A stacked layout whose single
         // column is still capped reads as 'fits' by every other measure while
         // stranding half the viewport, which is exactly what the foldable hit.
@@ -2423,6 +2428,7 @@ try {
           columns: layoutStyle?.gridTemplateColumns || '',
           gap: layoutStyle?.columnGap || '',
           innerGap,
+          trendRightGap,
           stacked: !!listRect && !!panelRect && panelRect.top > listRect.bottom - 2,
           sideBySide: !!listRect && !!panelRect && Math.abs(panelRect.top - listRect.top) <= 2 && panelRect.left > listRect.right,
           deadRight: avail != null ? Math.round(avail - right) : -1,
@@ -6289,7 +6295,7 @@ try {
   const commitDetailVisibilityByViewport = [];
   for (const vp of [
     { name: "compact-split", width: 1000, height: 1440 },
-    { name: "two-column", width: 1280, height: 1440 },
+    { name: "three-column-boundary", width: 1280, height: 1440 },
     { name: "three-column", width: 1880, height: 1080 },
     { name: "rows", width: 2560, height: 1440 },
   ]) {
@@ -6323,6 +6329,7 @@ try {
           flowGap: Math.round(overviewRect.top - detailRect.bottom),
           contextGap,
           sameWidth: Math.abs(overviewRect.width - detailRect.width) <= 1,
+          overviewShort: Math.round(document.querySelector('.commit-list')?.getBoundingClientRect().bottom - overviewRect.bottom),
           firstBlockVisiblePx: firstBlockRect
             ? Math.max(0, Math.min(firstBlockRect.bottom, innerHeight) - Math.max(firstBlockRect.top, 0))
             : 0,
@@ -6811,6 +6818,25 @@ try {
           (block.querySelector('.rail-block-title')?.textContent || '').trim() === 'Who'
         );
         const overflowing = [];
+        const overflowingCounts = [...rail.querySelectorAll('.live-rank-tooltip')].filter((count) => {
+          const rect = count.getBoundingClientRect();
+          const cell = count.parentElement?.getBoundingClientRect();
+          return cell && rect.right > cell.right + 2;
+        }).map((count) => (count.textContent || '').trim());
+        // An exact axis maximum is supported data (10,000 / 10,000). The
+        // sample counts sit below their rounded axis, which can hide spillover.
+        const fullBarCell = rail.querySelector('.live-rank-bar-cell');
+        const fullBarCount = fullBarCell?.querySelector('.live-rank-tooltip');
+        let fullBarCountOverflow = null;
+        if (fullBarCell && fullBarCount) {
+          const originalHeight = fullBarCell.style.getPropertyValue('--rank-h');
+          const originalCount = fullBarCount.textContent;
+          fullBarCell.style.setProperty('--rank-h', '100%');
+          fullBarCount.textContent = '10,000';
+          fullBarCountOverflow = Math.round(fullBarCount.getBoundingClientRect().right - fullBarCell.getBoundingClientRect().right);
+          fullBarCell.style.setProperty('--rank-h', originalHeight);
+          fullBarCount.textContent = originalCount;
+        }
         for (const b of blocks) {
           for (const plot of b.querySelectorAll('.live-rank-plot, .rail-hours, .rail-daybars')) {
             // Measure the IN-FLOW children's right edge against the container's.
@@ -6840,13 +6866,15 @@ try {
         return {
           found: true,
           railWidth: Math.round(rail.getBoundingClientRect().width),
-          columns: getComputedStyle(rail).gridTemplateColumns.trim().split(/\\s+/).length,
+          columns: new Set(blocks.map((block) => Math.round(block.getBoundingClientRect().left))).size,
           actorRows: whoBlock?.querySelectorAll('.live-rank-item').length || 0,
           visibleActorNames: [...(whoBlock?.querySelectorAll('.activity-rank-actor-name') || [])].filter((name) => {
             const rect = name.getBoundingClientRect();
             return (name.textContent || '').trim().length > 0 && rect.width > 0 && rect.height > 0;
           }).length,
           overflowing,
+          overflowingCounts,
+          fullBarCountOverflow,
         };
       })()`,
       returnByValue: true,
@@ -7077,7 +7105,7 @@ try {
     [
       commitsFillTiers.length === 5 &&
         commitsFillTiers.every((t) =>
-          t.tier === "three-column"
+          t.tier === "three-column" || t.tier === "rows"
             ? t.minHeightPx > 0 &&
               t.overviewDisplay === "flex" &&
               t.dayBlockGrow > 0 &&
@@ -7092,7 +7120,7 @@ try {
               t.dayBlockGrow === 0 &&
               t.dayStripGrow === 0,
         ),
-      `commits: the column fill applies to the three-column tier only (${JSON.stringify(commitsFillTiers)})`,
+      `commits: the supporting columns fill at every three-column width (${JSON.stringify(commitsFillTiers)})`,
     ],
     [
       commitsDetailFill.found === true && commitsDetailFill.tail <= 24,
@@ -7233,6 +7261,7 @@ try {
             r.navigationHidden === true &&
             r.flowGap === r.contextGap &&
             r.sameWidth === true &&
+            Math.abs(r.overviewShort) <= 2 &&
             r.firstBlockVisiblePx > 0
           ))
         ) &&
@@ -7312,7 +7341,7 @@ try {
       // two-up would give ~344px panes, narrower than the six-bar charts read
       // at. Neither may overflow its card whichever shape it takes.
       railTwoUp.length === 2 &&
-        railTwoUp.every((r) => r.found === true && r.overflowing.length === 0) &&
+        railTwoUp.every((r) => r.found === true && r.overflowing.length === 0 && r.overflowingCounts.length === 0 && r.fullBarCountOverflow != null && r.fullBarCountOverflow <= 2) &&
         railTwoUp.find((r) => r.page === "activity")?.columns === 2 &&
         railTwoUp.find((r) => r.page === "activity")?.actorRows > 1 &&
         railTwoUp.find((r) => r.page === "activity")?.visibleActorNames ===
@@ -7543,6 +7572,7 @@ try {
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [activityBreakpoint["1211"]?.stacked === true && activityBreakpoint["1212"]?.sideBySide === true && activityBreakpoint["1212"]?.gap === "12px", `activity: the rhythm split flips at the 1212px floor (${JSON.stringify(activityBreakpoint)})`],
+    [activityBreakpoint["3008"]?.trendRightGap != null && activityBreakpoint["3008"].trendRightGap <= 24, `activity: trend line reaches the ultrawide panel's right edge (${activityBreakpoint["3008"]?.trendRightGap}px gap)`],
     // 1280 is what the Android wide-layout setting pins the viewport to. It has
     // to land on the side-by-side rule with no stranded width, or a foldable gets
     // desktop chrome with mobile stacking -- the defect this probe exists for.
