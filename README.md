@@ -4,7 +4,7 @@
 [![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/demo-live-82aaff)](https://sympoies.github.io/symphony-board/)
 
-[![activity](docs/assets/readme-activity.png)](https://sympoies.github.io/symphony-board/demo/)
+[![Activity view with public demo data](docs/assets/readme-activity.png)](https://sympoies.github.io/symphony-board/demo/)
 
 Read-only cross-provider workflow board for GitHub and GitLab. `symphony-board`
 coordinates issues, pull requests, merge requests, activity, and typed
