@@ -1,3 +1,4 @@
+import { serialPoll, type SerialPoll } from "./serial-poll.ts";
 // Live event stream hook for the #/live page. Browser/web: native EventSource
 // (true streaming). Tauri thin clients: interval polling of the snapshot
 // (plugin-http is request/response, not a live stream). Both seed from the
@@ -408,7 +409,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
     if (mode === "off") return;
     let cancelled = false;
     let source: EventSource | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: SerialPoll | null = null;
     let sseResetRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const markUp = (): void => {
@@ -540,11 +541,12 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       };
     };
 
-    const pollOnce = async (): Promise<void> => {
+    const pollOnce = async (signal: AbortSignal): Promise<void> => {
       const { snapshot: snap, transientFailure } = await fetchLiveSnapshotResult(
         serverBaseUrl,
         LIVE_EVENT_BUFFER_LIMIT,
         lastSeq.current > 0 ? lastSeq.current : undefined,
+        { signal },
       );
       if (cancelled) return;
       if (!snap) {
@@ -595,7 +597,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
         // recovers (the cold-start fix — never bounce a Live deploy); only a
         // DEFINITIVE failure (no receiver) resolves unavailable.
         if (!seed.snapshot) applyProbeFailure(seed.transientFailure);
-        pollTimer = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
+        pollTimer = serialPoll(pollOnce, POLL_INTERVAL_MS);
       }
     })();
 
@@ -603,7 +605,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
       cancelled = true;
       if (sseResetRetryTimer) clearTimeout(sseResetRetryTimer);
       if (source) source.close();
-      if (pollTimer) clearInterval(pollTimer);
+      pollTimer?.stop();
     };
   }, [serverBaseUrl, enabled, active]);
 

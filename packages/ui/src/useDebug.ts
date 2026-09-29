@@ -1,3 +1,4 @@
+import { serialPoll } from "./serial-poll.ts";
 // UI client state for the hidden Diagnostics page (#/debug): store statistics
 // (GET /api/stats, fetched on mount + manual/contract refresh) and the writer daemon's
 // recent-log tail (GET /api/logs, polled with the last-seen seq so each tick
@@ -181,8 +182,8 @@ export function useDaemonLogs(serverBaseUrl: string | null): DaemonLogsState {
     // Whether any probe has answered yet — a failure before the first answer
     // reads as "unavailable"; a failure after keeps the tail and retries.
     let probed = false;
-    const tick = async () => {
-      const next = await fetchDaemonLogs(lastSeq.current, serverBaseUrl);
+    const tick = async (signal: AbortSignal) => {
+      const next = await fetchDaemonLogs(lastSeq.current, serverBaseUrl, signal);
       if (cancelled) return;
       if (!next) {
         if (!probed) setEnabled(false);
@@ -206,11 +207,10 @@ export function useDaemonLogs(serverBaseUrl: string | null): DaemonLogsState {
         setEntries((prev) => [...prev, ...next.entries].slice(-MAX_CLIENT_LOG_ENTRIES));
       }
     };
-    void tick();
-    const id = setInterval(() => void tick(), LOG_POLL_INTERVAL_MS);
+    const poll = serialPoll(tick, LOG_POLL_INTERVAL_MS, true);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      poll.stop();
     };
   }, [serverBaseUrl, epoch]);
 
