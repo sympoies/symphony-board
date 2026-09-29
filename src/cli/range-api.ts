@@ -4,17 +4,13 @@
 // The request handling lives in src/server/range.ts, shared with the standalone
 // app server (src/cli/app-server.ts).
 
-import { createServer, type Server, type ServerResponse } from "node:http";
+import { sendJson as json } from "../server/http.ts";
+import { handleReadApiRequest } from "../server/read-api.ts";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { AppConfig } from "../config.ts";
 import { loadConfig, resolveConfigPath } from "../config.ts";
-import { handleRangeRequest } from "../server/range.ts";
-import { handleReviewCandidatesRequest } from "../server/review-candidates.ts";
-import { handleStatsRequest } from "../server/stats.ts";
-import { handleActivityDailyRequest } from "../server/activity-daily.ts";
-import { handleActionableRequest } from "../server/actionable.ts";
-import { handleGraphNeighborhoodRequest } from "../server/graph-neighborhood.ts";
-import { capabilitiesOptionsFromEnv, handleCapabilitiesRequest, type CapabilitiesOptions } from "../server/capabilities.ts";
+import { capabilitiesOptionsFromEnv, type CapabilitiesOptions } from "../server/capabilities.ts";
 
 interface Args {
   config: string | null;
@@ -41,14 +37,6 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-store",
-  });
-  res.end(JSON.stringify(body) + "\n");
-}
-
 export interface RangeApiOptions {
   // Path to config/sources.json (null resolves the default search path).
   configPath: string | null;
@@ -72,56 +60,28 @@ export function createRangeApiServer(opts: RangeApiOptions): Server {
   // 500 instead of crashing the listener.
   const freshConfig = (): AppConfig => loadConfig(opts.configPath).cfg;
 
-  return createServer((req, res) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     if (req.method === "GET" && url.pathname === "/healthz") {
       json(res, 200, { ok: true });
       return;
     }
-    // Reads the emitted contract file directly (no config, no store access).
-    if (req.method === "GET" && url.pathname === "/api/activity-daily") {
-      handleActivityDailyRequest(opts.contractOut, res, req.headers["accept-encoding"]);
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/api/capabilities") {
-      void handleCapabilitiesRequest(
-        {
-          ...capabilitiesOptionsFromEnv(process.env, { serverMode: "api" }),
-          ...opts.capabilities,
-        },
-        res,
-      );
-      return;
-    }
-    if (
-      req.method === "GET" &&
-      (url.pathname === "/api/range" ||
-        url.pathname === "/api/stats" ||
-        url.pathname === "/api/review-candidates" ||
-        url.pathname === "/api/actionable" ||
-        url.pathname === "/api/graph-neighborhood")
-    ) {
-      let cfg: AppConfig;
-      try {
-        cfg = freshConfig();
-      } catch (err) {
-        json(res, 500, { error: "config_error", message: (err as Error).message });
-        return;
-      }
-      // The handlers respond on every path (success and failure), so the returned
-      // promise never rejects and is safe to detach.
-      if (url.pathname === "/api/stats") void handleStatsRequest(cfg, url, res);
-      else if (url.pathname === "/api/review-candidates") void handleReviewCandidatesRequest(cfg, url, res);
-      else if (url.pathname === "/api/actionable") void handleActionableRequest(cfg, url, res);
-      else if (url.pathname === "/api/graph-neighborhood") {
-        const controller = new AbortController();
-        req.once("aborted", () => controller.abort());
-        void handleGraphNeighborhoodRequest(cfg, url, res, req.headers["accept-encoding"], controller.signal);
-      }
-      else void handleRangeRequest(cfg, url, res, req.headers["accept-encoding"]);
-      return;
-    }
+    if (await handleReadApiRequest({
+      freshConfig,
+      contractOut: opts.contractOut,
+      capabilities: () => ({
+        ...capabilitiesOptionsFromEnv(process.env, { serverMode: "api" }),
+        ...opts.capabilities,
+      }),
+    }, req, res, url)) return;
+
     json(res, 404, { error: "not_found" });
+  };
+  return createServer((req, res) => {
+    void handle(req, res).catch((err: unknown) => {
+      if (res.headersSent) { res.destroy(); return; }
+      json(res, 500, { error: "internal_error", message: err instanceof Error ? err.message : String(err) });
+    });
   });
 }
 

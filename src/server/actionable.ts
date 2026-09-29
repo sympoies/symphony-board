@@ -1,3 +1,5 @@
+import { parsePositiveInt, parseNonNegativeNumber, parseBoolean } from "./query-params.ts";
+import { sendJson as json } from "./http.ts";
 // Read-only actionable work discovery for agent/local automation consumers.
 // This is an operational API, not the semver contract: it reads the canonical
 // store directly so consumers do not infer full open-work inventory from the
@@ -110,29 +112,6 @@ const PARK_LABELS = new Set([
   "state::needs-triage",
   "workflow::tracking",
 ]);
-
-function parsePositiveInt(value: string | null, name: string): number | null {
-  if (value == null || value === "") return null;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
-}
-
-function parseNonNegativeNumber(value: string | null, name: string): number | null {
-  if (value == null || value === "") return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative number`);
-  }
-  return parsed;
-}
-
-function parseBoolean(value: string | null): boolean {
-  if (value == null || value === "") return false;
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
 
 export function parseActionableOptions(url: URL): ActionableOptions {
   const staleDays = parseNonNegativeNumber(url.searchParams.get("stale_days"), "stale_days") ?? DEFAULT_STALE_DAYS;
@@ -319,11 +298,6 @@ export function buildActionableProjection(input: BuildActionableProjectionInput)
     bucket_order: ACTIONABLE_BUCKET_ORDER,
     buckets,
   };
-}
-
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(body) + "\n");
 }
 
 export async function actionableProjection(cfg: AppConfig, options: ActionableOptions): Promise<ActionableProjection> {
