@@ -496,3 +496,48 @@ test("a row removed from a tracker tombstones its edges only on a full + complet
   assert.deepEqual(await live(), ALL, "a re-added row revives its edges");
   await db.close();
 });
+
+test("a tracker whose rows name a repository the board does not track adds nothing to store, payload, or aggregates", async () => {
+  // Tracker refs are resolved only into the source's configured repositories,
+  // so the contract never has to account for a tracker edge between two items
+  // it cannot emit: the payload and the aggregate counts agree on "none".
+  const db = await openSqliteStore(":memory:");
+  const body = "## Phase table\n\n- [x] **A** First: o/elsewhere#2\n- [ ] **B** Second: o/elsewhere#3 · after A\n";
+  const lookups: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    if (query.includes("issueOrPullRequest(")) {
+      // The sync token could read them; the board must not ask.
+      lookups.push(query);
+      const data: Record<string, unknown> = {};
+      for (const m of query.matchAll(/(t\d+): repository\([^)]*\) \{ issueOrPullRequest\(number:(\d+)\)/g)) {
+        data[m[1]!] = { issueOrPullRequest: { __typename: "Issue", id: `I_elsewhere_${m[2]}`, state: "OPEN" } };
+      }
+      return data;
+    }
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [ghIssue("I_tracker", 1, "OPEN", body)] } } };
+  }) as GqlClient;
+
+  const rep = await syncSource(db, new GitHubSource(GH_DESC, gql, ["o/r"]), null, { full: true, dryRun: false });
+  assert.equal(rep.status, "ok");
+  assert.deepEqual(lookups, [], "no lookup leaves for a repository outside the source's projects");
+  assert.equal(rep.edgesSeen, 0);
+  assert.deepEqual(await db.listLiveEdges(), []);
+
+  const env = await buildContractEnvelope(
+    db,
+    { db_path: "unused.db", sources: [{ source_id: "github:github.com", kind: "github", host: "github.com", token_env: "T", graphql_url: "http://x", projects: ["o/r"] }] },
+    "2026-06-11T00:00:00.000Z",
+    { itemWindow: "full" },
+  );
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(env.items.map((item) => item.external_id), ["I_tracker"]);
+  assert.deepEqual(env.edges, []);
+  assert.ok((env.aggregates ?? []).length > 0);
+  for (const aggregate of env.aggregates ?? []) {
+    assert.deepEqual(aggregate.stats.by_lifecycle, {}, `${aggregate.scope} ${aggregate.window.kind} counts no edge the payload does not carry`);
+  }
+  await db.close();
+});

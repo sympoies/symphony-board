@@ -381,10 +381,18 @@ Both have `lifecycle: null`, and each relationship is emitted in that one
 direction only: the producer never also emits the inverse `child` or
 `blocked_by`. `from_state` / `to_state` are the endpoint states observed when
 the tracker was last synced; read an endpoint's current state from its
-`items[]` row. A row whose ref the producer cannot resolve — the target does
-not exist, or the sync token cannot read it — has no edge, and a row removed
-from the tracker loses its edges at the next full sweep like any other
-relationship that disappeared.
+`items[]` row. `from` is the source endpoint of the relationship, not
+necessarily the item that declared it: the tracker declares a `blocks` edge and
+is neither of its endpoints.
+
+A row produces no edge when the producer does not resolve its ref: the target
+does not exist, the sync token cannot read it, or it is in a repository the
+board does not track — only refs into the source's configured repositories are
+resolved. The producer also bounds one tracker: the first 500 rows of its phase
+table are read, its first 200 distinct refs are resolved, and it emits at most
+1,000 `blocks` edges, all in table order; anything beyond a bound is left out.
+A row removed from the tracker loses its edges at the next full sweep like any
+other relationship that disappeared.
 
 Edge type is an open string so providers can add relationship vocabulary without
 changing the major version when the shape stays the same.

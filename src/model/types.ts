@@ -41,7 +41,7 @@ export interface ItemEndpoint {
 
 export interface CanonicalEdge {
   type: EdgeType;
-  from: ItemEndpoint; // asserting side (for `closes`, the change request)
+  from: ItemEndpoint; // source side (for `closes`, the change request; for `blocks`, the prerequisite)
   to: ItemEndpoint; // target side (for `closes`, the issue)
   // Endpoint states the source reported at discovery; reconciliation refines
   // these and derives lifecycle. Null when the source did not report it.

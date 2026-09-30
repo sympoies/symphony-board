@@ -178,6 +178,17 @@ ${lookups}
 // ref alphabet, so nothing an issue body carries can alter the query. The
 // number is capped at GraphQL's 32-bit Int; a larger one names no issue and
 // would fail the whole document's validation.
+//
+// A body is text any writer of a tracked repository controls, so what one issue
+// can make the sync token do is bounded twice:
+//   - only refs into THIS SOURCE'S CONFIGURED REPOSITORIES are looked up. The
+//     token usually reads more than the board tracks; resolving whatever a row
+//     names would let that writer probe other repositories through it (does #N
+//     exist, is it open) and publish the answer as an edge.
+//   - at most TRACKER_REF_MAX distinct refs per issue, the first in table order,
+//     so one body cannot buy an unbounded number of round trips on every sweep.
+// A ref outside either bound is simply unresolved: no lookup, no edge.
+const TRACKER_REF_MAX = 200;
 const TRACKER_REF_BATCH = 50;
 const TRACKER_REF_KEY = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)#([1-9][0-9]*)$/;
 const GRAPHQL_INT_MAX = 2_147_483_647;
@@ -206,16 +217,23 @@ ${lookups}
 }`;
 }
 
-// The distinct row refs of an issue body that can be looked up, in table order.
-// Empty for an issue that is not a tracker. `#N` resolves against the issue's
-// own repository.
-function trackerRefTargets(node: any): TrackerRefTarget[] {
+// The distinct row refs of an issue body that may be looked up, in table order:
+// those into a configured repository (`tracked` holds the lower-cased project
+// paths; GitHub names are case-insensitive), up to TRACKER_REF_MAX. Empty for an
+// issue that is not a tracker. `#N` resolves against the issue's own
+// repository, which is tracked by definition — it is the one being swept — even
+// when the provider reports it under another spelling than the config.
+function trackerRefTargets(node: any, tracked: ReadonlySet<string>): TrackerRefTarget[] {
   const ownProject = cleanText(node?.repository?.nameWithOwner);
+  const own = ownProject?.toLowerCase();
   const targets = new Map<string, TrackerRefTarget>();
   for (const row of parseTrackerRows(node?.body)) {
+    if (targets.size >= TRACKER_REF_MAX) break;
     const key = row.ref ? trackerRefKey(row.ref, ownProject) : null;
     const m = key ? TRACKER_REF_KEY.exec(key) : null;
     if (!key || !m || Number(m[3]) > GRAPHQL_INT_MAX) continue;
+    const repo = `${m[1]}/${m[2]}`.toLowerCase();
+    if (repo !== own && !tracked.has(repo)) continue;
     targets.set(key, { key, owner: m[1]!, name: m[2]!, number: Number(m[3]) });
   }
   return [...targets.values()];
@@ -255,6 +273,8 @@ export class GitHubSource implements Source {
   readonly normalizerVersion = "github/11";
   private gql: GqlClient;
   private projects: string[];
+  // Lower-cased `projects`: the repositories a tracker row may be resolved into.
+  private trackedProjects: ReadonlySet<string>;
   private rest: RestClient | null;
   private commitBranches: "all" | "default";
   private projectClients: ReadonlyMap<string, { gql: GqlClient; rest: RestClient | null }>;
@@ -264,6 +284,7 @@ export class GitHubSource implements Source {
     this.descriptor = descriptor;
     this.gql = gql;
     this.projects = projects;
+    this.trackedProjects = new Set(projects.map((project) => project.toLowerCase()));
     this.rest = rest;
     this.commitBranches = opts.commitBranches ?? "all";
     this.projectClients = opts.projectClients ?? new Map();
@@ -387,15 +408,16 @@ export class GitHubSource implements Source {
   // Resolve a tracker issue's row refs to node ids + states and store them on
   // the raw payload as `__trackerRefs` — the only thing besides the body that
   // `normalize` reads for tracker edges, so it stays pure and replays from
-  // stored raw. An issue without resolvable row refs is left untouched. A target
-  // that does not exist or that this token cannot see is absent from the map.
+  // stored raw. An issue without row refs into a configured repository is left
+  // untouched. A target that does not exist or that this token cannot see, and a
+  // ref beyond the per-issue bound, is absent from the map.
   //
   // Returns the error when the lookup itself failed (the payload then carries
   // no map). The caller must mark the sweep incomplete: such a tracker re-emits
   // none of its edges, and a full + complete sweep tombstones every intra-source
   // edge it did not see.
   private async resolveTrackerRefs(gql: GqlClient, project: string, node: any): Promise<string | null> {
-    const targets = trackerRefTargets(node);
+    const targets = trackerRefTargets(node, this.trackedProjects);
     if (targets.length === 0) return null;
     const resolved: TrackerRefs = {};
     try {

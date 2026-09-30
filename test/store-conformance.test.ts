@@ -345,7 +345,7 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
-  t("edge soft-delete covers tracker edges like any other intra-source edge", async () => {
+  t("drivers accept the `neither` edge provenance and sweep tracker edges like any intra-source edge", async () => {
     // A program tracker reports `parent` (it is the `from` endpoint) and `blocks`
     // (it is NEITHER endpoint, so the provenance is `neither`). To the store both
     // are plain intra-source rows: the per-source sweep tombstones whichever was

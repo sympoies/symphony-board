@@ -47,6 +47,19 @@ const AFTER_LIST = new RegExp(`^${ID}(?:[ \\t]*,[ \\t]*${ID})*$`);
 const REF = new RegExp(`^(.*): (?:(${NAME})/(${NAME}))?#([1-9][0-9]{0,14})$`, "s");
 const ROW_MARKS = ["- [ ]", "- [x]", "- [X]"];
 
+// Hard bounds on what ONE tracker may produce. A body is text that anyone who
+// can write an issue in a tracked repository controls, and gate contraction
+// multiplies: K issue rows, one gate after all of them, and D rows after that
+// gate is K x D `blocks` edges — over a million from a single 64 KB body, each
+// one a store row and a contract entry on every sweep. Real trackers are tens
+// of rows, so the bounds sit far above them. Both cut in table order and
+// silently: this is a consumer, not a linter.
+//
+// Rows of a phase table that are read; later rows contribute nothing.
+export const TRACKER_MAX_ROWS = 500;
+// `blocks` edges one tracker emits; later dependencies contribute nothing.
+export const TRACKER_MAX_BLOCKS_EDGES = 1000;
+
 // The grammar's only whitespace is space and tab (plus a carriage return at a
 // line end). `String.prototype.trim` would also eat a no-break space, which the
 // grammar keeps as title text. Plain scans, not `/[ \t]+$/`: that regex is
@@ -110,9 +123,9 @@ function parseRow(line: string): Omit<TrackerRow, "phase"> | null {
   return { id: row[2]!, title: text, ref, notes, after, done: row[1] !== " " };
 }
 
-// The rows of a tracker body, in table order. Anything that is not text, has
-// no phase table, or has no valid row yields `[]` — so "is this a tracker?" is
-// `parseTrackerRows(body).length > 0`.
+// The rows of a tracker body, in table order, up to TRACKER_MAX_ROWS. Anything
+// that is not text, has no phase table, or has no valid row yields `[]` — so
+// "is this a tracker?" is `parseTrackerRows(body).length > 0`.
 export function parseTrackerRows(body: unknown): TrackerRow[] {
   if (typeof body !== "string") return [];
   const rows: TrackerRow[] = [];
@@ -130,7 +143,7 @@ export function parseTrackerRows(body: unknown): TrackerRow[] {
       phase = trim(line.slice(4)) || phase;
     } else if (ROW_MARKS.some((mark) => line.startsWith(mark))) {
       const row = parseRow(line);
-      if (row) rows.push({ ...row, phase });
+      if (row && rows.push({ ...row, phase }) === TRACKER_MAX_ROWS) break;
     }
   }
   return rows;
@@ -164,6 +177,10 @@ export interface TrackerTarget {
 // release stay ordered. A gate as the dependent emits nothing itself. Unknown
 // ids are ignored, an id used twice means its first row, and self-edges (two
 // rows of one issue included) and repeats are dropped.
+//
+// At most TRACKER_MAX_BLOCKS_EDGES `blocks` edges are emitted: the first ones
+// in table order, then none. `parent` edges are one per row at most and are
+// not cut.
 export function trackerEdges(
   rows: readonly TrackerRow[],
   tracker: ItemEndpoint,
@@ -173,13 +190,26 @@ export function trackerEdges(
   const byId = new Map<string, TrackerRow>();
   for (const row of rows) if (!byId.has(row.id)) byId.set(row.id, row);
 
-  // The issue rows a row waits on, looking through gates. `gates` holds the
-  // gates already expanded for this dependent, which is what ends a gate cycle.
-  const prerequisites = (row: TrackerRow, gates: Set<TrackerRow>, out: TrackerRow[]): TrackerRow[] => {
+  // Each row's ref is resolved once, however many dependents reach it.
+  const targets = new Map<TrackerRow, TrackerTarget | null>();
+  const targetOf = (row: TrackerRow): TrackerTarget | null => {
+    let target = targets.get(row);
+    if (target === undefined) {
+      target = row.ref ? resolve(row.ref) : null;
+      targets.set(row, target);
+    }
+    return target;
+  };
+
+  // The issue rows a row waits on, looking through gates, each once and in
+  // first-reached order. `gates` holds the gates already expanded for this
+  // dependent, which is what ends a gate cycle; `out` being a set keeps many
+  // gates over the same rows from repeating them.
+  const prerequisites = (row: TrackerRow, gates: Set<TrackerRow>, out: Set<TrackerRow>): Set<TrackerRow> => {
     for (const id of row.after) {
       const dep = byId.get(id);
       if (!dep) continue;
-      if (dep.ref !== null) out.push(dep);
+      if (dep.ref !== null) out.add(dep);
       else if (!gates.has(dep)) prerequisites(dep, gates.add(dep), out);
     }
     return out;
@@ -187,9 +217,9 @@ export function trackerEdges(
 
   const edges: CanonicalEdge[] = [];
   const seen = new Set<string>();
-  const push = (type: "parent" | "blocks", from: string, fromState: ItemState | null, to: TrackerTarget): void => {
+  const push = (type: "parent" | "blocks", from: string, fromState: ItemState | null, to: TrackerTarget): boolean => {
     const key = JSON.stringify([type, from, to.externalId]);
-    if (from === to.externalId || seen.has(key)) return;
+    if (from === to.externalId || seen.has(key)) return false;
     seen.add(key);
     edges.push({
       type,
@@ -198,15 +228,19 @@ export function trackerEdges(
       fromState,
       toState: to.state,
     });
+    return true;
   };
 
+  let blocks = 0;
   for (const row of rows) {
-    const target = row.ref && resolve(row.ref);
+    const target = targetOf(row);
     if (!target) continue;
     push("parent", tracker.externalId, trackerState, target);
-    for (const dep of prerequisites(row, new Set(), [])) {
-      const blocker = resolve(dep.ref!);
-      if (blocker) push("blocks", blocker.externalId, blocker.state, target);
+    // Once the bound is reached no later row is expanded at all.
+    if (blocks >= TRACKER_MAX_BLOCKS_EDGES) continue;
+    for (const dep of prerequisites(row, new Set(), new Set())) {
+      const blocker = targetOf(dep);
+      if (blocker && push("blocks", blocker.externalId, blocker.state, target) && ++blocks >= TRACKER_MAX_BLOCKS_EDGES) break;
     }
   }
   return edges;

@@ -140,6 +140,21 @@ note references (`__mentions` / `__relates`). Issue raw is written by one
 fetch path (full and incremental alike; the by-number and CI-refresh paths are
 pull-request only), so every stored tracker payload carries the map.
 
+A tracker body is text that anyone who can write an issue in a tracked
+repository controls, so what one body can make the sync do is bounded. Every
+bound cuts in table order and silently; a ref or dependency beyond one is
+unresolved, never a failed sweep.
+
+| Bound | Value | Why |
+| --- | --- | --- |
+| Repositories a ref may be resolved into | this source's configured projects (case-insensitive), plus the tracker's own repository | The sync token usually reads more than the board tracks. Resolving whatever a row names would let a writer probe other repositories through it and publish the answer as an edge. A row into a repository the board does not track is never looked up and yields no edge. |
+| Rows read per phase table | 500 | Gate contraction multiplies rows into edges. |
+| Refs looked up per tracker | 200 distinct, applied after the repository rule | One body must not buy unbounded round trips from the token's rate budget on every sweep. |
+| `blocks` edges per tracker | 1,000 | K rows, one gate after all of them, and D rows after the gate is K x D edges: over a million from one 64 KB body without the bound. |
+
+Gate expansion also visits each prerequisite once per dependent and resolves
+each row ref once, so dense gate structures stay linear in what they emit.
+
 - A target that does not exist, or that the token cannot read (GraphQL
   `NOT_FOUND` / `FORBIDDEN`), is absent from the map and yields no edge. That
   is not a failed sweep.
@@ -148,9 +163,11 @@ pull-request only), so every stored tracker payload carries the map.
   soft-delete is per source, not per type: a tracker whose refs were not
   resolved re-emits none of its edges, so that sweep must not count as complete.
 - A `blocks` edge is reported by an item that is neither of its endpoints.
-  Reconciliation records that provenance as `neither` (`discovered_from`),
-  never as a side, and endpoint states are still refined from the items seen in
-  the same run.
+  Reconciliation records that provenance as `neither`, never as a side, and
+  endpoint states are still refined from the items seen in the same run. The
+  `edge.discovered_from` column therefore holds one of `from`, `to`, `both`,
+  or `neither`: which endpoints reported the edge this run, `neither` when only
+  a third item did.
 
 Endpoints use the tracker's `source_id` on both sides, so tracker edges are
 intra-source and follow the disappearance rule below: a row removed from a

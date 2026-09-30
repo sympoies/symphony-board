@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { parseTrackerRows, trackerEdges, trackerRefKey, type TrackerRef, type TrackerRow, type TrackerTarget } from "../src/model/tracker.ts";
+import {
+  TRACKER_MAX_BLOCKS_EDGES,
+  TRACKER_MAX_ROWS,
+  parseTrackerRows,
+  trackerEdges,
+  trackerRefKey,
+  type TrackerRef,
+  type TrackerRow,
+  type TrackerTarget,
+} from "../src/model/tracker.ts";
 import type { CanonicalEdge, ItemState } from "../src/model/types.ts";
 
 // The corpus under test/fixtures/tracker-row-grammar/ is vendored unchanged from
@@ -241,4 +250,93 @@ test("the full corpus tracker derives the expected program structure", () => {
   assert.deepEqual(pairs(edges, "parent"), ["I_tracker>P0", "I_tracker>A0", "I_tracker>A", "I_tracker>B1", "I_tracker>C1"]);
   // A1 and A2 are two steps of example/alpha#14; REL (a gate) contracts to A2.
   assert.deepEqual(pairs(edges, "blocks"), ["A0>A", "A>B1", "P0>B1", "A>C1", "B1>C1"]);
+});
+
+// --- per-tracker bounds ------------------------------------------------------
+//
+// An issue body is text anyone who can write to a tracked repository controls.
+// Gate contraction multiplies: K issue rows, one gate after all of them, and D
+// rows after the gate is K x D `blocks` edges from one 64 KB body.
+
+function issueRow(id: string, number: number, after: string[] = []): TrackerRow {
+  return { id, title: "t", ref: { owner: null, repo: null, number }, notes: null, after, done: false, phase: null };
+}
+
+function gateRow(id: string, after: string[]): TrackerRow {
+  return { id, title: "t", ref: null, notes: null, after, done: false, phase: null };
+}
+
+function tableOf(rows: readonly TrackerRow[]): string {
+  const lines = rows.map((row) => {
+    const ref = row.ref ? `: #${row.ref.number}` : "";
+    const after = row.after.length > 0 ? ` · after ${row.after.join(",")}` : "";
+    return `- [ ] **${row.id}** ${row.title}${ref}${after}`;
+  });
+  return ["## Phase table", ...lines].join("\n");
+}
+
+test("a crafted gate fan-out stays within the per-tracker bounds", () => {
+  const K = 1300;
+  const D = 800;
+  const prerequisites = Array.from({ length: K }, (_, i) => issueRow(`K${i}`, i + 1));
+  const crafted = [
+    ...prerequisites,
+    gateRow("G", prerequisites.map((row) => row.id)),
+    ...Array.from({ length: D }, (_, i) => issueRow(`D${i}`, K + 1 + i, ["G"])),
+  ];
+  const text = tableOf(crafted);
+  assert.ok(text.length < 65_536, "the crafted table fits one provider issue body");
+
+  const started = performance.now();
+  // Through the parser: only the first rows of the table are read.
+  const rows = parseTrackerRows(text);
+  assert.equal(rows.length, TRACKER_MAX_ROWS);
+  assert.deepEqual(rows.map((row) => row.id), crafted.slice(0, TRACKER_MAX_ROWS).map((row) => row.id), "the FIRST rows, in table order");
+  const parsed = trackerEdges(rows, TRACKER, "open", resolver());
+  assert.equal(pairs(parsed, "parent").length, TRACKER_MAX_ROWS);
+  assert.ok(pairs(parsed, "blocks").length <= TRACKER_MAX_BLOCKS_EDGES);
+
+  // Handed every row regardless (K x D = 1,040,000 candidate edges): the edge
+  // derivation bounds its own output.
+  const direct = pairs(trackerEdges(crafted, TRACKER, "open", resolver()), "blocks");
+  assert.equal(direct.length, TRACKER_MAX_BLOCKS_EDGES);
+  assert.equal(direct[0], "I_1>I_1301");
+  assert.equal(direct.at(-1), "I_1000>I_1301", "the first edges in table order, then none");
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 1000, `deriving the crafted tracker took ${Math.round(elapsed)}ms`);
+});
+
+test("dense gate structures expand each prerequisite once and stay fast", () => {
+  // 100 issue rows, 60 gates that each wait on all of them, 120 rows that each
+  // wait on all 60 gates: 720,000 (gate, prerequisite) visits for 12,000
+  // distinct candidate edges.
+  const issues = Array.from({ length: 100 }, (_, i) => issueRow(`K${i}`, i + 1));
+  const gates = Array.from({ length: 60 }, (_, i) => gateRow(`G${i}`, issues.map((row) => row.id)));
+  const dependents = Array.from({ length: 120 }, (_, i) => issueRow(`D${i}`, 1000 + i, gates.map((row) => row.id)));
+  const resolved: number[] = [];
+  const counting = (ref: TrackerRef): TrackerTarget => {
+    resolved.push(ref.number);
+    return { externalId: `I_${ref.number}`, state: "open" };
+  };
+
+  const started = performance.now();
+  const rows = parseTrackerRows(tableOf([...issues, ...gates, ...dependents]));
+  assert.equal(rows.length, 280, "an ordinary-sized table is read whole");
+  const edges = trackerEdges(rows, TRACKER, "open", counting);
+  const elapsed = performance.now() - started;
+
+  assert.equal(pairs(edges, "parent").length, 220);
+  const blocks = pairs(edges, "blocks");
+  assert.equal(blocks.length, TRACKER_MAX_BLOCKS_EDGES);
+  assert.deepEqual([blocks[0], blocks[99], blocks[100], blocks.at(-1)], ["I_1>I_1000", "I_100>I_1000", "I_1>I_1001", "I_100>I_1009"]);
+  assert.ok(resolved.length <= rows.length, `each row ref is resolved once (${resolved.length} calls)`);
+  assert.ok(elapsed < 1000, `deriving the dense tracker took ${Math.round(elapsed)}ms`);
+});
+
+test("a tracker below the bounds keeps every row and every dependency", () => {
+  const issues = Array.from({ length: 40 }, (_, i) => issueRow(`K${i}`, i + 1, i === 0 ? [] : [`K${i - 1}`]));
+  const last = issueRow("Z", 99, issues.map((row) => row.id));
+  const edges = trackerEdges(parseTrackerRows(tableOf([...issues, last])), TRACKER, "open", resolver());
+  assert.equal(pairs(edges, "parent").length, 41);
+  assert.equal(pairs(edges, "blocks").length, 39 + 40);
 });

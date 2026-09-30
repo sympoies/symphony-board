@@ -59,13 +59,13 @@ export interface ReconciledEdge extends CanonicalEdge {
 const keyOf = (e: CanonicalEdge): string =>
   JSON.stringify([e.type, refOfEndpoint(e.from), refOfEndpoint(e.to)]);
 
-// Merge a batch of edges discovered this run (from any number of endpoints) into
-// one reconciled edge per (type, from, to). `sideOf` tells us which endpoint
-// reported a given edge, so we can record provenance and converge endpoint
-// states: a non-null state always wins over null; when both sides report a
-// state, the later one (by the endpoint's own item) is resolved by the caller —
-// here we take the first non-null and let a second non-null override only if the
-// first was null. (The DB upsert refreshes states from the item table too.)
+// Merge a batch of edges discovered this run (from any number of reporters) into
+// one reconciled edge per (type, from, to). `side` says what the reporting item
+// is to the edge — one of its endpoints, or a third item (`neither`) — so we
+// can record provenance and converge endpoint states: a non-null state always
+// wins over null; when two reports carry a state, the later one (by the
+// endpoint's own item) is resolved by the caller — here we take the first
+// non-null and let a second non-null override only if the first was null.
 export function reconcileEdges(
   discovered: Array<{ edge: CanonicalEdge; side: EdgeReporter }>,
 ): ReconciledEdge[] {

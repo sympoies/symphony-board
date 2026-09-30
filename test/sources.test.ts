@@ -832,8 +832,9 @@ test("normalize emits mentions from non-closing cross-references (source -> self
 // --- program tracker phase table -> parent / blocks edges ---------------------
 
 // A tracker body in the row grammar (docs/DESIGN.md "Relationship Edges"): three
-// issue rows, a gate between two of them, and two rows whose targets the token
-// cannot resolve.
+// issue rows in two tracked repositories, a gate between two of them, three
+// rows whose targets the provider does not resolve, and one row into a
+// repository the board does not track.
 const TRACKER_BODY = [
   "## Phase table",
   "",
@@ -842,14 +843,23 @@ const TRACKER_BODY = [
   "- [ ] **REL** Release containing B · after B",
   "- [ ] **C** Third: #4 (PR #5) · after REL",
   "- [ ] **C2** Third, step 2: #4 · after C",
-  "- [ ] **D** Repository gone: o/missing#9 · after A",
-  "- [ ] **E** Not visible to this token: o/private#3 · after A",
+  "- [ ] **D** Deleted: #404 · after A",
+  "- [ ] **E** Not visible to this token: o/other#403 · after A",
+  "- [ ] **F** Repository gone: o/other#410 · after A",
+  "- [ ] **X** Not a tracked repository: o/elsewhere#1 · after A",
 ].join("\n");
 
 const TRACKER_TARGETS: Record<string, { id: string; state: string }> = {
   "o/r#2": { id: "I_2", state: "CLOSED" },
   "o/other#7": { id: "I_7", state: "OPEN" },
   "o/r#4": { id: "I_4", state: "OPEN" },
+};
+
+// What the provider WOULD answer with this token: it can also read an issue in
+// a repository the board does not track.
+const PROVIDER_TARGETS: Record<string, { id: string; state: string }> = {
+  ...TRACKER_TARGETS,
+  "o/elsewhere#1": { id: "I_elsewhere", state: "OPEN" },
 };
 
 function trackerNode(id: string, body: string, over: Record<string, unknown> = {}) {
@@ -872,13 +882,13 @@ function trackerRefLookup(query: string, known: Record<string, { id: string; sta
     const hit = known[`${owner}/${name}#${number}`];
     if (hit) {
       data[alias] = { issueOrPullRequest: { __typename: "Issue", ...hit } };
-    } else if (name === "missing") {
+    } else if (number === "410") {
       data[alias] = null;
       errors.push({ type: "NOT_FOUND", path: [alias], message: `Could not resolve to a Repository with the name '${owner}/${name}'.` });
     } else {
       data[alias] = { issueOrPullRequest: null };
       errors.push({
-        type: name === "private" ? "FORBIDDEN" : "NOT_FOUND",
+        type: number === "403" ? "FORBIDDEN" : "NOT_FOUND",
         path: [alias, "issueOrPullRequest"],
         message: `Could not resolve to an issue or pull request with the number of ${number}.`,
       });
@@ -911,13 +921,22 @@ test("GitHub fetch resolves a tracker's row refs onto the issue raw, in full and
   const lookups: string[] = [];
   const projectGql = trackerGql(
     () => [trackerNode("I_tracker", TRACKER_BODY), issueNode("I_plain", "2026-06-09T00:00:00Z")],
-    (query) => trackerRefLookup(query, TRACKER_TARGETS),
+    (query) => trackerRefLookup(query, PROVIDER_TARGETS),
     lookups,
   );
-  const defaultGql: GqlClient = (async () => {
+  const wrongClient = (): never => {
     throw new Error("the tracker's own project client must serve its ref lookup");
-  }) as GqlClient;
-  const src = new GitHubSource(DESC, defaultGql, ["o/r"], null, { projectClients: new Map([["o/r", { gql: projectGql, rest: null }]]) });
+  };
+  const defaultGql: GqlClient = (async () => wrongClient()) as GqlClient;
+  // The second tracked repository is configured in another letter case than
+  // the rows spell it; it has no issues of its own in this sweep.
+  const otherGql = trackerGql(() => [], wrongClient);
+  const src = new GitHubSource(DESC, defaultGql, ["o/r", "O/Other"], null, {
+    projectClients: new Map([
+      ["o/r", { gql: projectGql, rest: null }],
+      ["O/Other", { gql: otherGql, rest: null }],
+    ]),
+  });
 
   for (const opts of [{ since: null, full: true }, { since: "2026-03-01T00:00:00Z", full: false }]) {
     lookups.length = 0;
@@ -929,7 +948,8 @@ test("GitHub fetch resolves a tracker's row refs onto the issue raw, in full and
     assert.equal(res.watermark, "2026-06-10T00:00:00Z", `${mode}: the watermark advances normally`);
     assert.equal(lookups.length, 1, `${mode}: one aliased round trip resolves the tracker`);
     assert.ok(hasGraphqlCostSelection(lookups[0]!), "the lookup reports its rate-limit cost like every other query");
-    assert.equal(lookups[0]!.match(/issueOrPullRequest\(/g)?.length, 5, "two rows naming one issue are looked up once");
+    assert.equal(lookups[0]!.match(/issueOrPullRequest\(/g)?.length, 6, "two rows naming one issue are looked up once");
+    assert.doesNotMatch(lookups[0]!, /elsewhere/, "a repository the board does not track is never asked about");
 
     const tracker = res.records.find((r) => r.externalId === "I_tracker")!;
     assert.deepEqual((tracker.payload as any).__trackerRefs, TRACKER_TARGETS, `${mode}: the resolved map is stored on the raw payload`);
@@ -956,6 +976,88 @@ test("GitHub tracker-ref lookups are chunked and keep each ref with its own answ
   assert.equal(res.complete, true);
   assert.ok(lookups.length > 1, "a large tracker is split across several small documents");
   assert.deepEqual((res.records[0]!.payload as any).__trackerRefs, known);
+});
+
+test("GitHub resolves tracker refs only into this source's configured repositories", async () => {
+  // The sync token usually reads more than the board tracks. A row is text any
+  // writer of a tracked repository controls, so resolving whatever it names
+  // would let that writer use the board's token to probe other repositories
+  // (does #N exist, is it open) and publish the answer as an edge.
+  const body = [
+    "## Phase table",
+    "- [ ] **A** In the tracked repository: #2",
+    "- [ ] **B** Spelled out, in another letter case: O/R#4 · after A",
+    "- [ ] **C** A repository this token can read but the board does not track: o/other#7 · after B",
+    "- [ ] **D** And another: o/elsewhere#1 · after C",
+  ].join("\n");
+  const lookups: string[] = [];
+  const readable = { ...PROVIDER_TARGETS, "O/R#4": { id: "I_4", state: "OPEN" } };
+  const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", body)], (query) => trackerRefLookup(query, readable), lookups), ["o/r"]);
+
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, true);
+  assert.equal(lookups.length, 1);
+  assert.equal(lookups[0]!.match(/issueOrPullRequest\(/g)?.length, 2, "only the two refs into the configured repository are looked up");
+  assert.doesNotMatch(lookups[0]!, /name:"(other|elsewhere)"/, "the document carries no lookup for another repository");
+  assert.deepEqual((res.records[0]!.payload as any).__trackerRefs, {
+    "o/r#2": { id: "I_2", state: "CLOSED" },
+    "O/R#4": { id: "I_4", state: "OPEN" },
+  });
+  const bundle = src.normalize(res.records[0]!)!;
+  assert.deepEqual(edgePairs(bundle, "parent"), ["I_tracker>I_2", "I_tracker>I_4"], "a row into an untracked repository yields no edge");
+  assert.deepEqual(edgePairs(bundle, "blocks"), ["I_2>I_4"]);
+
+  // A tracker whose rows ALL point elsewhere asks nothing and stores no map.
+  lookups.length = 0;
+  const elsewhere = new GitHubSource(
+    DESC,
+    trackerGql(() => [trackerNode("I_tracker", "## Phase table\n- [ ] **A** Elsewhere: o/elsewhere#1")], (query) => trackerRefLookup(query, readable), lookups),
+    ["o/r"],
+  );
+  const none = await elsewhere.fetch({ since: null, full: true });
+  assert.equal(none.complete, true);
+  assert.equal(lookups.length, 0);
+  assert.ok(!("__trackerRefs" in (none.records[0]!.payload as any)));
+});
+
+test("GitHub looks up at most the first 200 distinct refs of one tracker", async () => {
+  // One body must not buy an unbounded number of round trips from the sync
+  // token's rate budget on every sweep.
+  const rows = Array.from({ length: 3000 }, (_, i) => `- [ ] **R${i}** r: #${i + 100}`);
+  const lookups: string[] = [];
+  const answer = (query: string): Record<string, unknown> => {
+    const data: Record<string, unknown> = {};
+    for (const m of query.matchAll(/(t\d+): repository\(owner:"o", name:"r"\) \{ issueOrPullRequest\(number:(\d+)\)/g)) {
+      data[m[1]!] = { issueOrPullRequest: { __typename: "Issue", id: `I_${m[2]}`, state: "OPEN" } };
+    }
+    return data;
+  };
+  const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", ["## Phase table", ...rows].join("\n"))], answer, lookups), ["o/r"]);
+
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(lookups.length, 4, "200 refs in documents of 50");
+  assert.equal(res.complete, true, "refs beyond the bound are unresolved, not a failed sweep");
+  assert.equal(res.error, null);
+  assert.equal(res.watermark, "2026-06-10T00:00:00Z", "the watermark advances");
+  const refs = Object.keys((res.records[0]!.payload as any).__trackerRefs);
+  assert.equal(refs.length, 200);
+  assert.deepEqual([refs[0], refs.at(-1)], ["o/r#100", "o/r#299"], "the FIRST 200 refs in table order");
+  assert.equal(src.normalize(res.records[0]!)!.edges.filter((e) => e.type === "parent").length, 200, "later rows have no edge");
+});
+
+test("a tracker ref beyond GraphQL's 32-bit Int is never looked up", async () => {
+  // The grammar allows fifteen digits; a number above 2^31-1 names no issue and
+  // would fail the whole document's validation, taking its siblings with it.
+  const body = ["## Phase table", "- [ ] **A** Oversized: #2147483648", "- [ ] **B** Normal: #2 · after A"].join("\n");
+  const lookups: string[] = [];
+  const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", body)], (query) => trackerRefLookup(query, TRACKER_TARGETS), lookups), ["o/r"]);
+
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(lookups.length, 1);
+  assert.doesNotMatch(lookups[0]!, /2147483648/, "the oversized number is left out of the query");
+  assert.equal(res.complete, true);
+  assert.equal(res.watermark, "2026-06-10T00:00:00Z");
+  assert.deepEqual((res.records[0]!.payload as any).__trackerRefs, { "o/r#2": { id: "I_2", state: "CLOSED" } });
 });
 
 test("a failed GitHub tracker-ref lookup marks the sweep incomplete and keeps the issue", async () => {
