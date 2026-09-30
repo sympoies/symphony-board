@@ -1065,6 +1065,35 @@ function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string
   return aggregates;
 }
 
+// Program tracker pin (4.8.0). An OPEN item with at least one live outgoing
+// `parent` edge is a program tracker, and the Board lists an open tracker
+// whatever the window, so both projections always emit it (window reason
+// `program_tracker`) with the edges its progress is read from: its `parent`
+// edges and the `blocks` edges between pinned trackers' children. The children
+// then arrive as ordinary `edge_endpoint` rows. Computed from the rows the
+// projection already holds; a closed tracker is not pinned.
+function programTrackerPin(items: ItemDTO[], edges: EdgeDTO[]): { trackerIds: Set<string>; edges: Set<EdgeDTO> } {
+  const openIds = new Set(items.filter((item) => item.state === "open").map((item) => item.id));
+  const trackerIds = new Set<string>();
+  const childIds = new Set<string>();
+  for (const edge of edges) {
+    if (edge.type !== "parent" || !openIds.has(edge.from)) continue;
+    trackerIds.add(edge.from);
+    childIds.add(edge.to);
+  }
+  if (trackerIds.size === 0) return { trackerIds, edges: new Set() };
+  return {
+    trackerIds,
+    edges: new Set(
+      edges.filter((edge) =>
+        edge.type === "parent"
+          ? trackerIds.has(edge.from)
+          : edge.type === "blocks" && childIds.has(edge.from) && childIds.has(edge.to),
+      ),
+    ),
+  };
+}
+
 function buildWindowedProjection(
   items: ItemDTO[],
   edges: EdgeDTO[],
@@ -1072,7 +1101,8 @@ function buildWindowedProjection(
 ): { items: ItemDTO[]; edges: EdgeDTO[]; itemWindow: ItemWindowDTO } {
   const since = cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, generatedAt);
   const primaryIds = new Set(items.filter((item) => itemActiveSince(item, since)).map((item) => item.id));
-  const selectedEdges = edges.filter((edge) => primaryIds.has(edge.from) || primaryIds.has(edge.to));
+  const pin = programTrackerPin(items, edges);
+  const selectedEdges = edges.filter((edge) => primaryIds.has(edge.from) || primaryIds.has(edge.to) || pin.edges.has(edge));
 
   const endpointIds = new Set<string>();
   for (const edge of selectedEdges) {
@@ -1087,6 +1117,7 @@ function buildWindowedProjection(
       const reasons: ItemWindowReason[] = [];
       if (primaryIds.has(item.id)) reasons.push("primary");
       if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
+      if (pin.trackerIds.has(item.id)) reasons.push("program_tracker");
       return { ...item, window_reasons: reasons };
     });
 
@@ -1148,8 +1179,9 @@ function buildRangeProjection(
     return (from ? itemUpdatedInRange(from, range) : false) || (to ? itemUpdatedInRange(to, range) : false);
   });
 
+  const pin = programTrackerPin(items, edges);
   const selectedByKey = new Map<string, EdgeDTO>();
-  for (const edge of [...boardEdges, ...graphEdges]) selectedByKey.set(edgeKey(edge), edge);
+  for (const edge of [...boardEdges, ...graphEdges, ...pin.edges]) selectedByKey.set(edgeKey(edge), edge);
   const selectedEdges = [...selectedByKey.values()];
   const rangedActivities = activities.filter((activity) => activityOccurredInRange(activity, range));
 
@@ -1172,6 +1204,7 @@ function buildRangeProjection(
       if (primaryIds.has(item.id)) reasons.push("primary");
       if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
       if (activityTargetIds.has(item.id)) reasons.push("activity_target");
+      if (pin.trackerIds.has(item.id)) reasons.push("program_tracker");
       return { ...item, window_reasons: reasons };
     });
 

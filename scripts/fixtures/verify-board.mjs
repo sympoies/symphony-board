@@ -23,13 +23,20 @@ try {
   sock.addEventListener("message", (ev) => { const m = JSON.parse(ev.data); if (m.id && pend.has(m.id)) { const x = pend.get(m.id); pend.delete(m.id); m.error ? x.rej(new Error(JSON.stringify(m.error))) : x.res(m.result); return; } if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") cerr.push((m.params.args || []).map((a) => a.value ?? a.description ?? "").join(" ")); if (m.method === "Runtime.exceptionThrown") exc.push(m.params.exceptionDetails?.exception?.description || "exc"); });
   await new Promise((res, rej) => { sock.addEventListener("open", res); sock.addEventListener("error", () => rej(new Error("ws err"))); });
   await send("Runtime.enable"); await send("Page.enable");
+  // The theme follows the system color scheme and headless Chrome reports light;
+  // the theme evidence below is for the dark (Night Owl) theme.
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  // The app opens on its default tab (Activity, or Live) whatever hash the URL
+  // carries, so switch to the Board once the tabs have mounted; the counts and the
+  // column check below are the Board's.
   let html = "";
-  while (Date.now() < deadline) { const r = await send("Runtime.evaluate", { expression: "document.querySelector('.card')?document.body.innerHTML:''", returnByValue: true }); html = r.result.value || ""; if (html.length > 200) break; await sleep(250); }
+  while (Date.now() < deadline) { const r = await send("Runtime.evaluate", { expression: "(()=>{if(document.querySelector('.board-lanes .card'))return document.body.innerHTML;if(document.querySelector('a.tab[href=\"#/board\"]')&&!location.hash.startsWith('#/board'))location.hash='#/board';return ''})()", returnByValue: true }); html = r.result.value || ""; if (html.length > 200) break; await sleep(250); }
   // Board page: the 5 columns (2 status + 3 spotlight) must be equal height.
   const heights = (await send("Runtime.evaluate", { expression: "JSON.stringify([...document.querySelectorAll('.board-lanes > .col')].map(c=>Math.round(c.getBoundingClientRect().height)))", returnByValue: true })).result.value;
-  // Night Owl theme evidence: body bg #011627 and links teal #7fdbca.
+  // Night Owl theme evidence: body bg #011627 and links teal #7fdbca (the repo
+  // name is the card's link-colored text; the title uses the text color).
   const bg = (await send("Runtime.evaluate", { expression: "getComputedStyle(document.body).backgroundColor", returnByValue: true })).result.value;
-  const linkColor = (await send("Runtime.evaluate", { expression: "(()=>{const a=document.querySelector('a.card-title');return a?getComputedStyle(a).color:''})()", returnByValue: true })).result.value;
+  const linkColor = (await send("Runtime.evaluate", { expression: "(()=>{const a=document.querySelector('.card .card-repo');return a?getComputedStyle(a).color:''})()", returnByValue: true })).result.value;
   // audit: any external (http) anchor that would navigate the current page instead of a new tab
   const badAnchors = (await send("Runtime.evaluate", { expression: "JSON.stringify([...document.querySelectorAll('a[href^=\"http\"]')].filter(a => a.target !== '_blank').map(a => a.href).slice(0, 8))", returnByValue: true })).result.value;
   // Graph page: confirm the relationship graph populated from the fixture.
@@ -44,16 +51,16 @@ try {
   const graphMentions = (await send("Runtime.evaluate", { expression: "document.querySelector('.graph-controls .muted')?.textContent || ''", returnByValue: true })).result.value;
   sock.close();
   const count = (re) => (html.match(re) || []).length;
-  console.log("cards:", count(/class="card"/g));
+  console.log("cards:", count(/class="card[ "]/g));
   console.log("source chips:", count(/class="source-chip"/g));
   console.log("scoped label chips:", count(/chip-scoped/g));
   console.log("draft badges:", count(/badge-draft/g));
   console.log("created-time labels:", count(/>created /g), "| updated-time labels:", count(/>updated /g));
-  console.log("demand icons:", count(/icon-demand/g), "| legacy ▲ glyphs:", count(/▲/g));
+  console.log("comment metrics:", count(/item-metric-comments/g), "| legacy ▲ glyphs:", count(/▲/g));
   const hs = JSON.parse(heights);
   const uniform = hs.length >= 5 && new Set(hs).size === 1;
   console.log(`board-lanes column heights (${hs.length} cols): ${heights} -> ${uniform ? "UNIFORM ✓" : "RAGGED ✗"}`);
-  console.log(`graph page (closes only): "${graphCount.trim()}" | RF nodes in DOM: ${graphNodes} | repo shown: ${repoShown ? "yes ✓" : "no ✗"}`);
+  console.log(`graph page (no mentions): "${graphCount.trim()}" | RF nodes in DOM: ${graphNodes} | repo shown: ${repoShown ? "yes ✓" : "no ✗"}`);
   console.log(`graph + mentions:        "${graphMentions.trim()}"`);
   console.log(`body bg: ${bg} -> ${bg === "rgb(1, 22, 39)" ? "Night Owl navy ✓" : "✗"}`);
   console.log(`link color: ${linkColor} -> ${linkColor === "rgb(127, 219, 202)" ? "teal #7fdbca ✓" : "✗"}`);

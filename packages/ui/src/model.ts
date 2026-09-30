@@ -45,7 +45,10 @@ export const STATUS_DESC: Record<ItemStatus, string> = {
 // first). A lane ignores open/closed/merged unless its config narrows by state —
 // so workflow-labeled issues stay visible even after they close. A `foldClosed`
 // lane lists its open items first, so the view can fold the closed rest behind a
-// count. The view (FullBoard) caps how many cards render and shows the true
+// count. A `program` lane also takes the pinned trackers (see
+// itemIsPinnedTracker) its config matches, so an open tracker is listed whatever
+// the date range; every other lane sees primary-window items only. The view
+// (FullBoard) caps how many cards render and shows the true
 // total; lanes therefore return the full sorted list here. The lane CONVENTIONS
 // (which labels/kinds/states) live in `spotlight.config.ts`; here we compile each
 // declarative entry into a predicate.
@@ -55,6 +58,7 @@ export interface SpotlightLane {
   hint: string;
   lead: boolean;
   foldClosed: boolean;
+  program: boolean;
   pick: (i: ItemDTO) => boolean;
 }
 const hasLabel = (i: ItemDTO, name: string) => i.labels.some((l) => l.name === name);
@@ -65,6 +69,7 @@ function compileLane(c: SpotlightLaneConfig): SpotlightLane {
     hint: c.hint,
     lead: c.lead === true,
     foldClosed: c.foldClosed === true,
+    program: c.program === true,
     pick: (i) =>
       (c.kind === undefined || i.kind === c.kind) &&
       (c.state === undefined || i.state === c.state) &&
@@ -73,10 +78,13 @@ function compileLane(c: SpotlightLaneConfig): SpotlightLane {
 }
 export const SPOTLIGHT_LANES: SpotlightLane[] = SPOTLIGHT_LANE_CONFIG.map(compileLane);
 
-export function spotlight(items: ItemDTO[]): Array<{ lane: SpotlightLane; items: ItemDTO[] }> {
+export function spotlight(items: ItemDTO[], pinned: readonly ItemDTO[] = []): Array<{ lane: SpotlightLane; items: ItemDTO[] }> {
   const recent = (a: ItemDTO, b: ItemDTO) => (b.created_at ?? "").localeCompare(a.created_at ?? "");
   const openFirst = (a: ItemDTO, b: ItemDTO) => Number(b.state === "open") - Number(a.state === "open") || recent(a, b);
-  return SPOTLIGHT_LANES.map((lane) => ({ lane, items: items.filter(lane.pick).sort(lane.foldClosed ? openFirst : recent) }));
+  return SPOTLIGHT_LANES.map((lane) => ({
+    lane,
+    items: (lane.program ? [...items, ...pinned] : items).filter(lane.pick).sort(lane.foldClosed ? openFirst : recent),
+  }));
 }
 
 // A board column renders as a slim rail when:
@@ -2189,6 +2197,14 @@ export function deriveRepoOptions(env: ContractEnvelope): RepoOption[] {
 
 export function itemIsPrimaryWindow(item: ItemDTO): boolean {
   return item.window_reasons === undefined || item.window_reasons.includes("primary");
+}
+
+// An open program tracker the producer emits whatever the date range (window
+// reason `program_tracker`, contract 4.8.0) that is NOT in the primary window.
+// It is a Trackers-lane card only: the status columns, the stats, and the other
+// lanes keep to primary-window items.
+export function itemIsPinnedTracker(item: ItemDTO): boolean {
+  return !itemIsPrimaryWindow(item) && (item.window_reasons?.includes("program_tracker") ?? false);
 }
 
 // Apply the visibility pre-filter, returning a contract VIEW with hidden items

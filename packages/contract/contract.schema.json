@@ -208,8 +208,8 @@
         "last_seen_at": { "type": ["string", "null"], "format": "date-time" },
         "window_reasons": {
           "type": "array",
-          "description": "Why this row is present in a v2 windowed item payload. Missing means primary for old v1 payloads.",
-          "items": { "type": "string", "enum": ["primary", "edge_endpoint", "activity_target"] }
+          "description": "Why this row is present in a v2 windowed item payload. Missing means primary for old v1 payloads. `program_tracker` (4.8.0+) marks an open program tracker, which is emitted whatever the window.",
+          "items": { "type": "string", "enum": ["primary", "edge_endpoint", "activity_target", "program_tracker"] }
         }
       }
     },

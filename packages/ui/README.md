@@ -22,7 +22,8 @@ The primary board is a 5-column surface, in this order:
 
 - `Trackers` (Spotlight lane): issues labeled `workflow::tracking`. Open
   trackers come first; closed ones sit behind a `Closed (N)` toggle, folded by
-  default.
+  default. An open tracker is listed whatever the date range (the producer
+  pins it, contract 4.8.0+); a closed one only when it is in range.
 - `Open`, `Closed` (status columns): the item's own state, with merged counted
   as closed.
 - `Follow-up` (Spotlight lane): issues labeled `workflow::follow-up`, any
@@ -45,7 +46,8 @@ active, the summary uses it; otherwise it computes from the visible items and
 edges.
 
 Contract v2 does not load all historical item rows. The Board renders primary
-`item_window` rows only, while edge-endpoint extras stay available to the Graph.
+`item_window` rows only — plus, in the Trackers lane, the open program trackers
+pinned outside the range — while edge-endpoint extras stay available to the Graph.
 Custom ranges are loaded through `/api/range`. Full totals still come from
 compatible `aggregates[]` rows on the default static contract.
 
@@ -53,6 +55,16 @@ Cards show source, repo, iid, author, timestamps, provider comment counts,
 review-thread counts, related-item counts, labels, draft state, review/CI/merge
 signals, and optional repo/source highlight color. Cards with at least one
 relationship include a graph-focus link.
+
+A card in the `Trackers` lane also shows its program, read from the tracker's
+`parent` edges by `src/program.ts`: `done/total` children, the children that can
+start next (up to three by name, then `+N`; each links to the provider), and the
+in-review and blocked counts when non-zero. A child is done when closed or
+merged, blocked while a `blocks` edge into it comes from an item that is not
+done, in review while an open change request `closes` it, and ready otherwise.
+A tracker with no children shows no progress. The in-review count only knows
+the change requests the selected range loaded. The card's graph-focus link opens
+the Graph focused on the tracker.
 
 ### Graph (`#/graph`)
 
@@ -291,8 +303,10 @@ Metrics, Live, Settings, deep-link search, focus path, and configured display co
 without console errors. It also verifies that Board, Graph, Activity, Commits,
 and Metrics share the same range presets, that the Settings default-range
 selector renders, that Board/Graph scoped summaries change when the range
-narrows through `/api/range`, and that large synthetic Activity/Commits feeds
-stay virtualized. Commits layout checks cover the phone reader, foldable
+narrows through `/api/range`, that the sample tracker card shows its progress
+and ready children and stays in the Trackers lane — and out of every other
+column and count — when the range excludes it, and that large synthetic
+Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
 compact split, filter wrapping, the laptop three-column tier, and the
 wide-panes tier (two-up supporting columns whose charts keep a fixed height
 while lists take the spare height). It also mocks the daemon's sync control surface to assert the

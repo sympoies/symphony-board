@@ -347,6 +347,82 @@ test("buildContract emits a windowed item set with endpoint closure and full tot
   );
 });
 
+test("buildContract pins open program trackers outside the item window (4.8.0)", () => {
+  const SRC = "github:github.com";
+  const sources: SourceRow[] = [
+    { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const OLD = "2020-01-01T00:00:00Z";
+  const RECENT = "2026-06-07T00:00:00Z";
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "TRACKER_old", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 2, external_id: "CHILD_done", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 3, external_id: "CHILD_waiting", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 4, external_id: "CHILD_recent", state: "open", updated_at: RECENT }),
+    itemRow({ item_id: 5, external_id: "PR_open", kind: "change_request", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 6, external_id: "PR_merged", kind: "change_request", state: "merged", updated_at: OLD }),
+    itemRow({ item_id: 7, external_id: "TRACKER_closed", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 8, external_id: "CHILD_of_closed", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 9, external_id: "TRACKER_recent", state: "open", updated_at: RECENT }),
+    itemRow({ item_id: 10, external_id: "KID_a", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 11, external_id: "KID_b", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 12, external_id: "UNRELATED_old", state: "closed", updated_at: OLD }),
+  ];
+  const e = (type: string, from: string, to: string, from_state: string, to_state: string, lifecycle: string | null = null): EdgeRow =>
+    ({ type, from_source_id: SRC, from_external_id: from, to_source_id: SRC, to_external_id: to, from_state, to_state, lifecycle });
+  const edges: EdgeRow[] = [
+    e("parent", "TRACKER_old", "CHILD_done", "open", "closed"),
+    e("parent", "TRACKER_old", "CHILD_waiting", "open", "open"),
+    e("parent", "TRACKER_old", "CHILD_recent", "open", "open"),
+    e("blocks", "CHILD_done", "CHILD_waiting", "closed", "open"),
+    e("closes", "PR_open", "CHILD_waiting", "open", "open", "declared"),
+    e("closes", "PR_merged", "CHILD_done", "merged", "closed", "fulfilled"),
+    e("mentions", "UNRELATED_old", "CHILD_done", "closed", "closed"),
+    e("parent", "TRACKER_closed", "CHILD_of_closed", "closed", "closed"),
+    e("parent", "TRACKER_recent", "KID_a", "open", "closed"),
+    e("parent", "TRACKER_recent", "KID_b", "open", "open"),
+    e("blocks", "KID_a", "KID_b", "closed", "open"),
+  ];
+
+  const env = buildContract({ sources, items, labels: [], edges, generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(env), []);
+
+  const reasons = Object.fromEntries(env.items.map((it) => [it.external_id, it.window_reasons]));
+  assert.deepEqual(reasons, {
+    TRACKER_old: ["edge_endpoint", "program_tracker"],
+    CHILD_done: ["edge_endpoint"],
+    CHILD_waiting: ["edge_endpoint"],
+    CHILD_recent: ["primary", "edge_endpoint"],
+    TRACKER_recent: ["primary", "edge_endpoint", "program_tracker"],
+    KID_a: ["edge_endpoint"],
+    KID_b: ["edge_endpoint"],
+  }, "open trackers are pinned with their children; a closed tracker outside the window is not, nor is a change request closing a child");
+
+  const emitted = env.edges.map((edge) => `${edge.type}:${edge.from.split("|")[1]}>${edge.to.split("|")[1]}`).sort();
+  assert.deepEqual(emitted, [
+    "blocks:CHILD_done>CHILD_waiting",
+    "blocks:KID_a>KID_b",
+    "parent:TRACKER_old>CHILD_done",
+    "parent:TRACKER_old>CHILD_recent",
+    "parent:TRACKER_old>CHILD_waiting",
+    "parent:TRACKER_recent>KID_a",
+    "parent:TRACKER_recent>KID_b",
+  ], "a pinned tracker brings its parent edges and the blocks edges between its children, nothing else");
+
+  // The pin adds support rows only: the primary window and every aggregate are
+  // the same totals a window without pinned trackers would report.
+  assert.equal(env.item_window?.primary_items, 2);
+  assert.equal(env.item_window?.edge_endpoint_items, 5);
+  assert.equal(env.item_window?.total_items, 12);
+  const board90 = env.aggregates?.find((a) => a.scope === "boardWindow" && a.window.days === 90);
+  assert.equal(board90?.stats.items, 2, "a pinned tracker is not a Board-window item");
+  assert.deepEqual(board90?.stats.by_state, { open: 2 });
+  assert.deepEqual(board90?.stats.by_lifecycle, { other: 3 }, "only the edges touching in-window items");
+  const graph90 = env.aggregates?.find((a) => a.scope === "graphWindow" && a.window.days === 90);
+  assert.equal(graph90?.stats.items, 5, "graph nodes of edges with an endpoint active in the window");
+  assert.deepEqual(graph90?.stats.by_lifecycle, { other: 3 });
+});
+
 test("buildContract emits repo metrics for the static default window", () => {
   const sources: SourceRow[] = [
     { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },

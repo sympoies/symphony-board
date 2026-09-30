@@ -330,6 +330,68 @@ test("buildRangeContract includes in-range review activity targets as support it
   assert.equal(env.item_window?.activity_target_items, 1);
 });
 
+test("buildRangeContract pins open program trackers whatever the range (4.8.0)", () => {
+  const SRC = "github:github.com";
+  const source: SourceRow = { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const OLD = "2025-01-01T00:00:00Z";
+  const closed = { state: "closed", state_raw: "CLOSED", closed_at: "2025-01-02T00:00:00Z" } as const;
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_in_range", updated_at: "2026-05-15T12:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "TRACKER_old", iid: 2, title: "Program tracker", updated_at: OLD }),
+    itemRow({ item_id: 3, external_id: "CHILD_done", iid: 3, updated_at: OLD, ...closed }),
+    itemRow({ item_id: 4, external_id: "CHILD_waiting", iid: 4, updated_at: OLD }),
+    itemRow({ item_id: 5, external_id: "PR_open", kind: "change_request", iid: 5, is_draft: false, updated_at: OLD }),
+    itemRow({ item_id: 6, external_id: "TRACKER_closed", iid: 6, updated_at: OLD, ...closed }),
+    itemRow({ item_id: 7, external_id: "CHILD_of_closed", iid: 7, updated_at: OLD, ...closed }),
+    itemRow({ item_id: 8, external_id: "TRACKER_in_range", iid: 8, updated_at: "2026-05-20T00:00:00Z" }),
+    itemRow({ item_id: 9, external_id: "KID_a", iid: 9, updated_at: OLD, ...closed }),
+    itemRow({ item_id: 10, external_id: "KID_b", iid: 10, updated_at: OLD }),
+  ];
+  const e = (type: string, from: string, to: string, from_state: string, to_state: string, lifecycle: string | null = null): EdgeRow =>
+    ({ type, from_source_id: SRC, from_external_id: from, to_source_id: SRC, to_external_id: to, from_state, to_state, lifecycle });
+  const edges: EdgeRow[] = [
+    e("parent", "TRACKER_old", "CHILD_done", "open", "closed"),
+    e("parent", "TRACKER_old", "CHILD_waiting", "open", "open"),
+    e("blocks", "CHILD_done", "CHILD_waiting", "closed", "open"),
+    e("closes", "PR_open", "CHILD_waiting", "open", "open", "declared"),
+    e("parent", "TRACKER_closed", "CHILD_of_closed", "closed", "closed"),
+    e("parent", "TRACKER_in_range", "KID_a", "open", "closed"),
+    e("parent", "TRACKER_in_range", "KID_b", "open", "open"),
+    e("blocks", "KID_a", "KID_b", "closed", "open"),
+  ];
+  const input = { sources: [source], items, labels: [], activities: [], generatedAt: "2026-06-08T00:00:00Z", range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" } };
+  const env = buildRangeContract({ ...input, edges });
+
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(Object.fromEntries(env.items.map((it) => [it.external_id, it.window_reasons])), {
+    ISSUE_in_range: ["primary"],
+    TRACKER_old: ["edge_endpoint", "program_tracker"],
+    CHILD_done: ["edge_endpoint"],
+    CHILD_waiting: ["edge_endpoint"],
+    TRACKER_in_range: ["primary", "edge_endpoint", "program_tracker"],
+    KID_a: ["edge_endpoint"],
+    KID_b: ["edge_endpoint"],
+  }, "an open tracker outside the range arrives with its children; a closed one does not, nor does a change request closing a child");
+  assert.deepEqual(env.edges.map((edge) => `${edge.type}:${edge.from.split("|")[1]}>${edge.to.split("|")[1]}`).sort(), [
+    "blocks:CHILD_done>CHILD_waiting",
+    "blocks:KID_a>KID_b",
+    "parent:TRACKER_in_range>KID_a",
+    "parent:TRACKER_in_range>KID_b",
+    "parent:TRACKER_old>CHILD_done",
+    "parent:TRACKER_old>CHILD_waiting",
+  ]);
+  assert.equal(env.item_window?.primary_items, 2, "a pinned tracker is a support row, not a primary Board item");
+  assert.equal(env.item_window?.edge_endpoint_items, 5);
+  assert.equal(env.item_window?.activity_target_items, 0);
+  assert.equal(env.item_window?.total_items, 10);
+  assert.equal(env.repo_metrics?.[0]?.totals.items_active, 2, "repo metrics count in-range items only");
+  // Aggregates describe the full live set, so they are the same rows whether or
+  // not any tracker is pinned into the payload.
+  const month = env.aggregates?.find((a) => a.scope === "boardWindow" && a.window.days === 30);
+  assert.equal(month?.stats.items, 2);
+  assert.deepEqual(month?.stats.by_lifecycle, { other: 2 });
+});
+
 test("buildRangeContract keeps data_quality coverage all-time when no activity falls inside the range", () => {
   // Repo coverage (observed_since / last_activity_at / activity_available) is a
   // documented ALL-TIME bound (docs/CONTRACT.md). On /api/range the response

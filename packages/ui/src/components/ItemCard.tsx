@@ -5,8 +5,9 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon, itemKindLabel } from "./ItemKindIcon.tsx";
 import { LabelChip } from "./LabelChip.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
-import { itemMetricEntries } from "../item-metrics.ts";
+import { itemMetricEntries, programCardSummary } from "../item-metrics.ts";
 import { relativeTime, reviewThreadsLabel, type RelationCount } from "../model.ts";
+import type { ProgramRollup } from "../program.ts";
 import { graphFocusHref, type ItemRouteFields } from "../nav.ts";
 
 // "Focus this item in the relationship graph" marker — three connected nodes
@@ -40,6 +41,7 @@ export function ItemCard({
   sourceKind,
   accentColor,
   related,
+  program,
   graphLink,
   lens,
 }: {
@@ -55,6 +57,10 @@ export function ItemCard({
   // meta row's link-icon count with a per-type tooltip; the board AND the graph
   // side list both pass it, so the two surfaces always show the same number.
   related?: RelationCount | null;
+  // Present on a tracker card whose program has children (the board's Trackers
+  // lane passes it): renders the progress row — done/total, in-review and
+  // blocked counts — and the children that can start next.
+  program?: ProgramRollup | null;
   // True to ALSO render the "focus in graph" head link for related items — the
   // board sets it; the graph side list doesn't (you are already on the graph,
   // and the card body itself is the focus target there).
@@ -64,6 +70,7 @@ export function ItemCard({
   lens?: ItemRouteFields;
 }) {
   const hasMetrics = itemMetricEntries(item, related).length > 0;
+  const programSummary = program ? programCardSummary(program) : null;
   return (
     <article
       className={`card${accentColor ? " card-accent" : ""}`}
@@ -148,6 +155,55 @@ export function ItemCard({
                 kind={item.review_threads!.open > 0 ? "status-error" : "status-ok"}
               />
             ) : null}
+          </div>
+        )}
+
+        {programSummary && (
+          <div className="card-signals card-program">
+            <Badge
+              text={`${programSummary.progress} done`}
+              kind={programSummary.complete ? "status-ok" : undefined}
+              title={`${programSummary.progress} children closed or merged`}
+            />
+            {programSummary.inReview > 0 ? (
+              <Badge
+                text={`in review: ${programSummary.inReview}`}
+                kind="lifecycle-declared"
+                title={`${programSummary.inReview} with an open change request that closes them`}
+              />
+            ) : null}
+            {programSummary.blocked > 0 ? (
+              <Badge
+                text={`blocked: ${programSummary.blocked}`}
+                kind="status-error"
+                title={`${programSummary.blocked} waiting on an item that is not done`}
+              />
+            ) : null}
+          </div>
+        )}
+        {programSummary && programSummary.ready.length > 0 && (
+          <div className="card-program-ready">
+            <span className="muted">ready</span>
+            {programSummary.ready.map((child) =>
+              child.url ? (
+                <a
+                  key={child.id}
+                  className="card-program-child"
+                  href={child.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={child.name}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {child.name}
+                </a>
+              ) : (
+                <span key={child.id} className="card-program-child" title={child.name}>
+                  {child.name}
+                </span>
+              ),
+            )}
+            {programSummary.readyMore > 0 ? <span className="muted">+{programSummary.readyMore}</span> : null}
           </div>
         )}
 

@@ -48,7 +48,7 @@ export type AggregateBasis =
   | "edge_endpoint_updated_at"
   | "focus_neighborhood";
 export type AggregateEdgeFilter = "all" | "no_mentions";
-export type ItemWindowReason = "primary" | "edge_endpoint" | "activity_target";
+export type ItemWindowReason = "primary" | "edge_endpoint" | "activity_target" | "program_tracker";
 
 export interface TimeRangeDTO {
   from: string;
@@ -299,8 +299,11 @@ export interface ItemDTO {
   // of the contract's primary Board item window; `edge_endpoint` means the item
   // is included so emitted edges resolve to concrete nodes instead of anonymous
   // refs; `activity_target` means the item is included so an emitted review
-  // activity resolves to the target change request's current state. Consumers
-  // reading old v1 payloads should treat a missing value as "primary".
+  // activity resolves to the target change request's current state;
+  // `program_tracker` (4.8.0) means the item is an open program tracker — it has
+  // outgoing `parent` edges — and is emitted whatever the window, alongside any
+  // other reason. Consumers reading old v1 payloads should treat a missing value
+  // as "primary".
   window_reasons?: ItemWindowReason[];
 }
 
