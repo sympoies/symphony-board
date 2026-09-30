@@ -135,6 +135,8 @@ import {
   graphWindowEdgesInRange,
   graphOverviewVisibility,
   graphCanvasEmptyReason,
+  graphFocusLens,
+  graphFocusDropped,
   graphConnectedComponents,
   packGraphComponentLayouts,
   graphTopologyKey,
@@ -1889,6 +1891,48 @@ test("pluralize returns the singular only for exactly one, with irregular plural
 test("cutoffIso is deterministic for a fixed now", () => {
   const now = Date.parse("2026-06-07T00:00:00Z");
   assert.equal(cutoffIso(90, now).slice(0, 10), "2026-03-09");
+});
+
+// Issue #761: a cold start seeds the range from the clock, then re-anchors it
+// to the contract's generated_at and loads again, and a background refresh
+// reloads the same range. Both change which items have relations without the
+// viewer touching the range or a facet, so neither may drop the focus.
+test("graphFocusDropped drops a focus only for a viewer's range or facet change", () => {
+  const lens = graphFocusLens(parseHashRoute("#/graph?focus=a"));
+  const before = { focus: "a", lens, candidateIds: new Set(["a", "b"]) };
+  const reloaded = { ...before, candidateIds: new Set(["a", "b", "c"]) };
+  assert.equal(graphFocusDropped(before, reloaded), false, "the app's own reload or re-anchored range keeps the focus");
+  assert.equal(graphFocusDropped(before, { ...before, candidateIds: new Set(["b", "a"]) }), false, "same members in another order");
+
+  const faceted = graphFocusLens(parseHashRoute("#/graph?focus=a&istate=closed"));
+  assert.equal(graphFocusDropped(before, { focus: "a", lens: faceted, candidateIds: new Set(["a"]) }), true, "a facet that changes the candidates drops the focus");
+  assert.equal(graphFocusDropped(before, { focus: "a", lens: faceted, candidateIds: new Set(["a", "b"]) }), false, "a facet that leaves the candidates as they were keeps it");
+  const ranged = graphFocusLens(parseHashRoute("#/graph?focus=a&from=2026-06-01&to=2026-06-07"));
+  assert.equal(graphFocusDropped(before, { focus: "a", lens: ranged, candidateIds: new Set(["c"]) }), true, "a range that changes the candidates drops the focus");
+
+  // A focus arriving with the route starts a fresh baseline, even when the same
+  // route also brings its own range or facets.
+  assert.equal(graphFocusDropped({ ...before, focus: null }, { focus: "a", lens: ranged, candidateIds: new Set(["c"]) }), false, "a focus arriving with a new range");
+  assert.equal(graphFocusDropped(before, { focus: "b", lens: faceted, candidateIds: new Set(["b"]) }), false, "a new focus with a new facet");
+  assert.equal(graphFocusDropped(before, { focus: null, lens: faceted, candidateIds: new Set() }), false, "nothing to drop without a focus");
+});
+
+test("graphFocusLens changes with the range and the item facets only", () => {
+  const lensOf = (hash: string) => graphFocusLens(parseHashRoute(hash));
+  const base = lensOf("#/graph?focus=a");
+  assert.equal(lensOf("#/graph"), base, "the focus itself is not part of the lens");
+  assert.equal(lensOf("#/graph?focus=b&depth=3&scope=neighborhood&q=needle&tab=graph"), base, "depth, scope, search, and the mobile view are not");
+  for (const hash of [
+    "#/graph?focus=a&from=2026-06-01&to=2026-06-07",
+    "#/graph?focus=a&isource=github:github.com",
+    "#/graph?focus=a&istate=closed",
+    "#/graph?focus=a&ikind=issue",
+    "#/graph?focus=a&ireview=threads",
+    "#/graph?focus=a&irepo=acme/api",
+  ]) {
+    assert.notEqual(lensOf(hash), base, hash);
+  }
+  assert.notEqual(lensOf("#/graph?istate=closed"), lensOf("#/graph?ikind=closed"), "a value is read with its field");
 });
 
 test("graphOverviewVisibility keeps mention-only nodes discoverable while the overview canvas is decluttered", () => {

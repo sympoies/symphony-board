@@ -32,7 +32,7 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, graphFocusDropped, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusResetState, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
@@ -799,6 +799,7 @@ export function GraphPage({
   colorOf,
   focusRef,
   onFocusChange,
+  focusLens,
   focusDepth,
   onFocusDepthChange,
   focusExpanded,
@@ -849,6 +850,9 @@ export function GraphPage({
   // changes — the page holds no hidden focus state.
   focusRef?: string | null;
   onFocusChange: (ref: string | null) => void;
+  // The viewer's range and item facets from the route (model graphFocusLens):
+  // only a change here can drop the focus (below).
+  focusLens: string;
   focusDepth: number;
   onFocusDepthChange: (depth: number) => void;
   focusExpanded: boolean;
@@ -960,23 +964,26 @@ export function GraphPage({
   // like a range/facet change and immediately clear the newly selected focus.
   const focusResetCandidateIds = focusOverview.candidateIds;
 
-  // Drop focus when the overview candidate MEMBERSHIP changes (the "active since"
-  // range changed). Mention filters can remove a card from the canvas while it
-  // remains a list candidate, so they should not kick the user out of focus. Compared
-  // by CONTENT, not identity: a background contract reload rebuilds every memo
-  // (new arrays, same ids), and an identity check would kick the user out of the
-  // focus view on every sync tick. Content comparison is also idempotent under
-  // React 18 StrictMode's double-invoked effects and never wipes the deep-link
-  // seed on mount.
-  const prevCandidates = useRef(focusResetCandidateIds);
+  // Drop focus when the viewer changes the range or an item facet and that
+  // changes the overview candidate MEMBERSHIP (model graphFocusDropped). Mention
+  // filters can remove a card from the canvas while it remains a list candidate,
+  // so they should not kick the user out of focus. The app's own loads — the
+  // cold start re-anchoring its range to the contract, a background contract
+  // reload — change the candidates without a viewer change, so they keep the
+  // focus a link or reload brought. Compared by CONTENT, so the rule is
+  // idempotent under React 18 StrictMode's double-invoked effects and never
+  // wipes the deep-link seed on mount.
+  const focusReset = useMemo<GraphFocusResetState>(
+    () => ({ focus: focusId, lens: focusLens, candidateIds: focusResetCandidateIds }),
+    [focusId, focusLens, focusResetCandidateIds],
+  );
+  const prevFocusReset = useRef(focusReset);
   useEffect(() => {
-    if (prevCandidates.current === focusResetCandidateIds) return;
-    const prev = prevCandidates.current;
-    prevCandidates.current = focusResetCandidateIds;
-    const sameMembers = prev.size === focusResetCandidateIds.size
-      && [...focusResetCandidateIds].every((id) => prev.has(id));
-    if (!sameMembers) onFocusChange(null);
-  }, [focusResetCandidateIds, onFocusChange]);
+    const prev = prevFocusReset.current;
+    if (prev === focusReset) return;
+    prevFocusReset.current = focusReset;
+    if (graphFocusDropped(prev, focusReset)) onFocusChange(null);
+  }, [focusReset, onFocusChange]);
 
   // A ready canonical-history response already contains the selected multi-hop
   // induced graph, so render all focusEdges. Loading/fallback/static paths retain

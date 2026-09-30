@@ -335,7 +335,9 @@ focusing the sample tracker shows its program view (children in dependency
 order with their status markers, with and without a server), keeps it under an
 item facet, switches to the neighborhood and back, opens a node activated from
 that neighborhood on its default view, and labels the fallback against a server
-without the program scope, and that large synthetic
+without the program scope, that a focus link without a range keeps its focus
+through a reload (a tracker opening on its program view) while a facet picked
+in focus that changes the listed items drops it, and that large synthetic
 Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
 compact split, filter wrapping, the laptop three-column tier, and the
 wide-panes tier (two-up supporting columns whose charts keep a fixed height

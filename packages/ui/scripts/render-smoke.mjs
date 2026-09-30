@@ -7683,12 +7683,11 @@ try {
   await clickGraphType("blocks");
   await readGraphOverview("restored");
 
-  // The focus checks below keep the loaded range on the route, because three of
-  // them reload. A cold start without a route range seeds it from the clock,
-  // then re-anchors it to the contract's `generated_at` and loads again; the
-  // sample is months old, so the two loads differ, and a Graph page that mounted
-  // on the first one drops its focus when the second changes the candidate set.
-  // With the range on the route there is one range from the first render on.
+  // The focus checks below keep the loaded range on the route, so their reloads
+  // have one range from the first render on. A cold start without a route range
+  // seeds it from the clock, then re-anchors it to the contract's `generated_at`
+  // and loads again; the rangeless reloads at the end of the Graph checks cover
+  // that path.
   const graphLoadedRange = (await send("Runtime.evaluate", {
     expression: "(/range (\\d{4}-\\d{2}-\\d{2}) to (\\d{4}-\\d{2}-\\d{2})/.exec(document.querySelector('.graph-controls > .muted')?.textContent || '') || []).slice(1)",
     returnByValue: true,
@@ -7820,6 +7819,49 @@ try {
   graphHiddenChildrenDeeper.requests = graphNeighborhoodRequestUrls.slice(graphHiddenChildrenRequestsBefore + graphHiddenChildren.requests.length);
   await graphNeighborhoodControl();
   await send("Runtime.evaluate", { expression: "localStorage.removeItem('symphony-board:hidden-repos')" });
+
+  // A focus link as it is usually shared: no range on the route. Its reload is
+  // a cold start that seeds the range from the clock, then re-anchors it to the
+  // contract's `generated_at` and loads again; the sample is months old, so the
+  // two loads differ in which items have relations. Neither load is a change
+  // the viewer made, so the focus survives both, and a tracker opens its
+  // program. (A dropped focus goes when the second load lands, so the state is
+  // read again after a pause.) Ranges are answered at the harness's startup
+  // pace, so the lazily loaded Graph page mounts on the first load before the
+  // second lands, which is the order a real network gives.
+  const readRangelessFocus = async () => (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: decodeURIComponent(location.hash),
+      activeCard: document.querySelector('.graph-list-card.active .card-title')?.textContent?.trim() || '',
+      ready: !!document.querySelector('.graph-focus-load-ready'),
+      programHead: !!document.querySelector('.graph-program-head'),
+      programChildren: document.querySelectorAll('.react-flow__node [data-program-status]').length,
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  const reloadRangelessFocus = async (ref, readyExpr) => {
+    await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(ref)}'` });
+    await send("Page.reload");
+    await waitHtml(`(${readyExpr}) || !location.hash.includes('focus=')`);
+    await sleep(750);
+    return readRangelessFocus();
+  };
+  rangeResponseDelayMs = 500;
+  const rangelessItemFocus = await reloadRangelessFocus(
+    "github:github.com|ISSUE_a",
+    "document.querySelector('.graph-list-card.active') && document.querySelector('.graph-focus-load-ready')",
+  );
+  const rangelessTrackerFocus = await reloadRangelessFocus(
+    PROGRAM_TRACKER_REF,
+    "document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-ready') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3",
+  );
+  rangeResponseDelayMs = 0;
+  // A facet the viewer picks that changes the listed items still drops the focus.
+  await send("Runtime.evaluate", {
+    expression: "Array.from(document.querySelectorAll('.controls .toggle-group')).find((g) => g.querySelector('.toggle-label')?.textContent === 'kind')?.querySelector('.toggle')?.click()",
+  });
+  await waitHtml("location.hash.includes('ikind=') && !location.hash.includes('focus=') && document.querySelector('.graph-list-kinds')");
+  const rangelessFacetDrop = await readRangelessFocus();
 
   ws.close();
 
@@ -8671,6 +8713,20 @@ try {
       graphHiddenChildrenDeeper.requests?.length === 1 && /[?&]depth=2(&|$)/.test(graphHiddenChildrenDeeper.requests[0]) && !/scope=/.test(graphHiddenChildrenDeeper.requests[0]) &&
         /[?&]depth=2(&|$)/.test(graphHiddenChildrenDeeper.hash || "") && graphHiddenChildrenDeeper.head === "" && /\/2 hops · /.test(graphHiddenChildrenDeeper.load || ""),
       `graph: its depth buttons load the neighbourhood at the chosen depth (${JSON.stringify({ requests: graphHiddenChildrenDeeper.requests, hash: graphHiddenChildrenDeeper.hash, load: graphHiddenChildrenDeeper.load })})`,
+    ],
+    [
+      rangelessItemFocus.hash?.includes("focus=github:github.com|ISSUE_a") && !/[?&](from|to)=/.test(rangelessItemFocus.hash) && rangelessItemFocus.activeCard !== "" &&
+        rangelessItemFocus.ready === true && rangelessItemFocus.programHead === false,
+      `graph: a focus link without a range survives its reload's own loads (${JSON.stringify(rangelessItemFocus)})`,
+    ],
+    [
+      rangelessTrackerFocus.hash?.includes(`focus=${PROGRAM_TRACKER_REF}`) && !/[?&](from|to)=/.test(rangelessTrackerFocus.hash) && rangelessTrackerFocus.programHead === true &&
+        rangelessTrackerFocus.programChildren === 3 && rangelessTrackerFocus.ready === true,
+      `graph: a tracker focus link without a range reloads into its program view (${JSON.stringify(rangelessTrackerFocus)})`,
+    ],
+    [
+      /[?&]ikind=/.test(rangelessFacetDrop.hash || "") && !/[?&]focus=/.test(rangelessFacetDrop.hash || "") && rangelessFacetDrop.programHead === false,
+      `graph: a kind facet picked in focus that changes the listed items still drops the focus (${JSON.stringify(rangelessFacetDrop)})`,
     ],
     [
       fileGraphProgram.requestDelta === 0 && fileGraphProgram.head?.includes("1/3 done") && fileGraphProgram.attached === 2 &&
