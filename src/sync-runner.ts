@@ -9,7 +9,7 @@
 // contract, and a failed run must never present stale derived data as fresh.
 
 import type { AppConfig, SourceConfig } from "./config.ts";
-import { projectPaths, sourceEnabled, sourceTokenEnvNames } from "./config.ts";
+import { commitFilesPerSweep, projectPaths, sourceEnabled, sourceTokenEnvNames } from "./config.ts";
 import { createAuthTokenResolver, type AuthTokenResolver } from "./auth.ts";
 import type { Store } from "./db/store.ts";
 import { openConfiguredStore } from "./db/factory.ts";
@@ -151,12 +151,21 @@ export async function executeSyncRun(
         graphqlRequestCount: () => telemetry?.graphqlRequests ?? null,
         graphqlCost: () => telemetry?.graphqlCost ?? null,
         graphqlCostUnknown: () => telemetry?.graphqlCostUnknown ?? null,
+        commitFilesLimit: commitFilesPerSweep(config),
       });
       log.info(
         `[${rep.sourceId}] status=${rep.status} items=${rep.itemsSeen} edges=${rep.edgesSeen} activities=${rep.activitiesSeen} ` +
           `graphqlReq=${rep.graphqlRequests ?? "-"} graphqlCost=${rep.graphqlCost ?? "-"} graphqlCostUnknown=${rep.graphqlCostUnknown ?? "-"} ` +
           `softDeleted=${rep.softDeleted}items/${rep.softDeletedEdges}edges${rep.error ? ` error=${rep.error}` : ""}`,
       );
+      // The file pass is reported on its own line and only when it did
+      // something: it never changes the sweep's status, so it should not read
+      // as part of it.
+      if (rep.commitFiles > 0 || rep.commitFilesError) {
+        log.info(
+          `[${rep.sourceId}] commit files: answered ${rep.commitFiles}${rep.commitFilesError ? `; stopped early: ${rep.commitFilesError}` : ""}`,
+        );
+      }
       results.push({
         source_id: rep.sourceId,
         status: rep.status,

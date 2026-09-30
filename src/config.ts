@@ -97,7 +97,29 @@ export interface SourceConfig {
   // to the default branch only (the pre-expansion behavior, an escape hatch for
   // a repo whose branch churn is too noisy or rate-limit-expensive to expand).
   commit_branches?: "all" | "default";
+  // Optional ceiling on how many commits the file pass answers per sweep of
+  // this source (DEFAULT_COMMIT_FILES_PER_SWEEP when omitted; 0 turns the pass
+  // off). Each commit read costs one provider request, so this is the budget
+  // the Commits page's per-file aggregate is allowed to spend per sweep; the
+  // pass works backwards from the newest commit and catches up over sweeps.
+  commit_files_per_sweep?: number;
   projects: ProjectConfig[]; // owner/name (GitHub) or group/.../project (GitLab)
+}
+
+// Sized for a steady state, not a backfill: a board of a few dozen repositories
+// lands well under this many commits between two incremental sweeps, so the
+// pass keeps up with new work and spends what is left on history.
+export const DEFAULT_COMMIT_FILES_PER_SWEEP = 50;
+
+export function commitFilesPerSweep(s: Pick<SourceConfig, "commit_files_per_sweep">): number {
+  const value = s.commit_files_per_sweep;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : DEFAULT_COMMIT_FILES_PER_SWEEP;
+}
+
+// Whether this deployment collects per-commit files at all: some enabled
+// source runs the file pass.
+export function collectsCommitFiles(cfg: Pick<AppConfig, "sources">): boolean {
+  return cfg.sources.some((s) => sourceEnabled(s) && commitFilesPerSweep(s) > 0);
 }
 
 // A declared person: the provider usernames, commit emails, and raw commit
@@ -442,6 +464,12 @@ export function configErrors(raw: unknown, label: string): string[] {
       }
       if (s.commit_branches !== undefined && s.commit_branches !== "all" && s.commit_branches !== "default") {
         errors.push(`${label}: source "${s.source_id}" commit_branches must be "all" or "default" when set`);
+      }
+      if (
+        s.commit_files_per_sweep !== undefined &&
+        (typeof s.commit_files_per_sweep !== "number" || !Number.isInteger(s.commit_files_per_sweep) || s.commit_files_per_sweep < 0)
+      ) {
+        errors.push(`${label}: source "${s.source_id}" commit_files_per_sweep must be a non-negative integer when set`);
       }
       if (s.github_app !== undefined && s.kind !== "github") {
         errors.push(`${label}: source "${s.source_id}" github_app is only supported for GitHub sources`);

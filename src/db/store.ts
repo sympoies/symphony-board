@@ -12,7 +12,7 @@
 // registered driver. A new driver is acceptable when that suite passes — the
 // suite, not the type signatures, is the swap guarantee.
 
-import type { CanonicalActivity, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
+import type { CanonicalActivity, CanonicalCommitFiles, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 
@@ -125,6 +125,31 @@ export interface ReviewThreadRow {
   last_seen_at: string | null;
 }
 
+// One commit's changed files as stored. `files` is the JSON array the driver
+// keeps verbatim ([{path,status,additions,deletions}]); only "ok" rows are ever
+// read back for aggregation.
+export interface CommitFilesRow {
+  source_id: string;
+  external_id: string;
+  project_path: string | null;
+  sha: string;
+  state: string;
+  truncated: boolean;
+  files: string;
+  fetched_at: string;
+}
+
+// A commit activity the file enrichment pass has no answer for yet. `details`
+// rides along because it holds what the pass needs to decide: the sha to ask
+// for, and whether the commit is a merge (which is answered without asking).
+export interface CommitFileCandidateRow {
+  source_id: string;
+  external_id: string;
+  project_path: string;
+  occurred_at: string;
+  details: string | null;
+}
+
 // Cached all-time activity bounds for one repo (source_id, project_path): the
 // earliest and latest occurred_at INSTANT observed across the whole activity
 // history, independent of any range window. One row per repo that has at least
@@ -222,6 +247,9 @@ export interface Store {
   upsertEdge(e: ReconciledEdge, nowIso: string): Promise<void>;
   upsertActivity(a: CanonicalActivity, nowIso: string): Promise<void>;
   upsertReviewThread(thread: CanonicalReviewThread, nowIso: string): Promise<void>;
+  // Record what is known about one commit's files, replacing any earlier
+  // answer. Every state takes the commit out of listCommitFileCandidates.
+  upsertCommitFiles(files: CanonicalCommitFiles, nowIso: string): Promise<void>;
   // Open a run row (status starts 'partial' so a crash mid-run never enables a
   // soft-delete sweep). Resolves the run_id.
   startRun(sourceId: string, mode: "full" | "incremental", startedAt: string): Promise<number>;
@@ -286,6 +314,15 @@ export interface Store {
   // text, which is offset-sensitive. See src/db/activity-range.ts.
   listActivitiesInRange(fromIso: string, toIso: string): Promise<ActivityRow[]>;
   listLiveReviewThreads(): Promise<ReviewThreadRow[]>;
+  // Commit activities of `sourceId` that have a repository, occurred at or
+  // after `sinceIso` (by INSTANT), and have no commit_files row of any state —
+  // newest instant first, at most `limit`. The file enrichment pass's queue.
+  listCommitFileCandidates(sourceId: string, sinceIso: string, limit: number): Promise<CommitFileCandidateRow[]>;
+  // File lists ("ok" rows only) of commit activities whose occurred_at INSTANT
+  // is within [fromIso, toIso] inclusive — the same membership rule as
+  // listActivitiesInRange, so the rows join the activities that query returns.
+  // In no particular order: the one consumer re-keys them.
+  listCommitFilesInRange(fromIso: string, toIso: string): Promise<CommitFilesRow[]>;
   // Cached all-time per-repo activity bounds (earliest/latest occurred_at
   // INSTANT), independent of any range window. The /api/range path uses these
   // for documented all-time data_quality coverage (observed_since /

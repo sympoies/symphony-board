@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Store } from "../src/db/store.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
-import type { CanonicalActivity, CanonicalItem, CanonicalReviewThread } from "../src/model/types.ts";
+import type { CanonicalActivity, CanonicalCommitFiles, CanonicalItem, CanonicalReviewThread } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
 import { toLabel } from "../src/model/labels.ts";
 
@@ -188,6 +188,33 @@ function fixtureReviewThread(over: Partial<CanonicalReviewThread> = {}): Canonic
       },
     ],
     lastCommentAt: "2026-06-01T00:00:00Z",
+    ...over,
+  };
+}
+
+function fixtureCommit(externalId: string, occurredAt: string, details: Record<string, unknown> = {}, over: Partial<CanonicalActivity> = {}): CanonicalActivity {
+  return fixtureActivity({
+    externalId,
+    kind: "commit",
+    action: "committed",
+    targetKind: "commit",
+    target: null,
+    targetIid: null,
+    occurredAt,
+    details: { sha: externalId.replace(/^commit:/, ""), ...details },
+    ...over,
+  });
+}
+
+function fixtureCommitFiles(externalId: string, over: Partial<CanonicalCommitFiles> = {}): CanonicalCommitFiles {
+  return {
+    sourceId: SOURCE,
+    externalId,
+    projectPath: "dev-a/repo",
+    sha: externalId.replace(/^commit:/, ""),
+    state: "ok",
+    truncated: false,
+    files: [{ path: "src/app.ts", status: "modified", additions: 3, deletions: 1 }],
     ...over,
   };
 }
@@ -687,6 +714,86 @@ for (const driver of DRIVERS) {
     } finally {
       await cleanup();
     }
+  });
+
+  t("commit files round-trip and are listed for commits whose instant is in range", async () => {
+    const store = await fresh();
+    await store.upsertActivity(fixtureCommit("commit:in", "2026-05-10T00:00:00Z"), "2026-05-10T00:00:00Z");
+    // GitLab local time: 07:30+08:00 on June 1 is 23:30Z on May 31 — in range by
+    // instant, out of range by text.
+    await store.upsertActivity(fixtureCommit("commit:edge", "2026-06-01T07:30:00.000+08:00"), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:after", "2026-06-10T00:00:00Z"), "2026-06-10T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:gone", "2026-05-11T00:00:00Z"), "2026-05-11T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:merge", "2026-05-12T00:00:00Z", { merge: true }), "2026-05-12T00:00:00Z");
+
+    const files = [
+      { path: "src/app.ts", status: "modified" as const, additions: 3, deletions: 1 },
+      { path: "docs/new.md", status: "added" as const, additions: 40, deletions: 0 },
+    ];
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:in", { files, truncated: true }), "2026-06-11T00:00:00Z");
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:edge"), "2026-06-11T00:00:00Z");
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:after"), "2026-06-11T00:00:00Z");
+    // Answered, but with nothing to aggregate: the provider no longer has the
+    // commit, or it is a merge. Neither is a file list.
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:gone", { state: "unavailable", files: [] }), "2026-06-11T00:00:00Z");
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:merge", { state: "merge", files: [] }), "2026-06-11T00:00:00Z");
+
+    const rows = await store.listCommitFilesInRange("2026-05-01T00:00:00.000Z", "2026-05-31T23:59:59.999Z");
+    assert.deepEqual(rows.map((r) => r.external_id).sort(), ["commit:edge", "commit:in"], "only file lists, only for in-range commits");
+    const row = rows.find((r) => r.external_id === "commit:in")!;
+    assert.equal(row.source_id, SOURCE);
+    assert.equal(row.project_path, "dev-a/repo");
+    assert.equal(row.sha, "in");
+    assert.equal(row.state, "ok");
+    assert.equal(row.truncated, true);
+    assert.deepEqual(JSON.parse(row.files), files);
+
+    // A re-read replaces the list rather than appending to it.
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:in", { files: [files[0]!] }), "2026-06-12T00:00:00Z");
+    const again = (await store.listCommitFilesInRange("2026-05-01T00:00:00.000Z", "2026-05-31T23:59:59.999Z")).find((r) => r.external_id === "commit:in")!;
+    assert.deepEqual(JSON.parse(again.files), [files[0]]);
+    assert.equal(again.truncated, false);
+    assert.equal(again.fetched_at, "2026-06-12T00:00:00Z");
+    await store.close();
+  });
+
+  t("listCommitFileCandidates returns unanswered commits of one source, newest first, bounded", async () => {
+    const store = await fresh();
+    await store.ensureSource({ sourceId: "gitlab:gitlab.com", kind: "gitlab", host: "gitlab.com", displayName: "GitLab" }, "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:old", "2026-01-01T00:00:00Z"), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:a", "2026-05-10T00:00:00Z"), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:b", "2026-05-12T00:00:00Z", { merge: true }), "2026-06-01T00:00:00Z");
+    // 03:00+08:00 on the 12th is 19:00Z on the 11th: OLDER than commit:b by
+    // instant although its text sorts after it.
+    await store.upsertActivity(fixtureCommit("commit:c", "2026-05-12T03:00:00.000+08:00"), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:d", "2026-05-13T00:00:00Z"), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:answered", "2026-05-14T00:00:00Z"), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:no-repo", "2026-05-15T00:00:00Z", {}, { projectPath: null }), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureCommit("commit:other-source", "2026-05-16T00:00:00Z", {}, { sourceId: "gitlab:gitlab.com" }), "2026-06-01T00:00:00Z");
+    await store.upsertActivity(fixtureActivity({ externalId: "not-a-commit", occurredAt: "2026-05-17T00:00:00Z" }), "2026-06-01T00:00:00Z");
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:answered"), "2026-06-01T00:00:00Z");
+
+    const all = await store.listCommitFileCandidates(SOURCE, "2026-05-01T00:00:00.000Z", 50);
+    assert.deepEqual(
+      all.map((r) => r.external_id),
+      ["commit:d", "commit:b", "commit:c", "commit:a"],
+      "this source's commits with a repository and no answer yet, since the cutoff, newest instant first",
+    );
+    assert.equal(all[0]!.project_path, "dev-a/repo");
+    assert.deepEqual(JSON.parse(all[1]!.details ?? "{}"), { sha: "b", merge: true }, "details ride along: they hold the sha and the merge flag");
+
+    const bounded = await store.listCommitFileCandidates(SOURCE, "2026-05-01T00:00:00.000Z", 2);
+    assert.deepEqual(bounded.map((r) => r.external_id), ["commit:d", "commit:b"]);
+    assert.deepEqual(await store.listCommitFileCandidates(SOURCE, "2026-05-01T00:00:00.000Z", 0), []);
+
+    // An answer of any kind takes the commit out of the queue, including one
+    // that says the provider no longer has it.
+    await store.upsertCommitFiles(fixtureCommitFiles("commit:d", { state: "unavailable", files: [] }), "2026-06-02T00:00:00Z");
+    assert.deepEqual(
+      (await store.listCommitFileCandidates(SOURCE, "2026-05-01T00:00:00.000Z", 50)).map((r) => r.external_id),
+      ["commit:b", "commit:c", "commit:a"],
+    );
+    await store.close();
   });
 
   t("concurrent transactions serialize instead of interleaving", async () => {

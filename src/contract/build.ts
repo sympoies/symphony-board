@@ -3,7 +3,7 @@ import { timestampMs, timestampInRange, compareTimestampDesc } from "../../share
 // given rows + a `generatedAt` instant, produce the versioned envelope. No DB
 // access here, so it is unit-testable with fabricated rows.
 
-import type { ActivityRow, ItemRow, LabelRow, EdgeRow, ReviewThreadRow, SourceRow } from "../db/store.ts";
+import type { ActivityRow, ItemRow, LabelRow, EdgeRow, ReviewThreadRow, SourceRow, CommitFilesRow } from "../db/store.ts";
 import type {
   ActivityDTO,
   ActivityDailyDTO,
@@ -35,6 +35,7 @@ import type {
   EdgeLifecycle,
 } from "@symphony-board/contract";
 import { refOf } from "../model/ref.ts";
+import { buildCommitFileStats } from "./commit-files.ts";
 import { TRACKING_LABEL } from "../model/labels.ts";
 import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/actor.ts";
 import type { IdentityConfig } from "../config.ts";
@@ -51,6 +52,12 @@ const CONTRACT_ITEM_WINDOW_DAYS = 90;
 // trailing-12-month view; a wider raw feed comes from `/api/range`.
 const CONTRACT_ACTIVITY_WINDOW_DAYS = 30;
 const MAX_REPO_METRIC_ACTORS = 5;
+
+// The instant the static contract's emitted `activities[]` window opens, for a
+// caller that has to load the rows that join it (per-commit files).
+export function contractActivityWindowSince(generatedAt: string): string {
+  return cutoffIso(CONTRACT_ACTIVITY_WINDOW_DAYS, generatedAt);
+}
 
 function toLabelDTO(l: LabelRow): LabelDTO {
   return { name: l.name, scope: l.scope, color: l.color };
@@ -1255,6 +1262,12 @@ export interface BuildInput {
   edges: EdgeRow[];
   activities?: ActivityRow[];
   reviewThreads?: ReviewThreadRow[];
+  // Per-commit file lists for the commits in the emitted activity window (the
+  // store's "ok" rows). When provided — even empty — the envelope carries
+  // `commit_file_stats`; absent leaves the key out, which is how a consumer
+  // tells "this producer collects no files" from "nothing was collected yet".
+  // The callers decide which it is (commitFilesForProjection in emit.ts).
+  commitFiles?: CommitFilesRow[];
   generatedAt: string;
   // Config-derived display colors (NOT stored in the DB). Threaded in by the
   // emit CLI, which reads config; buildContract stays a pure mapping of its
@@ -1553,6 +1566,7 @@ export function buildContract(input: BuildInput): ContractEnvelope {
     review_threads: reviewThreadsForItems(mapped.reviewThreads, windowed.items),
     activity_daily: activityDaily,
     actor_directory: buildActorDirectory(windowedActivities, actorKeys, identityMatchers, actorExcludes),
+    ...(input.commitFiles ? { commit_file_stats: buildCommitFileStats(windowedActivities, actorKeys, input.commitFiles) } : {}),
     repos: mapped.repos,
     aggregates: buildAggregates(mapped.items, mapped.edges, input.generatedAt),
     item_window: windowed.itemWindow,
@@ -1686,6 +1700,7 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     // instead of a blank panel.
     activity_daily: buildActivityDaily(ranged.activities, input.generatedAt, timezone),
     actor_directory: buildActorDirectory(ranged.activities, actorKeys, identityMatchers, actorExcludes),
+    ...(input.commitFiles ? { commit_file_stats: buildCommitFileStats(ranged.activities, actorKeys, input.commitFiles) } : {}),
     repos: mapped.repos,
     // Board-wide aggregates over the FULL live set (the same call buildContract
     // makes) — small, but the UI gates them off for bounded range-query envs

@@ -3915,4 +3915,6 @@ test("commitScopeIsWhole is true only with no route filter and nothing hidden", 
   // Hiding merges removes rows the aggregate still counts.
   assert.equal(commitScopeIsWhole({ ...whole, mergesHidden: true }), false);
   assert.equal(commitScopeIsWhole({ ...whole, mergesHidden: false }), true);
+  // Narrowed to the commits that touched one path.
+  assert.equal(commitScopeIsWhole({ ...whole, pathFiltered: true }), false);
 });

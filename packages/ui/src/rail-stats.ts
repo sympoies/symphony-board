@@ -1,4 +1,4 @@
-import type { ActivityDTO, ActorDirectoryDTO, ReviewThreadDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActorDirectoryDTO, CommitFileStatsDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
 import {
   commitBranches,
@@ -855,4 +855,111 @@ export function directCommits(activities: readonly ActivityDTO[]): DirectCommits
     if (link === null) direct += 1;
   }
   return { direct, checked };
+}
+
+// ---- hot files ----------------------------------------------------------------
+
+export type HotPath = {
+  // `${source_id}|${project_path}|${path}`: the same path in two repositories
+  // is two files.
+  key: string;
+  path: string;
+  sourceId: string;
+  projectPath: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+  authors: number;
+  // Short sha prefixes of the commits that touched it (see commitsTouching).
+  shas: readonly string[];
+};
+
+export type HotPaths = {
+  rows: HotPath[];
+  // Coverage over the repositories on screen: non-merge commits in the loaded
+  // window, how many of them the producer has a file list for, the distinct
+  // paths those touched, and how many of those lists the provider capped.
+  commits: number;
+  scanned: number;
+  files: number;
+  truncated: number;
+  repos: number;
+};
+
+// The files (or directories) changed most across the repositories on screen,
+// from the contract's per-repository aggregate (`commit_file_stats`, 4.9.0).
+//
+// `repoKeys` is the set of `${source_id}|${project_path}` with rows on screen,
+// or null for every repository. Re-ranking across repositories is exact: each
+// repository's list is its own top N, and the top N of their union is the top
+// N overall. It cannot be re-ranked for a SUBSET of a repository's commits (one
+// author, one branch) — the counts are not per commit — so a caller under such
+// a filter does not draw this at all.
+//
+// Null when the payload carries no aggregate, which is "this producer collects
+// no files" and not the same as an aggregate with nothing in it.
+export function hotPaths(
+  stats: CommitFileStatsDTO | null | undefined,
+  repoKeys: ReadonlySet<string> | null,
+  kind: "files" | "dirs",
+  limit: number,
+): HotPaths | null {
+  if (!stats || !Array.isArray(stats.repos)) return null;
+  const out: HotPaths = { rows: [], commits: 0, scanned: 0, files: 0, truncated: 0, repos: 0 };
+  for (const repo of stats.repos) {
+    if (repoKeys && !repoKeys.has(`${repo.source_id}|${repo.project_path}`)) continue;
+    out.repos += 1;
+    out.commits += repo.commits;
+    out.scanned += repo.scanned;
+    out.files += repo.files;
+    out.truncated += repo.truncated;
+    for (const entry of (kind === "files" ? repo.top_files : repo.top_dirs) ?? []) {
+      out.rows.push({
+        key: `${repo.source_id}|${repo.project_path}|${entry.path}`,
+        path: entry.path,
+        sourceId: repo.source_id,
+        projectPath: repo.project_path,
+        commits: entry.commits,
+        additions: entry.additions,
+        deletions: entry.deletions,
+        authors: entry.authors,
+        shas: entry.shas ?? [],
+      });
+    }
+  }
+  out.rows.sort(
+    (a, b) => b.commits - a.commits || b.additions + b.deletions - (a.additions + a.deletions) || a.key.localeCompare(b.key),
+  );
+  if (limit > 0) out.rows = out.rows.slice(0, limit);
+  return out;
+}
+
+// The commits a hot path lists: same repository, and a sha that starts with one
+// of the path's prefixes. The aggregate carries prefixes (and at most a hundred
+// of them per path), so this is "the commits the producer named", which for a
+// very hot path in a long range is its most recent ones rather than all of them.
+export function commitsTouching<T extends ActivityDTO>(
+  activities: readonly T[],
+  path: Pick<HotPath, "sourceId" | "projectPath" | "shas">,
+): T[] {
+  if (path.shas.length === 0) return [];
+  const prefixes = new Set(path.shas);
+  // Every prefix the producer emits has one length; read it off the data rather
+  // than assuming it.
+  const lengths = [...new Set(path.shas.map((sha) => sha.length))];
+  return activities.filter((a) => {
+    if (a.source_id !== path.sourceId || a.project_path !== path.projectPath) return false;
+    const sha = a.details?.sha;
+    return typeof sha === "string" && lengths.some((length) => prefixes.has(sha.slice(0, length)));
+  });
+}
+
+// A path for a row that has room for about thirty characters: its last two
+// segments, which are what name the file. The full path is the row's tip.
+export function shortPathLabel(path: string): string {
+  if (path === "./") return "(root)";
+  const dir = path.endsWith("/");
+  const parts = path.split("/").filter(Boolean);
+  const tail = parts.slice(-2).join("/");
+  return dir ? `${tail}/` : tail;
 }

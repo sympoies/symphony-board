@@ -698,7 +698,8 @@ test("SQLite migrations from v4 backfill cached repo activity bounds and review-
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 12, "opening a v4 store applies later migrations");
+    assert.equal(diag.schema_version, 13, "opening a v4 store applies later migrations");
+    assert.equal((await db.overview(1)).tables.commit_files, 0, "including the commit file table, which starts empty");
     assert.equal((await db.overview(1)).tables.repo_activity_bounds, 1, "the summary table is backfilled once per repo");
     const bounds = await db.listRepoActivityBounds();
     assert.equal(bounds.length, 1);
@@ -718,7 +719,7 @@ test("SQLite migration recovers when item.body exists but user_version is still 
 
     const db = await openSqliteStore(dbPath);
     const diag = await db.diagnostics();
-    assert.equal(diag.schema_version, 12, "opening advances the migration ledger after detecting the applied body column");
+    assert.equal(diag.schema_version, 13, "opening advances the migration ledger after detecting the applied body column");
     const live = await db.listLiveItems();
     assert.deepEqual(live, []);
     await db.close();

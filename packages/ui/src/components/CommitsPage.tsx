@@ -3,7 +3,7 @@ import { detailNavigation } from "../detail-navigation.ts";
 import { useDetailSwipe } from "../useDetailSwipe.ts";
 import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
+import type { ActivityDTO, ActivityDailyDTO, CommitFileStatsDTO } from "@symphony-board/contract";
 import { RepoCombobox } from "./RepoCombobox.tsx";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { CommitsRail } from "./CommitsRail.tsx";
@@ -18,7 +18,7 @@ import { useCommitFileStats } from "../useCommitFileStats.ts";
 import { COMMIT_COMPACT_SPLIT_QUERY, COMMITS_PANES_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { commitScopeIsWhole, sourceDisplayName } from "../model.ts";
-import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
+import { EMPTY_ACTOR_INDEX, commitsTouching, hotPaths, shortPathLabel, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
 import {
   buildCommitRows,
   activityKey,
@@ -471,7 +471,7 @@ function CommitTimeline({
 export function CommitsPage({
   actorAvatars,
   detailRouteOpen, onOpenDetailRoute, onCloseDetailRoute, onClearDetailRoute,
-  commits,
+  commits: routeCommits,
   windowTotal,
   totalCommits,
   repoOptions,
@@ -481,11 +481,12 @@ export function CommitsPage({
   selectedRepo,
   selectedBranch,
   selectedAuthor,
-  railRepoSource,
-  railAuthorSource,
-  railBranchSource,
+  railRepoSource: routeRepoSource,
+  railAuthorSource: routeAuthorSource,
+  railBranchSource: routeBranchSource,
   sourceOptions,
   activityDaily,
+  fileAggregate = null,
   actorIndex = EMPTY_ACTOR_INDEX,
   followLatest,
   onFollowLatest,
@@ -537,6 +538,11 @@ export function CommitsPage({
   // Full-history per-day/per-kind counts, for the trailing-12-month rhythm
   // calendar. The emitted activities[] is windowed and cannot reach that far.
   activityDaily: ActivityDailyDTO | null;
+  // The contract's per-repository file aggregate (`commit_file_stats`, 4.9.0),
+  // or null on a payload without one or whose commit window is not the rows
+  // on screen. Not to be confused with `fileStats` below, the opt-in that
+  // reads ONE opened commit's files on demand.
+  fileAggregate?: CommitFileStatsDTO | null;
   // Contract actor directory as lookups, for the author ranking and count.
   actorIndex?: ActorIndex;
   followLatest: boolean;
@@ -571,6 +577,42 @@ export function CommitsPage({
   // Shared empty-state node, rendered in place of the timeline when empty.
   emptyState?: ReactNode;
 }) {
+  // ---- hot path filter -------------------------------------------------------
+  // A row of the Hot files pane narrows the page to the commits that touched
+  // that path. Page-local, like the selection: it is a way of reading this
+  // range, and the aggregate it comes from changes with the range.
+  //
+  // The aggregate is per repository and pre-computed, so it can be re-ranked
+  // across the repositories on screen but not for a subset of one repository's
+  // commits. Under an author or branch filter it is therefore withheld
+  // altogether rather than shown describing commits that are not on screen.
+  const [pathKey, setPathKey] = useState<string | null>(null);
+  const fileRepoKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const c of routeCommits) if (c.project_path) keys.add(`${c.source_id}|${c.project_path}`);
+    return keys;
+  }, [routeCommits]);
+  const usableAggregate = fileAggregate && !selectedAuthor && !selectedBranch ? fileAggregate : null;
+  // Looked up again on every change rather than stored: the row the key names
+  // may be gone after a range change, and then the filter is simply off.
+  const activePath = useMemo(() => {
+    if (!pathKey || !usableAggregate) return null;
+    for (const kind of ["files", "dirs"] as const) {
+      const match = hotPaths(usableAggregate, fileRepoKeys, kind, 0)?.rows.find((row) => row.key === pathKey);
+      if (match) return match;
+    }
+    return null;
+  }, [pathKey, usableAggregate, fileRepoKeys]);
+  // The list AND the three facet sources, so every pane still describes the
+  // rows the list renders.
+  const commits = useMemo(() => (activePath ? commitsTouching(routeCommits, activePath) : routeCommits), [routeCommits, activePath]);
+  const railRepoSource = useMemo(() => (activePath ? commitsTouching(routeRepoSource, activePath) : routeRepoSource), [routeRepoSource, activePath]);
+  const railAuthorSource = useMemo(() => (activePath ? commitsTouching(routeAuthorSource, activePath) : routeAuthorSource), [routeAuthorSource, activePath]);
+  const railBranchSource = useMemo(() => (activePath ? commitsTouching(routeBranchSource, activePath) : routeBranchSource), [routeBranchSource, activePath]);
+  // Coverage for the overview's "files changed" tile, over the same
+  // repositories the pane ranks.
+  const fileCoverage = useMemo(() => hotPaths(usableAggregate, fileRepoKeys, "files", 1), [usableAggregate, fileRepoKeys]);
+
   // Selection lives in the page, not the route: a commit is a transient thing to
   // read, unlike the repo/branch/author filters, which are shareable state. The
   // mode is explicit so clicking a row can pin it even while the device preference
@@ -701,7 +743,7 @@ export function CommitsPage({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch" | "author">("repo");
   const activeFilterCount =
-    (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0) + (selectedAuthor ? 1 : 0) + (hideMerges ? 1 : 0);
+    (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0) + (selectedAuthor ? 1 : 0) + (hideMerges ? 1 : 0) + (activePath ? 1 : 0);
   // The summary has to name every filter the count counts, or a pinned source
   // reads as "1 active" over the words "all repos · all branches".
   const filtersSummary =
@@ -713,6 +755,7 @@ export function CommitsPage({
           selectedBranch ?? "all branches",
           selectedAuthor ?? "all authors",
           hideMerges ? "no merges" : null,
+          activePath ? shortPathLabel(activePath.path) : null,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -774,6 +817,19 @@ export function CommitsPage({
         hide merges
       </button>
     ) : null;
+  // The path the page is narrowed to, as a chip that clears it. It is set from
+  // the Hot files pane, which a filter sheet or a narrower tier does not show,
+  // so the way out has to be here.
+  const pathChip = activePath ? (
+    <button
+      type="button"
+      className="toggle toggle-on commits-path-chip"
+      title={`Only commits that touched ${activePath.path} in ${activePath.projectPath}. Select to clear.`}
+      onClick={() => setPathKey(null)}
+    >
+      {`path: ${shortPathLabel(activePath.path)} ×`}
+    </button>
+  ) : null;
   const filterBody = () => (
     <div className="commits-toolbar commits-toolbar-inline">
       {sourceChips}
@@ -835,6 +891,7 @@ export function CommitsPage({
         </select>
       </label>
       {mergeToggle}
+      {pathChip}
     </div>
   );
   const repoFilterSection = () => (
@@ -1016,6 +1073,7 @@ export function CommitsPage({
       </div>
       {sourceChips}
       {mergeToggle}
+      {pathChip}
       {filterSheetTab === "repo" ? repoFilterSection() : filterSheetTab === "branch" ? branchFilterSection() : authorFilterSection()}
     </div>
   );
@@ -1061,7 +1119,9 @@ export function CommitsPage({
               hiddenRepos,
               hiddenSources,
               mergesHidden: hideMerges,
+              pathFiltered: activePath !== null,
             })}
+            fileCoverage={fileCoverage}
             selectedKey={selectedKey}
             // A Largest commits row pins, and never toggles: the row is a way
             // INTO a commit, and the pane it opens sits directly above the list
@@ -1095,6 +1155,10 @@ export function CommitsPage({
           wide={widePanes}
           timezone={timezone}
           range={range}
+          fileAggregate={usableAggregate}
+          fileRepoKeys={fileRepoKeys}
+          selectedPathKey={activePath?.key ?? null}
+          onPath={(path) => setPathKey(path?.key ?? null)}
         />
     </>
   );

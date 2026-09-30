@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.8.2`.
+Current emitted version: `4.9.0`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.9.0` | additive | optional top-level `commit_file_stats` | Commit File Stats |
 | `4.8.2` | clarification | `details.change_request` on commit activity rows; in-range commits pull their change request into a range response | Activities |
 | `4.8.1` | clarification | `details.merge` / `details.default_branch` on commit activity rows | Activities |
 | `4.8.0` | additive | `items[].window_reasons` value `program_tracker`; open labeled program trackers are always emitted | Item Window |
@@ -42,7 +43,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.8.2",
+  "contract_version": "4.9.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -279,6 +280,9 @@ Top-level fields:
   full canonical history) and `/api/range` (over the in-range activities).
 - `actor_directory`: optional identity and bot directory over the distinct
   `activities[].actor` strings, added in `4.7.0` (see Activities).
+- `commit_file_stats`: optional per-repository aggregate of the files and
+  directories the emitted commit rows changed most, added in `4.9.0` (see
+  Commit File Stats).
 - `repos`: optional sparse per-repo display metadata, added in `1.1.0`.
 - `aggregates`: optional scope/windowed totals, added in `1.3.0`.
 - `item_window`: required v2 metadata describing the primary loaded item window.
@@ -290,7 +294,8 @@ Top-level fields:
 The producer currently emits `timezone`, `activities`, `review_threads`,
 `activity_daily`, `actor_directory`, `repos`, `aggregates`, `item_window`,
 `repo_stats`, and `repo_metrics` every time; array fields are empty when no
-rows apply. Consumers should still read older optional fields
+rows apply. `commit_file_stats` is emitted only by a producer that collects
+per-commit files (see Commit File Stats). Consumers should still read older optional fields
 defensively as `env.activities ?? []`, `env.repos ?? []`,
 `env.aggregates ?? []`, and `env.repo_metrics ?? []`.
 
@@ -832,6 +837,76 @@ display prose; the UI already builds its row label from the structured fields
 (`target_ref`/`target_iid`, `kind`, `action`, `title`, `details.sha`/`details.ref`),
 so the field carried nothing a consumer cannot derive. Removing fields is breaking,
 so it rides in this same `4.0.0` major rather than a later one.
+
+## Commit File Stats
+
+Version `4.9.0` is additive: the envelope may carry an optional
+`commit_file_stats`, which says per repository which files and directories the
+emitted commit rows changed most.
+
+```jsonc
+"commit_file_stats": {
+  "repos": [
+    {
+      "source_id": "github:github.com",
+      "project_path": "acme/api",
+      "commits": 120,      // non-merge commit rows of this repo in activities[]
+      "scanned": 96,       // of those, how many have a file list
+      "truncated": 1,      // scanned commits whose file list the provider capped
+      "files": 210,        // distinct paths the scanned commits touched
+      "top_files": [
+        { "path": "src/sync-engine.ts", "commits": 12, "additions": 300, "deletions": 120,
+          "authors": 3, "shas": ["0a1b2c3d4e5f", "…"] }
+      ],
+      "top_dirs": [
+        { "path": "src/sources/", "commits": 31, "additions": 1900, "deletions": 640,
+          "authors": 4, "shas": ["0a1b2c3d4e5f", "…"] }
+      ]
+    }
+  ]
+}
+```
+
+It is an aggregate rather than a file list on each `activities[]` row because
+the row form would multiply the payload and the question a consumer asks of it
+is "what changed most in this window". The window is the emitted
+`activities[]`: the trailing 30 days for the static contract, the requested
+range for `/api/range`.
+
+- `repos[]` holds one entry per repository with at least one non-merge commit
+  row in the window, sorted by `source_id` then `project_path`.
+- `commits` and `scanned` are the coverage. File data is collected by a bounded
+  pass that catches up over sweeps (see `docs/DESIGN.md`), so at any moment
+  some commits have none; the rankings describe only the scanned ones, and a
+  consumer should say so rather than present them as the whole window.
+- `top_files` holds at most 20 files and `top_dirs` at most 12 directories, most
+  commits first, then most lines changed, then path. A directory is a path's
+  first two segments at most and ends in `/`; `./` is the repository root. A
+  directory counts a commit once however many of its files the commit touched.
+- `authors` counts distinct people by the producer's actor identity, the same
+  one `repo_metrics[].top_actors` uses.
+- `shas` lists the commits that touched the entry, newest first, as
+  12-character prefixes of `activities[].details.sha`, so a consumer can narrow
+  a commit list to one path. It holds at most 100; `commits` is the full count.
+- `files` counts every distinct path the scanned commits touched, not only the
+  listed ones.
+
+Merge commits are never counted: a merge's diff is against its first parent,
+so its files are the merged branch's work a second time. Only path and line
+counts are aggregated; the producer never stores patch text.
+
+The key is absent, not empty, from a producer that does not collect per-commit
+files (and on any payload older than `4.9.0`): no enabled source runs the file
+pass, and the store holds no file lists for the window. Present with
+`scanned: 0` means the producer collects them and has not reached these
+commits yet. File lists collected before the pass was turned off are still
+reported, and a repository of a source that does not run the pass appears with
+`scanned: 0` beside the repositories of one that does.
+
+The top lists are per repository so a consumer can re-rank across the
+repositories it shows: the top N of a union of per-repository top-N lists is
+exact. They cannot be re-ranked for a subset of commits (one author, one
+branch), because the counts are not per commit.
 
 ## Activity Daily
 

@@ -314,7 +314,10 @@ while lists take the spare height). It checks that merge commits are tagged
 instead of shown without line counts, that the default branch is marked, and
 that the hide-merges toggle removes them from the list and from every ranked facet.
 It checks that a commit's change request is drawn on its row, in its detail and
-in the Change requests pane, and that "none" and "unknown" are told apart. It also mocks the daemon's sync control surface to assert the
+in the Change requests pane, and that "none" and "unknown" are told apart.
+It checks that the file aggregate draws a Hot files pane with its coverage, that
+a row narrows the page to the commits that touched it, and that the pane falls
+back to scopes under an author filter. It also mocks the daemon's sync control surface to assert the
 Header Sync action renders, enters the running (disabled) state on click, shows
 the reloaded status on completion, and that Settings exposes the advanced
 manual-sync controls.

@@ -463,6 +463,48 @@ export interface ActorDirectoryDTO {
   identities: ActorIdentityDTO[];
 }
 
+// One file or directory a repository's emitted commits changed (4.9.0).
+export interface CommitFileStatEntryDTO {
+  // A file path, or a directory path ending in "/" ("./" for the repository
+  // root). Directories are a path's first two segments at most.
+  path: string;
+  // Non-merge commits in the emitted activity window that touched it. A
+  // directory counts a commit once however many of its files the commit touched.
+  commits: number;
+  additions: number;
+  deletions: number;
+  // Distinct people among those commits, by the producer's actor identity.
+  authors: number;
+  // The commits that touched it, newest first, as 12-character sha prefixes to
+  // match against `activities[].details.sha`. At most 100; `commits` is the
+  // full count.
+  shas: string[];
+}
+
+export interface RepoCommitFileStatsDTO {
+  source_id: string;
+  project_path: string;
+  // Non-merge commit rows of this repository in the emitted `activities[]`.
+  commits: number;
+  // Of those, how many the producer has a file list for. File data is
+  // collected by a bounded pass that catches up over sweeps, so this can be
+  // less than `commits`; the rankings describe only the scanned ones.
+  scanned: number;
+  // Scanned commits whose file list the provider capped.
+  truncated: number;
+  // Distinct file paths the scanned commits touched (not only the top ones).
+  files: number;
+  top_files: CommitFileStatEntryDTO[];
+  top_dirs: CommitFileStatEntryDTO[];
+}
+
+// Which files and directories the emitted commits changed most, per
+// repository. Added in 4.9.0. One entry per repository with at least one
+// non-merge commit in the emitted `activities[]`.
+export interface CommitFileStatsDTO {
+  repos: RepoCommitFileStatsDTO[];
+}
+
 export interface ContractEnvelope {
   contract_version: string;
   generated_at: string;
@@ -503,6 +545,10 @@ export interface ContractEnvelope {
   // across their facets and leaves CI accounts in the ranking, the behavior this
   // field exists to fix. Read as `env.actor_directory`.
   actor_directory?: ActorDirectoryDTO;
+  // Per-repository file aggregate over the emitted commit rows (added in
+  // 4.9.0). Optional: absent on an older payload and from a producer that does
+  // not collect per-commit files, which is not the same as "nothing changed".
+  commit_file_stats?: CommitFileStatsDTO;
   // Per-repo display metadata (currently: highlight color). Sparse — only
   // configured repos appear. The producer always emits it (possibly empty);
   // OPTIONAL in the type so a consumer reading a pre-1.1.0 contract (no `repos`

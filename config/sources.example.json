@@ -3,6 +3,7 @@
   "db_path": "data/symphony.db",
   "$comment_timezone": "Optional IANA timezone the board buckets calendar days in (e.g. \"Asia/Taipei\"). Omit or leave empty for UTC. It aligns the UI's `today` / `this week` presets and the activity-heatmap day cells, and the range API's day boundaries, to this zone. Absolute timestamps stay UTC; only calendar-day bucketing honors it.",
   "$comment_commit_branches": "Optional per-source \"commit_branches\": \"all\" (default) also labels commits on live side branches — push events discover branches with new activity and each contributes its branch-unique commits via one compare call; \"default\" restricts the commit feed to the default branch only.",
+  "$comment_commit_files_per_sweep": "Optional per-source \"commit_files_per_sweep\": how many commits' changed-file lists the sync reads after each sweep of the source, one provider request each (default 50; 0 turns it off). It feeds the Commits page's Hot files pane, starts from the newest commits, and catches up on history over later sweeps.",
   "timezone": "Asia/Taipei",
   "sources": [
     {

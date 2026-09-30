@@ -1031,6 +1031,8 @@ export function commitScopeIsWhole(scope: {
   // Merge commits left out of the rows (the Commits page preference). The
   // aggregate still counts them.
   mergesHidden?: boolean;
+  // The rows narrowed to the commits that touched one hot path.
+  pathFiltered?: boolean;
 }): boolean {
   return (
     !scope.source &&
@@ -1039,7 +1041,8 @@ export function commitScopeIsWhole(scope: {
     !scope.author &&
     scope.hiddenRepos === 0 &&
     scope.hiddenSources === 0 &&
-    scope.mergesHidden !== true
+    scope.mergesHidden !== true &&
+    scope.pathFiltered !== true
   );
 }
 

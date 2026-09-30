@@ -105,6 +105,7 @@ function fakeStore(items: ItemRow[]): Store {
     listLiveEdges: async () => [],
     listActivities: async () => [],
     listLiveReviewThreads: async () => [],
+    listCommitFilesInRange: async () => [],
   } as unknown as Store;
 }
 

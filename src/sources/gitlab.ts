@@ -30,7 +30,7 @@
 // `complete:false` with the error and never corrupts/soft-deletes data.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome } from "./types.ts";
+import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome, CommitFilesCandidate, CommitFilesFetchResult } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -46,6 +46,7 @@ import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
 import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitChangeRequest } from "../model/activity.ts";
 import { refOf } from "../model/ref.ts";
+import { COMMIT_FILES_ENTITY, commitFilesBundle, fetchCommitFileRecords, gitlabCommitFiles } from "./commit-files.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
@@ -423,8 +424,25 @@ export class GitLabSource implements Source {
     return { mentions, relates };
   }
 
+  // The changed files of commits the engine has no answer for: one diff
+  // request per commit.
+  async fetchCommitFiles(candidates: CommitFilesCandidate[]): Promise<CommitFilesFetchResult> {
+    const tracked = new Set(this.projects);
+    return fetchCommitFileRecords({
+      candidates,
+      allowed: (projectPath) => tracked.has(projectPath),
+      read: (candidate) => {
+        if (!this.rest) throw new Error("commit files need a REST client");
+        return gitlabCommitFiles(this.rest, candidate.projectPath, candidate.sha);
+      },
+      apiVersion: `${API_VERSION}.rest`,
+      concurrency: resolveConcurrency(),
+    });
+  }
+
   normalize(raw: RawRecord): NormalizedBundle | null {
     if (raw.entityKind === "activity") return this.normalizeActivity(raw);
+    if (raw.entityKind === COMMIT_FILES_ENTITY) return commitFilesBundle(this.descriptor.sourceId, raw);
 
     const p = raw.payload as any;
     const sourceId = this.descriptor.sourceId;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
+import type { ActivityDTO, CommitFileStatsDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import {
   actorAvatarIndex,
   actorDetails,
@@ -13,6 +13,9 @@ import {
   commitLanding,
   defaultBranchesFirst,
   directCommits,
+  hotPaths,
+  commitsTouching,
+  shortPathLabel,
   commitScopeOf,
   commitSizeSummary,
   commitTypeOf,
@@ -763,4 +766,79 @@ test("a row's zoned day is remembered per zone, not across zones", () => {
   const broken = [activity({ occurred_at: "not a date" })];
   assert.deepEqual(countsByDay(broken, "UTC", "2026-09-10", "2026-09-10").map((d) => d.count), [0]);
   assert.deepEqual(countsByDay(broken, "Asia/Taipei", "2026-09-10", "2026-09-10").map((d) => d.count), [0]);
+});
+
+// ---- hot files --------------------------------------------------------------
+
+const entry = (path: string, commits: number, additions: number, deletions: number, authors = 1, shas: string[] = []) => ({
+  path, commits, additions, deletions, authors, shas,
+});
+const FILE_STATS: CommitFileStatsDTO = {
+  repos: [
+    {
+      source_id: "gh", project_path: "acme/api", commits: 10, scanned: 8, truncated: 0, files: 40,
+      top_files: [entry("src/app.ts", 6, 10, 2, 2, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]), entry("README.md", 2, 5, 1), entry("zeta.ts", 1, 1, 0), entry("alpha.ts", 1, 1, 0)],
+      top_dirs: [entry("src/", 7, 120, 30, 2), entry("./", 2, 5, 1)],
+    },
+    {
+      source_id: "gh", project_path: "acme/web", commits: 4, scanned: 4, truncated: 1, files: 9,
+      top_files: [entry("src/app.ts", 3, 900, 0), entry("styles/main.css", 6, 10, 10, 3)],
+      top_dirs: [entry("styles/", 6, 10, 10, 3)],
+    },
+    { source_id: "gl", project_path: "acme/api", commits: 5, scanned: 0, truncated: 0, files: 0, top_files: [], top_dirs: [] },
+  ],
+};
+
+test("hotPaths merges the repositories on screen into one ranking with their coverage", () => {
+  const all = hotPaths(FILE_STATS, null, "files", 10);
+  assert.deepEqual(
+    all.rows.map((row) => [row.projectPath, row.path, row.commits]),
+    [
+      // Six commits each: the larger churn leads, though its key sorts later.
+      ["acme/web", "styles/main.css", 6],
+      ["acme/api", "src/app.ts", 6],
+      ["acme/web", "src/app.ts", 3],
+      ["acme/api", "README.md", 2],
+      // One commit and one line each: the key decides, not the input order.
+      ["acme/api", "alpha.ts", 1],
+      ["acme/api", "zeta.ts", 1],
+    ],
+    "the same path in two repositories is two rows: they are two files",
+  );
+  assert.equal(all.rows[1]!.key, "gh|acme/api|src/app.ts");
+  assert.deepEqual(all.rows[1]!.shas, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
+  assert.deepEqual({ commits: all.commits, scanned: all.scanned, files: all.files, truncated: all.truncated, repos: all.repos }, { commits: 19, scanned: 12, files: 49, truncated: 1, repos: 3 });
+
+  // Narrowed to the repositories that have rows on screen.
+  const one = hotPaths(FILE_STATS, new Set(["gh|acme/web"]), "files", 10);
+  assert.deepEqual(one.rows.map((row) => row.path), ["styles/main.css", "src/app.ts"]);
+  assert.deepEqual({ commits: one.commits, scanned: one.scanned, files: one.files, repos: one.repos }, { commits: 4, scanned: 4, files: 9, repos: 1 });
+
+  assert.deepEqual(hotPaths(FILE_STATS, null, "dirs", 2).rows.map((row) => row.path), ["src/", "styles/"], "directories rank the same way, bounded");
+  // No aggregate at all is not the same as an aggregate with nothing in it.
+  assert.equal(hotPaths(undefined, null, "files", 10), null);
+  assert.deepEqual(hotPaths({ repos: [] }, null, "files", 10), { rows: [], commits: 0, scanned: 0, files: 0, truncated: 0, repos: 0 });
+});
+
+test("commitsTouching keeps the commits of that repository whose sha a path lists", () => {
+  const rows = [
+    activity({ external_id: "c1", details: { sha: "aaaaaaaaaaaa1111" } }),
+    activity({ external_id: "c2", details: { sha: "cccccccccccc2222" } }),
+    // The same sha prefix in another repository is another commit.
+    activity({ external_id: "c3", project_path: "acme/web", details: { sha: "aaaaaaaaaaaa3333" } }),
+    activity({ external_id: "c4", source_id: "gl", details: { sha: "aaaaaaaaaaaa4444" } }),
+    activity({ external_id: "c5", details: null }),
+  ];
+  const path = { sourceId: "gh", projectPath: "acme/api", shas: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"] };
+  assert.deepEqual(commitsTouching(rows, path).map((a) => a.external_id), ["c1"]);
+  assert.deepEqual(commitsTouching(rows, { ...path, shas: [] }), []);
+});
+
+test("shortPathLabel keeps the end of a path, which is the part that names the file", () => {
+  assert.equal(shortPathLabel("packages/ui/src/components/CommitsRail.tsx"), "components/CommitsRail.tsx");
+  assert.equal(shortPathLabel("src/app.ts"), "src/app.ts");
+  assert.equal(shortPathLabel("README.md"), "README.md");
+  assert.equal(shortPathLabel("packages/ui/"), "packages/ui/", "a directory keeps its trailing slash");
+  assert.equal(shortPathLabel("a/b/c/"), "b/c/");
+  assert.equal(shortPathLabel("./"), "(root)");
 });

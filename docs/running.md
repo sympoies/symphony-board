@@ -62,6 +62,16 @@ credential label, auth kind, strategy, API kind, operation, and repo when it can
 be inferred. The trace never logs token values or private keys; leave it off in
 normal operation because it is intentionally verbose.
 
+A source may set `"commit_files_per_sweep"` to bound the commit file pass: how
+many commits' changed-file lists it reads after each sweep of that source, one
+provider request each. The default is 50; `0` turns the pass off. The pass
+starts from the newest commits and works backwards over later sweeps (up to a
+year), so a fresh store shows file data for recent commits first and the
+Commits page states how many commits it has scanned. Raise it to catch up
+faster when the token budget allows. With the pass off for every source and
+nothing collected, the contract carries no file aggregate and the Commits page
+shows commit scopes in that pane.
+
 A source may also set `"enabled": false` to stay in the config while being
 skipped by every sync run. Use this for temporarily unreachable providers, such
 as a self-hosted GitLab that needs VPN on one host, instead of removing and

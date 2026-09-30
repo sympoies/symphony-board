@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import postgres from "postgres";
 import type { Sql, TransactionSql } from "postgres";
-import type { CanonicalActivity, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
+import type { CanonicalActivity, CanonicalCommitFiles, CanonicalItem, CanonicalLabel, CanonicalReviewThread } from "../model/types.ts";
 import type { ReconciledEdge } from "../model/edges.ts";
 import type { SourceDescriptor } from "../sources/types.ts";
 import { activityRangeBounds } from "./activity-range.ts";
@@ -50,6 +50,8 @@ import type {
   BoundedEdgeRows,
   RepoActivityBoundsRow,
   CiRefreshCandidateRow,
+  CommitFileCandidateRow,
+  CommitFilesRow,
   EdgeRow,
   ItemRow,
   LabelRow,
@@ -88,6 +90,7 @@ const MIGRATIONS: Migration[] = [
   { version: 10, file: "0010_item_comment_total.sql" },
   { version: 11, file: "0011_sync_run_graphql_requests.sql" },
   { version: 12, file: "0012_sync_run_graphql_cost.sql" },
+  { version: 13, file: "0013_commit_files.sql" },
 ];
 const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
@@ -622,6 +625,53 @@ export class PgStore implements Store {
         AND occurred_at::timestamptz <= ${to}::timestamptz
       ORDER BY occurred_at::timestamptz DESC, activity_id DESC`;
     return rows as unknown as ActivityRow[];
+  }
+
+  async upsertCommitFiles(files: CanonicalCommitFiles, nowIso: string): Promise<void> {
+    await this.#q`
+      INSERT INTO commit_files (source_id, external_id, project_path, sha, state, truncated, files, fetched_at)
+      VALUES (
+        ${files.sourceId}, ${files.externalId}, ${nz(files.projectPath)}, ${files.sha}, ${files.state},
+        ${files.truncated}, ${JSON.stringify(files.files)}, ${nowIso}
+      )
+      ON CONFLICT (source_id, external_id) DO UPDATE SET
+        project_path = excluded.project_path, sha = excluded.sha, state = excluded.state,
+        truncated = excluded.truncated, files = excluded.files, fetched_at = excluded.fetched_at`;
+  }
+
+  async listCommitFileCandidates(sourceId: string, sinceIso: string, limit: number): Promise<CommitFileCandidateRow[]> {
+    const safeLimit = Math.max(0, Math.trunc(Number.isFinite(limit) ? limit : 0));
+    if (safeLimit === 0) return [];
+    // Same two-layer bound as listActivitiesInRange: a coarse text band the
+    // time index can scan, then ::timestamptz for the exact instant.
+    const { coarseFrom, from } = activityRangeBounds(sinceIso, sinceIso);
+    const rows = await this.#q`
+      SELECT a.source_id, a.external_id, a.project_path, a.occurred_at, a.details
+      FROM activity a
+      LEFT JOIN commit_files cf ON cf.source_id = a.source_id AND cf.external_id = a.external_id
+      WHERE a.source_id = ${sourceId}
+        AND a.kind = 'commit'
+        AND a.project_path IS NOT NULL
+        AND cf.external_id IS NULL
+        AND a.occurred_at >= ${coarseFrom}
+        AND a.occurred_at::timestamptz >= ${from}::timestamptz
+      ORDER BY a.occurred_at::timestamptz DESC, a.activity_id DESC
+      LIMIT ${safeLimit}`;
+    return rows as unknown as CommitFileCandidateRow[];
+  }
+
+  async listCommitFilesInRange(fromIso: string, toIso: string): Promise<CommitFilesRow[]> {
+    const { coarseFrom, coarseTo, from, to } = activityRangeBounds(fromIso, toIso);
+    const rows = await this.#q`
+      SELECT cf.source_id, cf.external_id, cf.project_path, cf.sha, cf.state, cf.truncated, cf.files, cf.fetched_at
+      FROM commit_files cf
+      JOIN activity a ON a.source_id = cf.source_id AND a.external_id = cf.external_id
+      WHERE cf.state = 'ok'
+        AND a.kind = 'commit'
+        AND a.occurred_at >= ${coarseFrom} AND a.occurred_at <= ${coarseTo}
+        AND a.occurred_at::timestamptz >= ${from}::timestamptz
+        AND a.occurred_at::timestamptz <= ${to}::timestamptz`;
+    return rows as unknown as CommitFilesRow[];
   }
 
   async listLiveReviewThreads(): Promise<ReviewThreadRow[]> {

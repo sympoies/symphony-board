@@ -144,6 +144,35 @@ export interface CanonicalReviewThread {
   lastCommentAt: string | null;
 }
 
+// One file a commit changed. Path, status and line counts only: patch text is
+// never carried past the fetch.
+export type CommitFileStatus = "added" | "modified" | "removed" | "renamed";
+
+export interface CanonicalCommitFile {
+  path: string;
+  status: CommitFileStatus;
+  additions: number;
+  deletions: number;
+}
+
+// What the store knows about one commit's files. "ok" carries the list;
+// "unavailable" records that the provider no longer has the commit, so it is
+// not asked for again; "merge" records that the commit is a merge, whose diff
+// is against its first parent and would count the merged branch's work twice.
+export type CommitFilesState = "ok" | "unavailable" | "merge";
+
+export interface CanonicalCommitFiles {
+  sourceId: string;
+  // The commit ACTIVITY's external id, which is what joins this to its row.
+  externalId: string;
+  projectPath: string | null;
+  sha: string;
+  state: CommitFilesState;
+  // The provider capped the list, so `files` is a prefix of the real change.
+  truncated: boolean;
+  files: CanonicalCommitFile[];
+}
+
 // What normalizing one raw record yields: the item, its labels, and any edges
 // it asserts (from either endpoint's point of view, or as a third item — a
 // program tracker reports `blocks` between two of its rows' issues), plus any
@@ -155,4 +184,5 @@ export interface NormalizedBundle {
   edges: CanonicalEdge[];
   activities: CanonicalActivity[];
   reviewThreads?: CanonicalReviewThread[];
+  commitFiles?: CanonicalCommitFiles[];
 }

@@ -10,6 +10,7 @@ import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { buildRangeContract } from "../contract/build.ts";
+import { commitFilesForProjection } from "../contract/emit.ts";
 import { zonedDayStartIso, zonedDayEndIso } from "../lib/tz.ts";
 import { sendJsonMaybeGzip } from "./http.ts";
 
@@ -67,6 +68,7 @@ export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractE
       // still applies its precise projection, so the emitted rows are identical.
       activities: await store.listActivitiesInRange(range.from, range.to),
       reviewThreads: await store.listLiveReviewThreads(),
+      commitFiles: await commitFilesForProjection(store, cfg, range.from, range.to),
       // Coverage (observed_since / last_activity_at / activity_available) is an
       // all-time bound, so it must NOT be derived from the range-bounded list
       // above — a separate cheap per-repo MIN/MAX read keeps it all-time.
