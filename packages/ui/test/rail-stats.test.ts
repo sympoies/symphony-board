@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
-import { actorAvatarIndex, actorIndex, actorsOf, commitAuthorOptions, commitTypeOf, countsByDay, countsByHour, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
+import { actorAvatarIndex, actorIndex, actorsOf, commitAuthorOptions, commitTypeOf, countsByDay, countsByHour, dayAxisTicks, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -386,4 +386,23 @@ test("actorsOf resolves a ranked row back to every raw actor it covers", () => {
   // An unknown name filters by itself, which is what a pre-4.7.0 payload needs.
   assert.deepEqual(actorsOf(directory, "nobody"), ["nobody"]);
   assert.deepEqual(actorsOf(null, "ada"), ["ada"]);
+});
+
+test("dayAxisTicks labels every day of a short range and only the ends of a long one", () => {
+  const span = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ date: new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10), count: i }));
+
+  // A week: one label per bar, so each bar can be read against its own date.
+  assert.deepEqual(dayAxisTicks(span(7)).map((t) => t.label), ["09-01", "09-02", "09-03", "09-04", "09-05", "09-06", "09-07"]);
+  assert.deepEqual(dayAxisTicks(span(7)).map((t) => t.index), [0, 1, 2, 3, 4, 5, 6]);
+
+  // A month: thirty labels would collide, so only the ends and the middle stay.
+  assert.deepEqual(dayAxisTicks(span(30)), [
+    { index: 0, label: "09-01" },
+    { index: 14, label: "09-15" },
+    { index: 29, label: "09-30" },
+  ]);
+
+  assert.deepEqual(dayAxisTicks(span(1)), [{ index: 0, label: "09-01" }]);
+  assert.deepEqual(dayAxisTicks([]), []);
 });
