@@ -2289,6 +2289,101 @@ export function focusNeighborhoodNodes(
   return nodes.filter((node) => retained.has(node.ref));
 }
 
+// Whether these edges make `ref` a program tracker: it has a `parent` edge to
+// another item (the rule program.ts builds a rollup from). Read over edges the
+// viewer can see, it is the one test behind both loading a program scope and
+// drawing a program view, so the two cannot disagree.
+export function graphFocusIsTracker(edges: Iterable<EdgeDTO>, ref: string): boolean {
+  for (const edge of edges) if (edge.type === "parent" && edge.from === ref && edge.to !== ref) return true;
+  return false;
+}
+
+// A focus response under the persistent visibility choices: an item in a hidden
+// repo or source leaves with its edges. The focus itself and untracked
+// endpoints always stay.
+export function visibleGraphNeighborhood(
+  response: GraphNeighborhoodResponse,
+  hiddenRepos: ReadonlySet<string>,
+  hiddenSources: ReadonlySet<string> = new Set(),
+): { nodes: GraphNeighborhoodNode[]; edges: ResolvedEdge[] } {
+  const nodes = response.nodes.filter((node) => {
+    if (node.ref === response.focus_ref || node.item === null) return true;
+    return !hiddenSources.has(node.item.source_id) && !hiddenRepos.has(repoKey(node.item.source_id, node.item.project_path));
+  });
+  const trackedIds = new Set(response.nodes.filter((node) => node.item !== null).map((node) => node.ref));
+  const visibleItems = nodes.map((node) => node.item).filter((item): item is ItemDTO => item !== null);
+  const byId = new Map(visibleItems.map((item) => [item.id, item]));
+  const edges = resolveEdgeList(response.edges, byId).filter((re) => {
+    if (trackedIds.has(re.edge.from) && !byId.has(re.edge.from)) return false;
+    if (trackedIds.has(re.edge.to) && !byId.has(re.edge.to)) return false;
+    return true;
+  });
+  return { nodes, edges };
+}
+
+export interface GraphFocusRequest {
+  // The view the route asks for; only a tracker has a program to show.
+  scope: GraphFocusScope;
+  // The loaded window already shows the focus as a tracker.
+  loadedTracker: boolean;
+  // graphFocusIsTracker over the edges of a response the viewer can see.
+  isTracker: (response: GraphNeighborhoodResponse) => boolean;
+}
+
+// What a focused item's server load came to. `scope` is the scope `result` was
+// loaded for (a response does not say so itself). A `fallback` carries the
+// message the focus view shows: without a result the view is drawn from loaded
+// items, with one from a neighbourhood that stands in for the program.
+export interface GraphFocusLoad {
+  scope: GraphFocusScope;
+  result: GraphNeighborhoodResponse | null;
+  status: "ready" | "fallback";
+  message: string | null;
+}
+
+// Load a focused item's Graph data through `fetchScope`. A tracker loads its
+// program scope: in one request when the loaded window already shows its
+// children, else after its neighbourhood shows them. A program response with no
+// visible child counts as a failed request, so a held program can always be
+// drawn. Never rejects; a caller that aborted the fetch ignores the outcome.
+export async function loadGraphFocus(
+  request: GraphFocusRequest,
+  fetchScope: (scope: GraphFocusScope) => Promise<GraphNeighborhoodResponse>,
+): Promise<GraphFocusLoad> {
+  const wantsProgram = request.scope === "program";
+  const reason = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
+  const ready = (scope: GraphFocusScope, result: GraphNeighborhoodResponse): GraphFocusLoad => ({ scope, result, status: "ready", message: null });
+  const fetchProgram = async (): Promise<GraphNeighborhoodResponse> => {
+    const program = await fetchScope("program");
+    if (!request.isTracker(program)) throw new Error("graph program: no children returned");
+    return program;
+  };
+  try {
+    if (wantsProgram && request.loadedTracker) return ready("program", await fetchProgram());
+    const neighborhood = await fetchScope("neighborhood");
+    if (!wantsProgram || !request.isTracker(neighborhood)) return ready("neighborhood", neighborhood);
+    try {
+      return ready("program", await fetchProgram());
+    } catch (cause) {
+      // A server that predates the program scope ends here. Its neighbourhood
+      // answer holds the children, but not every edge that decides their status.
+      return {
+        scope: "neighborhood",
+        result: neighborhood,
+        status: "fallback",
+        message: `Could not load the program (${reason(cause)}); showing it from the loaded neighborhood, which may miss what blocks or closes a child.`,
+      };
+    }
+  } catch (cause) {
+    return {
+      scope: "neighborhood",
+      result: null,
+      status: "fallback",
+      message: `Could not load full relationship history (${reason(cause)}); showing ${wantsProgram && request.loadedTracker ? "the program from loaded items" : "loaded direct relations"}.`,
+    };
+  }
+}
+
 export function resolveEdgeList(edges: readonly EdgeDTO[], byId: ReadonlyMap<string, ItemDTO>): ResolvedEdge[] {
   return edges.map((edge) => ({
     edge,
@@ -2651,6 +2746,22 @@ export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
 }
+
+// Tooltip for a node's relation count: the per-type breakdown, plus an explicit
+// callout when the CURRENT view draws fewer neighbours than the item has (the
+// overview is time-windowed and filtered by relation type; the count is not) — the cue
+// that focusing the node reveals more than the visible lines suggest. A program
+// child gets no callout: its view leaves out the tracker and the implied
+// `blocks` links by design, not by window or filter.
+export function graphNodeRelatedTitle(d: GraphNode): string {
+  const rel = d.related!;
+  const parts = rel.byType.map((t) => `${t.type} ${t.count}`).join(" · ");
+  const drawn = d.relatedDrawn ?? 0;
+  return drawn < rel.total && d.programStatus === undefined
+    ? `${parts} — ${drawn} of ${rel.total} drawn in this view (time window / relation filters); focus the node to see all`
+    : parts;
+}
+
 export type GraphMentionTarget = "all" | "issue" | "change_request";
 // The overview's relation filter. `mentions` has its own switch (off by
 // default) and target sub-filter; every other type is drawn unless it is in
@@ -2969,9 +3080,12 @@ function dtoAdjacency(edges: EdgeDTO[]): Map<string, RelatedRef[]> {
   return adj;
 }
 
-// How one relation type is drawn, shared by the canvas and the legend. The
-// types differ by dash pattern or weight, never by colour alone. A null stroke
-// means the edge's lifecycle colour (`closes`; muted for a type without one).
+// How one relation type is drawn, shared by the canvas and the legend. The five
+// known types differ by dash pattern or weight, never by colour alone: `closes`
+// is the default line and the other four have their own. A type the UI does not
+// know draws with the default line too, so shape alone does not tell it from
+// `closes`. A null stroke means the edge's lifecycle colour (`closes`; muted
+// for a type without one).
 export interface GraphEdgeStyle {
   stroke: string | null;
   width: number;
@@ -2982,6 +3096,7 @@ const GRAPH_EDGE_STYLE: Record<string, GraphEdgeStyle> = {
   blocks: { stroke: "var(--graph-blocks)", width: 2.75, dash: null },
   parent: { stroke: "var(--graph-parent)", width: 1.25, dash: "9 3 2 3" },
   mentions: { stroke: "var(--graph-mention)", width: 1, dash: "4 3" },
+  relates: { stroke: null, width: 1.5, dash: "10 4" },
 };
 const GRAPH_EDGE_STYLE_DEFAULT: GraphEdgeStyle = { stroke: null, width: 1.5, dash: null };
 

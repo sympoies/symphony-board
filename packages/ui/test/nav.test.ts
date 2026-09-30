@@ -27,6 +27,7 @@ import {
   clearFiltersHref,
   startupRouteHash,
   inPageHref,
+  graphFocusPatch,
   resolveDefaultTab,
   liveTabVisible,
   parseDebugTab,
@@ -308,6 +309,12 @@ test("the graph focus scope survives in-page edits and is dropped by a tab hop",
   assert.equal(inPageHref(route, { scope: null }), "#/graph?focus=x&depth=2&q=needle", "back to the program view");
   assert.equal(inPageHref(parseHashRoute("#/graph?focus=x"), { scope: "neighborhood" }), "#/graph?focus=x&scope=neighborhood");
   assert.equal(tabHref("graph", { q: route.q }), "#/graph?q=needle");
+});
+
+test("a new graph focus starts on its default view", () => {
+  const route = parseHashRoute("#/graph?focus=x&depth=2&scope=neighborhood&q=needle");
+  assert.equal(inPageHref(route, graphFocusPatch("y", 3)), "#/graph?focus=y&depth=3&q=needle", "the neighbourhood choice belonged to the old focus");
+  assert.equal(inPageHref(route, graphFocusPatch(null, 3)), "#/graph?q=needle", "leaving focus drops its depth and scope");
 });
 
 test("graphFocusHref is re-exported from nav and builds a graph focus link", () => {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import type { EdgeRow, ItemRow, SourceRow } from "../src/db/store.ts";
+import type { EdgeRow, ItemRow, SourceRow, Store } from "../src/db/store.ts";
 import type { CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
 import { openSqliteStore } from "../src/db/sqlite.ts";
@@ -266,6 +266,9 @@ test("graph neighborhood options validate ref and depth", () => {
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?depth=2")), /ref is required/);
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&depth=6")), /1 to 5/);
   assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&mentions=recursive")), /mentions must be/);
+  // A program scope uses neither, but both are still validated when present.
+  assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&scope=program&depth=9")), /1 to 5/);
+  assert.throws(() => parseGraphNeighborhoodOptions(new URL("https://x/api/graph-neighborhood?ref=x&scope=program&mentions=none")), /mentions must be/);
 });
 
 test("identical projections coalesce and the final consumer abort stops the loader", async () => {
@@ -449,6 +452,7 @@ test("program scope returns the tracker, its children, what blocks them, and wha
       edge("C1", "C2", "blocks"), edge("C2", "C3", "blocks"), edge("X", "C3", "blocks"), edge("C3", "UNTRACKED", "blocks"),
       edge("P1", "C1", "closes"),
       edge("C1", "N", "blocks"), // what a child blocks outside the program
+      edge("C1", "C1", "blocks"), edge("C2", "C2", "closes"), // a child neither blocks nor closes itself
       edge("T", "M"), edge("C1", "N"), edge("P9", "T", "closes"), edge("X", "T", "parent"),
     ],
   );
@@ -484,8 +488,19 @@ test("program scope keeps structure first under the node and edge caps", () => {
     edge("T", "C1", "parent"), edge("T", "C2", "parent"), edge("T", "C3", "parent"),
     edge("C1", "C2", "blocks"), edge("C2", "C3", "blocks"),
     edge("P1", "C1", "closes"), edge("P2", "C2", "closes"),
+    edge("P1", "C2", "blocks"), // an outside blocker: the last candidate, after both change requests
   ];
   const ids = ["T", "C1", "C2", "C3", "P1", "P2"];
+
+  const onlyChildrenCapped = buildProgram(
+    ["T", "C1", "C2", "C3"],
+    [edge("T", "C3", "parent"), edge("T", "C2", "parent"), edge("T", "C1", "parent")],
+    { maxNodes: 3 },
+  );
+  assert.deepEqual(onlyChildrenCapped.nodes.map((node) => node.ref), [ref("T"), ref("C1"), ref("C2")], "the cut follows ref order, not edge order");
+  assert.deepEqual(edgeText(onlyChildrenCapped.edges), ["parent T>C1", "parent T>C2"]);
+  assert.deepEqual(onlyChildrenCapped.limit_reasons, ["nodes"], "children past the bound are reported even when nothing else overflows");
+  assert.equal(onlyChildrenCapped.complete, false);
 
   const childCapped = buildProgram(ids, edges, { maxNodes: 3 });
   assert.deepEqual(childCapped.nodes.map((node) => node.ref), [ref("T"), ref("C1"), ref("C2")], "children past the cap are cut in ref order");
@@ -494,7 +509,7 @@ test("program scope keeps structure first under the node and edge caps", () => {
 
   const closerCapped = buildProgram(ids, edges, { maxNodes: 5 });
   assert.deepEqual(closerCapped.nodes.map((node) => node.ref), [ref("T"), ref("C1"), ref("C2"), ref("C3"), ref("P1")]);
-  assert.deepEqual(edgeText(closerCapped.edges).slice(-1), ["closes P1>C1"]);
+  assert.deepEqual(edgeText(closerCapped.edges).slice(-2), ["closes P1>C1", "blocks P1>C2"], "an edge between admitted nodes survives a cut before it");
   assert.deepEqual(closerCapped.limit_reasons, ["nodes"]);
 
   const edgeCapped = buildProgram(ids, edges, { maxEdges: 4 });
@@ -576,4 +591,130 @@ test("range API serves a program scope that mention noise on the children cannot
     await close(server);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// A throwaway store behind the range API, seeded in one transaction.
+async function withSeededApi(seed: (tx: Store) => Promise<void>, run: (base: string) => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "graph-program-bounds-"));
+  const dbPath = join(dir, "data", "board.db");
+  const configPath = join(dir, "config", "sources.json");
+  const store = await openSqliteStore(dbPath);
+  try {
+    await store.transaction(async (tx) => {
+      await tx.ensureSource({ sourceId: SOURCE, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-07-12T00:00:00Z");
+      await tx.ensureSource({ sourceId: SECOND_SOURCE, kind: "github", host: "git.example.com", displayName: "Second" }, "2026-07-12T00:00:00Z");
+      await seed(tx);
+    });
+  } finally {
+    await store.close();
+  }
+  mkdirSync(join(dir, "config"), { recursive: true });
+  writeFileSync(configPath, JSON.stringify({
+    db_path: dbPath,
+    timezone: "UTC",
+    sources: [
+      {
+        source_id: SOURCE,
+        kind: "github",
+        host: "github.com",
+        display_name: "GitHub",
+        token_env: "GRAPH_NEIGHBORHOOD_TEST_TOKEN_UNSET",
+        graphql_url: "https://api.github.com/graphql",
+        projects: [PROJECT],
+      },
+      {
+        source_id: SECOND_SOURCE,
+        kind: "github",
+        host: "git.example.com",
+        display_name: "Second",
+        token_env: "GRAPH_NEIGHBORHOOD_TEST_TOKEN_UNSET",
+        graphql_url: "https://git.example.com/api/graphql",
+        projects: [PROJECT],
+      },
+    ],
+  }));
+  const server = createRangeApiServer({ configPath, contractOut: join(dir, "data", "contract.json") });
+  const base = await listen(server);
+  try {
+    await run(base);
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+interface ProgramBody {
+  complete: boolean;
+  limit_reasons: string[];
+  nodes: Array<{ ref: string; hop: number }>;
+  edges: Array<{ type: string; from: string; to: string }>;
+}
+
+async function fetchProgram(base: string, focus: string): Promise<ProgramBody> {
+  const response = await fetch(`${base}/api/graph-neighborhood?ref=${encodeURIComponent(ref(focus))}&scope=program`);
+  assert.equal(response.status, 200);
+  return await response.json() as ProgramBody;
+}
+
+test("program scope reports the edge limit when a read hits its 2,000-row bound", async () => {
+  const at = "2026-07-12T00:00:00Z";
+  const typed = (from: string, to: string, type: ReconciledEdge["type"], toSource = SOURCE): ReconciledEdge =>
+    reconciledCrossSourceEdge(SOURCE, from, toSource, to, type);
+  await withSeededApi(async (tx) => {
+    for (const [index, id] of ["TA", "CA", "CB", "PA", "TB", "CC", "TC", "CX"].entries()) await tx.upsertItem(canonicalItem(id, index + 1), "test", at);
+    await tx.upsertItem({ ...canonicalItem("DY", 9), sourceId: SECOND_SOURCE }, "test", at);
+
+    // TA: one child carries more edge rows than the children's read may take.
+    for (const child of ["CA", "CB"]) await tx.upsertEdge(typed("TA", child, "parent"), at);
+    await tx.upsertEdge(typed("CA", "CB", "blocks"), at);
+    await tx.upsertEdge(typed("PA", "CA", "closes"), at);
+    for (let index = 0; index < 2050; index++) await tx.upsertEdge(typed("CA", `MA${index}`, "mentions"), at);
+
+    // TB: the tracker itself carries more than its own read may take.
+    await tx.upsertEdge(typed("TB", "CC", "parent"), at);
+    for (let index = 0; index < 2050; index++) await tx.upsertEdge(typed("TB", `MB${index}`, "mentions"), at);
+
+    // TC: a child per source, each under the bound alone and over it together.
+    await tx.upsertEdge(typed("TC", "CX", "parent"), at);
+    await tx.upsertEdge(typed("TC", "DY", "parent", SECOND_SOURCE), at);
+    for (let index = 0; index < 1050; index++) {
+      await tx.upsertEdge(typed("CX", `MX${index}`, "mentions"), at);
+      await tx.upsertEdge(reconciledCrossSourceEdge(SECOND_SOURCE, "DY", SECOND_SOURCE, `MY${index}`), at);
+    }
+  }, async (base) => {
+    for (const [focus, why] of [
+      ["TA", "the children's read was cut, so a child may have lost what blocks or closes it"],
+      ["TB", "the tracker's own read was cut, so it may have lost children"],
+      ["TC", "the row budget is shared by every source's read, not granted to each"],
+    ] as const) {
+      const body = await fetchProgram(base, focus);
+      assert.equal(body.complete, false, `${focus}: ${why}`);
+      assert.ok(body.limit_reasons.includes("edges"), `${focus}: ${why}`);
+    }
+    const lost = await fetchProgram(base, "TA");
+    assert.ok(!lost.edges.some((entry) => entry.type === "closes"), "the flag is the only sign that CA's change request is missing");
+  });
+});
+
+test("program scope cuts children past the node bound in ref order and reports nodes", async () => {
+  // Mixed case, so plain ref order and the store's row order disagree.
+  const children = [
+    ...Array.from({ length: 100 }, (_, index) => `a${String(index).padStart(3, "0")}`),
+    ...Array.from({ length: 105 }, (_, index) => `B${String(index).padStart(3, "0")}`),
+  ];
+  await withSeededApi(async (tx) => {
+    await tx.upsertItem(canonicalItem("T", 1), "test", "2026-07-12T00:00:00Z");
+    for (const child of children) await tx.upsertEdge(reconciledCrossSourceEdge(SOURCE, "T", SOURCE, child, "parent"), "2026-07-12T00:00:00Z");
+  }, async (base) => {
+    const body = await fetchProgram(base, "T");
+    assert.equal(body.nodes.length, 200, "the tracker and 199 of its 205 children");
+    assert.deepEqual(body.limit_reasons, ["nodes"]);
+    assert.equal(body.complete, false);
+    assert.deepEqual(
+      body.nodes.filter((node) => node.hop === 1).map((node) => node.ref).sort(),
+      children.map(ref).sort().slice(0, 199),
+      "the cut is by ref, whatever order the rows were read in",
+    );
+    assert.equal(body.edges.length, 199);
+  });
 });

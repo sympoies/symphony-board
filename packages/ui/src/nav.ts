@@ -56,6 +56,13 @@ export function inPageHref(route: HashRoute, patch: Partial<HashRoute>): string 
   return buildHashRoute({ page: route.page, ...fields, ...patch });
 }
 
+// The in-page edit that focuses a Graph item, or leaves focus with null. A new
+// focus starts on its default view, so a tracker reached from another item's
+// neighbourhood opens on its program instead of inheriting `scope=neighborhood`.
+export function graphFocusPatch(focus: string | null, depth: number): Partial<HashRoute> {
+  return { focus, depth: focus ? depth : null, scope: null };
+}
+
 // Where a COLD START lands. A cold start is the app first executing its bundle:
 // a fresh open, a reopen, or a reload — in all of them the in-memory route state
 // is gone and the only input is the hash the host restored (the browser keeps

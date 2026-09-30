@@ -1,19 +1,28 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { EdgeDTO, ItemDTO } from "@symphony-board/contract";
+import type { ContractEnvelope, EdgeDTO, ItemDTO } from "@symphony-board/contract";
 import {
+  applyVisibility,
   buildHashRoute,
   graphCanvasEmptyReason,
   graphEdgeStyle,
   graphEdgeTypes,
+  graphFocusIsTracker,
+  graphNodeRelatedTitle,
   graphOverviewVisibility,
   graphProgramView,
+  loadGraphFocus,
   parseHashRoute,
   programLayers,
   programScopeEdges,
   relatedItems,
+  repoKey,
   resolveEdgeList,
   transitiveReduction,
+  visibleGraphNeighborhood,
+  type GraphFocusScope,
+  type GraphNeighborhoodResponse,
+  type GraphNode,
   type ResolvedEdge,
 } from "../src/model.ts";
 import { programRollups } from "../src/program.ts";
@@ -145,9 +154,9 @@ test("graphCanvasEmptyReason blames mentions only when mentions are all that is 
   assert.deepEqual(graphCanvasEmptyReason(mentionOnly, hidden), { kind: "mentions-hidden", hiddenLinks: 1 });
 });
 
-test("graphEdgeStyle tells the relation types apart without colour", () => {
+test("graphEdgeStyle tells the five known relation types apart without colour", () => {
   const shape = (type: string): string => `${graphEdgeStyle(type).dash ?? "solid"} ${graphEdgeStyle(type).width}`;
-  assert.equal(new Set(["closes", "blocks", "parent", "mentions"].map(shape)).size, 4, "dash pattern or weight differs for each");
+  assert.equal(new Set(["closes", "blocks", "parent", "mentions", "relates"].map(shape)).size, 5, "dash pattern or weight differs for each");
   assert.equal(graphEdgeStyle("blocks").dash, null, "blocks is a heavy solid line");
   assert.ok(graphEdgeStyle("blocks").width > graphEdgeStyle("closes").width);
   assert.notEqual(graphEdgeStyle("parent").dash, null);
@@ -156,7 +165,24 @@ test("graphEdgeStyle tells the relation types apart without colour", () => {
   assert.equal(graphEdgeStyle("blocks").stroke, "var(--graph-blocks)");
   assert.equal(graphEdgeStyle("parent").stroke, "var(--graph-parent)");
   assert.equal(graphEdgeStyle("mentions").stroke, "var(--graph-mention)");
-  assert.deepEqual(graphEdgeStyle("duplicates"), graphEdgeStyle("relates"), "an unknown type draws like any other structural edge");
+  assert.notEqual(graphEdgeStyle("relates").dash, null, "relates is dashed, in a pattern of its own");
+  assert.equal(graphEdgeStyle("relates").stroke, null);
+  assert.deepEqual(graphEdgeStyle("duplicates"), { stroke: null, width: 1.5, dash: null }, "an unknown type draws with the default stroke");
+  assert.deepEqual(graphEdgeStyle("duplicates"), graphEdgeStyle("closes"), "which is the closes line, so shape alone does not tell those two apart");
+});
+
+test("graphNodeRelatedTitle calls out undrawn relations, but not on a program child", () => {
+  const node = { related: { total: 3, byType: [{ type: "blocks", count: 2 }, { type: "parent", count: 1 }] }, relatedDrawn: 1 } as GraphNode;
+  assert.equal(
+    graphNodeRelatedTitle(node),
+    "blocks 2 · parent 1 — 1 of 3 drawn in this view (time window / relation filters); focus the node to see all",
+  );
+  assert.equal(graphNodeRelatedTitle({ ...node, relatedDrawn: 3 }), "blocks 2 · parent 1");
+  assert.equal(
+    graphNodeRelatedTitle({ ...node, programStatus: "ready" }),
+    "blocks 2 · parent 1",
+    "a program view leaves out the tracker and the implied blocks links by design, not by window or filter",
+  );
 });
 
 test("programScopeEdges keeps a tracker's children, what blocks them, and what closes them", () => {
@@ -167,6 +193,7 @@ test("programScopeEdges keeps a tracker's children, what blocks them, and what c
     edge("blocks", "B", "Y"), // what a child blocks elsewhere is not this program's
     edge("closes", "PR1", "A"), edge("closes", "PR2", "Z"), edge("closes", "PR3", "T"),
     edge("mentions", "A", "B"), edge("parent", "T2", "A"), edge("parent", "T", "T"),
+    edge("blocks", "A", "A"), edge("closes", "B", "B"), // a child neither blocks nor closes itself
   ]);
   assert.deepEqual(edgeText(programScopeEdges(edges, ref("T"))), [
     "parent T>A", "parent T>B", "parent T>C",
@@ -271,4 +298,173 @@ test("the graph focus scope is route-backed and rides only with a focus", () => 
   );
   assert.equal(buildHashRoute({ page: "graph", scope: "neighborhood" }), "#/graph", "no focus, no scope");
   assert.equal(buildHashRoute({ page: "graph", focus: "x", scope: "program" }), "#/graph?focus=x");
+});
+
+// A server answer for one focus: the focus at hop 0, every other endpoint at hop 1.
+function neighborhood(focus: string, depth: number, items: ItemDTO[], edges: EdgeDTO[]): GraphNeighborhoodResponse {
+  const byId = new Map(items.map((it) => [it.id, it]));
+  const refs = [...new Set([ref(focus), ...edges.flatMap((entry) => [entry.from, entry.to])])];
+  const nodes = refs.map((id) => ({ ref: id, hop: id === ref(focus) ? 0 : 1, item: byId.get(id) ?? null }));
+  return {
+    schema: "symphony-board-graph-neighborhood/1", generated_at: "2026-06-14T00:00:00Z", focus_ref: ref(focus),
+    requested_depth: depth, reached_depth: nodes.length > 1 ? 1 : 0, complete: true, limit_reasons: [],
+    limits: { max_depth: 5, max_nodes: 200, max_edges: 500 }, counts: { nodes: nodes.length, edges: edges.length }, nodes, edges,
+  };
+}
+
+// An injected fetcher that records what was asked for; an Error answer rejects.
+function focusFetcher(answers: Partial<Record<GraphFocusScope, GraphNeighborhoodResponse | Error>>) {
+  const requests: GraphFocusScope[] = [];
+  const fetchScope = async (scope: GraphFocusScope): Promise<GraphNeighborhoodResponse> => {
+    requests.push(scope);
+    const answer = answers[scope] ?? new Error(`unexpected ${scope} request`);
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  return { requests, fetchScope };
+}
+
+const isTracker = (response: GraphNeighborhoodResponse): boolean => graphFocusIsTracker(response.edges, response.focus_ref);
+const TRACKER_ITEMS = [item("T"), item("A", { iid: 1 }), item("B", { iid: 2 }), item("PR", { kind: "change_request" })];
+const TRACKER_NEIGHBORHOOD = neighborhood("T", 1, TRACKER_ITEMS, [edge("parent", "T", "A"), edge("parent", "T", "B"), edge("mentions", "T", "PR")]);
+const TRACKER_PROGRAM = neighborhood("T", 2, TRACKER_ITEMS, [edge("parent", "T", "A"), edge("parent", "T", "B"), edge("blocks", "A", "B"), edge("closes", "PR", "A", "declared")]);
+
+test("graphFocusIsTracker is true for an item with a parent edge to another item", () => {
+  const edges = [edge("parent", "T", "A"), edge("parent", "S", "S"), edge("blocks", "A", "B"), edge("closes", "PR", "A")];
+  assert.equal(graphFocusIsTracker(edges, ref("T")), true);
+  assert.equal(graphFocusIsTracker(edges, ref("A")), false, "a child is not a tracker");
+  assert.equal(graphFocusIsTracker(edges, ref("S")), false, "a tracker is never its own child");
+  for (const id of ["T", "A", "S"]) {
+    assert.equal(graphFocusIsTracker(edges, ref(id)), programRollups(new Map(), edges).has(ref(id)), "the rule the program rollup draws from");
+  }
+});
+
+test("loadGraphFocus asks once for the program of a tracker the loaded window already shows", async () => {
+  const { requests, fetchScope } = focusFetcher({ program: TRACKER_PROGRAM });
+  const loaded = await loadGraphFocus({ scope: "program", loadedTracker: true, isTracker }, fetchScope);
+  assert.deepEqual(requests, ["program"]);
+  assert.deepEqual(loaded, { scope: "program", result: TRACKER_PROGRAM, status: "ready", message: null });
+});
+
+test("loadGraphFocus finds a tracker outside the loaded window through its neighbourhood", async () => {
+  const { requests, fetchScope } = focusFetcher({ neighborhood: TRACKER_NEIGHBORHOOD, program: TRACKER_PROGRAM });
+  const loaded = await loadGraphFocus({ scope: "program", loadedTracker: false, isTracker }, fetchScope);
+  assert.deepEqual(requests, ["neighborhood", "program"]);
+  assert.deepEqual(loaded, { scope: "program", result: TRACKER_PROGRAM, status: "ready", message: null });
+});
+
+test("loadGraphFocus keeps to the neighbourhood for a non-tracker and for a tracker switched to it", async () => {
+  const plain = neighborhood("A", 1, TRACKER_ITEMS, [edge("parent", "T", "A"), edge("closes", "PR", "A", "declared")]);
+  const other = focusFetcher({ neighborhood: plain });
+  assert.deepEqual(
+    await loadGraphFocus({ scope: "program", loadedTracker: false, isTracker }, other.fetchScope),
+    { scope: "neighborhood", result: plain, status: "ready", message: null },
+  );
+  assert.deepEqual(other.requests, ["neighborhood"]);
+
+  const switched = focusFetcher({ neighborhood: TRACKER_NEIGHBORHOOD });
+  assert.deepEqual(
+    await loadGraphFocus({ scope: "neighborhood", loadedTracker: true, isTracker }, switched.fetchScope),
+    { scope: "neighborhood", result: TRACKER_NEIGHBORHOOD, status: "ready", message: null },
+  );
+  assert.deepEqual(switched.requests, ["neighborhood"]);
+});
+
+test("loadGraphFocus keeps the neighbourhood and says so when the program request fails after it", async () => {
+  // What a server that predates the scope produces: fetchGraphNeighborhood
+  // rejects its depth-1 answer to a program request.
+  const { requests, fetchScope } = focusFetcher({ neighborhood: TRACKER_NEIGHBORHOOD, program: new Error("graph neighborhood: invalid response") });
+  const loaded = await loadGraphFocus({ scope: "program", loadedTracker: false, isTracker }, fetchScope);
+  assert.deepEqual(requests, ["neighborhood", "program"]);
+  assert.equal(loaded.result, TRACKER_NEIGHBORHOOD, "the children it holds are still drawn");
+  assert.equal(loaded.scope, "neighborhood");
+  assert.equal(loaded.status, "fallback", "not reported as a loaded program");
+  assert.equal(
+    loaded.message,
+    "Could not load the program (graph neighborhood: invalid response); showing it from the loaded neighborhood, which may miss what blocks or closes a child.",
+  );
+});
+
+test("loadGraphFocus falls back to loaded items when its first request fails", async () => {
+  const failure = new Error("graph neighborhood: HTTP 500");
+  const tracker = focusFetcher({ program: failure });
+  assert.deepEqual(await loadGraphFocus({ scope: "program", loadedTracker: true, isTracker }, tracker.fetchScope), {
+    scope: "neighborhood",
+    result: null,
+    status: "fallback",
+    message: "Could not load full relationship history (graph neighborhood: HTTP 500); showing the program from loaded items.",
+  });
+  assert.deepEqual(tracker.requests, ["program"]);
+
+  const other = focusFetcher({ neighborhood: failure });
+  assert.deepEqual(await loadGraphFocus({ scope: "program", loadedTracker: false, isTracker }, other.fetchScope), {
+    scope: "neighborhood",
+    result: null,
+    status: "fallback",
+    message: "Could not load full relationship history (graph neighborhood: HTTP 500); showing loaded direct relations.",
+  });
+  assert.deepEqual(other.requests, ["neighborhood"]);
+
+  // A tracker switched to its neighbourhood is not promised a program, and a
+  // rejection that is not an Error is still named.
+  const offline = await loadGraphFocus({ scope: "neighborhood", loadedTracker: true, isTracker }, () => Promise.reject("offline"));
+  assert.equal(offline.message, "Could not load full relationship history (offline); showing loaded direct relations.");
+});
+
+test("loadGraphFocus does not hold a program response that shows no child", async () => {
+  const childless = neighborhood("T", 2, TRACKER_ITEMS, []);
+
+  const direct = focusFetcher({ program: childless });
+  const loaded = await loadGraphFocus({ scope: "program", loadedTracker: true, isTracker }, direct.fetchScope);
+  assert.deepEqual(direct.requests, ["program"]);
+  assert.deepEqual([loaded.scope, loaded.result, loaded.status], ["neighborhood", null, "fallback"]);
+  assert.match(loaded.message ?? "", /^Could not load full relationship history \(graph program: no children returned\); showing the program from loaded items\.$/);
+
+  const twoStep = focusFetcher({ neighborhood: TRACKER_NEIGHBORHOOD, program: childless });
+  const kept = await loadGraphFocus({ scope: "program", loadedTracker: false, isTracker }, twoStep.fetchScope);
+  assert.deepEqual([kept.scope, kept.result, kept.status], ["neighborhood", TRACKER_NEIGHBORHOOD, "fallback"]);
+  assert.match(kept.message ?? "", /^Could not load the program \(graph program: no children returned\)/);
+});
+
+test("a tracker whose children are all hidden loads and draws as an ordinary neighbourhood", async () => {
+  const OTHER = "gitlab:gitlab.com";
+  const items = [
+    item("T"),
+    item("A", { iid: 1, project_path: "o/hidden" }),
+    { ...item("B", { iid: 2 }), id: `${OTHER}|B`, source_id: OTHER },
+    item("PR", { kind: "change_request" }),
+  ];
+  const parents = [edge("parent", "T", "A"), { ...edge("parent", "T", "B"), to: `${OTHER}|B` }];
+  const edges = [...parents, edge("blocks", "A", "T"), edge("closes", "PR", "T", "declared")];
+  const hiddenRepos = new Set([repoKey(SRC, "o/hidden")]);
+  const hiddenSources = new Set([OTHER]);
+  const focus = ref("T");
+
+  // The loaded window, as the pages see it.
+  const env = { items, edges } as unknown as ContractEnvelope;
+  assert.equal(graphFocusIsTracker(env.edges, focus), true, "unfiltered, the item is a tracker");
+  const loadedTracker = graphFocusIsTracker(applyVisibility(env, hiddenRepos, hiddenSources).edges, focus);
+  assert.equal(loadedTracker, false);
+
+  // The server's answers, which know nothing of the viewer's visibility choices.
+  const answer = neighborhood("T", 1, items, edges);
+  const visible = visibleGraphNeighborhood(answer, hiddenRepos, hiddenSources);
+  assert.deepEqual(visible.nodes.map((node) => short(node.ref)), ["T", "PR"], "a hidden item leaves; the focus stays");
+  assert.deepEqual(edgeText(visible.edges), ["closes PR>T"], "and takes its edges with it");
+  assert.equal(visible.edges[0]!.from?.id, ref("PR"));
+  const visibleTracker = (response: GraphNeighborhoodResponse): boolean =>
+    graphFocusIsTracker(visibleGraphNeighborhood(response, hiddenRepos, hiddenSources).edges.map((re) => re.edge), response.focus_ref);
+  assert.equal(visibleTracker(answer), false);
+  assert.equal(programRollups(new Map(), visible.edges.map((re) => re.edge)).has(focus), false, "the Graph page would draw no program from these edges");
+
+  const { requests, fetchScope } = focusFetcher({ neighborhood: answer, program: neighborhood("T", 2, items, parents) });
+  const loaded = await loadGraphFocus({ scope: "program", loadedTracker, isTracker: visibleTracker }, fetchScope);
+  assert.deepEqual(requests, ["neighborhood"], "no program is requested that could not be drawn");
+  assert.deepEqual(loaded, { scope: "neighborhood", result: answer, status: "ready", message: null });
+
+  // One visible child is enough: both sides then agree it is a program.
+  const onlyRepoHidden = visibleGraphNeighborhood(answer, hiddenRepos);
+  assert.equal(graphFocusIsTracker(onlyRepoHidden.edges.map((re) => re.edge), focus), true);
+  assert.equal(programRollups(new Map(), onlyRepoHidden.edges.map((re) => re.edge)).get(focus)?.total, 1);
+  assert.equal(graphFocusIsTracker(applyVisibility(env, hiddenRepos).edges, focus), true);
 });

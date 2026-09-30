@@ -578,10 +578,12 @@ Pages:
   relation type present in the loaded edges — an unknown type gets one like any
   other — with every type on except `mentions`, which keeps its all / issues /
   change requests target filter; the toggles are page state, not route or
-  stored state, and focus always draws every type. Each type has its own
-  stroke, distinguishable without colour: `closes` solid in its lifecycle
-  colour, `blocks` heavy, `parent` dash-dotted, `mentions` short-dashed; the
-  legend keys the types on the canvas. The side list names an item's strongest
+  stored state, and focus always draws every type. The five known types are
+  distinguishable without colour: `closes` solid in its lifecycle colour,
+  `blocks` heavy, `parent` dash-dotted, `mentions` short-dashed, `relates`
+  long-dashed. A type the UI does not know draws with the default stroke, the
+  `closes` line in the muted colour. The legend keys the types on the canvas.
+  The side list names an item's strongest
   relation: `closes`, then `blocks`, `parent`, `mentions`, `relates`.
   Disconnected overview components
   are laid out independently and packed into a compact canvas; focus retains
@@ -628,6 +630,15 @@ Pages:
   loaded window already shows the tracker's children (always, for a pinned open
   tracker), otherwise after the ordinary neighborhood response shows them; a
   static/local-file deployment reads the same scope from the loaded edges.
+  Whether the focus is a tracker is one test over the edges the viewer can see,
+  used both to load the program scope and to draw it, so a tracker whose
+  children are all in hidden repos or sources loads and draws as an ordinary
+  neighborhood, and a program response that shows no child is treated as a
+  failed request. When the program request fails — a server that predates the
+  scope answers it with a one-hop neighborhood, which the client rejects — the
+  program is still drawn and the focus line says from what: the loaded edges
+  when the loaded window showed the children, else the neighborhood response
+  that did, which can lack the edges that decide a child's status.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It uses the same date range as Board and Graph. The
   range is applied before its route-backed source/repo/kind/action facets and

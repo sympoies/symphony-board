@@ -33,11 +33,13 @@ import {
   indexItems,
   itemMatches,
   focusNeighborhoodNodes,
+  graphFocusIsTracker,
+  loadGraphFocus,
+  visibleGraphNeighborhood,
   reviewActivityIsUnresolved,
   repoMetricMatches,
   sortRepoMetrics,
   resolveEdges,
-  resolveEdgeList,
   edgeMatches,
   deriveStatuses,
   deriveRepoOptions,
@@ -50,7 +52,6 @@ import {
   buildHashRoute,
   applyRouteSearch,
   relationCounts,
-  repoKey,
   GRAPH_FOCUS_DEFAULT_DEPTH,
   GRAPH_PROGRAM_DEPTH,
   graphFocusDepthPreference,
@@ -83,6 +84,7 @@ import {
   activityViewTab,
   graphView,
   graphViewTab,
+  graphFocusPatch,
   clearFiltersHref,
   startupRouteHash,
   resolveDefaultTab,
@@ -357,12 +359,6 @@ export function App() {
   // A focused program tracker opens on its program; `scope=neighborhood` is the
   // explicit way out. For any other item the scope changes nothing.
   const graphFocusScope: GraphFocusScope = route.scope === "neighborhood" ? "neighborhood" : "program";
-  // A pinned open tracker's `parent` edges are in every payload, so the loaded
-  // window usually says straight away that the focus has a program to load.
-  const focusIsLoadedTracker = useMemo(
-    () => !!route.focus && (env?.edges ?? []).some((edge) => edge.type === "parent" && edge.from === route.focus && edge.to !== route.focus),
-    [env, route.focus],
-  );
   useEffect(() => {
     if (!route.focus) return;
     setRememberedGraphFocusDepth((previous) => graphFocusDepthPreference(route, previous));
@@ -1060,12 +1056,27 @@ export function App() {
     };
   }, [contractDisabled, shouldFetchFullActivityDaily, serverBaseUrl, reloadKey, dataReloadEpoch]);
 
+  // The visibility pre-filter is applied FIRST: visibleEnv is the contract
+  // narrowed to the repos + sources the Settings page leaves visible (items +
+  // their edges). Everything below — facets, filters, stats, statuses — works
+  // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
+  // is derived over the FULL contract so the Settings page can still list (and
+  // re-enable) hidden repos.
+  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
+  // A pinned open tracker's `parent` edges are in every payload, so the loaded
+  // window usually says straight away that the focus has a program to load. Read
+  // from the visible edges, as the Graph page reads them to draw it: a tracker
+  // whose children are all hidden has no program for this viewer.
+  const focusIsLoadedTracker = useMemo(
+    () => !!route.focus && graphFocusIsTracker(visibleEnv?.edges ?? [], route.focus),
+    [visibleEnv, route.focus],
+  );
+
   // Focused Graph history is deliberately loaded from its own canonical-store
   // projection, not from the date-bounded primary env. Abort on every route/depth
   // change so an older response can never replace the current focus. Static/file
   // deployments retain the existing loaded one-hop graph with an explicit cue.
-  // A program tracker loads its program scope instead: directly when the loaded
-  // window already shows its children, else after its neighbourhood shows them.
+  // A program tracker loads its program scope instead (model loadGraphFocus).
   useEffect(() => {
     if (page !== "graph" || !route.focus || contractDisabled) {
       setGraphNeighborhood(null);
@@ -1088,44 +1099,26 @@ export function App() {
     setGraphNeighborhood(null);
     setGraphNeighborhoodStatus("loading");
     setGraphNeighborhoodMessage(null);
-    const loadProgram = () => fetchGraphNeighborhood(focus, GRAPH_PROGRAM_DEPTH, serverBaseUrl, controller.signal, "program");
-    const load = async (): Promise<{ scope: GraphFocusScope; result: GraphNeighborhoodResponse }> => {
-      if (graphFocusScope === "program" && focusIsLoadedTracker) return { scope: "program", result: await loadProgram() };
-      const result = await fetchGraphNeighborhood(focus, graphFocusDepthValue, serverBaseUrl, controller.signal);
-      const isTracker = result.edges.some((edge) => edge.type === "parent" && edge.from === focus && edge.to !== focus);
-      if (graphFocusScope !== "program" || !isTracker) return { scope: "neighborhood", result };
-      // A server that predates the program scope still answered the
-      // neighbourhood, which holds the children: draw the program from that.
-      return loadProgram().then(
-        (program) => ({ scope: "program" as const, result: program }),
-        () => ({ scope: "neighborhood" as const, result }),
-      );
-    };
-    void load()
-      .then(({ scope, result }) => {
-        if (controller.signal.aborted) return;
-        setGraphNeighborhood(result);
-        setGraphNeighborhoodScope(scope);
-        setGraphNeighborhoodStatus("ready");
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        setGraphNeighborhood(null);
-        setGraphNeighborhoodStatus("fallback");
-        setGraphNeighborhoodMessage(
-          `Could not load full relationship history (${cause instanceof Error ? cause.message : String(cause)}); showing ${graphFocusScope === "program" && focusIsLoadedTracker ? "the program from loaded items" : "loaded direct relations"}.`,
-        );
-      });
+    void loadGraphFocus(
+      {
+        scope: graphFocusScope,
+        loadedTracker: focusIsLoadedTracker,
+        isTracker: (response) => graphFocusIsTracker(visibleGraphNeighborhood(response, hidden, hiddenSources).edges.map((re) => re.edge), focus),
+      },
+      (scope) =>
+        scope === "program"
+          ? fetchGraphNeighborhood(focus, GRAPH_PROGRAM_DEPTH, serverBaseUrl, controller.signal, "program")
+          : fetchGraphNeighborhood(focus, graphFocusDepthValue, serverBaseUrl, controller.signal),
+    ).then((loaded) => {
+      if (controller.signal.aborted) return;
+      setGraphNeighborhood(loaded.result);
+      setGraphNeighborhoodScope(loaded.scope);
+      setGraphNeighborhoodStatus(loaded.status);
+      setGraphNeighborhoodMessage(loaded.message);
+    });
     return () => controller.abort();
-  }, [page, route.focus, graphFocusDepthValue, graphFocusScope, focusIsLoadedTracker, contractDisabled, staticDeployment, envAuthority, serverBaseUrl, dataReloadEpoch]);
+  }, [page, route.focus, graphFocusDepthValue, graphFocusScope, focusIsLoadedTracker, hidden, hiddenSources, contractDisabled, staticDeployment, envAuthority, serverBaseUrl, dataReloadEpoch]);
 
-  // The visibility pre-filter is applied FIRST: visibleEnv is the contract
-  // narrowed to the repos + sources the Settings page leaves visible (items +
-  // their edges). Everything below — facets, filters, stats, statuses — works
-  // over visibleEnv, so a hidden repo/source disappears from every page. allRepos
-  // is derived over the FULL contract so the Settings page can still list (and
-  // re-enable) hidden repos.
-  const visibleEnv = useMemo(() => (env ? applyVisibility(env, hidden, hiddenSources) : null), [env, hidden, hiddenSources]);
   const primaryItems = useMemo(() => (visibleEnv ? visibleEnv.items.filter(itemIsPrimaryWindow) : []), [visibleEnv]);
   // Item index by ref for the edge resolver. When a historical range is active,
   // visibleEnv is the /api/range projection, so this index is intentionally
@@ -1428,30 +1421,15 @@ export function App() {
     (graphNeighborhoodScope === "program" ? graphFocusScope === "program" : graphNeighborhood.requested_depth === graphFocusDepthValue)
       ? graphNeighborhood
       : null;
-  const visibleGraphNeighborhoodNodes = useMemo(() => {
-    if (!activeGraphNeighborhood) return [];
-    return activeGraphNeighborhood.nodes.filter((node) => {
-      if (node.ref === activeGraphNeighborhood.focus_ref || node.item === null) return true;
-      return !hiddenSources.has(node.item.source_id) && !hidden.has(repoKey(node.item.source_id, node.item.project_path));
-    });
-  }, [activeGraphNeighborhood, hidden, hiddenSources]);
   // The response under the persistent visibility choices only. The program view
-  // reads this set: like the Board's tracker cards, a program's children and
-  // their statuses do not change with the item facets.
-  const graphNeighborhoodVisibleEdges = useMemo(() => {
-    if (!activeGraphNeighborhood) return [];
-    const trackedIds = new Set(activeGraphNeighborhood.nodes.filter((node) => node.item !== null).map((node) => node.ref));
-    const visibleItems = visibleGraphNeighborhoodNodes
-      .map((node) => node.item)
-      .filter((item): item is NonNullable<typeof item> => item !== null);
-    const visibleIds = new Set(visibleItems.map((item) => item.id));
-    const byId = new Map(visibleItems.map((item) => [item.id, item]));
-    return resolveEdgeList(activeGraphNeighborhood.edges, byId).filter((re) => {
-      if (trackedIds.has(re.edge.from) && !visibleIds.has(re.edge.from)) return false;
-      if (trackedIds.has(re.edge.to) && !visibleIds.has(re.edge.to)) return false;
-      return true;
-    });
-  }, [activeGraphNeighborhood, visibleGraphNeighborhoodNodes]);
+  // reads this edge set: like the Board's tracker cards, a program's children
+  // and their statuses do not change with the item facets.
+  const visibleNeighborhood = useMemo(
+    () => (activeGraphNeighborhood ? visibleGraphNeighborhood(activeGraphNeighborhood, hidden, hiddenSources) : { nodes: [], edges: [] }),
+    [activeGraphNeighborhood, hidden, hiddenSources],
+  );
+  const visibleGraphNeighborhoodNodes = visibleNeighborhood.nodes;
+  const graphNeighborhoodVisibleEdges = visibleNeighborhood.edges;
   const graphNeighborhoodEdges = useMemo(
     () => graphNeighborhoodVisibleEdges.filter((re) => edgeMatches(re, focusedItemFilters)),
     [graphNeighborhoodVisibleEdges, focusedItemFilters],
@@ -1463,10 +1441,12 @@ export function App() {
     [activeGraphNeighborhood, graphNeighborhoodEdges, visibleGraphNeighborhoodNodes],
   );
 
-  // A ready server projection owns focused rendering; loading/error/static cases
-  // intentionally preserve the pre-feature one-hop derivation over loaded edges.
-  const graphFocusExpanded = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood !== null;
-  const graphFocusLoadStatus = graphNeighborhoodStatus === "ready" && activeGraphNeighborhood === null ? "loading" : graphNeighborhoodStatus;
+  // A held server projection owns focused rendering — a ready one, or the
+  // neighbourhood a fallback kept when only the program request failed;
+  // loading/error/static cases hold none and intentionally preserve the
+  // pre-feature one-hop derivation over loaded edges.
+  const graphFocusExpanded = (graphNeighborhoodStatus === "ready" || graphNeighborhoodStatus === "fallback") && activeGraphNeighborhood !== null;
+  const graphFocusLoadStatus = graphNeighborhood !== null && activeGraphNeighborhood === null ? "loading" : graphNeighborhoodStatus;
   const graphFocusEdges = graphFocusExpanded ? graphNeighborhoodEdges : focusedFallbackEdges;
   const graphProgramEdges = graphFocusExpanded ? graphNeighborhoodVisibleEdges : resolvedVisibleEdges;
   const itemFacetsActive =
@@ -1712,7 +1692,7 @@ export function App() {
   // A new focus starts on its default view, so a tracker reached from another
   // item's neighbourhood opens on its program.
   function setRouteFocus(focus: string | null) {
-    writePageRoute({ focus, depth: focus ? graphFocusDepthValue : null, scope: null });
+    writePageRoute(graphFocusPatch(focus, graphFocusDepthValue));
   }
   function setRouteFocusScope(scope: GraphFocusScope) {
     if (!route.focus) return;

@@ -160,6 +160,9 @@ let graphNeighborhoodFailOnce = false;
 let graphNeighborhoodDelayDepth = null;
 let graphNeighborhoodDelayMs = 0;
 let graphNeighborhoodForcedLimitReason = null;
+// A server that predates `scope=program`: it ignores the parameter and answers
+// the ordinary neighbourhood.
+let graphNeighborhoodIgnoreScope = false;
 const MENTION_ONLY_FOCUS_REF = "github:github.com|ISSUE_e";
 const PROGRAM_TRACKER_REF = "github:github.com|ISSUE_c";
 let activityDailyRequestCount = 0;
@@ -746,8 +749,9 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
   // ordinary scope returns every direct edge, which is what tells the UI that
   // the focus is a tracker at all.
   const parentEdges = env.edges.filter((edge) => edge.type === "parent" && edge.from === focusRef && edge.to !== focusRef);
-  if (url.searchParams.get("scope") === "program" || parentEdges.length > 0) {
-    const program = url.searchParams.get("scope") === "program";
+  const programScope = !graphNeighborhoodIgnoreScope && url.searchParams.get("scope") === "program";
+  if (programScope || parentEdges.length > 0) {
+    const program = programScope;
     const children = new Set(parentEdges.map((edge) => edge.to));
     const edges = program
       ? [...parentEdges, ...env.edges.filter((edge) => (edge.type === "blocks" || edge.type === "closes") && children.has(edge.to))]
@@ -960,11 +964,13 @@ async function handleSmokeRequest(req, res) {
       graphNeighborhoodDelayDepth = url.searchParams.has("delayDepth") ? Number(url.searchParams.get("delayDepth")) : null;
       graphNeighborhoodDelayMs = nextDelayMs;
       graphNeighborhoodForcedLimitReason = ["depth", "nodes", "edges"].includes(url.searchParams.get("limit")) ? url.searchParams.get("limit") : null;
+      graphNeighborhoodIgnoreScope = url.searchParams.get("oldServer") === "1";
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({
         graphNeighborhoodFailOnce,
         graphNeighborhoodDelayDepth,
         graphNeighborhoodDelayMs,
         graphNeighborhoodForcedLimitReason,
+        graphNeighborhoodIgnoreScope,
       }));
       return;
     }
@@ -7688,6 +7694,8 @@ try {
       target: document.querySelectorAll('.rf-node-focus-marker').length,
       showing: document.querySelector('.graph-controls > .muted')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
       load: document.querySelector('.graph-focus-load')?.textContent || '',
+      loadFallback: !!document.querySelector('.graph-focus-load-fallback'),
+      childRelatedTitles: [...document.querySelectorAll('.react-flow__node [data-program-status] .item-metric-related')].map((chip) => chip.getAttribute('title') || ''),
     };
   })()`;
   const readGraphProgram = async () => (await send("Runtime.evaluate", { expression: graphProgramState, returnByValue: true })).result.value || {};
@@ -7703,9 +7711,71 @@ try {
   await waitHtml("document.querySelector('.graph-program-head') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
   const graphProgramBack = await readGraphProgram();
 
+  // A new focus starts on its default view: activating a node from the
+  // tracker's neighbourhood leaves `scope=neighborhood` behind with the old focus.
+  const programFocusHash = `#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}`;
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"]')?.click()" });
+  await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && /scope=neighborhood/.test(location.hash)");
+  const graphRefocusFrom = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+  await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.react-flow__node')].find((node) => (node.getAttribute('data-id') || '').endsWith('|ISSUE_e'))?.click()" });
+  await waitHtml("decodeURIComponent(location.hash).includes('focus=github:github.com|ISSUE_e') && document.querySelector('.graph-focus-load-ready')");
+  const graphRefocusTo = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
+
+  // Item facets do not apply to a program. `closed` matches one child only, so
+  // a program read through the facet would be 1/1 with a single node.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph?istate=closed'" });
+  await waitHtml("document.querySelector('.graph-list-kinds') && !document.querySelector('.graph-list-back')");
+  await send("Runtime.evaluate", { expression: `location.hash = '${programFocusHash}&istate=closed'` });
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-ready') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
+  const graphProgramFaceted = await readGraphProgram();
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph'" });
+  await waitHtml("document.querySelector('.graph-list-kinds') && !document.querySelector('.graph-list-back')");
+
+  // An older server ignores `scope` and answers a one-hop neighbourhood, which
+  // the client rejects as a program. A tracker the loaded window shows is then
+  // drawn from the loaded items. (The header is the check: the canvas is fitted
+  // while the request is still out, and may leave a column outside the viewport.)
+  await graphNeighborhoodControl("oldServer=1");
+  const graphProgramOldServerRequestsBefore = graphNeighborhoodRequestUrls.length;
+  await send("Runtime.evaluate", { expression: `location.hash = '${programFocusHash}'` });
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-fallback') && document.querySelector('.react-flow__node [data-program-status]')");
+  const graphProgramOldServer = await readGraphProgram();
+  graphProgramOldServer.requests = graphNeighborhoodRequestUrls.slice(graphProgramOldServerRequestsBefore);
+
+  // Hiding the tracker's repo takes its edges out of the loaded window (the
+  // focus itself and its untracked child stay visible in a server answer), so
+  // the load goes through the neighbourhood first. The older server's answer to
+  // the program request is rejected after that one succeeded: the neighbourhood
+  // is kept and drawn as the program, with a message that says so.
+  await send("Runtime.evaluate", {
+    expression: `localStorage.setItem('symphony-board:hidden-repos', JSON.stringify([JSON.stringify(['github:github.com', 'sympoies/symphony-board'])]))`,
+  });
+  const graphProgramUnloadedOldServerRequestsBefore = graphNeighborhoodRequestUrls.length;
+  await send("Page.reload");
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-fallback') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 1");
+  const graphProgramUnloadedOldServer = await readGraphProgram();
+  graphProgramUnloadedOldServer.requests = graphNeighborhoodRequestUrls.slice(graphProgramUnloadedOldServerRequestsBefore);
+
+  // The same tracker against a server that knows the scope: the neighbourhood,
+  // then the program, which is what is held. (A reload may issue and abort a
+  // first neighbourhood request before the contract settles, so the checks read
+  // the last two requests.)
+  await graphNeighborhoodControl();
+  const graphProgramUnloadedRequestsBefore = graphNeighborhoodRequestUrls.length;
+  await send("Page.reload");
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-ready') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 1");
+  const graphProgramUnloaded = await readGraphProgram();
+  graphProgramUnloaded.requests = graphNeighborhoodRequestUrls.slice(graphProgramUnloadedRequestsBefore);
+  await send("Runtime.evaluate", { expression: "localStorage.removeItem('symphony-board:hidden-repos')" });
+
   ws.close();
 
   // --- assertions ---
+  // A tracker found through its neighbourhood: that request, then one for the program.
+  const twoStepProgramLoad = (requests = []) =>
+    requests.filter((url) => /[?&]scope=program(&|$)/.test(url)).length === 1 &&
+    /[?&]scope=program(&|$)/.test(requests.at(-1) || "") &&
+    /[?&]depth=1(&|$)/.test(requests.at(-2) || "") && !/scope=/.test(requests.at(-2) || "");
   const graphTypeState = (step) => graphTypeToggleStates.find((state) => state.step === step) || {};
   const graphTypeMentionsOn = graphTypeState("mentions on");
   const graphTypeDefault = graphTypeState("default");
@@ -8501,6 +8571,35 @@ try {
       graphProgramNeighborhoodReloaded.hash === graphProgramNeighborhood.hash && graphProgramNeighborhoodReloaded.target === 1 &&
         !/scope=/.test(graphProgramBack.hash || "") && graphProgramBack.children?.length === 3 && graphProgramBack.target === 0,
       `graph: the neighbourhood choice survives a reload and the toggle returns to the program (${JSON.stringify({ reloaded: graphProgramNeighborhoodReloaded.hash, back: graphProgramBack.hash })})`,
+    ],
+    [
+      (graphProgram.childRelatedTitles || []).length === 2 && graphProgram.childRelatedTitles.every((title) => title && !title.includes("drawn in this view")),
+      `graph: a program child's relation count does not blame the time window or relation filters for undrawn links (${JSON.stringify(graphProgram.childRelatedTitles)})`,
+    ],
+    [
+      /[?&]scope=neighborhood(&|$)/.test(graphRefocusFrom) && decodeURIComponent(graphRefocusTo).includes("focus=github:github.com|ISSUE_e") && !/scope=/.test(graphRefocusTo),
+      `graph: a node activated from a tracker's neighbourhood opens on its default view (${JSON.stringify({ from: graphRefocusFrom, to: graphRefocusTo })})`,
+    ],
+    [
+      /[?&]istate=closed(&|$)/.test(graphProgramFaceted.hash || "") && graphProgramFaceted.head?.includes("1/3 done") && graphProgramFaceted.children?.length === 3 &&
+        graphProgramFaceted.head?.includes("item filters do not apply to a program") && !graphProgram.head?.includes("item filters do not apply"),
+      `graph: an item facet does not change a program, and the header says so (${JSON.stringify({ hash: graphProgramFaceted.hash, head: graphProgramFaceted.head, children: (graphProgramFaceted.children || []).length })})`,
+    ],
+    [
+      graphProgramOldServer.requests?.length === 1 && /[?&]scope=program(&|$)/.test(graphProgramOldServer.requests[0]) && graphProgramOldServer.loadFallback === true &&
+        graphProgramOldServer.load?.includes("showing the program from loaded items") && graphProgramOldServer.head?.includes("1/3 done") && graphProgramOldServer.depthControls === 0,
+      `graph: against an older server a loaded tracker's program is drawn from the loaded items and labelled (${JSON.stringify({ requests: graphProgramOldServer.requests, load: graphProgramOldServer.load, head: graphProgramOldServer.head })})`,
+    ],
+    [
+      twoStepProgramLoad(graphProgramUnloadedOldServer.requests) && graphProgramUnloadedOldServer.loadFallback === true &&
+        graphProgramUnloadedOldServer.load?.includes("Could not load the program") && graphProgramUnloadedOldServer.load?.includes("showing it from the loaded neighborhood") &&
+        graphProgramUnloadedOldServer.head?.includes("0/1 done") && graphProgramUnloadedOldServer.children?.length === 1 && graphProgramUnloadedOldServer.scope?.length === 2,
+      `graph: when an older server rejects the program after the neighbourhood loaded, the neighbourhood is kept and labelled a fallback (${JSON.stringify({ requests: graphProgramUnloadedOldServer.requests, load: graphProgramUnloadedOldServer.load, head: graphProgramUnloadedOldServer.head })})`,
+    ],
+    [
+      twoStepProgramLoad(graphProgramUnloaded.requests) &&
+        graphProgramUnloaded.loadFallback === false && /^program · /.test(graphProgramUnloaded.load || "") && graphProgramUnloaded.head?.includes("0/1 done"),
+      `graph: a tracker outside the loaded window loads its program after its neighbourhood shows its children (${JSON.stringify({ requests: graphProgramUnloaded.requests, load: graphProgramUnloaded.load, head: graphProgramUnloaded.head })})`,
     ],
     [
       fileGraphProgram.requestDelta === 0 && fileGraphProgram.head?.includes("1/3 done") && fileGraphProgram.attached === 2 &&

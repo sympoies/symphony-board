@@ -996,7 +996,8 @@ must clearly label their loaded one-hop fallback.
 
 `scope=program` (default `neighborhood`) returns a program tracker's program in
 the same response shape and under the same schema tag, so it adds a parameter
-and no field. `depth` and `mentions` do not apply to it. The response holds:
+and no field. It uses neither `depth` nor `mentions`, but both are still
+validated when present: `scope=program&depth=9` is `400`. The response holds:
 
 - the focus at hop 0 and its children — the targets of its `parent` edges — at
   hop 1, with those `parent` edges;
@@ -1007,7 +1008,10 @@ and no field. `depth` and `mentions` do not apply to it. The response holds:
 
 It is a fixed two-hop projection: `requested_depth` is always `2`, which is how
 a client tells it from the answer of a server that does not know the parameter
-and returned an ordinary one-hop neighborhood. Mentions, relations, and the
+and returned an ordinary one-hop neighborhood. That check is reliable only when
+the caller omits `depth`: a server that ignores `scope` answers
+`scope=program&depth=2` with an ordinary two-hop neighborhood, which also
+reports `requested_depth: 2`. Mentions, relations, and the
 edges a child has out of the program are not part of it. An item without
 `parent` out-edges is returned alone (`200`, one node, no edges); an unknown
 focus is still `404`, and any other `scope` value is `400`.

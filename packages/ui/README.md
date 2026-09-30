@@ -77,9 +77,11 @@ The Graph page renders edge-connected items with React Flow:
   type is on except `mentions`, which keeps its all / issues / change requests
   target filter. The toggles are page state: they reset on reload and never
   apply to a focused item.
-- each type has its own line — `blocks` heavy, `parent` dash-dotted, `mentions`
-  short-dashed — and the legend keys the types on the canvas plus the `closes`
-  lifecycle colors.
+- the five known types are distinguishable without color — `closes` solid,
+  `blocks` heavy, `parent` dash-dotted, `mentions` short-dashed, `relates`
+  long-dashed — while a type the UI does not know draws with the default solid
+  line; the legend keys the types on the canvas plus the `closes` lifecycle
+  colors.
 - the side list indexes every relationship candidate in the selected range; the
   canvas can still hide mention-only items for the default overview without
   adding a redundant per-card visibility badge.
@@ -124,7 +126,9 @@ nodes, and 500 edges; a tracker's program view asks the same route for
 `scope=program`. Static/local-file deployments cannot read the canonical
 store, so focus falls back to the loaded one-hop neighborhood — or, for a
 tracker, the program read from the loaded edges — and labels that
-limitation.
+limitation. A server that predates `scope=program` gets the same treatment:
+the program is drawn from the loaded edges, or from the neighborhood response
+when the tracker is outside the loaded window, and labeled as a fallback.
 
 Untracked cross-repo endpoints render as unresolved refs.
 
@@ -328,8 +332,10 @@ and ready children and stays in the Trackers lane — and out of every other
 column and count — when the range excludes it, that the Graph relation type
 toggles and legend follow the loaded types and change what is drawn, that
 focusing the sample tracker shows its program view (children in dependency
-order with their status markers, with and without a server) and switches to the
-neighborhood and back, and that large synthetic
+order with their status markers, with and without a server), keeps it under an
+item facet, switches to the neighborhood and back, opens a node activated from
+that neighborhood on its default view, and labels the fallback against a server
+without the program scope, and that large synthetic
 Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
 compact split, filter wrapping, the laptop three-column tier, and the
 wide-panes tier (two-up supporting columns whose charts keep a fixed height

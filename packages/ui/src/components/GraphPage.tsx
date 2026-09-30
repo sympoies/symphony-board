@@ -32,7 +32,7 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphRelationTypes, graphProgramView, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
@@ -40,11 +40,12 @@ import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
-// repo / #iid / state — not just a label. Each relation type has its own stroke
-// (model graphEdgeStyle): closes edges (issue <-> change request) are solid and
-// lifecycle-coloured, blocks heavy, parent dash-dotted; opt-in mentions are
-// dashed — de-emphasised (thin, faint) in the dense overview, but drawn
-// full-strength in the focus view. Layout is computed (RF ships none): dagre for
+// repo / #iid / state — not just a label. Each known relation type has its own
+// stroke (model graphEdgeStyle): closes edges (issue <-> change request) are
+// solid and lifecycle-coloured, blocks heavy, parent dash-dotted, relates
+// long-dashed; opt-in mentions are short-dashed — de-emphasised (thin, faint) in
+// the dense overview, but drawn full-strength in the focus view. A type the UI
+// does not know draws like closes. Layout is computed (RF ships none): dagre for
 // the hierarchy view, d3-force for the knowledge-graph view.
 //
 // Node size scales with demand (comments + reactions) so busy items stand out;
@@ -140,17 +141,6 @@ function EdgeSwatch({ type, stroke }: { type: string; stroke?: string }) {
 type GraphListVisibility = "off-window" | "not-drawn";
 type ItemNodeData = GraphNode & { item?: ItemDTO | null; focused?: boolean };
 
-// Tooltip for a node's relation count: the per-type breakdown, plus an explicit
-// callout when the CURRENT view draws fewer neighbours than the item has (the
-// overview is time-windowed and filtered by relation type; the count is not) — the cue
-// that focusing the node reveals more than the visible lines suggest.
-function relatedTitle(d: GraphNode): string {
-  const rel = d.related!;
-  const parts = rel.byType.map((t) => `${t.type} ${t.count}`).join(" · ");
-  const drawn = d.relatedDrawn ?? 0;
-  return drawn < rel.total ? `${parts} — ${drawn} of ${rel.total} drawn in this view (time window / relation filters); focus the node to see all` : parts;
-}
-
 function ItemNode({ data }: NodeProps) {
   const d = data as unknown as ItemNodeData;
   const { scale } = dims(d.demand);
@@ -200,7 +190,7 @@ function ItemNode({ data }: NodeProps) {
       {!d.untracked && (d.author || metricCount > 0) && (
         <div className="rf-node-meta muted">
           {d.author ? <span>@{d.author}</span> : null}
-          {d.item ? <ItemMetricStrip item={d.item} related={d.related} relatedTitle={d.related ? relatedTitle(d) : undefined} /> : null}
+          {d.item ? <ItemMetricStrip item={d.item} related={d.related} relatedTitle={d.related ? graphNodeRelatedTitle(d) : undefined} /> : null}
         </div>
       )}
       {!d.untracked && (d.created_at || d.updated_at) && (
@@ -1077,8 +1067,8 @@ export function GraphPage({
     () =>
       view.links.map((l) => {
         const isMention = l.type === "mentions";
-        // Each type has its own line (graphEdgeStyle); a type without a stroke
-        // of its own takes the lifecycle colour. Mentions stay dashed in a
+        // Each known type has its own line (graphEdgeStyle); a type without a
+        // stroke of its own takes the lifecycle colour. Mentions stay dashed in a
         // lighter slate — the lifecycle palette's muted grey is near-invisible
         // on the dark canvas. In the OVERVIEW they're thin + faint to recede
         // behind the structure; in FOCUS they go full opacity + slightly thicker
