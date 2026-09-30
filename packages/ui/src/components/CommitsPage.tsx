@@ -35,10 +35,10 @@ import {
   COMMIT_DEFAULT_VIEWPORT_PX,
   COMMIT_ROW_BODY_HEIGHT_PX,
   COMMIT_ROW_BODY_HEIGHT_NARROW_PX,
-  type ChangeRequestView,
   type ColorOf,
   type CommitBranchOption,
   type CommitChangeRequestLink,
+  type ResolvedChangeRequest,
   type CommitRepoOption,
   type TimeRange,
 } from "../model.ts";
@@ -134,13 +134,10 @@ function copyToClipboard(text: string): Promise<void> {
   }
 }
 
-// A commit's change request resolved for display: the view, where its number
-// leads, and whether that is off-site. Built by App from the item index.
-export type ChangeRequestLinkResolver = (
-  link: CommitChangeRequestLink,
-  // The commit's source: what decides `#` or `!` when the item is not loaded.
-  sourceId: string,
-) => { view: ChangeRequestView; href: string | null; external: boolean };
+// Resolves a commit's change request for display. Built by App from the item
+// index; `sourceId` is the commit's source, which decides `#` or `!` when the
+// item is not loaded.
+export type ChangeRequestLinkResolver = (link: CommitChangeRequestLink, sourceId: string) => ResolvedChangeRequest;
 
 function CommitTimeline({
   commits,

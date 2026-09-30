@@ -7940,7 +7940,8 @@ try {
         commitsChangeRequests.unlinkedWithChip === 0 &&
         (commitsChangeRequests.chips || []).length > 0 &&
         (commitsChangeRequests.chips || []).every((chip) => /^[#!]\d+$/.test(chip)) &&
-        (commitsChangeRequests.chipHrefs || []).every((href) => href.startsWith("#/items?")) &&
+        (commitsChangeRequests.chipHrefs || []).length > 0 &&
+        (commitsChangeRequests.chipHrefs || []).every((href) => href.startsWith("#/items?") && href.includes("ikind=change_request")) &&
         (commitsChangeRequests.tiles || []).includes("no change request") &&
         commitsChangeRequests.paneRows > 0 &&
         /^[#!]\d+ \S/.test(commitsChangeRequests.paneFirst || "") &&

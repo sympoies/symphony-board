@@ -590,9 +590,9 @@ the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
 
-Version `4.8.2` is a clarification release: commit activity rows may now carry
-`details.change_request`, and a range response emits the change requests its
-in-range commits name. `details` was already an open object, the key is
+Version `4.8.2` is a clarification + producer-behavior patch: commit activity
+rows may now carry `details.change_request`, and a range response emits the
+change requests its in-range commits name. `details` was already an open object, the key is
 optional, and `activity_target` was already an `items[].window_reasons` value,
 so no shape changed.
 
@@ -610,7 +610,11 @@ above rather than hidden:
   the sweep already sends for line counts, merges included, so it costs no
   extra request. Only a pull request of the commit's own repository is
   accepted; when several match, the one whose merge commit is this commit wins,
-  then a merged one. A GitHub row therefore carries an object or `null`.
+  then a merged one. A GitHub row whose lookup succeeded therefore carries an
+  object or `null`; it carries nothing when the lookup failed, or when the
+  commit has more pull requests than the three that are read and none of those
+  read is the repository's own. Pull requests of other repositories in the
+  fork network are not stored.
   GitHub's answer is about the repository as it is now: history imported from
   another repository reports `null` for commits whose pull requests lived there.
 - GitLab has no batch that resolves a commit, and one request per commit is a
@@ -627,8 +631,9 @@ lookup failed removes a link an earlier one stored until the commit is re-read.
 `buildRangeContract` adds the change request items that in-range commit rows
 name to `items[]` with `window_reasons: ["activity_target"]`, the same support
 role a reviewed change request already has, and counts them in
-`item_window.activity_target_items`. The static contract is unchanged: its
-90-day item window already spans its 30-day activity window.
+`item_window.activity_target_items`. Like any emitted change request, these
+rows bring their `review_threads[]` with them. The static contract is
+unchanged: its 90-day item window already spans its 30-day activity window.
 
 Version `4.8.1` is a clarification release: commit activity rows may now carry
 `details.merge` and `details.default_branch`. `details` was already an open
@@ -977,7 +982,8 @@ Fields:
 - `edge_endpoint_items`: number of loaded rows outside the primary window that
   exist to resolve emitted edge endpoints.
 - `activity_target_items`: optional number of loaded rows outside the primary
-  window that exist to resolve emitted review activity targets. When a row has
+  window that exist to resolve emitted review activity targets or (4.8.2+) the
+  change requests emitted commit rows name. When a row has
   both `edge_endpoint` and `activity_target`, the counts are per reason.
 - `total_items`: full live canonical item count before windowing.
 - `truncated`: true when at least one live item row is omitted from `items[]`.
@@ -1065,6 +1071,9 @@ The range response is a projection, not a second schema:
   `window_reasons: ["activity_target"]` when they are outside the primary item
   set, so unresolved-review filters can read the target change request's current
   `review_threads` summary without treating the row as an edge endpoint.
+- the change requests in-range commit rows name in `details.change_request`
+  (4.8.2+) are included the same way, so a consumer can show the change request
+  a commit belongs to.
 - `activities[]` is filtered by `occurred_at` inside `[from, to]`.
 - `aggregates[]` is populated in range responses from the full live item/edge
   set (the same computation the static contract uses), so a windowed board keeps

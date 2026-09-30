@@ -1,6 +1,6 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { memo, useMemo } from "react";
-import { pluralize, relativeTime, spanLabel, type ChangeRequestView } from "../model.ts";
+import { pluralize, relativeTime, spanLabel, type ChangeRequestView, type ResolvedChangeRequest } from "../model.ts";
 import { COMMITS_PANES_RANK_LIMIT } from "../layout-tier.ts";
 import { changeRequestGroups, shortRepoLabel, type ChangeRequestGroup } from "../rail-stats.ts";
 
@@ -21,7 +21,7 @@ import { changeRequestGroups, shortRepoLabel, type ChangeRequestGroup } from "..
 // Like Largest commits beside it, it is a list that takes spare height as
 // more rows and scrolls inside its pane.
 
-export type ResolveChangeRequest = (group: ChangeRequestGroup) => { view: ChangeRequestView; href: string | null; external: boolean };
+export type ResolveChangeRequest = (group: ChangeRequestGroup) => ResolvedChangeRequest;
 
 function stateLine(view: ChangeRequestView): string {
   if (view.state === "merged") {

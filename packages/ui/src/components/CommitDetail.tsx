@@ -13,8 +13,8 @@ import {
   commitStats,
   relativeTime,
   spanLabel,
-  type ChangeRequestView,
   type ColorOf,
+  type ResolvedChangeRequest,
 } from "../model.ts";
 
 // The selected commit, inserted before the overview so the original pane moves
@@ -53,7 +53,7 @@ export function CommitDetail({
   // The commit's change request (contract 4.8.2): a resolved link, `null` when
   // the producer looked and found none, `undefined` when it gave no answer --
   // in which case the row is left out rather than guessed.
-  changeRequest?: { view: ChangeRequestView; href: string | null; external: boolean } | null;
+  changeRequest?: ResolvedChangeRequest | null;
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ItemDTO } from "@symphony-board/contract";
-import { parseHashRoute, buildHashRoute, itemSortFromRoute, reviewSortFromRoute } from "../src/model.ts";
+import { parseHashRoute, buildHashRoute, itemMatches, itemSortFromRoute, reviewSortFromRoute } from "../src/model.ts";
 import {
   ACTIVITY_FACET_DIMS,
   activityFacets,
@@ -33,6 +33,7 @@ import {
   DEBUG_TAB_IDS,
   DEFAULT_DEBUG_TAB,
   changeRequestItemHref,
+  changeRequestDestination,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -518,23 +519,67 @@ test("startupRouteHash keeps a debug sub-tab verbatim across a cold start", () =
 
 test("changeRequestItemHref narrows the Items page to exactly one change request", () => {
   const href = changeRequestItemHref({
-    source: "github:github.com",
-    repo: "acme/api",
-    iid: 749,
+    source: "gitlab:gitlab.com",
+    repo: "g/p",
+    iid: 12,
     range: { from: "2026-09-01", to: "2026-09-30", preset: null },
   });
   const route = parseHashRoute(href);
   assert.equal(route.page, "items");
-  // An exact-number search inside one repository of one source: the Items list
-  // then holds that item alone, and it selects its first row.
-  assert.equal(route.q, "#749");
-  assert.equal(route.isource, "github:github.com");
-  assert.equal(route.irepo, "acme/api");
-  // The reader's board lens is replaced, not carried: a state or kind filter
-  // could hide the very item the link names.
+  assert.equal(route.q, "#12");
+  assert.equal(route.isource, "gitlab:gitlab.com");
+  assert.equal(route.irepo, "g/p");
+  assert.equal(route.ikind, "change_request");
+  // The reader's state and review lens is replaced, not carried: either could
+  // hide the very item the link names.
   assert.equal(route.istate, null);
-  assert.equal(route.ikind, null);
   assert.equal(route.ireview, null);
   assert.equal(route.from, "2026-09-01");
   assert.equal(route.to, "2026-09-30");
+
+  // What the claim means: run the route the way the Items page does. GitLab
+  // numbers issues and merge requests separately, so the same repository holds
+  // an issue 12 and a merge request 12, and only the second may match.
+  const facets = itemFacets(route);
+  const filters = { search: route.q ?? "", sources: facets.sources, states: facets.states, kinds: facets.kinds, reviews: facets.reviews, repos: facets.repos };
+  const base = {
+    source_id: "gitlab:gitlab.com", project_path: "g/p", iid: 12, url: "https://x", title: "T", state: "open" as const, state_raw: "opened",
+    state_reason: null, is_draft: null, author: "a", created_at: null, updated_at: null, closed_at: null, merged_at: null, labels: [],
+    review_state: null, ci_state: null, merge_state: null, review_threads: null, milestone: null, demand: 0, last_seen_at: null,
+  };
+  const items = [
+    { ...base, id: "gitlab:gitlab.com|issue12", external_id: "issue12", kind: "issue" },
+    { ...base, id: "gitlab:gitlab.com|mr12", external_id: "mr12", kind: "change_request" },
+    { ...base, id: "gitlab:gitlab.com|mr13", external_id: "mr13", kind: "change_request", iid: 13 },
+    { ...base, id: "gitlab:gitlab.com|other12", external_id: "other12", kind: "change_request", project_path: "g/other" },
+  ];
+  assert.deepEqual(items.filter((it) => itemMatches(it, filters)).map((it) => it.external_id), ["mr12"]);
+});
+
+test("changeRequestDestination leads to the Items page, the provider, or nowhere", () => {
+  const link = { ref: "github:github.com|PR_7", iid: 7 };
+  const range = { from: "2026-09-01", to: "2026-09-30", preset: null };
+  const pr = {
+    id: "github:github.com|PR_7", source_id: "github:github.com", external_id: "PR_7", kind: "change_request", project_path: "acme/api", iid: 7,
+    url: "https://github.com/acme/api/pull/7", title: "Wire the thing", state: "merged" as const, state_raw: "MERGED", state_reason: null,
+    is_draft: false, author: "a", created_at: null, updated_at: null, closed_at: null, merged_at: null, labels: [], review_state: null,
+    ci_state: null, merge_state: null, review_threads: null, milestone: null, demand: 0, last_seen_at: null,
+  };
+
+  // One of the Items page's own rows: that page, narrowed to it.
+  const primary = changeRequestDestination(link, pr, "github", range);
+  assert.equal(primary.external, false);
+  assert.equal(primary.href, changeRequestItemHref({ source: "github:github.com", repo: "acme/api", iid: 7, range }));
+  assert.equal(primary.view.title, "Wire the thing");
+
+  // Loaded only because a commit names it: the Items page would not list it,
+  // so the number leads to the provider.
+  const support = changeRequestDestination(link, { ...pr, window_reasons: ["activity_target"] }, "github", range);
+  assert.deepEqual([support.href, support.external], ["https://github.com/acme/api/pull/7", true]);
+  // ...and only to a URL that is safe to follow.
+  assert.equal(changeRequestDestination(link, { ...pr, window_reasons: ["activity_target"], url: "javascript:alert(1)" }, "github", range).href, null);
+
+  // Not loaded: a number with nowhere to go.
+  const missing = changeRequestDestination(link, undefined, "gitlab", range);
+  assert.deepEqual([missing.href, missing.view.label, missing.view.state], [null, "!7", null]);
 });

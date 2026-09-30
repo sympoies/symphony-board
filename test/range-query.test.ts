@@ -380,6 +380,30 @@ test("buildRangeContract includes the change requests in-range commits belong to
   assert.equal(env.activities?.length, 5, "the rows themselves are emitted as they are stored");
 });
 
+test("a commit cannot pull in a change request of a repository that is no longer configured", () => {
+  // The projection's config gate drops a de-configured repository's items. A
+  // commit row naming one of them must not be a way back in.
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const env = buildRangeContract({
+    sources: [source],
+    items: [
+      itemRow({ item_id: 1, external_id: "PR_kept", kind: "change_request", iid: 1, project_path: "o/kept", state: "merged", state_raw: "MERGED", updated_at: "2026-06-20T00:00:00Z" }),
+      itemRow({ item_id: 2, external_id: "PR_removed", kind: "change_request", iid: 2, project_path: "o/removed", state: "merged", state_raw: "MERGED", updated_at: "2026-06-20T00:00:00Z" }),
+    ],
+    labels: [],
+    edges: [],
+    activities: [
+      activityRow({ external_id: "c-kept", kind: "commit", action: "committed", project_path: "o/kept", target_kind: "commit", target_source_id: null, target_external_id: null, target_iid: null, occurred_at: "2026-05-15T12:00:00Z", details: JSON.stringify({ sha: "a", change_request: { ref: "github:github.com|PR_kept", iid: 1 } }) }),
+      activityRow({ external_id: "c-cross", kind: "commit", action: "committed", project_path: "o/kept", target_kind: "commit", target_source_id: null, target_external_id: null, target_iid: null, occurred_at: "2026-05-15T13:00:00Z", details: JSON.stringify({ sha: "b", change_request: { ref: "github:github.com|PR_removed", iid: 2 } }) }),
+    ],
+    generatedAt: "2026-06-21T00:00:00Z",
+    range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
+    configuredRepos: [{ source_id: "github:github.com", project_path: "o/kept" }],
+  });
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(env.items.map((it) => it.external_id), ["PR_kept"]);
+});
+
 test("buildRangeContract pins open program trackers whatever the range (4.8.0)", () => {
   const SRC = "github:github.com";
   const source: SourceRow = { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };

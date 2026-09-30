@@ -20,7 +20,7 @@ import { CommitChurn } from "./CommitChurn.tsx";
 import { CommitPunchCard } from "./CommitPunchCard.tsx";
 import { LargestCommits } from "./LargestCommits.tsx";
 import { ChangeRequests, type ResolveChangeRequest } from "./ChangeRequests.tsx";
-import { buildActivityHeatmapFromDaily, commitIsMerge, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
+import { buildActivityHeatmapFromDaily, commitChangeRequest, commitIsMerge, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
 import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
 
@@ -336,10 +336,7 @@ export function CommitsOverview({
   const direct = useMemo(() => (wide ? directCommits(commits) : null), [wide, commits]);
   // The pane exists when any row carries an answer at all, so a range where
   // every commit was pushed directly shows its empty state instead of nothing.
-  const hasChangeRequestAnswers = useMemo(
-    () => wide && commits.some((c) => c.details != null && "change_request" in c.details),
-    [wide, commits],
-  );
+  const hasChangeRequestAnswers = useMemo(() => wide && commits.some((c) => commitChangeRequest(c) !== undefined), [wide, commits]);
   // The comparison is drawn only when it compares like with like: nothing
   // narrows the list (`comparable`), AND the rows on screen really are the
   // range the aggregate describes -- which a feed windowed shorter than the

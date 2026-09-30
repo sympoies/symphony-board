@@ -674,7 +674,14 @@ export class GitLabSource implements Source {
 
     const commits = [...bySha.values()].map((e) => e.commit);
     const stats = await this.fetchCommitStats(project, projectId, commits);
-    const landed = await this.fetchLandedMergeRequests(project, projectId, commits);
+    // Only commits on the default branch can be what a merge request landed as,
+    // and only they bound the listing: one old commit on a live side branch
+    // would otherwise pull its window back by years.
+    const landed = await this.fetchLandedMergeRequests(
+      project,
+      projectId,
+      [...bySha.values()].filter((e) => !defaultBranch || e.branches.includes(defaultBranch)).map((e) => e.commit),
+    );
 
     for (const { commit, branches } of bySha.values()) {
       const stat = stats.get(String(commit.id));
@@ -785,8 +792,8 @@ export class GitLabSource implements Source {
       if (Number.isFinite(at) && at < oldest) oldest = at;
     }
     if (!Number.isFinite(oldest)) return out;
-    const updatedAfter = new Date(oldest - LANDED_MERGE_REQUEST_MARGIN_MS).toISOString();
     try {
+      const updatedAfter = new Date(oldest - LANDED_MERGE_REQUEST_MARGIN_MS).toISOString();
       for (let page = 1; page <= MAX_REST_PAGES; page++) {
         const rows = await rest<any[]>(`projects/${projectId}/merge_requests`, {
           state: "merged",
@@ -808,6 +815,12 @@ export class GitLabSource implements Source {
           }
         }
         if ((rows ?? []).length < 100) break;
+        // The listing is newest-updated first, so what the cap cuts off is the
+        // oldest: their commits stay unlinked, which is the right end to lose
+        // and worth saying, since it otherwise looks like a complete listing.
+        if (page === MAX_REST_PAGES) {
+          log.info(`[${this.descriptor.sourceId}] project ${project}: merged merge request listing capped at ${MAX_REST_PAGES * 100}; older commits stay unlinked`);
+        }
       }
     } catch (err) {
       log.info(`[${this.descriptor.sourceId}] project ${project}: merged merge requests unavailable; commits stay unlinked: ${(err as Error).message}`);

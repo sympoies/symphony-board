@@ -2085,6 +2085,15 @@ export interface ChangeRequestView {
   primary: boolean;
 }
 
+// A change request ready to draw: the view, where its number leads, and whether
+// that is off-site. One shape for the row chip, the detail row and the pane, so
+// the three cannot drift apart. Built by nav.changeRequestDestination.
+export interface ResolvedChangeRequest {
+  view: ChangeRequestView;
+  href: string | null;
+  external: boolean;
+}
+
 export function changeRequestView(link: CommitChangeRequestLink, item: ItemDTO | undefined, providerKind: string | undefined): ChangeRequestView {
   const number = link.iid ?? item?.iid ?? null;
   return {

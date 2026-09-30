@@ -710,8 +710,8 @@ test("changeRequestGroups gathers the commits of each change request, newest fir
     activity({ external_id: "c6", occurred_at: "2026-09-15T10:00:00Z", details: { sha: "a6" } }),
   ];
   assert.deepEqual(changeRequestGroups(rows), [
-    { ref: "gh|PR_2", iid: 2, sourceId: "gh", projectPath: "acme/web", commits: 1, additions: 1, deletions: 0, counted: 1, firstAt: "2026-09-14T09:00:00Z", lastAt: "2026-09-14T09:00:00Z" },
-    { ref: "gh|PR_1", iid: 1, sourceId: "gh", projectPath: "acme/api", commits: 3, additions: 15, deletions: 3, counted: 2, firstAt: "2026-09-10T10:00:00Z", lastAt: "2026-09-12T11:00:00Z" },
+    { ref: "gh|PR_2", iid: 2, sourceId: "gh", projectPath: "acme/web", commits: 1, additions: 1, deletions: 0, counted: 1, lastAt: "2026-09-14T09:00:00Z" },
+    { ref: "gh|PR_1", iid: 1, sourceId: "gh", projectPath: "acme/api", commits: 3, additions: 15, deletions: 3, counted: 2, lastAt: "2026-09-12T11:00:00Z" },
   ]);
   assert.deepEqual(changeRequestGroups([]), []);
 });

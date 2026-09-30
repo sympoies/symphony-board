@@ -730,6 +730,8 @@ test("the GitHub commit batch also reads the pull request each commit belongs to
   // has to be in the document — without the count selection.
   const solo = { ...ghMainCommit, parents: [{ sha: "0000001" }] };
   const direct = { ...ghMainCommit, sha: "ddd444", html_url: "https://github.com/o/r/commit/ddd444", parents: [{ sha: "0000001" }] };
+  const unresolved = { ...ghMainCommit, sha: "eee555", html_url: "https://github.com/o/r/commit/eee555", parents: [{ sha: "0000001" }] };
+  const crowded = { ...ghMainCommit, sha: "fff666", html_url: "https://github.com/o/r/commit/fff666", parents: [{ sha: "0000001" }] };
   const merge = {
     sha: "ccc333",
     html_url: "https://github.com/o/r/commit/ccc333",
@@ -743,7 +745,7 @@ test("the GitHub commit batch also reads the pull request each commit belongs to
   };
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
     if (path === "repos/o/r") return { default_branch: "main" } as T;
-    if (path === "repos/o/r/commits") return (params?.page === 1 ? [solo, direct, merge] : []) as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [solo, direct, merge, unresolved, crowded] : []) as T;
     if (path === "repos/o/r/activity") return [] as T;
     if (isGitHubCommentActivityPath(path)) return [] as T;
     throw new Error(`unexpected REST path ${path}`);
@@ -762,9 +764,17 @@ test("the GitHub commit batch also reads the pull request each commit belongs to
       queries.push(query);
       return {
         repository: {
-          c0: { oid: "aaa111", additions: 12, deletions: 4, associatedPullRequests: { nodes: [pr("PR_6", 6)] } },
-          c1: { oid: "ddd444", additions: 1, deletions: 1, associatedPullRequests: { nodes: [] } },
-          c2: { oid: "ccc333", associatedPullRequests: { nodes: [pr("PR_7", 7, { mergeCommit: { oid: "ccc333" } })] } },
+          // Two candidates in GraphQL shape, the right one second: what reaches
+          // the row depends on `state` and `mergeCommit.oid` surviving the trip
+          // into the stored payload, not only on the choosing rule.
+          c0: { oid: "aaa111", additions: 12, deletions: 4, associatedPullRequests: { totalCount: 2, nodes: [pr("PR_5", 5, { state: "OPEN" }), pr("PR_6", 6)] } },
+          c1: { oid: "ddd444", additions: 1, deletions: 1, associatedPullRequests: { totalCount: 1, nodes: [pr("PR_F", 9, { repository: { nameWithOwner: "fork/r" } })] } },
+          c2: { oid: "ccc333", associatedPullRequests: { totalCount: 2, nodes: [pr("PR_8", 8), pr("PR_7", 7, { mergeCommit: { oid: "ccc333" } })] } },
+          // An oid GitHub cannot resolve: no answer for this commit, and no
+          // effect on the others in the batch.
+          c3: null,
+          // More pull requests than were read, none of them this repository's.
+          c4: { oid: "fff666", additions: 2, deletions: 2, associatedPullRequests: { totalCount: 7, nodes: [pr("PR_G", 1, { repository: { nameWithOwner: "fork/r" } })] } },
         },
       };
     }
@@ -793,9 +803,74 @@ test("the GitHub commit batch also reads the pull request each commit belongs to
   assert.equal(bySha("aaa111").additions, 12, "line counts are unchanged by the wider batch");
   assert.deepEqual(bySha("ccc333").change_request, { ref: "github:github.com|PR_7", iid: 7 });
   assert.ok(!("additions" in bySha("ccc333")), "a merge still carries no line counts");
-  // Looked up, and there is none: `null`, which is a fact a pane can count.
+  // Looked up, and there is none in this repository: `null`, which is a fact a
+  // pane can count. Its only pull request belongs to a fork.
   assert.ok("change_request" in bySha("ddd444"));
   assert.equal(bySha("ddd444").change_request, null);
+  // No answer, and the rest of the batch kept theirs.
+  assert.ok(!("change_request" in bySha("eee555")));
+  assert.ok(!("additions" in bySha("eee555")));
+  // Seven associated, one read, none of it ours: an own pull request may be
+  // among the unread six, so this is unknown rather than "none".
+  assert.ok(!("change_request" in bySha("fff666")));
+  assert.equal(bySha("fff666").additions, 2);
+  // A pull request of a repository the board does not track is not stored.
+  const stored = JSON.stringify(res.records.filter((r) => r.entityKind === "activity").map((r) => r.payload));
+  assert.ok(!stored.includes("fork/r") && !stored.includes("PR_F") && !stored.includes("PR_G"));
+});
+
+test("the GitHub commit batch keeps alias and commit aligned past the first hundred", async () => {
+  // Aliases restart at c0 in every document. A lookup that indexed the whole
+  // list instead of the batch would be right for the first hundred commits and
+  // attach the wrong pull request to every one after.
+  const commitAt = (i: number) => ({
+    ...ghMainCommit,
+    sha: i.toString(16).padStart(8, "0"),
+    html_url: `https://github.com/o/r/commit/${i.toString(16).padStart(8, "0")}`,
+    // The last one is a merge: in the second document, without count fields.
+    parents: i === 100 ? [{ sha: "0000001" }, { sha: "0000002" }] : [{ sha: "0000001" }],
+  });
+  const commits = Array.from({ length: 101 }, (_, i) => commitAt(i));
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? commits.slice(0, 100) : params?.page === 2 ? commits.slice(100) : []) as T;
+    if (path === "repos/o/r/activity") return [] as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const queries: string[] = [];
+  const batchGql: GqlClient = (async (query: string) => {
+    if (!query.includes("object(oid:")) return gql(query);
+    queries.push(query);
+    // Answer each alias from the oid the document itself asked it for.
+    const repository: Record<string, unknown> = {};
+    for (const match of query.matchAll(/(c\d+): object\(oid:"([0-9a-f]+)"\)/g)) {
+      const number = parseInt(match[2]!, 16) + 1;
+      repository[match[1]!] = {
+        oid: match[2],
+        additions: number,
+        deletions: 0,
+        associatedPullRequests: { totalCount: 1, nodes: [{ id: `PR_${number}`, number, state: "MERGED", mergeCommit: null, repository: { nameWithOwner: "o/r" } }] },
+      };
+    }
+    return { repository };
+  }) as GqlClient;
+
+  const src = new GitHubSource(DESC, batchGql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(queries.length, 2, "one document per hundred commits");
+  assert.match(queries[1]!, /c0: object\(oid:"00000064"\)/, "the second document starts again at c0");
+  assert.doesNotMatch(queries[1]!, /additions/, "its one commit is the merge");
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  const bySha = (sha: string) => details.find((d) => d.sha === sha)!;
+  assert.deepEqual(bySha("00000000").change_request, { ref: "github:github.com|PR_1", iid: 1 });
+  assert.deepEqual(bySha("00000063").change_request, { ref: "github:github.com|PR_100", iid: 100 });
+  assert.equal(bySha("00000063").additions, 100);
+  assert.deepEqual(bySha("00000064").change_request, { ref: "github:github.com|PR_101", iid: 101 });
 });
 
 test("a GitHub commit row picks its pull request from the stored lookup, or says nothing", () => {
@@ -845,6 +920,11 @@ test("a GitHub commit row picks its pull request from the stored lookup, or says
   assert.deepEqual(link({ pulls: [pull("PR_9", 9, { repo: "fork/r" }), pull("PR_4", 4, { repo: "O/R" })] }), { ref: "github:github.com|PR_4", iid: 4 });
   // Malformed entries are ignored rather than half-read.
   assert.equal(link({ pulls: [{ id: "", number: 5, repo: "o/r" }, { id: "PR_5", number: "5", repo: "o/r" }] }), null);
+  // The list was not read to its end and nothing in it is ours: an own pull
+  // request may be among the unread, so this is unknown, not "none". A match
+  // among what WAS read is still a match.
+  assert.equal(link({ pulls: [], pullsMore: true }), undefined);
+  assert.deepEqual(link({ pulls: [pull("PR_1", 1)], pullsMore: true }), { ref: "github:github.com|PR_1", iid: 1 });
 });
 
 test("a failed GitHub commit-stats batch degrades to no counts, not a partial sweep", async () => {
@@ -1925,6 +2005,7 @@ test("GitLab fetch and normalize includes commit body and default branch refs fr
     if (path === "projects/g%2Fp/events") {
       return [] as T;
     }
+    if (path === "projects/g%2Fp/merge_requests") return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -1990,6 +2071,7 @@ test("GitLab fetch expands live side branches via compare and labels their commi
         : []) as T;
     }
     if (path === "projects/g%2Fp/repository/compare") return { commits: [glSideCommit] } as T;
+    if (path === "projects/g%2Fp/merge_requests") return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -2069,6 +2151,7 @@ test("GitLab asks the commit list for stats and resolves compare-only commits by
     }
     if (path === "projects/g%2Fp/repository/compare") return { commits: [compared] } as T;
     if (path === "projects/g%2Fp/repository/commits/feedfacecafe") return { ...compared, stats: { additions: 3, deletions: 7, total: 10 } } as T;
+    if (path === "projects/g%2Fp/merge_requests") return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
 
@@ -2165,6 +2248,77 @@ test("GitLab links landing commits to their merge request from one bounded listi
   assert.ok(!("change_request" in bySha("aaaa0004")));
 });
 
+test("the GitLab merged merge-request listing pages, newest-updated first, and the first writer keeps a sha", async () => {
+  const calls: Array<Record<string, unknown> | undefined> = [];
+  const commit = (id: string, date: string) => ({
+    id, title: id, message: id, committed_date: date, author_name: "D", author_email: "d@example.com", parent_ids: ["0"], stats: { additions: 1, deletions: 0, total: 1 },
+  });
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/events") return [] as T;
+    if (path === "projects/g%2Fp/repository/commits") {
+      return (params?.page === 1 ? [commit("aaaa0001", "2026-06-09T12:00:00Z"), commit("aaaa0002", "2026-06-08T12:00:00Z")] : []) as T;
+    }
+    if (path === "projects/g%2Fp/merge_requests") {
+      calls.push(params);
+      if (params?.page === 1) {
+        // A full page: the listing goes on. The first row and the last both
+        // name aaaa0001; the listing is newest-updated first, so the first is
+        // the merge request the commit most recently landed as.
+        return [
+          { id: 600, iid: 60, merge_commit_sha: "aaaa0001", squash_commit_sha: null, sha: "ffff0600" },
+          ...Array.from({ length: 98 }, (_, i) => ({ id: 700 + i, iid: 70 + i, merge_commit_sha: `ffff${String(i).padStart(4, "0")}`, squash_commit_sha: null, sha: `eeee${String(i).padStart(4, "0")}` })),
+          { id: 601, iid: 61, merge_commit_sha: null, squash_commit_sha: null, sha: "aaaa0001" },
+        ] as T;
+      }
+      if (params?.page === 2) return [{ id: 602, iid: 62, merge_commit_sha: null, squash_commit_sha: "aaaa0002", sha: "ffff0602" }] as T;
+      return [] as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+  assert.deepEqual(calls.map((c) => c?.page), [1, 2], "a full page asks for the next; a short page ends the listing");
+  assert.ok(calls.every((c) => c?.order_by === "updated_at" && c?.sort === "desc" && c?.per_page === 100));
+
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  const bySha = (sha: string) => details.find((d) => d.sha === sha)!;
+  assert.deepEqual(bySha("aaaa0001").change_request, { ref: "gitlab:gitlab.com|gid://gitlab/MergeRequest/600", iid: 60 }, "the first row to name a sha keeps it");
+  assert.deepEqual(bySha("aaaa0002").change_request, { ref: "gitlab:gitlab.com|gid://gitlab/MergeRequest/602", iid: 62 }, "a link found on the second page");
+});
+
+test("the GitLab listing is bounded by default-branch commits, not by an old side-branch commit", async () => {
+  const calls: Array<Record<string, unknown> | undefined> = [];
+  const commit = (id: string, date: string) => ({
+    id, title: id, message: id, committed_date: date, author_name: "D", author_email: "d@example.com", parent_ids: ["0"], stats: { additions: 1, deletions: 0, total: 1 },
+  });
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/events") {
+      return (params?.page === 1
+        ? [{ id: 10, action_name: "pushed to", created_at: "2026-06-09T11:31:00Z", author_username: "u", push_data: { ref: "feature-x", ref_type: "branch", action: "pushed", commit_from: "a", commit_to: "b" } }]
+        : []) as T;
+    }
+    if (path === "projects/g%2Fp/repository/commits") return (params?.page === 1 ? [commit("aaaa0001", "2026-06-09T12:00:00Z")] : []) as T;
+    // A long-lived side branch whose first unique commit is years old.
+    if (path === "projects/g%2Fp/repository/compare") return { commits: [commit("bbbb0001", "2023-01-01T00:00:00Z")] } as T;
+    if (path === "projects/g%2Fp/merge_requests") {
+      calls.push(params);
+      return [] as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.updated_after, "2026-06-08T12:00:00.000Z", "a day before the oldest DEFAULT-BRANCH commit");
+});
+
 test("a failed GitLab merge-request listing leaves commits unlinked, not the sweep partial", async () => {
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
     if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
@@ -2196,6 +2350,7 @@ test("GitLab asks for no merge-request listing when the sweep stored no commits"
     if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
     if (path === "projects/g%2Fp/events") return [] as T;
     if (path === "projects/g%2Fp/repository/commits") return [] as T;
+    if (path === "projects/g%2Fp/merge_requests") return [] as T;
     throw new Error(`unexpected REST path ${path}`);
   };
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);

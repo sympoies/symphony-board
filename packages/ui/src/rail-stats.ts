@@ -794,7 +794,6 @@ export type ChangeRequestGroup = {
   // request and never carries any, so this is how much of `commits` the two
   // figures above cover.
   counted: number;
-  firstAt: string;
   lastAt: string;
 };
 
@@ -817,7 +816,6 @@ export function changeRequestGroups(activities: readonly ActivityDTO[]): ChangeR
         additions: 0,
         deletions: 0,
         counted: 0,
-        firstAt: a.occurred_at,
         lastAt: a.occurred_at,
       } satisfies ChangeRequestGroup);
     group.commits += 1;
@@ -827,7 +825,6 @@ export function changeRequestGroups(activities: readonly ActivityDTO[]): ChangeR
       group.deletions += stats.deletions;
       group.counted += 1;
     }
-    if (a.occurred_at < group.firstAt) group.firstAt = a.occurred_at;
     if (a.occurred_at > group.lastAt) group.lastAt = a.occurred_at;
     groups.set(link.ref, group);
   }
