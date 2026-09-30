@@ -24,6 +24,7 @@ import { ChangeRequests, type ResolveChangeRequest } from "./ChangeRequests.tsx"
 import { buildActivityHeatmapFromDaily, commitChangeRequest, commitIsMerge, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
 import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
+import type { CommitsPanes } from "../layout-tier.ts";
 
 // The Commits overview column: the SHAPE of the selected range over time.
 //
@@ -42,14 +43,18 @@ import type { TimeRange } from "../model.ts";
 // Everything derives from the same rows the list renders, so this can never
 // disagree with the commits beside it and needs no fetch of its own.
 //
-// From the wide-panes tier (`wide`, COMMITS_PANES_MIN_WIDTH_PX) the column is a
-// two-up grid with room for more than four panes, and what it does with spare
-// height changes. Below the tier the two strips grow to fill the pane; on a
+// From the wide-panes tier (`panes === "wide"`, COMMITS_PANES_MIN_WIDTH_PX)
+// the column is a two-up grid with room for more than four panes, and what it
+// does with spare height changes. Below the tier the two strips grow to fill the pane; on a
 // tall, wide panel that turned seven day bars into seven 120x370px slabs that
 // said nothing more than they did at 56px. Here the charts keep a designed
 // height -- the per-day strip becomes a stacked chart, the hour strip a
 // day-by-hour grid, and lines changed gets a pane of its own -- and the height
 // left over goes to a list, Largest commits, which answers it with more rows.
+//
+// The laptop tier (`panes === "stack"`, COMMITS_STACK_MIN_WIDTH_PX) draws the
+// same panes in a single stack that scrolls inside the column: a laptop has
+// the height for them but not the width for two side by side.
 
 function commitCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
@@ -120,7 +125,7 @@ function CommitRhythm({
   activityDaily: ActivityDailyDTO | null;
   range: TimeRange;
   onTip: (tip: HeatmapTip | null) => void;
-  // The wide tier's summary of the year under the calendar. Activity states
+  // The pane tiers' summary of the year under the calendar. Activity states
   // these above its own calendar; this column's tiles are about the selected
   // range, so the year had no figures of its own here at all.
   facts?: boolean;
@@ -253,7 +258,7 @@ export function CommitsOverview({
   range,
   actorIndex = EMPTY_ACTOR_INDEX,
   panelRef,
-  wide = false,
+  panes = null,
   comparable = false,
   selectedKey = null,
   onSelectCommit,
@@ -274,8 +279,9 @@ export function CommitsOverview({
   // merged, bots dropped) rather than raw actor strings.
   actorIndex?: ActorIndex;
   panelRef?: Ref<HTMLElement>;
-  // The wide-panes tier: see the note at the top of this file.
-  wide?: boolean;
+  // The pane tier, from the laptop tier up: see the note at the top of this
+  // file. Null is the plain digest.
+  panes?: CommitsPanes | null;
   // True when nothing narrows `commits`: no repo / branch / author / source
   // filter and nothing hidden in Settings (commitScopeIsWhole). Only then can
   // the count be set against activity_daily, which counts every commit.
@@ -293,6 +299,9 @@ export function CommitsOverview({
   // or a filter it cannot describe.
   fileCoverage?: Pick<HotPaths, "files" | "scanned" | "commits"> | null;
 }) {
+  // Both pane tiers draw the same panes; they differ only in how the column
+  // lays them out, which is the stylesheet's business.
+  const hasPanes = panes !== null;
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   const days = useMemo(
     () => countsByDay(commits, timezone, range.from, range.to),
@@ -312,13 +321,13 @@ export function CommitsOverview({
   );
   const activeDays = days.filter((d) => d.count > 0).length;
 
-  // The wide tier's extra figures. Each is a pass over every row, so none of
+  // The pane tiers' extra figures. Each is a pass over every row, so none of
   // them is computed for a layout that has no tile to put it in, and each is
   // computed once: the per-day churn feeds both its tile here and the Lines
   // changed pane below, which takes the array rather than deriving its own.
   const churnDays = useMemo(
-    () => (wide ? churnByDay(commits, timezone, range.from, range.to) : null),
-    [wide, commits, timezone, range.from, range.to],
+    () => (hasPanes ? churnByDay(commits, timezone, range.from, range.to) : null),
+    [hasPanes, commits, timezone, range.from, range.to],
   );
   const churn = useMemo(
     () =>
@@ -330,25 +339,25 @@ export function CommitsOverview({
         : null,
     [churnDays],
   );
-  const sizes = useMemo(() => (wide ? commitSizeSummary(commits) : null), [wide, commits]);
+  const sizes = useMemo(() => (hasPanes ? commitSizeSummary(commits) : null), [hasPanes, commits]);
   // Merges carry no line counts by design, so they are what "N of M commits
   // counted" has to leave out of M before it says anything about coverage.
   // Counted directly: commitLanding also answers the default-branch question,
   // which costs a membership test per row and is not needed here.
-  const merges = useMemo(() => (wide ? commits.reduce((n, c) => (commitIsMerge(c) ? n + 1 : n), 0) : 0), [wide, commits]);
+  const merges = useMemo(() => (hasPanes ? commits.reduce((n, c) => (commitIsMerge(c) ? n + 1 : n), 0) : 0), [hasPanes, commits]);
   // Default-branch commits that landed without a change request (4.8.2). Drawn
   // only when the producer answered for at least one commit: a range it said
   // nothing about has no "0" to show.
-  const direct = useMemo(() => (wide ? directCommits(commits) : null), [wide, commits]);
+  const direct = useMemo(() => (hasPanes ? directCommits(commits) : null), [hasPanes, commits]);
   // The pane exists when any row carries an answer at all, so a range where
   // every commit was pushed directly shows its empty state instead of nothing.
-  const hasChangeRequestAnswers = useMemo(() => wide && commits.some((c) => commitChangeRequest(c) !== undefined), [wide, commits]);
+  const hasChangeRequestAnswers = useMemo(() => hasPanes && commits.some((c) => commitChangeRequest(c) !== undefined), [hasPanes, commits]);
   // The comparison is drawn only when it compares like with like: nothing
   // narrows the list (`comparable`), AND the rows on screen really are the
   // range the aggregate describes -- which a feed windowed shorter than the
   // range makes false without any filter being set. See rangeIsCovered.
   const previous =
-    wide && comparable && rangeIsCovered(activityDaily, range.from, range.to, commits.length, "commit")
+    hasPanes && comparable && rangeIsCovered(activityDaily, range.from, range.to, commits.length, "commit")
       ? previousPeriodCount(activityDaily, range.from, range.to, "commit")
       : null;
 
@@ -411,7 +420,7 @@ export function CommitsOverview({
     // Only when there is one: a producer that does not mark merges would
     // otherwise show a permanent "0", which reads as "no merges" rather than
     // "not reported".
-    ...(wide && merges > 0
+    ...(hasPanes && merges > 0
       ? [
           {
             label: "merges",
@@ -433,7 +442,7 @@ export function CommitsOverview({
     // Distinct files, from the producer's file aggregate. Only once it has
     // scanned something: before that there is no number, and "0 files" would
     // read as a range that changed nothing.
-    ...(wide && fileCoverage && fileCoverage.scanned > 0
+    ...(hasPanes && fileCoverage && fileCoverage.scanned > 0
       ? [
           {
             label: "files changed",
@@ -443,7 +452,7 @@ export function CommitsOverview({
           },
         ]
       : []),
-    ...(wide
+    ...(hasPanes
       ? [
           {
             label: "median commit",
@@ -457,8 +466,8 @@ export function CommitsOverview({
   return (
     <aside
       ref={panelRef}
-      className={`commits-overview${wide ? " pane-scroll" : ""}`}
-      data-panes={wide ? "wide" : undefined}
+      className={`commits-overview${hasPanes ? " pane-scroll" : ""}`}
+      data-panes={panes ?? undefined}
       aria-label="Commit range overview"
     >
       {/* A .rail-block like every other panel in this column and the rail beside
@@ -490,8 +499,8 @@ export function CommitsOverview({
           count has no scale on its own: 1,810 commits is the week's whole story
           only next to the year it came out of. The two range-shaped strips that
           follow then say when inside the range those commits landed. */}
-      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} facts={wide} />
-      {wide ? (
+      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} facts={hasPanes} />
+      {hasPanes ? (
         <>
           <CommitDayChart commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
           {churnDays ? <CommitChurn days={churnDays} range={range} /> : null}

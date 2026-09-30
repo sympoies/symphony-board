@@ -13,7 +13,7 @@ import {
 } from "../rail-stats.ts";
 import { formatAxisValue, niceAxisMax } from "../rank-scale.ts";
 
-// Commits per day for the wide-panes tier: the same days the plain strip draws,
+// Commits per day for the pane tiers: the same days the plain strip draws,
 // split by what the work WAS.
 //
 // The plain strip answers "how many" and nothing else, and on a wide panel its

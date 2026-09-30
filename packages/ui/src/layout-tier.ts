@@ -104,6 +104,37 @@ export const COMMITS_PANES_AUTHOR_LIMIT = 10;
 // than this are narrower than the gap between them.
 export const COMMITS_PANES_SPARK_BARS = 30;
 
+// The laptop tier: the panes of the wide tier, one column each.
+//
+// Below the wide tier the supporting columns used to fall back to the plain
+// digest -- six summary tiles, the per-day bars, the hour strip and four bar
+// charts -- which on a laptop screen read as a page with nothing in it: the
+// same bar drawn five times. A laptop has the HEIGHT for more than that, only
+// not the width for two modules side by side. So from here the columns carry
+// the wide tier's panes (every summary tile, the stacked day chart, lines
+// changed, the day-by-hour grid, Largest commits, Change requests; ranked rows
+// with their facts, and the Hot files pane) stacked in one column, and each
+// column scrolls inside itself rather than squeezing a chart.
+//
+// The floor is where a supporting column still gives a ranked row with its
+// facts the ~400px it needs: at 1400px the 36 / 32 / 32 split leaves each
+// supporting column about 430px of content box. It sits below the 1470px of a
+// 13" MacBook Air and the 1512px of a 14" MacBook Pro at default scaling, the
+// screens this tier is for. It ends where the wide tier starts.
+//
+// styles.css mirrors these numbers; layout-tier.test.ts keeps them in step.
+export const COMMITS_STACK_MIN_WIDTH_PX = 1400;
+export const COMMITS_STACK_QUERY = `(min-width: ${COMMITS_STACK_MIN_WIDTH_PX}px) and (max-width: ${COMMITS_PANES_MIN_WIDTH_PX - 1}px)`;
+// Inside the laptop tier, where the list goes back from 36fr to 40fr. The
+// list keeps its one-line rows above a 760px content box (CommitTimeline), and
+// 40fr of a viewport less its 64px of padding and gaps clears that from about
+// 1965px -- the width at which it did before this tier existed. Below here the
+// narrower list was the wrapping card either way, so 36fr costs it nothing.
+export const COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX = 1960;
+// Which pane layout the Commits supporting columns are in: the wide tier's
+// two-up grids, the laptop tier's stacks, or (null) the plain digest.
+export type CommitsPanes = "wide" | "stack";
+
 // Commits needs about 480px for its wrapping list and 360px per supporting
 // pane, plus page padding and gaps. It fits three columns before Activity does.
 export const COMMIT_THREE_COLUMN_MIN_WIDTH_PX = 1280;

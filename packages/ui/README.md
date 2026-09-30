@@ -339,7 +339,8 @@ without the program scope, that a focus link without a range keeps its focus
 through a reload (a tracker opening on its program view) while a facet picked
 in focus that changes the listed items drops it, and that large synthetic
 Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
-compact split, filter wrapping, the laptop three-column tier, and the
+compact split, filter wrapping, the three-column plain digest, the laptop
+tier (the wide tier's panes stacked one per column at 1512x945), and the
 wide-panes tier (two-up supporting columns whose charts keep a fixed height
 while lists take the spare height). It checks that merge commits are tagged
 instead of shown without line counts, that the default branch is marked, and

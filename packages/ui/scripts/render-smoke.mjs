@@ -6158,7 +6158,11 @@ try {
   // WIDE_RAIL_MIN_WIDTH_PX. Both are asserted at a viewport where they must
   // appear AND at one where they must not, so "the rail renders" cannot pass by
   // rendering everywhere and breaking the narrow tiers.
-  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  //
+  // The plain digest -- day bars, hour strip, bar charts grown to the pane --
+  // is what the three-column layout draws below the laptop tier
+  // (COMMITS_STACK_MIN_WIDTH_PX), so this probe sits at 1360px, inside it.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1360, height: 1080, deviceScaleFactor: 1, mobile: false });
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(400);
   await waitHtml("document.querySelector('.commits-page')");
@@ -6327,8 +6331,12 @@ try {
           const metaHeight = meta ? Math.round(meta.getBoundingClientRect().height) : 0;
           const style = getComputedStyle(card);
           const inner = card.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+          const innerWidth = card.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
           return {
             listWidth: Math.round(list.clientWidth),
+            // The facts under the subject span the card, not the column left
+            // of the sha and its actions.
+            metaSpan: meta ? Math.round(innerWidth - meta.getBoundingClientRect().width) : null,
             rows: cards.length,
             cardHeight: Math.round(card.getBoundingClientRect().height),
             contentHeight: Math.round(main.getBoundingClientRect().height),
@@ -6580,8 +6588,8 @@ try {
   for (const vp of [
     { name: "compact-split", width: 1000, height: 1440 },
     { name: "three-column-boundary", width: 1280, height: 1440 },
-    { name: "three-column", width: 1880, height: 1080 },
-    { name: "rows", width: 2560, height: 1440 },
+    { name: "laptop", width: 1880, height: 1080 },
+    { name: "panes", width: 2560, height: 1440 },
   ]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
@@ -6751,7 +6759,7 @@ try {
   // to fixed rows that a grown chart cannot fill, or about 2560, where the
   // columns stop growing charts at all and fill with list rows instead.
   const commitsFillTiers = [];
-  for (const vp of [{ name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1600, height: 1080 }, { name: "three-column", width: 1880, height: 1080 }, { name: "rows", width: 2300, height: 1440 }, { name: "panes", width: 2560, height: 1440 }]) {
+  for (const vp of [{ name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1360, height: 1080 }, { name: "stack", width: 1512, height: 945 }, { name: "stack", width: 2300, height: 1440 }, { name: "panes", width: 2560, height: 1440 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
     await sleep(400);
@@ -6800,10 +6808,61 @@ try {
     })).result.value || {};
     commitsFillTiers.push({ tier: vp.name, width: vp.width, ...r });
   }
+  // The laptop tier at a 14" MacBook Pro's default scaling: the wide tier's
+  // panes, one stack per column, each scrolling inside itself.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1512, height: 945, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.commits-page .commit-list .commit-row')");
+  const commitsStack = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const doc = document.documentElement;
+      const list = document.querySelector('.commit-list');
+      const overview = document.querySelector('.commits-overview');
+      const rail = document.querySelector('.commits-rail:not(.commit-detail)');
+      const titles = (root) => [...(root?.querySelectorAll(':scope > .rail-block') || [])].map((b) => (b.querySelector('.rail-block-title, h3')?.textContent || '').trim());
+      const scrolls = (el) => !!el && getComputedStyle(el).overflowY === 'auto' && el.scrollHeight > el.clientHeight;
+      const blockOf = (root, title) => [...(root?.querySelectorAll(':scope > .rail-block') || [])].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === title);
+      const visible = (els) => [...els].filter((el) => getComputedStyle(el).display !== 'none');
+      const plot = rail?.querySelector('.live-rank-plot');
+      const authorHead = [...(rail?.querySelectorAll('.rank-head.rank-cols-authors > span') || [])].filter((el) => getComputedStyle(el).display !== 'none').map((el) => (el.textContent || '').trim());
+      const card = list?.querySelector('.commit-row-body');
+      const meta = card?.querySelector('.commit-row-meta');
+      const cardStyle = card ? getComputedStyle(card) : null;
+      const cardInner = card ? card.clientWidth - parseFloat(cardStyle.paddingLeft) - parseFloat(cardStyle.paddingRight) : 0;
+      // Anything wider than its pane, anywhere in the two columns.
+      const spill = [...document.querySelectorAll('.commits-overview .rail-block, .commits-rail:not(.commit-detail) .rail-block')].filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => (b.querySelector('.rail-block-title, h3')?.textContent || '').trim());
+      return {
+        panes: [overview?.dataset.panes ?? null, rail?.dataset.panes ?? null],
+        rowLayout: list?.dataset.rowLayout ?? null,
+        overviewBlocks: titles(overview),
+        railBlocks: titles(rail),
+        tiles: overview?.querySelectorAll('.hm-summary > div').length ?? 0,
+        overviewScrolls: scrolls(overview),
+        railScrolls: scrolls(rail),
+        overviewShort: list && overview ? Math.round(list.getBoundingClientRect().bottom - overview.getBoundingClientRect().bottom) : null,
+        railShort: list && rail ? Math.round(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().bottom) : null,
+        rankFlow: plot ? getComputedStyle(plot).gridAutoFlow : null,
+        authorHead,
+        // The facts a row draws, which must be the columns its head names.
+        authorRowFacts: visible(blockOf(rail, 'Top authors')?.querySelector('.live-rank-extra')?.children || []).length,
+        typeRows: blockOf(rail, 'Commit types')?.querySelectorAll('.live-rank-item').length ?? 0,
+        // A pane wider than its column scrolls the COLUMN sideways, which
+        // neither the pane nor the document shows as overflow.
+        overviewScrollX: overview ? overview.scrollWidth - overview.clientWidth : null,
+        railScrollX: rail ? rail.scrollWidth - rail.clientWidth : null,
+        metaSpan: card && meta ? Math.round(cardInner - meta.getBoundingClientRect().width) : null,
+        cardHeight: card ? Math.round(card.getBoundingClientRect().height) : null,
+        spill,
+        pageOverflowX: Math.round(doc.scrollWidth - doc.clientWidth),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   // What the document already overflows by below the wide tier, so the wide
   // tier is held to "no worse" rather than to a number this fixture's header
   // decides.
-  const commitsPageOverflowBaseline = commitsFillTiers.find((t) => t.width === 1880)?.pageOverflow ?? 0;
+  const commitsPageOverflowBaseline = commitsFillTiers.find((t) => t.width === 1360)?.pageOverflow ?? 0;
   // Selecting a commit swaps the middle column for the detail card, whose root
   // carries the same class the fill rule targets.
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
@@ -7989,7 +8048,7 @@ try {
     [
       commitsFillTiers.length === 6 &&
         commitsFillTiers.every((t) =>
-          t.tier === "three-column" || t.tier === "rows"
+          t.tier === "three-column"
             ? t.minHeightPx > 0 &&
               t.overviewDisplay === "flex" &&
               t.dayBlockGrow > 0 &&
@@ -8010,12 +8069,47 @@ try {
                 t.dayStripGrow === null &&
                 Math.abs(t.overviewShort) <= 2 &&
                 Math.abs(t.railShort) <= 2
+              : t.tier === "stack"
+                ? // The laptop tier reaches it a third way: each column is one
+                  // stack at its designed heights that scrolls inside a column
+                  // exactly as tall as the list. Nothing grows.
+                  t.overviewDisplay === "flex" &&
+                  t.dayBlockGrow === null &&
+                  t.dayStripGrow === null &&
+                  Math.abs(t.overviewShort) <= 2 &&
+                  Math.abs(t.railShort) <= 2
               : t.minHeightPx <= 0 &&
                 t.overviewDisplay === "grid" &&
                 t.dayBlockGrow === 0 &&
                 t.dayStripGrow === 0,
         ),
       `commits: the supporting columns fill at every three-column width (${JSON.stringify(commitsFillTiers)})`,
+    ],
+    [
+      JSON.stringify(commitsStack.panes) === JSON.stringify(["stack", "stack"]) &&
+        JSON.stringify(commitsStack.overviewBlocks) ===
+          JSON.stringify(["Commit overview", "Commit rhythm", "Commits per day", "Lines changed per day", "When", "Largest commits", "Change requests"]) &&
+        ["Top authors", "Top repos", "Top branches", "Commit types", "Hot files"].every((t) => (commitsStack.railBlocks || []).includes(t)) &&
+        commitsStack.tiles >= 11 &&
+        commitsStack.overviewScrolls === true &&
+        commitsStack.railScrolls === true &&
+        Math.abs(commitsStack.overviewShort) <= 2 &&
+        Math.abs(commitsStack.railShort) <= 2 &&
+        commitsStack.rankFlow === "row" &&
+        // The authors keep the facts a 430px column has room for.
+        JSON.stringify(commitsStack.authorHead) === JSON.stringify(["author", "", "commits", "share", "days", "per day"]) &&
+        commitsStack.authorRowFacts === 3 &&
+        // Eight rows in this tier, where the plain digest draws six.
+        commitsStack.typeRows > 6 &&
+        commitsStack.overviewScrollX <= 1 &&
+        commitsStack.railScrollX <= 1 &&
+        // The card's facts use its whole width, not the column left of the sha.
+        commitsStack.rowLayout === "stacked" &&
+        commitsStack.metaSpan != null && Math.abs(commitsStack.metaSpan) <= 2 &&
+        commitsStack.cardHeight <= 124 &&
+        (commitsStack.spill || []).length === 0 &&
+        commitsStack.pageOverflowX <= 0,
+      `commits: on a 14" laptop the supporting columns stack the wide tier's panes and scroll inside themselves (${JSON.stringify(commitsStack)})`,
     ],
     [
       commitsDetailFill.found === true && commitsDetailFill.tail <= 24,
@@ -8061,6 +8155,8 @@ try {
         commitsRailWide.commitCard?.clipped.length === 0 &&
         commitsRailWide.commitCard?.metaHeight >= 40 &&
         commitsRailWide.commitCard?.slack <= 24 &&
+        commitsRailWide.commitCard?.metaSpan != null &&
+        Math.abs(commitsRailWide.commitCard.metaSpan) <= 2 &&
         ["Commits per day", "When", "Commit rhythm", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
     ],

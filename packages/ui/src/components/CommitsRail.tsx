@@ -7,6 +7,7 @@ import {
   RAIL_RANK_LIMIT,
   RAIL_RANK_LIMIT_ROWS,
   RAIL_ROWS_QUERY,
+  type CommitsPanes,
 } from "../layout-tier.ts";
 import type { ActivityDTO, CommitFileStatsDTO } from "@symphony-board/contract";
 import { memo, useMemo, useState, type CSSProperties, type ReactNode } from "react";
@@ -44,7 +45,7 @@ import { ActorAvatar } from "./ActorAvatar.tsx";
 // with commits · 303 branches" over more than a thousand rows, and until now the
 // only way to narrow that was two dropdowns. The repo, branch and author lists
 // are therefore navigation, not decoration — each row applies the filter it
-// describes. The read-only panels are Commit types and, in the wide tier,
+// describes. The read-only panels are Commit types and, in the pane tiers,
 // Commit scopes: they say what KIND of work the range contains and which parts
 // of the codebase it named, which no filter expresses. The scopes share their
 // pane with Hot files and Hot directories (the producer's file aggregate),
@@ -53,14 +54,19 @@ import { ActorAvatar } from "./ActorAvatar.tsx";
 // Everything here is derived from rows the page already holds, so the rail can
 // never disagree with the list beside it.
 //
-// From the wide-panes tier (`wide`, COMMITS_PANES_MIN_WIDTH_PX) the rail is a
-// two-up grid and each ranking stops being a bar and a number. A row has room
+// In the pane tiers (`panes`, from COMMITS_STACK_MIN_WIDTH_PX) each ranking
+// stops being a bar and a number, and from the wide-panes tier
+// (COMMITS_PANES_MIN_WIDTH_PX) the rail is also a two-up grid. A row has room
 // for the facts that make the number mean something -- an author's share, line
 // counts, how many repositories and how many of the range's days; a repo's
 // people and its last commit. Top repos and Top branches hold up to fifty rows
 // and scroll inside their pane instead of stopping at eight; Top authors does
 // not scroll, so it stops at ten. The last pane says where the work landed:
 // files, directories, or scopes.
+//
+// The laptop tier (`panes === "stack"`, COMMITS_STACK_MIN_WIDTH_PX) draws the
+// same rows and panes in one stack that scrolls as a whole, so every list in
+// it stops at a sidebar's eight rows and none scrolls on its own.
 
 // The limit is a tier, not a constant: see layout-tier.ts. A sidebar rail
 // lays these charts out as rows, where an extra item costs 26px of height the
@@ -143,7 +149,7 @@ export function CommitsRail({
   onRepo,
   onAuthor,
   onBranch,
-  wide = false,
+  panes = null,
   timezone,
   range,
   fileAggregate = null,
@@ -161,8 +167,9 @@ export function CommitsRail({
   fileRepoKeys?: ReadonlySet<string> | null;
   selectedPathKey?: string | null;
   onPath?: (path: HotPath | null) => void;
-  // The wide-panes tier: see the note at the top of this file.
-  wide?: boolean;
+  // The pane tier, from the laptop tier up: see the note at the top of this
+  // file. Null is the plain digest.
+  panes?: CommitsPanes | null;
   // For the per-author day series, which buckets in the viewer's zone across
   // the selected range exactly as the overview's per-day chart does.
   timezone: string;
@@ -172,7 +179,7 @@ export function CommitsRail({
   changedFiles?: CommitFileStatsState;
   showOnlyChangedFiles?: boolean;
   // The rows currently on screen. The read-only panels here (commit types, and
-  // scopes in the wide tier) describe what is visible rather than what could be
+  // scopes in the pane tiers) describe what is visible rather than what could be
   // selected, so they read these instead of a facet source.
   commits: ActivityDTO[];
   // Facet sources: each ranked list is counted with every filter applied EXCEPT
@@ -195,12 +202,17 @@ export function CommitsRail({
   // count follows the layout rather than being fixed. useMediaQuery re-renders
   // on the breakpoint, so resizing onto a second monitor re-evaluates it.
   const railRows = useMediaQuery(RAIL_ROWS_QUERY);
+  // Both pane tiers draw the same panes; the laptop tier stacks them in one
+  // column instead of two. `panes === "wide"` is the two-up tier only.
+  const hasPanes = panes !== null;
   // In the wide tier the two lists that scroll inside their pane hold
   // everything worth scrolling to. The panes that do not scroll are bounded,
-  // because their rows come out of the height those lists grow in.
-  const rankLimit = wide ? COMMITS_PANES_RANK_LIMIT : railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
-  const kindLimit = wide ? COMMITS_PANES_KIND_LIMIT : rankLimit;
-  const authorLimit = wide ? COMMITS_PANES_AUTHOR_LIMIT : rankLimit;
+  // because their rows come out of the height those lists grow in. The laptop
+  // tier's column scrolls as a whole, so no list in it scrolls on its own and
+  // each stops at a sidebar's row count.
+  const rankLimit = panes === "wide" ? COMMITS_PANES_RANK_LIMIT : railRows || panes === "stack" ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
+  const kindLimit = panes === "wide" ? COMMITS_PANES_KIND_LIMIT : rankLimit;
+  const authorLimit = panes === "wide" ? COMMITS_PANES_AUTHOR_LIMIT : rankLimit;
 
   const repoRanks = useMemo(() => rankRepos(repoSource, rankLimit), [repoSource, rankLimit]);
   const authorRanks = useMemo(() => rankActors(authorSource, authorLimit, actorIndex), [authorSource, authorLimit, actorIndex]);
@@ -209,21 +221,21 @@ export function CommitsRail({
   // it drives no filter, so unlike the three ranked facets it reads from the
   // visible rows.
   const typeRanks = useMemo(() => rankCommitTypes(commits, kindLimit), [commits, kindLimit]);
-  // Scopes are the wide tier's second read-only vocabulary, and like the types
+  // Scopes are the pane tiers' second read-only vocabulary, and like the types
   // they describe the rows on screen. Ranked once: the head states how many
   // there are in all, and the pane shows the first of them.
-  const allScopes = useMemo(() => (wide ? rankCommitScopes(commits, 0) : []), [wide, commits]);
+  const allScopes = useMemo(() => (hasPanes ? rankCommitScopes(commits, 0) : []), [hasPanes, commits]);
   const scopeRanks = allScopes.slice(0, kindLimit);
   const scopeTotal = allScopes.length;
   // The facts beside each row. Each is counted over the same facet source as
   // the row it sits in, so a row's count and its facts describe the same
   // commits; none is computed for a layout with nowhere to draw it.
   const authorFacts = useMemo(
-    () => (wide ? actorDetails(authorSource, actorIndex, timezone, range.from, range.to) : null),
-    [wide, authorSource, actorIndex, timezone, range.from, range.to],
+    () => (hasPanes ? actorDetails(authorSource, actorIndex, timezone, range.from, range.to) : null),
+    [hasPanes, authorSource, actorIndex, timezone, range.from, range.to],
   );
-  const repoFacts = useMemo(() => (wide ? repoDetails(repoSource, actorIndex) : null), [wide, repoSource, actorIndex]);
-  const branchFacts = useMemo(() => (wide ? branchDetails(branchSource) : null), [wide, branchSource]);
+  const repoFacts = useMemo(() => (hasPanes ? repoDetails(repoSource, actorIndex) : null), [hasPanes, repoSource, actorIndex]);
+  const branchFacts = useMemo(() => (hasPanes ? branchDetails(branchSource) : null), [hasPanes, branchSource]);
   const repoTotal = useMemo(() => rankRepos(repoSource, 0).length, [repoSource]);
   const authorTotal = useMemo(() => rankActors(authorSource, 0, actorIndex).length, [authorSource, actorIndex]);
   const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);
@@ -236,22 +248,22 @@ export function CommitsRail({
   const [where, setWhere] = useState<"files" | "dirs" | "scopes">("files");
   const whereShown = fileAggregate ? where : "scopes";
   const hot = useMemo(
-    () => (wide && whereShown !== "scopes" ? hotPaths(fileAggregate, fileRepoKeys, whereShown, kindLimit) : null),
-    [wide, whereShown, fileAggregate, fileRepoKeys, kindLimit],
+    () => (hasPanes && whereShown !== "scopes" ? hotPaths(fileAggregate, fileRepoKeys, whereShown, kindLimit) : null),
+    [hasPanes, whereShown, fileAggregate, fileRepoKeys, kindLimit],
   );
   // The share of the range's commits that landed on a default branch, out of
   // the rows that name one (contract 4.8.1). A producer that does not say
   // leaves `known` at zero, and the head falls back to the busiest branch --
   // which is a fact about these rows, where a name like `main` is not evidence.
   const leadBranch = branchRanks[0];
-  const landing = useMemo(() => (wide ? commitLanding(branchSource) : null), [wide, branchSource]);
+  const landing = useMemo(() => (hasPanes ? commitLanding(branchSource) : null), [hasPanes, branchSource]);
   const branchLead =
     landing && landing.known > 0
       ? `${share(landing.onDefault, landing.known)} on the default branch`
       : leadBranch
         ? `${share(leadBranch.count, branchSource.length)} on ${leadBranch.label}`
         : null;
-  // Default branches lead the wide table (see defaultBranchesFirst).
+  // Default branches lead the table of facts (see defaultBranchesFirst).
   const branchRows = useMemo(() => (branchFacts ? defaultBranchesFirst(branchRanks, branchFacts) : branchRanks), [branchRanks, branchFacts]);
 
   // Every hook is above this line: the phone's Files pane returns early, and a
@@ -271,7 +283,10 @@ export function CommitsRail({
         <span className="rail-block-title">Top authors</span>
         <span className="rail-block-meta">{authorTotal} total</span>
       </div>
-      {wide && authorRanks.length > 0 ? (
+      {hasPanes && authorRanks.length > 0 ? (
+        // The laptop tier's stylesheet hides the second and third facts
+        // (lines, repos) BY POSITION, here and in the row below: reordering
+        // either list means changing the nth-child rules in styles.css.
         <RankHead
           cols="rank-cols-authors"
           label="author"
@@ -279,14 +294,15 @@ export function CommitsRail({
         />
       ) : null}
       <RankChart
-        className={`rail-rank-chart${wide ? " rank-cols-authors" : ""}`}
+        className={`rail-rank-chart${hasPanes ? " rank-cols-authors" : ""}`}
         ariaLabel="Top commit authors in the selected range"
         empty="no authors in range"
         countLabel={commitCountLabel}
-        scale={wide ? "max" : "axis"}
+        scale={hasPanes ? "max" : "axis"}
         items={authorRanks.map((rank) => {
           const facts = authorFacts?.get(rank.key);
           const dayCount = facts?.perDay.length ?? 0;
+          // Same order as the head above; see the note there.
           const extra: ReactNode = facts ? (
             <>
               <span>{share(rank.count, authorTotalCommits)}</span>
@@ -311,8 +327,10 @@ export function CommitsRail({
             count: rank.count,
             selected: rank.label === selectedAuthor,
             extra,
+            // Every fact the row can show, so the ones a narrow tier hides
+            // are still stated.
             detail: facts
-              ? `${share(rank.count, authorTotalCommits)} of the range, ${facts.repos} ${pluralize(facts.repos, "repo")}, active ${facts.activeDays} of ${dayCount} ${pluralize(dayCount, "day")}`
+              ? `${share(rank.count, authorTotalCommits)} of the range, ${facts.counted > 0 ? `+${facts.additions.toLocaleString("en-US")} -${facts.deletions.toLocaleString("en-US")} lines, ` : ""}${facts.repos} ${pluralize(facts.repos, "repo")}, active ${facts.activeDays} of ${dayCount} ${pluralize(dayCount, "day")}`
               : undefined,
             // The rail owns the toggle for BOTH lists, matching the repo row
             // below. Leaving it to the route setter would make `onAuthor` a
@@ -336,15 +354,15 @@ export function CommitsRail({
         <span className="rail-block-title">Top repos</span>
         <span className="rail-block-meta">{repoTotal} total</span>
       </div>
-      {wide && repoRanks.length > 0 ? (
+      {hasPanes && repoRanks.length > 0 ? (
         <RankHead cols="rank-cols-repos" label="repo" extras={[{ label: "authors" }, { label: "last" }]} />
       ) : null}
       <RankChart
-        className={`live-rank-chart-repos rail-rank-chart${wide ? " rank-cols-repos pane-scroll" : ""}`}
+        className={`live-rank-chart-repos rail-rank-chart${hasPanes ? " rank-cols-repos pane-scroll" : ""}`}
         ariaLabel="Top repositories by commits in the selected range"
         empty="no repos in range"
         countLabel={commitCountLabel}
-        scale={wide ? "max" : "axis"}
+        scale={hasPanes ? "max" : "axis"}
         items={repoRanks.map((rank) => {
           // The rank key is `${source_id}|${project_path}`; the source half is
           // what keeps a path mirrored on two providers addressable.
@@ -385,19 +403,19 @@ export function CommitsRail({
         <span className="rail-block-title">Commit types</span>
         <span className="rail-block-meta">{typeTotal} {pluralize(typeTotal, "kind")}</span>
       </div>
-      {wide && typeRanks.length > 0 ? <RankHead cols="rank-cols-share" label="type" extras={[{ label: "share" }]} /> : null}
+      {hasPanes && typeRanks.length > 0 ? <RankHead cols="rank-cols-share" label="type" extras={[{ label: "share" }]} /> : null}
       <RankChart
-        className={`live-rank-chart-labels rail-rank-chart${wide ? " rank-cols-share" : ""}`}
+        className={`live-rank-chart-labels rail-rank-chart${hasPanes ? " rank-cols-share" : ""}`}
         ariaLabel="Conventional-commit types in the selected range"
         empty="no commits in range"
         countLabel={commitCountLabel}
-        scale={wide ? "max" : "axis"}
+        scale={hasPanes ? "max" : "axis"}
         items={typeRanks.map((rank) => ({
           key: rank.key,
           label: rank.label,
           count: rank.count,
-          extra: wide ? <span>{share(rank.count, commits.length)}</span> : undefined,
-          detail: wide ? `${share(rank.count, commits.length)} of the range` : undefined,
+          extra: hasPanes ? <span>{share(rank.count, commits.length)}</span> : undefined,
+          detail: hasPanes ? `${share(rank.count, commits.length)} of the range` : undefined,
           footer: (
             <span className="live-rank-name" aria-hidden="true">
               {rank.label}
@@ -412,17 +430,17 @@ export function CommitsRail({
     <div className="rail-block pane-fill">
       <div className="rail-block-head">
         <span className="rail-block-title">Top branches</span>
-        <span className="rail-block-meta">{wide && branchLead ? `${branchLead} · ${branchTotal} total` : `${branchTotal} total`}</span>
+        <span className="rail-block-meta">{hasPanes && branchLead ? `${branchLead} · ${branchTotal} total` : `${branchTotal} total`}</span>
       </div>
-      {wide && branchRanks.length > 0 ? (
+      {hasPanes && branchRanks.length > 0 ? (
         <RankHead cols="rank-cols-branches" label="branch" extras={[{ label: "repos" }]} />
       ) : null}
       <RankChart
-        className={`live-rank-chart-labels rail-rank-chart${wide ? " rank-cols-branches pane-scroll" : ""}`}
+        className={`live-rank-chart-labels rail-rank-chart${hasPanes ? " rank-cols-branches pane-scroll" : ""}`}
         ariaLabel="Branches with the most commits in the selected range"
         empty="no branch refs in range"
         countLabel={commitCountLabel}
-        scale={wide ? "max" : "axis"}
+        scale={hasPanes ? "max" : "axis"}
         items={branchRows.map((rank) => {
           const facts = branchFacts?.get(rank.key);
           return {
@@ -440,7 +458,7 @@ export function CommitsRail({
                 {/* A bar's footer has room for the last path segment only. A row
                     has room for the name, and `fix/x` and `docs/x` are two
                     different branches. */}
-                {wide ? rank.label : shortRepoLabel(rank.label)}
+                {hasPanes ? rank.label : shortRepoLabel(rank.label)}
                 {facts?.isDefault ? <small className="rank-default-tag">default</small> : null}
               </span>
             ),
@@ -570,8 +588,8 @@ export function CommitsRail({
 
   return (
     <aside
-      className={`commits-rail${wide ? " pane-scroll" : ""}`}
-      data-panes={wide ? "wide" : undefined}
+      className={`commits-rail${hasPanes ? " pane-scroll" : ""}`}
+      data-panes={panes ?? undefined}
       aria-label="Commit range digest"
     >
       {changedFiles ? <CommitFileList state={changedFiles} /> : null}
@@ -581,9 +599,10 @@ export function CommitsRail({
           toolbar above, while this list is the only ranking of people. */}
       {authorsBlock}
       {reposBlock}
-      {wide ? (
-        // Two-up, the pairs read across: the two lists that filter (and
-        // scroll) share a row, then the two read-only vocabularies.
+      {hasPanes ? (
+        // In the two-up grid the pairs read across: the two lists that filter
+        // (and scroll) share a row, then the two read-only vocabularies. The
+        // laptop tier's stack reads them in the same order.
         <>
           {branchesBlock}
           {typesBlock}

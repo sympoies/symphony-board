@@ -5,7 +5,7 @@ import { punchCard } from "../rail-stats.ts";
 import { formatHour } from "./HourProfile.tsx";
 import type { HeatmapTip } from "./HeatmapCalendar.tsx";
 
-// "When", for the wide-panes tier: commits by day AND hour.
+// "When", for the pane tiers: commits by day AND hour.
 //
 // The hour strip this replaces folds every day of the range onto one row of 24
 // bars, which says what time of day work lands and hides which days it landed
