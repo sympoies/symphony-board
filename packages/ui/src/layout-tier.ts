@@ -125,6 +125,12 @@ export const COMMITS_PANES_SPARK_BARS = 30;
 // styles.css mirrors these numbers; layout-tier.test.ts keeps them in step.
 export const COMMITS_STACK_MIN_WIDTH_PX = 1400;
 export const COMMITS_STACK_QUERY = `(min-width: ${COMMITS_STACK_MIN_WIDTH_PX}px) and (max-width: ${COMMITS_PANES_MIN_WIDTH_PX - 1}px)`;
+// Inside the laptop tier, where the list goes back from 36fr to 40fr. The
+// list keeps its one-line rows above a 760px content box (CommitTimeline), and
+// 40fr of a viewport less its 64px of padding and gaps clears that from about
+// 1965px -- the width at which it did before this tier existed. Below here the
+// narrower list was the wrapping card either way, so 36fr costs it nothing.
+export const COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX = 1960;
 // Which pane layout the Commits supporting columns are in: the wide tier's
 // two-up grids, the laptop tier's stacks, or (null) the plain digest.
 export type CommitsPanes = "wide" | "stack";

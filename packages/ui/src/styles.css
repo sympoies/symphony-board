@@ -2114,9 +2114,10 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-split {
     grid-template-columns: minmax(0, 36fr) minmax(0, 32fr) minmax(0, 32fr);
   }
-  /* From here 40fr gives the list more than the 760px at which it keeps its
-     one-line rows, which it had at this width before the tier existed; 36fr
-     would hold it on the measured card up to ~2175px. */
+  /* COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX: from here 40fr gives the list more
+     than the 760px at which it keeps its one-line rows, which it had at this
+     width before the tier existed; 36fr would hold it on the measured card up
+     to ~2175px. */
   @media (min-width: 1960px) {
     .commits-split {
       grid-template-columns: minmax(0, 40fr) minmax(0, 30fr) minmax(0, 30fr);

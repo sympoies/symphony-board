@@ -263,7 +263,7 @@ export function CommitsRail({
       : leadBranch
         ? `${share(leadBranch.count, branchSource.length)} on ${leadBranch.label}`
         : null;
-  // Default branches lead the wide table (see defaultBranchesFirst).
+  // Default branches lead the table of facts (see defaultBranchesFirst).
   const branchRows = useMemo(() => (branchFacts ? defaultBranchesFirst(branchRanks, branchFacts) : branchRanks), [branchRanks, branchFacts]);
 
   // Every hook is above this line: the phone's Files pane returns early, and a

@@ -26,6 +26,7 @@ import {
   COMMITS_PANES_SPARK_BARS,
   COMMITS_STACK_MIN_WIDTH_PX,
   COMMITS_STACK_QUERY,
+  COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX,
   SPLIT_RAIL_MIN_WIDTH_PX,
   SPLIT_STACK_QUERY,
 } from "../src/layout-tier.ts";
@@ -524,6 +525,16 @@ test("the Commits laptop tier stacks the wide tier's panes and is mirrored in th
   // across that the plain digest draws.
   assert.match(tier, /\.commits-rail\[data-panes="stack"\] \.live-rank-plot\s*\{[^}]*grid-auto-flow:\s*row/);
   assert.match(tier, /\.commits-rail\[data-panes="stack"\] \.live-rank-extra\s*\{[^}]*grid-template-columns:\s*var\(--rank-extra-cols/);
+  // From the wide-list width the split goes back to 40 / 30 / 30, which gives
+  // the list the one-line rows it had there before the tier. The width lies
+  // inside the tier, and 40fr of it clears the stacked-row threshold.
+  assert.ok(COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX > COMMITS_STACK_MIN_WIDTH_PX && COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX < COMMITS_PANES_MIN_WIDTH_PX);
+  assert.match(
+    tier,
+    new RegExp(`@media \\(min-width: ${COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX}px\\)\\s*\\{\\s*\\.commits-split\\s*\\{[^}]*40fr[^}]*30fr[^}]*30fr`),
+  );
+  const stackedAt = Number(/el\.clientWidth <= (\d+)/.exec(readFileSync(new URL("../src/components/CommitsPage.tsx", import.meta.url), "utf8"))?.[1]);
+  assert.ok(0.4 * (COMMITS_STACK_WIDE_LIST_MIN_WIDTH_PX + 10 - 64) > stackedAt, "40fr a few pixels above the breakpoint must clear the stacked-row threshold");
   // Nothing in it may style the wide tier: that tier is its own block.
   assert.doesNotMatch(tier, /data-panes="wide"/);
 
