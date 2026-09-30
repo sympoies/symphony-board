@@ -326,7 +326,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.8.2`.
+Current major: v4. Current emitted version: `4.9.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -681,6 +681,15 @@ Pages:
   a merged one was open) and a tile counting default-branch commits that landed
   without one. That tile counts only explicit "none" answers on non-merge
   commits, so a provider that cannot resolve every commit never inflates it.
+  The 2480px tier's last rail pane answers "where did the work land" three
+  ways behind one switch: Hot files and Hot directories from the producer's
+  file aggregate (`commit_file_stats`), and Commit scopes from the subjects.
+  The file views state their coverage ("N of M scanned"), and a row narrows the
+  list and every pane to the commits that touched that path; a chip in the
+  toolbar clears it. The aggregate is per repository, so it is re-ranked
+  exactly across the repositories on screen but cannot be re-ranked for one
+  author's or one branch's commits: under either filter the pane shows scopes
+  only, and the "files changed" tile is withheld.
   Selected content cards share a subtle theme-aware fill and border across
   Commits, Items, Live, Reviews, and the Graph list; selection paints the
   rounded card rather than virtual-row spacing. Keyboard focus remains visible.
@@ -1060,12 +1069,15 @@ re-reads from the top. The `sync_run` table (surfaced by `/api/stats`) already
 carries per-run `status` / `error`, which covers most "why did sync fail"
 questions without log access.
 
-## On-Demand Commit File Stats
+## Commit File Stats
 
 Commit rows carry their line TOTALS in the contract (`details.additions` /
-`details.deletions`). The per-FILE breakdown does not, and deliberately so.
+`details.deletions`). The per-FILE breakdown is not on the row, and
+deliberately so. It reaches a consumer two ways: on request for the one commit
+a viewer opened, and as a per-repository aggregate the sync collects in the
+background (see "The file pass" below).
 
-**Why it is not a sync field.** The totals are affordable on both providers:
+**Why it is not a sweep field.** The totals are affordable on both providers:
 GitHub answers up to 100 commits in one aliased GraphQL document, and GitLab
 inlines them on the commit list feed (`with_stats`). Per-file counts have no
 such batch. GitHub's GraphQL commit exposes no file list at all, so the only
@@ -1077,7 +1089,7 @@ current one-call-per-100. Worse, it would not even be stable: an activity
 upsert replaces `details` wholesale, so any sweep that skipped or capped the
 enrichment would ERASE the breakdown an earlier sweep had stored.
 
-**What it is instead.** `GET /api/commit-files?source_id&project_path&sha`
+**On request, for one commit.** `GET /api/commit-files?source_id&project_path&sha`
 resolves ONE commit's per-file diffstat on request, served by the **writer**
 (the `board` daemon or the standalone app server) because — like
 `/api/token-rate-limits` — it needs config, token resolution, and outbound
@@ -1145,6 +1157,47 @@ A deployment that does not serve the route answers either a `404` (an older
 build, the read-only `api` sidecar) or, on a static SPA host, its `index.html`;
 both are reported to the viewer as "this server does not serve per-file stats"
 rather than as a malformed response.
+
+### The file pass
+
+A range of commits can only be aggregated from stored data, so the sync also
+collects file lists — as its own pass, not as part of the sweep, which is what
+the two objections above require.
+
+- **Its own table.** `commit_files` (migration 0013 on both drivers) holds one
+  row per commit activity the pass has an answer for, keyed by the activity's
+  `(source_id, external_id)`. An activity upsert never touches it, so nothing a
+  later sweep does can erase it. Rows enter the usual way: the source returns a
+  `commit_files` raw record, `normalize` turns it into a canonical row, and the
+  store keeps both.
+- **A queue, not a sweep.** After each source's sweep commits, the engine asks
+  the store for recent commit rows with no answer (`listCommitFileCandidates`:
+  newest first, within a one-year lookback) and hands at most
+  `commit_files_per_sweep` of them (default 50, `0` turns the pass off) to the
+  source's `fetchCommitFiles`. New work is therefore covered first and history
+  fills in over later sweeps; the cost per sweep is bounded by configuration,
+  not by how much history there is.
+- **Every queued commit gets an answer.** A file list (`ok`); a note that the
+  provider no longer has the commit (`unavailable`, from a 404 / 410 / 422, or
+  for a repository that is no longer configured); or a note that the commit is
+  a merge (`merge`, recorded without a request, because a merge's diff is
+  against its first parent). Without the last two the same rows would come
+  back every sweep and starve the rest.
+- **Never the sweep's problem.** A transport or rate-limit failure stops the
+  pass and leaves the unanswered commits queued. It is reported on its own
+  (`SyncReport.commitFiles` / `commitFilesError`, and a separate log line) and
+  never changes the sweep's status: marking a sweep incomplete over a
+  decoration would block the soft-delete pass that only a complete sweep may
+  run. A dry run does not run it.
+- **No patch text.** The readers (`src/sources/commit-files.ts`, shared with the
+  on-demand route) keep path, status and line counts. GitLab's diff text is
+  counted and dropped; GitHub's `patch` field is never read.
+
+The contract projects these rows as `commit_file_stats` (4.9.0): per
+repository, coverage plus the most-changed files and directories of the
+emitted commit window, each with the sha prefixes of the commits that touched
+it. It is an aggregate because per-commit file lists on `activities[]` would
+multiply the payload; see `docs/CONTRACT.md`, Commit File Stats.
 
 ## Live Event Stream (Realtime)
 

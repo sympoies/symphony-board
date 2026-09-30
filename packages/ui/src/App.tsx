@@ -2151,6 +2151,7 @@ export function App() {
           followLatest={commitsFollowLatest}
           onFollowLatest={() => setCommitsFollowLatest(true)}
           fileStats={commitFileStats}
+          fileAggregate={visibleEnv.commit_file_stats ?? null}
           resolveChangeRequestLink={resolveChangeRequestLink}
           mergeCount={windowMergeCount}
           hideMerges={commitsHideMerges}

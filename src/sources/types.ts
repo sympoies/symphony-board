@@ -96,6 +96,23 @@ export interface RefreshCandidate {
   reason: "ci_unresolved" | "open_change_request" | "recent_change_request";
 }
 
+// One commit the store has no file list for: the commit activity's external id
+// (what the answer is keyed by), its repository, and the sha to ask for.
+export interface CommitFilesCandidate {
+  externalId: string;
+  projectPath: string;
+  sha: string;
+}
+
+export interface CommitFilesFetchResult {
+  // One record (entityKind "commit_files") per commit that got an ANSWER: its
+  // files, or a note that the provider no longer has it. A commit with no
+  // record stays in the queue.
+  records: RawRecord[];
+  // The failure that stopped the pass early, or null when it ran to the end.
+  stopped: string | null;
+}
+
 export interface Source {
   readonly descriptor: SourceDescriptor;
   // Impure: network/IO allowed. Returns raw records + watermark + completeness.
@@ -103,6 +120,11 @@ export interface Source {
   // Optional impure freshness repair for provider state that changes without
   // bumping the provider's item-updated watermark, such as GitHub CI rollups.
   fetchRefresh?(candidates: RefreshCandidate[], opts: FetchOptions): Promise<FetchResult>;
+  // Optional impure enrichment: the changed files of commits the store has no
+  // answer for. One provider call per commit, so the engine bounds how many it
+  // asks for per sweep. Best effort: a failure stops the pass (`stopped`) and
+  // never fails the sweep it follows.
+  fetchCommitFiles?(candidates: CommitFilesCandidate[]): Promise<CommitFilesFetchResult>;
   // Pure: raw record -> canonical bundle. Returns null to drop a record the
   // source recognizes but does not map (e.g. an entity kind we ignore). MUST be
   // deterministic and side-effect-free so it is replayable.

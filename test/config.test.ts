@@ -18,6 +18,8 @@ import {
   tokensForProject,
   upsertEnvText,
   type AppConfig,
+  commitFilesPerSweep,
+  DEFAULT_COMMIT_FILES_PER_SWEEP,
 } from "../src/config.ts";
 
 // loadConfig reads a file, so each case writes a throwaway fixture. The OS would
@@ -89,6 +91,20 @@ test("accepts commit_branches all/default and rejects any other value", () => {
   const errors = configErrors({ db_path: "x", sources: [baseSource({ commit_branches: "branches" })] }, "config");
   assert.equal(errors.length, 1);
   assert.match(errors[0]!, /commit_branches must be "all" or "default"/);
+});
+
+test("accepts a commit_files_per_sweep budget, including 0, and rejects anything else", () => {
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ commit_files_per_sweep: 0 })] }, "config"), [], "0 turns the pass off");
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource({ commit_files_per_sweep: 200 })] }, "config"), []);
+  assert.deepEqual(configErrors({ db_path: "x", sources: [baseSource()] }, "config"), [], "unset stays valid");
+  for (const bad of [-1, 1.5, "50", null]) {
+    const errors = configErrors({ db_path: "x", sources: [baseSource({ commit_files_per_sweep: bad as never })] }, "config");
+    assert.equal(errors.length, 1, String(bad));
+    assert.match(errors[0]!, /commit_files_per_sweep must be a non-negative integer/);
+  }
+  assert.equal(commitFilesPerSweep({}), DEFAULT_COMMIT_FILES_PER_SWEEP);
+  assert.equal(commitFilesPerSweep({ commit_files_per_sweep: 0 }), 0);
+  assert.equal(commitFilesPerSweep({ commit_files_per_sweep: 7 }), 7);
 });
 
 test("accepts sync cadence settings and rejects malformed values", () => {

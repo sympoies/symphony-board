@@ -6,7 +6,7 @@ import { GitHubSource } from "../src/sources/github.ts";
 import type { GqlClient } from "../src/sources/graphql.ts";
 import { buildContractEnvelope } from "../src/contract/emit.ts";
 import { validateContract } from "../src/contract/validate.ts";
-import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
+import type { CommitFilesCandidate, CommitFilesFetchResult, Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
 import type { NormalizedBundle, CanonicalActivity, CanonicalItem, CanonicalEdge } from "../src/model/types.ts";
 
 // A fake, network-free Source: records the FetchOptions it was handed (so we can
@@ -540,4 +540,158 @@ test("a tracker whose rows name a repository the board does not track adds nothi
     assert.deepEqual(aggregate.stats.by_lifecycle, {}, `${aggregate.scope} ${aggregate.window.kind} counts no edge the payload does not carry`);
   }
   await db.close();
+});
+
+// --- commit file enrichment ---------------------------------------------------
+
+// A source that can also answer for commit files. The engine hands it the
+// commits the store has no answer for; it replies with one raw record each,
+// which normalize then turns into a canonical file list.
+class CommitFilesFakeSource extends FakeSource {
+  calls: CommitFilesCandidate[][] = [];
+  private readonly answer: (candidates: CommitFilesCandidate[]) => Promise<CommitFilesFetchResult>;
+  constructor(result: FetchResult, bundles: Map<string, NormalizedBundle>, answer: (candidates: CommitFilesCandidate[]) => Promise<CommitFilesFetchResult>) {
+    super(result, bundles);
+    this.answer = answer;
+  }
+  async fetchCommitFiles(candidates: CommitFilesCandidate[]): Promise<CommitFilesFetchResult> {
+    this.calls.push(candidates);
+    return this.answer(candidates);
+  }
+  override normalize(raw: RawRecord): NormalizedBundle | null {
+    if (raw.entityKind !== "commit_files") return super.normalize(raw);
+    const p = raw.payload as { project: string; sha: string };
+    return {
+      item: null,
+      labels: [],
+      edges: [],
+      activities: [],
+      commitFiles: [
+        {
+          sourceId: "fake:test",
+          externalId: raw.externalId,
+          projectPath: p.project,
+          sha: p.sha,
+          state: "ok",
+          truncated: false,
+          files: [{ path: `${p.sha}.ts`, status: "modified", additions: 1, deletions: 0 }],
+        },
+      ],
+    };
+  }
+}
+
+function commitFilesSource(
+  activities: CanonicalActivity[],
+  answer?: (candidates: CommitFilesCandidate[]) => Promise<CommitFilesFetchResult>,
+): CommitFilesFakeSource {
+  const records: RawRecord[] = activities.map((a) => ({
+    entityKind: "activity", externalId: a.externalId, apiVersion: "fake", fetchedAt: "2026-06-01T00:00:00Z", payload: a, contentHash: a.externalId,
+  }));
+  const bundles = new Map<string, NormalizedBundle>();
+  for (const a of activities) bundles.set(a.externalId, { item: null, labels: [], edges: [], activities: [a] });
+  const ok = async (candidates: CommitFilesCandidate[]): Promise<CommitFilesFetchResult> => ({
+    records: candidates.map((c) => ({
+      entityKind: "commit_files", externalId: c.externalId, apiVersion: "fake", fetchedAt: "2026-06-01T00:00:00Z",
+      payload: { project: c.projectPath, sha: c.sha }, contentHash: c.sha,
+    })),
+    stopped: null,
+  });
+  return new CommitFilesFakeSource({ records, watermark: "2026-06-01T00:00:00Z", complete: true, error: null }, bundles, answer ?? ok);
+}
+
+// Recent enough to be inside the pass's lookback whenever the suite runs.
+const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+const FOUR_COMMITS = (): CanonicalActivity[] => [
+  activity("c1", { occurredAt: daysAgo(4), details: { sha: "sha1" } }),
+  activity("c2", { occurredAt: daysAgo(3), details: { sha: "sha2" } }),
+  activity("c3", { occurredAt: daysAgo(2), details: { sha: "sha3", merge: true } }),
+  activity("c4", { occurredAt: daysAgo(1), details: { sha: "sha4" } }),
+];
+const filesInRange = async (store: Awaited<ReturnType<typeof openSqliteStore>>) =>
+  (await store.listCommitFilesInRange(daysAgo(30), daysAgo(0))).map((row) => row.external_id).sort();
+
+test("the file pass asks for unanswered commits after the sweep, newest first and within its limit", async () => {
+  const store = await openSqliteStore(":memory:");
+  const source = commitFilesSource(FOUR_COMMITS());
+
+  const first = await syncSource(store, source, null, { full: true, dryRun: false, commitFilesLimit: 2 });
+  assert.equal(first.status, "ok");
+  // The two newest commits are c4 and c3. c3 is a merge, so it is answered
+  // without a request; only c4 reaches the source.
+  assert.deepEqual(source.calls, [[{ externalId: "c4", projectPath: "x/y", sha: "sha4" }]]);
+  assert.equal(first.commitFiles, 2, "both were answered: one read, one recorded as a merge");
+  assert.deepEqual(await filesInRange(store), ["c4"], "only a real file list is read back");
+
+  const second = await syncSource(store, source, "2026-06-01T00:00:00Z", { full: false, dryRun: false, commitFilesLimit: 2 });
+  assert.deepEqual(source.calls[1], [
+    { externalId: "c2", projectPath: "x/y", sha: "sha2" },
+    { externalId: "c1", projectPath: "x/y", sha: "sha1" },
+  ]);
+  assert.equal(second.commitFiles, 2);
+  assert.deepEqual(await filesInRange(store), ["c1", "c2", "c4"]);
+
+  const third = await syncSource(store, source, "2026-06-01T00:00:00Z", { full: false, dryRun: false, commitFilesLimit: 2 });
+  assert.equal(source.calls.length, 2, "nothing left to ask for");
+  assert.equal(third.commitFiles, 0);
+  await store.close();
+});
+
+test("the file pass is off without a limit, on a dry run, and for a source that cannot answer", async () => {
+  const store = await openSqliteStore(":memory:");
+  const source = commitFilesSource(FOUR_COMMITS());
+  const noLimit = await syncSource(store, source, null, { full: true, dryRun: false });
+  assert.equal(noLimit.commitFiles, 0);
+  const zero = await syncSource(store, source, null, { full: true, dryRun: false, commitFilesLimit: 0 });
+  assert.equal(zero.commitFiles, 0);
+  const dry = await syncSource(store, source, null, { full: true, dryRun: true, commitFilesLimit: 5 });
+  assert.equal(dry.commitFiles, 0);
+  assert.deepEqual(source.calls, []);
+
+  const plain = activitySource(FOUR_COMMITS());
+  const report = await syncSource(store, plain, null, { full: true, dryRun: false, commitFilesLimit: 5 });
+  assert.equal(report.status, "ok");
+  assert.equal(report.commitFiles, 0);
+  assert.deepEqual(await filesInRange(store), []);
+  await store.close();
+});
+
+test("a failing file pass never degrades the sweep it follows", async () => {
+  const store = await openSqliteStore(":memory:");
+  // A pass that stops part-way keeps what it read and reports why it stopped.
+  const partial = commitFilesSource(FOUR_COMMITS(), async (candidates) => ({
+    records: [{ entityKind: "commit_files", externalId: candidates[0]!.externalId, apiVersion: "fake", fetchedAt: "2026-06-01T00:00:00Z", payload: { project: "x/y", sha: candidates[0]!.sha }, contentHash: "h" }],
+    stopped: "REST HTTP 403: rate limited",
+  }));
+  const stopped = await syncSource(store, partial, null, { full: true, dryRun: false, commitFilesLimit: 10 });
+  assert.equal(stopped.status, "ok", "file data is a decoration: the sweep is still complete");
+  assert.equal(stopped.error, null);
+  assert.match(stopped.commitFilesError ?? "", /rate limited/);
+  assert.deepEqual(await filesInRange(store), ["c4"]);
+
+  // A pass that throws outright changes nothing and is reported the same way.
+  const broken = commitFilesSource(FOUR_COMMITS(), async () => {
+    throw new Error("socket hang up");
+  });
+  const threw = await syncSource(store, broken, null, { full: true, dryRun: false, commitFilesLimit: 10 });
+  assert.equal(threw.status, "ok");
+  assert.match(threw.commitFilesError ?? "", /socket hang up/);
+  assert.deepEqual(await filesInRange(store), ["c4"]);
+  await store.close();
+});
+
+test("the file pass looks back a bounded time and skips a commit with no sha", async () => {
+  const store = await openSqliteStore(":memory:");
+  const source = commitFilesSource([
+    activity("ancient", { occurredAt: daysAgo(800), details: { sha: "old" } }),
+    activity("no-sha", { occurredAt: daysAgo(2), details: {} }),
+    activity("recent", { occurredAt: daysAgo(1), details: { sha: "new" } }),
+  ]);
+  const report = await syncSource(store, source, null, { full: true, dryRun: false, commitFilesLimit: 10 });
+  assert.deepEqual(source.calls, [[{ externalId: "recent", projectPath: "x/y", sha: "new" }]]);
+  assert.equal(report.commitFiles, 2, "the row with no sha is answered as unavailable, so it leaves the queue");
+  const again = await syncSource(store, source, null, { full: true, dryRun: false, commitFilesLimit: 10 });
+  assert.equal(again.commitFiles, 0);
+  assert.equal(source.calls.length, 1);
+  await store.close();
 });

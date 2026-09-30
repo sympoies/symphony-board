@@ -13,7 +13,7 @@ import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import type { Store } from "../db/store.ts";
-import { buildContract } from "./build.ts";
+import { buildContract, contractActivityWindowSince } from "./build.ts";
 import { validateContract, type ValidationError } from "./validate.ts";
 
 // Config-derived display colors: source-level on each source, repo-level on the
@@ -49,6 +49,9 @@ export async function buildContractEnvelope(
     edges: await store.listLiveEdges(),
     activities: await store.listActivities(),
     reviewThreads: await store.listLiveReviewThreads(),
+    // Only the emitted activity window's commits are aggregated, so only their
+    // file lists are loaded.
+    commitFiles: await store.listCommitFilesInRange(contractActivityWindowSince(generatedAt), generatedAt),
     generatedAt,
     sourceColors,
     repoColors,

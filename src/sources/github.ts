@@ -5,7 +5,7 @@
 // tracker issue additionally reports `parent` / `blocks` from its phase table.
 
 import { createHash } from "node:crypto";
-import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome } from "./types.ts";
+import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome, CommitFilesCandidate, CommitFilesFetchResult } from "./types.ts";
 import type {
   NormalizedBundle,
   CanonicalItem,
@@ -21,6 +21,7 @@ import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
 import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitChangeRequest, type CommitLineStats } from "../model/activity.ts";
 import { refOf } from "../model/ref.ts";
+import { COMMIT_FILES_ENTITY, commitFilesBundle, fetchCommitFileRecords, githubCommitFiles } from "./commit-files.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { parseTrackerRows, trackerEdges, trackerRefKey } from "../model/tracker.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
@@ -622,8 +623,26 @@ export class GitHubSource implements Source {
     throw new Error(`${owner}/${name} PR #${node.number}: review threads exceeded ${MAX_REVIEW_THREAD_PAGES} pages`);
   }
 
+  // The changed files of commits the engine has no answer for. One REST call
+  // per commit (the GraphQL commit has no file list), through the same
+  // per-project client routing as the sweep.
+  async fetchCommitFiles(candidates: CommitFilesCandidate[]): Promise<CommitFilesFetchResult> {
+    return fetchCommitFileRecords({
+      candidates,
+      allowed: (projectPath) => this.trackedProjects.has(projectPath.toLowerCase()),
+      read: (candidate) => {
+        const { rest } = this.clientsFor(candidate.projectPath);
+        if (!rest) throw new Error("commit files need a REST client");
+        return githubCommitFiles(rest, candidate.projectPath, candidate.sha);
+      },
+      apiVersion: `${API_VERSION}.rest`,
+      concurrency: resolveConcurrency(),
+    });
+  }
+
   normalize(raw: RawRecord): NormalizedBundle | null {
     if (raw.entityKind === "activity") return this.normalizeActivity(raw);
+    if (raw.entityKind === COMMIT_FILES_ENTITY) return commitFilesBundle(this.descriptor.sourceId, raw);
 
     const p = raw.payload as any;
     const sourceId = this.descriptor.sourceId;

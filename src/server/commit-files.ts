@@ -32,15 +32,11 @@ import { projectPaths, sourceEnabled } from "../config.ts";
 import { createAuthTokenResolver, type AuthTokenResolver } from "../auth.ts";
 import { defaultRestUrl, makeRestClient, type RestClient } from "../sources/rest.ts";
 import type { AuthToken } from "../sources/http.ts";
+import { githubCommitFiles, gitlabCommitFiles } from "../sources/commit-files.ts";
+import type { CanonicalCommitFile, CommitFileStatus } from "../model/types.ts";
 
 // A viewer is waiting on this, so fail faster than a sweep would.
 const REQUEST_TIMEOUT_MS = 15_000;
-// GitHub serves at most 300 files on the single-commit response; GitLab's diff
-// endpoint is paged. Both are reported as `truncated` rather than silently
-// short, so the UI can say the list is partial instead of implying a small
-// commit.
-const GITHUB_FILE_LIMIT = 300;
-const GITLAB_DIFF_PAGE = 100;
 // A commit's diff is immutable, so a SUCCESS needs no TTL — only a bound.
 const CACHE_LIMIT = 200;
 // A FAILURE is cached too, briefly, so a scripted caller cannot turn one
@@ -51,14 +47,11 @@ const CACHE_LIMIT = 200;
 // all — they are recomputed from config on every request by construction.
 const FAILURE_CACHE_MS = 60_000;
 
-export type CommitFileStatus = "added" | "modified" | "removed" | "renamed";
-
-export interface CommitFileStat {
-  path: string;
-  status: CommitFileStatus;
-  additions: number;
-  deletions: number;
-}
+// The provider readers are shared with the sync engine's file pass
+// (src/sources/commit-files.ts); this module owns the route around them.
+export { countDiffLines } from "../sources/commit-files.ts";
+export type { CommitFileStatus };
+export type CommitFileStat = CanonicalCommitFile;
 
 export interface CommitFilesResult {
   source_id: string;
@@ -97,13 +90,6 @@ export interface CommitFilesRequest {
   source_id: string;
   project_path: string;
   sha: string;
-}
-
-interface CommitFilesPayload {
-  files: CommitFileStat[];
-  total: { additions: number; deletions: number };
-  total_scope: "commit" | "listed";
-  truncated: boolean;
 }
 
 interface CacheEntry {
@@ -179,130 +165,6 @@ export function isCommitFilesError(value: CommitFilesResult | CommitFilesError):
   return (value as CommitFilesError).error !== undefined;
 }
 
-function githubOwnerRepo(projectPath: string): { owner: string; name: string } | null {
-  const parts = projectPath.split("/").filter(Boolean);
-  if (parts.length !== 2) return null;
-  return { owner: parts[0]!, name: parts[1]! };
-}
-
-function githubStatus(raw: unknown): CommitFileStatus {
-  switch (String(raw ?? "")) {
-    case "added":
-    case "copied":
-      return "added";
-    case "removed":
-      return "removed";
-    case "renamed":
-      return "renamed";
-    default:
-      return "modified";
-  }
-}
-
-function count(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
-}
-
-function sumFiles(files: CommitFileStat[]): { additions: number; deletions: number } {
-  return files.reduce(
-    (acc, file) => ({ additions: acc.additions + file.additions, deletions: acc.deletions + file.deletions }),
-    { additions: 0, deletions: 0 },
-  );
-}
-
-async function githubCommitFiles(rest: RestClient, projectPath: string, sha: string): Promise<CommitFilesPayload | CommitFilesError> {
-  const repo = githubOwnerRepo(projectPath);
-  if (!repo) return fail("bad_request", `project_path "${projectPath}" is not an owner/name repository`);
-  const commit = await rest<any>(`repos/${repo.owner}/${repo.name}/commits/${sha}`);
-  const raw: any[] = Array.isArray(commit?.files) ? commit.files : [];
-  const files = raw.map((file): CommitFileStat => ({
-    // A rename reports both paths; the new one is what the viewer is looking at.
-    path: String(file?.filename ?? file?.previous_filename ?? ""),
-    status: githubStatus(file?.status),
-    additions: count(file?.additions),
-    deletions: count(file?.deletions),
-  })).filter((file) => file.path.length > 0);
-  // `stats` covers the WHOLE commit even when the file list was capped, which
-  // is why `total_scope` has to travel with it.
-  const stats = commit?.stats;
-  const hasCommitTotal = typeof stats?.additions === "number" && typeof stats?.deletions === "number";
-  return {
-    files,
-    total: hasCommitTotal ? { additions: count(stats.additions), deletions: count(stats.deletions) } : sumFiles(files),
-    total_scope: hasCommitTotal ? "commit" : "listed",
-    truncated: raw.length >= GITHUB_FILE_LIMIT,
-  };
-}
-
-// GitLab returns a raw unified diff per file and no per-file counts, so the
-// counts come from the hunk lines.
-//
-// Counting is HUNK-SCOPED, not prefix-scoped. Skipping every line that starts
-// with `---`/`+++` would also drop content: a removed markdown rule (`---`)
-// arrives as `----` and an added one as `+---`, both of which start with a file
-// header's prefix. Only lines after a `@@` hunk header are content, so that is
-// what the state below tracks.
-//
-// It also walks the string by newline INDEX rather than `split("\n")`: this is
-// the one place the writer daemon handles a raw patch, which can be megabytes
-// for a vendored or generated file, and the split form allocates an array of
-// every line in it just to throw them away.
-export function countDiffLines(diff: unknown): { additions: number; deletions: number } {
-  if (typeof diff !== "string" || diff.length === 0) return { additions: 0, deletions: 0 };
-  let additions = 0;
-  let deletions = 0;
-  let inHunk = false;
-  let start = 0;
-  while (start <= diff.length) {
-    const nl = diff.indexOf("\n", start);
-    const end = nl === -1 ? diff.length : nl;
-    if (end > start) {
-      const head = diff.charCodeAt(start);
-      if (!inHunk) {
-        // 0x40 === "@": the hunk header is the only thing that opens content.
-        if (head === 0x40 && diff.startsWith("@@", start)) inHunk = true;
-      } else if (head === 0x40 && diff.startsWith("@@", start)) {
-        // The next hunk of the same file.
-      } else if (head === 0x2b) {
-        additions++; // "+"
-      } else if (head === 0x2d) {
-        deletions++; // "-"
-      }
-    }
-    if (nl === -1) break;
-    start = nl + 1;
-  }
-  return { additions, deletions };
-}
-
-function gitlabStatus(entry: any): CommitFileStatus {
-  if (entry?.new_file === true) return "added";
-  if (entry?.deleted_file === true) return "removed";
-  if (entry?.renamed_file === true) return "renamed";
-  return "modified";
-}
-
-async function gitlabCommitFiles(rest: RestClient, projectPath: string, sha: string): Promise<CommitFilesPayload> {
-  // GitLab accepts a URL-encoded full path as the project :id, so this needs no
-  // extra lookup call for the numeric id.
-  const entries = await rest<any[]>(`projects/${encodeURIComponent(projectPath)}/repository/commits/${sha}/diff`, {
-    per_page: GITLAB_DIFF_PAGE,
-  });
-  const raw = Array.isArray(entries) ? entries : [];
-  const files = raw.map((entry): CommitFileStat => {
-    const counts = countDiffLines(entry?.diff);
-    return {
-      path: String(entry?.new_path ?? entry?.old_path ?? ""),
-      status: gitlabStatus(entry),
-      additions: counts.additions,
-      deletions: counts.deletions,
-    };
-  }).filter((file) => file.path.length > 0);
-  // This feed carries no commit-level total, so the sum of what is listed is
-  // all there is — and under `truncated` that is exactly what `listed` says.
-  return { files, total: sumFiles(files), total_scope: "listed", truncated: raw.length >= GITLAB_DIFF_PAGE };
-}
-
 // Config-derived refusals are recomputed per request and must never be cached;
 // a provider failure is cached briefly so a loop cannot spend quota 1:1.
 function cacheable(result: CommitFilesResult | CommitFilesError): boolean {
@@ -325,7 +187,7 @@ async function resolveCommitFiles(
     const resolved = source.kind === "github"
       ? await githubCommitFiles(rest, req.project_path, req.sha)
       : await gitlabCommitFiles(rest, req.project_path, req.sha);
-    if ("error" in resolved) return resolved;
+    if (resolved === null) return fail("bad_request", `project_path "${req.project_path}" is not an owner/name repository`);
     return {
       source_id: req.source_id,
       project_path: req.project_path,

@@ -12,6 +12,7 @@ import {
   rankRepos,
   type ActorIndex,
   type DayBucket,
+  type HotPaths,
 } from "../rail-stats.ts";
 import { HourProfile } from "./HourProfile.tsx";
 import { HeatmapCalendar, type HeatmapTip } from "./HeatmapCalendar.tsx";
@@ -257,6 +258,7 @@ export function CommitsOverview({
   selectedKey = null,
   onSelectCommit,
   resolveChangeRequest,
+  fileCoverage = null,
 }: {
   // The rows currently on screen — every block here describes exactly these,
   // EXCEPT the rhythm calendar below, which is deliberately the full history.
@@ -286,6 +288,10 @@ export function CommitsOverview({
   // where the page has no item index to join against; the pane is then not
   // drawn at all.
   resolveChangeRequest?: ResolveChangeRequest;
+  // Coverage of the contract's file aggregate over the repositories on screen
+  // (4.9.0), or null when there is none to show: no aggregate in the payload,
+  // or a filter it cannot describe.
+  fileCoverage?: Pick<HotPaths, "files" | "scanned" | "commits"> | null;
 }) {
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   const days = useMemo(
@@ -421,6 +427,19 @@ export function CommitsOverview({
             value: direct.direct.toLocaleString("en-US"),
             detail: `of ${direct.checked.toLocaleString("en-US")} on default`,
             title: "Commits that landed on a default branch without a pull or merge request. Merge commits and commits the producer could not check are not counted.",
+          },
+        ]
+      : []),
+    // Distinct files, from the producer's file aggregate. Only once it has
+    // scanned something: before that there is no number, and "0 files" would
+    // read as a range that changed nothing.
+    ...(wide && fileCoverage && fileCoverage.scanned > 0
+      ? [
+          {
+            label: "files changed",
+            value: fileCoverage.files.toLocaleString("en-US"),
+            detail: `in ${fileCoverage.scanned.toLocaleString("en-US")} of ${fileCoverage.commits.toLocaleString("en-US")} commits`,
+            title: "Distinct files changed by the commits the producer has file data for. File data is collected over several sweeps, and merge commits are not counted.",
           },
         ]
       : []),

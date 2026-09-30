@@ -56,6 +56,9 @@
     "actor_directory": {
       "$ref": "#/$defs/actorDirectory"
     },
+    "commit_file_stats": {
+      "$ref": "#/$defs/commitFileStats"
+    },
     "repos": {
       "type": "array",
       "description": "Per-repo display metadata (currently: highlight color). Sparse — a repo appears only when it has a configured color. Optional (added in 1.1.0); an old consumer ignores it.",
@@ -389,6 +392,59 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "bot": { "type": "boolean", "description": "True for a CI/dependency account: an auto-detected marker ([bot] suffix, GitLab project_/group_<id>_bot_ service account) or a config exclude_actors match. Consumers that rank people drop these; totals still include them." }
+      }
+    },
+    "commitFileStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Which files and directories the emitted commit rows changed most, per repository (added in 4.9.0). Optional: absent from a producer that does not collect per-commit files. Merge commits are never counted.",
+      "required": ["repos"],
+      "properties": {
+        "repos": {
+          "type": "array",
+          "description": "One entry per repository with at least one non-merge commit in the emitted activities[], sorted by source_id then project_path.",
+          "items": { "$ref": "#/$defs/repoCommitFileStats" }
+        }
+      }
+    },
+    "repoCommitFileStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "project_path", "commits", "scanned", "truncated", "files", "top_files", "top_dirs"],
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "project_path": { "type": "string", "minLength": 1 },
+        "commits": { "type": "integer", "minimum": 0, "description": "Non-merge commit rows of this repository in the emitted activities[]." },
+        "scanned": { "type": "integer", "minimum": 0, "description": "Of those, how many the producer has a file list for. The rankings describe only these; file data is collected by a bounded pass that catches up over sweeps." },
+        "truncated": { "type": "integer", "minimum": 0, "description": "Scanned commits whose file list the provider capped." },
+        "files": { "type": "integer", "minimum": 0, "description": "Distinct file paths the scanned commits touched, not only the top ones." },
+        "top_files": {
+          "type": "array",
+          "description": "At most 20 files, most commits first, then most lines changed, then path.",
+          "items": { "$ref": "#/$defs/commitFileStatEntry" }
+        },
+        "top_dirs": {
+          "type": "array",
+          "description": "At most 12 directories, ordered like top_files. A directory is a path's first two segments at most and ends in '/'; './' is the repository root.",
+          "items": { "$ref": "#/$defs/commitFileStatEntry" }
+        }
+      }
+    },
+    "commitFileStatEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "commits", "additions", "deletions", "authors", "shas"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "commits": { "type": "integer", "minimum": 0, "description": "Non-merge commits in the emitted window that touched it. A directory counts a commit once however many of its files the commit touched." },
+        "additions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 },
+        "authors": { "type": "integer", "minimum": 0, "description": "Distinct people among those commits, by the producer's actor identity." },
+        "shas": {
+          "type": "array",
+          "description": "The commits that touched it, newest first, as 12-character sha prefixes to match against activities[].details.sha. At most 100; `commits` is the full count.",
+          "items": { "type": "string", "pattern": "^[0-9a-fA-F]{4,12}$" }
+        }
       }
     },
     "aggregateStats": {

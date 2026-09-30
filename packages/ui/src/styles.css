@@ -1933,9 +1933,10 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-overview[data-panes="wide"] > .pane-span { grid-column: 1 / -1; }
   .commits-overview[data-panes="wide"] > .pane-fill { grid-row: 5; }
   /* Six tracks, and the one two-number tile takes two of them. The tier's tiles
-     come to nine cells, plus one when the range has merges and one when the
-     producer answered for change requests: never more than two rows of six, so
-     the block's height is the same whatever the range holds. */
+     come to nine cells, plus one each when the range has merges, when the
+     producer answered for change requests, and when it has file data: twelve
+     at most, so never more than two rows of six, and the block's height is the
+     same whatever the range holds. */
   .commits-overview[data-panes="wide"] .hm-summary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .commits-overview[data-panes="wide"] .hm-summary > [data-span="2"] { grid-column: span 2; }
 
@@ -5796,6 +5797,16 @@ a.pane-row-cr:hover { text-decoration: none; }
 .rank-cols-repos { --rank-label-w: 9rem; --rank-extra-cols: 3rem 2.6rem; }
 .rank-cols-branches { --rank-label-w: 12rem; --rank-extra-cols: 2.6rem; }
 .rank-cols-share { --rank-label-w: 8rem; --rank-extra-cols: 2.8rem; }
+/* Hot files share half a column with a bar, a count and line counts, so the
+   count track is cut to three digits. With one repository on screen the last
+   column is its authors; with several, the name needs that room for the
+   repository, and the authors stay in the row's accessible name. */
+.rank-cols-files { --rank-label-w: 8.5rem; --rank-count-w: 2.4rem; --rank-extra-cols: 5.4rem 3rem; }
+.rank-cols-files-multi { --rank-label-w: 12rem; --rank-count-w: 2.4rem; --rank-extra-cols: 5.4rem; }
+.rank-path-repo { color: var(--muted); }
+/* The pane's head holds a title, a three-way switch and its coverage; the
+   title gives way last. */
+.commit-where .rail-block-title { white-space: nowrap; }
 .rank-head {
   display: grid;
   grid-template-columns:

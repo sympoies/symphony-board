@@ -573,7 +573,45 @@ function inflateActivityContract(body) {
       },
     };
   });
-  return JSON.stringify({ ...env, activities });
+  return JSON.stringify({ ...env, activities, commit_file_stats: smokeCommitFileStats(activities) });
+}
+
+// The producer's per-repository file aggregate (contract 4.9.0), built over the
+// fixture's own commit rows so its `shas` match commits that are on screen:
+// five files and two directories per repository, each naming every fifth
+// commit, with three commits per repository left unscanned.
+function smokeCommitFileStats(activities) {
+  const repos = new Map();
+  activities.forEach((a, i) => {
+    if (a.kind !== "commit" || !a.project_path || a.details?.merge === true) return;
+    const key = `${a.source_id}|${a.project_path}`;
+    const repo = repos.get(key) ?? { source_id: a.source_id, project_path: a.project_path, rows: [] };
+    repo.rows.push({ sha: String(a.details?.sha ?? ""), slot: i % 5 });
+    repos.set(key, repo);
+  });
+  const entry = (path, rows, scale) => ({
+    path,
+    commits: rows.length,
+    additions: rows.length * scale,
+    deletions: rows.length,
+    authors: 1 + (rows.length % 3),
+    shas: [...new Set(rows.map((row) => row.sha.slice(0, 12)).filter(Boolean))].slice(0, 100),
+  });
+  return {
+    repos: [...repos.values()].map((repo) => ({
+      source_id: repo.source_id,
+      project_path: repo.project_path,
+      commits: repo.rows.length,
+      scanned: Math.max(0, repo.rows.length - 3),
+      truncated: 0,
+      files: 40,
+      top_files: [0, 1, 2, 3, 4]
+        .map((slot) => entry(`packages/ui/src/components/SmokeFile${slot}.tsx`, repo.rows.filter((row) => row.slot === slot), 7 + slot))
+        .filter((file) => file.commits > 0)
+        .sort((a, b) => b.commits - a.commits || a.path.localeCompare(b.path)),
+      top_dirs: [entry("packages/ui/", repo.rows.filter((row) => row.slot < 3), 9), entry("./", repo.rows.filter((row) => row.slot >= 3), 2)].filter((dir) => dir.commits > 0),
+    })),
+  };
 }
 
 function parseInflatedContract(rawBody) {
@@ -7178,7 +7216,7 @@ try {
         repoRows: rows(rail, 'Top repos'),
         branchRows: rows(rail, 'Top branches'),
         typeRows: rows(rail, 'Commit types'),
-        scopeRows: rows(rail, 'Commit scopes'),
+        hotRows: rows(rail, 'Hot files'),
         spilling,
       };
     })()`,
@@ -7196,6 +7234,64 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+  // Hot files (contract 4.9.0): the producer's file aggregate as a ranked pane,
+  // a row of which narrows the whole page to the commits that touched it.
+  const hotFilesProbe = `(() => {
+    const pane = document.querySelector('.commits-rail .commit-where');
+    const rect = (el) => el.getBoundingClientRect();
+    const head = [...(pane?.querySelectorAll('.rank-head > span') || [])];
+    const cells = [...(pane?.querySelector('.live-rank-item')?.querySelectorAll('.live-rank-extra > *') || [])];
+    const rowsEl = [...document.querySelectorAll('.commit-list .commit-row')];
+    const repoRows = [...document.querySelectorAll('.commits-rail:not(.commit-detail) > .rail-block')]
+      .find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top repos');
+    return {
+      title: (pane?.querySelector('.rail-block-title')?.textContent || '').trim(),
+      options: [...(pane?.querySelectorAll('.pane-seg-option') || [])].map((b) => (b.textContent || '').trim()),
+      pressed: [...(pane?.querySelectorAll('.pane-seg-option[aria-pressed="true"]') || [])].map((b) => (b.textContent || '').trim()),
+      meta: (pane?.querySelector('.rail-block-meta')?.textContent || '').trim(),
+      rows: pane?.querySelectorAll('.live-rank-item').length ?? -1,
+      selectable: pane?.querySelectorAll('.live-rank-item-action').length ?? -1,
+      on: pane?.querySelectorAll('.live-rank-item-on').length ?? -1,
+      firstName: (pane?.querySelector('.live-rank-item .live-rank-name')?.textContent || '').trim(),
+      firstBarPx: Math.round(rect(pane?.querySelector('.live-rank-bar') || document.body).width),
+      // The head names the row's columns only if it sits over them.
+      headDrift: head.length && cells.length ? Math.round(Math.abs(rect(head[head.length - 1]).right - rect(cells[cells.length - 1]).right)) : null,
+      headLines: Math.round(rect(pane?.querySelector('.rail-block-head') || document.body).height),
+      spill: [...(pane?.querySelectorAll('.live-rank-extra, .live-rank-footer') || [])].filter((n) => rect(n).right > rect(pane).right - 8).length,
+      tiles: [...document.querySelectorAll('.commits-overview .hm-summary dt')].map((el) => (el.textContent || '').trim()),
+      count: (document.querySelector('.commits-page .activity-head .count')?.textContent || '').trim(),
+      chip: (document.querySelector('.commits-path-chip')?.textContent || '').trim(),
+      listRepos: [...new Set(rowsEl.map((row) => (row.querySelector('.commit-meta-repo')?.textContent || '').trim()))],
+      repoRows: repoRows?.querySelectorAll('.live-rank-item').length ?? -1,
+      delta: document.querySelectorAll('.commits-overview .hm-delta').length,
+    };
+  })()`;
+  const hotFiles = (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-rail .commit-where .live-rank-item-action')?.click()" });
+  await sleep(350);
+  const hotFilesNarrowed = (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-path-chip')?.click()" });
+  await sleep(300);
+  const hotFilesCleared = (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
+  // The other two views of the same pane.
+  const hotSwitch = async (option) => {
+    await send("Runtime.evaluate", {
+      expression: `[...document.querySelectorAll('.commits-rail .commit-where .pane-seg-option')].find((b) => (b.textContent || '').trim() === ${JSON.stringify(option)})?.click()`,
+    });
+    await sleep(200);
+    return (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
+  };
+  const hotDirs = await hotSwitch("dirs");
+  const hotScopes = await hotSwitch("scopes");
+  await hotSwitch("files");
+  // Under an author filter the aggregate cannot describe the rows on screen:
+  // it is pre-computed per repository and cannot be re-ranked for one person's
+  // commits, so the pane falls back to scopes and offers no switch.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-rail .rank-cols-authors .live-rank-item-action')?.click()" });
+  await sleep(350);
+  const hotUnderAuthor = (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-rail .rank-cols-authors .live-rank-item-on')?.click()" });
+  await sleep(350);
   // A commit's change request (contract 4.8.2): the number on its row, the
   // item in its detail, and the range regrouped by change request in a pane.
   // The fixture cycles link / none / no answer by row index, which is the last
@@ -7878,7 +7974,7 @@ try {
         JSON.stringify(commitsWidePanes.overviewTitles) ===
           JSON.stringify(["Commit overview", "Commit rhythm", "Commits per day", "Lines changed per day", "When", "Largest commits", "Change requests"]) &&
         JSON.stringify(commitsWidePanes.railTitles) ===
-          JSON.stringify(["Top authors", "Top repos", "Top branches", "Commit types", "Commit scopes"]) &&
+          JSON.stringify(["Top authors", "Top repos", "Top branches", "Commit types", "Hot files"]) &&
         commitsWidePanes.spilling.length === 0 &&
         commitsWidePanes.pageOverflowX <= 0,
       `commits: from the wide-panes tier the list keeps its inline rows beside two supporting columns of two modules each (${JSON.stringify({ tracks: commitsWidePanes.tracks, rowLayout: commitsWidePanes.rowLayout, overview: commitsWidePanes.overviewTitles, rail: commitsWidePanes.railTitles, cols: [commitsWidePanes.overviewColumns, commitsWidePanes.railColumns], spilling: commitsWidePanes.spilling })})`,
@@ -7917,7 +8013,7 @@ try {
       `commits: the spare height goes to lists, and both columns still end with the list beside them (${JSON.stringify({ overviewShort: commitsWidePanes.overviewShort, railShort: commitsWidePanes.railShort, selfScroll: [commitsWidePanes.overviewSelfScroll, commitsWidePanes.railSelfScroll], paneShort: [commitsWidePanes.overviewPaneShort, commitsWidePanes.railPaneShort], largestScrollsInside: commitsWidePanes.largestScrollsInside, pageOverflow: commitsWidePanes.pageOverflow, largest: commitsWidePanes.largestRows, repos: commitsWidePanes.repoRows, branches: commitsWidePanes.branchRows })})`,
     ],
     [
-      commitsWidePanes.tiles === 10 &&
+      commitsWidePanes.tiles === 11 &&
         commitsWidePanes.rhythmFacts >= 4 &&
         commitsWidePanes.authorExtras === 5 &&
         commitsWidePanes.authorHeadDrift != null &&
@@ -7925,14 +8021,55 @@ try {
         commitsWidePanes.repoHeadDrift != null &&
         commitsWidePanes.repoHeadDrift <= 2 &&
         commitsWidePanes.typeRows > 1 &&
-        commitsWidePanes.scopeRows > 1,
-      `commits: the wide tier adds facts the narrow one has no room for (${JSON.stringify({ tiles: commitsWidePanes.tiles, facts: commitsWidePanes.rhythmFacts, authorExtras: commitsWidePanes.authorExtras, headDrift: [commitsWidePanes.authorHeadDrift, commitsWidePanes.repoHeadDrift], types: commitsWidePanes.typeRows, scopes: commitsWidePanes.scopeRows })})`,
+        commitsWidePanes.hotRows > 1,
+      `commits: the wide tier adds facts the narrow one has no room for (${JSON.stringify({ tiles: commitsWidePanes.tiles, facts: commitsWidePanes.rhythmFacts, authorExtras: commitsWidePanes.authorExtras, headDrift: [commitsWidePanes.authorHeadDrift, commitsWidePanes.repoHeadDrift], types: commitsWidePanes.typeRows, hot: commitsWidePanes.hotRows })})`,
     ],
     [
       JSON.stringify(commitsWideSplitByRepo.pressed) === JSON.stringify(["repo"]) &&
         (commitsWideSplitByRepo.series || []).length >= 2 &&
         JSON.stringify(commitsWideSplitByRepo.series) !== JSON.stringify(commitsWidePanes.daySeries),
       `commits: the per-day chart re-cuts by repo on request (${JSON.stringify(commitsWideSplitByRepo)} from ${JSON.stringify(commitsWidePanes.daySeries)})`,
+    ],
+    [
+      hotFiles.title === "Hot files" &&
+        JSON.stringify(hotFiles.options) === JSON.stringify(["files", "dirs", "scopes"]) &&
+        JSON.stringify(hotFiles.pressed) === JSON.stringify(["files"]) &&
+        /^\d[\d,]* of \d[\d,]* scanned$/.test(hotFiles.meta || "") &&
+        hotFiles.rows > 1 &&
+        hotFiles.selectable === hotFiles.rows &&
+        /SmokeFile\d\.tsx/.test(hotFiles.firstName || "") &&
+        hotFiles.firstBarPx >= 24 &&
+        hotFiles.headDrift != null &&
+        hotFiles.headDrift <= 2 &&
+        hotFiles.headLines <= 26 &&
+        hotFiles.spill === 0 &&
+        (hotFiles.tiles || []).includes("files changed"),
+      `commits: the producer's file aggregate is a ranked pane with its coverage, and a tile (${JSON.stringify(hotFiles)})`,
+    ],
+    [
+      hotFilesNarrowed.on === 1 &&
+        / of /.test(hotFilesNarrowed.count || "") &&
+        hotFilesNarrowed.count !== hotFiles.count &&
+        /^path: .*SmokeFile\d\.tsx ×$/.test(hotFilesNarrowed.chip || "") &&
+        (hotFilesNarrowed.listRepos || []).length === 1 &&
+        hotFilesNarrowed.repoRows === 1 &&
+        hotFilesNarrowed.rows === hotFiles.rows &&
+        hotFilesCleared.count === hotFiles.count &&
+        hotFilesCleared.chip === "" &&
+        hotFilesCleared.on === 0,
+      `commits: a hot file row narrows the list and every pane to the commits that touched it, and the toolbar chip clears it (${JSON.stringify({ before: hotFiles.count, narrowed: { count: hotFilesNarrowed.count, chip: hotFilesNarrowed.chip, listRepos: hotFilesNarrowed.listRepos, repoRows: hotFilesNarrowed.repoRows, on: hotFilesNarrowed.on }, cleared: { count: hotFilesCleared.count, chip: hotFilesCleared.chip } })})`,
+    ],
+    [
+      hotDirs.title === "Hot directories" &&
+        hotDirs.rows > 0 &&
+        /^(\(root\)|\S*\/)( · |$)/.test(hotDirs.firstName || "") &&
+        hotScopes.title === "Commit scopes" &&
+        hotScopes.rows > 1 &&
+        hotScopes.selectable === 0 &&
+        hotUnderAuthor.title === "Commit scopes" &&
+        (hotUnderAuthor.options || []).length === 0 &&
+        !(hotUnderAuthor.tiles || []).includes("files changed"),
+      `commits: the pane also shows directories and scopes, and falls back to scopes under a filter the aggregate cannot describe (${JSON.stringify({ dirs: [hotDirs.title, hotDirs.rows, hotDirs.firstName], scopes: [hotScopes.title, hotScopes.rows], underAuthor: [hotUnderAuthor.title, hotUnderAuthor.options] })})`,
     ],
     [
       commitsChangeRequests.rows > 0 &&
