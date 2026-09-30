@@ -100,6 +100,7 @@ import {
   STATUS_ORDER,
   spotlight,
   columnCollapsed,
+  columnSlices,
   initialMobileColumn,
   itemIsPrimaryWindow,
   buildColorIndex,
@@ -3378,6 +3379,30 @@ test("columnCollapsed: empty is a rail unless peeked; non-empty is a rail only i
   for (const kind of ["lane-trackers", "open", "closed", "lane-follow-up", "lane-pr"]) {
     assert.equal(columnCollapsed(kind, false, stale, none), false, `stale keys leave ${kind} expanded`);
   }
+});
+
+test("columnSlices: the cap trims each group, so unfolding always shows closed cards", () => {
+  const mk = (state: string, n: number) => Array.from({ length: n }, (_, i) => ({ state, i }));
+  const items = [...mk("open", 3), ...mk("closed", 4)];
+  // A column that does not fold is one capped list.
+  assert.deepEqual(
+    (({ lead, folded, rest, hidden }) => [lead.length, folded, rest.length, hidden])(
+      columnSlices(items, { cap: 5, foldClosed: false, showClosed: false }),
+    ),
+    [5, 0, 0, 2],
+  );
+  // Folded: only the open cards; the closed ones are counted behind the toggle.
+  const folded = columnSlices(items, { cap: 5, foldClosed: true, showClosed: false });
+  assert.deepEqual([folded.lead.length, folded.folded, folded.rest.length, folded.hidden], [3, 4, 0, 0]);
+  // Unfolded under the cap: open then closed, nothing trimmed.
+  const unfolded = columnSlices(items, { cap: 5, foldClosed: true, showClosed: true });
+  assert.deepEqual([unfolded.lead.length, unfolded.folded, unfolded.rest.length, unfolded.hidden], [3, 4, 4, 0]);
+  // Open items alone reach the cap: unfolding must still show closed cards.
+  const full = columnSlices(items, { cap: 3, foldClosed: true, showClosed: true });
+  assert.deepEqual([full.lead.length, full.folded, full.rest.length, full.hidden], [3, 4, 3, 1]);
+  const over = columnSlices(items, { cap: 2, foldClosed: true, showClosed: true });
+  assert.deepEqual([over.lead.length, over.folded, over.rest.length, over.hidden], [2, 4, 2, 3]);
+  assert.ok(over.rest.every((it) => it.state === "closed"));
 });
 
 test("initialMobileColumn: the phone opens on the first column that has items", () => {

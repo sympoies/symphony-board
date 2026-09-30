@@ -108,6 +108,24 @@ export function initialMobileColumn(columns: ReadonlyArray<{ kind: string; items
   return columns.find((c) => c.items.length > 0)?.kind ?? "open";
 }
 
+// What one board column renders. `items` arrive sorted (a `foldClosed` lane
+// open-first, see `spotlight`): `lead` is the cards above the "Closed (N)"
+// toggle, `folded` the closed count behind it (0 when the column does not fold),
+// `rest` the closed cards below it once unfolded, and `hidden` what the cap
+// trimmed from the groups on screen. The cap applies to each group on its own,
+// so a lane whose open items alone reach it still shows closed cards on unfold.
+export function columnSlices<T extends { state: string }>(
+  items: readonly T[],
+  opts: { cap?: number; foldClosed: boolean; showClosed: boolean },
+): { lead: T[]; folded: number; rest: T[]; hidden: number } {
+  const openCount = opts.foldClosed ? items.filter((it) => it.state === "open").length : items.length;
+  const capped = (group: readonly T[]) => (opts.cap != null ? group.slice(0, opts.cap) : [...group]);
+  const lead = capped(items.slice(0, openCount));
+  const closed = opts.showClosed ? items.slice(openCount) : [];
+  const rest = capped(closed);
+  return { lead, folded: items.length - openCount, rest, hidden: openCount - lead.length + closed.length - rest.length };
+}
+
 // Derive each item's board status from its own state (status is an intrinsic
 // property; filtered items are placed into columns by the caller).
 export function deriveStatuses(items: ItemDTO[]): Map<string, ItemStatus> {

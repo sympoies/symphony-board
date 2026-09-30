@@ -6,6 +6,7 @@ import { StatsBar } from "./StatsBar.tsx";
 import {
   anchorId,
   columnCollapsed,
+  columnSlices,
   computeBoardWindowStats,
   findContractScopedStats,
   initialMobileColumn,
@@ -79,11 +80,7 @@ function Column({
       </div>
     );
   }
-  const openCount = foldClosed ? items.filter((it) => it.state === "open").length : items.length;
-  const folded = items.length - openCount;
-  const visible = showClosed ? items : items.slice(0, openCount);
-  const shown = cap != null ? visible.slice(0, cap) : visible;
-  const hidden = visible.length - shown.length;
+  const { lead, folded, rest, hidden } = columnSlices(items, { cap, foldClosed, showClosed });
   const card = (it: ItemDTO) => (
     <ItemCard
       key={it.id}
@@ -113,13 +110,13 @@ function Column({
         <span className="col-sub">{sub}</span>
       </h3>
       <div className="col-cards">
-        {shown.slice(0, openCount).map(card)}
+        {lead.map(card)}
         {folded > 0 && (
           <button type="button" className="col-fold muted" aria-expanded={showClosed} onClick={() => setShowClosed((v) => !v)}>
             Closed ({folded})
           </button>
         )}
-        {shown.slice(openCount).map(card)}
+        {rest.map(card)}
         {hidden > 0 && <div className="col-more muted">+{hidden} more</div>}
       </div>
     </div>
