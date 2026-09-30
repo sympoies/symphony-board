@@ -299,7 +299,8 @@ export interface ItemDTO {
   // of the contract's primary Board item window; `edge_endpoint` means the item
   // is included so emitted edges resolve to concrete nodes instead of anonymous
   // refs; `activity_target` means the item is included so an emitted review
-  // activity resolves to the target change request's current state;
+  // activity resolves to the target change request's current state, or (4.8.2)
+  // so the change request an emitted commit row names resolves at all;
   // `program_tracker` (4.8.0) means the item is a pinned program tracker — open,
   // labeled `workflow::tracking`, with outgoing `parent` edges; at most 100 per
   // projection, newest `updated_at` first — and is emitted whatever the window,

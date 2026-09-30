@@ -44,7 +44,8 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { commitDetails, commitLineStats, itemActivities, stableActivityId } from "../model/activity.ts";
+import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitChangeRequest } from "../model/activity.ts";
+import { refOf } from "../model/ref.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
@@ -63,6 +64,11 @@ const NOTES_PAGE = 50; // system notes per item (fetched per-item to stay under 
 // round trips. Past the cap those commits simply keep no line counts until a
 // later sweep sees a shorter set.
 const MAX_COMMIT_STATS_FETCHES = 200;
+// How far before the oldest stored commit the merged merge-request listing
+// reaches. A merge request's `updated_at` is never earlier than the commit it
+// landed as, so any margin is slack for clock skew between the two timestamps;
+// a day is generous and still keeps the listing to the sweep's own window.
+const LANDED_MERGE_REQUEST_MARGIN_MS = 24 * 60 * 60 * 1000;
 
 function mapState(s: string | null | undefined): ItemState {
   const v = (s ?? "").toLowerCase();
@@ -184,7 +190,8 @@ export class GitLabSource implements Source {
   // gitlab/9: commit activity details carry additions/deletions (never for merges).
   // gitlab/10: project-event author photos are retained in activity details.
   // gitlab/11: commit activity details carry merge and default_branch.
-  readonly normalizerVersion = "gitlab/11";
+  // gitlab/12: commit activity details carry change_request for landing commits.
+  readonly normalizerVersion = "gitlab/12";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -665,10 +672,13 @@ export class GitLabSource implements Source {
       }
     }
 
-    const stats = await this.fetchCommitStats(project, projectId, [...bySha.values()].map((e) => e.commit));
+    const commits = [...bySha.values()].map((e) => e.commit);
+    const stats = await this.fetchCommitStats(project, projectId, commits);
+    const landed = await this.fetchLandedMergeRequests(project, projectId, commits);
 
     for (const { commit, branches } of bySha.values()) {
       const stat = stats.get(String(commit.id));
+      const mergeRequest = landed.get(String(commit.id).toLowerCase());
       const payload = {
         __activityKind: "gitlab_commit",
         project,
@@ -679,6 +689,9 @@ export class GitLabSource implements Source {
         // carries `commit.stats`. Absent (not null) when the lookup was skipped
         // or failed, so a payload predating it hashes identically.
         ...(stat ? { stats: stat } : {}),
+        // The merge request this commit LANDED as, when the listing named one.
+        // Absent otherwise, and never null: see fetchLandedMergeRequests.
+        ...(mergeRequest ? { mergeRequest } : {}),
       };
       const payloadJson = JSON.stringify(payload);
       records.push({
@@ -731,6 +744,74 @@ export class GitLabSource implements Source {
     for (let i = 0; i < pending.length; i++) {
       const stats = resolved[i];
       if (stats) out.set(pending[i]!, stats);
+    }
+    return out;
+  }
+
+  // The merge requests the commits of one sweep LANDED as, keyed by sha.
+  //
+  // GitLab has no batch that resolves a commit to its merge request; the
+  // per-commit endpoint is one request per commit, a different cost class from
+  // anything else in a sweep. The merged merge-request list, though, names the
+  // three commits a merge request lands as — its merge commit, its squash
+  // commit, and its head (what a fast-forward merge leaves on the target) — so
+  // ONE paged listing per project links those.
+  //
+  // It is bounded by the age of the commits being stored: a merge request is
+  // updated no earlier than the commit it landed as, so asking for everything
+  // updated since a day before the oldest commit cannot miss one, and a sweep
+  // that stored no commits asks for nothing. The bound matters on every sweep,
+  // not only the first: an incremental sweep re-reads the commit at its
+  // watermark, and a map built from "merge requests this sweep happened to
+  // see" would drop that commit's link again.
+  //
+  // A commit that is not one of those three gets NO answer. It may well belong
+  // to a merge request (any commit inside a merge-commit merge does); this
+  // listing cannot say, so the row stays unknown rather than claiming "none".
+  //
+  // Best effort, like the stats above: a failed listing leaves the sweep's
+  // commits unlinked and the sweep complete.
+  private async fetchLandedMergeRequests(
+    project: string,
+    projectId: string,
+    commits: readonly any[],
+  ): Promise<Map<string, { id: number; iid: number }>> {
+    const out = new Map<string, { id: number; iid: number }>();
+    const rest = this.rest;
+    if (!rest) return out;
+    let oldest = Number.POSITIVE_INFINITY;
+    for (const commit of commits) {
+      const at = Date.parse(commit?.committed_date ?? commit?.created_at ?? commit?.authored_date ?? "");
+      if (Number.isFinite(at) && at < oldest) oldest = at;
+    }
+    if (!Number.isFinite(oldest)) return out;
+    const updatedAfter = new Date(oldest - LANDED_MERGE_REQUEST_MARGIN_MS).toISOString();
+    try {
+      for (let page = 1; page <= MAX_REST_PAGES; page++) {
+        const rows = await rest<any[]>(`projects/${projectId}/merge_requests`, {
+          state: "merged",
+          updated_after: updatedAfter,
+          order_by: "updated_at",
+          sort: "desc",
+          per_page: 100,
+          page,
+        });
+        for (const row of rows ?? []) {
+          const id = row?.id;
+          const iid = row?.iid;
+          if (!isPositiveInteger(id) || !isPositiveInteger(iid)) continue;
+          // First writer wins: the listing is newest-updated first, and a sha
+          // that two merge requests both name is theirs by the later one.
+          for (const sha of [row.merge_commit_sha, row.squash_commit_sha, row.sha]) {
+            const key = cleanText(sha)?.toLowerCase();
+            if (key && !out.has(key)) out.set(key, { id, iid });
+          }
+        }
+        if ((rows ?? []).length < 100) break;
+      }
+    } catch (err) {
+      log.info(`[${this.descriptor.sourceId}] project ${project}: merged merge requests unavailable; commits stay unlinked: ${(err as Error).message}`);
+      return new Map();
     }
     return out;
   }
@@ -808,6 +889,7 @@ export class GitLabSource implements Source {
           defaultBranch: cleanText(p.defaultBranch),
           parentCount: parentCount(commit.parent_ids),
           stats: p.stats ?? commit.stats,
+          changeRequest: mergeRequestLink(this.descriptor.sourceId, p.mergeRequest),
         }),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
@@ -989,6 +1071,22 @@ function messageBody(value: unknown): string | null {
 
 function parentCount(parents: unknown): number {
   return Array.isArray(parents) ? parents.length : 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+// The change request a commit row reports, from the merge request its payload
+// stored. The REST listing gives the numeric id; the item's identity is the
+// GraphQL global id, which is that number under the MergeRequest model.
+//
+// undefined for anything else, never null: this source only learns which
+// commits a merge request landed as, so it has no way to say "none".
+function mergeRequestLink(sourceId: string, stored: unknown): CommitChangeRequest | undefined {
+  const link = stored as { id?: unknown; iid?: unknown } | null | undefined;
+  if (!isPositiveInteger(link?.id) || !isPositiveInteger(link?.iid)) return undefined;
+  return { ref: refOf(sourceId, `gid://gitlab/MergeRequest/${link.id}`), iid: link.iid };
 }
 
 // Branch membership stored on a commit payload. Payloads written before the

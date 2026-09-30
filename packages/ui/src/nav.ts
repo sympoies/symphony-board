@@ -367,6 +367,19 @@ export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute
   });
 }
 
+// Commits -> Items, for one change request. The Items page has no route field
+// that selects a row, but its list auto-selects the first match, and an exact
+// `#<number>` search inside one pinned repository of one source matches exactly
+// one item. The lens is replaced rather than carried: whatever state/kind
+// filter the reader had on the board could hide the very item the link names.
+export function changeRequestItemHref(opts: { source: string; repo: string; iid: number; range: RangeRoute }): string {
+  return tabHref("items", {
+    q: `#${opts.iid}`,
+    range: opts.range,
+    item: { isource: opts.source, irepo: opts.repo, istate: null, ikind: null, ireview: null },
+  });
+}
+
 // Clear the visible search/facet filters in one action while preserving view
 // state that is not a filter: page, range, mobile sub-view, and graph focus.
 export function clearFiltersHref(route: HashRoute, page: string = route.page): string {

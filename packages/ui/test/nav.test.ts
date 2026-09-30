@@ -32,6 +32,7 @@ import {
   debugTabField,
   DEBUG_TAB_IDS,
   DEFAULT_DEBUG_TAB,
+  changeRequestItemHref,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -513,4 +514,27 @@ test("debugTabField drops the default and round-trips every other debug tab thro
 test("startupRouteHash keeps a debug sub-tab verbatim across a cold start", () => {
   assert.equal(startupRouteHash("#/debug?tab=store", "activity"), "#/debug?tab=store");
   assert.equal(startupRouteHash("#/debug?tab=log", "live"), "#/debug?tab=log");
+});
+
+test("changeRequestItemHref narrows the Items page to exactly one change request", () => {
+  const href = changeRequestItemHref({
+    source: "github:github.com",
+    repo: "acme/api",
+    iid: 749,
+    range: { from: "2026-09-01", to: "2026-09-30", preset: null },
+  });
+  const route = parseHashRoute(href);
+  assert.equal(route.page, "items");
+  // An exact-number search inside one repository of one source: the Items list
+  // then holds that item alone, and it selects its first row.
+  assert.equal(route.q, "#749");
+  assert.equal(route.isource, "github:github.com");
+  assert.equal(route.irepo, "acme/api");
+  // The reader's board lens is replaced, not carried: a state or kind filter
+  // could hide the very item the link names.
+  assert.equal(route.istate, null);
+  assert.equal(route.ikind, null);
+  assert.equal(route.ireview, null);
+  assert.equal(route.from, "2026-09-01");
+  assert.equal(route.to, "2026-09-30");
 });

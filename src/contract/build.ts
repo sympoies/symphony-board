@@ -1171,6 +1171,13 @@ function fullItemProjection(
   };
 }
 
+// The item ref a commit row names as its change request, or null. `details` is
+// an open object, so anything but a string ref is treated as no link.
+function commitChangeRequestRef(activity: ActivityDTO): string | null {
+  const link = activity.details?.change_request as { ref?: unknown } | null | undefined;
+  return typeof link?.ref === "string" && link.ref.length > 0 ? link.ref : null;
+}
+
 function edgeKey(edge: EdgeDTO): string {
   return JSON.stringify([edge.type, edge.from, edge.to]);
 }
@@ -1201,10 +1208,14 @@ function buildRangeProjection(
     endpointIds.add(edge.from);
     endpointIds.add(edge.to);
   }
+  // Items an in-range activity points at, emitted as support rows even when
+  // their own updated_at is outside the range: the change request a review is
+  // on, and the change request a commit belongs to (`details.change_request`,
+  // 4.8.2) — both are what the row's consumer shows beside it.
   const activityTargetIds = new Set<string>();
   for (const activity of rangedActivities) {
-    if (activity.kind !== "review") continue;
-    if (activity.target_ref && byId.has(activity.target_ref)) activityTargetIds.add(activity.target_ref);
+    const ref = activity.kind === "review" ? activity.target_ref : activity.kind === "commit" ? commitChangeRequestRef(activity) : null;
+    if (ref && byId.has(ref)) activityTargetIds.add(ref);
   }
 
   const emittedIds = new Set([...primaryIds, ...endpointIds, ...activityTargetIds]);

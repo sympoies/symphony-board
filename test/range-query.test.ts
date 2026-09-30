@@ -330,6 +330,56 @@ test("buildRangeContract includes in-range review activity targets as support it
   assert.equal(env.item_window?.activity_target_items, 1);
 });
 
+test("buildRangeContract includes the change requests in-range commits belong to", () => {
+  // A commit row names its change request in `details.change_request`. The
+  // Commits page shows that item's title and state, so the item has to be in
+  // the payload even when its own `updated_at` is outside the range.
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", updated_at: "2026-05-20T00:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "PR_landed", kind: "change_request", iid: 31, title: "Landed PR", state: "merged", state_raw: "MERGED", updated_at: "2026-06-20T00:00:00Z" }),
+    itemRow({ item_id: 3, external_id: "PR_unrelated", kind: "change_request", iid: 32, title: "Unrelated PR", state: "open", state_raw: "OPEN", updated_at: "2026-06-20T00:00:00Z" }),
+  ];
+  const commit = (externalId: string, details: Record<string, unknown>, occurredAt = "2026-05-15T12:00:00Z") =>
+    activityRow({
+      external_id: externalId,
+      kind: "commit",
+      action: "committed",
+      target_kind: "commit",
+      target_source_id: null,
+      target_external_id: null,
+      target_iid: null,
+      occurred_at: occurredAt,
+      details: JSON.stringify({ sha: externalId, ...details }),
+    });
+  const env = buildRangeContract({
+    sources: [source],
+    items,
+    labels: [],
+    edges: [],
+    activities: [
+      commit("c-linked", { change_request: { ref: "github:github.com|PR_landed", iid: 31 } }),
+      commit("c-direct", { change_request: null }),
+      commit("c-unknown", {}),
+      commit("c-malformed", { change_request: { ref: 7 } }),
+      // Names a change request the store does not hold: nothing to include.
+      commit("c-dangling", { change_request: { ref: "github:github.com|PR_gone", iid: 99 } }),
+      // Out of range: its change request is not pulled in.
+      commit("c-late", { change_request: { ref: "github:github.com|PR_unrelated", iid: 32 } }, "2026-06-15T12:00:00Z"),
+    ],
+    generatedAt: "2026-06-21T00:00:00Z",
+    range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
+  });
+
+  assert.deepEqual(validateContract(env), []);
+  const landed = env.items.find((it) => it.external_id === "PR_landed");
+  assert.ok(landed, "the change request an in-range commit belongs to is emitted");
+  assert.deepEqual(landed?.window_reasons, ["activity_target"], "as a support row, not a primary Board card");
+  assert.equal(env.items.find((it) => it.external_id === "PR_unrelated"), undefined);
+  assert.equal(env.item_window?.activity_target_items, 1);
+  assert.equal(env.activities?.length, 5, "the rows themselves are emitted as they are stored");
+});
+
 test("buildRangeContract pins open program trackers whatever the range (4.8.0)", () => {
   const SRC = "github:github.com";
   const source: SourceRow = { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };

@@ -1,5 +1,6 @@
 import { detailRouteController } from "./detail-route.ts";
 import { inPageHref } from "./nav.ts";
+import { safeHref } from "./url.ts";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, fetchGraphNeighborhood, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
@@ -14,6 +15,8 @@ import {
   activityMatches,
   filterCommits,
   commitIsMerge,
+  changeRequestView,
+  type CommitChangeRequestLink,
   commitRepoOptions,
   commitBranchOptions,
   preferredDefaultTimeRange,
@@ -86,6 +89,7 @@ import {
   parseDebugTab,
   debugTabField,
   ITEM_REVIEW_VALUES,
+  changeRequestItemHref,
   type ActivityFacetDim,
   type ActivityView,
   type GraphView,
@@ -1189,6 +1193,26 @@ export function App() {
     () => new Map((env?.sources ?? []).map((s) => [s.source_id, s.kind])),
     [env],
   );
+  // A commit's change request, joined with its item and given somewhere to go:
+  // the Items page when the item is one of its rows, the provider page when the
+  // item is loaded only as a support row, nothing when it is not loaded at all.
+  // One resolver for the row chip, the detail pane, and the Change requests
+  // pane, so the three can never disagree about where a number leads.
+  const resolveChangeRequestLink = useCallback(
+    (link: CommitChangeRequestLink, sourceId: string) => {
+      const item = itemsById.get(link.ref);
+      const view = changeRequestView(link, item, sourceKind.get(item?.source_id ?? sourceId));
+      // The Items link pins the ITEM's own source and repository, not the
+      // commit's: they are the same for every link a producer emits, and the
+      // item's are the ones the Items page filters on.
+      if (item && view.primary && view.iid !== null && item.project_path) {
+        const range = { from: explicitRange?.from, to: explicitRange?.to, preset: explicitRange ? route.preset : null };
+        return { view, href: changeRequestItemHref({ source: item.source_id, repo: item.project_path, iid: view.iid, range }), external: false };
+      }
+      return { view, href: safeHref(view.url) ?? null, external: true };
+    },
+    [itemsById, sourceKind, explicitRange, route.preset],
+  );
 
   const filteredItems = useMemo(
     () => primaryItems.filter((i) => itemMatches(i, itemFilters)),
@@ -2133,6 +2157,7 @@ export function App() {
           followLatest={commitsFollowLatest}
           onFollowLatest={() => setCommitsFollowLatest(true)}
           fileStats={commitFileStats}
+          resolveChangeRequestLink={resolveChangeRequestLink}
           mergeCount={windowMergeCount}
           hideMerges={commitsHideMerges}
           onHideMerges={setCommitsHideMerges}

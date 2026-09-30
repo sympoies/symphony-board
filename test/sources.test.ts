@@ -703,7 +703,13 @@ test("GitHub commit line counts batch through one GraphQL query and skip merges"
   assert.equal(res.complete, true);
   assert.equal(statsQueries.length, 1, "every sha of the sweep is read in ONE round trip");
   assert.match(statsQueries[0]!, /c0: object\(oid:"aaa111"\)/);
-  assert.doesNotMatch(statsQueries[0]!, /ccc333/, "the merge commit is never looked up");
+  // The merge is in the document for its pull request (see the next test), but
+  // its line counts are never selected.
+  assert.doesNotMatch(
+    statsQueries[0]!.split("\n").find((line) => line.includes('oid:"ccc333"')) ?? "",
+    /additions|deletions/,
+    "the merge commit's counts are never asked for",
+  );
 
   const details = res.records
     .filter((r) => r.entityKind === "activity")
@@ -715,6 +721,130 @@ test("GitHub commit line counts batch through one GraphQL query and skip merges"
   assert.equal(soloDetails.deletions, 4);
   const mergeDetails = details.find((d) => d.sha === "ccc333")!;
   assert.ok(!("additions" in mergeDetails) && !("deletions" in mergeDetails), "a merge row carries no line counts");
+});
+
+test("the GitHub commit batch also reads the pull request each commit belongs to, merges included", async () => {
+  // The batch that reads line counts already fetches every commit object, so
+  // the association rides in it. A merge is skipped for COUNTS (its diff is
+  // against the first parent) but it still belongs to a pull request, so it
+  // has to be in the document — without the count selection.
+  const solo = { ...ghMainCommit, parents: [{ sha: "0000001" }] };
+  const direct = { ...ghMainCommit, sha: "ddd444", html_url: "https://github.com/o/r/commit/ddd444", parents: [{ sha: "0000001" }] };
+  const merge = {
+    sha: "ccc333",
+    html_url: "https://github.com/o/r/commit/ccc333",
+    commit: {
+      message: "Merge pull request #7",
+      author: { name: "A", email: "octo@example.com", date: "2026-06-09T12:00:00Z" },
+      committer: { name: "A", date: "2026-06-09T12:00:00Z" },
+    },
+    author: { login: "octocat" },
+    parents: [{ sha: "0000001" }, { sha: "0000002" }],
+  };
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "repos/o/r") return { default_branch: "main" } as T;
+    if (path === "repos/o/r/commits") return (params?.page === 1 ? [solo, direct, merge] : []) as T;
+    if (path === "repos/o/r/activity") return [] as T;
+    if (isGitHubCommentActivityPath(path)) return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const queries: string[] = [];
+  const pr = (id: string, number: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    number,
+    state: "MERGED",
+    mergeCommit: null,
+    repository: { nameWithOwner: "o/r" },
+    ...extra,
+  });
+  const batchGql: GqlClient = (async (query: string) => {
+    if (query.includes("object(oid:")) {
+      queries.push(query);
+      return {
+        repository: {
+          c0: { oid: "aaa111", additions: 12, deletions: 4, associatedPullRequests: { nodes: [pr("PR_6", 6)] } },
+          c1: { oid: "ddd444", additions: 1, deletions: 1, associatedPullRequests: { nodes: [] } },
+          c2: { oid: "ccc333", associatedPullRequests: { nodes: [pr("PR_7", 7, { mergeCommit: { oid: "ccc333" } })] } },
+        },
+      };
+    }
+    return gql(query);
+  }) as GqlClient;
+
+  const src = new GitHubSource(DESC, batchGql, ["o/r"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+  assert.equal(queries.length, 1, "still ONE round trip for the sweep's commits");
+  assert.match(queries[0]!, /associatedPullRequests/);
+  assert.match(queries[0]!, /c2: object\(oid:"ccc333"\)/, "the merge is looked up for its pull request");
+  assert.doesNotMatch(
+    queries[0]!.split("\n").find((line) => line.includes('oid:"ccc333"')) ?? "",
+    /additions|deletions/,
+    "but never for its line counts",
+  );
+
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  const bySha = (sha: string) => details.find((d) => d.sha === sha)!;
+  assert.deepEqual(bySha("aaa111").change_request, { ref: "github:github.com|PR_6", iid: 6 });
+  assert.equal(bySha("aaa111").additions, 12, "line counts are unchanged by the wider batch");
+  assert.deepEqual(bySha("ccc333").change_request, { ref: "github:github.com|PR_7", iid: 7 });
+  assert.ok(!("additions" in bySha("ccc333")), "a merge still carries no line counts");
+  // Looked up, and there is none: `null`, which is a fact a pane can count.
+  assert.ok("change_request" in bySha("ddd444"));
+  assert.equal(bySha("ddd444").change_request, null);
+});
+
+test("a GitHub commit row picks its pull request from the stored lookup, or says nothing", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const commitRaw = (extra: Record<string, unknown>): RawRecord => ({
+    entityKind: "activity",
+    externalId: "commit:o%2Fr:abc1234",
+    apiVersion: "github.graphql.v4.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "github_commit",
+      project: "o/r",
+      defaultBranch: "main",
+      branches: ["main"],
+      ...extra,
+      commit: {
+        sha: "abc1234",
+        html_url: "https://github.com/o/r/commit/abc1234",
+        commit: { message: "Subject", author: { name: "A", date: "2026-06-09T10:00:00Z" }, committer: { name: "A", date: "2026-06-09T10:00:00Z" } },
+        author: { login: "octocat" },
+        parents: [{ sha: "0000001" }],
+      },
+    },
+  });
+  const link = (extra: Record<string, unknown>) => (src.normalize(commitRaw(extra))!.activities[0]!.details as Record<string, unknown>).change_request;
+  const pull = (id: string, number: number, extra: Record<string, unknown> = {}) => ({ id, number, state: "OPEN", mergeCommitOid: null, repo: "o/r", ...extra });
+
+  // A payload stored before the lookup existed, or whose lookup failed: the key
+  // is absent, which is "unknown" and not "no pull request".
+  const unknown = src.normalize(commitRaw({}))!.activities[0]!.details as Record<string, unknown>;
+  assert.ok(!("change_request" in unknown));
+
+  assert.equal(link({ pulls: [] }), null);
+  assert.deepEqual(link({ pulls: [pull("PR_1", 1)] }), { ref: "github:github.com|PR_1", iid: 1 });
+  // Several candidates: the one this commit landed as, then a merged one, then
+  // whatever is first. A cherry-pick into a second pull request must not win.
+  assert.deepEqual(
+    link({ pulls: [pull("PR_1", 1), pull("PR_2", 2, { state: "MERGED" }), pull("PR_3", 3, { state: "MERGED", mergeCommitOid: "ABC1234" })] }),
+    { ref: "github:github.com|PR_3", iid: 3 },
+  );
+  assert.deepEqual(link({ pulls: [pull("PR_1", 1), pull("PR_2", 2, { state: "MERGED" })] }), { ref: "github:github.com|PR_2", iid: 2 });
+  // A pull request of another repository is not this repository's change
+  // request; with nothing else it is "none", not a link into a repo the board
+  // may not even track.
+  assert.equal(link({ pulls: [pull("PR_9", 9, { repo: "fork/r" })] }), null);
+  assert.deepEqual(link({ pulls: [pull("PR_9", 9, { repo: "fork/r" }), pull("PR_4", 4, { repo: "O/R" })] }), { ref: "github:github.com|PR_4", iid: 4 });
+  // Malformed entries are ignored rather than half-read.
+  assert.equal(link({ pulls: [{ id: "", number: 5, repo: "o/r" }, { id: "PR_5", number: "5", repo: "o/r" }] }), null);
 });
 
 test("a failed GitHub commit-stats batch degrades to no counts, not a partial sweep", async () => {
@@ -742,6 +872,7 @@ test("a failed GitHub commit-stats batch degrades to no counts, not a partial sw
     .map((a) => a.details as any);
   assert.equal(details.length, 1);
   assert.ok(!("additions" in details[0]!), "the commit still lands, just without counts");
+  assert.ok(!("change_request" in details[0]!), "and without a change request answer: unknown, not none");
 });
 
 test("commit_branches=default keeps the commit feed on the default branch only", async () => {
@@ -1965,6 +2096,114 @@ test("GitLab asks the commit list for stats and resolves compare-only commits by
   );
 });
 
+test("GitLab links landing commits to their merge request from one bounded listing", async () => {
+  // GitLab has no batch that resolves a commit to its merge request, and one
+  // request per commit is a different cost class. The merged merge-request list
+  // names the three commits a merge request LANDS as (merge, squash, head), so
+  // one listing per project, bounded by the age of the commits being stored,
+  // links those and leaves every other commit unknown.
+  const calls: Array<{ path: string; params: Record<string, unknown> | undefined }> = [];
+  const commit = (id: string, date: string, parents = 1) => ({
+    id,
+    title: `Commit ${id}`,
+    message: `Commit ${id}`,
+    web_url: `https://gitlab.com/g/p/-/commit/${id}`,
+    committed_date: date,
+    author_name: "GitLab Dev",
+    author_email: "gitlab@example.com",
+    parent_ids: Array.from({ length: parents }, (_, i) => `000000${i}`),
+    stats: { additions: 1, deletions: 1, total: 2 },
+  });
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    calls.push({ path, params });
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/events") return [] as T;
+    if (path === "projects/g%2Fp/repository/commits") {
+      return (params?.page === 1
+        ? [
+            commit("aaaa0001", "2026-06-09T12:00:00Z", 2),
+            commit("aaaa0002", "2026-06-08T09:00:00Z"),
+            commit("aaaa0003", "2026-06-07T08:30:00Z"),
+            commit("aaaa0004", "2026-06-05T10:00:00Z"),
+          ]
+        : []) as T;
+    }
+    if (path === "projects/g%2Fp/merge_requests") {
+      return (params?.page === 1
+        ? [
+            { id: 501, iid: 12, merge_commit_sha: "aaaa0001", squash_commit_sha: null, sha: "ffff0001" },
+            { id: 502, iid: 13, merge_commit_sha: null, squash_commit_sha: "aaaa0002", sha: "ffff0002" },
+            { id: 503, iid: 14, merge_commit_sha: null, squash_commit_sha: null, sha: "aaaa0003" },
+          ]
+        : []) as T;
+    }
+    throw new Error(`unexpected REST path ${path}`);
+  };
+
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+
+  const listings = calls.filter((c) => c.path === "projects/g%2Fp/merge_requests");
+  assert.equal(listings.length, 1, "one listing for the project, not one request per commit");
+  assert.equal(listings[0]!.params?.state, "merged");
+  // A day before the OLDEST commit being stored: a merge request is updated no
+  // earlier than its landing commit, so this bound cannot miss one.
+  assert.equal(listings[0]!.params?.updated_after, "2026-06-04T10:00:00.000Z");
+
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  const bySha = (sha: string) => details.find((d) => d.sha === sha)!;
+  assert.deepEqual(bySha("aaaa0001").change_request, { ref: "gitlab:gitlab.com|gid://gitlab/MergeRequest/501", iid: 12 }, "the merge commit");
+  assert.deepEqual(bySha("aaaa0002").change_request, { ref: "gitlab:gitlab.com|gid://gitlab/MergeRequest/502", iid: 13 }, "the squash commit");
+  assert.deepEqual(bySha("aaaa0003").change_request, { ref: "gitlab:gitlab.com|gid://gitlab/MergeRequest/503", iid: 14 }, "the head commit of a fast-forward merge");
+  // Not one of the three landing commits: unknown, never `null`. It may well
+  // belong to a merge request; this listing cannot say.
+  assert.ok(!("change_request" in bySha("aaaa0004")));
+});
+
+test("a failed GitLab merge-request listing leaves commits unlinked, not the sweep partial", async () => {
+  const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/events") return [] as T;
+    if (path === "projects/g%2Fp/repository/commits") {
+      return (params?.page === 1
+        ? [{ id: "aaaa0001", title: "T", message: "T", committed_date: "2026-06-09T12:00:00Z", author_name: "D", author_email: "d@example.com", parent_ids: ["0"], stats: { additions: 1, deletions: 0, total: 1 } }]
+        : []) as T;
+    }
+    if (path === "projects/g%2Fp/merge_requests") throw new Error("REST HTTP 502");
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true, "the link is a decoration; failing to read it must not block the soft-delete pass");
+  const details = res.records
+    .filter((r) => r.entityKind === "activity")
+    .map((r) => src.normalize(r)!.activities[0]!)
+    .filter((a) => a.kind === "commit")
+    .map((a) => a.details as any);
+  assert.equal(details.length, 1);
+  assert.ok(!("change_request" in details[0]!));
+});
+
+test("GitLab asks for no merge-request listing when the sweep stored no commits", async () => {
+  const calls: string[] = [];
+  const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+    calls.push(path);
+    if (path === "projects/g%2Fp") return { default_branch: "main" } as T;
+    if (path === "projects/g%2Fp/events") return [] as T;
+    if (path === "projects/g%2Fp/repository/commits") return [] as T;
+    throw new Error(`unexpected REST path ${path}`);
+  };
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"], rest);
+  const res = await src.fetch({ since: "2026-06-01T00:00:00Z", full: false });
+  assert.equal(res.complete, true);
+  assert.ok(!calls.includes("projects/g%2Fp/merge_requests"), "nothing to link, so nothing is asked");
+});
+
 test("a stored GitLab merge commit drops the stats its payload carries", () => {
   // `with_stats` returns counts for merges unasked, and stored raw is replayed
   // as-is — so the merge rule has to hold on the normalize side too.
@@ -2456,8 +2695,8 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/12");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/11");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/13");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/12");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

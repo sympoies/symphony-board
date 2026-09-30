@@ -9,6 +9,7 @@ import { SourceRepo } from "./SourceRepo.tsx";
 import { CommitsRail } from "./CommitsRail.tsx";
 import { DiffStat } from "./DiffStat.tsx";
 import { CommitsOverview } from "./CommitsOverview.tsx";
+import type { ResolveChangeRequest } from "./ChangeRequests.tsx";
 import { CommitDetail } from "./CommitDetail.tsx";
 import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
@@ -21,6 +22,7 @@ import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../
 import {
   buildCommitRows,
   activityKey,
+  commitChangeRequest,
   commitIsMerge,
   commitMessage,
   commitRefs,
@@ -33,8 +35,10 @@ import {
   COMMIT_DEFAULT_VIEWPORT_PX,
   COMMIT_ROW_BODY_HEIGHT_PX,
   COMMIT_ROW_BODY_HEIGHT_NARROW_PX,
+  type ChangeRequestView,
   type ColorOf,
   type CommitBranchOption,
+  type CommitChangeRequestLink,
   type CommitRepoOption,
   type TimeRange,
 } from "../model.ts";
@@ -130,6 +134,14 @@ function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+// A commit's change request resolved for display: the view, where its number
+// leads, and whether that is off-site. Built by App from the item index.
+export type ChangeRequestLinkResolver = (
+  link: CommitChangeRequestLink,
+  // The commit's source: what decides `#` or `!` when the item is not loaded.
+  sourceId: string,
+) => { view: ChangeRequestView; href: string | null; external: boolean };
+
 function CommitTimeline({
   commits,
   sourceKind,
@@ -138,6 +150,7 @@ function CommitTimeline({
   timezone,
   selectedKey,
   onSelect,
+  resolveChangeRequestLink,
 }: {
   commits: ActivityDTO[];
   sourceKind: ReadonlyMap<string, string>;
@@ -149,6 +162,7 @@ function CommitTimeline({
   // rather than an index so it survives a re-filter that moves the row.
   selectedKey: string | null;
   onSelect: (commit: ActivityDTO) => void;
+  resolveChangeRequestLink?: ChangeRequestLinkResolver;
 }) {
   const [rowBodyHeight, setRowBodyHeight] = useState(COMMIT_ROW_BODY_HEIGHT_PX);
   const [measuredBodyHeights, setMeasuredBodyHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
@@ -291,6 +305,10 @@ function CommitTimeline({
           const copied = copiedId === rowKey;
           const refs = commitRefs(commit);
           const merge = commitIsMerge(commit);
+          // Only a link draws anything: "none" and "unknown" both leave the row
+          // as it was, since a row is no place to tell them apart.
+          const link = resolveChangeRequestLink ? commitChangeRequest(commit) : undefined;
+          const changeRequest = link && resolveChangeRequestLink ? resolveChangeRequestLink(link, commit.source_id) : null;
           const accentColor = colorOf(commit.source_id, commit.project_path);
           const actor = commit.actor ? `@${commit.actor}` : "unknown author";
           return (
@@ -364,6 +382,25 @@ function CommitTimeline({
                       <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
                     </span>
                     <span className="commit-meta-who">{actor} committed {relativeTime(commit.occurred_at)}</span>
+                    {/* Before the branch chips, which are what gets clipped when
+                        the meta line runs out of room. */}
+                    {changeRequest ? (
+                      changeRequest.href ? (
+                        <a
+                          className="commit-cr-chip"
+                          href={changeRequest.href}
+                          title={changeRequest.view.title ?? "Change request"}
+                          onClick={(e) => e.stopPropagation()}
+                          {...(changeRequest.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                        >
+                          {changeRequest.view.label}
+                        </a>
+                      ) : (
+                        <span className="commit-cr-chip" title={changeRequest.view.title ?? "Change request"}>
+                          {changeRequest.view.label}
+                        </span>
+                      )
+                    ) : null}
                     {/* Default branch first (commitRefs), since the row has room for
                         two: a commit on `main` and three feature branches should
                         say `main`. */}
@@ -456,6 +493,7 @@ export function CommitsPage({
   followLatest,
   onFollowLatest,
   fileStats,
+  resolveChangeRequestLink,
   mergeCount = 0,
   hideMerges = false,
   onHideMerges,
@@ -510,6 +548,10 @@ export function CommitsPage({
   // diffstat, rendered at the head of the digest rail. Off by default, because
   // it is one provider read per commit the pane shows.
   fileStats: boolean;
+  // Joins a commit's change request (contract 4.8.2) with its item and a way
+  // to open it. Absent on a board with no item index, where the row chip, the
+  // detail row and the pane are simply not drawn.
+  resolveChangeRequestLink?: ChangeRequestLinkResolver;
   // Merge commits in the loaded window (before the preference applies), and the
   // device preference that leaves them out of the page. The control is offered
   // only while there is a merge to hide or the preference is already on.
@@ -599,6 +641,23 @@ export function CommitsPage({
     return null;
   }, [commits, detailMode]);
   const selectedKey = selectedCommit ? activityKey(selectedCommit) : null;
+  // The selected commit's change request: a resolved link, `null` for "the
+  // producer looked and there is none", `undefined` for "no answer". The detail
+  // pane has room to say which, unlike a list row.
+  const selectedChangeRequest = useMemo(() => {
+    if (!selectedCommit || !resolveChangeRequestLink) return undefined;
+    const link = commitChangeRequest(selectedCommit);
+    return link ? resolveChangeRequestLink(link, selectedCommit.source_id) : link;
+  }, [selectedCommit, resolveChangeRequestLink]);
+  // Stable while the resolver is, so the memoized pane does not redraw when a
+  // commit is selected.
+  const resolveChangeRequestGroup = useMemo<ResolveChangeRequest | undefined>(
+    () =>
+      resolveChangeRequestLink
+        ? (group) => resolveChangeRequestLink({ ref: group.ref, iid: group.iid }, group.sourceId)
+        : undefined,
+    [resolveChangeRequestLink],
+  );
   const selectedIndex = commits.findIndex((commit) => activityKey(commit) === selectedKey);
   const detailNav = detailNavigation(commits, selectedIndex);
   const navigateDetail = (direction: "previous" | "next") => {
@@ -979,6 +1038,7 @@ export function CommitsPage({
           {selectedCommit ? (
             <CommitDetail
               commit={selectedCommit}
+              changeRequest={selectedChangeRequest}
               timezone={timezone}
               sourceKind={sourceKind}
               colorOf={colorOf}
@@ -1011,6 +1071,7 @@ export function CommitsPage({
             // it was clicked in, where a second click closing it would read as
             // the click not having worked.
             onSelectCommit={(commit) => setDetailMode({ kind: "pinned", key: activityKey(commit) })}
+            resolveChangeRequest={resolveChangeRequestGroup}
           />
         </div>
         {/* Third column: the ranked facets, always present. Unlike Activity's
@@ -1096,6 +1157,7 @@ export function CommitsPage({
           empty={emptyState}
           timezone={timezone}
           selectedKey={selectedKey}
+          resolveChangeRequestLink={resolveChangeRequestLink}
           onSelect={(commit) => {
             const key = activityKey(commit);
             if (isNarrow) {

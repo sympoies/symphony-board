@@ -2033,6 +2033,91 @@ export function commitOnDefaultBranch(activity: ActivityDTO): boolean | null {
   return false;
 }
 
+// The change request (PR/MR) a commit belongs to, as the producer reports it
+// (contract 4.8.2). Three answers, and the difference matters: a link, `null`
+// for "the producer looked and there is none", and `undefined` for "the
+// producer could not look" -- a row from an older producer, a failed lookup, or
+// a provider that can only resolve the commits a change request landed as. A
+// pane that counts commits WITHOUT a change request counts the nulls and leaves
+// the undefineds out; treating them alike would call every unknown a direct
+// push.
+//
+// `ref` is the item's immutable identity and is what makes it a link; `iid` is
+// only the number to show, so a link with no usable number is still a link.
+export interface CommitChangeRequestLink {
+  ref: string;
+  iid: number | null;
+}
+
+export function commitChangeRequest(activity: ActivityDTO): CommitChangeRequestLink | null | undefined {
+  const details = activity.details;
+  if (!details || typeof details !== "object" || !("change_request" in details)) return undefined;
+  const link = details.change_request;
+  if (link === null) return null;
+  if (typeof link !== "object" || Array.isArray(link)) return undefined;
+  const { ref, iid } = link as { ref?: unknown; iid?: unknown };
+  if (typeof ref !== "string" || ref.length === 0) return undefined;
+  return { ref, iid: typeof iid === "number" && Number.isInteger(iid) && iid > 0 ? iid : null };
+}
+
+// A commit's change request as a pane can draw it: the link joined with the
+// item, when the item is in the loaded window. Nothing about the item is
+// invented when it is not -- the number is then all there is, and `state` stays
+// null rather than defaulting to something that reads as a fact.
+export interface ChangeRequestView {
+  ref: string;
+  // The link's number, or the item's when the link carried none.
+  iid: number | null;
+  // "#749" on GitHub, "!12" on GitLab; "change request" when no number is known.
+  label: string;
+  title: string | null;
+  state: ItemDTO["state"] | null;
+  draft: boolean;
+  reviewState: ItemDTO["review_state"];
+  ciState: ItemDTO["ci_state"];
+  createdAt: string | null;
+  mergedAt: string | null;
+  // The provider page, when the item is loaded.
+  url: string | null;
+  // Whether the item is one of the Items page's own rows. A support row (an
+  // item emitted only because a commit points at it) is loaded, so its title
+  // and state are known, but the Items page does not list it.
+  primary: boolean;
+}
+
+export function changeRequestView(link: CommitChangeRequestLink, item: ItemDTO | undefined, providerKind: string | undefined): ChangeRequestView {
+  const number = link.iid ?? item?.iid ?? null;
+  return {
+    ref: link.ref,
+    iid: number,
+    label: number === null ? "change request" : `${providerKind === "gitlab" ? "!" : "#"}${number}`,
+    title: cleanText(item?.title),
+    state: item?.state ?? null,
+    draft: item?.is_draft === true,
+    reviewState: item?.review_state ?? null,
+    ciState: item?.ci_state ?? null,
+    createdAt: item?.created_at ?? null,
+    mergedAt: item?.merged_at ?? null,
+    url: cleanText(item?.url),
+    primary: item ? itemIsPrimaryWindow(item) : false,
+  };
+}
+
+// How long something took, in its largest whole unit: "42m", "6h", "2d". Null
+// for an unusable or backwards pair, so a caller shows nothing rather than a
+// negative span.
+export function spanLabel(fromIso: string | null | undefined, toIso: string | null | undefined): string | null {
+  const from = fromIso ? Date.parse(fromIso) : NaN;
+  const to = toIso ? Date.parse(toIso) : NaN;
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  const minutes = Math.floor((to - from) / 60_000);
+  if (minutes < 1) return "under 1m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 export interface CommitRef {
   name: string;
   isDefault: boolean;

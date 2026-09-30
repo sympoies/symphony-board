@@ -61,6 +61,9 @@ import {
   commitDefaultBranch,
   commitOnDefaultBranch,
   commitRefs,
+  commitChangeRequest,
+  changeRequestView,
+  spanLabel,
   commitRepoOptions,
   itemInTimeRange,
   filterItemsByRange,
@@ -585,6 +588,63 @@ test("commitRefs lists a commit's branches with the default branch first and mar
   ]);
   assert.deepEqual(commitRefs(commit({ sha: "a1", branch: "feat/a", default_branch: "main" })), [{ name: "feat/a", isDefault: false }]);
   assert.deepEqual(commitRefs(commit({ sha: "a1", branch: "main" })), [{ name: "main", isDefault: false }], "unknown is not marked");
+});
+
+test("commitChangeRequest reads a link, an explicit none, or nothing", () => {
+  const commit = (details: ActivityDTO["details"]) => activity({ kind: "commit", action: "committed", details });
+  // Three answers. `null` is the producer saying it looked and found none;
+  // an absent key is the producer not having looked, and must not be read as
+  // "no change request".
+  assert.deepEqual(commitChangeRequest(commit({ sha: "a1", change_request: { ref: "gh|PR_1", iid: 7 } })), { ref: "gh|PR_1", iid: 7 });
+  assert.equal(commitChangeRequest(commit({ sha: "a1", change_request: null })), null);
+  assert.equal(commitChangeRequest(commit({ sha: "a1" })), undefined);
+  assert.equal(commitChangeRequest(commit(null)), undefined);
+  // The ref is the identity; without a usable one there is no link to follow,
+  // and that is "unknown" rather than "none".
+  assert.equal(commitChangeRequest(commit({ sha: "a1", change_request: { iid: 7 } })), undefined);
+  assert.equal(commitChangeRequest(commit({ sha: "a1", change_request: { ref: "", iid: 7 } })), undefined);
+  assert.equal(commitChangeRequest(commit({ sha: "a1", change_request: "gh|PR_1" })), undefined);
+  // A link with no usable number still links; it just has no number to show.
+  assert.deepEqual(commitChangeRequest(commit({ sha: "a1", change_request: { ref: "gh|PR_1", iid: "7" } })), { ref: "gh|PR_1", iid: null });
+});
+
+test("changeRequestView joins a commit's link with the item when it is loaded", () => {
+  const link = { ref: "github:github.com|PR_7", iid: 7 };
+  const pr = item({
+    id: "github:github.com|PR_7", external_id: "PR_7", kind: "change_request", iid: 7, title: "Wire the thing", url: "https://x/pull/7",
+    state: "merged", is_draft: false, review_state: "approved", ci_state: "passing",
+    created_at: "2026-09-01T10:00:00Z", merged_at: "2026-09-01T16:30:00Z",
+  });
+  assert.deepEqual(changeRequestView(link, pr, "github"), {
+    ref: "github:github.com|PR_7", iid: 7, label: "#7", title: "Wire the thing", state: "merged", draft: false,
+    reviewState: "approved", ciState: "passing", createdAt: "2026-09-01T10:00:00Z", mergedAt: "2026-09-01T16:30:00Z",
+    url: "https://x/pull/7", primary: true,
+  });
+  // GitLab numbers merge requests with `!`.
+  assert.equal(changeRequestView(link, pr, "gitlab").label, "!7");
+  // The item is outside the loaded window: the number is all there is to show,
+  // and nothing about its state is invented.
+  assert.deepEqual(changeRequestView(link, undefined, "github"), {
+    ref: "github:github.com|PR_7", iid: 7, label: "#7", title: null, state: null, draft: false,
+    reviewState: null, ciState: null, createdAt: null, mergedAt: null, url: null, primary: false,
+  });
+  // A link with no number takes the item's, and failing that names the thing.
+  assert.equal(changeRequestView({ ref: link.ref, iid: null }, pr, "github").label, "#7");
+  assert.equal(changeRequestView({ ref: link.ref, iid: null }, undefined, "github").label, "change request");
+  // A support row (pulled in only because a commit points at it) is loaded but
+  // is not one of the Items page's rows.
+  assert.equal(changeRequestView(link, { ...pr, window_reasons: ["activity_target"] }, "github").primary, false);
+});
+
+test("spanLabel states how long something took in the largest whole unit", () => {
+  assert.equal(spanLabel("2026-09-01T10:00:00Z", "2026-09-01T10:00:20Z"), "under 1m");
+  assert.equal(spanLabel("2026-09-01T10:00:00Z", "2026-09-01T10:42:00Z"), "42m");
+  assert.equal(spanLabel("2026-09-01T10:00:00Z", "2026-09-01T16:30:00Z"), "6h");
+  assert.equal(spanLabel("2026-09-01T10:00:00Z", "2026-09-04T09:00:00Z"), "2d");
+  // Unusable or backwards: nothing, rather than a negative or a NaN.
+  assert.equal(spanLabel(null, "2026-09-04T09:00:00Z"), null);
+  assert.equal(spanLabel("2026-09-04T09:00:00Z", "2026-09-01T10:00:00Z"), null);
+  assert.equal(spanLabel("not a date", "2026-09-01T10:00:00Z"), null);
 });
 
 test("filterCommits can leave merge commits out", () => {

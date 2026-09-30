@@ -4,6 +4,7 @@ import {
   EMPTY_ACTOR_INDEX,
   churnByDay,
   commitSizeSummary,
+  directCommits,
   countsByDay,
   dayAxisTicks,
   rankActors,
@@ -18,6 +19,7 @@ import { CommitDayChart } from "./CommitDayChart.tsx";
 import { CommitChurn } from "./CommitChurn.tsx";
 import { CommitPunchCard } from "./CommitPunchCard.tsx";
 import { LargestCommits } from "./LargestCommits.tsx";
+import { ChangeRequests, type ResolveChangeRequest } from "./ChangeRequests.tsx";
 import { buildActivityHeatmapFromDaily, commitIsMerge, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
 import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
@@ -254,6 +256,7 @@ export function CommitsOverview({
   comparable = false,
   selectedKey = null,
   onSelectCommit,
+  resolveChangeRequest,
 }: {
   // The rows currently on screen — every block here describes exactly these,
   // EXCEPT the rhythm calendar below, which is deliberately the full history.
@@ -279,6 +282,10 @@ export function CommitsOverview({
   // Largest commits rows.
   selectedKey?: string | null;
   onSelectCommit?: (commit: ActivityDTO) => void;
+  // Joins a change request group with its item and a way to open it. Absent
+  // where the page has no item index to join against; the pane is then not
+  // drawn at all.
+  resolveChangeRequest?: ResolveChangeRequest;
 }) {
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   const days = useMemo(
@@ -323,6 +330,16 @@ export function CommitsOverview({
   // Counted directly: commitLanding also answers the default-branch question,
   // which costs a membership test per row and is not needed here.
   const merges = useMemo(() => (wide ? commits.reduce((n, c) => (commitIsMerge(c) ? n + 1 : n), 0) : 0), [wide, commits]);
+  // Default-branch commits that landed without a change request (4.8.2). Drawn
+  // only when the producer answered for at least one commit: a range it said
+  // nothing about has no "0" to show.
+  const direct = useMemo(() => (wide ? directCommits(commits) : null), [wide, commits]);
+  // The pane exists when any row carries an answer at all, so a range where
+  // every commit was pushed directly shows its empty state instead of nothing.
+  const hasChangeRequestAnswers = useMemo(
+    () => wide && commits.some((c) => c.details != null && "change_request" in c.details),
+    [wide, commits],
+  );
   // The comparison is drawn only when it compares like with like: nothing
   // narrows the list (`comparable`), AND the rows on screen really are the
   // range the aggregate describes -- which a feed windowed shorter than the
@@ -400,6 +417,16 @@ export function CommitsOverview({
           },
         ]
       : []),
+    ...(direct && direct.checked > 0
+      ? [
+          {
+            label: "no change request",
+            value: direct.direct.toLocaleString("en-US"),
+            detail: `of ${direct.checked.toLocaleString("en-US")} on default`,
+            title: "Commits that landed on a default branch without a pull or merge request. Merge commits and commits the producer could not check are not counted.",
+          },
+        ]
+      : []),
     ...(wide
       ? [
           {
@@ -453,7 +480,13 @@ export function CommitsOverview({
           <CommitDayChart commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
           {churnDays ? <CommitChurn days={churnDays} range={range} /> : null}
           <CommitPunchCard commits={commits} timezone={timezone} range={range} />
-          <LargestCommits commits={commits} selectedKey={selectedKey} onSelect={onSelectCommit ?? (() => {})} />
+          <LargestCommits
+            commits={commits}
+            selectedKey={selectedKey}
+            onSelect={onSelectCommit ?? (() => {})}
+            span={!(hasChangeRequestAnswers && resolveChangeRequest)}
+          />
+          {hasChangeRequestAnswers && resolveChangeRequest ? <ChangeRequests commits={commits} resolve={resolveChangeRequest} /> : null}
         </>
       ) : (
         <>

@@ -472,7 +472,7 @@
         "activity_target_items": {
           "type": "integer",
           "minimum": 0,
-          "description": "Loaded items outside the primary window, included to resolve emitted review activity targets."
+          "description": "Loaded items outside the primary window, included to resolve emitted review activity targets or the change requests emitted commit rows name."
         },
         "total_items": {
           "type": "integer",

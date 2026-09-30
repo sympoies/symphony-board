@@ -7,10 +7,12 @@ import {
   actorIndex,
   actorsOf,
   branchDetails,
+  changeRequestGroups,
   churnByDay,
   commitAuthorOptions,
   commitLanding,
   defaultBranchesFirst,
+  directCommits,
   commitScopeOf,
   commitSizeSummary,
   commitTypeOf,
@@ -694,6 +696,43 @@ test("defaultBranchesFirst leads with default branches whatever their count", ()
   // No row names a default branch: the ranking is returned as it was.
   const unknown = [activity({ details: { branch: "b" } }), activity({ details: { branch: "a" } }), activity({ details: { branch: "a" } })];
   assert.deepEqual(defaultBranchesFirst(rankBranches(unknown, 0), branchDetails(unknown)).map((rank) => rank.key), ["a", "b"]);
+});
+
+test("changeRequestGroups gathers the commits of each change request, newest first", () => {
+  const link = (ref: string, iid: number) => ({ change_request: { ref, iid } });
+  const rows = [
+    activity({ external_id: "c1", occurred_at: "2026-09-10T10:00:00Z", details: { sha: "a1", additions: 10, deletions: 2, ...link("gh|PR_1", 1) } }),
+    activity({ external_id: "c2", occurred_at: "2026-09-12T10:00:00Z", details: { sha: "a2", additions: 5, deletions: 1, ...link("gh|PR_1", 1) } }),
+    // A merge commit belongs to its change request but carries no line counts.
+    activity({ external_id: "c3", occurred_at: "2026-09-12T11:00:00Z", details: { sha: "a3", merge: true, ...link("gh|PR_1", 1) } }),
+    activity({ external_id: "c4", project_path: "acme/web", occurred_at: "2026-09-14T09:00:00Z", details: { sha: "a4", additions: 1, deletions: 0, ...link("gh|PR_2", 2) } }),
+    activity({ external_id: "c5", occurred_at: "2026-09-15T09:00:00Z", details: { sha: "a5", change_request: null } }),
+    activity({ external_id: "c6", occurred_at: "2026-09-15T10:00:00Z", details: { sha: "a6" } }),
+  ];
+  assert.deepEqual(changeRequestGroups(rows), [
+    { ref: "gh|PR_2", iid: 2, sourceId: "gh", projectPath: "acme/web", commits: 1, additions: 1, deletions: 0, counted: 1, firstAt: "2026-09-14T09:00:00Z", lastAt: "2026-09-14T09:00:00Z" },
+    { ref: "gh|PR_1", iid: 1, sourceId: "gh", projectPath: "acme/api", commits: 3, additions: 15, deletions: 3, counted: 2, firstAt: "2026-09-10T10:00:00Z", lastAt: "2026-09-12T11:00:00Z" },
+  ]);
+  assert.deepEqual(changeRequestGroups([]), []);
+});
+
+test("directCommits counts default-branch commits that landed without a change request", () => {
+  const onMain = { branch: "main", default_branch: "main" };
+  const rows = [
+    activity({ details: { ...onMain, change_request: { ref: "gh|PR_1", iid: 1 } } }),
+    activity({ details: { ...onMain, change_request: null } }),
+    activity({ details: { ...onMain, change_request: null } }),
+    // A merge is how a change request lands, not a direct push, even when the
+    // producer found no change request for it.
+    activity({ details: { ...onMain, merge: true, change_request: null } }),
+    // Not checked: the producer could not look, so it is neither direct nor not.
+    activity({ details: { ...onMain } }),
+    // On a side branch, or on a branch nobody can place: not a landing at all.
+    activity({ details: { branch: "feat/x", default_branch: "main", change_request: null } }),
+    activity({ details: { branch: "main", change_request: null } }),
+  ];
+  assert.deepEqual(directCommits(rows), { direct: 2, checked: 3 });
+  assert.deepEqual(directCommits([]), { direct: 0, checked: 0 });
 });
 
 test("commitLanding counts merges and the share of commits on a default branch", () => {

@@ -3,7 +3,19 @@ import type { CSSProperties } from "react";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { DiffStat } from "./DiffStat.tsx";
 import { safeHref } from "../url.ts";
-import { commitBody, commitIsMerge, commitMessage, commitRefs, commitSha, commitStats, relativeTime, type ColorOf } from "../model.ts";
+import { Badge } from "./Badge.tsx";
+import {
+  commitBody,
+  commitIsMerge,
+  commitMessage,
+  commitRefs,
+  commitSha,
+  commitStats,
+  relativeTime,
+  spanLabel,
+  type ChangeRequestView,
+  type ColorOf,
+} from "../model.ts";
 
 // The selected commit, inserted before the overview so the original pane moves
 // down intact. This is what lets the full commit message be read at all: the
@@ -29,6 +41,7 @@ import { commitBody, commitIsMerge, commitMessage, commitRefs, commitSha, commit
 // long commit message cannot hide the path to the changed-file list.
 export function CommitDetail({
   commit,
+  changeRequest,
   timezone,
   sourceKind,
   colorOf,
@@ -37,6 +50,10 @@ export function CommitDetail({
   onClose,
 }: {
   commit: ActivityDTO;
+  // The commit's change request (contract 4.8.2): a resolved link, `null` when
+  // the producer looked and found none, `undefined` when it gave no answer --
+  // in which case the row is left out rather than guessed.
+  changeRequest?: { view: ChangeRequestView; href: string | null; external: boolean } | null;
   timezone: string;
   sourceKind: ReadonlyMap<string, string>;
   colorOf: ColorOf;
@@ -143,6 +160,44 @@ export function CommitDetail({
               <dt>Lines</dt>
               <dd>
                 <DiffStat stats={stats} />
+              </dd>
+            </div>
+          ) : null}
+          {changeRequest !== undefined ? (
+            <div className="commit-detail-row commit-detail-cr">
+              <dt>Change request</dt>
+              <dd>
+                {changeRequest === null ? (
+                  <span className="muted">none — not part of a pull or merge request</span>
+                ) : (
+                  <>
+                    {changeRequest.href ? (
+                      <a
+                        className="commit-cr-chip"
+                        href={changeRequest.href}
+                        {...(changeRequest.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      >
+                        {changeRequest.view.label}
+                      </a>
+                    ) : (
+                      <span className="commit-cr-chip">{changeRequest.view.label}</span>
+                    )}
+                    {changeRequest.view.title ? <span className="commit-detail-cr-title">{changeRequest.view.title}</span> : null}
+                    {changeRequest.view.state ? (
+                      <Badge
+                        text={changeRequest.view.draft && changeRequest.view.state === "open" ? "draft" : changeRequest.view.state}
+                        kind={changeRequest.view.draft && changeRequest.view.state === "open" ? "draft" : changeRequest.view.state}
+                      />
+                    ) : (
+                      <span className="muted">not in the loaded window</span>
+                    )}
+                    {changeRequest.view.reviewState ? <span className="muted">{`review ${changeRequest.view.reviewState.replace(/_/g, " ")}`}</span> : null}
+                    {changeRequest.view.ciState ? <span className="muted">{`CI ${changeRequest.view.ciState}`}</span> : null}
+                    {changeRequest.view.state === "merged" && spanLabel(changeRequest.view.createdAt, changeRequest.view.mergedAt) ? (
+                      <span className="muted">{`open ${spanLabel(changeRequest.view.createdAt, changeRequest.view.mergedAt)}`}</span>
+                    ) : null}
+                  </>
+                )}
               </dd>
             </div>
           ) : null}

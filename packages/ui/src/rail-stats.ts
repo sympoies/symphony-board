@@ -1,6 +1,14 @@
 import type { ActivityDTO, ActorDirectoryDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
-import { commitBranches, commitDefaultBranch, commitIsMerge, commitMessage, commitOnDefaultBranch, commitStats } from "./model.ts";
+import {
+  commitBranches,
+  commitChangeRequest,
+  commitDefaultBranch,
+  commitIsMerge,
+  commitMessage,
+  commitOnDefaultBranch,
+  commitStats,
+} from "./model.ts";
 import { safeHref } from "./url.ts";
 
 // Aggregations for the Commits and Activity side rails. Every one of these reads
@@ -768,4 +776,86 @@ export function commitLanding(activities: readonly ActivityDTO[]): CommitLanding
     if (on) onDefault += 1;
   }
   return { merges, onDefault, known };
+}
+
+// ---- change requests ----------------------------------------------------------
+
+export type ChangeRequestGroup = {
+  // The change request item's immutable ref; the caller resolves it to a title
+  // and a state when the item is loaded, and shows the number when it is not.
+  ref: string;
+  iid: number | null;
+  sourceId: string;
+  projectPath: string | null;
+  commits: number;
+  additions: number;
+  deletions: number;
+  // Commits that carried line counts. A merge commit belongs to its change
+  // request and never carries any, so this is how much of `commits` the two
+  // figures above cover.
+  counted: number;
+  firstAt: string;
+  lastAt: string;
+};
+
+// The commits of the range gathered by the change request they belong to,
+// most recently committed first. Only rows that name one: a row with no change
+// request, or with no answer, is not a group.
+export function changeRequestGroups(activities: readonly ActivityDTO[]): ChangeRequestGroup[] {
+  const groups = new Map<string, ChangeRequestGroup>();
+  for (const a of activities) {
+    const link = commitChangeRequest(a);
+    if (!link) continue;
+    const group =
+      groups.get(link.ref) ??
+      ({
+        ref: link.ref,
+        iid: link.iid,
+        sourceId: a.source_id,
+        projectPath: a.project_path?.trim() || null,
+        commits: 0,
+        additions: 0,
+        deletions: 0,
+        counted: 0,
+        firstAt: a.occurred_at,
+        lastAt: a.occurred_at,
+      } satisfies ChangeRequestGroup);
+    group.commits += 1;
+    const stats = commitStats(a);
+    if (stats) {
+      group.additions += stats.additions;
+      group.deletions += stats.deletions;
+      group.counted += 1;
+    }
+    if (a.occurred_at < group.firstAt) group.firstAt = a.occurred_at;
+    if (a.occurred_at > group.lastAt) group.lastAt = a.occurred_at;
+    groups.set(link.ref, group);
+  }
+  return [...groups.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.ref.localeCompare(b.ref));
+}
+
+export type DirectCommits = {
+  // Default-branch commits the producer checked and found no change request
+  // for, out of `checked`: every default-branch commit it gave an answer on.
+  direct: number;
+  checked: number;
+};
+
+// Commits that landed on a default branch without a change request.
+//
+// Three kinds of row are left out of both numbers rather than guessed at. A
+// merge commit is how a change request lands, not a push around one. A commit
+// off the default branch (or on a branch nobody can place) has not landed. And
+// a row the producer gave no answer for is unknown, which is what keeps this
+// honest for a provider that can only resolve some commits.
+export function directCommits(activities: readonly ActivityDTO[]): DirectCommits {
+  let direct = 0;
+  let checked = 0;
+  for (const a of activities) {
+    const link = commitChangeRequest(a);
+    if (link === undefined || commitIsMerge(a) || commitOnDefaultBranch(a) !== true) continue;
+    checked += 1;
+    if (link === null) direct += 1;
+  }
+  return { direct, checked };
 }

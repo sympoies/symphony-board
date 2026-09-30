@@ -502,6 +502,8 @@ function inflateActivityContract(body) {
   if (!Array.isArray(env.activities) || env.activities.length === 0) return JSON.stringify(env);
 
   const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
+  // The sample's change requests, for the commit rows that name one below.
+  const changeRequests = (env.items || []).filter((item) => item.kind === "change_request" && item.iid != null);
   const activities = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
     const a = env.activities[i % env.activities.length];
     // 4.0.0 dropped activity `id`/`summary`; rows are keyed on source_id|external_id
@@ -557,6 +559,14 @@ function inflateActivityContract(body) {
               // Every commit names the repository's default branch except every
               // seventh, which is the row an older producer would have written.
               ...(i % 7 === 0 ? {} : { default_branch: "main" }),
+              // The three answers a commit can carry about its change request
+              // (4.8.2): a link to one of the sample's items, an explicit
+              // "none", and no answer at all.
+              ...(i % 3 === 0 && changeRequests.length > 0
+                ? { change_request: { ref: changeRequests[i % changeRequests.length].id, iid: changeRequests[i % changeRequests.length].iid } }
+                : i % 3 === 1
+                  ? { change_request: null }
+                  : {}),
             }
           : {}),
         smoke_index: i,
@@ -7186,6 +7196,63 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+  // A commit's change request (contract 4.8.2): the number on its row, the
+  // item in its detail, and the range regrouped by change request in a pane.
+  // The fixture cycles link / none / no answer by row index, which is the last
+  // number in each row's title.
+  const smokeIndexOf = `const smokeIndexOf = (row) => Number(/smoke (\\d+)$/.exec((row.querySelector('.commit-message-link')?.textContent || '').trim())?.[1] ?? NaN);`;
+  const commitsChangeRequests = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      ${smokeIndexOf}
+      const rowsEl = [...document.querySelectorAll('.commit-list .commit-row')];
+      const chipOf = (row) => row.querySelector('.commit-cr-chip');
+      const pane = document.querySelector('.commits-overview .change-requests');
+      const largest = document.querySelector('.commits-overview .largest-commits');
+      const paneRows = [...(pane?.querySelectorAll('.pane-row-cr') || [])];
+      return {
+        rows: rowsEl.length,
+        // Every row the fixture linked shows a chip, and no other row does.
+        linkedWithoutChip: rowsEl.filter((row) => smokeIndexOf(row) % 3 === 0 && !chipOf(row)).length,
+        unlinkedWithChip: rowsEl.filter((row) => smokeIndexOf(row) % 3 !== 0 && chipOf(row)).length,
+        chips: [...new Set(rowsEl.map((row) => (chipOf(row)?.textContent || '').trim()).filter(Boolean))].sort(),
+        chipHrefs: [...new Set(rowsEl.map((row) => chipOf(row)?.getAttribute('href') || '').filter(Boolean))].slice(0, 2),
+        tiles: [...document.querySelectorAll('.commits-overview .hm-summary dt')].map((el) => (el.textContent || '').trim()),
+        paneRows: paneRows.length,
+        paneFirst: (paneRows[0]?.querySelector('.pane-row-main b')?.textContent || '').trim(),
+        paneMeta: (pane?.querySelector('.rail-block-meta')?.textContent || '').trim(),
+        // The two lists share the column's last row, side by side.
+        sameRow: !!pane && !!largest && Math.abs(pane.getBoundingClientRect().top - largest.getBoundingClientRect().top) <= 1,
+        sideBySide: !!pane && !!largest && pane.getBoundingClientRect().left >= largest.getBoundingClientRect().right,
+        paneSpill: paneRows.filter((row) => row.getBoundingClientRect().right > (pane?.getBoundingClientRect().right ?? 0) + 1).length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // The detail pane has room to tell "none" from "no answer", which a row has not.
+  const commitDetailChangeRequest = async (remainder) => {
+    await send("Runtime.evaluate", {
+      expression: `(() => { ${smokeIndexOf} [...document.querySelectorAll('.commit-list .commit-row')].find((row) => smokeIndexOf(row) % 3 === ${remainder} && !row.classList.contains('commit-row-selected'))?.click(); })()`,
+    });
+    await sleep(250);
+    return (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const row = document.querySelector('.commit-detail-card .commit-detail-cr');
+        return {
+          hasDetail: !!document.querySelector('.commit-detail-card'),
+          row: !!row,
+          chip: (row?.querySelector('.commit-cr-chip')?.textContent || '').trim(),
+          text: (row?.querySelector('dd')?.textContent || '').trim().slice(0, 60),
+          badge: (row?.querySelector('.badge')?.textContent || '').trim(),
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+  };
+  const commitDetailLinked = await commitDetailChangeRequest(0);
+  const commitDetailNone = await commitDetailChangeRequest(1);
+  const commitDetailUnknown = await commitDetailChangeRequest(2);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commit-detail .commit-detail-back')?.click()" });
+  await sleep(200);
   // How the range landed (contract 4.8.1): merges are named rather than shown
   // as rows with no line counts, and the default branch is marked wherever a
   // branch is drawn.
@@ -7809,7 +7876,7 @@ try {
         commitsWidePanes.overviewColumns === 2 &&
         commitsWidePanes.railColumns === 2 &&
         JSON.stringify(commitsWidePanes.overviewTitles) ===
-          JSON.stringify(["Commit overview", "Commit rhythm", "Commits per day", "Lines changed per day", "When", "Largest commits"]) &&
+          JSON.stringify(["Commit overview", "Commit rhythm", "Commits per day", "Lines changed per day", "When", "Largest commits", "Change requests"]) &&
         JSON.stringify(commitsWidePanes.railTitles) ===
           JSON.stringify(["Top authors", "Top repos", "Top branches", "Commit types", "Commit scopes"]) &&
         commitsWidePanes.spilling.length === 0 &&
@@ -7850,7 +7917,7 @@ try {
       `commits: the spare height goes to lists, and both columns still end with the list beside them (${JSON.stringify({ overviewShort: commitsWidePanes.overviewShort, railShort: commitsWidePanes.railShort, selfScroll: [commitsWidePanes.overviewSelfScroll, commitsWidePanes.railSelfScroll], paneShort: [commitsWidePanes.overviewPaneShort, commitsWidePanes.railPaneShort], largestScrollsInside: commitsWidePanes.largestScrollsInside, pageOverflow: commitsWidePanes.pageOverflow, largest: commitsWidePanes.largestRows, repos: commitsWidePanes.repoRows, branches: commitsWidePanes.branchRows })})`,
     ],
     [
-      commitsWidePanes.tiles === 9 &&
+      commitsWidePanes.tiles === 10 &&
         commitsWidePanes.rhythmFacts >= 4 &&
         commitsWidePanes.authorExtras === 5 &&
         commitsWidePanes.authorHeadDrift != null &&
@@ -7866,6 +7933,33 @@ try {
         (commitsWideSplitByRepo.series || []).length >= 2 &&
         JSON.stringify(commitsWideSplitByRepo.series) !== JSON.stringify(commitsWidePanes.daySeries),
       `commits: the per-day chart re-cuts by repo on request (${JSON.stringify(commitsWideSplitByRepo)} from ${JSON.stringify(commitsWidePanes.daySeries)})`,
+    ],
+    [
+      commitsChangeRequests.rows > 0 &&
+        commitsChangeRequests.linkedWithoutChip === 0 &&
+        commitsChangeRequests.unlinkedWithChip === 0 &&
+        (commitsChangeRequests.chips || []).length > 0 &&
+        (commitsChangeRequests.chips || []).every((chip) => /^[#!]\d+$/.test(chip)) &&
+        (commitsChangeRequests.chipHrefs || []).every((href) => href.startsWith("#/items?")) &&
+        (commitsChangeRequests.tiles || []).includes("no change request") &&
+        commitsChangeRequests.paneRows > 0 &&
+        /^[#!]\d+ \S/.test(commitsChangeRequests.paneFirst || "") &&
+        /with commits in range/.test(commitsChangeRequests.paneMeta || "") &&
+        commitsChangeRequests.sameRow === true &&
+        commitsChangeRequests.sideBySide === true &&
+        commitsChangeRequests.paneSpill === 0,
+      `commits: a commit's change request is a chip on its row and the range regroups by change request beside Largest commits (${JSON.stringify(commitsChangeRequests)})`,
+    ],
+    [
+      commitDetailLinked.row === true &&
+        /^[#!]\d+$/.test(commitDetailLinked.chip || "") &&
+        ["merged", "open", "closed", "draft"].includes(commitDetailLinked.badge) &&
+        commitDetailNone.row === true &&
+        commitDetailNone.chip === "" &&
+        /^none/.test(commitDetailNone.text || "") &&
+        commitDetailUnknown.hasDetail === true &&
+        commitDetailUnknown.row === false,
+      `commits: the detail names the change request, says "none" when the producer found none, and says nothing when it had no answer (${JSON.stringify({ linked: commitDetailLinked, none: commitDetailNone, unknown: commitDetailUnknown })})`,
     ],
     [
       commitsLanding.mergeRows > 0 &&

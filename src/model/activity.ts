@@ -52,8 +52,19 @@ function lineCount(value: unknown): number | null {
 // merge carries no line counts by design (commitLineStats), which made it
 // indistinguishable from a commit whose counts could not be read.
 //
-// Every optional key is absent rather than empty when the payload does not
-// support it: absent means "unknown", never "no".
+// `change_request` names the change request (PR/MR) the commit belongs to. It
+// is the one key with three states, because "this commit has no change
+// request" is a fact a consumer counts: an object when the producer found one,
+// `null` when it looked and there is none, absent when it could not look.
+//
+// Every other optional key is absent rather than empty when the payload does
+// not support it: absent means "unknown", never "no".
+export interface CommitChangeRequest {
+  // The item's immutable `source_id|external_id`, never a mutable number.
+  ref: string;
+  iid: number;
+}
+
 export interface CommitDetailsInput {
   sha: string;
   message: string | null;
@@ -64,6 +75,8 @@ export interface CommitDetailsInput {
   parentCount: number;
   // The provider's raw line counts, validated by commitLineStats.
   stats: unknown;
+  // undefined = the producer could not look; null = looked, none.
+  changeRequest?: CommitChangeRequest | null;
 }
 
 export function commitDetails(input: CommitDetailsInput): Record<string, unknown> {
@@ -85,6 +98,7 @@ export function commitDetails(input: CommitDetailsInput): Record<string, unknown
     details.additions = stats.additions;
     details.deletions = stats.deletions;
   }
+  if (input.changeRequest !== undefined) details.change_request = input.changeRequest;
   return details;
 }
 
