@@ -25,7 +25,7 @@ try {
   await send("Runtime.enable"); await send("Page.enable");
   let html = "";
   while (Date.now() < deadline) { const r = await send("Runtime.evaluate", { expression: "document.querySelector('.card')?document.body.innerHTML:''", returnByValue: true }); html = r.result.value || ""; if (html.length > 200) break; await sleep(250); }
-  // Board page: the 6 columns (4 status + 2 spotlight) must be equal height.
+  // Board page: the 5 columns (2 status + 3 spotlight) must be equal height.
   const heights = (await send("Runtime.evaluate", { expression: "JSON.stringify([...document.querySelectorAll('.board-lanes > .col')].map(c=>Math.round(c.getBoundingClientRect().height)))", returnByValue: true })).result.value;
   // Night Owl theme evidence: body bg #011627 and links teal #7fdbca.
   const bg = (await send("Runtime.evaluate", { expression: "getComputedStyle(document.body).backgroundColor", returnByValue: true })).result.value;
@@ -51,7 +51,7 @@ try {
   console.log("created-time labels:", count(/>created /g), "| updated-time labels:", count(/>updated /g));
   console.log("demand icons:", count(/icon-demand/g), "| legacy ▲ glyphs:", count(/▲/g));
   const hs = JSON.parse(heights);
-  const uniform = hs.length >= 6 && new Set(hs).size === 1;
+  const uniform = hs.length >= 5 && new Set(hs).size === 1;
   console.log(`board-lanes column heights (${hs.length} cols): ${heights} -> ${uniform ? "UNIFORM ✓" : "RAGGED ✗"}`);
   console.log(`graph page (closes only): "${graphCount.trim()}" | RF nodes in DOM: ${graphNodes} | repo shown: ${repoShown ? "yes ✓" : "no ✗"}`);
   console.log(`graph + mentions:        "${graphMentions.trim()}"`);

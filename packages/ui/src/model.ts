@@ -26,40 +26,35 @@ import { zonedDateOnly, zonedWeekday, zonedHour, zonedDayStartIso, zonedDayEndIs
 // range filtering, and the activity heatmap; "UTC" keeps the original behavior.
 export const DEFAULT_TIMEZONE = "UTC";
 
-// Board status columns, after project-board-automation's Status model
-// (Open / Trailing / Closed) plus an explicit In Progress lane:
-//   open        – open, no open linked change request
-//   in_progress – open AND part of a `declared` edge (open linked change request = work underway)
-//   trailing    – closed/merged BUT a related item is still open
-//   closed      – closed/merged with no related item still open
-// `trailing` was renamed from "Tracking" to avoid confusion with the
-// `workflow::tracking` LABEL — this is a lifecycle status, not a label.
-export type ItemStatus = "open" | "in_progress" | "trailing" | "closed";
-export const STATUS_ORDER: ItemStatus[] = ["open", "in_progress", "trailing", "closed"];
+// Board status columns — the item's own lifecycle, nothing derived from edges:
+//   open   – open
+//   closed – closed or merged
+export type ItemStatus = "open" | "closed";
+export const STATUS_ORDER: ItemStatus[] = ["open", "closed"];
 export const STATUS_LABEL: Record<ItemStatus, string> = {
   open: "Open",
-  in_progress: "In Progress",
-  trailing: "Trailing",
   closed: "Closed",
 };
 export const STATUS_DESC: Record<ItemStatus, string> = {
-  open: "open · no open linked change request",
-  in_progress: "open · has an open linked change request",
-  trailing: "closed/merged · a related item is still open",
-  closed: "closed/merged · nothing related still open",
+  open: "open",
+  closed: "closed/merged",
 };
 
 // Spotlight: recency lanes independent of status, after the predecessor's second
 // board view. Each lane collects EVERY matching item (by created_at, newest
-// first), REGARDLESS of open/closed/merged — so workflow-labeled issues stay
-// visible even after they close. The view (FullBoard) caps how many cards render
-// and shows the true total; lanes therefore return the full sorted list here. The
-// lane CONVENTIONS (which labels/kinds) live in `spotlight.config.ts`; here we
-// compile each declarative entry into a predicate.
+// first). A lane ignores open/closed/merged unless its config narrows by state —
+// so workflow-labeled issues stay visible even after they close. A `foldClosed`
+// lane lists its open items first, so the view can fold the closed rest behind a
+// count. The view (FullBoard) caps how many cards render and shows the true
+// total; lanes therefore return the full sorted list here. The lane CONVENTIONS
+// (which labels/kinds/states) live in `spotlight.config.ts`; here we compile each
+// declarative entry into a predicate.
 export interface SpotlightLane {
   key: string;
   label: string;
   hint: string;
+  lead: boolean;
+  foldClosed: boolean;
   pick: (i: ItemDTO) => boolean;
 }
 const hasLabel = (i: ItemDTO, name: string) => i.labels.some((l) => l.name === name);
@@ -68,8 +63,11 @@ function compileLane(c: SpotlightLaneConfig): SpotlightLane {
     key: c.key,
     label: c.label,
     hint: c.hint,
+    lead: c.lead === true,
+    foldClosed: c.foldClosed === true,
     pick: (i) =>
       (c.kind === undefined || i.kind === c.kind) &&
+      (c.state === undefined || i.state === c.state) &&
       (c.anyLabel === undefined || c.anyLabel.some((name) => hasLabel(i, name))),
   };
 }
@@ -77,19 +75,22 @@ export const SPOTLIGHT_LANES: SpotlightLane[] = SPOTLIGHT_LANE_CONFIG.map(compil
 
 export function spotlight(items: ItemDTO[]): Array<{ lane: SpotlightLane; items: ItemDTO[] }> {
   const recent = (a: ItemDTO, b: ItemDTO) => (b.created_at ?? "").localeCompare(a.created_at ?? "");
-  return SPOTLIGHT_LANES.map((lane) => ({ lane, items: items.filter(lane.pick).sort(recent) }));
+  const openFirst = (a: ItemDTO, b: ItemDTO) => Number(b.state === "open") - Number(a.state === "open") || recent(a, b);
+  return SPOTLIGHT_LANES.map((lane) => ({ lane, items: items.filter(lane.pick).sort(lane.foldClosed ? openFirst : recent) }));
 }
 
 // A board column renders as a slim rail when:
 //   • non-empty: only if the viewer explicitly collapsed it (a persisted choice);
 //   • empty: by default (automatic) — UNLESS the viewer clicked the rail open to
 //     peek inside. `peeked` is transient (a peek reverts on reload), so an empty
-//     lane (e.g. In Progress with nothing in flight) keeps reclaiming its width by
+//     lane (e.g. Trackers on a board with no tracker) keeps reclaiming its width by
 //     default while staying openable on demand.
 // Routing on isEmpty — rather than OR-ing the two sets — keeps the regimes
 // disjoint: a column collapsed while populated STAYS a rail even after it later
 // empties. Kept here so FullBoard only renders the result and the policy stays in
-// one tested place.
+// one tested place. The persisted `collapsed` set may still name columns that no
+// longer exist (the retired `in_progress` / `trailing`); each column looks up
+// only its own kind, so a stale entry is never read.
 export function columnCollapsed(
   kind: string,
   isEmpty: boolean,
@@ -99,25 +100,11 @@ export function columnCollapsed(
   return isEmpty ? !peeked.has(kind) : collapsed.has(kind);
 }
 
-// Derive each item's board status from the full item + edge set (status is an
-// intrinsic property — computed over ALL edges, then filtered items are placed
-// into columns by the caller).
-export function deriveStatuses(items: ItemDTO[], edges: EdgeDTO[]): Map<string, ItemStatus> {
-  const hasRelatedOpen = new Map<string, boolean>(); // item id -> a related endpoint is open
-  const inDeclared = new Set<string>(); // item id -> endpoint of a declared (in-flight) edge
-  for (const e of edges) {
-    if (e.to_state === "open") hasRelatedOpen.set(e.from, true);
-    if (e.from_state === "open") hasRelatedOpen.set(e.to, true);
-    if (e.lifecycle === "declared") {
-      inDeclared.add(e.from);
-      inDeclared.add(e.to);
-    }
-  }
+// Derive each item's board status from its own state (status is an intrinsic
+// property; filtered items are placed into columns by the caller).
+export function deriveStatuses(items: ItemDTO[]): Map<string, ItemStatus> {
   const status = new Map<string, ItemStatus>();
-  for (const it of items) {
-    if (it.state === "open") status.set(it.id, inDeclared.has(it.id) ? "in_progress" : "open");
-    else status.set(it.id, hasRelatedOpen.get(it.id) ? "trailing" : "closed");
-  }
+  for (const it of items) status.set(it.id, it.state === "open" ? "open" : "closed");
   return status;
 }
 

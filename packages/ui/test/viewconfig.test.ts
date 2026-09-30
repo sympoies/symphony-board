@@ -59,13 +59,17 @@ test("hidden repos/sources round-trip and are independent layers", () => {
 
 test("collapsed columns round-trip and are independent from the hidden layers", () => {
   assert.deepEqual([...loadCollapsedColumns()], [], "default: no column collapsed");
-  saveCollapsedColumns(new Set(["in_progress", "lane-pr"]));
-  assert.deepEqual([...loadCollapsedColumns()].sort(), ["in_progress", "lane-pr"]);
+  saveCollapsedColumns(new Set(["closed", "lane-pr"]));
+  assert.deepEqual([...loadCollapsedColumns()].sort(), ["closed", "lane-pr"]);
   // Its own key — writing the hidden-repos layer never disturbs it.
   saveHidden(new Set(["o/r"]));
-  assert.deepEqual([...loadCollapsedColumns()].sort(), ["in_progress", "lane-pr"]);
+  assert.deepEqual([...loadCollapsedColumns()].sort(), ["closed", "lane-pr"]);
   saveCollapsedColumns(new Set());
   assert.deepEqual([...loadCollapsedColumns()], []);
+  // Column kinds retired since the choice was stored (in_progress / trailing)
+  // load as inert strings beside the live ones — never an error.
+  store._raw("symphony-board:collapsed-columns", JSON.stringify(["in_progress", "trailing", "lane-pr"]));
+  assert.equal(loadCollapsedColumns().has("lane-pr"), true);
 });
 
 test("loadHidden tolerates malformed / non-array / non-string storage", () => {
@@ -404,7 +408,7 @@ test("loaders/savers swallow a throwing Storage (unavailable / over quota)", () 
   assert.doesNotThrow(() => saveWideLayout(true));
   assert.doesNotThrow(() => saveHiddenEventTypes(new Set(["commit"])));
   assert.doesNotThrow(() => saveHiddenSources(new Set(["y"])));
-  assert.doesNotThrow(() => saveCollapsedColumns(new Set(["in_progress"])));
+  assert.doesNotThrow(() => saveCollapsedColumns(new Set(["closed"])));
   assert.doesNotThrow(() => saveColorOverrides(new Map([["o/r", "#fff"]])));
   assert.doesNotThrow(() => saveDefaultRangePreset("3mo"));
   assert.doesNotThrow(() => saveColorMode("light"));

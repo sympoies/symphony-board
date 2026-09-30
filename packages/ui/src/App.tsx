@@ -1396,13 +1396,9 @@ export function App() {
     itemFacetState.repos.size === 0;
   const compatibleAggregates = canUseContractAggregates && !customRange && !windowedEnv ? (env?.aggregates ?? []) : [];
 
-  // Status is intrinsic — derived over ALL visible items/edges, then filtered
-  // items are placed into columns (so a closed item's Trailing status is correct
-  // even when its related open item is removed by a transient facet filter).
-  const statuses = useMemo(
-    () => (visibleEnv ? deriveStatuses(primaryItems, visibleEnv.edges) : new Map()),
-    [visibleEnv, primaryItems],
-  );
+  // Status is intrinsic — derived from each item's own state, then filtered
+  // items are placed into columns.
+  const statuses = useMemo(() => (visibleEnv ? deriveStatuses(primaryItems) : new Map()), [visibleEnv, primaryItems]);
 
   // Per-item relation summary (distinct related items + per-type breakdown),
   // over the FULL visible edge set — NOT the time-windowed / facet-filtered graph

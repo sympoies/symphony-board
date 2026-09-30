@@ -97,6 +97,7 @@ import {
   sourceDisplayName,
   visibleHeaderSources,
   deriveStatuses,
+  STATUS_ORDER,
   spotlight,
   columnCollapsed,
   itemIsPrimaryWindow,
@@ -3342,64 +3343,26 @@ test("runDuration formats finished sync runs and dashes a running one", () => {
 
 // deriveStatuses is the board's status engine (columns, stats, card badges all
 // derive from it) — executed indirectly everywhere, locked directly here.
-test("deriveStatuses: an item with no edges is open or closed by its own state alone", () => {
-  const st = deriveStatuses(
-    [item({ id: "i|a", state: "open" }), item({ id: "i|b", state: "closed" }), item({ id: "i|c", state: "merged", kind: "change_request" })],
-    [],
-  );
+test("board statuses are open and closed only, in column order", () => {
+  assert.deepEqual(STATUS_ORDER, ["open", "closed"]);
+});
+
+test("deriveStatuses: an item is open or closed by its own state alone", () => {
+  const st = deriveStatuses([
+    item({ id: "i|a", state: "open" }),
+    item({ id: "i|b", state: "closed" }),
+    item({ id: "i|c", state: "merged", kind: "change_request" }),
+  ]);
   assert.equal(st.get("i|a"), "open");
   assert.equal(st.get("i|b"), "closed");
-  assert.equal(st.get("i|c"), "closed", "merged counts as closed when nothing related is open");
-});
-
-test("deriveStatuses: a declared edge marks its OPEN endpoints in_progress, never the closed ones", () => {
-  const iss = item({ id: "i|iss", state: "open" });
-  const pr = item({ id: "i|pr", state: "open", kind: "change_request" });
-  const done = item({ id: "i|done", state: "closed" });
-  const edges: EdgeDTO[] = [
-    { type: "closes", from: "i|pr", to: "i|iss", from_state: "open", to_state: "open", lifecycle: "declared" },
-    { type: "closes", from: "i|done", to: "i|iss", from_state: "closed", to_state: "open", lifecycle: "fulfilled" },
-  ];
-  const st = deriveStatuses([iss, pr, done], edges);
-  assert.equal(st.get("i|iss"), "in_progress");
-  assert.equal(st.get("i|pr"), "in_progress");
-  assert.equal(st.get("i|done"), "trailing", "a closed item with an open related endpoint trails — declared never applies to closed items");
-});
-
-test("deriveStatuses: a non-declared lifecycle never moves an open item off open", () => {
-  const st = deriveStatuses(
-    [item({ id: "i|a", state: "open" }), item({ id: "i|b", state: "open" })],
-    [
-      { type: "relates", from: "i|a", to: "i|b", from_state: null, to_state: null, lifecycle: "fulfilled" },
-      { type: "relates", from: "i|a", to: "i|b", from_state: null, to_state: null, lifecycle: null },
-    ],
-  );
-  assert.equal(st.get("i|a"), "open");
-  assert.equal(st.get("i|b"), "open");
-});
-
-test("deriveStatuses: related-open reads the OTHER endpoint's state, in both edge directions", () => {
-  const st = deriveStatuses(
-    [item({ id: "i|ca", state: "closed" }), item({ id: "i|cb", state: "closed" }), item({ id: "i|cc", state: "closed" })],
-    [
-      // ca sits on the FROM side of an edge whose TO endpoint is open -> trailing.
-      { type: "relates", from: "i|ca", to: "i|x", from_state: "closed", to_state: "open", lifecycle: null },
-      // cb sits on the TO side of an edge whose FROM endpoint is open -> trailing.
-      { type: "relates", from: "i|y", to: "i|cb", from_state: "open", to_state: "closed", lifecycle: null },
-      // cc's related endpoint is closed -> stays closed.
-      { type: "relates", from: "i|z", to: "i|cc", from_state: "closed", to_state: "closed", lifecycle: null },
-    ],
-  );
-  assert.equal(st.get("i|ca"), "trailing");
-  assert.equal(st.get("i|cb"), "trailing");
-  assert.equal(st.get("i|cc"), "closed");
+  assert.equal(st.get("i|c"), "closed", "merged counts as closed");
 });
 
 test("columnCollapsed: empty is a rail unless peeked; non-empty is a rail only if explicitly collapsed", () => {
   const none = new Set<string>();
   // Empty: a rail by default, expanded when the viewer peeks it open.
-  assert.equal(columnCollapsed("in_progress", true, none, none), true, "empty -> rail");
-  assert.equal(columnCollapsed("in_progress", true, none, new Set(["in_progress"])), false, "empty + peeked -> expanded");
+  assert.equal(columnCollapsed("lane-trackers", true, none, none), true, "empty -> rail");
+  assert.equal(columnCollapsed("lane-trackers", true, none, new Set(["lane-trackers"])), false, "empty + peeked -> expanded");
   // Non-empty: expanded by default, a rail only when explicitly collapsed.
   assert.equal(columnCollapsed("open", false, none, none), false, "non-empty, untouched -> expanded");
   assert.equal(columnCollapsed("open", false, new Set(["open"]), none), true, "non-empty, explicitly collapsed -> rail");
@@ -3408,21 +3371,41 @@ test("columnCollapsed: empty is a rail unless peeked; non-empty is a rail only i
   // set only the empty regime). The peek set is keyed by the full column kind.
   assert.equal(columnCollapsed("lane-pr", false, new Set(["lane-pr"]), none), true, "collapsed while populated -> rail");
   assert.equal(columnCollapsed("lane-pr", true, new Set(["lane-pr"]), none), true, "…and still a rail after emptying (not peeked)");
+  // The retired In Progress / Trailing keys can linger in a persisted collapse
+  // set; they name no column, so every live column ignores them.
+  const stale = new Set(["in_progress", "trailing"]);
+  for (const kind of ["lane-trackers", "open", "closed", "lane-follow-up", "lane-pr"]) {
+    assert.equal(columnCollapsed(kind, false, stale, none), false, `stale keys leave ${kind} expanded`);
+  }
 });
 
-// The spotlight lanes are pure label/kind conventions compiled from
+// The spotlight lanes are pure label/kind/state conventions compiled from
 // spotlight.config.ts — a typo there (or in compileLane) silently empties a
 // whole board column, so the pick/sort behavior is locked here.
-test("spotlight lanes pick by kind + label convention; closed items stay visible", () => {
+test("spotlight lanes pick by kind + label convention; the change request lane is open-only", () => {
   const follow = item({ id: "i|f", state: "closed", labels: [{ name: "workflow::follow-up", scope: "workflow", color: null }] });
   const wrongKind = item({ id: "i|wk", kind: "change_request", labels: [{ name: "workflow::follow-up", scope: "workflow", color: null }] });
-  const pr = item({ id: "i|pr", kind: "change_request", state: "merged" });
+  const tracker = item({ id: "i|t", labels: [{ name: "workflow::tracking", scope: "workflow", color: null }] });
+  const trackerPr = item({ id: "i|tpr", kind: "change_request", state: "merged", labels: [{ name: "workflow::tracking", scope: "workflow", color: null }] });
+  const merged = item({ id: "i|pr", kind: "change_request", state: "merged" });
+  const closedPr = item({ id: "i|cpr", kind: "change_request", state: "closed" });
   const plain = item({ id: "i|plain" });
-  const lanes = spotlight([follow, wrongKind, pr, plain]);
-  assert.deepEqual(lanes.map((l) => l.lane.key), ["follow-up", "pr"], "only the retained lanes are returned, in config order");
+  const lanes = spotlight([follow, wrongKind, tracker, trackerPr, merged, closedPr, plain]);
+  assert.deepEqual(lanes.map((l) => l.lane.key), ["trackers", "follow-up", "pr"], "lanes are returned in config order");
+  assert.deepEqual(lanes.filter((l) => l.lane.lead).map((l) => l.lane.key), ["trackers"], "only Trackers leads the status columns");
   const byKey = new Map(lanes.map((l) => [l.lane.key, l.items.map((i) => i.id)]));
+  assert.deepEqual(byKey.get("trackers"), ["i|t"], "issue kind + workflow::tracking label only");
   assert.deepEqual(byKey.get("follow-up"), ["i|f"], "issue kind + label only — and a closed item is still shown");
-  assert.deepEqual(byKey.get("pr")?.sort(), ["i|pr", "i|wk"], "the change request lane takes every change_request regardless of label or state");
+  assert.deepEqual(byKey.get("pr"), ["i|wk"], "the change request lane takes every open change_request regardless of label");
+});
+
+test("the change request lane keeps only open change requests", () => {
+  const open = item({ id: "i|open", kind: "change_request" });
+  const merged = item({ id: "i|merged", kind: "change_request", state: "merged" });
+  const closed = item({ id: "i|closed", kind: "change_request", state: "closed" });
+  const prLane = spotlight([merged, open, closed]).find((l) => l.lane.key === "pr");
+  assert.deepEqual(prLane?.items.map((i) => i.id), ["i|open"], "merged and closed change requests drop out");
+  assert.equal(prLane?.lane.hint, "open change requests");
 });
 
 test("spotlight lanes sort newest created_at first; missing created_at sinks to the tail", () => {
@@ -3432,6 +3415,18 @@ test("spotlight lanes sort newest created_at first; missing created_at sinks to 
   const lanes = spotlight([old, undated, newer]);
   const prLane = lanes.find((l) => l.lane.key === "pr");
   assert.deepEqual(prLane?.items.map((i) => i.id), ["i|new", "i|old", "i|und"]);
+});
+
+test("the trackers lane lists open trackers before closed ones, newest first within each group", () => {
+  const tracking = [{ name: "workflow::tracking", scope: "workflow", color: null }];
+  const closedNew = item({ id: "i|closed-new", state: "closed", created_at: "2026-09-01T00:00:00Z", labels: tracking });
+  const openOld = item({ id: "i|open-old", created_at: "2026-01-01T00:00:00Z", labels: tracking });
+  const closedOld = item({ id: "i|closed-old", state: "closed", created_at: "2026-02-01T00:00:00Z", labels: tracking });
+  const openNew = item({ id: "i|open-new", created_at: "2026-06-01T00:00:00Z", labels: tracking });
+  const lanes = spotlight([closedNew, openOld, closedOld, openNew]);
+  const trackers = lanes.find((l) => l.lane.key === "trackers");
+  assert.deepEqual(trackers?.items.map((i) => i.id), ["i|open-new", "i|open-old", "i|closed-new", "i|closed-old"]);
+  assert.deepEqual(lanes.filter((l) => l.lane.foldClosed).map((l) => l.lane.key), ["trackers"], "only Trackers folds its closed items behind a count");
 });
 
 test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties", () => {

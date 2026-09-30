@@ -232,7 +232,7 @@ body::after {
 }
 
 /* The single app container, always rendered as `app app-wide` (full-bleed —
-   the primary 7-column board, GitHub-Projects style). Top/bottom padding folds
+   the primary 5-column board, GitHub-Projects style). Top/bottom padding folds
    in the Android system-bar safe-area insets so content clears the status / nav
    bars on edge-to-edge devices; the insets resolve to 0 in the browser and on
    desktop. The narrower mobile padding is set in the @media block below. */
@@ -785,7 +785,7 @@ a.item-metric:hover {
 .chip-scoped .chip-scope { color: var(--muted); }
 .chip-scoped .chip-scope::after { content: "::"; }
 
-/* primary full-bleed board: 4 status + 3 spotlight lanes in one 7-column row.
+/* primary full-bleed board: 2 status + 3 spotlight lanes in one 5-column row.
    Flex columns scroll horizontally (GitHub-Projects style) and share a uniform
    height via the same fixed .col height + internal scroll. Flex (not grid) so a single
    column can collapse to a slim fixed-width rail while the rest keep flexing. */
@@ -862,10 +862,9 @@ a.item-metric:hover {
 }
 .col-head .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .dot-open { background: var(--open); }
-.dot-in_progress { background: var(--declared); }
-.dot-trailing { background: var(--merged); }
 .dot-closed { background: var(--muted); }
-/* spotlight-lane dots (the 2 cross-cut columns on the full board) */
+/* spotlight-lane dots (the 3 cross-cut columns on the full board) */
+.dot-lane-trackers { background: var(--accent); }
 .dot-lane-follow-up { background: var(--broken); }
 .dot-lane-pr { background: var(--link); }
 /* fill the (stretched) column height and scroll inside; min-height:0 lets a
@@ -874,6 +873,10 @@ a.item-metric:hover {
 /* trailing "+N more" marker when a column's render cap hides items (the header
    count stays the true total). Centered, muted, not a card. */
 .col-more { text-align: center; font-size: 11px; padding: 4px 0 2px; }
+/* "Closed (N)" toggle in a lane that folds its closed items (Trackers): the
+   same quiet marker as "+N more", but a button. */
+.col-fold { flex: 0 0 auto; background: none; border: none; font: inherit; font-size: 11px; padding: 4px 0 2px; cursor: pointer; border-radius: 4px; }
+.col-fold:hover { color: var(--text); background: var(--hover-soft); }
 .col-head { flex-wrap: wrap; }
 .col-sub { flex: 1 1 100%; font-size: 11px; font-weight: 400; color: var(--muted); }
 /* the collapse caret sits at the right edge of the header's first line */
@@ -4066,7 +4069,7 @@ a.rf-node-title:hover { color: var(--accent); }
     overflow-x: auto;
     scrollbar-width: none;
     /* Pin the lane chips just under the sticky page-tabs so the active-lane
-       switch (open / in progress / …) stays reachable while the cards scroll
+       switch (trackers / open / …) stays reachable while the cards scroll
        inside the bounded column below. The 44px offset clears the mobile tab
        bar; the opaque background hides cards scrolling beneath. */
     position: sticky;

@@ -51,6 +51,11 @@
           "name": "priority::high",
           "scope": "priority",
           "color": "b60205"
+        },
+        {
+          "name": "workflow::tracking",
+          "scope": "workflow",
+          "color": "0052cc"
         }
       ],
       "review_state": null,
@@ -145,6 +150,11 @@
           "name": "workflow::plan",
           "scope": "workflow",
           "color": "1d76db"
+        },
+        {
+          "name": "workflow::tracking",
+          "scope": "workflow",
+          "color": "0052cc"
         }
       ],
       "review_state": null,
