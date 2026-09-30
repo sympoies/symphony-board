@@ -1,7 +1,6 @@
-import type { ActivityDTO } from "@symphony-board/contract";
-import { useMemo, type CSSProperties } from "react";
+import { memo, type CSSProperties } from "react";
 import type { TimeRange } from "../model.ts";
-import { churnByDay, dayAxisTicks, weekdayLabel } from "../rail-stats.ts";
+import { dayAxisTicks, weekdayLabel, type ChurnDay } from "../rail-stats.ts";
 import { formatAxisValue, niceAxisMax } from "../rank-scale.ts";
 
 // Lines changed per day: additions above the baseline, deletions below it.
@@ -25,16 +24,11 @@ function compact(value: number): string {
 // Past this many days a weekday name no longer identifies a bar.
 const WEEKDAY_TICK_DAYS_MAX = 10;
 
-export function CommitChurn({
-  commits,
-  timezone,
-  range,
-}: {
-  commits: ActivityDTO[];
-  timezone: string;
-  range: TimeRange;
-}) {
-  const days = useMemo(() => churnByDay(commits, timezone, range.from, range.to), [commits, timezone, range.from, range.to]);
+// Memoized, and handed its days rather than the rows: the overview already
+// derives them for its "lines changed" tile, and the array it passes is the
+// same one across a commit selection -- the re-render this pane sees most, and
+// one it has nothing to redraw for.
+export const CommitChurn = memo(function CommitChurn({ days, range }: { days: readonly ChurnDay[]; range: TimeRange }) {
   if (days.length === 0) return null;
 
   const totals = days.reduce(
@@ -102,4 +96,4 @@ export function CommitChurn({
       )}
     </div>
   );
-}
+});

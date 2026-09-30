@@ -3,10 +3,9 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import {
   EMPTY_ACTOR_INDEX,
   churnByDay,
+  commitSizeSummary,
   countsByDay,
   dayAxisTicks,
-  largestCommits,
-  medianCommitLines,
   rankActors,
   rankBranches,
   rankRepos,
@@ -19,7 +18,7 @@ import { CommitDayChart } from "./CommitDayChart.tsx";
 import { CommitChurn } from "./CommitChurn.tsx";
 import { CommitPunchCard } from "./CommitPunchCard.tsx";
 import { LargestCommits } from "./LargestCommits.tsx";
-import { buildActivityHeatmapFromDaily, heatmapStreaks, pluralize, previousPeriodCount } from "../model.ts";
+import { buildActivityHeatmapFromDaily, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
 import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
 
@@ -301,17 +300,33 @@ export function CommitsOverview({
   const activeDays = days.filter((d) => d.count > 0).length;
 
   // The wide tier's extra figures. Each is a pass over every row, so none of
-  // them is computed for a layout that has no tile to put it in.
-  const churn = useMemo(() => {
-    if (!wide) return null;
-    return churnByDay(commits, timezone, range.from, range.to).reduce(
-      (sum, day) => ({ additions: sum.additions + day.additions, deletions: sum.deletions + day.deletions, counted: sum.counted + day.counted }),
-      { additions: 0, deletions: 0, counted: 0 },
-    );
-  }, [wide, commits, timezone, range.from, range.to]);
-  const median = useMemo(() => (wide ? medianCommitLines(commits) : null), [wide, commits]);
-  const largest = useMemo(() => (wide ? (largestCommits(commits, 1)[0]?.lines ?? null) : null), [wide, commits]);
-  const previous = wide && comparable ? previousPeriodCount(activityDaily, range.from, range.to, "commit") : null;
+  // them is computed for a layout that has no tile to put it in, and each is
+  // computed once: the per-day churn feeds both its tile here and the Lines
+  // changed pane below, which takes the array rather than deriving its own.
+  const churnDays = useMemo(
+    () => (wide ? churnByDay(commits, timezone, range.from, range.to) : null),
+    [wide, commits, timezone, range.from, range.to],
+  );
+  const churn = useMemo(
+    () =>
+      churnDays
+        ? churnDays.reduce(
+            (sum, day) => ({ additions: sum.additions + day.additions, deletions: sum.deletions + day.deletions, counted: sum.counted + day.counted }),
+            { additions: 0, deletions: 0, counted: 0 },
+          )
+        : null,
+    [churnDays],
+  );
+  const sizes = useMemo(() => (wide ? commitSizeSummary(commits) : null), [wide, commits]);
+  // The comparison is drawn only when it compares like with like: nothing
+  // narrows the list (`comparable`), AND the rows on screen really are the
+  // range the aggregate describes -- which a repo or source hidden in Settings,
+  // or a feed windowed shorter than the range, would make false without the
+  // page's own filters knowing. See rangeIsCovered.
+  const previous =
+    wide && comparable && rangeIsCovered(activityDaily, range.from, range.to, commits.length, "commit")
+      ? previousPeriodCount(activityDaily, range.from, range.to, "commit")
+      : null;
 
   const summary: { label: string; value: ReactNode; detail: string }[] = [
     {
@@ -322,7 +337,10 @@ export function CommitsOverview({
           <PeriodDelta current={commits.length} previous={previous} />
         </>
       ),
-      detail: previous !== null ? `in range · ${previous.toLocaleString("en-US")} in the ${days.length} days before` : "in range",
+      detail:
+        previous !== null
+          ? `in range · ${previous.toLocaleString("en-US")} in the ${days.length} ${pluralize(days.length, "day")} before`
+          : "in range",
     },
     ...(churn
       ? [
@@ -357,8 +375,8 @@ export function CommitsOverview({
       ? [
           {
             label: "median commit",
-            value: median !== null ? median.toLocaleString("en-US") : "—",
-            detail: largest !== null ? `lines · largest ${largest.toLocaleString("en-US")}` : "no line counts",
+            value: sizes?.median != null ? sizes.median.toLocaleString("en-US") : "—",
+            detail: sizes?.largest != null ? `lines · largest ${sizes.largest.toLocaleString("en-US")}` : "no line counts",
           },
         ]
       : []),
@@ -404,7 +422,7 @@ export function CommitsOverview({
       {wide ? (
         <>
           <CommitDayChart commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
-          <CommitChurn commits={commits} timezone={timezone} range={range} />
+          {churnDays ? <CommitChurn days={churnDays} range={range} /> : null}
           <CommitPunchCard commits={commits} timezone={timezone} range={range} />
           <LargestCommits commits={commits} selectedKey={selectedKey} onSelect={onSelectCommit ?? (() => {})} />
         </>

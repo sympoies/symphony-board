@@ -42,6 +42,7 @@ import {
   buildActivityHeatmapFromDaily,
   heatmapStreaks,
   previousPeriodCount,
+  rangeIsCovered,
   activityDailyExtent,
   buildActivityTrend,
   activitySummaryKindCounts,
@@ -3671,4 +3672,35 @@ test("previousPeriodCount sums the same-length window before the range, or decli
   assert.equal(previousPeriodCount(daily, "2026-09-10", "2026-09-30", "commit"), null);
   assert.equal(previousPeriodCount(null, "2026-09-24", "2026-09-30", "commit"), null);
   assert.equal(previousPeriodCount(daily, "2026-09-30", "2026-09-24", "commit"), null, "an inverted range has no previous period");
+});
+
+test("rangeIsCovered is true only while the visible rows account for the aggregate's range", () => {
+  const day = (date: string, commit: number) => ({ date, count: commit + 1, by_kind: { commit, issue: 1 } });
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2026-09-01",
+    to: "2026-09-30",
+    total: 0,
+    by_kind: {},
+    days: [day("2026-09-23", 40), day("2026-09-24", 300), day("2026-09-26", 500), day("2026-09-30", 200)],
+  };
+  // The aggregate counts 1,000 commits in 09-24..09-30.
+  assert.equal(rangeIsCovered(daily, "2026-09-24", "2026-09-30", 1000, "commit"), true);
+  // The two payloads are fetched separately; a board that is syncing can have
+  // them a few rows apart, and that must not make the comparison flicker.
+  assert.equal(rangeIsCovered(daily, "2026-09-24", "2026-09-30", 985, "commit"), true);
+  assert.equal(rangeIsCovered(daily, "2026-09-24", "2026-09-30", 1015, "commit"), true);
+  // A repo hidden in Settings takes its commits out of the rows but not out of
+  // the aggregate: a part would be set against a whole.
+  assert.equal(rangeIsCovered(daily, "2026-09-24", "2026-09-30", 700, "commit"), false);
+  // A feed windowed shorter than the range has the same effect.
+  assert.equal(rangeIsCovered(daily, "2026-09-01", "2026-09-30", 1000, "commit"), false);
+  // Every kind when none is named: 1,003 events in the week.
+  assert.equal(rangeIsCovered(daily, "2026-09-24", "2026-09-30", 1003), true);
+  // Small ranges get two rows of slack, not two percent of nearly nothing.
+  assert.equal(rangeIsCovered(daily, "2026-09-23", "2026-09-23", 38, "commit"), true);
+  assert.equal(rangeIsCovered(daily, "2026-09-23", "2026-09-23", 37, "commit"), false);
+  // Nothing to check against is not coverage.
+  assert.equal(rangeIsCovered(null, "2026-09-24", "2026-09-30", 0, "commit"), false);
+  assert.equal(rangeIsCovered(daily, "2026-09-30", "2026-09-24", 1000, "commit"), false);
 });

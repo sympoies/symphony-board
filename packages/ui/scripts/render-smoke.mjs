@@ -7066,6 +7066,19 @@ try {
         largestRows: overview.querySelectorAll('.pane-row-commit').length,
         overviewShort: Math.round(rect(list).bottom - rect(overview).bottom),
         railShort: Math.round(rect(list).bottom - rect(rail).bottom),
+        // The column BOXES have a definite height in this tier, so their edges
+        // line up with the list whatever is inside them. What says the spare
+        // height went to a list is the contents: the column does not scroll,
+        // its lowest pane ends at its bottom edge, and the list inside that
+        // pane is what scrolls.
+        overviewSelfScroll: Math.round(overview.scrollHeight - overview.clientHeight),
+        railSelfScroll: Math.round(rail.scrollHeight - rail.clientHeight),
+        overviewPaneShort: Math.round(rect(overview).bottom - Math.max(...blocks(overview).map((b) => rect(b).bottom))),
+        railPaneShort: Math.round(rect(rail).bottom - Math.max(...blocks(rail).map((b) => rect(b).bottom))),
+        largestScrollsInside: (() => {
+          const rows = overview.querySelector('.largest-commits .pane-rows');
+          return rows ? rows.scrollHeight > rows.clientHeight + 1 : null;
+        })(),
         pageOverflow: Math.round(doc.scrollHeight - doc.clientHeight),
         pageOverflowX: Math.round(doc.scrollWidth - doc.clientWidth),
         authorExtras: rowCells.length,
@@ -7689,10 +7702,15 @@ try {
         // scrollers now, and a scroller that grew with its content instead
         // would push the document.
         commitsWidePanes.pageOverflow <= commitsPageOverflowBaseline &&
+        commitsWidePanes.overviewSelfScroll <= 1 &&
+        commitsWidePanes.railSelfScroll <= 1 &&
+        Math.abs(commitsWidePanes.overviewPaneShort) <= 2 &&
+        Math.abs(commitsWidePanes.railPaneShort) <= 2 &&
+        commitsWidePanes.largestScrollsInside === true &&
         commitsWidePanes.largestRows > 0 &&
         commitsWidePanes.repoRows > 0 &&
         commitsWidePanes.branchRows > 0,
-      `commits: the spare height goes to lists, and both columns still end with the list beside them (${JSON.stringify({ overviewShort: commitsWidePanes.overviewShort, railShort: commitsWidePanes.railShort, pageOverflow: commitsWidePanes.pageOverflow, largest: commitsWidePanes.largestRows, repos: commitsWidePanes.repoRows, branches: commitsWidePanes.branchRows })})`,
+      `commits: the spare height goes to lists, and both columns still end with the list beside them (${JSON.stringify({ overviewShort: commitsWidePanes.overviewShort, railShort: commitsWidePanes.railShort, selfScroll: [commitsWidePanes.overviewSelfScroll, commitsWidePanes.railSelfScroll], paneShort: [commitsWidePanes.overviewPaneShort, commitsWidePanes.railPaneShort], largestScrollsInside: commitsWidePanes.largestScrollsInside, pageOverflow: commitsWidePanes.pageOverflow, largest: commitsWidePanes.largestRows, repos: commitsWidePanes.repoRows, branches: commitsWidePanes.branchRows })})`,
     ],
     [
       commitsWidePanes.tiles === 8 &&

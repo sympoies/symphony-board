@@ -1,5 +1,5 @@
 import type { ActivityDTO } from "@symphony-board/contract";
-import { useMemo, useState, type CSSProperties } from "react";
+import { memo, useMemo, useState, type CSSProperties } from "react";
 import { commitMessage } from "../model.ts";
 import type { TimeRange } from "../model.ts";
 import {
@@ -62,7 +62,11 @@ function keyOfBy(by: StackBy, actorIndex: ActorIndex): (a: ActivityDTO) => { key
   };
 }
 
-export function CommitDayChart({
+// Memoized: its props are the rows, the zone, the range and the actor index,
+// none of which changes when a commit is selected -- and selection is the
+// re-render this pane sees most. Without the boundary each one rebuilt every
+// column and re-formatted every hover tip.
+export const CommitDayChart = memo(function CommitDayChart({
   commits,
   timezone,
   range,
@@ -180,4 +184,4 @@ export function CommitDayChart({
       </div>
     </div>
   );
-}
+});

@@ -88,12 +88,21 @@ export const RAIL_RANK_LIMIT_ROWS = 8;
 // styles.css mirrors this number; layout-tier.test.ts keeps the two in step.
 export const COMMITS_PANES_MIN_WIDTH_PX = 2480;
 export const COMMITS_PANES_QUERY = `(min-width: ${COMMITS_PANES_MIN_WIDTH_PX}px)`;
-// A ranked list in this tier scrolls inside its pane, so its limit is about
-// how much is worth scrolling rather than what fits: enough to hold every repo
-// and author of a busy range, short of rendering a thousand branch rows.
+// The two lists that SCROLL inside their pane in this tier, Top repos and Top
+// branches. Their limit is about how much is worth scrolling to rather than
+// what fits: enough to hold every repo of a busy range, short of rendering a
+// thousand branch rows.
 export const COMMITS_PANES_RANK_LIMIT = 50;
-// Types and scopes are closed, small vocabularies; their panes do not scroll.
+// The panes that do NOT scroll: their height is their row count, and it comes
+// out of the row the scrolling lists grow in. Commit types and scopes are
+// small closed vocabularies. Top authors is an open one, so it is the limit
+// that matters most here -- at the scrolling lists' fifty it was 1,400px of
+// authors in a 1,300px column, with everything else pushed below the fold.
 export const COMMITS_PANES_KIND_LIMIT = 12;
+export const COMMITS_PANES_AUTHOR_LIMIT = 10;
+// Bars in an author row's sparkline. The column is about 86px wide, so more
+// than this are narrower than the gap between them.
+export const COMMITS_PANES_SPARK_BARS = 30;
 
 // Commits needs about 480px for its wrapping list and 360px per supporting
 // pane, plus page padding and gaps. It fits three columns before Activity does.

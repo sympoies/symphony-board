@@ -577,12 +577,36 @@ export function largestCommits(activities: readonly ActivityDTO[], limit: number
   return limit > 0 ? sized.slice(0, limit) : sized;
 }
 
-// The middle commit size, which is what "a typical commit" means here: the
-// mean is dragged by one vendored file or lockfile.
-export function medianCommitLines(activities: readonly ActivityDTO[]): number | null {
-  const lines = sizedCommits(activities).map((s) => s.lines).sort((a, b) => a - b);
-  if (lines.length === 0) return null;
-  return lines[Math.floor((lines.length - 1) / 2)] ?? null;
+// The middle and the largest commit size, from one pass and one sort.
+//
+// The median is what "a typical commit" means here: the mean is dragged by one
+// vendored file or lockfile. Both are null when no commit carries counts.
+export function commitSizeSummary(activities: readonly ActivityDTO[]): { median: number | null; largest: number | null } {
+  const lines: number[] = [];
+  for (const commit of activities) {
+    const stats = commitStats(commit);
+    if (stats) lines.push(stats.additions + stats.deletions);
+  }
+  if (lines.length === 0) return { median: null, largest: null };
+  lines.sort((a, b) => a - b);
+  return { median: lines[Math.floor((lines.length - 1) / 2)] ?? null, largest: lines[lines.length - 1] ?? null };
+}
+
+// A per-day series reduced to at most `max` bars, by summing runs of days.
+//
+// The author sparkline sits in a column about 86px wide. A week fits a bar per
+// day; a year does not, and a bar per day there was 365 elements per author --
+// 18,250 across fifty authors -- each narrower than a pixel. Summing into at
+// most `max` buckets keeps the shape of the range and bounds the row's DOM by
+// the column rather than by the calendar.
+export function sparkBuckets(perDay: readonly number[], max: number): number[] {
+  if (max <= 0 || perDay.length <= max) return [...perDay];
+  const out = Array.from({ length: max }, () => 0);
+  perDay.forEach((count, index) => {
+    const bucket = Math.min(max - 1, Math.floor((index * max) / perDay.length));
+    out[bucket] = (out[bucket] ?? 0) + count;
+  });
+  return out;
 }
 
 // ---- scopes -----------------------------------------------------------------

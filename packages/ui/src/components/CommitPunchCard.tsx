@@ -1,5 +1,5 @@
 import type { ActivityDTO } from "@symphony-board/contract";
-import { Fragment, useMemo, useState, type CSSProperties } from "react";
+import { Fragment, memo, useMemo, useState, type CSSProperties } from "react";
 import type { TimeRange } from "../model.ts";
 import { punchCard } from "../rail-stats.ts";
 import { formatHour } from "./HourProfile.tsx";
@@ -30,7 +30,9 @@ function levelOf(count: number, max: number): number {
   return Math.min(4, Math.max(1, Math.ceil((count / max) * 4)));
 }
 
-export function CommitPunchCard({
+// Memoized for the same reason as the other wide panes: nothing it draws
+// depends on which commit is selected.
+export const CommitPunchCard = memo(function CommitPunchCard({
   commits,
   timezone,
   range,
@@ -99,4 +101,4 @@ export function CommitPunchCard({
       ) : null}
     </div>
   );
-}
+});

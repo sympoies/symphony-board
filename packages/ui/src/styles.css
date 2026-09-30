@@ -2003,6 +2003,14 @@ a.rf-node-title:hover { color: var(--accent); }
     text-align: right;
     font-size: 12px;
   }
+  /* A row's name tip hangs under its row. Under the LAST row of a pane that
+     does not scroll, that is under the pane -- and the rail is a scroller now,
+     so an invisible tip below its lowest pane gave it a few pixels of scroll
+     with nothing to scroll to. That one tip opens upward instead. */
+  .commits-rail[data-panes="wide"] > .rail-block:not(.pane-fill) .live-rank-plot > :last-child .rank-name-tip {
+    top: auto;
+    bottom: calc(100% + 2px);
+  }
   .commits-rail[data-panes="wide"] .live-rank-extra {
     display: grid;
     grid-template-columns: var(--rank-extra-cols, max-content);

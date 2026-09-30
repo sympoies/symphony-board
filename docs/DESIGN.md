@@ -597,8 +597,11 @@ Pages:
   facts on the ranked facets, a 12-month streak summary under the rhythm
   calendar, and a comparison with the preceding period on the commit count.
   The comparison reads `activity_daily`, which counts every commit, so it is
-  shown only while no source, repo, branch, or author filter is active and
-  only when the aggregate reaches back far enough to cover the earlier window.
+  shown only while no source, repo, branch, or author filter is active, only
+  when the aggregate reaches back far enough to cover the earlier window, and
+  only when the rows on screen account for the aggregate's own count for the
+  selected range (within 2%) — which is what hides it when a repo or source is
+  hidden in Settings or the feed is windowed shorter than the range.
   Every pane derives from the rows the list renders or from `activity_daily`;
   none needs a contract field or a fetch of its own.
   Selected content cards share a subtle theme-aware fill and border across

@@ -1,13 +1,15 @@
 import { useMediaQuery } from "../useMediaQuery.ts";
 import {
+  COMMITS_PANES_AUTHOR_LIMIT,
   COMMITS_PANES_KIND_LIMIT,
   COMMITS_PANES_RANK_LIMIT,
+  COMMITS_PANES_SPARK_BARS,
   RAIL_RANK_LIMIT,
   RAIL_RANK_LIMIT_ROWS,
   RAIL_ROWS_QUERY,
 } from "../layout-tier.ts";
 import type { ActivityDTO } from "@symphony-board/contract";
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { memo, useMemo, type CSSProperties, type ReactNode } from "react";
 import { RankChart } from "./RankChart.tsx";
 import {
   EMPTY_ACTOR_INDEX,
@@ -20,6 +22,7 @@ import {
   rankRepos,
   repoDetails,
   shortRepoLabel,
+  sparkBuckets,
   type ActorIndex,
 } from "../rail-stats.ts";
 import { pluralize, relativeTime, type CommitRepoOption, type TimeRange } from "../model.ts";
@@ -36,8 +39,9 @@ import { ActorAvatar } from "./ActorAvatar.tsx";
 // with commits · 303 branches" over more than a thousand rows, and until now the
 // only way to narrow that was two dropdowns. The repo, branch and author lists
 // are therefore navigation, not decoration — each row applies the filter it
-// describes. Commit types is the one read-only panel: it says what KIND of work
-// the range contains, which no filter expresses.
+// describes. The read-only panels are Commit types and, in the wide tier,
+// Commit scopes: they say what KIND of work the range contains and which parts
+// of the codebase it named, which no filter expresses.
 //
 // Everything here is derived from rows the page already holds, so the rail can
 // never disagree with the list beside it.
@@ -46,9 +50,10 @@ import { ActorAvatar } from "./ActorAvatar.tsx";
 // two-up grid and each ranking stops being a bar and a number. A row has room
 // for the facts that make the number mean something -- an author's share, line
 // counts, how many repositories and how many of the range's days; a repo's
-// people and its last commit -- and the lists hold every row and scroll inside
-// their pane instead of stopping at eight. Scopes join the types as a second
-// read-only vocabulary.
+// people and its last commit. Top repos and Top branches hold up to fifty rows
+// and scroll inside their pane instead of stopping at eight; Top authors does
+// not scroll, so it stops at ten. Scopes join the types as a second read-only
+// vocabulary.
 
 // The limit is a tier, not a constant: see layout-tier.ts. A sidebar rail
 // lays these charts out as rows, where an extra item costs 26px of height the
@@ -66,14 +71,19 @@ function share(count: number, total: number): string {
   return pct === 0 && count > 0 ? "<1%" : `${pct}%`;
 }
 
-// An author's commits on each day of the range, as a row of bars. It shares the
-// day strip's bar, scaled to the author's own busiest day: the question a
-// sparkline answers is "when", and the count column already says "how many".
-function Sparkline({ perDay }: { perDay: readonly number[] }) {
-  const max = Math.max(1, ...perDay);
+// An author's commits across the range, as a row of bars. It shares the day
+// strip's bar, scaled to the author's own busiest bar: the question a sparkline
+// answers is "when", and the count column already says "how many".
+//
+// A bar per day while the range is short, runs of days summed beyond that (see
+// sparkBuckets). Memoized because `perDay` comes out of a memo and is the same
+// array across a selection change, which is the re-render this row sees most.
+const Sparkline = memo(function Sparkline({ perDay }: { perDay: readonly number[] }) {
+  const bars = sparkBuckets(perDay, COMMITS_PANES_SPARK_BARS);
+  const max = Math.max(1, ...bars);
   return (
     <span className="rank-spark">
-      {perDay.map((count, index) => (
+      {bars.map((count, index) => (
         <i
           key={index}
           data-empty={count === 0 ? "true" : undefined}
@@ -82,7 +92,7 @@ function Sparkline({ perDay }: { perDay: readonly number[] }) {
       ))}
     </span>
   );
-}
+});
 
 // Names the columns of the rows under it. Laid out on the same tracks as those
 // rows (the chart's `rank-cols-*` class sets them for both), so each word sits
@@ -140,9 +150,9 @@ export function CommitsRail({
   // Desktop uses the Settings toggle; a phone tap opens this as its second pane.
   changedFiles?: CommitFileStatsState;
   showOnlyChangedFiles?: boolean;
-  // The rows currently on screen. The one read-only panel here (commit types)
-  // describes what is visible rather than what could be selected, so it reads
-  // these instead of a facet source.
+  // The rows currently on screen. The read-only panels here (commit types, and
+  // scopes in the wide tier) describe what is visible rather than what could be
+  // selected, so they read these instead of a facet source.
   commits: ActivityDTO[];
   // Facet sources: each ranked list is counted with every filter applied EXCEPT
   // its own, so the list you are standing in still offers somewhere else to go.
@@ -164,22 +174,26 @@ export function CommitsRail({
   // count follows the layout rather than being fixed. useMediaQuery re-renders
   // on the breakpoint, so resizing onto a second monitor re-evaluates it.
   const railRows = useMediaQuery(RAIL_ROWS_QUERY);
-  // In the wide tier a ranked list scrolls inside its pane, so it holds
-  // everything worth scrolling to; the two closed vocabularies stay short.
+  // In the wide tier the two lists that scroll inside their pane hold
+  // everything worth scrolling to. The panes that do not scroll are bounded,
+  // because their rows come out of the height those lists grow in.
   const rankLimit = wide ? COMMITS_PANES_RANK_LIMIT : railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
   const kindLimit = wide ? COMMITS_PANES_KIND_LIMIT : rankLimit;
+  const authorLimit = wide ? COMMITS_PANES_AUTHOR_LIMIT : rankLimit;
 
   const repoRanks = useMemo(() => rankRepos(repoSource, rankLimit), [repoSource, rankLimit]);
-  const authorRanks = useMemo(() => rankActors(authorSource, rankLimit, actorIndex), [authorSource, rankLimit, actorIndex]);
+  const authorRanks = useMemo(() => rankActors(authorSource, authorLimit, actorIndex), [authorSource, authorLimit, actorIndex]);
   const branchRanks = useMemo(() => rankBranches(branchSource, rankLimit), [branchSource, rankLimit]);
   // Commit types describe what is ON SCREEN rather than what could be selected —
   // it drives no filter, so unlike the three ranked facets it reads from the
   // visible rows.
   const typeRanks = useMemo(() => rankCommitTypes(commits, kindLimit), [commits, kindLimit]);
   // Scopes are the wide tier's second read-only vocabulary, and like the types
-  // they describe the rows on screen.
-  const scopeRanks = useMemo(() => (wide ? rankCommitScopes(commits, kindLimit) : []), [wide, commits, kindLimit]);
-  const scopeTotal = useMemo(() => (wide ? rankCommitScopes(commits, 0).length : 0), [wide, commits]);
+  // they describe the rows on screen. Ranked once: the head states how many
+  // there are in all, and the pane shows the first of them.
+  const allScopes = useMemo(() => (wide ? rankCommitScopes(commits, 0) : []), [wide, commits]);
+  const scopeRanks = allScopes.slice(0, kindLimit);
+  const scopeTotal = allScopes.length;
   // The facts beside each row. Each is counted over the same facet source as
   // the row it sits in, so a row's count and its facts describe the same
   // commits; none is computed for a layout with nowhere to draw it.

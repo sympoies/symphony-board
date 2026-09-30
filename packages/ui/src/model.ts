@@ -1004,6 +1004,40 @@ export function previousPeriodCount(
   return total;
 }
 
+// Whether the rows on screen account for the range the aggregate describes.
+//
+// previousPeriodCount answers for EVERY row in the earlier window. Setting that
+// against the rows on screen is only a comparison of like with like when those
+// rows are every row in the current window too, and there are several ways for
+// them not to be that the page cannot enumerate from its own filters: a repo or
+// a source hidden in Settings, or a static contract whose feed is windowed to
+// fewer days than the range asks for. So the test is on the data rather than on
+// the list of reasons: the aggregate's own count for [from, to] has to match
+// what is visible.
+//
+// Within a tolerance, because the aggregate and the rows arrive in separate
+// payloads and a board that is syncing can have them a few commits apart. Two
+// percent (never less than two rows) is below what a whole-percent chip can
+// show, and far below what any of the cases above removes.
+const RANGE_COVERAGE_TOLERANCE = 0.02;
+
+export function rangeIsCovered(
+  daily: ActivityDailyDTO | null | undefined,
+  from: string,
+  to: string,
+  visible: number,
+  kind?: string,
+): boolean {
+  if (!daily || !from || !to || to < from) return false;
+  let expected = 0;
+  for (const bucket of daily.days) {
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (bucket.date < from || bucket.date > to) continue;
+    expected += kind === undefined ? bucket.count : (bucket.by_kind[kind] ?? 0);
+  }
+  return Math.abs(expected - visible) <= Math.max(2, expected * RANGE_COVERAGE_TOLERANCE);
+}
+
 function dateOnlyUtcMs(date: string): number {
   const parts = date.split("-");
   return Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));

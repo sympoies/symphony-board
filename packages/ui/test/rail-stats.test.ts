@@ -10,12 +10,12 @@ import {
   churnByDay,
   commitAuthorOptions,
   commitScopeOf,
+  commitSizeSummary,
   commitTypeOf,
   countsByDay,
   countsByHour,
   dayAxisTicks,
   largestCommits,
-  medianCommitLines,
   punchCard,
   rankActions,
   rankActors,
@@ -26,6 +26,7 @@ import {
   rankRepos,
   repoDetails,
   shortRepoLabel,
+  sparkBuckets,
   stackedDays,
 } from "../src/rail-stats.ts";
 
@@ -470,6 +471,30 @@ test("stackedDays keeps the top series, folds the rest into one bucket, and zero
   for (const day of stack.days) assert.equal(day.segments.reduce((a, b) => a + b, 0), day.total);
 });
 
+test("stackedDays keeps a key that is literally the fold's out of the named series", () => {
+  // The common real case: unconventional subjects outnumber every type, so
+  // "other" would rank FIRST among the named series. It must still be the one
+  // trailing fold -- kept as a named series it would be drawn twice, once under
+  // its own colour and once as the fold, with the same key and the same name.
+  const typeOf = (a: ActivityDTO) => {
+    const type = commitTypeOf(a.title ?? "");
+    return { key: type, label: type };
+  };
+  const rows = [
+    ...Array.from({ length: 5 }, () => activity({ title: "plain subject" })),
+    ...Array.from({ length: 3 }, () => activity({ title: "fix: a" })),
+    activity({ title: "feat: b" }),
+  ];
+  const stack = stackedDays(rows, "UTC", "2026-09-10", "2026-09-10", typeOf, 4);
+  assert.deepEqual(stack.series, [
+    { key: "fix", label: "fix", count: 3 },
+    { key: "feat", label: "feat", count: 1 },
+    { key: "other", label: "other", count: 5 },
+  ]);
+  assert.deepEqual(stack.days[0]?.segments, [3, 1, 5]);
+  assert.equal(new Set(stack.series.map((s) => s.key)).size, stack.series.length, "series keys are unique");
+});
+
 test("stackedDays adds no fold when every key fits", () => {
   const stack = stackedDays(
     [activity({ title: "fix: a" }), activity({ title: "feat: b" })],
@@ -548,9 +573,26 @@ test("largestCommits ranks by lines changed and skips commits without counts", (
   assert.equal(largestCommits(rows, 0).length, 4, "0 means no limit, like the rankings");
 });
 
-test("medianCommitLines is the middle size of the commits that carry counts", () => {
-  assert.equal(medianCommitLines([sized({}, 1, 1), sized({}, 10, 0), sized({}, 100, 100), activity({})]), 10);
-  assert.equal(medianCommitLines([activity({})]), null, "no counts, no median");
+test("commitSizeSummary reports the middle and the largest of the commits that carry counts", () => {
+  assert.deepEqual(commitSizeSummary([sized({}, 100, 100), sized({}, 1, 1), sized({}, 10, 0), activity({})]), {
+    median: 10,
+    largest: 200,
+  });
+  assert.deepEqual(commitSizeSummary([activity({})]), { median: null, largest: null }, "no counts, no figures");
+});
+
+test("sparkBuckets keeps a bar per day while they fit and sums runs of days beyond that", () => {
+  // Within the budget: untouched, one bar per day.
+  assert.deepEqual(sparkBuckets([1, 0, 2], 30), [1, 0, 2]);
+  // Beyond it: the bar count is the budget, whatever the range, and nothing is
+  // lost -- the buckets add up to the series.
+  const year = Array.from({ length: 365 }, (_, i) => (i % 7 === 0 ? 3 : 1));
+  const bars = sparkBuckets(year, 30);
+  assert.equal(bars.length, 30);
+  assert.equal(bars.reduce((a, b) => a + b, 0), year.reduce((a, b) => a + b, 0));
+  // Runs, in order: the first six days land in the first of three bars.
+  assert.deepEqual(sparkBuckets([1, 1, 1, 1, 1, 1, 5, 5, 5], 3), [3, 3, 15]);
+  assert.deepEqual(sparkBuckets([], 30), []);
 });
 
 test("commitScopeOf reads the conventional-commit scope and nothing else", () => {

@@ -18,10 +18,12 @@ import {
   RAIL_ROWS_QUERY,
   RAIL_RANK_LIMIT,
   RAIL_RANK_LIMIT_ROWS,
+  COMMITS_PANES_AUTHOR_LIMIT,
   COMMITS_PANES_KIND_LIMIT,
   COMMITS_PANES_MIN_WIDTH_PX,
   COMMITS_PANES_QUERY,
   COMMITS_PANES_RANK_LIMIT,
+  COMMITS_PANES_SPARK_BARS,
   SPLIT_RAIL_MIN_WIDTH_PX,
   SPLIT_STACK_QUERY,
 } from "../src/layout-tier.ts";
@@ -475,6 +477,22 @@ test("the Commits wide-panes tier is published once and mirrored in the styleshe
   // stay short enough not to need to scroll.
   assert.ok(COMMITS_PANES_RANK_LIMIT > RAIL_RANK_LIMIT_ROWS);
   assert.ok(COMMITS_PANES_KIND_LIMIT > RAIL_RANK_LIMIT_ROWS && COMMITS_PANES_KIND_LIMIT < COMMITS_PANES_RANK_LIMIT);
+
+  // The fifty-row limit is for the lists that scroll. Top authors does not: its
+  // chart is outside .pane-fill, so its height is its row count, taken out of
+  // the row the scrolling lists grow in. Fed the scrolling limit it was taller
+  // than the whole column.
+  const rail = readFileSync(new URL("../src/components/CommitsRail.tsx", import.meta.url), "utf8");
+  assert.ok(COMMITS_PANES_AUTHOR_LIMIT < COMMITS_PANES_RANK_LIMIT && COMMITS_PANES_AUTHOR_LIMIT <= COMMITS_PANES_KIND_LIMIT);
+  assert.match(rail, /rankActors\(authorSource, authorLimit, actorIndex\)/, "the authors pane must use its own bounded limit");
+  assert.match(
+    rail,
+    /className=\{`rail-rank-chart\$\{wide \? " rank-cols-authors" : ""\}`\}/,
+    "the authors chart is not a scroller, which is why its limit is bounded",
+  );
+  // A sparkline is bounded by its column, not by the calendar.
+  assert.ok(COMMITS_PANES_SPARK_BARS >= 7 && COMMITS_PANES_SPARK_BARS <= 40);
+  assert.match(rail, /sparkBuckets\(perDay, COMMITS_PANES_SPARK_BARS\)/);
 
   // One decision, made in the page, handed to both columns.
   assert.match(page, /useMediaQuery\(COMMITS_PANES_QUERY\)/);
