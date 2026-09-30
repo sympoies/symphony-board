@@ -7277,16 +7277,18 @@ try {
   await sleep(300);
   const hotFilesCleared = (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
   // The other two views of the same pane.
-  const hotSwitch = async (option) => {
+  // By position, which the first assertion pins as files / dirs / scopes: the
+  // expression is built from a number, not from text.
+  const hotSwitch = async (index) => {
     await send("Runtime.evaluate", {
-      expression: `[...document.querySelectorAll('.commits-rail .commit-where .pane-seg-option')].find((b) => (b.textContent || '').trim() === ${JSON.stringify(option)})?.click()`,
+      expression: `document.querySelectorAll('.commits-rail .commit-where .pane-seg-option')[${Number(index)}]?.click()`,
     });
     await sleep(200);
     return (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
   };
-  const hotDirs = await hotSwitch("dirs");
-  const hotScopes = await hotSwitch("scopes");
-  await hotSwitch("files");
+  const hotDirs = await hotSwitch(1);
+  const hotScopes = await hotSwitch(2);
+  await hotSwitch(0);
   // Under an author filter the aggregate cannot describe the rows on screen:
   // it is pre-computed per repository and cannot be re-ranked for one person's
   // commits, so the pane falls back to scopes and offers no switch.
