@@ -42,7 +42,7 @@ export type Page = "live" | "activity" | "items" | "commits" | "reviews" | "boar
 export function inPageHref(route: HashRoute, patch: Partial<HashRoute>): string {
   const shared = ["q", "from", "to", "preset", "tab", "isource", "istate", "ikind", "ireview", "irepo"] as const;
   const local: Record<string, readonly (keyof HashRoute)[]> = {
-    graph: ["focus", "depth"],
+    graph: ["focus", "depth", "scope"],
     activity: ["source", "repo", "kind", "action", "unresolved"],
     commits: ["source", "repo", "branch", "author", "commitDetail"],
     live: ["liveDetail"],
@@ -54,6 +54,13 @@ export function inPageHref(route: HashRoute, patch: Partial<HashRoute>): string 
     Object.assign(fields, { [field]: route[field] });
   }
   return buildHashRoute({ page: route.page, ...fields, ...patch });
+}
+
+// The in-page edit that focuses a Graph item, or leaves focus with null. A new
+// focus starts on its default view, so a tracker reached from another item's
+// neighbourhood opens on its program instead of inheriting `scope=neighborhood`.
+export function graphFocusPatch(focus: string | null, depth: number): Partial<HashRoute> {
+  return { focus, depth: focus ? depth : null, scope: null };
 }
 
 // Where a COLD START lands. A cold start is the app first executing its bundle:
@@ -425,6 +432,7 @@ export function clearFiltersHref(route: HashRoute, page: string = route.page): s
     page,
     focus: page === "graph" ? route.focus : null,
     depth: page === "graph" && route.focus ? route.depth : null,
+    scope: page === "graph" && route.focus ? route.scope : null,
     from: route.from,
     to: route.to,
     preset: route.preset,

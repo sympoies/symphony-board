@@ -966,7 +966,7 @@ emit), so it adds no query, driver, or schema surface.
 
 ## Graph Neighborhood Query (operational, not contract)
 
-`GET /api/graph-neighborhood?ref=<item-ref>&depth=<1..5>&mentions=<direct|all>` is the focused Graph
+`GET /api/graph-neighborhood?ref=<item-ref>&depth=<1..5>&mentions=<direct|all>&scope=<neighborhood|program>` is the focused Graph
 view's canonical-history read. It is intentionally separate from
 `ContractEnvelope`: range and static envelopes stay bounded for normal pages,
 while a user can follow older relations wholly outside the loaded item window.
@@ -993,6 +993,38 @@ nodes, and 500 edges. Invalid/missing query parameters return `400`; an unknown
 focus returns `404`. Every request opens the configured canonical store
 read-only and closes it. Static/local-file clients cannot use this route and
 must clearly label their loaded one-hop fallback.
+
+`scope=program` (default `neighborhood`) returns a program tracker's program in
+the same response shape and under the same schema tag, so it adds a parameter
+and no field. It uses neither `depth` nor `mentions`, but both are still
+validated when present: `scope=program&depth=9` is `400`. The response holds:
+
+- the focus at hop 0 and its children — the targets of its `parent` edges — at
+  hop 1, with those `parent` edges;
+- every `blocks` edge into a child. The prerequisite is usually another child;
+  one outside the program is returned at hop 2, because it still decides
+  whether the child is blocked;
+- every `closes` edge into a child, with its change request at hop 2.
+
+It is a fixed two-hop projection: `requested_depth` is always `2`, which is how
+a client tells it from the answer of a server that does not know the parameter
+and returned an ordinary one-hop neighborhood. That check is reliable only when
+the caller omits `depth`: a server that ignores `scope` answers
+`scope=program&depth=2` with an ordinary two-hop neighborhood, which also
+reports `requested_depth: 2`. Mentions, relations, and the
+edges a child has out of the program are not part of it. An item without
+`parent` out-edges is returned alone (`200`, one node, no edges); an unknown
+focus is still `404`, and any other `scope` value is `400`.
+
+The 200-node / 500-edge bounds hold, and structure wins under them: children
+beyond the node bound are cut in ref order (`limit_reasons` gains `nodes`), then
+edges are kept as `parent`, `blocks` among children, `closes`, outside blockers
+(`edges`). An item past the children is returned only with an edge that reaches
+it. The read takes at most 2,000 edge rows per step (the tracker's, then its
+children's) before it keeps the program edge types, so mentions on a program's
+children cannot crowd out its structure; a step that hits that bound also
+reports `edges`. A static/local-file client
+derives the same scope from its loaded edges.
 
 ## Aggregates
 
@@ -1033,7 +1065,7 @@ v2 payload windowing:
   for the default overview edge filter (`edge_filter: "no_mentions"`).
 
 Viewer-local choices are not represented by backend aggregates. Source/repo
-visibility, search, facet filters, Graph mention toggles, and focus targets are
+visibility, search, facet filters, Graph relation type toggles, and focus targets are
 client display state; consumers should use a contract aggregate only when its
 scope/window/filter exactly matches the view. Local fallback computation from
 `items[]` and `edges[]` is only complete for windows inside `item_window`.

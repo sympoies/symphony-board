@@ -72,7 +72,16 @@ the Graph focused on the tracker.
 The Graph page renders edge-connected items with React Flow:
 
 - `closes` edges are the workflow spine and are colored by lifecycle.
-- `mentions` can be included for context.
+- the overview has one toggle per relation type in the loaded edges (`closes`,
+  `blocks`, `parent`, `mentions`, `relates`, or any type a source adds); every
+  type is on except `mentions`, which keeps its all / issues / change requests
+  target filter. The toggles are page state: they reset on reload and never
+  apply to a focused item.
+- the five known types are distinguishable without color — `closes` solid,
+  `blocks` heavy, `parent` dash-dotted, `mentions` short-dashed, `relates`
+  long-dashed — while a type the UI does not know draws with the default solid
+  line; the legend keys the types on the canvas plus the `closes` lifecycle
+  colors.
 - the side list indexes every relationship candidate in the selected range; the
   canvas can still hide mention-only items for the default overview without
   adding a redundant per-card visibility badge.
@@ -90,22 +99,36 @@ The Graph page renders edge-connected items with React Flow:
   it at readable zoom after the deeper neighborhood is fitted to the canvas.
 - Board card deep-links use `#/graph?focus=<ref>`; focus state is independent of
   the global cross-tab search.
+- focusing a program tracker opens its program view: the tracker is the header
+  (title, state, `done/total`), its children are laid out left to right in
+  dependency order with their status markers (the statuses of the tracker card
+  above, from `src/program.ts`) and their delivering change requests
+  underneath. Only the `blocks` links that are not implied by a longer path are
+  drawn. The **view** toggle switches to the ordinary neighborhood and back;
+  `#/graph?focus=<ref>&scope=neighborhood` records that choice, and a link
+  without `scope` opens the program view. Item filters and search do not apply
+  to a program view.
 
 Graph summary pills are scoped to the graph currently being inspected. In the
 overview they count rendered nodes and links after the date range,
-mention toggle, mention target, search, and facet filters. In focus view they
-switch to `focus` scope and count the focused subgraph instead of implying an
+relation type toggles, mention target, search, and facet filters. In focus view
+they switch to `focus` scope and count the focused subgraph — in the program
+view, the children and their change requests — instead of implying an
 overview total. Contract `graphWindow` aggregates are used only for the default
-no-mentions overview when the static range exactly matches an emitted aggregate
-row; custom range responses and local graph controls fall back to
-client-computed stats.
+overview (every type on except mentions) when the static range exactly matches
+an emitted aggregate row; custom range responses and local graph controls fall
+back to client-computed stats.
 
 With contract v2, the default overview stays inside the loaded item window.
 Dynamic server deployments use the operational graph-neighborhood route to
 inspect older relations wholly outside that window, bounded to five hops, 200
-nodes, and 500 edges. Static/local-file deployments cannot read the canonical
-store, so focus falls back to the loaded one-hop neighborhood and labels that
-limitation.
+nodes, and 500 edges; a tracker's program view asks the same route for
+`scope=program`. Static/local-file deployments cannot read the canonical
+store, so focus falls back to the loaded one-hop neighborhood — or, for a
+tracker, the program read from the loaded edges — and labels that
+limitation. A server that predates `scope=program` gets the same treatment:
+the program is drawn from the loaded edges, or from the neighborhood response
+when the tracker is outside the loaded window, and labeled as a fallback.
 
 Untracked cross-repo endpoints render as unresolved refs.
 
@@ -306,7 +329,13 @@ and Metrics share the same range presets, that the Settings default-range
 selector renders, that Board/Graph scoped summaries change when the range
 narrows through `/api/range`, that the sample tracker card shows its progress
 and ready children and stays in the Trackers lane — and out of every other
-column and count — when the range excludes it, and that large synthetic
+column and count — when the range excludes it, that the Graph relation type
+toggles and legend follow the loaded types and change what is drawn, that
+focusing the sample tracker shows its program view (children in dependency
+order with their status markers, with and without a server), keeps it under an
+item facet, switches to the neighborhood and back, opens a node activated from
+that neighborhood on its default view, and labels the fallback against a server
+without the program scope, and that large synthetic
 Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
 compact split, filter wrapping, the laptop three-column tier, and the
 wide-panes tier (two-up supporting columns whose charts keep a fixed height
