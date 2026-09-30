@@ -40,7 +40,7 @@ import {
   deriveRepoOptions,
   applyVisibility,
   itemIsPrimaryWindow,
-  itemIsPinnedTracker,
+  pinnedTrackerItems,
   buildColorIndex,
   resolveRepoColor,
   parseHashRoute,
@@ -1190,7 +1190,7 @@ export function App() {
   // Open program trackers outside the selected range, for the Board's Trackers
   // lane only. Visibility and the item facets apply to them like to any card.
   const pinnedTrackers = useMemo(
-    () => (visibleEnv ? visibleEnv.items.filter((i) => itemIsPinnedTracker(i) && itemMatches(i, itemFilters)) : []),
+    () => (visibleEnv ? pinnedTrackerItems(visibleEnv.items, itemFilters) : []),
     [visibleEnv, itemFilters],
   );
 

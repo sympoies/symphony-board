@@ -10,6 +10,7 @@ import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import type { EdgeRow, ItemRow, LabelRow, SourceRow } from "../db/store.ts";
+import { TRACKING_LABEL } from "../model/labels.ts";
 
 export type ActionableBucket =
   | "ready-to-merge"
@@ -110,7 +111,7 @@ const PARK_LABELS = new Set([
   "state::needs-decision",
   "state::needs-info",
   "state::needs-triage",
-  "workflow::tracking",
+  TRACKING_LABEL,
 ]);
 
 export function parseActionableOptions(url: URL): ActionableOptions {

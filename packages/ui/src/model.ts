@@ -2207,6 +2207,12 @@ export function itemIsPinnedTracker(item: ItemDTO): boolean {
   return !itemIsPrimaryWindow(item) && (item.window_reasons?.includes("program_tracker") ?? false);
 }
 
+// The pinned trackers a Board shows: the item facets and the search apply to
+// them like to any card. Pass visibility-filtered items (see applyVisibility).
+export function pinnedTrackerItems(items: readonly ItemDTO[], filters: Filters): ItemDTO[] {
+  return items.filter((item) => itemIsPinnedTracker(item) && itemMatches(item, filters));
+}
+
 // Apply the visibility pre-filter, returning a contract VIEW with hidden items
 // AND any edge touching them removed (an edge belongs to a repo if a resolvable
 // endpoint does). Two INDEPENDENT layers gate an item: its source can be hidden

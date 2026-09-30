@@ -594,13 +594,15 @@ function rangeProjection(rawBody, reqUrl) {
     const to = byId.get(edge.to);
     if (inRange(from?.updated_at, fromMs, toMs) || inRange(to?.updated_at, fromMs, toMs)) addEdge(edge);
   }
-  // The producer's program tracker pin (contract 4.8.0): an open item with
-  // outgoing `parent` edges is emitted whatever the range, with those edges and
-  // the `blocks` edges between pinned trackers' children.
+  // The producer's program tracker pin (contract 4.8.0): an open item labeled
+  // `workflow::tracking` with outgoing `parent` edges is emitted whatever the
+  // range, with those edges and the `blocks` edges whose two endpoints are both
+  // children of pinned trackers. (The producer's cap is not mirrored here.)
   const trackerIds = new Set();
   const trackerChildIds = new Set();
   for (const edge of env.edges) {
-    if (edge.type !== "parent" || byId.get(edge.from)?.state !== "open") continue;
+    const tracker = byId.get(edge.from);
+    if (edge.type !== "parent" || tracker?.state !== "open" || !tracker.labels.some((label) => label.name === "workflow::tracking")) continue;
     trackerIds.add(edge.from);
     trackerChildIds.add(edge.to);
   }

@@ -300,10 +300,12 @@ export interface ItemDTO {
   // is included so emitted edges resolve to concrete nodes instead of anonymous
   // refs; `activity_target` means the item is included so an emitted review
   // activity resolves to the target change request's current state;
-  // `program_tracker` (4.8.0) means the item is an open program tracker — it has
-  // outgoing `parent` edges — and is emitted whatever the window, alongside any
-  // other reason. Consumers reading old v1 payloads should treat a missing value
-  // as "primary".
+  // `program_tracker` (4.8.0) means the item is a pinned program tracker — open,
+  // labeled `workflow::tracking`, with outgoing `parent` edges; at most 100 per
+  // projection, newest `updated_at` first — and is emitted whatever the window,
+  // alongside any other reason. Consumers should ignore a value they do not
+  // recognize, and reading old v1 payloads should treat a missing value as
+  // "primary".
   window_reasons?: ItemWindowReason[];
 }
 

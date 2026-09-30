@@ -453,19 +453,35 @@ source — authorship with no observed username on a source (raw email/name)
 renders unlinked there rather than risk a wrong-host profile link.
 
 Version `4.8.0` adds the program tracker pin. Both projections — the static
-90-day window and `/api/range` — always emit an open item that has a live
-outgoing `parent` edge, marked with the new `window_reasons` value
-`program_tracker`, together with its `parent` edges and the `blocks` edges
-between its children; the children arrive as `edge_endpoint` rows. The reason
-is the Board: an open program tracker must be listed whatever date range is
-selected, and the UI only ever holds one projection. The pin is computed in
+90-day window and `/api/range` — always emit an open item that carries the
+`workflow::tracking` label and has a live outgoing `parent` edge, marked with
+the new `window_reasons` value `program_tracker`, together with its `parent`
+edges and the `blocks` edges whose two endpoints are both children of pinned
+trackers; the children arrive as `edge_endpoint` rows. The reason is the Board:
+an open program tracker must be listed whatever date range is selected, and the
+UI only ever holds one projection. The pin is computed in
 `src/contract/build.ts` from the item and edge rows the projection already
-loads (no store read), and it selects by the `parent` edge, not by a label, so
-the producer stays free of label conventions. It adds support rows only:
-`item_window.primary_items`, `aggregates[]`, `repo_stats[]`, and
-`repo_metrics[]` are unchanged. Closed trackers are not pinned, and `closes`
-edges into a child are not pinned either, so "a change request is open for this
-child" is only known for change requests the selected window loaded.
+loads (no store read).
+
+The pin requires the label, and that supersedes an earlier choice to key it on
+the `parent` edge alone so the producer stayed free of label conventions. A
+phase table is issue text: anyone who can open an issue in a tracked public
+repository can write one, and a pin keyed on the edge alone let that author
+put rows into the static contract and into every `/api/range` response for as
+long as the issue stayed open. Only a triager can set a label, so the label
+decides what is pinned — the same rule the Board's Trackers lane selects by.
+The label name is one producer constant, `TRACKING_LABEL` in
+`src/model/labels.ts`, shared with the actionable queue's park list. The pin is
+also capped: `PROGRAM_TRACKER_PIN_LIMIT` (100) trackers per projection, newest
+`updated_at` first, ties by id. The cap is a guard, not an expected limit.
+Emitting `parent` / `blocks` edges still needs no label (see Program Tracker
+Edges); only the pin does.
+
+The pin adds support rows only: `item_window.primary_items`, `aggregates[]`,
+`repo_stats[]`, and `repo_metrics[]` are unchanged. Closed trackers are not
+pinned, and `closes` edges into a child are not pinned either, so "a change
+request is open for this child" is only known for change requests the selected
+window loaded.
 
 Contract rules:
 
@@ -523,8 +539,9 @@ Pages:
   children shows no progress. The lane stays label-selected: `parent` edges
   never add an issue to it, because anyone who can write an issue can write a
   phase table while only triagers set the label. An open tracker is listed
-  whatever the date range: the producer pins it into every projection (window
-  reason `program_tracker`, see Contract), and the Trackers lane — only that
+  whatever the date range: the producer pins open labeled trackers into every
+  projection (window reason `program_tracker`, capped at the newest 100, see
+  Contract), and the Trackers lane — only that
   lane — also takes those rows when they are outside the range. Item facets and
   source/repo visibility apply to them; the status columns, the summary stats,
   and the other lanes keep to primary-window items. Closed trackers appear only

@@ -196,6 +196,16 @@ test("a blocks edge from outside the tracker's children still blocks, and other 
   assert.deepEqual(statuses(programRollup(ref("OTHER"), items, edges)), [["THEIRS", "ready"]]);
 });
 
+test("a child shared by two trackers is in both rollups with the same status", () => {
+  const items = index([item("T"), item("OTHER"), item("GATE", { iid: 1 }), item("SHARED", { iid: 2 }), item("ONLY_OTHER", { iid: 3, state: "closed" })]);
+  const edges = [parent("GATE"), parent("SHARED"), parent("SHARED", null, "OTHER"), parent("ONLY_OTHER", null, "OTHER"), edge("blocks", "GATE", "SHARED")];
+  const rollups = programRollups(items, edges);
+  assert.deepEqual(statuses(rollups.get(ref("T")) ?? null), [["GATE", "ready"], ["SHARED", "blocked"]]);
+  assert.deepEqual(statuses(rollups.get(ref("OTHER")) ?? null), [["SHARED", "blocked"], ["ONLY_OTHER", "done"]], "blocked by the other tracker's child too");
+  assert.equal(rollups.get(ref("T"))?.blocked, 1);
+  assert.equal(rollups.get(ref("OTHER"))?.blocked, 1);
+});
+
 test("children are ordered by iid, then title, then ref; children without a row come last", () => {
   const items = index([
     item("T"),

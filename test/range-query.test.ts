@@ -5,12 +5,12 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { openSqliteStore, openSqliteStoreReadOnly } from "../src/db/sqlite.ts";
-import { buildRangeContract } from "../src/contract/build.ts";
+import { buildRangeContract, PROGRAM_TRACKER_PIN_LIMIT } from "../src/contract/build.ts";
 import { validateContract } from "../src/contract/validate.ts";
-import type { ActivityRow, EdgeRow, ItemRow, SourceRow } from "../src/db/store.ts";
+import type { ActivityRow, EdgeRow, ItemRow, LabelRow, SourceRow } from "../src/db/store.ts";
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
 import type { ReconciledEdge } from "../src/model/edges.ts";
-import { toLabel } from "../src/model/labels.ts";
+import { toLabel, TRACKING_LABEL } from "../src/model/labels.ts";
 
 const SQLITE_SCHEMA_DIR = join(process.cwd(), "schema", "sqlite");
 const SQLITE_MIGRATIONS = [
@@ -346,10 +346,22 @@ test("buildRangeContract pins open program trackers whatever the range (4.8.0)",
     itemRow({ item_id: 8, external_id: "TRACKER_in_range", iid: 8, updated_at: "2026-05-20T00:00:00Z" }),
     itemRow({ item_id: 9, external_id: "KID_a", iid: 9, updated_at: OLD, ...closed }),
     itemRow({ item_id: 10, external_id: "KID_b", iid: 10, updated_at: OLD }),
+    itemRow({ item_id: 11, external_id: "PHASE_unlabeled", iid: 11, updated_at: OLD }),
+    itemRow({ item_id: 12, external_id: "CHILD_of_unlabeled", iid: 12, updated_at: OLD }),
+    itemRow({ item_id: 13, external_id: "OUTSIDER_old", iid: 13, updated_at: OLD }),
   ];
+  // TRACKER_old, TRACKER_closed, TRACKER_in_range carry the tracking label;
+  // PHASE_unlabeled has a phase table (a `parent` edge) and no label.
+  const labels: LabelRow[] = [2, 6, 8].map((item_id) => ({ item_id, name: TRACKING_LABEL, scope: "workflow", color: null }));
   const e = (type: string, from: string, to: string, from_state: string, to_state: string, lifecycle: string | null = null): EdgeRow =>
     ({ type, from_source_id: SRC, from_external_id: from, to_source_id: SRC, to_external_id: to, from_state, to_state, lifecycle });
   const edges: EdgeRow[] = [
+    e("parent", "PHASE_unlabeled", "CHILD_of_unlabeled", "open", "open"),
+    // Children of two different pinned trackers: pinned.
+    e("blocks", "CHILD_waiting", "KID_b", "open", "open"),
+    // From an item that is no pinned tracker's child into one that is: not pinned.
+    e("blocks", "OUTSIDER_old", "CHILD_waiting", "open", "open"),
+    e("blocks", "CHILD_done", "CHILD_of_unlabeled", "closed", "open"),
     e("parent", "TRACKER_old", "CHILD_done", "open", "closed"),
     e("parent", "TRACKER_old", "CHILD_waiting", "open", "open"),
     e("blocks", "CHILD_done", "CHILD_waiting", "closed", "open"),
@@ -359,7 +371,7 @@ test("buildRangeContract pins open program trackers whatever the range (4.8.0)",
     e("parent", "TRACKER_in_range", "KID_b", "open", "open"),
     e("blocks", "KID_a", "KID_b", "closed", "open"),
   ];
-  const input = { sources: [source], items, labels: [], activities: [], generatedAt: "2026-06-08T00:00:00Z", range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" } };
+  const input = { sources: [source], items, labels, activities: [], generatedAt: "2026-06-08T00:00:00Z", range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" } };
   const env = buildRangeContract({ ...input, edges });
 
   assert.deepEqual(validateContract(env), []);
@@ -371,9 +383,10 @@ test("buildRangeContract pins open program trackers whatever the range (4.8.0)",
     TRACKER_in_range: ["primary", "edge_endpoint", "program_tracker"],
     KID_a: ["edge_endpoint"],
     KID_b: ["edge_endpoint"],
-  }, "an open tracker outside the range arrives with its children; a closed one does not, nor does a change request closing a child");
+  }, "an open labeled tracker outside the range arrives with its children; a closed one, an unlabeled phase-table issue, a change request closing a child, and a non-child blocker do not");
   assert.deepEqual(env.edges.map((edge) => `${edge.type}:${edge.from.split("|")[1]}>${edge.to.split("|")[1]}`).sort(), [
     "blocks:CHILD_done>CHILD_waiting",
+    "blocks:CHILD_waiting>KID_b",
     "blocks:KID_a>KID_b",
     "parent:TRACKER_in_range>KID_a",
     "parent:TRACKER_in_range>KID_b",
@@ -383,13 +396,51 @@ test("buildRangeContract pins open program trackers whatever the range (4.8.0)",
   assert.equal(env.item_window?.primary_items, 2, "a pinned tracker is a support row, not a primary Board item");
   assert.equal(env.item_window?.edge_endpoint_items, 5);
   assert.equal(env.item_window?.activity_target_items, 0);
-  assert.equal(env.item_window?.total_items, 10);
+  assert.equal(env.item_window?.total_items, 13);
   assert.equal(env.repo_metrics?.[0]?.totals.items_active, 2, "repo metrics count in-range items only");
   // Aggregates describe the full live set, so they are the same rows whether or
   // not any tracker is pinned into the payload.
   const month = env.aggregates?.find((a) => a.scope === "boardWindow" && a.window.days === 30);
   assert.equal(month?.stats.items, 2);
   assert.deepEqual(month?.stats.by_lifecycle, { other: 2 });
+});
+
+test("buildRangeContract caps the program tracker pin at the newest trackers", () => {
+  const SRC = "github:github.com";
+  const source: SourceRow = { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  // Two more labeled open trackers than the cap, all outside the range, one
+  // child each. The three oldest share one updated_at, so the id breaks the tie.
+  const count = PROGRAM_TRACKER_PIN_LIMIT + 2;
+  const name = (prefix: string, i: number) => `${prefix}${String(i).padStart(3, "0")}`;
+  const items: ItemRow[] = [itemRow({ item_id: 1, external_id: "ISSUE_in_range", updated_at: "2026-05-15T12:00:00Z" })];
+  const labels: LabelRow[] = [];
+  const edges: EdgeRow[] = [];
+  for (let i = 0; i < count; i++) {
+    const updated_at = new Date(Date.UTC(2020, 0, 1) + Math.max(i, 2) * 86_400_000).toISOString();
+    items.push(itemRow({ item_id: 100 + i, external_id: name("T", i), iid: 100 + i, updated_at }));
+    items.push(itemRow({ item_id: 1000 + i, external_id: name("C", i), iid: 1000 + i, state: "closed", state_raw: "CLOSED", updated_at: "2019-01-01T00:00:00Z" }));
+    labels.push({ item_id: 100 + i, name: TRACKING_LABEL, scope: "workflow", color: null });
+    edges.push({ type: "parent", from_source_id: SRC, from_external_id: name("T", i), to_source_id: SRC, to_external_id: name("C", i), from_state: "open", to_state: "closed", lifecycle: null });
+  }
+  const input = { sources: [source], items, edges, activities: [], generatedAt: "2026-06-08T00:00:00Z", range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" } };
+  const env = buildRangeContract({ ...input, labels });
+  const unpinned = buildRangeContract({ ...input, labels: [] });
+
+  assert.deepEqual(validateContract(env), []);
+  const kept = [0, ...Array.from({ length: count - 3 }, (_, i) => i + 3)];
+  const pinned = env.items.filter((it) => it.window_reasons?.includes("program_tracker")).map((it) => it.external_id).sort();
+  assert.equal(pinned.length, PROGRAM_TRACKER_PIN_LIMIT);
+  assert.deepEqual(pinned, kept.map((i) => name("T", i)), "newest updated_at first; the id breaks a tie");
+  assert.deepEqual(
+    env.items.map((it) => it.external_id).filter((id) => id.startsWith("C")).sort(),
+    kept.map((i) => name("C", i)),
+    "a tracker beyond the cap brings no child row",
+  );
+  assert.equal(env.edges.length, PROGRAM_TRACKER_PIN_LIMIT);
+  assert.deepEqual(unpinned.items.map((it) => it.external_id), ["ISSUE_in_range"], "without the label nothing is pinned");
+  assert.equal(env.item_window?.primary_items, 1);
+  assert.equal(unpinned.item_window?.primary_items, 1);
+  assert.deepEqual(env.aggregates, unpinned.aggregates, "the pin changes no aggregate");
 });
 
 test("buildRangeContract keeps data_quality coverage all-time when no activity falls inside the range", () => {

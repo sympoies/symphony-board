@@ -23,7 +23,8 @@ The primary board is a 5-column surface, in this order:
 - `Trackers` (Spotlight lane): issues labeled `workflow::tracking`. Open
   trackers come first; closed ones sit behind a `Closed (N)` toggle, folded by
   default. An open tracker is listed whatever the date range (the producer
-  pins it, contract 4.8.0+); a closed one only when it is in range.
+  pins open labeled trackers, the newest 100, contract 4.8.0+); a closed one
+  only when it is in range.
 - `Open`, `Closed` (status columns): the item's own state, with merged counted
   as closed.
 - `Follow-up` (Spotlight lane): issues labeled `workflow::follow-up`, any

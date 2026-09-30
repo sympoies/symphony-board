@@ -35,6 +35,7 @@ import type {
   EdgeLifecycle,
 } from "@symphony-board/contract";
 import { refOf } from "../model/ref.ts";
+import { TRACKING_LABEL } from "../model/labels.ts";
 import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/actor.ts";
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
@@ -1065,23 +1066,33 @@ function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string
   return aggregates;
 }
 
-// Program tracker pin (4.8.0). An OPEN item with at least one live outgoing
-// `parent` edge is a program tracker, and the Board lists an open tracker
-// whatever the window, so both projections always emit it (window reason
+// How many trackers one projection pins, newest `updated_at` first (ties by
+// id). A guard on payload size, not an expected limit.
+export const PROGRAM_TRACKER_PIN_LIMIT = 100;
+
+// Program tracker pin (4.8.0). The Board lists an open program tracker whatever
+// the window, so both projections always emit one (window reason
 // `program_tracker`) with the edges its progress is read from: its `parent`
-// edges and the `blocks` edges between pinned trackers' children. The children
-// then arrive as ordinary `edge_endpoint` rows. Computed from the rows the
+// edges and the `blocks` edges whose two endpoints are both children of pinned
+// trackers. The children then arrive as ordinary `edge_endpoint` rows.
+//
+// A pinned tracker is an OPEN item that carries TRACKING_LABEL and has at least
+// one live outgoing `parent` edge. The label is required because the pin puts
+// rows into every window and every range response: what it selects must not be
+// selectable by any issue author, and a phase table alone is issue text. The
+// pin is also capped (PROGRAM_TRACKER_PIN_LIMIT). Computed from the rows the
 // projection already holds; a closed tracker is not pinned.
 function programTrackerPin(items: ItemDTO[], edges: EdgeDTO[]): { trackerIds: Set<string>; edges: Set<EdgeDTO> } {
-  const openIds = new Set(items.filter((item) => item.state === "open").map((item) => item.id));
-  const trackerIds = new Set<string>();
-  const childIds = new Set<string>();
-  for (const edge of edges) {
-    if (edge.type !== "parent" || !openIds.has(edge.from)) continue;
-    trackerIds.add(edge.from);
-    childIds.add(edge.to);
-  }
+  const parentIds = new Set(edges.filter((edge) => edge.type === "parent").map((edge) => edge.from));
+  const trackerIds = new Set(
+    items
+      .filter((item) => item.state === "open" && parentIds.has(item.id) && item.labels.some((label) => label.name === TRACKING_LABEL))
+      .sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at) || a.id.localeCompare(b.id))
+      .slice(0, PROGRAM_TRACKER_PIN_LIMIT)
+      .map((item) => item.id),
+  );
   if (trackerIds.size === 0) return { trackerIds, edges: new Set() };
+  const childIds = new Set(edges.filter((edge) => edge.type === "parent" && trackerIds.has(edge.from)).map((edge) => edge.to));
   return {
     trackerIds,
     edges: new Set(

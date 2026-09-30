@@ -109,6 +109,7 @@ import {
   initialMobileColumn,
   itemIsPrimaryWindow,
   itemIsPinnedTracker,
+  pinnedTrackerItems,
   buildColorIndex,
   resolveRepoColor,
   isHexColor,
@@ -137,6 +138,7 @@ import {
   syncProducedFreshData,
   liveSourceStatus,
   syncRunSummary,
+  type Filters,
   type ResolvedEdge,
   type GraphNode,
   type SyncRunStatus,
@@ -3476,6 +3478,27 @@ test("the trackers lane lists open trackers before closed ones, newest first wit
   const trackers = lanes.find((l) => l.lane.key === "trackers");
   assert.deepEqual(trackers?.items.map((i) => i.id), ["i|open-new", "i|open-old", "i|closed-new", "i|closed-old"]);
   assert.deepEqual(lanes.filter((l) => l.lane.foldClosed).map((l) => l.lane.key), ["trackers"], "only Trackers folds its closed items behind a count");
+});
+
+test("pinnedTrackerItems keeps pinned trackers that pass the item facets", () => {
+  const pinned = (over: Partial<ItemDTO>) => item({ window_reasons: ["edge_endpoint", "program_tracker"], ...over });
+  const github = pinned({ id: "github|t", source_id: "github", project_path: "o/board", title: "Board program" });
+  const gitlab = pinned({ id: "gitlab|t", source_id: "gitlab", project_path: "g/other", title: "Other program" });
+  const items = [
+    github,
+    gitlab,
+    item({ id: "github|primary", source_id: "github", window_reasons: ["primary", "program_tracker"] }),
+    item({ id: "github|child", source_id: "github", window_reasons: ["edge_endpoint"] }),
+  ];
+  const ids = (filters: Partial<Filters>) => pinnedTrackerItems(items, { ...emptyFilters(), ...filters }).map((i) => i.id);
+
+  assert.deepEqual(ids({}), ["github|t", "gitlab|t"], "no facet: every pinned tracker, never a primary or plain endpoint row");
+  assert.deepEqual(ids({ sources: new Set(["gitlab"]) }), ["gitlab|t"], "a source facet removes the other source's tracker");
+  assert.deepEqual(ids({ states: new Set(["closed"]) }), [], "pinned trackers are open, so a closed-state facet removes them");
+  assert.deepEqual(ids({ states: new Set(["open"]), kinds: new Set(["issue"]) }), ["github|t", "gitlab|t"]);
+  assert.deepEqual(ids({ kinds: new Set(["change_request"]) }), []);
+  assert.deepEqual(ids({ repos: new Set(["o/board"]) }), ["github|t"]);
+  assert.deepEqual(ids({ search: "other" }), ["gitlab|t"]);
 });
 
 test("a pinned tracker outside the range adds nothing to the Board or Graph window", () => {

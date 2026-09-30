@@ -18,7 +18,7 @@ changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
-| `4.8.0` | additive | `items[].window_reasons` value `program_tracker`; open program trackers are always emitted | Item Window |
+| `4.8.0` | additive | `items[].window_reasons` value `program_tracker`; open labeled program trackers are always emitted | Item Window |
 | `4.7.3` | clarification | `parent` / `blocks` edges from program tracker phase tables | Edges |
 | `4.7.2` | clarification | `details.actor_avatar_url` on supported activity rows | Activities |
 | `4.7.1` | clarification | `details.additions` / `details.deletions` on commit activity rows | Activities |
@@ -350,9 +350,10 @@ Important fields:
   `item_window`; `edge_endpoint` means it is included to resolve an emitted edge
   endpoint; `activity_target` means it is included to resolve an emitted review
   activity's target change request and current review-thread state;
-  `program_tracker` (4.8.0+) means it is an open program tracker, which is
-  emitted whatever the window (see Item Window). A row can carry several
-  reasons. Missing means "primary" when reading old v1 payloads.
+  `program_tracker` (4.8.0+) means it is an open program tracker labeled
+  `workflow::tracking`, which is emitted whatever the window (see Item Window).
+  A row can carry several reasons. Missing means "primary" when reading old v1
+  payloads.
 
 The TypeScript DTOs describe what the producer emits. The JSON Schema is the
 normative validation surface.
@@ -412,8 +413,8 @@ the UI graph can resolve nodes instead of treating known items as untracked
 refs. Relationships wholly outside the primary window are omitted from the
 payload, while their full lifecycle counts remain available through
 `aggregates[]`. The one exception is the program tracker pin (see Item Window):
-an open tracker's `parent` edges and the `blocks` edges between its children are
-always emitted.
+a pinned tracker's `parent` edges, and the `blocks` edges whose two endpoints
+are both children of pinned trackers, are always emitted.
 
 ## Activities
 
@@ -886,7 +887,7 @@ The backend currently emits:
 - basis: `item_updated_at`
 - preset: 90 days relative to `generated_at`
 - included rows: every item in that primary window, plus tracked endpoints of
-  every emitted relationship edge, plus every open program tracker (below)
+  every emitted relationship edge, plus the pinned program trackers (below)
 
 Fields:
 
@@ -908,8 +909,26 @@ missing historical cards or events. Consumers can still show true full totals
 from `aggregates[]`.
 
 Version `4.8.0` added the program tracker pin, in the static contract and in
-`/api/range` alike. An open item with at least one live outgoing `parent` edge
-is a program tracker, and it is always emitted, whatever the window or range:
+`/api/range` alike. A pinned tracker is an item that meets all three
+conditions:
+
+- its `state` is `open`;
+- it carries the label `workflow::tracking` (exact name);
+- it has at least one live outgoing `parent` edge.
+
+The label is part of the rule, not a display convention. A `parent` edge comes
+from a phase table, which is issue text that anyone who can open an issue in a
+tracked repository controls, and the pin puts rows into every window and every
+range response. Only a triager can set a label, so an issue author cannot
+select what is pinned. An open issue with a phase table and no label still
+reports its `parent` / `blocks` edges (see Edges); it is simply not pinned.
+
+One projection pins at most 100 trackers: the 100 with the newest `updated_at`,
+ties broken by ascending `id`. The cap is a guard on payload size, not an
+expected limit; a tracker beyond it is emitted only under the ordinary window
+rules.
+
+A pinned tracker is always emitted, whatever the window or range:
 
 - its row carries `program_tracker` in `window_reasons`, in addition to any
   other reason. Outside the window it has no `primary` reason, so it is not a
@@ -930,7 +949,9 @@ is a program tracker, and it is always emitted, whatever the window or range:
 
 This is a **minor** bump: a new value on an existing array field, no field
 added or removed. A consumer that only tests for `primary` keeps working and
-simply does not list the pinned trackers.
+simply does not list the pinned trackers. Consumers that branch on
+`window_reasons` should ignore an unrecognized value rather than rejecting the
+row or the payload.
 
 ## Range Query
 
@@ -955,9 +976,11 @@ The range response is a projection, not a second schema:
 - tracked edge endpoints are included in `items[]` with
   `window_reasons: ["edge_endpoint"]` when they are outside the primary item
   set.
-- open program trackers are included whatever the range, with
-  `program_tracker` in `window_reasons` and with their `parent` edges and their
-  children's `blocks` edges (4.8.0+; see Item Window).
+- pinned program trackers — open, labeled `workflow::tracking`, with a
+  `parent` edge, at most 100 — are included whatever the range, with
+  `program_tracker` in `window_reasons`, their `parent` edges, and the `blocks`
+  edges whose two endpoints are both children of pinned trackers (4.8.0+; see
+  Item Window).
 - in-range review activity targets are included in `items[]` with
   `window_reasons: ["activity_target"]` when they are outside the primary item
   set, so unresolved-review filters can read the target change request's current
