@@ -592,9 +592,9 @@ consumers read it as `item.body ?? null`.
 
 Version `4.8.2` is a clarification + producer-behavior patch: commit activity
 rows may now carry `details.change_request`, and a range response emits the
-change requests its in-range commits name. `details` was already an open object, the key is
-optional, and `activity_target` was already an `items[].window_reasons` value,
-so no shape changed.
+change requests its in-range commits name. `details` was already an open
+object, the key is optional, and `activity_target` was already an
+`items[].window_reasons` value, so no shape changed.
 
 The key has three states on purpose. An object names the change request. `null`
 means the producer looked the commit up and it belongs to none — a fact a
@@ -606,9 +606,9 @@ provider that cannot resolve that commit. A consumer must not read absent as
 What each provider can answer differs, and the difference is in the states
 above rather than hidden:
 
-- GitHub resolves every commit. The association rides in the GraphQL document
-  the sweep already sends for line counts, merges included, so it costs no
-  extra request. Only a pull request of the commit's own repository is
+- GitHub can answer for any commit. The association rides in the GraphQL
+  document the sweep already sends for line counts, merges included, so it
+  costs no extra request. Only a pull request of the commit's own repository is
   accepted; when several match, the one whose merge commit is this commit wins,
   then a merged one. A GitHub row whose lookup succeeded therefore carries an
   object or `null`; it carries nothing when the lookup failed, or when the
@@ -619,10 +619,12 @@ above rather than hidden:
   another repository reports `null` for commits whose pull requests lived there.
 - GitLab has no batch that resolves a commit, and one request per commit is a
   different cost class. One merged-merge-request listing per project per sweep,
-  bounded to a day before the oldest commit being stored, links the commits a
-  merge request LANDED as: its merge commit, its squash commit, and its head. A
-  GitLab row therefore carries an object or nothing, never `null`. A commit
-  inside a merge-commit merge is unknown, not unlinked.
+  bounded to a day before the oldest default-branch commit being stored, links
+  the commits a merge request LANDED as: its merge commit, its squash commit,
+  and its head. A GitLab row therefore carries an object or nothing, never
+  `null`. A commit inside a merge-commit merge is unknown, not unlinked, and so
+  is a commit landed by a merge request into another branch when it is older
+  than that bound.
 
 The lookup is best effort: a failure leaves the key absent and never marks the
 sweep incomplete. An activity upsert replaces `details`, so a later sweep whose

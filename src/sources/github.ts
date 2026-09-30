@@ -883,7 +883,9 @@ export class GitHubSource implements Source {
         // Absent (not null) when the lookup was skipped or failed, so a payload
         // written before this existed and one written by a sweep that could not
         // reach the batch hash identically. `pulls` may be an empty list: that
-        // is an answer ("no pull request"), where absent is no answer.
+        // is an answer ("no pull request of this repository") unless
+        // `pullsMore` says the list was not read to its end, where absent is
+        // no answer at all.
         ...(fact?.stats ? { stats: fact.stats } : {}),
         ...(fact?.pulls ? { pulls: fact.pulls } : {}),
         ...(fact?.pullsMore ? { pullsMore: true } : {}),

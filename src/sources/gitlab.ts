@@ -674,9 +674,11 @@ export class GitLabSource implements Source {
 
     const commits = [...bySha.values()].map((e) => e.commit);
     const stats = await this.fetchCommitStats(project, projectId, commits);
-    // Only commits on the default branch can be what a merge request landed as,
-    // and only they bound the listing: one old commit on a live side branch
-    // would otherwise pull its window back by years.
+    // The listing is bounded by the default-branch commits only: that is where
+    // a merge request usually lands, and one old commit on a live side branch
+    // would otherwise pull the window back by years. Every commit is still
+    // looked up in the result below, so a merge request into another branch is
+    // linked too when its landing commit falls inside that window.
     const landed = await this.fetchLandedMergeRequests(
       project,
       projectId,
@@ -764,13 +766,14 @@ export class GitLabSource implements Source {
   // commit, and its head (what a fast-forward merge leaves on the target) — so
   // ONE paged listing per project links those.
   //
-  // It is bounded by the age of the commits being stored: a merge request is
-  // updated no earlier than the commit it landed as, so asking for everything
-  // updated since a day before the oldest commit cannot miss one, and a sweep
-  // that stored no commits asks for nothing. The bound matters on every sweep,
-  // not only the first: an incremental sweep re-reads the commit at its
-  // watermark, and a map built from "merge requests this sweep happened to
-  // see" would drop that commit's link again.
+  // It is bounded by the age of `commits` (the caller passes the sweep's
+  // default-branch commits): a merge request is updated no earlier than the
+  // commit it landed as, so asking for everything updated since a day before
+  // the oldest of them cannot miss one that landed there, and a sweep with no
+  // such commit asks for nothing. The bound matters on every sweep, not only
+  // the first: an incremental sweep re-reads the commit at its watermark, and a
+  // map built from "merge requests this sweep happened to see" would drop that
+  // commit's link again.
   //
   // A commit that is not one of those three gets NO answer. It may well belong
   // to a merge request (any commit inside a merge-commit merge does); this

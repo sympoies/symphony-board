@@ -206,9 +206,10 @@ The row also names the repository's default branch (`details.default_branch`)
 and marks a commit with more than one parent (`details.merge`); both are read
 from the stored payload, not from a request of their own. It names the change
 request the commit belongs to (`details.change_request`) when the provider can
-say: GitHub answers for every commit inside the GraphQL batch that already
-reads line counts, while GitLab links only the commits a merge request landed
-as, from one merged-merge-request listing per project per sweep.
+say: GitHub answers inside the GraphQL batch that already reads line counts
+(for any commit, short of one with more pull requests than it reads), while
+GitLab links only the commits a merge request landed as, from one
+merged-merge-request listing per project per sweep.
 A deleted branch stops being discovered; rows it produced keep the labels they
 earned. Per-source `commit_branches: "default"` restores the default-branch-only
 feed as an escape hatch.
